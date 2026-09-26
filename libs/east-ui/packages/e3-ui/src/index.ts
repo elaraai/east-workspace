@@ -37,7 +37,10 @@ export {
     bindPlatformFn,
     DataPagedHandleType,
     type PagedValue,
+    type IndexWindowType,
+    type BindPagedIndexOptions,
     bindPagedPlatformFn,
+    bindPagedIndexPlatformFn,
 } from './bind/data.js';
 export {
     Func,
@@ -57,7 +60,7 @@ export {
     type BoundRecord,
     recordBindPlatformFn,
 } from './bind/record.js';
-export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './utils/manifest.js';
+export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest } from './utils/derive.js';
 export { ui } from './ui.js';
 

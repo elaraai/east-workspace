@@ -14,9 +14,9 @@
  * cross-process semantics.** It must never be relied on for correctness across
  * processes — a filesystem (or database) lock remains the sole cross-process
  * serializer. Its only job is to stop same-process concurrency from stampeding
- * that lower-level lock: e.g. the local dataset-ref store layers it above the
- * exclusive `.lock` file so K concurrent same-process writers serialize in memory
- * and never turn into a Windows rename / lock-file thundering herd. Two separate
+ * that lower-level lock: e.g. the local dataset-ref store layers it above each
+ * ref's exclusive lock file so K concurrent same-process writers serialize in
+ * memory and never turn into a Windows rename / lock-file thundering herd. Two separate
  * OS processes have disjoint maps, so between them this is a no-op.
  *
  * @remarks The tail map is keyed-and-drained per key (an entry is removed once

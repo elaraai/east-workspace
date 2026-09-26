@@ -1,7 +1,7 @@
 # e3 — East Execution Engine
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: all build test lint clean dev link e2e-stack job-launcher install-job help
+.PHONY: all build build-integration test test-packages test-integration test-integration-shard lint clean dev link e2e-stack job-launcher install-job help
 
 # Default target
 all: build
@@ -17,10 +17,42 @@ build:
 # packages in parallel starves CPU on smaller CI runners (Windows
 # especially), inflating wall-clock and causing nondeterministic timeouts.
 # Serial execution trades a little speed for reproducible timing.
-test:
-	@echo "Running tests..."
+test: test-packages test-integration
+
+## Run the unit tests of e3's packages
+test-packages:
+	@echo "Running package tests..."
 	pnpm -r --workspace-concurrency=1 --filter='./packages/*' run test
+
+## Run the integration tests
+test-integration:
+	@echo "Running integration tests..."
 	pnpm -r --workspace-concurrency=1 --filter='./test/*' run test
+
+## Compile the integration specs
+build-integration:
+	pnpm --filter e3-integration-tests run build
+
+INTEGRATION := test/integration
+# Every compiled integration spec, as the package's scripts name them.
+# Expanded only in a recipe, once build-integration has compiled them.
+INTEGRATION_SPECS = $(patsubst $(INTEGRATION)/%,%,$(wildcard $(INTEGRATION)/dist/*.spec.js $(INTEGRATION)/dist/*/*.spec.js))
+# The shards CI runs side by side. Shards 1 and 2 name the longest-running
+# specs; shard 3 runs every spec neither names, so a new spec lands there.
+INTEGRATION_SHARD_1 := dist/api-compliance.spec.js dist/rekey-bound.spec.js
+INTEGRATION_SHARD_2 := dist/partition-merge-parity.spec.js dist/e2e-workflow.spec.js dist/dataset-set.spec.js
+INTEGRATION_SHARD_3 = $(filter-out $(INTEGRATION_SHARD_1) $(INTEGRATION_SHARD_2),$(INTEGRATION_SPECS))
+
+ifneq ($(filter test-integration-shard,$(MAKECMDGOALS)),)
+ifeq ($(filter 1 2 3,$(SHARD)),)
+$(error test-integration-shard needs SHARD=1, 2 or 3)
+endif
+endif
+
+## Run one shard of the integration tests, as a CI job does (SHARD=1, 2 or 3)
+test-integration-shard: build-integration
+	@echo "Running integration shard $(SHARD)..."
+	pnpm --filter e3-integration-tests run test:specs $(INTEGRATION_SHARD_$(SHARD))
 
 ## Run all linters
 lint:
@@ -87,6 +119,10 @@ help:
 	@echo ""
 	@echo "  build       - Build all packages"
 	@echo "  test        - Run all tests"
+	@echo "  test-packages - Run the unit tests of e3's packages"
+	@echo "  test-integration - Run the integration tests"
+	@echo "  test-integration-shard SHARD=n - Run one of CI's three integration shards"
+	@echo "  build-integration - Compile the integration specs"
 	@echo "  lint        - Run linters"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  dev         - Build for development"

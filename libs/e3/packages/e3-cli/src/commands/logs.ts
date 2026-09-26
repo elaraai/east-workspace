@@ -113,17 +113,17 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
     const taskHash = await workspaceGetTaskHash(storage, repoPath, ws, taskName);
     const executions = await executionListForTask(storage, repoPath, taskHash);
 
-    // Surface the task kind (partition / stream / ui) next to the name.
-    let kindLabel = '';
+    // Surface a ui task's role next to the name.
+    let roleLabel = '';
     try {
       const task = decodeTaskObject(Buffer.from(await storage.objects.read(repoPath, taskHash)));
-      if (task.kind.type === 'some') kindLabel = ` <${task.kind.value}>`;
+      if (task.role.type === 'ui') roleLabel = ' <ui>';
     } catch {
       // A missing/undecodable task object only loses the label.
     }
 
     if (executions.length === 0) {
-      console.log(`  ${taskName}${kindLabel}  (no executions)`);
+      console.log(`  ${taskName}${roleLabel}  (no executions)`);
     } else {
       // Get status of the most recent execution
       const latestInHash = executions[0]!;
@@ -141,7 +141,7 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
         }
       }
 
-      console.log(`  ${taskName}${kindLabel}  [${state}] (${executions.length} execution(s))`);
+      console.log(`  ${taskName}${roleLabel}  [${state}] (${executions.length} execution(s))`);
     }
   }
 
@@ -429,15 +429,15 @@ async function listWorkspaceTasksRemote(
 
   for (const task of tasks) {
     const executions = await taskExecutionListRemote(baseUrl, repo, ws, task.name, { token });
-    const kindLabel = task.kind.type === 'some' ? ` <${task.kind.value}>` : '';
+    const roleLabel = task.role.type === 'ui' ? ' <ui>' : '';
 
     if (executions.length === 0) {
-      console.log(`  ${task.name}${kindLabel}  (no executions)`);
+      console.log(`  ${task.name}${roleLabel}  (no executions)`);
     } else {
       // Get status of the most recent execution
       const latest = executions[0]!;
       const state = latest.status.type;
-      console.log(`  ${task.name}${kindLabel}  [${state}] (${executions.length} execution(s))`);
+      console.log(`  ${task.name}${roleLabel}  [${state}] (${executions.length} execution(s))`);
     }
   }
 

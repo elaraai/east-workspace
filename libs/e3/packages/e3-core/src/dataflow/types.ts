@@ -90,8 +90,9 @@ export interface PrepareTaskResult {
   inputHashes: string[];
   /** Output path string */
   outputPath: string;
-  /** Cached output hash if available (skip execution) */
-  cachedOutputHash: string | null;
+  /** The execution the cache serves the task from — its output and its id —
+   *  or `null` when the task must run */
+  cached: { outputHash: string; executionId: string } | null;
 }
 
 /**

@@ -483,8 +483,14 @@ static inline void east_cond_broadcast(EastCond *c)
 /* How many CPUs this process may use, at least 1 — the count Node's
  * os.availableParallelism() reports, so east-c and the TypeScript runtime size
  * their worker pools alike: the scheduler affinity mask, capped on Linux by the
- * cgroup v2 CPU quota (src/cpu_count.c has the rules). */
+ * cgroup v2 CPU quota (src/cpu_count.c has the rules), and by the thread grant
+ * east_set_thread_limit sets. */
 int east_cpu_count(void);
+
+/* Caps east_cpu_count() at `threads` — a runner's grant for the unit it runs —
+ * so no pool the library starts from then on is wider than the grant, and a
+ * grant of one starts none. 0 lifts the cap. */
+void east_set_thread_limit(int threads);
 
 /* Run the program entry point. East evaluation can recurse deeply, so the
  * binary is linked with a large stack reserve (see -Wl,--stack in the east-c

@@ -13,8 +13,8 @@ set(EAST_C_SOURCES
     src/compiler.c
     src/platform.c
     src/emit_writer.c
-    src/emit_sink.c
     src/merge.c
+    src/unit.c
     src/file_map.c
     src/exit_with_parent.c
     src/builtins/registry.c
@@ -48,7 +48,10 @@ set(EAST_C_SOURCES
     src/serialization/beast2/v5/deflate.c
     src/serialization/beast2/v5/codec.c
     src/serialization/beast2/v5/container.c
+    src/serialization/beast2/v5/boundary.c
     src/serialization/beast2/v5/stream.c
+    src/serialization/beast2/v5/runs.c
+    src/serialization/beast2/v5/manifest.c
     src/serialization/beast2/v5/project.c
     src/serialization/csv.c
     src/serialization/east_parser.c
@@ -57,6 +60,7 @@ set(EAST_C_SOURCES
     src/type_of_type.c
     src/source_map.c
     src/ir_normalize.c
+    src/sha256.c
 )
 
 add_library(east-c ${EAST_C_SOURCES})
@@ -287,11 +291,9 @@ add_test(NAME gc_pacing COMMAND test_gc_pacing)
 
 # Frame-pool gate (issue #763): the v5 writer deflates frames on worker
 # threads and appends them in order. A pooled paged encode must be
-# byte-identical to the serial algorithm — including its segmentation, which
-# is refined from the bytes emitted and so must be decided through the
-# writer's bounds — at byte targets that pin the element cap and targets that
-# keep the refinement live; in-flight frames must stay within the ring bound;
-# and an abandoned writer must free its workers' buffers. Run under ASan/LSan
+# byte-identical to the same elements through an element writer that never
+# pools; in-flight frames must stay within the ring bound; and an abandoned
+# writer must free its workers' buffers. Run under ASan/LSan
 # (run_leak_check.sh) for the pool's lifetimes.
 add_executable(test_beast2_frame_pool tests/test_beast2_frame_pool.c)
 target_link_libraries(test_beast2_frame_pool east-c)
@@ -324,6 +326,50 @@ add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
 
+# The content-defined cut rule and the element writer, pinned against the
+# TypeScript writer: the hashes, the threshold, and where three 50,000-element
+# collections are cut.
+add_executable(test_beast2_boundary tests/test_beast2_boundary.c)
+target_link_libraries(test_beast2_boundary east-c)
+add_test(NAME beast2_boundary COMMAND test_beast2_boundary)
+
+# SHA-256, the name of every object a manifest directory holds: the FIPS 180-4
+# vectors TypeScript's sha256.spec.ts pins too, and a digest fed in pieces
+# equal to one fed whole at every length across the padding boundaries.
+add_executable(test_sha256 tests/test_sha256.c)
+target_link_libraries(test_sha256 east-c)
+add_test(NAME sha256 COMMAND test_sha256)
+
+# Aliasing scoped per root element, pinned against the TypeScript encoder:
+# sharing between elements encodes as copies, sharing inside one is kept, and
+# the reset forgets every container even after the identity table grows. Run
+# under ASan/LSan for the reset's slot bookkeeping.
+add_executable(test_beast2_aliasing tests/test_beast2_aliasing.c)
+target_link_libraries(test_beast2_aliasing east-c)
+add_test(NAME beast2_aliasing COMMAND test_beast2_aliasing)
+
+# Sorted runs, pinned against the TypeScript sorter: each run is the canonical
+# blob of its sorted, folded value, runs close at the element and byte caps,
+# the runs of two 300,000-element sequences are TypeScript's to the byte, and
+# merging the runs back is the canonical blob of the whole value. Run under
+# ASan/LSan for the sorter's lifetimes, its error paths included.
+add_executable(test_beast2_runs tests/test_beast2_runs.c)
+target_link_libraries(test_beast2_runs east-c)
+add_test(NAME beast2_runs COMMAND test_beast2_runs)
+set_tests_properties(beast2_runs PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# Segment manifests, pinned against the TypeScript manifest writer: three
+# 50,000-element collections and an empty one are written as TypeScript's
+# directories to the byte, every object is named by its SHA-256, and a directory
+# reads back through the manifest pager — lazily, a keyed read opening one
+# segment — or whole; and the merge reads manifest directories and writes one.
+# Run under ASan/LSan for the segment source's mappings and the writer's
+# lifetimes, a refused segment included.
+add_executable(test_beast2_manifest tests/test_beast2_manifest.c)
+target_link_libraries(test_beast2_manifest east-c)
+add_test(NAME beast2_manifest COMMAND test_beast2_manifest)
+set_tests_properties(beast2_manifest PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 # Beast2 v5 column-projection gate (issue #599): plan validation (subset by
 # name, Dict-key/Set-element/variant-case/function-skip refusals with errors
 # naming the field), projected vs whole segment equality, skipped-definition
@@ -354,19 +400,6 @@ add_test(NAME projection_nested COMMAND test_projection_nested)
 add_executable(test_paged_value tests/test_paged_value.c)
 target_link_libraries(test_paged_value east-c)
 add_test(NAME paged_value COMMAND test_paged_value)
-
-# Emit sink gate (issues #507, #770): the library sink behind `run --emit`
-# sizes its segments with the paged encoder's refinement — the header left out
-# of the average, pinned at a first-segment size where a header-inclusive
-# average would choose a different second batch — folds adjacent equal keys
-# under --merge / --union to the bytes the flag-less sink writes for the
-# folded sequence, and refuses a duplicate or out-of-order key with the
-# canonical message, leaving the output unfinalised. Run under ASan/LSan for
-# the sink's lifetimes, the error paths included.
-add_executable(test_emit_sink tests/test_emit_sink.c)
-target_link_libraries(test_emit_sink east-c)
-add_test(NAME emit_sink COMMAND test_emit_sink)
-set_tests_properties(emit_sink PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # IR normalization gate (#627): east_ir_normalize is the round-trip equality
 # contract — loc_ids stripped, variables/labels renamed in the TypeScript
@@ -442,6 +475,19 @@ add_executable(test_platform_check tests/test_platform_check.c)
 target_link_libraries(test_platform_check east-c)
 add_test(NAME platform_check COMMAND test_platform_check)
 set_tests_properties(platform_check PROPERTIES SKIP_RETURN_CODE 77)
+
+# The beast2 conformance corpus TypeScript exports beside the compliance IR
+# (east/test/beast2_corpus.spec.ts): every value's whole-value blob, paged
+# blob and manifest directory, every emission sequence's runs and their merge,
+# and every merge as a blob and a manifest directory, written here to
+# TypeScript's bytes. Skips (exit 77) unless `make test-export` has produced
+# /tmp/east-test-ir/beast2_corpus. Run under ASan/LSan for the sorter's, the
+# merge's and the manifest writer's lifetimes.
+add_executable(test_beast2_corpus tests/test_beast2_corpus.c)
+target_link_libraries(test_beast2_corpus east-c)
+add_test(NAME beast2_corpus COMMAND test_beast2_corpus)
+set_tests_properties(beast2_corpus PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600
+                     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # Beast2 encode/decode timing harnesses (dev profiling — build Release for real
 # numbers). profile_collections builds large Dict/Set values in C and times

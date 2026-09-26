@@ -14,25 +14,41 @@ import assert from "node:assert/strict";
 import {
   IntegerType, StringType, ArrayType, SetType, DictType, StructType,
   FloatType, OptionType, RecursiveType, VariantType, RefType, VectorType, FunctionType,
+  type EastType,
 } from "../../../types.js";
 import { compareFor, equalFor } from "../../../comparison.js";
+import { LazyReadError } from "../../../error.js";
 import { SortedMap, SortedSet, isEastDict, isEastSet } from "../../../index.js";
 import {
   decodeBeast2For,
   encodeBeast2For,
   encodeBeast2PagedFor,
   encodeBeast2SegmentsFor,
+  iterBeast2SegmentsFor,
   openBeast2LazyFor,
   openBeast2PagesFor,
   isBeast2LazySafe,
   readBeast2Extents,
   spliceBeast2,
+  type Beast2Codec,
 } from "../index.js";
 import type { Beast2SyncRangeReader } from "../index.js";
 
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = DictType(IntegerType, RowType);
-const PAGED = { batchSize: 100 };
+
+/** A collection in canonical order as a blob of 100-element segments — a
+ *  geometry chosen here rather than by the cut rule, so that a small value
+ *  still spans several segments. */
+function paged(type: EastType, value: Iterable<unknown>, codec?: Beast2Codec): Uint8Array {
+  const items = [...value];
+  const batches: unknown[] = [];
+  for (let i = 0; i < items.length; i += 100) {
+    const chunk = items.slice(i, i + 100);
+    batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : type.type === "Set" ? new Set(chunk) : chunk);
+  }
+  return encodeBeast2SegmentsFor(type, codec === undefined ? undefined : { codec })(batches as never);
+}
 
 function makeTable(n: number, offset = 0): SortedMap<bigint, { id: bigint; name: string }> {
   const entries: [bigint, { id: bigint; name: string }][] = [];
@@ -46,7 +62,7 @@ function makeTable(n: number, offset = 0): SortedMap<bigint, { id: bigint; name:
 describe("Beast2 v5 — lazy Dict", () => {
   test("lazy reads match the eager decode without hydration", () => {
     const value = makeTable(350);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const lazy = openBeast2LazyFor(TableType)(blob);
 
     assert.ok(lazy instanceof SortedMap);
@@ -66,7 +82,7 @@ describe("Beast2 v5 — lazy Dict", () => {
 
   test("mutation hydrates transparently and preserves identity semantics", () => {
     const value = makeTable(250);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const lazy = openBeast2LazyFor(TableType)(blob);
 
     lazy.set(9999n, { id: 9999n, name: "added" });
@@ -79,7 +95,7 @@ describe("Beast2 v5 — lazy Dict", () => {
 
   test("re-encoding a lazy value round-trips", () => {
     const value = makeTable(150);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const lazy = openBeast2LazyFor(TableType)(blob);
     const reencoded = encodeBeast2For(TableType)(lazy);
     const eq = equalFor(TableType);
@@ -87,7 +103,7 @@ describe("Beast2 v5 — lazy Dict", () => {
   });
 
   test("empty blobs open as empty values", () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(0));
+    const blob = paged(TableType, makeTable(0));
     const lazy = openBeast2LazyFor(TableType)(blob);
     assert.ok(lazy instanceof SortedMap);
     assert.equal(lazy.size, 0);
@@ -97,8 +113,8 @@ describe("Beast2 v5 — lazy Dict", () => {
   });
 
   test("cross-segment order violations surface the eager decoder's error", () => {
-    const high = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 1000));
-    const low = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 0));
+    const high = paged(TableType, makeTable(100, 1000));
+    const low = paged(TableType, makeTable(100, 0));
     const corrupt = spliceBeast2([high, low]);
     const lazy = openBeast2LazyFor(TableType)(corrupt);
     assert.throws(() => [...lazy], {
@@ -108,7 +124,7 @@ describe("Beast2 v5 — lazy Dict", () => {
 
   test("hydration mid-generator keeps the in-flight iterator on the original sequence", () => {
     const value = makeTable(250);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const lazy = openBeast2LazyFor(TableType)(blob);
 
     const it = lazy.entries();
@@ -132,7 +148,7 @@ describe("Beast2 v5 — lazy Dict", () => {
     const entries: [bigint, { id: bigint; name: string }][] = [];
     for (let i = 0; i < 350; i++) entries.push([BigInt(i), { id: BigInt(i), name: `row-${i}-`.padEnd(200, "x") }]);
     const value = new SortedMap(entries, compareFor(IntegerType));
-    const blob = encodeBeast2PagedFor(WideTable, { ...PAGED, codec: "none" })(value);
+    const blob = paged(WideTable, value, "none");
     const extents = readBeast2Extents(blob);
     assert.equal(extents.offsets.length, 4);
     const frame = (i: number): { offset: number; length: number } => ({
@@ -177,7 +193,7 @@ describe("Beast2 v5 — lazy Dict", () => {
     // Every kind of key: absent between two keys, exactly a fence, the last
     // key, before the first, after the last.
     const absentTable = new SortedMap(entries.filter(([k]) => k % 2n === 0n), compareFor(IntegerType));
-    const absentBlob = encodeBeast2PagedFor(WideTable, PAGED)(absentTable);
+    const absentBlob = paged(WideTable, absentTable);
     const absentEager = sorted(decodeBeast2For(WideTable)(absentBlob));
     const absentLazy = sorted(openBeast2LazyFor(WideTable)(absentBlob));
     for (const key of [251n, 200n, 348n, -5n, 10_000n, 0n]) {
@@ -185,15 +201,15 @@ describe("Beast2 v5 — lazy Dict", () => {
       assert.deepEqual([...absentLazy.keys(key)], [...absentEager.keys(key)], `keys from ${key}`);
       assert.deepEqual([...absentLazy.values(key)], [...absentEager.values(key)], `values from ${key}`);
     }
-    assert.deepEqual([...sorted(openBeast2LazyFor(WideTable)(encodeBeast2PagedFor(WideTable, PAGED)(makeTable(0) as never))).entries(5n)], []);
+    assert.deepEqual([...sorted(openBeast2LazyFor(WideTable)(paged(WideTable, makeTable(0)))).entries(5n)], []);
   });
 
   test("iteration from a key refuses a blob whose fences do not ascend, in the words every keyed read uses", () => {
     // The seek goes through the pager's own verified fences, so a fence
     // violation reads the same here as from `get`, from `slice`, and from
     // east-c — one sentence per condition, whatever path reaches it.
-    const high = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 1000));
-    const low = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 0));
+    const high = paged(TableType, makeTable(100, 1000));
+    const low = paged(TableType, makeTable(100, 0));
     const blob = spliceBeast2([high, low]);
     const lazy = openBeast2LazyFor(TableType)(blob) as SortedMap<bigint, { id: bigint; name: string }>;
     const fenceError = {
@@ -216,7 +232,7 @@ describe("Beast2 v5 — lazy Set", () => {
 
   test("lazy reads match the eager decode without hydration", () => {
     const value = makeTags(300);
-    const blob = encodeBeast2PagedFor(Tags, PAGED)(value);
+    const blob = paged(Tags, value);
     const lazy = openBeast2LazyFor(Tags)(blob);
 
     assert.ok(lazy instanceof SortedSet);
@@ -231,7 +247,7 @@ describe("Beast2 v5 — lazy Set", () => {
 
   test("iteration from an element seeks the owning segment without hydrating", () => {
     const value = makeTags(300);
-    const blob = encodeBeast2PagedFor(Tags, PAGED)(value);
+    const blob = paged(Tags, value);
     const eager = decodeBeast2For(Tags)(blob) as SortedSet<string>;
     const lazy = openBeast2LazyFor(Tags)(blob) as SortedSet<string>;
     for (const from of ["tag-0250", "tag-0250x", "tag-0100", "tag-0299", "a", "z"]) {
@@ -240,7 +256,7 @@ describe("Beast2 v5 — lazy Set", () => {
     }
     assert.equal(lazy.size, 300);
     const corrupt = openBeast2LazyFor(Tags)(spliceBeast2([
-      encodeBeast2PagedFor(Tags, PAGED)(new SortedSet(["z-1", "z-2"], compareFor(StringType))),
+      paged(Tags, new SortedSet(["z-1", "z-2"], compareFor(StringType))),
       blob,
     ])) as SortedSet<string>;
     assert.throws(() => [...corrupt.keys("tag-0100")], {
@@ -250,7 +266,7 @@ describe("Beast2 v5 — lazy Set", () => {
 
   test("set algebra hydrates transparently", () => {
     const value = makeTags(120);
-    const blob = encodeBeast2PagedFor(Tags, PAGED)(value);
+    const blob = paged(Tags, value);
     const lazy = openBeast2LazyFor(Tags)(blob);
 
     const other = new SortedSet(["tag-0000", "extra"], compareFor(StringType));
@@ -265,7 +281,7 @@ describe("Beast2 v5 — lazy Array", () => {
   const rows = Array.from({ length: 260 }, (_, i) => `row-${i}`);
 
   test("length, index reads, and iteration are lazy", () => {
-    const blob = encodeBeast2PagedFor(Rows, PAGED)(rows);
+    const blob = paged(Rows, rows);
     const lazy = openBeast2LazyFor(Rows)(blob);
 
     assert.ok(Array.isArray(lazy));
@@ -281,7 +297,7 @@ describe("Beast2 v5 — lazy Array", () => {
   });
 
   test("any other operation hydrates transparently", () => {
-    const blob = encodeBeast2PagedFor(Rows, PAGED)(rows);
+    const blob = paged(Rows, rows);
     const lazy = openBeast2LazyFor(Rows)(blob);
 
     assert.deepEqual(lazy.slice(10, 12), ["row-10", "row-11"]);
@@ -292,7 +308,7 @@ describe("Beast2 v5 — lazy Array", () => {
   });
 
   test("hydration mid-iteration keeps the in-flight iterator on the original sequence", () => {
-    const blob = encodeBeast2PagedFor(Rows, PAGED)(rows);
+    const blob = paged(Rows, rows);
     const lazy = openBeast2LazyFor(Rows)(blob);
 
     const it = lazy[Symbol.iterator]();
@@ -304,7 +320,7 @@ describe("Beast2 v5 — lazy Array", () => {
   });
 
   test("non-canonical index strings behave exactly like the eager array", () => {
-    const blob = encodeBeast2PagedFor(Rows, PAGED)(rows);
+    const blob = paged(Rows, rows);
     const eager = decodeBeast2For(Rows)(blob);
     const lazy = openBeast2LazyFor(Rows)(blob);
     // `Number("01")` parses to 1, but "01" is an ordinary (absent) property
@@ -368,7 +384,7 @@ describe("Beast2 v5 — pages segment cache", () => {
   const structRows = Array.from({ length: 500 }, (_, i) => ({ id: BigInt(i), name: `r-${i}` }));
 
   test("element reads reuse the decoded segment; eviction decodes fresh", () => {
-    const pages = openBeast2PagesFor(RowsT)(encodeBeast2PagedFor(RowsT, PAGED)(structRows));
+    const pages = openBeast2PagesFor(RowsT)(paged(RowsT, structRows));
     const a = pages.element(42);
     const b = pages.element(43);
     assert.equal(a, pages.element(42), "a re-read within the cache window returns the cached decode");
@@ -383,11 +399,89 @@ describe("Beast2 v5 — pages segment cache", () => {
   });
 
   test("keyed reads reuse the decoded segment; the public segment() stays fresh", () => {
-    const pages = openBeast2PagesFor(TableType)(encodeBeast2PagedFor(TableType, PAGED)(makeTable(350)));
+    const pages = openBeast2PagesFor(TableType)(paged(TableType, makeTable(350)));
     const v1 = pages.get(42n);
     const v2 = pages.get(42n);
     assert.equal(v1, v2, "the same cached segment serves repeated keyed reads");
     assert.equal((v1 as { name: string }).name, "row-42");
     assert.notEqual(pages.segment(0), pages.segment(0), "segment() decodes fresh so callers cannot poison the cache");
+  });
+});
+
+describe("Beast2 v5 — negative zero keys", () => {
+  // A plain JS Set or Map reads -0 as 0 and merges the two; every paged read
+  // keeps them apart, as the whole-value decode and east-c do. deepStrictEqual
+  // compares numbers by SameValue, so it tells -0 from 0.
+  test("stay apart from zero through every paged and lazy read", () => {
+    const Weights = DictType(FloatType, StringType);
+    const blob = encodeBeast2PagedFor(Weights)(new SortedMap<number, string>(
+      [[-0, "negative"], [0, "positive"], [1.5, "one and a half"]], compareFor(FloatType)));
+    const entries = [[-0, "negative"], [0, "positive"], [1.5, "one and a half"]];
+    const pages = openBeast2PagesFor(Weights)(blob);
+    assert.deepEqual([...(pages.segment(0) as Map<number, string>).entries()], entries, "segment()");
+    assert.deepEqual([...(pages.slice(0, 3) as Map<number, string>).entries()], entries, "slice()");
+    assert.equal(pages.get(-0), "negative");
+    assert.equal(pages.get(0), "positive");
+    assert.deepEqual([...iterBeast2SegmentsFor(Weights)(blob)].flatMap((segment) => [...(segment as Map<number, string>).entries()]), entries, "the segment iterator");
+    assert.deepEqual([...(openBeast2LazyFor(Weights)(blob) as SortedMap<number, string>).entries()], entries, "lazy iteration");
+
+    const Floats = SetType(FloatType);
+    const set = encodeBeast2PagedFor(Floats)(new SortedSet([NaN, 0, -0], compareFor(FloatType)));
+    assert.deepEqual([...(openBeast2PagesFor(Floats)(set).segment(0) as Set<number>)], [-0, 0, NaN]);
+    assert.deepEqual([...openBeast2LazyFor(Floats)(set)], [-0, 0, NaN]);
+  });
+});
+
+describe("Beast2 v5 — lazy reads that fail", () => {
+  /** An assertion that a read failed with a {@link LazyReadError} saying `message`. */
+  const lazyReadError = (message: string) => (err: unknown): boolean =>
+    err instanceof LazyReadError && err.message === message;
+
+  test("a Dict read raises a LazyReadError, and a fill that fails leaves the map unread", () => {
+    const high = paged(TableType, makeTable(100, 1000));
+    const low = paged(TableType, makeTable(100, 0));
+    const lazy = openBeast2LazyFor(TableType)(spliceBeast2([high, low]));
+    const orderMessage = "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)";
+
+    assert.throws(() => lazy.get(1050n), lazyReadError(
+      "beast2 v5: segments 0 and 1 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)",
+    ));
+    assert.throws(() => [...lazy], lazyReadError(orderMessage));
+    // The fill reads the high segment, then fails on the low one.
+    assert.throws(() => lazy.set(5000n, { id: 5000n, name: "added" }), lazyReadError(orderMessage));
+    assert.equal(lazy.size, 200, "the map is unread, not half-filled");
+    assert.throws(() => lazy.set(5000n, { id: 5000n, name: "added" }), lazyReadError(orderMessage), "the next write reads again");
+  });
+
+  test("an Array whose segment cannot be read raises a LazyReadError, and a fill that fails leaves it unread", () => {
+    const Rows = ArrayType(StringType);
+    const rows = Array.from({ length: 260 }, (_, i) => `row-${i}`);
+    const blob = paged(Rows, rows);
+    const extents = readBeast2Extents(blob);
+    assert.equal(extents.offsets.length, 3);
+    let failing = true;
+    const reader: Beast2SyncRangeReader = {
+      size: blob.length,
+      read(offset, length) {
+        if (failing && offset >= extents.offsets[1]! && offset < extents.segmentsEnd) {
+          throw new Error("EIO: the segment could not be read");
+        }
+        return blob.subarray(offset, offset + length);
+      },
+    };
+    const lazy = openBeast2LazyFor(Rows)(reader);
+    const ioError = lazyReadError("EIO: the segment could not be read");
+
+    assert.equal(lazy[0], "row-0");
+    assert.throws(() => lazy[150], ioError);
+    assert.throws(() => [...lazy], ioError);
+    // The fill reads segment 0, then fails on segment 1.
+    assert.throws(() => lazy.slice(0, 2), ioError);
+    assert.equal(lazy.length, 260, "the array is unread, not half-filled");
+
+    failing = false;
+    assert.deepEqual(lazy.slice(0, 2), ["row-0", "row-1"], "the next access reads again");
+    assert.equal(lazy.length, 260);
+    assert.equal(lazy[259], "row-259");
   });
 });

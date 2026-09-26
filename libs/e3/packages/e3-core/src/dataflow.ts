@@ -18,7 +18,7 @@
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
   decodePackageObject,
-  WorkspaceStateType,
+  WorkspaceRecordType,
   pathToString,
   type TaskObject,
   type TreePath,
@@ -29,7 +29,6 @@ import {
   inputsHash,
 } from './executions.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import type { JobSlots } from './execution/jobs.js';
 import {
   workspaceGetDatasetHash,
 } from './trees.js';
@@ -165,8 +164,6 @@ export interface DataflowResult {
  * Options for dataflow execution.
  */
 export interface DataflowOptions {
-  /** Maximum concurrent task executions (default: 4) */
-  concurrency?: number;
   /** Force re-execution even if cached (default: false) */
   force?: boolean;
   /** Filter to run only specific task(s) by exact name */
@@ -177,8 +174,9 @@ export interface DataflowOptions {
   signal?: AbortSignal;
   /** Task runner for executing individual tasks. */
   runner?: TaskRunner;
-  /** The run's jobs budget (local runner only; see `JobSlots`). */
-  jobs?: JobSlots;
+  /** The tasks and units the run keeps in flight (default four); a runner
+   *  that holds a budget decides which of them spawn. */
+  width?: number;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */
@@ -209,11 +207,11 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
   }
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return decoder(Buffer.from(data));
+  return record.value;
 }
 
 // =============================================================================
@@ -245,15 +243,15 @@ async function buildDependencyGraph(
     const taskData = await storage.objects.read(repo, taskHash);
     const task = taskDecoder(Buffer.from(taskData));
 
-    const outputPathStr = pathToString(task.output);
+    const outputPathStr = pathToString(task.output.path);
     outputToTask.set(outputPathStr, taskName);
 
     taskNodes.set(taskName, {
       name: taskName,
       hash: taskHash,
       task,
-      inputPaths: task.inputs,
-      outputPath: task.output,
+      inputPaths: task.inputs.map((input) => input.path),
+      outputPath: task.output.path,
       unresolvedCount: 0,
     });
   }
@@ -318,13 +316,12 @@ export async function dataflowExecute(
   const taskResults: TaskExecutionResult[] = [];
 
   const handle = await orchestrator.start(storage, repo, ws, {
-    concurrency: options.concurrency,
     force: options.force,
     filter: options.filter,
     signal: options.signal,
     lock: options.lock,
     runner: options.runner,
-    jobs: options.jobs,
+    width: options.width,
     onTaskStart: options.onTaskStart,
     onTaskComplete: (result) => {
       taskResults.push({
@@ -592,14 +589,15 @@ export function dataflowGetDependencyClosure(
  * @param repo - Repository path
  * @param taskHash - Hash of the TaskObject
  * @param inputHashes - Array of input dataset hashes (in order)
- * @returns Output hash if cached, null if execution needed
+ * @returns The output and the id of the execution the cache serves, or null
+ *   if execution is needed
  */
 export async function dataflowCheckCache(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inputHashes: string[]
-): Promise<string | null> {
+): Promise<{ outputHash: string; executionId: string } | null> {
   const inHash = inputsHash(inputHashes);
   return executionGetOutput(storage, repo, taskHash, inHash);
 }

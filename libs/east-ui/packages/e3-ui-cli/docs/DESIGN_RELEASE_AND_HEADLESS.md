@@ -54,8 +54,8 @@ verified); all confirmed findings are folded in below.
   entry exports `surface = ui("surface", [], East.function(...))`.
 - `ui()` returns a plain e3 `TaskDef`: the original East function is NOT
   retained; `task()` eagerly stores `fn.toIR()` (the full EastIR bundle,
-  source map included) as `inputs[0].default` (dataset name `function_ir`).
-  `TaskDef.command` is ALSO an EastIR (the argv builder) — never unwrap that.
+  source map included) as its body's `program`, and `ui()` puts the task in
+  the `ui` role.
 - Plugin: skills are directories under `libs/east-claude-plugin/skills/`;
   lib-backed skills are a real dir + `SKILL.md` symlink into the lib. The
   plugin-artifacts workflow triggers on `libs/**/SKILL.md` changes but only
@@ -194,16 +194,14 @@ tool. **Edit `libs/create/templates/e3/` only** (the packaged copy under
   `"shot": "e3-ui shot --from-source src/ui/index.tsx --export surface -o surface.png"`.
 - **CLI contract fix** in `load-source.ts`: `asEastFunction` gains a
   dependency-free structural unwrap for e3 `ui()` tasks —
-  `value.kind === 'task' && value.taskKind === 'ui' &&
-  Array.isArray(value.inputs) && value.inputs[0]?.name === 'function_ir' &&
-  value.inputs[0].default != null` → return
-  `{ toIR: () => value.inputs[0].default }` (that default IS the original
-  `fn.toIR()` bundle, source map included — perfect round-trip). Target
-  `inputs[0]`/`function_ir` specifically; `TaskDef.command` is also an EastIR
-  and must never be unwrapped. Reject ui tasks with compute-time inputs
-  (`inputs.length > 1`) with a clear "render via --from-task against a
-  deployed workspace" error — `decodeEastIR` does not check arity, so an
-  unguarded parameterized surface would fail confusingly in the browser.
+  `value.kind === 'task' && value.role?.type === 'ui' &&
+  value.body?.kind === 'east' && value.body.program != null` → return
+  `{ toIR: () => value.body.program }` (that program IS the original
+  `fn.toIR()` bundle, source map included — perfect round-trip). Reject ui
+  tasks with compute-time inputs (`inputs.length > 0`) with a clear "render
+  via --from-task against a deployed workspace" error — `decodeEastIR` does
+  not check arity, so an unguarded parameterized surface would fail
+  confusingly in the browser.
 - scaffold-core spec additions: ui-on asserts
   `devDependencies["@elaraai/e3-ui-cli"] === "^<version>"` and `scripts.shot`
   present; ui-off/default asserts both absent (mirrors the eslint on/off

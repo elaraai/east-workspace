@@ -29,6 +29,7 @@ describe('parseTuiArgs', () => {
             input: undefined,
             mouse: true,
             ascii: false,
+            budget: {},
         });
         assert.equal(parseTuiArgs('.', '', { input: 'params' }, {}).workspace, undefined);
         assert.equal(parseTuiArgs('.', undefined, { input: 'params' }, {}).input, 'params');
@@ -41,6 +42,13 @@ describe('parseTuiArgs', () => {
     test('--no-mouse disables mouse reporting', () => {
         assert.equal(parseTuiArgs('.', undefined, { mouse: false }, {}).mouse, false);
         assert.equal(parseTuiArgs('.', undefined, { mouse: true }, {}).mouse, true);
+    });
+
+    test('-j and --memory budget a local repository\'s embedded server, and a remote one refuses them', () => {
+        assert.deepEqual(parseTuiArgs('.', undefined, { jobs: '2', memory: '8G' }, {}).budget, { jobs: '2', memory: '8G' });
+        assert.deepEqual(parseTuiArgs('.', undefined, {}, {}).budget, {});
+        assert.throws(() => parseTuiArgs('https://h/repos/r', undefined, { jobs: '2' }, {}), /a remote one runs under its server's/);
+        assert.throws(() => parseTuiArgs(undefined, undefined, { memory: '8G' }, { E3_REPO: 'https://h' }), /a remote one runs under its server's/);
     });
 
     test('--ascii and E3_UI_ASCII=1 both switch box-drawing off', () => {
@@ -126,6 +134,8 @@ describe('the TTY gate', () => {
         assert.match(result.stdout, /-i, --input <name>\s+open an input on start/);
         assert.match(result.stdout, /--no-mouse\s+disable mouse reporting/);
         assert.match(result.stdout, /--ascii\s+box-drawing off/);
+        assert.match(result.stdout, /-j, --jobs <n>\s+a local repository's embedded server/);
+        assert.match(result.stdout, /--memory <size>\s+its memory/);
         assert.match(result.stdout, /auth\s+login \/ logout \/ status \/ token \/ whoami/);
         for (const verb of ['shot [options]', 'shots [options] [paths...]', 'install-browser [options]', 'doctor']) {
             assert.ok(result.stdout.includes(verb), `help lists ${verb}`);

@@ -4,31 +4,25 @@
  */
 
 /**
- * Runner wire types for e3 functions.
+ * Runner wire types for e3 tasks, functions and records.
  *
- * `RunnerType` is the wire image of the SDK's `Runner` union (minus its
- * `custom` raw-argv runtime — see the security note below). It pins the
- * executable to a known runtime for every tag, so a function call can never
- * name its own executable; only platform flags vary.
- *
- * A `platforms` entry is just a `-p <name>` flag on the wire; the SDK's
- * `Platform<Known> | { custom }` distinction is authoring sugar that
- * collapses to a string.
+ * `RunnerType` is the wire image of the SDK's `Runner` union. A known-runtime
+ * tag pins the executable to one of the stock runners, which runs units through
+ * its `exec` command; `custom` names a command of the author's own.
  */
 
 import { VariantType, StructType, ArrayType, StringType, ValueTypeOf } from '@elaraai/east';
 
 /**
- * Wire representation of a runner — shared by tasks and functions
- * (symmetric: both carry `runner: RunnerType`).
+ * Wire representation of a runner — shared by tasks, functions and records.
  *
- * The known-runtime tags name a runtime binary; `platforms` are passed as
- * `-p` flags. `custom` carries a raw argv prefix: for functions it is the
- * executed command (the standard `-i/-o/<ir>` suffix is appended, so the
- * command must speak the runner CLI convention); for tasks it is routing
- * metadata only — a task's `commandIr` remains authoritative for execution.
- * Package authors can already execute arbitrary commands via custom tasks,
- * so `custom` grants no capability that tasks don't have.
+ * A known-runtime tag names a stock runner, and `platforms` names the platform
+ * packages the units it runs load. `custom` carries a command, which e3 runs
+ * with the arguments of a stock runner's `run`: `-i` for each input, `-o` for
+ * the output, then the program's file. A custom task's body is its own
+ * command, and its runner's is empty. Package authors can already execute
+ * arbitrary commands via custom tasks, so `custom` grants no capability that
+ * tasks don't have.
  */
 export const RunnerType = VariantType({
   east_node: StructType({ platforms: ArrayType(StringType) }),
@@ -40,63 +34,6 @@ export type RunnerType = typeof RunnerType;
 
 export type RunnerValue = ValueTypeOf<typeof RunnerType>;
 
-function flags(platforms: string[]): string[] {
-  return platforms.flatMap((p) => ['-p', p]);
-}
-
-/**
- * Resolve a {@link RunnerType} value to the argv prefix of one of its
- * commands (the wire-value analogue of the SDK's `runnerToCommand`): `run`,
- * the default — `[<bin>, 'run', -p…]` — or `merge`, the blob merge every
- * stock runner ships — `[<bin>, 'merge', -p…]`, the fan-in of a partitioned
- * task's keyed partials (issue #770). Lives in e3-types so both e3-core
- * (local) and the cloud execution kernel import the one resolver.
- *
- * Variant tags use underscores (`east_node`) mapped to the binary name
- * (`east-node`) here. A `custom` runner's command is its `run`; it has no
- * merge command.
- *
- * @param r - the runner
- * @param command - the runner command, `run` by default
- * @returns the argv prefix
- * @throws {Error} When `merge` is asked of a custom runner.
- */
-export function runnerToArgv(r: RunnerValue, command: 'run' | 'merge' = 'run'): string[] {
-  switch (r.type) {
-    case 'east_node': return ['east-node', command, ...flags(r.value.platforms)];
-    case 'east_py':   return ['east-py',   command, ...flags(r.value.platforms)];
-    case 'east_c':    return ['east-c',    command, ...flags(r.value.platforms)];
-    case 'custom':
-      if (command !== 'run') throw new Error(`a custom runner has no ${command} command`);
-      return [...r.value.command];
-  }
-}
-
-/**
- * Insert the runner's `-v/--verbose` flag into a fully-built argv, for the
- * known runtimes only.
- *
- * All three known runners (`east-node`/`east-py`/`east-c`, `run` and `merge`)
- * accept `-v` among their options and print timing/perf detail to stderr; a
- * `custom` runner's argv is user-authored, so a flag is never spliced into
- * it. A known-runtime argv always starts `[<bin>, <command>, …]` (see
- * {@link runnerToArgv} and the SDK's `runnerToCommand`), so `-v` goes at
- * index 2 — ahead of the `-p`/`-i`/`-o` flags and the trailing IR path.
- *
- * This is a pure **runtime** toggle: it is applied to the *evaluated* argv
- * immediately before spawn and never touches the task's `commandIr`, the
- * {@link RunnerType}, or any hash — so it cannot affect caching.
- *
- * @param runner - the runner the argv was built for (gates the injection)
- * @param args - the fully-built argv (runner prefix + `-i`/`-o`/`<ir>` suffix)
- * @param verbose - when true, request the runner's verbose output
- * @returns the argv, with `-v` inserted for known runtimes when verbose
- */
-export function withRunnerVerbose(runner: RunnerValue, args: string[], verbose?: boolean): string[] {
-  if (!verbose || runner.type === 'custom' || args.length < 2) return args;
-  return [...args.slice(0, 2), '-v', ...args.slice(2)];
-}
-
 /**
  * Insert the runner's `--exit-with-parent` flag into a fully-built argv, for
  * the known runtimes only — the stdin lifeline (issue #770).
@@ -104,10 +41,9 @@ export function withRunnerVerbose(runner: RunnerValue, args: string[], verbose?:
  * A stock runner given the flag and a stdin pipe its parent never writes to
  * exits as soon as the pipe reaches end of file: when the parent dies. A
  * `custom` runner's argv is user-authored, so the flag is never spliced into
- * it, and it keeps an ignored stdin. Like {@link withRunnerVerbose} the flag
- * goes at index 2, after `[<bin>, <command>]`, and is a pure runtime toggle
- * applied just before spawn — never part of the task's `commandIr` or any
- * hash.
+ * it, and it keeps an ignored stdin. The flag goes at index 2, after
+ * `[<bin>, <command>]`, and is a pure runtime toggle applied just before
+ * spawn — never part of the task object or any hash.
  *
  * @param runner - the runner the argv was built for (gates the injection)
  * @param args - the fully-built argv

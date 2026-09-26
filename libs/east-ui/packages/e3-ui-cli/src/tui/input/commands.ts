@@ -21,7 +21,7 @@ export type ParsedCommand =
     | { name: 'repos' }
     | { name: 'repo'; target: string }
     | { name: 'login'; url: string }
-    | { name: 'run'; force: boolean; filter: string | undefined; concurrency: number | undefined }
+    | { name: 'run'; force: boolean; filter: string | undefined }
     | { name: 'stop' }
     | { name: 'logs'; task: string; stream: 'stdout' | 'stderr' | undefined }
     | { name: 'runs'; task: string }
@@ -155,7 +155,6 @@ export function parseCommand(text: string): ParseResult {
         case 'run': {
             let force = false;
             let filter: string | undefined;
-            let concurrency: number | undefined;
             for (let i = 0; i < args.length; i++) {
                 const a = args[i]!;
                 if (a === '--force') force = true;
@@ -163,14 +162,9 @@ export function parseCommand(text: string): ParseResult {
                     filter = args[++i];
                     if (filter === undefined) return fail('--filter needs a glob');
                 } else if (a.startsWith('--filter=')) filter = a.slice('--filter='.length);
-                else if (a === '--concurrency' || a.startsWith('--concurrency=')) {
-                    const raw = a === '--concurrency' ? args[++i] : a.slice('--concurrency='.length);
-                    const n = Number(raw);
-                    if (raw === undefined || !Number.isInteger(n) || n < 1) return fail(`--concurrency must be a positive integer, got ${raw ?? '(nothing)'}`);
-                    concurrency = n;
-                } else return fail(`unknown /run flag ${a} — /run [--force] [--filter <glob>] [--concurrency <n>]`);
+                else return fail(`unknown /run flag ${a} — /run [--force] [--filter <glob>]`);
             }
-            return { ok: true, command: { name, force, filter, concurrency } };
+            return { ok: true, command: { name, force, filter } };
         }
         case 'logs': {
             const task = args[0];
@@ -228,15 +222,13 @@ export interface DescribeContext {
     taskCount: number;
     /** Whether a run is in progress. */
     running: boolean;
-    /** The default concurrency. */
-    concurrency: number;
     /** Pending edits. */
     dirty: number;
 }
 
 /**
  * The consequence line the command box shows for a parsed command
- * (`run 6 tasks in main, ignoring the cache · concurrency 4`).
+ * (`run 6 tasks in main, ignoring the cache`).
  *
  * @param command - The parsed command
  * @param ctx - The context
@@ -248,8 +240,7 @@ export function describe(command: ParsedCommand, ctx: DescribeContext): { text: 
         case 'run': {
             const scope = command.filter !== undefined ? `tasks matching ${command.filter}` : `${ctx.taskCount} task${ctx.taskCount === 1 ? '' : 's'}`;
             const cache = command.force ? ', ignoring the cache' : '';
-            const conc = command.concurrency ?? ctx.concurrency;
-            return { text: ctx.running ? 'a run is already in progress' : `run ${scope} in ${ws}${cache} · concurrency ${conc}`, keys: ctx.running ? 'esc' : '⏎ run · esc' };
+            return { text: ctx.running ? 'a run is already in progress' : `run ${scope} in ${ws}${cache}`, keys: ctx.running ? 'esc' : '⏎ run · esc' };
         }
         case 'stop':
             return { text: ctx.running ? `cancel the run in ${ws}` : 'no run in progress', keys: ctx.running ? '⏎ stop · esc' : 'esc' };
@@ -301,5 +292,4 @@ export function hotkeyToCommand(key: string): string | undefined {
 export const RUN_FLAGS: readonly { flag: string; hint: string }[] = [
     { flag: '--force', hint: 're-run everything' },
     { flag: '--filter <glob>', hint: 'only matching tasks' },
-    { flag: '--concurrency <n>', hint: '' },
 ];

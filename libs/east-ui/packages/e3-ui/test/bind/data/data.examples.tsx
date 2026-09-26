@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from "@elaraai/east";
-import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
@@ -126,6 +126,60 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsRow), variant('v
     ["D-09", { line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 64.0, state: CONFIRMED }],
     ["D-10", { line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 52.0, state: CONFIRMED }],
 ])));
+
+/**
+ * A maintenance work order — the row of the `work_orders` record, keyed by
+ * its order id. The id says nothing about urgency: the order a dispatcher
+ * works through comes from the index below, not from the record.
+ */
+export const WorkOrderRow = StructType({
+    site:   StringType,
+    title:  StringType,
+    crew:   StringType,
+    /** `late`, `open` or `planned` — alphabetical order IS urgency order, so
+     *  the index sorts the queue with no rank to compute. */
+    status: StringType,
+    due:    DateTimeType,
+});
+
+/** The dispatch queue's sort key: status first, then due date within one. */
+export const WorkQueueKey = StructType({ status: StringType, due: DateTimeType });
+
+/**
+ * The work orders — a record, so its initial state IS what a freshly deployed
+ * workspace holds, and deploy builds its index over it. The ids run in the
+ * order the orders were raised, which is nothing like the order they are due.
+ */
+export const workOrders = e3.record('work_orders', DictType(StringType, WorkOrderRow), new Map([
+    ["WO-1001", { site: "North", title: "Replace kiln 2 burner",       crew: "Mech A", status: "planned", due: new Date("2026-10-19T00:00:00Z") }],
+    ["WO-1002", { site: "North", title: "Calibrate belt scale 4",      crew: "Inst",   status: "late",    due: new Date("2026-09-15T00:00:00Z") }],
+    ["WO-1003", { site: "South", title: "Reline crusher jaw",          crew: "Mech B", status: "open",    due: new Date("2026-09-25T00:00:00Z") }],
+    ["WO-1004", { site: "South", title: "Grease stacker bearings",     crew: "Mech B", status: "open",    due: new Date("2026-09-24T00:00:00Z") }],
+    ["WO-1005", { site: "Port",  title: "Inspect shiploader boom",     crew: "Struct", status: "late",    due: new Date("2026-09-18T00:00:00Z") }],
+    ["WO-1006", { site: "North", title: "Swap conveyor 7 idlers",      crew: "Mech A", status: "open",    due: new Date("2026-09-29T00:00:00Z") }],
+    ["WO-1007", { site: "Port",  title: "Test dust suppression pumps", crew: "Elec",   status: "planned", due: new Date("2026-10-06T00:00:00Z") }],
+    ["WO-1008", { site: "South", title: "Replace screen deck panels",  crew: "Mech B", status: "late",    due: new Date("2026-09-11T00:00:00Z") }],
+    ["WO-1009", { site: "North", title: "Thermal scan MCC room",       crew: "Elec",   status: "open",    due: new Date("2026-09-26T00:00:00Z") }],
+    ["WO-1010", { site: "Port",  title: "Rebuild reclaimer gearbox",   crew: "Mech A", status: "planned", due: new Date("2026-10-26T00:00:00Z") }],
+    ["WO-1011", { site: "South", title: "Align apron feeder",          crew: "Mech B", status: "open",    due: new Date("2026-10-01T00:00:00Z") }],
+    ["WO-1012", { site: "North", title: "Service compressor 2",        crew: "Mech A", status: "late",    due: new Date("2026-09-21T00:00:00Z") }],
+    ["WO-1013", { site: "Port",  title: "Weld chute liner",            crew: "Struct", status: "open",    due: new Date("2026-09-30T00:00:00Z") }],
+    ["WO-1014", { site: "South", title: "Replace pump 3 impeller",     crew: "Mech B", status: "planned", due: new Date("2026-10-09T00:00:00Z") }],
+    ["WO-1015", { site: "North", title: "Relamp stockpile towers",     crew: "Elec",   status: "planned", due: new Date("2026-10-13T00:00:00Z") }],
+    ["WO-1016", { site: "Port",  title: "Tension berth 2 belt",        crew: "Mech A", status: "open",    due: new Date("2026-09-24T00:00:00Z") }],
+    ["WO-1017", { site: "South", title: "Inspect tailings line",       crew: "Struct", status: "late",    due: new Date("2026-09-22T00:00:00Z") }],
+    ["WO-1018", { site: "North", title: "Change kiln 1 seals",         crew: "Mech A", status: "planned", due: new Date("2026-11-02T00:00:00Z") }],
+]));
+
+/**
+ * The dispatch queue — every work order under `{status, due}`, carrying its
+ * title so the queue renders from index pages alone and never reads an
+ * order's row.
+ */
+export const workQueue = e3.recordIndex('by_status', workOrders, {
+    key:   East.function([StringType, WorkOrderRow], WorkQueueKey, ($, _id, order) => ({ status: order.status, due: order.due })),
+    value: East.function([StringType, WorkOrderRow], StringType, ($, _id, order) => order.title),
+});
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
@@ -329,6 +383,27 @@ export const dataBindPagedPlan = example({
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
             return <Plan axis={axis} data={paged} series={series} />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const dataBindPagedIndex = example({
+    keywords: [
+        "Data", "bindPaged", "index", "recordIndex", "record", "secondary index", "queue", "ordered",
+        "window", "covering", "projection", "ik", "key", "value", "row", "join", "Table", "paged", "by_status",
+    ],
+    description: "Read a record THROUGH one of its indexes — `Data.bindPaged(workOrders, { index: workQueue })` serves the INDEX's pages in the index's own order, so the dispatch queue arrives late-first and by due date within each status, whatever the work orders' ids are. Each row is `{ ik, key, value, row }`: the index key, the order's id, and the title the index covers — so the Table renders from index pages alone and reads no order's row (`join: true` would fill `row` from the record too)",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Pass the index DECLARATION, not its name: the window's type —
+            // its key and what it covers — comes from it.
+            const queue = $.let(Data.bindPaged(workOrders, { index: workQueue }));
+            return <Table data={queue} columns={{
+                ik:    { header: "Due", value: (ik) => East.str`${ik.status} · ${ik.due.printFormatted("ddd D MMM")}` },
+                value: { header: "Work order" },
+                key:   { header: "Order" },
+            }} />;
         }}</Reactive>
     )),
     inputs: [],

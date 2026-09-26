@@ -14,13 +14,16 @@ import {
   StructType,
   StringType,
   IntegerType,
+  BooleanType,
   VariantType,
   NullType,
   OptionType,
   DateTimeType,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { PackageImportProgressType, PackageExportProgressType } from '@elaraai/e3-types';
+import {
+  PackageImportProgressType, PackageExportProgressType, SchemaPolicyType, WorkspaceDeployStatusType,
+} from '@elaraai/e3-types';
 export { PackageImportProgressType, PackageExportProgressType };
 
 // =============================================================================
@@ -83,3 +86,29 @@ export const PackageExportType = StructType({
 });
 
 export type PackageExport = ValueTypeOf<typeof PackageExportType>;
+
+// =============================================================================
+// Workspace Deploy
+// =============================================================================
+
+/**
+ * A deploy job, as a store keeps it.
+ *
+ * @remarks
+ * The package is resolved when the job is created, so the job deploys the
+ * version the request was checked against, even when a later one is imported
+ * while it waits.
+ */
+export const WorkspaceDeployJobType = StructType({
+  repo: StringType,
+  workspace: StringType,
+  packageName: StringType,
+  packageVersion: StringType,
+  schema: SchemaPolicyType,
+  allowDropRecords: BooleanType,
+  plan: BooleanType,
+  status: WorkspaceDeployStatusType,
+  createdAt: DateTimeType,
+});
+
+export type WorkspaceDeployJob = ValueTypeOf<typeof WorkspaceDeployJobType>;

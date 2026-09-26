@@ -17,7 +17,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
-import { variant, East, IntegerType } from '@elaraai/east';
+import { variant, none, East, IntegerType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 import { workspaceStatus } from './workspaceStatus.js';
@@ -81,7 +81,7 @@ describe('workspaceStatus crash detection', () => {
     taskHash = pkgObject.tasks.get('double')!;
     const task = await workspaceGetTask(storage, repoPath, WS, 'double');
     const hashes: string[] = [];
-    for (const inputPath of task.inputs) {
+    for (const { path: inputPath } of task.inputs) {
       const { hash } = await workspaceGetDatasetHash(storage, repoPath, WS, inputPath);
       hashes.push(hash!);
     }
@@ -152,6 +152,7 @@ describe('workspaceStatus crash detection', () => {
         startedAt: new Date(),
         completedAt: new Date(),
         exitCode: 1n,
+        peakBytes: none,
       });
       await storage.refs.executionWrite(repoPath, taskHash, `${'0'.repeat(60)}${String(i).padStart(4, '0')}`, executionId, status);
     }

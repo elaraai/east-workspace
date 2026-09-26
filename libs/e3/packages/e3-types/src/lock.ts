@@ -6,18 +6,15 @@
 /**
  * Lock state type definitions.
  *
- * A lock provides exclusive access to a workspace. The state tracks:
- * - What operation acquired the lock (dataflow, deployment, etc.)
- * - Who holds the lock (East text-encoded string)
- * - When it was acquired
- * - Optional expiry (for cloud TTL-based locks)
+ * A lock gives exclusive or shared access to a resource: a workspace, a
+ * workspace's dataflow, the repository's tasks, or one dataset's ref. The state
+ * records:
+ * - what operation acquired the lock (dataflow, deployment, etc.);
+ * - who holds it: a local process, or a cloud function;
+ * - when it was acquired;
+ * - when it expires, for a cloud backend's lease.
  *
- * Lock file location: workspaces/<name>.lock
- *
- * The holder field is an East text-encoded string, allowing different backends
- * to encode their own holder identification. Common patterns:
- * - Local: `.process (pid=1234, bootId="abc-123", startTime=98765, command="e3 start")`
- * - Cloud: `.lambda (requestId="req-123", functionName="e3-api")`
+ * A local repository keeps each resource's locks in `locks/<resource>/`.
  */
 
 import {
@@ -50,8 +47,8 @@ export const LockOperationType = VariantType({
 export type LockOperation = ValueTypeOf<typeof LockOperationType>;
 
 /**
- * Process holder schema - for local filesystem backends.
- * Used to encode/decode the holder string.
+ * A local process holding a lock: alive while a process of this pid and start
+ * time runs under this boot.
  */
 export const ProcessHolderType = StructType({
   /** Process ID */
@@ -67,20 +64,40 @@ export const ProcessHolderType = StructType({
 export type ProcessHolder = ValueTypeOf<typeof ProcessHolderType>;
 
 /**
- * Lock state stored in workspaces/<name>.lock
+ * A cloud function holding a lock, which the lock's lease bounds.
+ */
+export const LambdaHolderType = StructType({
+  /** The invocation's request ID */
+  requestId: StringType,
+  /** The function's name */
+  functionName: StringType,
+});
+
+export type LambdaHolder = ValueTypeOf<typeof LambdaHolderType>;
+
+/**
+ * Who holds a lock.
+ */
+export const LockHolderVariantType = VariantType({
+  /** A local process */
+  process: ProcessHolderType,
+  /** A cloud function */
+  lambda: LambdaHolderType,
+});
+
+export type LockHolderVariant = ValueTypeOf<typeof LockHolderVariantType>;
+
+/**
+ * The state of a held lock.
  *
- * Represents an advisory lock on a workspace. The actual locking mechanism
- * is platform-specific (flock on Linux, DynamoDB conditional writes in cloud),
- * but the lock content follows this schema.
- *
- * The holder field is an East text-encoded string representing a variant value.
- * Use `printFor`/`parseInferred` from @elaraai/east to encode/decode.
+ * The locking itself is the backend's — an atomically created file locally, a
+ * conditional write in the cloud — and every backend records this state.
  */
 export const LockStateType = StructType({
   /** What operation acquired the lock */
   operation: LockOperationType,
-  /** Who holds the lock - East text-encoded variant (e.g., `.process (...)`) */
-  holder: StringType,
+  /** Who holds the lock */
+  holder: LockHolderVariantType,
   /** When the lock was acquired */
   acquiredAt: DateTimeType,
   /** When the lock expires (for cloud TTL-based locks) */

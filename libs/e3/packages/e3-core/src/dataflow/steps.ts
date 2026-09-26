@@ -21,7 +21,7 @@
  */
 
 import { variant, some, none } from '@elaraai/east';
-import type { VersionVector, Structure } from '@elaraai/e3-types';
+import { EXECUTION_STATE_VERSION, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import {
   dataflowGetGraph,
@@ -65,8 +65,6 @@ import type {
  * Options for initializing a dataflow execution.
  */
 export interface StepInitializeOptions {
-  /** Maximum concurrent task executions (default: 4) */
-  concurrency?: number;
   /** Force re-execution even if cached (default: false) */
   force?: boolean;
   /** Filter to run only specific task(s) by exact name */
@@ -82,7 +80,7 @@ export interface StepInitializeOptions {
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param workspace - Workspace name
- * @param executionId - Unique execution ID
+ * @param executionId - The run's id, a UUIDv7
  * @param options - Execution options
  * @returns Initial state and ready tasks
  *
@@ -97,7 +95,6 @@ export async function stepInitialize(
   executionId: string,
   options: StepInitializeOptions = {}
 ): Promise<InitializeResult> {
-  const concurrency = options.concurrency ?? 4;
   const force = options.force ?? false;
   const filter = options.filter ?? null;
 
@@ -148,16 +145,18 @@ export async function stepInitialize(
       startedAt: none,
       completedAt: none,
       duration: none,
+      plan: none,
+      execution: none,
     } as TaskState);
   }
 
   // Create initial state
   const state = {
+    version: EXECUTION_STATE_VERSION,
     id: executionId,
     repo,
     workspace,
     startedAt: new Date(),
-    concurrency: BigInt(concurrency),
     force,
     filter: filter !== null ? some(filter) : none,
     graph: some(graph),
@@ -222,16 +221,15 @@ async function getWorkspaceStructure(
   workspace: string
 ): Promise<Structure> {
   const { decodeBeast2For } = await import('@elaraai/east');
-  const { decodePackageObject, WorkspaceStateType } = await import('@elaraai/e3-types');
+  const { decodePackageObject, WorkspaceRecordType } = await import('@elaraai/e3-types');
 
   const wsData = await storage.refs.workspaceRead(repo, workspace);
-  if (wsData === null || wsData.length === 0) {
+  const record = wsData === null ? null : decodeBeast2For(WorkspaceRecordType)(wsData);
+  if (record === null || record.type === 'none') {
     throw new Error(`Workspace '${workspace}' not found or not deployed`);
   }
-  const wsDecoder = decodeBeast2For(WorkspaceStateType);
-  const wsState = wsDecoder(wsData);
 
-  const pkgData = await storage.objects.read(repo, wsState.packageHash);
+  const pkgData = await storage.objects.read(repo, record.value.packageHash);
   const pkgObject = decodePackageObject(Buffer.from(pkgData));
 
   return pkgObject.data.structure;
@@ -481,6 +479,8 @@ export function stepInvalidateTasks(
       taskState.outputHash = none;
       taskState.completedAt = none;
       taskState.duration = none;
+      taskState.plan = none;
+      taskState.execution = none;
 
       // Decrement counters
       if (wasCached) {
@@ -590,9 +590,9 @@ export async function stepPrepareTask(
 
   // Check cache unless this task is force-re-executed. Under a filter, force
   // applies to the target only, so its dependencies still resolve from cache.
-  let cachedOutputHash: string | null = null;
+  let cached: PrepareTaskResult['cached'] = null;
   if (!stepTaskForced(state, taskName)) {
-    cachedOutputHash = await dataflowCheckCache(
+    cached = await dataflowCheckCache(
       storage,
       state.repo,
       task.hash,
@@ -600,7 +600,7 @@ export async function stepPrepareTask(
     );
 
     // Also verify the workspace output matches the cached output
-    if (cachedOutputHash !== null) {
+    if (cached !== null) {
       const { parsePathString } = await import('../dataflow.js');
       const outputPath = parsePathString(task.output);
       const { refType, hash: wsOutputHash } = await workspaceGetDatasetHash(
@@ -609,9 +609,9 @@ export async function stepPrepareTask(
         state.workspace,
         outputPath
       );
-      if (refType !== 'value' || wsOutputHash !== cachedOutputHash) {
+      if (refType !== 'value' || wsOutputHash !== cached.outputHash) {
         // Workspace output doesn't match cached output, need to re-execute
-        cachedOutputHash = null;
+        cached = null;
       }
     }
   }
@@ -621,7 +621,7 @@ export async function stepPrepareTask(
     taskHash: task.hash,
     inputHashes: validInputHashes,
     outputPath: task.output,
-    cachedOutputHash,
+    cached,
   };
 }
 
@@ -663,6 +663,113 @@ export function stepTaskStarted(
 }
 
 /**
+ * Record that a task was split into pieces: its units start as the pieces,
+ * and the task's state names their `$plan`, so a resumed run takes the stage
+ * up where it stopped.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - Name of the task
+ * @param plan - Hash of the pieces' `$plan` object
+ * @param pieces - The number of pieces
+ * @returns Event to record
+ */
+export function stepTaskSplit(
+  state: DataflowExecutionState,
+  taskName: string,
+  plan: string,
+  pieces: number
+): ExecutionEvent {
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (!taskState) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  taskState.plan = some(plan);
+
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_split', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskName,
+    pieces: BigInt(pieces),
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
+ * Record that a level of the merges assembling a split task's pieces started:
+ * the task's state names the level's `$plan`.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - Name of the task
+ * @param plan - Hash of the level's `$plan` object
+ * @param level - The level, from 1
+ * @param levels - The number of levels the merges take
+ * @param units - The merge units of the level
+ * @returns Event to record
+ */
+export function stepTaskMergeStarted(
+  state: DataflowExecutionState,
+  taskName: string,
+  plan: string,
+  level: number,
+  levels: number,
+  units: number
+): ExecutionEvent {
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (!taskState) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  taskState.plan = some(plan);
+
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_merge_started', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskName,
+    level: BigInt(level),
+    levels: BigInt(levels),
+    units: BigInt(units),
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
+ * Record that a level of the merges assembling a split task's pieces
+ * finished: every unit of it succeeded.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - Name of the task
+ * @param level - The level, from 1
+ * @param levels - The number of levels the merges take
+ * @returns Event to record
+ */
+export function stepTaskMergeCompleted(
+  state: DataflowExecutionState,
+  taskName: string,
+  level: number,
+  levels: number
+): ExecutionEvent {
+  if (!state.tasks.has(taskName)) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_merge_completed', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskName,
+    level: BigInt(level),
+    levels: BigInt(levels),
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
  * Mark a task as completed successfully.
  *
  * Mutates the execution state, computes the merged version vector for the
@@ -673,6 +780,8 @@ export function stepTaskStarted(
  * @param outputHash - Hash of the output dataset
  * @param cached - Whether the result was from cache
  * @param duration - Execution duration in milliseconds
+ * @param execution - The execution the task completed with, which ran or
+ *   which the cache served: its inputs hash and its id
  * @returns Result with newly ready tasks and event
  */
 export function stepTaskCompleted(
@@ -680,7 +789,8 @@ export function stepTaskCompleted(
   taskName: string,
   outputHash: string,
   cached: boolean,
-  duration: number
+  duration: number,
+  execution: { inputsHash: string; executionId: string }
 ): { result: TaskCompletedResult; event: ExecutionEvent } {
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
   if (!taskState) {
@@ -695,6 +805,8 @@ export function stepTaskCompleted(
   taskState.outputHash = some(outputHash);
   taskState.completedAt = some(now);
   taskState.duration = some(BigInt(duration));
+  taskState.plan = none;
+  taskState.execution = some(execution);
 
   // Update counters
   if (cached) {
@@ -771,6 +883,7 @@ export function stepTaskFailed(
   taskState.exitCode = exitCode !== undefined ? some(BigInt(exitCode)) : none;
   taskState.completedAt = some(now);
   taskState.duration = some(BigInt(duration));
+  taskState.plan = none;
 
   // Update counters
   mutableState.failed = state.failed + 1n;
@@ -859,11 +972,10 @@ export function stepTasksSkipped(
  *
  * Mutates the execution state to mark it as completed or failed.
  *
- * @param state - Execution state to mutate
- * @param runId - Dataflow run ID (UUIDv7) from the orchestrator
+ * @param state - Execution state to mutate, whose id is its run's
  * @returns Final result
  */
-export function stepFinalize(state: DataflowExecutionState, runId: string): {
+export function stepFinalize(state: DataflowExecutionState): {
   result: FinalizeResult;
   event: ExecutionEvent;
 } {
@@ -894,7 +1006,7 @@ export function stepFinalize(state: DataflowExecutionState, runId: string): {
 
   const result: FinalizeResult = {
     success,
-    runId,
+    runId: state.id,
     executed: Number(state.executed),
     cached: Number(state.cached),
     failed: Number(state.failed),
@@ -944,7 +1056,8 @@ export function stepCancel(
  * decision and the version-vector conflict may have resolved since; the
  * consistency check at re-launch re-defers if it genuinely persists.
  * The execution status stays 'running' — yield is a pause, not a
- * terminal state.
+ * terminal state. A split task keeps its `plan`: a resumed loop takes its
+ * stage up again, and finds the units that finished in the execution cache.
  *
  * @param state - Execution state to mutate
  * @returns Names of tasks that were reset to pending

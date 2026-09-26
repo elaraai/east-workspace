@@ -46,12 +46,12 @@ describe('/run and /stop', () => {
         mounted = await mountApp({ api, view: dashboardView(), actions: await sixTasks(api) });
         await mounted.press('r');
         let lines = mounted.lines();
-        assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main · concurrency 4\s+⏎ run · esc/);
-        assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks    --concurrency <n>$/);
-        await mounted.type('--force --concurrency 2');
-        assert.match(mounted.lines()[33]!, /^ › \/run --force --concurrency 2_\s+run 6 tasks in main, ignoring the cache · concurrency 2\s+⏎ run · esc/);
+        assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main\s+⏎ run · esc/);
+        assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks$/);
+        await mounted.type('--force');
+        assert.match(mounted.lines()[33]!, /^ › \/run --force_\s+run 6 tasks in main, ignoring the cache\s+⏎ run · esc/);
         await mounted.press(KEY.enter);
-        assert.ok(api.calls.includes('dataflowExecuteLaunch main --force --concurrency 2'), api.calls.join('\n'));
+        assert.ok(api.calls.includes('dataflowExecuteLaunch main --force'), api.calls.join('\n'));
         lines = mounted.lines();
         assert.match(lines[33]!, /^ ›  ● Dataflow started · main · 6 tasks queued$/);
         assert.match(lines[0]!, new RegExp(`◔ RUNNING 0/6 ${SPIN}  ● CONNECTED$`));

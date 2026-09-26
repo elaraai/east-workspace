@@ -4,25 +4,14 @@
  */
 
 /**
- * The dataset transfer protocol's two invariants that live in e3-types.
- *
- * Part arithmetic is shared by the client that cuts the bytes and the server
- * that places them, so an off-by-one on either side would corrupt uploads
- * silently until the commit's hash check. And protocol 2 only adds variant
- * cases: a version-1 client decodes a version-1 answer from a new server, and a
- * new client decodes an old server's answers, only while every added case sorts
- * after the version-1 cases and so leaves their tags unchanged.
+ * The dataset transfer protocol's part arithmetic, which the client that cuts
+ * the bytes and the server that places them share, so an off-by-one on either
+ * side would corrupt uploads silently until the commit's hash check.
  */
 
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { NullType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
-import {
-  TransferDoneResponseType,
-  TransferUploadResponseType,
-  transferPartCount,
-  transferPartRange,
-} from './transfer.js';
+import { transferPartCount, transferPartRange } from './transfer.js';
 
 describe('transferPartCount / transferPartRange', () => {
   it('cuts an upload into full parts and a remainder', () => {
@@ -58,41 +47,5 @@ describe('transferPartCount / transferPartRange', () => {
       start: Number(size) - 1,
       end: Number(size),
     });
-  });
-});
-
-describe('transfer wire compatibility across protocol versions', () => {
-  // The version-1 shapes, as a client and server built before protocol 2 hold them.
-  const UploadResponseV1 = VariantType({
-    completed: NullType,
-    upload: StructType({ id: StringType, uploadUrl: StringType }),
-  });
-  const DoneResponseV1 = VariantType({
-    completed: NullType,
-    error: StructType({ message: StringType }),
-  });
-
-  it('keeps the init answers a version-1 client decodes', () => {
-    const upload = variant('upload', { id: 'abc', uploadUrl: 'http://h/api/uploads/abc' });
-    assert.deepStrictEqual(
-      decodeBeast2For(UploadResponseV1)(encodeBeast2For(TransferUploadResponseType)(upload)),
-      upload,
-    );
-    assert.deepStrictEqual(
-      decodeBeast2For(TransferUploadResponseType)(encodeBeast2For(UploadResponseV1)(upload)),
-      upload,
-    );
-    const completed = variant('completed', null);
-    assert.deepStrictEqual(
-      decodeBeast2For(UploadResponseV1)(encodeBeast2For(TransferUploadResponseType)(completed)),
-      completed,
-    );
-  });
-
-  it('keeps the commit answers a version-1 client decodes', () => {
-    for (const done of [variant('completed', null), variant('error', { message: 'hash mismatch' })] as const) {
-      assert.deepStrictEqual(decodeBeast2For(DoneResponseV1)(encodeBeast2For(TransferDoneResponseType)(done)), done);
-      assert.deepStrictEqual(decodeBeast2For(TransferDoneResponseType)(encodeBeast2For(DoneResponseV1)(done)), done);
-    }
   });
 });

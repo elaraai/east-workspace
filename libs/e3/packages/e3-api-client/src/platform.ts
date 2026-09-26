@@ -66,7 +66,7 @@ import {
   taskGet,
 } from './tasks.js';
 import {
-  dataflowStart,
+  dataflowExecuteLaunch,
   dataflowExecute,
   dataflowGraph,
   taskLogs,
@@ -520,8 +520,7 @@ const PlatformImpl: PlatformFunction[] = [
   platform_dataflow_start.implement(
     async (url: string, repo: string, workspace: string, options: ValueTypeOf<typeof DataflowRequestType>, token: string) => {
       try {
-        await dataflowStart(url, repo, workspace, {
-          concurrency: options.concurrency.value != null ? Number(options.concurrency.value) : undefined,
+        await dataflowExecuteLaunch(url, repo, workspace, {
           force: options.force,
           filter: options.filter.value ?? undefined,
         }, { token });
@@ -539,7 +538,6 @@ const PlatformImpl: PlatformFunction[] = [
     async (url: string, repo: string, workspace: string, options: ValueTypeOf<typeof DataflowRequestType>, token: string) => {
       try {
         return await dataflowExecute(url, repo, workspace, {
-          concurrency: options.concurrency.value != null ? Number(options.concurrency.value) : undefined,
           force: options.force,
           filter: options.filter.value ?? undefined,
         }, { token });
@@ -682,6 +680,3 @@ export const Platform = {
     OneShotRequest: OneShotRequestType,
   },
 } as const;
-
-// Export for backwards compatibility
-export { PlatformImpl };

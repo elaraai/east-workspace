@@ -25,6 +25,7 @@ from east import (
 from east.serialization.beast2 import (
     Beast2ArrayFile,
     Beast2DictFile,
+    decode_beast2_with_header_for,
     encode_beast2_with_header_for,
     open_beast2_file,
     read_beast2_type,
@@ -92,6 +93,24 @@ def test_declared_type_is_validated_at_open(array_path):
         assert len(f) == 500
     with pytest.raises(ValueError, match="declared type does not match the file"):
         open_beast2_file(array_path, DT)
+
+
+def test_a_typed_decode_refuses_a_blob_of_another_type():
+    """The encoding is positional, so a decode by a type the header does not
+    name would read garbage; it is refused in the words TypeScript and east-c
+    give, whichever container wrote the blob."""
+    written = StructType([("a", IntegerType)])
+    asked = StructType([("a", StringType)])
+    words = (
+        'beast2: cannot decode a blob of type .Struct [(name="a", type=.Integer)] '
+        'as .Struct [(name="a", type=.String)]'
+    )
+    for version in (4, 5):
+        blob = encode_beast2_with_header_for(written, version=version)({"a": 1})
+        with pytest.raises(ValueError) as refused:
+            decode_beast2_with_header_for(asked)(blob)
+        assert str(refused.value) == words
+        assert decode_beast2_with_header_for(written)(blob)["a"] == 1
 
 
 def test_write_mode_requires_a_type(tmp_path):

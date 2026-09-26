@@ -11,14 +11,24 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { IntegerType, decodeBeast2For } from '@elaraai/east';
+import {
+  IntegerType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, variant,
+  type PatchTypeOf, type ValueTypeOf,
+} from '@elaraai/east';
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { runE3Command } from '../cli.js';
-import { createPackageZip, createFunctionPackageZip } from '../fixtures.js';
+import {
+  createPackageZip, createFunctionPackageZip, createKeyedRecordPackageZip, createMigrationPackageZip, PlansType,
+} from '../fixtures.js';
+
+/** What one touched key of a plans patch carries — derived from the patch type
+ *  rather than hand-written, so it follows the row type. */
+type PlanOp = Extract<ValueTypeOf<PatchTypeOf<typeof PlansType>>, { type: 'patch' }>['value'] extends Map<string, infer Op>
+  ? Op : never;
 
 /**
  * Register CLI operation tests.
@@ -219,6 +229,39 @@ export function cliTests(
       });
     });
 
+    describe('deploy command', { concurrency: false }, () => {
+      it('says what a deploy would do with --plan, fails a plan the deploy would refuse, and says what it did', async (t) => {
+        const ctx = await withCli(t);
+        const { remoteUrl, workDir } = ctx;
+        const env = getCredentialsEnv();
+        const wsName = `deploy-cli-ws-${Date.now()}`;
+        for (const version of ['1.0.0', '2.0.0'] as const) {
+          const zipPath = await createMigrationPackageZip(ctx.tempDir, 'deploy-cli-pkg', version);
+          await runE3Command(['package', 'import', remoteUrl, zipPath], workDir, { env });
+        }
+        await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env });
+        await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'deploy-cli-pkg@1.0.0'], workDir, { env });
+
+        const plan = await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'deploy-cli-pkg@2.0.0', '--plan'], workDir, { env });
+        assert.strictEqual(plan.exitCode, 0, `plan failed: ${plan.stderr}`);
+        assert.match(plan.stdout, /migrate record records\/tasks: add_owner/);
+        assert.match(plan.stdout, /A plan: nothing was written\./);
+
+        const refused = await runE3Command(
+          ['workspace', 'deploy', remoteUrl, wsName, 'deploy-cli-pkg@2.0.0', '--plan', '--schema=fail'], workDir, { env });
+        assert.notStrictEqual(refused.exitCode, 0);
+        assert.match(refused.stdout, /refuse record records\/tasks: it has migrations 'add_owner' to run/);
+        assert.match(refused.stderr, /the deploy would be refused: a record, above/);
+
+        const deployed = await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'deploy-cli-pkg@2.0.0'], workDir, { env });
+        assert.strictEqual(deployed.exitCode, 0, `deploy failed: ${deployed.stderr}`);
+        assert.match(deployed.stdout, /migrate record records\/tasks: add_owner/);
+        assert.match(deployed.stdout, new RegExp(`Deployed deploy-cli-pkg@2.0.0 to workspace: ${wsName}`));
+
+        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
+      });
+    });
+
     describe('call command', { concurrency: false }, () => {
       const withFunctionPackage = async (t: Parameters<typeof withCli>[0]) => {
         const ctx = await withCli(t);
@@ -256,6 +299,35 @@ export function cliTests(
 
         assert.notStrictEqual(result.exitCode, 0);
         assert.match(result.stderr, /argument/i);
+      });
+    });
+
+    describe('mutate command', { concurrency: false }, () => {
+      it('names the key of a write the record no longer matches, and says to resubmit rather than retry', async (t) => {
+        const ctx = await withCli(t);
+        const { remoteUrl, workDir } = ctx;
+        const env = getCredentialsEnv();
+        const zipPath = await createKeyedRecordPackageZip(ctx.tempDir, 'mutate-cli-pkg', '1.0.0');
+        const wsName = `mutate-cli-ws-${Date.now()}`;
+        await runE3Command(['package', 'import', remoteUrl, zipPath], workDir, { env });
+        await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env });
+        await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'mutate-cli-pkg@1.0.0'], workDir, { env });
+        const seeded = await runE3Command(['mutate', remoteUrl, 'plans.seed', '20', '-w', wsName], workDir, { env });
+        assert.strictEqual(seeded.exitCode, 0, `seed failed: ${seeded.stderr}`);
+
+        // A delete of a row that is no longer what the patch says it is.
+        const stale = join(workDir, 'stale.beast2');
+        writeFileSync(stale, encodeBeast2For(PatchType(PlansType))(variant('patch', new SortedMap<string, PlanOp>([
+          ['p-11', variant('delete', { status: 'ok', due: 11n, title: 'SOMETHING ELSE' })],
+        ], compareFor(StringType)))));
+        const result = await runE3Command(['mutate', remoteUrl, 'plans.patch', stale, '-w', wsName], workDir, { env });
+
+        assert.notStrictEqual(result.exitCode, 0);
+        assert.match(result.stderr, /p-11/, 'the key that disagreed crosses the API to the caller');
+        assert.match(result.stderr, /re-read it and resubmit/);
+        assert.doesNotMatch(result.stderr, /try again/, 'the same write would disagree again');
+
+        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
     });
   });

@@ -21,11 +21,6 @@ import { compactCommand } from './compact.js';
 
 const encodeInt = encodeBeast2For(IntegerType);
 
-/** A reducer runner that returns a fixed new state without spawning a process. */
-const fixedState = (value: bigint): TaskRunner => ({
-  runDetached: async () => ({ kind: 'success', value: encodeInt(value), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }),
-}) as unknown as TaskRunner;
-
 /** Run `fn` with process.exit stubbed to throw (so exitError surfaces as a
  *  rejection instead of killing the test runner) and console.error silenced. */
 async function withExitStub(fn: () => Promise<void>): Promise<void> {
@@ -52,7 +47,7 @@ describe('compactCommand', () => {
     storage = new LocalStorage(dirname(repo));
 
     const counter = e3.record('counter', IntegerType, 0n);
-    const increment = e3.mutation(
+    const increment = e3.mutation.reduce(
       'increment', counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
     );
@@ -62,7 +57,12 @@ describe('compactCommand', () => {
     await packageImport(storage, repo, zip);
     await workspaceCreate(storage, repo, 'main');
     await workspaceDeploy(storage, repo, 'main', 'counters', '1.0.0');
-    await recordMutate(storage, fixedState(7n), repo, 'main', 'counter', 'increment', [encodeInt(7n)], { actor: 'test' });
+    // The reducer's unit succeeds with the new state as its output, and no
+    // process starts.
+    const reducer = {
+      execute: async () => ({ state: 'success', cached: false, outputHash: await storage.objects.write(repo, encodeInt(7n)) }),
+    } as unknown as TaskRunner;
+    await recordMutate(storage, reducer, repo, 'main', 'counter', 'increment', [encodeInt(7n)], { actor: 'test' });
   });
 
   afterEach(() => {

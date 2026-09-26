@@ -13,6 +13,7 @@ All beast2 serialization goes through east-c. No Python fallback.
 from libc.stdint cimport int32_t, uint8_t, uintptr_t
 from libc.stddef cimport size_t
 from libc.stdlib cimport free, malloc
+from libc.string cimport memset
 from cpython.ref cimport PyObject, Py_INCREF, Py_XDECREF
 
 from east cimport _eastc
@@ -349,6 +350,301 @@ cpdef bytes _encode_beast2_v5(object py_type, object value, object codec, bint w
     return result
 
 
+cpdef bytes _encode_beast2_paged(object py_type, object value, object codec):
+    """One collection value as a segmented, self-contained, indexed v5 blob
+    cut by the content-defined rule — east-c's writer, so the bytes are the
+    ones every runtime writes for the value."""
+    _ensure_eastc_runtime()
+    cdef int32_t codec_id = _codec_id(codec)
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef _eastc.ByteBuffer* buf
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    buf = _eastc.east_beast2_encode_paged(c_val, c_type, codec_id)
+    _eastc.east_value_release(c_val)
+    if buf == NULL:
+        _eastc.east_type_release(c_type)
+        _consume_eastc_error("east-c beast2 paged encode returned NULL")
+
+    cdef bytes result = buf.data[:buf.len]
+    _eastc.byte_buffer_free(buf)
+    _eastc.east_type_release(c_type)
+    return result
+
+
+cpdef bytes _encode_beast2_fence(object py_type, object value):
+    """The canonical bare encoding of one value — a segment's fence, and what
+    the boundary rule hashes. east-c's own encoder, so the bytes are the ones
+    every runtime agrees on."""
+    _ensure_eastc_runtime()
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef _eastc.ByteBuffer* buf
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    buf = _eastc.east_beast2_encode_fence(c_val, c_type)
+    _eastc.east_value_release(c_val)
+    if buf == NULL:
+        _eastc.east_type_release(c_type)
+        _consume_eastc_error("east-c beast2 fence encode returned NULL")
+
+    cdef bytes result = buf.data[:buf.len]
+    _eastc.byte_buffer_free(buf)
+    _eastc.east_type_release(c_type)
+    return result
+
+
+cpdef list _segment_starts(object py_type, object value):
+    """The element indices at which a collection's segments begin under the
+    cut rule, excluding 0 — the whole segmentation of one value in one east-c
+    call."""
+    _ensure_eastc_runtime()
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef size_t* out = NULL
+    cdef size_t cap = 0
+    cdef size_t found = 0
+    cdef size_t i
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    # A wide element can close a segment on its own, so every element but
+    # the first may start one.
+    cap = max(len(value), 1)
+    out = <size_t*>malloc(cap * sizeof(size_t))
+    if out == NULL:
+        _eastc.east_value_release(c_val)
+        _eastc.east_type_release(c_type)
+        raise MemoryError("out of memory computing segment starts")
+
+    found = _eastc.east_beast2_segment_starts(c_val, c_type, out, cap)
+    _eastc.east_value_release(c_val)
+    _eastc.east_type_release(c_type)
+    if found == <size_t>-1:
+        free(out)
+        _consume_eastc_error("east-c segment-start computation failed")
+
+    cdef list result = [out[i] for i in range(found)]
+    free(out)
+    return result
+
+
+cpdef unsigned int _segment_boundary_hash(bytes data):
+    """The cut rule's hash of an element's hashed bytes: a Set or Dict key's
+    fence bytes, or an Array element's canonical bytes."""
+    _ensure_eastc_runtime()
+    if len(data) == 0:
+        return _eastc.east_beast2_segment_boundary_hash(NULL, 0)
+    cdef const uint8_t* p = <const uint8_t*><char*>data
+    return _eastc.east_beast2_segment_boundary_hash(p, len(data))
+
+
+cpdef bint _segment_is_boundary(unsigned int hash, size_t count, size_t nbytes):
+    """The rule's hash test alone: whether an element hashing to ``hash``
+    starts a segment after an open one of ``count`` elements and ``nbytes``
+    logical bytes."""
+    return _eastc.east_beast2_segment_is_boundary(hash, count, nbytes)
+
+
+cpdef bint _starts_segment_after(size_t count, size_t nbytes, bytes hash_input):
+    """The whole rule for every element but a collection's first: the bounds,
+    then the hash test on ``hash_input``."""
+    _ensure_eastc_runtime()
+    if len(hash_input) == 0:
+        return _eastc.east_beast2_starts_segment_after(count, nbytes, NULL, 0)
+    cdef const uint8_t* p = <const uint8_t*><char*>hash_input
+    return _eastc.east_beast2_starts_segment_after(count, nbytes, p, len(hash_input))
+
+
+cpdef unsigned long long _fnv1a64(bytes data):
+    """The 64-bit FNV-1a hash the boundary rule is built on."""
+    _ensure_eastc_runtime()
+    if len(data) == 0:
+        return _eastc.east_beast2_fnv1a64(NULL, 0)
+    cdef const uint8_t* p = <const uint8_t*><char*>data
+    return _eastc.east_beast2_fnv1a64(p, len(data))
+
+
+# ─── Segment manifests ────────────────────────────────────────────────────
+#
+# A collection held as standalone segment blobs and a manifest naming them: a
+# manifest directory is the manifest's file and, in `<file>.segments/`, every
+# object it names — the header and each segment — as `<sha256>.beast2`.
+# east-c reads and writes them, so a directory written here is the one east-c
+# and TypeScript write for the same value.
+
+
+def _read_manifest(object data):
+    """The manifest ``data`` holds, as a python value of the manifest struct,
+    or None when it holds anything else. Raises ValueError with east-c's
+    message when it is typed as a manifest and does not decode."""
+    cdef const uint8_t[::1] view = data
+    _ensure_eastc_runtime()
+    cdef const uint8_t* ptr = <const uint8_t*>_EMPTY
+    if view.shape[0] > 0:
+        ptr = &view[0]
+    cdef _eastc.EastValue* manifest = NULL
+    cdef int found = _eastc.east_beast2_read_manifest(ptr, <size_t>view.shape[0], &manifest)
+    if found == -1:
+        _consume_eastc_error("beast2 v5: the manifest does not decode", ValueError)
+    if found == 0:
+        return None
+    try:
+        return c_value_to_py(manifest, _eastc.east_beast2_manifest_type())
+    finally:
+        _eastc.east_value_release(manifest)
+
+
+def _decode_manifest_dir(object py_type, object path):
+    """The whole collection the manifest directory at ``path`` holds, decoded
+    segment by segment — the value its spliced blob decodes to. With
+    ``py_type`` None it decodes as the type the manifest records; a type
+    given must be that one. Raises ValueError when ``path`` holds no
+    manifest, the types differ, or a segment is missing or malformed."""
+    _ensure_eastc_runtime()
+    with open(path, "rb") as f:
+        data = f.read()
+    cdef const uint8_t[::1] view = data
+    cdef const uint8_t* ptr = <const uint8_t*>_EMPTY
+    if view.shape[0] > 0:
+        ptr = &view[0]
+    cdef _eastc.EastValue* manifest = NULL
+    cdef int found = _eastc.east_beast2_read_manifest(ptr, <size_t>view.shape[0], &manifest)
+    if found == -1:
+        _consume_eastc_error("beast2 v5: the manifest does not decode", ValueError)
+    if found == 0:
+        raise ValueError(f"beast2 v5: {path} does not hold a manifest")
+    cdef _eastc.EastType* wire = _eastc.east_type_from_value(
+        _eastc.east_struct_get_field_idx(manifest, 2))
+    cdef _eastc.EastType* declared = NULL
+    cdef _eastc.EastValue* value = NULL
+    cdef bytes c_path
+    try:
+        if wire == NULL:
+            raise ValueError(f"beast2 v5: the manifest at {path} records no type this build reads")
+        if py_type is not None:
+            declared = py_type_to_c(py_type)
+            if not _eastc.east_type_equal(declared, wire):
+                from east.serialization.east_printer import print_type
+                raise ValueError(
+                    "beast2 v5: declared type does not match the manifest — declared "
+                    f"{print_type(py_type)}, the manifest carries "
+                    f"{print_type(_c_type_tag_to_py_type(wire))}")
+        c_path = _c_path(path)
+        value = _eastc.east_beast2_decode_manifest_dir(<const char*>c_path, manifest, wire, False)
+        if value == NULL:
+            _consume_eastc_error("beast2 v5: the manifest directory does not decode", ValueError)
+        return c_value_to_py(value, wire)
+    finally:
+        if value != NULL:
+            _eastc.east_value_release(value)
+        _eastc.east_value_release(manifest)
+        if declared != NULL:
+            _eastc.east_type_release(declared)
+        if wire != NULL:
+            _eastc.east_type_release(wire)
+
+
+cdef class _Beast2ManifestWriterCore:
+    """Owner of one east-c manifest writer over a directory: the manifest at
+    ``path``, every object in ``<path>.segments/``. Elements go in as
+    :class:`_Beast2ElementWriterCore` takes them."""
+
+    cdef _eastc.Beast2ManifestWriter* _w
+    cdef _eastc.EastType* _type
+
+    def __cinit__(self, object py_type, object path, object codec):
+        _ensure_eastc_runtime()
+        cdef int32_t codec_id = _codec_id(codec)
+        cdef bytes c_path = _c_path(path)
+        self._type = py_type_to_c(py_type)
+        self._w = _eastc.east_beast2_manifest_writer_new_dir(self._type, codec_id,
+                                                             <const char*>c_path)
+        if self._w == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 manifest writer construction failed")
+
+    def add(self, object element):
+        """Add one element — for a Dict, a ``(key, value)`` pair."""
+        cdef _eastc.EastValue* c_head
+        cdef _eastc.EastValue* c_value
+        cdef bint ok
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            key, value = element
+            c_head = py_value_to_c(key, self._type.data.dict.key)
+            try:
+                c_value = py_value_to_c(value, self._type.data.dict.value)
+            except BaseException:
+                _eastc.east_value_release(c_head)
+                raise
+            ok = _eastc.east_beast2_manifest_writer_add_pair(self._w, c_head, c_value)
+            _eastc.east_value_release(c_value)
+        else:
+            c_head = py_value_to_c(element, self._type.data.element)
+            ok = _eastc.east_beast2_manifest_writer_add(self._w, c_head)
+        _eastc.east_value_release(c_head)
+        if not ok:
+            _consume_eastc_error("east-c beast2 manifest writer add failed")
+
+    def add_all(self, object batch):
+        """Add every element of ``batch``, a value of the collection type, in
+        its order — one conversion and a loop in C."""
+        cdef _eastc.EastValue* c_val = py_value_to_c(batch, self._type)
+        cdef bint ok = self._add_each(c_val)
+        _eastc.east_value_release(c_val)
+        if not ok:
+            _consume_eastc_error("east-c beast2 manifest writer add failed")
+
+    cdef bint _add_each(self, _eastc.EastValue* batch) noexcept:
+        cdef size_t i
+        if self._type.kind == _eastc.EAST_TYPE_ARRAY:
+            for i in range(_eastc.east_array_len(batch)):
+                if not _eastc.east_beast2_manifest_writer_add(self._w, _eastc.east_array_get(batch, i)):
+                    return False
+        elif self._type.kind == _eastc.EAST_TYPE_SET:
+            for i in range(_eastc.east_set_len(batch)):
+                if not _eastc.east_beast2_manifest_writer_add(self._w, _eastc.east_set_at(batch, i)):
+                    return False
+        else:
+            for i in range(_eastc.east_dict_len(batch)):
+                if not _eastc.east_beast2_manifest_writer_add_pair(
+                        self._w, _eastc.east_dict_key_at(batch, i), _eastc.east_dict_val_at(batch, i)):
+                    return False
+        return True
+
+    def finish(self):
+        """Write the open segment, then the manifest. A finish that fails
+        writes no manifest."""
+        if not _eastc.east_beast2_manifest_writer_finish(self._w):
+            _consume_eastc_error("east-c beast2 manifest writer finish failed")
+
+    def segments(self):
+        """Segments written so far; the open one is not counted."""
+        return _eastc.east_beast2_manifest_writer_segments(self._w)
+
+    def __dealloc__(self):
+        if self._w != NULL:
+            _eastc.east_beast2_manifest_writer_free(self._w)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
 cdef class _Beast2WriterCore:
     """Thin wrapper over east-c's streaming v5 writer. The Python-facing
     Beast2Writer in east.serialization.beast2 owns the output stream and
@@ -388,29 +684,234 @@ cdef class _Beast2WriterCore:
 
     def set_parallel(self, bint parallel):
         """Deflate frames on worker threads (issue #763). Before the second
-        segment only; a caller that sizes batches from the bytes emitted must
-        then read them through :meth:`emitted_bounds`."""
+        segment only; the bytes are the inline writer's either way."""
         _eastc.east_beast2_writer_set_parallel(self._w, parallel)
-
-    def emitted_bounds(self):
-        """``(lo, hi)`` bracketing the total bytes the writer will have
-        emitted once every submitted frame lands; ``lo == hi`` when none is in
-        flight."""
-        cdef size_t lo = 0
-        cdef size_t hi = 0
-        _eastc.east_beast2_writer_emitted_bounds(self._w, &lo, &hi)
-        return (lo, hi)
-
-    def settle(self):
-        """Wait for every in-flight frame, after which the bounds are exact."""
-        # The workers are pure C threads and never touch Python, so waiting
-        # with the GIL held cannot deadlock them.
-        if not _eastc.east_beast2_writer_settle(self._w):
-            _consume_eastc_error("east-c beast2 v5 writer settle failed")
 
     def __dealloc__(self):
         if self._w != NULL:
             _eastc.east_beast2_writer_free(self._w)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
+cdef class _Beast2ElementWriterCore:
+    """Thin wrapper over east-c's canonical element writer. The Python-facing
+    Beast2ElementWriter in east.serialization.beast2 owns the output stream
+    and drains pending bytes after every operation."""
+
+    cdef _eastc.Beast2ElementWriter* _w
+    cdef _eastc.EastType* _type
+
+    def __cinit__(self, object py_type, object codec):
+        _ensure_eastc_runtime()
+        cdef int32_t codec_id = _codec_id(codec)
+        self._type = py_type_to_c(py_type)
+        self._w = _eastc.east_beast2_element_writer_new(self._type, codec_id)
+        if self._w == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 element writer construction failed")
+
+    def add(self, object element):
+        """Add one element — for a Dict, a ``(key, value)`` pair."""
+        cdef _eastc.EastValue* c_head
+        cdef _eastc.EastValue* c_value
+        cdef bint ok
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            key, value = element
+            c_head = py_value_to_c(key, self._type.data.dict.key)
+            try:
+                c_value = py_value_to_c(value, self._type.data.dict.value)
+            except BaseException:
+                _eastc.east_value_release(c_head)
+                raise
+            ok = _eastc.east_beast2_element_writer_add_pair(self._w, c_head, c_value)
+            _eastc.east_value_release(c_value)
+        else:
+            c_head = py_value_to_c(element, self._type.data.element)
+            ok = _eastc.east_beast2_element_writer_add(self._w, c_head)
+        _eastc.east_value_release(c_head)
+        if not ok:
+            _consume_eastc_error("east-c beast2 element writer add failed")
+
+    def add_all(self, object batch):
+        """Add every element of ``batch``, a value of the collection type, in
+        its order — one conversion and a loop in C, however many elements."""
+        cdef _eastc.EastValue* c_val = py_value_to_c(batch, self._type)
+        cdef bint ok = self._add_each(c_val)
+        _eastc.east_value_release(c_val)
+        if not ok:
+            _consume_eastc_error("east-c beast2 element writer add failed")
+
+    cdef bint _add_each(self, _eastc.EastValue* batch) noexcept:
+        cdef size_t i
+        if self._type.kind == _eastc.EAST_TYPE_ARRAY:
+            for i in range(_eastc.east_array_len(batch)):
+                if not _eastc.east_beast2_element_writer_add(self._w, _eastc.east_array_get(batch, i)):
+                    return False
+        elif self._type.kind == _eastc.EAST_TYPE_SET:
+            for i in range(_eastc.east_set_len(batch)):
+                if not _eastc.east_beast2_element_writer_add(self._w, _eastc.east_set_at(batch, i)):
+                    return False
+        else:
+            for i in range(_eastc.east_dict_len(batch)):
+                if not _eastc.east_beast2_element_writer_add_pair(
+                        self._w, _eastc.east_dict_key_at(batch, i), _eastc.east_dict_val_at(batch, i)):
+                    return False
+        return True
+
+    def take(self):
+        cdef _eastc.ByteBuffer* buf = _eastc.east_beast2_element_writer_take(self._w)
+        if buf == NULL:
+            return b""
+        cdef bytes result = buf.data[:buf.len]
+        _eastc.byte_buffer_free(buf)
+        return result
+
+    def finish(self):
+        if not _eastc.east_beast2_element_writer_finish(self._w):
+            _consume_eastc_error("east-c beast2 element writer finish failed")
+
+    def set_parallel(self, bint parallel):
+        """Deflate frames on worker threads (issue #763); where the segments
+        fall never depends on it."""
+        _eastc.east_beast2_element_writer_set_parallel(self._w, parallel)
+
+    def segments(self):
+        """Segments closed so far; the open one is not counted."""
+        return _eastc.east_beast2_element_writer_segments(self._w)
+
+    def __dealloc__(self):
+        if self._w != NULL:
+            _eastc.east_beast2_element_writer_free(self._w)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
+# ─── Sorted runs ──────────────────────────────────────────────────────────
+#
+# east-c's run sorter, so the runs are the bytes east-c and TypeScript write
+# for the same elements. Its sink calls back into python for each run:
+# ``open_run(run)`` returns an object with ``write(bytes)`` and ``close()``.
+# An exception raised there is kept, the C call fails, and the method that
+# made it raises the exception in place of east-c's message.
+
+
+cdef _eastc.cbool _run_sink_open(void* ctx, size_t run) noexcept with gil:
+    cdef _Beast2RunSorterCore core = <_Beast2RunSorterCore>ctx
+    try:
+        core._sink = core._open_run(run)
+        return True
+    except BaseException as exc:
+        return core._keep(exc)
+
+
+cdef _eastc.cbool _run_sink_write(void* ctx, const uint8_t* data, size_t length) noexcept with gil:
+    cdef _Beast2RunSorterCore core = <_Beast2RunSorterCore>ctx
+    try:
+        core._sink.write((<const char*>data)[:length])
+        return True
+    except BaseException as exc:
+        return core._keep(exc)
+
+
+cdef _eastc.cbool _run_sink_close(void* ctx) noexcept with gil:
+    cdef _Beast2RunSorterCore core = <_Beast2RunSorterCore>ctx
+    try:
+        sink, core._sink = core._sink, None
+        sink.close()
+        return True
+    except BaseException as exc:
+        return core._keep(exc)
+
+
+cdef class _Beast2RunSorterCore:
+    """Owner of one east-c run sorter. ``open_run(run)`` returns the sink for
+    run ``run``; ``merge`` is a compiled ``(K, V, V) -> V`` East function
+    (Dict roots) and ``union_mode`` keeps a Set element added again once.
+    Raises TypeError with east-c's message for a root other than a Set or
+    Dict, or a fold that does not fit it."""
+
+    cdef _eastc.Beast2RunSorter* _s
+    cdef _eastc.EastType* _type
+    cdef object _open_run
+    cdef object _sink     # the open run's
+    cdef object _pending  # what a sink raised, for the call that ran it
+    cdef object _merge    # borrowed by the sorter for its lifetime
+
+    def __cinit__(self, object py_type, object open_run, object codec, object merge=None,
+                  bint union_mode=False):
+        _ensure_eastc_runtime()
+        cdef int32_t codec_id = _codec_id(codec)
+        cdef _eastc.EastCompiledFn* merge_fn = NULL
+        if merge is not None:
+            merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
+        self._open_run = open_run
+        self._merge = merge
+        self._type = py_type_to_c(py_type)
+        cdef _eastc.Beast2RunSink sink
+        sink.ctx = <void*>self
+        sink.open = _run_sink_open
+        sink.write = _run_sink_write
+        sink.close = _run_sink_close
+        self._s = _eastc.east_beast2_run_sorter_new(self._type, codec_id, &sink, merge_fn,
+                                                     union_mode)
+        if self._s == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 run sorter construction failed", TypeError)
+
+    cdef bint _keep(self, object exc):
+        self._pending = exc
+        _eastc.east_builtin_error(b"beast2 v5: the run sink failed")
+        return False
+
+    cdef _raise_failure(self, str fallback):
+        exc = self._pending
+        if exc is not None:
+            self._pending = None
+            free(_eastc.east_builtin_get_error())
+            raise exc
+        _consume_eastc_error(fallback)
+
+    def add(self, object element):
+        """Add one element — for a Dict, a ``(key, value)`` pair."""
+        cdef _eastc.EastValue* c_head
+        cdef _eastc.EastValue* c_value
+        cdef bint ok
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            key, value = element
+            c_head = py_value_to_c(key, self._type.data.dict.key)
+            try:
+                c_value = py_value_to_c(value, self._type.data.dict.value)
+            except BaseException:
+                _eastc.east_value_release(c_head)
+                raise
+            ok = _eastc.east_beast2_run_sorter_add_pair(self._s, c_head, c_value)
+            _eastc.east_value_release(c_value)
+        else:
+            c_head = py_value_to_c(element, self._type.data.element)
+            ok = _eastc.east_beast2_run_sorter_add(self._s, c_head)
+        _eastc.east_value_release(c_head)
+        if not ok:
+            self._raise_failure("east-c beast2 run sorter add failed")
+
+    def finish(self):
+        if not _eastc.east_beast2_run_sorter_finish(self._s):
+            self._raise_failure("east-c beast2 run sorter finish failed")
+
+    def runs(self):
+        """Runs written so far; the open one is not counted."""
+        return _eastc.east_beast2_run_sorter_runs(self._s)
+
+    def set_parallel(self, bint parallel):
+        """Deflate every run's frames on worker threads; the bytes are the
+        inline writer's either way."""
+        _eastc.east_beast2_run_sorter_set_parallel(self._s, parallel)
+
+    def __dealloc__(self):
+        if self._s != NULL:
+            _eastc.east_beast2_run_sorter_free(self._s)
         if self._type != NULL:
             _eastc.east_type_release(self._type)
 
@@ -660,233 +1161,6 @@ cdef class _Beast2PagesCore:
             _eastc.east_type_release(self._type)
 
 
-# ─── The streaming emit sink (issues #507, #518, #770) ────────────────────
-#
-# The streamTask emit capability over east-c's library sink
-# (east/emit_sink.h) — the very code the east-c CLI runs, so the two runners
-# write the same bytes for the same emissions. Everything per row happens in
-# C: batching, the ascending check, the --merge / --union folds of adjacent
-# equal keys, and the duplicate and out-of-order messages. _EmitSinkCore
-# owns the EastEmitSink*; _EmitSink (east-py-cli) validates the emit
-# parameter. _merge_blobs below is the fan-in's twin: east-c's blob merge
-# (east/merge.h) behind `east-py merge`.
-
-
-cdef struct _EmitSinkEntry:
-    # The sink's own function value (retained): its invoke is the per-row
-    # entry, reading the EastEmitSink* from its userdata.
-    _eastc.EastValue* sink_fn
-    # The _EmitSinkCore (one reference): the sink the entry reaches into
-    # lives exactly as long as the core, so every function value handed out
-    # holds the core.
-    PyObject* owner
-
-
-cdef _eastc.EvalResult _emit_sink_invoke(_eastc.EastCompiledFn* self,
-                                         _eastc.EastValue** args, size_t n) noexcept:
-    """Forward one emitted row to the sink's per-row entry — pure C, no
-    python per row."""
-    cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>self.invoke_userdata
-    return _eastc.east_call(entry.sink_fn.data.function.compiled, args, n)
-
-
-cdef void _emit_sink_release(void* ud) noexcept with gil:
-    cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>ud
-    if entry == NULL:
-        return
-    if entry.sink_fn != NULL:
-        _eastc.east_value_release(entry.sink_fn)
-    Py_XDECREF(entry.owner)
-    free(entry)
-
-
-cdef class _EmitSinkCore:
-    """Owner of one east-c emit sink behind a streamTask ``emit``.
-
-    ``kind``: 0 = array, 1 = set, 2 = dict; ``emit_types`` the emit
-    parameter's argument types (the element, or the key and the value). The
-    sink opens ``output_path`` at construction. Set and Dict emissions must
-    ascend in East order: an out-of-order key is an error, and so is an
-    equal key unless the sink folds it — ``merge`` (a compiled
-    ``(K, V, V) -> V`` East function; a dict sink folds an adjacent equal
-    key with it, in emission order) or ``union_mode`` (an adjacent equal set
-    element collapses into the previous one).
-
-    Raises ValueError when ``merge`` does not match the emit parameter, or
-    when the sink cannot open (the output is not writable, a merge function
-    on a non-dict sink, union mode on a non-set sink).
-    """
-
-    cdef readonly int kind
-    cdef _eastc.EastEmitSink* _sink
-    cdef _eastc.EastValue* _sink_fn  # retained: the sink's function value
-    cdef _eastc.EastType* _fn_t      # the emit parameter's function type
-    cdef _eastc.EastType* _out_type  # the output collection type
-    cdef bytes _path                 # borrowed by the sink for its lifetime
-    cdef object _merge               # borrowed by the sink for its lifetime
-
-    def __cinit__(self, int kind, object emit_types, object output_path, object merge=None,
-                  bint union_mode=False):
-        import os
-
-        from east.types.types import FunctionType, NullType
-
-        _ensure_eastc_runtime()
-        self.kind = kind
-        self._fn_t = py_type_to_c(FunctionType(list(emit_types), NullType))
-        cdef _eastc.EastType** ins = self._fn_t.data.function.inputs
-        if kind == 2:
-            self._out_type = _eastc.east_dict_type(ins[0], ins[1])
-        elif kind == 1:
-            self._out_type = _eastc.east_set_type(ins[0])
-        else:
-            self._out_type = _eastc.east_array_type(ins[0])
-        # east-c opens the output with fopen, which reads the bytes in the
-        # ANSI code page on Windows.
-        self._path = _c_path(output_path)
-
-        cdef _eastc.EastCompiledFn* merge_fn = NULL
-        if merge is not None:
-            merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
-            if kind == 2:
-                self._check_merge(merge_fn)
-            self._merge = merge
-
-        cdef _eastc.EastEmitSinkConfig cfg
-        cfg.kind = <_eastc.EastEmitKind>kind
-        cfg.out_type = self._out_type
-        cfg.output_path = <const char*>self._path
-        cfg.merge_fn = merge_fn
-        cfg.union_mode = union_mode
-        self._sink = _eastc.east_emit_sink_new(&cfg)
-        if self._sink == NULL:
-            _consume_eastc_error("emit: failed to open the sink", ValueError)
-        self._sink_fn = _eastc.east_emit_sink_function(self._sink, self._fn_t)
-        if self._sink_fn == NULL:
-            raise MemoryError()
-
-    cdef void _check_merge(self, _eastc.EastCompiledFn* merge_fn) except *:
-        """The --merge function must be (K, V, V) -> V over the emit
-        parameter's key and value types — the east-c CLI's check and
-        message."""
-        cdef _eastc.EastType* key_t = self._fn_t.data.function.inputs[0]
-        cdef _eastc.EastType* val_t = self._fn_t.data.function.inputs[1]
-        cdef _eastc.EastType* t = merge_fn.fn_type if merge_fn != NULL else NULL
-        if (t != NULL and t.kind == _eastc.EAST_TYPE_FUNCTION
-                and t.data.function.num_inputs == 3
-                and _eastc.east_type_equal(t.data.function.inputs[0], key_t)
-                and _eastc.east_type_equal(t.data.function.inputs[1], val_t)
-                and _eastc.east_type_equal(t.data.function.inputs[2], val_t)
-                and _eastc.east_type_equal(t.data.function.output, val_t)):
-            return
-        from east.serialization.east_printer import print_type
-
-        got = print_type(_c_type_tag_to_py_type(t)) if t != NULL else "?"
-        raise ValueError(
-            "--merge: expected a function (K, V, V) -> V matching the emit parameter "
-            f"(K = {print_type(_c_type_tag_to_py_type(key_t))}, "
-            f"V = {print_type(_c_type_tag_to_py_type(val_t))}), got {got}")
-
-    def __dealloc__(self):
-        if self._sink_fn != NULL:
-            _eastc.east_value_release(self._sink_fn)
-        if self._sink != NULL:
-            _eastc.east_emit_sink_free(self._sink)
-        if self._out_type != NULL:
-            _eastc.east_type_release(self._out_type)
-        if self._fn_t != NULL:
-            _eastc.east_type_release(self._fn_t)
-
-    def function_value(self):
-        """The emit capability as the bridge's standard CALL WRAPPER around
-        the sink's function value: passed to a compiled body's FunctionType
-        parameter it hands east-c the value itself (``_east_c_handle``), so
-        the per-row loop runs with no python; its declared type is the emit
-        parameter's, so signature introspection answers.
-
-        It is also CALLABLE (issue #592): a harness that invokes a
-        ``@platform_function`` directly from python gets the same shape a
-        compiled body's decode gives it. Called on plain values it marshals
-        one row through the sink's per-row entry, as :meth:`emit` does;
-        called from inside a trace it lowers to an IR ``Call`` on the sink
-        (#561), so a pure ``for_each(lambda k, v: emit(k, v))`` still runs
-        with zero python per row. The value holds this core, so the sink
-        stays open while any copy of it lives.
-        """
-        cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>malloc(sizeof(_EmitSinkEntry))
-        if entry == NULL:
-            raise MemoryError()
-        entry.sink_fn = self._sink_fn
-        _eastc.east_value_retain(entry.sink_fn)
-        entry.owner = <PyObject*>self
-        Py_INCREF(self)
-        cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
-            <_eastc.EastInvokeFn>_emit_sink_invoke, <void*>entry, _emit_sink_release, self._fn_t)
-        if fv == NULL:
-            # east_foreign_function released the entry (and its references).
-            raise MemoryError()
-        try:
-            # The bridge's own function wrapper — it retains the value and
-            # its parameter types, tags itself with _east_c_handle, and routes
-            # a proxy-argument call through _lower_compiled_call, like every
-            # other compiled East function value.
-            return c_value_to_py(fv, self._fn_t)
-        finally:
-            _eastc.east_value_release(fv)  # the wrapper owns it from here
-
-    def emit(self, *args):
-        """The python-boundary entry: marshal one row and invoke the sink's
-        per-row entry — the path a compiled body's call takes."""
-        cdef _eastc.EastValue* c_args[2]
-        cdef size_t need = 2 if self.kind == 2 else 1
-        cdef _eastc.EvalResult r
-        if <size_t>len(args) < need:
-            raise TypeError("emit: missing argument")
-        c_args[0] = py_value_to_c(args[0], self._fn_t.data.function.inputs[0])
-        if need == 2:
-            try:
-                c_args[1] = py_value_to_c(args[1], self._fn_t.data.function.inputs[1])
-            except BaseException:
-                _eastc.east_value_release(c_args[0])
-                raise
-        r = _eastc.east_call(self._sink_fn.data.function.compiled, c_args, need)
-        _eastc.east_value_release(c_args[0])
-        if need == 2:
-            _eastc.east_value_release(c_args[1])
-        if r.value != NULL:
-            _eastc.east_value_release(r.value)
-            r.value = NULL
-        if r.status != _eastc.EVAL_OK and r.status != _eastc.EVAL_RETURN:
-            from east.runtime.errors import EastError
-            msg = r.error_message.decode("utf-8") if r.error_message != NULL \
-                else "emit failed"
-            _eastc.eval_result_free(&r)
-            raise EastError(msg, [])
-        _eastc.eval_result_free(&r)
-
-    def finish(self):
-        """Flush the open batch and write the terminator and index. On
-        failure the output is left unfinalized and EastError carries the
-        sink's message."""
-        cdef char* err
-        if _eastc.east_emit_sink_finish(self._sink):
-            return
-        err = _eastc.east_builtin_get_error()
-        msg = "emit: failed to finalize the emitted output"
-        if err != NULL:
-            msg = (<bytes>err).decode("utf-8", errors="replace")
-            free(err)
-        from east.runtime.errors import EastError
-        raise EastError(msg, [])
-
-    def stats(self):
-        """The sink's counter: ``emitted``, every emission including the
-        ones that folded."""
-        cdef _eastc.EastEmitSinkStats st
-        _eastc.east_emit_sink_stats(self._sink, &st)
-        return {"emitted": st.emitted}
-
-
 cdef bytes _c_path(object path):
     """A path as the bytes east-c's fopen reads: the ANSI code page on
     Windows, the filesystem encoding elsewhere."""
@@ -898,20 +1172,22 @@ cdef bytes _c_path(object path):
 
 
 def _merge_blobs(object input_paths, object output_path, object merge=None,
-                 bint union_mode=False, object range_path=None):
+                 bint union_mode=False, object range_path=None, bint output_manifest=False):
     """Merge sorted Set or Dict blobs of one type into one — east-c's
-    ``east_merge_blobs`` (east/merge.h), the very code ``east-c merge`` runs,
-    so the two runners write the same bytes (#770). One pass: every input is
-    read segment by segment through a mapping, a heap over the inputs yields
-    keys in East order, and the output goes through the emit sink's segment
-    writer, byte-identical to what ``run --emit`` writes for the same entries
-    emitted ascending. Equal keys fold in input order — ``merge`` (a compiled
+    ``east_merge_blobs`` (east/merge.h), the very code a merge unit runs, so
+    every runner writes the same bytes (#770). One pass: every input is read
+    segment by segment through a mapping, a heap over the inputs yields keys
+    in East order, and the output goes through the canonical element writer,
+    byte-identical to the paged encode of the merged value. Equal keys fold
+    in input order — ``merge`` (a compiled
     ``(K, V, V) -> V`` East function) on Dict inputs, ``union_mode`` (the
     first element stands) on Set inputs — and are the duplicate error
     without a fold. With ``range_path`` — a beast2 blob of ``Struct{from:
     Option<K>, to: Option<K>}`` over the inputs' key type, an absent bound
     open — only the keys in ``[from, to)`` merge: every input is sought to
-    the segment owning ``from`` through its fences.
+    the segment owning ``from`` through its fences. An input may be a
+    manifest directory (its manifest's path); with ``output_manifest`` the
+    output is written as one.
 
     Returns ``{"inputs", "entries", "folds"}``. Raises ValueError with
     east-c's message — an input of another type than input 0's, an Array,
@@ -937,6 +1213,7 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     cfg.input_paths = c_paths
     cfg.num_inputs = n
     cfg.output_path = <const char*>out_bytes
+    cfg.output_manifest = output_manifest
     cfg.merge_fn = merge_fn
     cfg.union_mode = union_mode
     cfg.range_path = <const char*>range_bytes if range_path is not None else NULL
@@ -949,6 +1226,329 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     if not ok:
         _consume_eastc_error("merge failed", ValueError)
     return {"inputs": st.inputs, "entries": st.entries, "folds": st.folds}
+
+
+# ─── The runner protocol (east/unit.h) ────────────────────────────────────
+#
+# What `east-py exec` reads and writes, through the very code the east-c CLI
+# runs: the unit, the result, the sink a running program's output goes
+# through and the merge of a unit's runs — so the two runners read the same
+# units and write the same bytes.
+
+
+_UNIT_OUTPUT_KINDS = ("value", "array", "set", "dict", "fold")
+
+
+cdef object _py_path(const char* path):
+    """A path east-c returned, as python text — ``_c_path`` undone."""
+    import os
+
+    if path == NULL:
+        return None
+    cdef bytes raw = path
+    if os.name == "nt":
+        return raw.decode("mbcs")
+    return os.fsdecode(raw)
+
+
+def _read_unit(object path):
+    """The unit file at ``path`` as a dict: ``merge`` (whether the work is a
+    merge rather than a run), ``program``, ``inputs`` (a merge's parts),
+    ``range``, ``output`` (its ``kind`` and its ``path``, ``merge``, ``zero``
+    and ``combine``), ``platforms``, ``threads`` and ``result``. Every path is
+    resolved against the unit file's directory. Raises ValueError with
+    east-c's message when the file does not hold a unit."""
+    _ensure_eastc_runtime()
+    cdef bytes c_path = _c_path(path)
+    cdef _eastc.EastUnit* unit = _eastc.east_unit_read(<const char*>c_path)
+    if unit == NULL:
+        _consume_eastc_error("the unit cannot be read", ValueError)
+    cdef size_t i
+    try:
+        inputs = []
+        for i in range(unit.num_inputs):
+            inputs.append(_py_path(unit.inputs[i]))
+        platforms = []
+        for i in range(unit.num_platforms):
+            platforms.append((<bytes>unit.platforms[i]).decode("utf-8"))
+        return {
+            "merge": bool(unit.merge),
+            "program": _py_path(unit.program),
+            "inputs": inputs,
+            "range": _py_path(unit.range),
+            "output": {
+                "kind": _UNIT_OUTPUT_KINDS[<int>unit.output.kind],
+                "path": _py_path(unit.output.path),
+                "merge": _py_path(unit.output.merge),
+                "zero": _py_path(unit.output.zero),
+                "combine": _py_path(unit.output.combine),
+            },
+            "platforms": platforms,
+            "threads": unit.threads,
+            "result": _py_path(unit.result),
+        }
+    finally:
+        _eastc.east_unit_free(unit)
+
+
+def _write_unit_result(object path, bint ok, object message, object locations,
+                       object peak_bytes, object timings):
+    """Write a unit's result to ``path``: the outcome — ok, or the failure's
+    ``message`` and ``locations``, ``(filename, line, column)`` innermost
+    first — with the peak memory and ``timings`` (``load``, ``compile``,
+    ``execute`` and ``output``, in milliseconds). Raises OSError with
+    east-c's message when it cannot be written."""
+    _ensure_eastc_runtime()
+    cdef bytes c_path = _c_path(path)
+    cdef bytes c_message = (message or "").encode("utf-8")
+    cdef list names = [str(location[0]).encode("utf-8") for location in locations]
+    cdef size_t n = len(names)
+    cdef _eastc.EastUnitLocation* c_locations = <_eastc.EastUnitLocation*>malloc(
+        (n if n > 0 else 1) * sizeof(_eastc.EastUnitLocation))
+    if c_locations == NULL:
+        raise MemoryError()
+    cdef size_t i
+    for i in range(n):
+        c_locations[i].filename = <const char*>(<bytes>names[i])
+        c_locations[i].line = locations[i][1]
+        c_locations[i].column = locations[i][2]
+    cdef _eastc.EastUnitResult result
+    result.ok = ok
+    result.message = <const char*>c_message
+    result.locations = c_locations
+    result.num_locations = n
+    result.peak_bytes = peak_bytes
+    result.load_ms = timings["load"]
+    result.compile_ms = timings["compile"]
+    result.execute_ms = timings["execute"]
+    result.output_ms = timings["output"]
+    cdef bint written
+    try:
+        written = _eastc.east_unit_write_result(<const char*>c_path, &result)
+    finally:
+        free(c_locations)
+    if not written:
+        _consume_eastc_error("the result cannot be written", OSError)
+
+
+def _write_unit_value(object py_type, object path, object value):
+    """Write a value output: a collection as a manifest directory at
+    ``path``, anything else as one blob there — east-c's writer, so the bytes
+    are the east-c CLI's for the same value. A frozen or paged hold passes
+    its C value through. Raises OSError with east-c's message."""
+    _ensure_eastc_runtime()
+    cdef bytes c_path = _c_path(path)
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val = NULL
+    try:
+        hold = getattr(value, "_east_c_value", None)
+        if hold is None:
+            hold = getattr(value, "_east_c_paged", None)
+        if hold is not None:
+            c_val = <_eastc.EastValue*><uintptr_t>hold
+            _eastc.east_value_retain(c_val)
+        else:
+            c_val = py_value_to_c(value, c_type)
+        if not _eastc.east_unit_write_value(<const char*>c_path, c_val, c_type):
+            _consume_eastc_error("the output cannot be written", OSError)
+    finally:
+        if c_val != NULL:
+            _eastc.east_value_release(c_val)
+        _eastc.east_type_release(c_type)
+
+
+cdef struct _SinkEntry:
+    # The sink's own function value (retained): its invoke is the entry each
+    # emission takes, reading the EastUnitSink* from its userdata.
+    _eastc.EastValue* sink_fn
+    # The _UnitSinkCore (one reference): the sink the entry reaches into lives
+    # exactly as long as the core, so every function value handed out holds
+    # the core.
+    PyObject* owner
+
+
+cdef _eastc.EvalResult _sink_invoke(_eastc.EastCompiledFn* self,
+                                    _eastc.EastValue** args, size_t n) noexcept:
+    """Forward one emission to the sink's entry — pure C, no python per
+    emission."""
+    cdef _SinkEntry* entry = <_SinkEntry*>self.invoke_userdata
+    return _eastc.east_call(entry.sink_fn.data.function.compiled, args, n)
+
+
+cdef void _sink_release(void* ud) noexcept with gil:
+    cdef _SinkEntry* entry = <_SinkEntry*>ud
+    if entry == NULL:
+        return
+    if entry.sink_fn != NULL:
+        _eastc.east_value_release(entry.sink_fn)
+    Py_XDECREF(entry.owner)
+    free(entry)
+
+
+cdef class _UnitSinkCore:
+    """Owner of one east-c unit sink (east/unit.h): where a running program's
+    emitted output goes.
+
+    ``kind`` is the output's kind — ``array``, ``set``, ``dict`` or ``fold``;
+    ``emit_types`` the emit parameter's argument types; ``path`` the output's
+    directory, or a fold's file. A dict's equal keys fold with ``merge``, a
+    compiled ``(K, V, V) -> V``; a fold folds every emitted value into an
+    accumulator with ``combine``, a compiled ``(T, T) -> T``, starting at
+    ``zero``. Raises ValueError with east-c's message when a function does
+    not fit the output, or an output directory holds anything already.
+    """
+
+    cdef _eastc.EastUnitSink* _sink
+    cdef _eastc.EastValue* _sink_fn  # retained: the sink's function value
+    cdef _eastc.EastType* _fn_t      # the emit parameter's function type
+    cdef object _merge               # borrowed by the sink for its lifetime
+    cdef object _combine             # borrowed by the sink for its lifetime
+
+    def __cinit__(self, str kind, object emit_types, object path, object merge=None,
+                  object combine=None, object zero=None):
+        from east.types.types import FunctionType, NullType
+
+        _ensure_eastc_runtime()
+        self._fn_t = py_type_to_c(FunctionType(list(emit_types), NullType))
+        cdef bytes c_path = _c_path(path)
+        cdef _eastc.EastUnitOutput output
+        memset(&output, 0, sizeof(output))
+        cdef int kind_index = _UNIT_OUTPUT_KINDS.index(kind)
+        output.kind = <_eastc.EastUnitOutputKind>kind_index
+        output.path = <char*>c_path
+        cdef _eastc.EastCompiledFn* merge_fn = NULL
+        cdef _eastc.EastCompiledFn* combine_fn = NULL
+        if merge is not None:
+            merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
+            self._merge = merge
+        if combine is not None:
+            combine_fn = <_eastc.EastCompiledFn*><uintptr_t>combine._eastc_handle._compiled
+            self._combine = combine
+        cdef _eastc.EastValue* c_zero = NULL
+        if zero is not None:
+            hold = getattr(zero, "_east_c_value", None)
+            if hold is not None:
+                c_zero = <_eastc.EastValue*><uintptr_t>hold
+                _eastc.east_value_retain(c_zero)
+            else:
+                c_zero = py_value_to_c(zero, self._fn_t.data.function.inputs[0])
+        try:
+            self._sink = _eastc.east_unit_sink_new(&output, self._fn_t, merge_fn, combine_fn,
+                                                   c_zero)
+        finally:
+            # The sink retains the zero it keeps.
+            if c_zero != NULL:
+                _eastc.east_value_release(c_zero)
+        if self._sink == NULL:
+            _consume_eastc_error("exec: the output cannot be opened", ValueError)
+        self._sink_fn = _eastc.east_unit_sink_function(self._sink, self._fn_t)
+        if self._sink_fn == NULL:
+            raise MemoryError()
+
+    def __dealloc__(self):
+        if self._sink_fn != NULL:
+            _eastc.east_value_release(self._sink_fn)
+        if self._sink != NULL:
+            _eastc.east_unit_sink_free(self._sink)
+        if self._fn_t != NULL:
+            _eastc.east_type_release(self._fn_t)
+
+    def function_value(self):
+        """The emit capability, as the bridge's call wrapper around the
+        sink's function value: passed to a compiled body's trailing parameter
+        it hands east-c the value itself, so every emission runs in C.
+
+        It is also callable (issue #592), so a harness that invokes a
+        ``@platform_function`` directly from python can hand it over: called
+        on plain values it marshals one emission through the sink, and called
+        from inside a trace it lowers to an IR ``Call`` on the sink (#561). The
+        value holds this core, so the sink stays open while any copy of it
+        lives."""
+        cdef _SinkEntry* entry = <_SinkEntry*>malloc(sizeof(_SinkEntry))
+        if entry == NULL:
+            raise MemoryError()
+        entry.sink_fn = self._sink_fn
+        _eastc.east_value_retain(entry.sink_fn)
+        entry.owner = <PyObject*>self
+        Py_INCREF(self)
+        cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
+            <_eastc.EastInvokeFn>_sink_invoke, <void*>entry, _sink_release, self._fn_t)
+        if fv == NULL:
+            # east_foreign_function released the entry (and its references).
+            raise MemoryError()
+        try:
+            return c_value_to_py(fv, self._fn_t)
+        finally:
+            _eastc.east_value_release(fv)  # the wrapper owns it from here
+
+    def finish(self):
+        """Write what is still open — the last run, the array's manifest, the
+        fold's accumulator. On failure EastError carries the sink's message
+        and the output is left without its manifest."""
+        cdef char* err
+        if _eastc.east_unit_sink_finish(self._sink, NULL):
+            return
+        err = _eastc.east_builtin_get_error()
+        msg = "exec: the output cannot be written"
+        if err != NULL:
+            msg = (<bytes>err).decode("utf-8", errors="replace")
+            free(err)
+        from east.runtime.errors import EastError
+        raise EastError(msg, [])
+
+
+def _unit_merge_runs(object parts, object path, str kind, object range_path=None,
+                     object merge=None):
+    """A merge unit's set or dict ``parts`` merged into one run,
+    ``<path>/0.beast2`` — east-c's ``east_unit_merge_runs``: a key several
+    parts hold collapses (a set) or folds with ``merge``, a compiled
+    ``(K, V, V) -> V`` (a dict), in part order, over the keys in the
+    ``range_path`` file's ``[from, to)`` when there is one. Raises ValueError
+    with east-c's message."""
+    _ensure_eastc_runtime()
+    encoded = [_c_path(p) for p in parts]
+    cdef bytes c_dir = _c_path(path)
+    cdef bytes c_range = _c_path(range_path) if range_path is not None else b""
+    cdef size_t n = len(encoded)
+    cdef char** c_parts = <char**>malloc((n if n > 0 else 1) * sizeof(char*))
+    if c_parts == NULL:
+        raise MemoryError()
+    cdef size_t i
+    for i in range(n):
+        c_parts[i] = <char*>(<bytes>encoded[i])
+    cdef _eastc.EastUnit unit
+    memset(&unit, 0, sizeof(unit))
+    unit.merge = True
+    unit.inputs = c_parts
+    unit.num_inputs = n
+    unit.range = <char*>c_range if range_path is not None else NULL
+    unit.output.kind = _eastc.EAST_UNIT_SET if kind == "set" else _eastc.EAST_UNIT_DICT
+    unit.output.path = <char*>c_dir
+    cdef _eastc.EastCompiledFn* merge_fn = NULL
+    if merge is not None:
+        merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
+    cdef bint ok
+    try:
+        ok = _eastc.east_unit_merge_runs(&unit, merge_fn)
+    finally:
+        free(c_parts)
+    if not ok:
+        _consume_eastc_error("exec: the parts cannot be merged", ValueError)
+
+
+def _set_thread_limit(int threads):
+    """Cap every pool east-c starts from now on at ``threads`` — a runner's
+    grant for the unit it runs; one frames every output inline."""
+    _eastc.east_set_thread_limit(threads)
+
+
+def _peak_bytes():
+    """This process's peak resident memory in bytes — east-c's measurement,
+    so a unit's ``peakBytes`` means the same on every runner and every
+    platform: the high-water mark exec resets on Linux, the peak working set
+    on Windows, ``ru_maxrss`` elsewhere."""
+    cdef object kb = _eastc.east_peak_rss_kb()
+    return kb * 1024
 
 
 def _beast2_read_type(object data):

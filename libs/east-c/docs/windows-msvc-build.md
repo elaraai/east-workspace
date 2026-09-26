@@ -204,7 +204,7 @@ The existing `if(WIN32)` blocks assume the GNU toolchain — split MinGW vs MSVC
   `clock_gettime` comes from the `compat.h` shim instead; reassess whether the
   Threads link is still needed.
 - **PCRE2** FetchContent builds under MSVC; verify.
-- **Third-party deps** (pcre2, curl, microtar) are vendored via FetchContent, so
+- **Third-party deps** (pcre2, curl, btree.c, miniz, libdeflate) are vendored via FetchContent, so
   no system libraries are needed. An early MSVC trial (noted in
   `npm-runner-distribution.md`) hit `Could NOT find ZLIB` / `Could NOT find BZip2`;
   the current tree has no `find_package(ZLIB|BZip2)` and the Windows curl block

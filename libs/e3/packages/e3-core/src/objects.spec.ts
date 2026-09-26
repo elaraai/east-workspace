@@ -7,7 +7,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { computeHash } from './objects.js';
+import { computeHash, isObjectHash } from './objects.js';
 import {
   objectWrite,
   objectWriteStream,
@@ -71,6 +71,15 @@ describe('objects', () => {
 
       assert.strictEqual(typeof hash, 'string');
       assert.strictEqual(hash.length, 64); // SHA256 produces 64 hex chars
+    });
+  });
+
+  describe('isObjectHash', () => {
+    it('takes the form computeHash gives, and nothing a path could be made of', () => {
+      assert.strictEqual(isObjectHash(computeHash(new Uint8Array([1, 2, 3]))), true);
+      for (const value of ['', 'a'.repeat(63), 'a'.repeat(65), 'A'.repeat(64), `${'a'.repeat(62)}..`, `../${'a'.repeat(61)}`, `${'a'.repeat(63)}g`]) {
+        assert.strictEqual(isObjectHash(value), false, JSON.stringify(value));
+      }
     });
   });
 

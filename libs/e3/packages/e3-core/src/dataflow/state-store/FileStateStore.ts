@@ -6,17 +6,17 @@
 /**
  * File-based implementation of ExecutionStateStore.
  *
- * Persists execution state to the workspace directory structure:
- * - workspaces/{ws}/execution.beast2 - Current/last execution state (binary format)
- * - workspaces/{ws}/execution-counter - Auto-increment counter
+ * Persists a workspace's latest execution state, whose id is its run's, to
+ * `workspaces/{ws}/execution.beast2`.
  *
  * Events are stored inline in the execution state (not as a separate file).
  * This enables crash recovery and external monitoring of execution progress.
  */
 
 import { promises as fs } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { encodeBeast2For, decodeBeast2For, some } from '@elaraai/east';
+import { join } from 'node:path';
+import { encodeBeast2For, some } from '@elaraai/east';
+import { decodeDataflowExecutionState } from '@elaraai/e3-types';
 import type {
   ExecutionStateStore,
   TaskStatusDetails,
@@ -29,13 +29,14 @@ import {
   type TaskState,
   type TaskStatus,
 } from '../types.js';
-// The single hardened temp→final rename (retries transient Windows sharing
-// violations); shared with the object/ref stores so the retry budget can't drift.
-import { renameWithRetry } from '../../storage/local/localHelpers.js';
+import { checkName } from '../../errors.js';
+// The one atomic write every local record goes through: staged as a `.partial`
+// gc sweeps, and renamed over the record with the shared Windows retry budget.
+import { atomicWriteFile } from '../../storage/local/localHelpers.js';
 
-// Create encoder/decoder for beast2 serialization
+// The state is written at this e3's version, and read at any version it
+// reads (decodeDataflowExecutionState).
 const encode = encodeBeast2For(DataflowExecutionStateType);
-const decode = decodeBeast2For(DataflowExecutionStateType);
 
 // Type helper for mutable state (removes readonly)
 type Mutable<T> = { -readonly [P in keyof T]: T[P] extends object ? Mutable<T[P]> : T[P] };
@@ -62,6 +63,7 @@ export class FileStateStore implements ExecutionStateStore {
    * Get the path to a workspace's directory.
    */
   private workspacePath(workspace: string): string {
+    checkName('workspace', workspace);
     return join(this.workspacesDir, workspace);
   }
 
@@ -70,13 +72,6 @@ export class FileStateStore implements ExecutionStateStore {
    */
   private statePath(workspace: string): string {
     return join(this.workspacePath(workspace), 'execution.beast2');
-  }
-
-  /**
-   * Get the path to a workspace's execution counter file.
-   */
-  private counterPath(workspace: string): string {
-    return join(this.workspacePath(workspace), 'execution-counter');
   }
 
   async create(state: DataflowExecutionState): Promise<void> {
@@ -88,9 +83,7 @@ export class FileStateStore implements ExecutionStateStore {
       throw new Error(`Execution ${state.id} already exists in workspace '${state.workspace}'`);
     }
 
-    // Write state atomically using beast2 encoding
-    const data = encode(state);
-    await this.atomicWrite(path, data);
+    await atomicWriteFile(path, encode(state));
   }
 
   async read(repo: string, workspace: string, id: string): Promise<DataflowExecutionState | null> {
@@ -98,7 +91,7 @@ export class FileStateStore implements ExecutionStateStore {
 
     try {
       const data = await fs.readFile(path);
-      const state = decode(data);
+      const state = decodeDataflowExecutionState(data);
 
       // Check if this is the requested execution
       if (state.id !== id) {
@@ -124,7 +117,7 @@ export class FileStateStore implements ExecutionStateStore {
 
     try {
       const data = await fs.readFile(path);
-      return decode(data);
+      return decodeDataflowExecutionState(data);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return null;
@@ -139,7 +132,7 @@ export class FileStateStore implements ExecutionStateStore {
     if (state.status !== 'cancelled') {
       try {
         const existing = await fs.readFile(path);
-        const current = decode(existing);
+        const current = decodeDataflowExecutionState(existing);
         if (current.status === 'cancelled') {
           return;
         }
@@ -147,8 +140,7 @@ export class FileStateStore implements ExecutionStateStore {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
     }
-    const data = encode(state);
-    await this.atomicWrite(path, data);
+    await atomicWriteFile(path, encode(state));
   }
 
   async updateTaskStatus(
@@ -263,24 +255,6 @@ export class FileStateStore implements ExecutionStateStore {
     });
   }
 
-  async nextExecutionId(_repo: string, workspace: string): Promise<string> {
-    const path = this.counterPath(workspace);
-
-    let current = 0;
-    try {
-      const data = await fs.readFile(path, 'utf-8');
-      current = parseInt(data.trim(), 10) || 0;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw err;
-      }
-    }
-
-    const next = current + 1;
-    await this.atomicWriteText(path, String(next));
-    return String(next);
-  }
-
   async delete(_repo: string, workspace: string, executionId: string): Promise<void> {
     // Only delete if the stored execution matches the requested ID
     const state = await this.readLatest(_repo, workspace);
@@ -313,50 +287,6 @@ export class FileStateStore implements ExecutionStateStore {
       return state;
     }
     return null;
-  }
-
-  /**
-   * Write a binary file atomically using temp file + rename.
-   */
-  private async atomicWrite(path: string, content: Uint8Array): Promise<void> {
-    const dir = dirname(path);
-    const tmpPath = join(dir, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-
-    try {
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(tmpPath, content);
-      await renameWithRetry(tmpPath, path);
-    } catch (err) {
-      // Clean up temp file on failure
-      try {
-        await fs.unlink(tmpPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw err;
-    }
-  }
-
-  /**
-   * Write a text file atomically using temp file + rename.
-   */
-  private async atomicWriteText(path: string, content: string): Promise<void> {
-    const dir = dirname(path);
-    const tmpPath = join(dir, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-
-    try {
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(tmpPath, content, 'utf-8');
-      await renameWithRetry(tmpPath, path);
-    } catch (err) {
-      // Clean up temp file on failure
-      try {
-        await fs.unlink(tmpPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw err;
-    }
   }
 }
 

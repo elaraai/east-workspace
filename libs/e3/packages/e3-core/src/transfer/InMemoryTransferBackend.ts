@@ -14,11 +14,11 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { variant } from '@elaraai/east';
 
 import type { StorageBackend } from '../storage/index.js';
+import type { TaskRunner } from '../execution/interfaces.js';
+import { packageStagingPath, transferStagingDir } from '../storage/local/localHelpers.js';
 import type {
   TransferBackend,
   DatasetPartUpload,
@@ -26,13 +26,12 @@ import type {
   DatasetDownloadStore,
   PackageImportStore,
   PackageExportStore,
+  WorkspaceDeployStore,
 } from './interfaces.js';
-import type { DatasetUpload, PackageImport, PackageExport } from './types.js';
-import { handleProcessExport, handleProcessImport } from './process.js';
+import type { DatasetUpload, PackageImport, PackageExport, WorkspaceDeployJob } from './types.js';
+import { handleProcessDeploy, handleProcessExport, handleProcessImport } from './process.js';
 
-const STAGING_DIR = join(tmpdir(), 'e3-transfers');
-
-/** The part size a protocol-2 dataset upload is planned with by default. */
+/** The part size a dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
 
 // =============================================================================
@@ -56,10 +55,6 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
   async delete(id: string): Promise<void> {
     this.records.delete(id);
     this.partPlans.delete(id);
-  }
-
-  async getUploadUrl(id: string, _repo: string, _hash: string): Promise<string> {
-    return `${this.baseUrl}/api/uploads/${id}`;
   }
 
   async createParts(id: string, _record: DatasetUpload): Promise<bigint> {
@@ -172,11 +167,13 @@ class InMemoryPackageImportStore implements PackageImportStore {
       return;
     }
 
-    const zipPath = join(STAGING_DIR, `${id}.zip.partial`);
-    await mkdir(STAGING_DIR, { recursive: true });
+    // The zip the upload staged, in the repository.
+    const repoPath = this.getRepoPath(repo);
+    const zipPath = packageStagingPath(repoPath, id);
+    await mkdir(transferStagingDir(repoPath), { recursive: true });
     void handleProcessImport(
       { storage: this.storage, importStore: this },
-      { id, repo: this.getRepoPath(repo), zipPath },
+      { id, repo: repoPath, zipPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessImport
     }).finally(() => {
@@ -239,13 +236,80 @@ class InMemoryPackageExportStore implements PackageExportStore {
       return;
     }
 
-    const zipPath = join(STAGING_DIR, `${id}.zip`);
-    await mkdir(STAGING_DIR, { recursive: true });
+    // Staged in the repository until the download takes it, or gc sweeps it.
+    const repoPath = this.getRepoPath(repo);
+    const zipPath = packageStagingPath(repoPath, id);
+    await mkdir(transferStagingDir(repoPath), { recursive: true });
     void handleProcessExport(
       { storage: this.storage, exportStore: this },
-      { id, repo: this.getRepoPath(repo), zipPath },
+      { id, repo: repoPath, zipPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessExport
+    }).finally(() => {
+      this.executing.delete(id);
+    });
+  }
+
+  clear(): void {
+    this.records.clear();
+  }
+}
+
+// =============================================================================
+// Workspace Deploy
+// =============================================================================
+
+class InMemoryWorkspaceDeployStore implements WorkspaceDeployStore {
+  private readonly records = new Map<string, WorkspaceDeployJob>();
+  private readonly executing = new Set<string>();
+
+  constructor(
+    private readonly storage?: StorageBackend,
+    private readonly getRepoPath?: (repo: string) => string,
+    private readonly getRunner?: (repoPath: string) => TaskRunner,
+  ) {}
+
+  async create(id: string, record: WorkspaceDeployJob): Promise<void> {
+    this.records.set(id, record);
+  }
+
+  async get(id: string): Promise<WorkspaceDeployJob | null> {
+    return this.records.get(id) ?? null;
+  }
+
+  async updateStatus(id: string, status: WorkspaceDeployJob['status']): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`Workspace deploy ${id} not found`);
+    this.records.set(id, { ...record, status });
+  }
+
+  async delete(id: string): Promise<void> {
+    this.records.delete(id);
+  }
+
+  async execute(id: string, repo: string): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`Workspace deploy ${id} not found`);
+
+    if (this.executing.has(id)) return;
+    this.executing.add(id);
+
+    if (!this.storage || !this.getRepoPath) {
+      // Mock fallback for tests that don't provide storage
+      await this.updateStatus(id, variant('completed', { records: [], indexes: [], warnings: [] }));
+      this.executing.delete(id);
+      return;
+    }
+
+    // The deploy runs in this process, on the runner every record operation
+    // of the server runs on, and outlives the request that started it.
+    const repoPath = this.getRepoPath(repo);
+    const runner = this.getRunner?.(repoPath);
+    void handleProcessDeploy(
+      { storage: this.storage, deployStore: this, ...(runner !== undefined && { runner }) },
+      { id, repo: repoPath },
+    ).catch(() => {
+      // Error already recorded in job status by handleProcessDeploy
     }).finally(() => {
       this.executing.delete(id);
     });
@@ -265,7 +329,13 @@ export interface InMemoryTransferBackendOptions {
   storage?: StorageBackend;
   getRepoPath?: (repo: string) => string;
   /**
-   * The part size protocol-2 dataset uploads are planned with (default
+   * The runner a deploy job runs its migrations and index builds on, for a
+   * repository's path. Without one, a deploy that owes either is refused
+   * before it writes anything.
+   */
+  getRunner?: (repoPath: string) => TaskRunner;
+  /**
+   * The part size dataset uploads are planned with (default
    * {@link DEFAULT_TRANSFER_PART_BYTES}). An upload no larger is one part.
    */
   partBytes?: number;
@@ -276,6 +346,7 @@ export class InMemoryTransferBackend implements TransferBackend {
   readonly datasetDownload: InMemoryDatasetDownloadStore;
   readonly packageImport: InMemoryPackageImportStore;
   readonly packageExport: InMemoryPackageExportStore;
+  readonly workspaceDeploy: InMemoryWorkspaceDeployStore;
 
   constructor(options: InMemoryTransferBackendOptions) {
     const baseUrl = options.baseUrl ?? '';
@@ -287,6 +358,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.datasetDownload = new InMemoryDatasetDownloadStore(baseUrl);
     this.packageImport = new InMemoryPackageImportStore(baseUrl, options.storage, options.getRepoPath);
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);
+    this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
   }
 
   clear(): void {
@@ -294,5 +366,6 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.datasetDownload.clear();
     this.packageImport.clear();
     this.packageExport.clear();
+    this.workspaceDeploy.clear();
   }
 }

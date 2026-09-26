@@ -229,6 +229,15 @@ rule is stated; the mechanics live in the doc named beside it.
 - **Before trusting a downstream type error, rebuild the chain.** A renderer type-checking a *stale* `dist` of its IR package (because the IR build `noEmitOnError`-aborted on an unrelated example) will silently miss new fields. After changing an IR type, build the IR package to **success** before believing the renderer compiles (see §7's stale-tree rule).
 - **A doc or skill you contradict is part of your change.** If your fix moves a package off a documented idiom — a helper it no longer uses, a mypy override it no longer needs — update that convention doc / `CLAUDE.md` / `STANDARDS.md` in the same PR. Leaving the old text standing is how the next contributor reintroduces the thing you just removed.
 
+### e3's data layer — rules that keep it from drifting
+
+The e3 data and execution layer drifted by growing a rule per door and a copy per runner. Four rules stop it:
+
+- **A wire change names its migration.** A PR that adds or changes a field of a persisted or packaged type says which kind of wire it changes, as `docs/conventions/WIRE_MIGRATION.md` defines them: both cut over hard. Packages are re-exported, and a repository an older e3 wrote is re-created; no reader keeps a decoder for an earlier form.
+- **A new object kind carries a kind tag.** An object that names other objects gets a `kind` tag that GC recognizes, and lands with its GC test in the same PR. GC deletes anything it cannot see.
+- **Collections enter the store through the one door.** Write a collection dataset through `encodeDatasetBlob` (e3-types), never through an encoder of your own. A second door is how the store came to hold one value in several forms.
+- **A runner capability ships on every runner at once.** east-node, east-c and east-py either all gain it in one change, with shared fixtures, or none does.
+
 ## 6. East code in examples + tests (HARD RULE)
 
 **Every distinct public method exercised by a `*.spec.ts` MUST have a matching `example()` export in the sibling `*.examples.ts`** (name-locked: `array.spec.ts` ↔ `array.examples.ts`, same dir). Examples are both CI-tested and extracted into the plugin search index — a missing example breaks the index-in-sync CI check.

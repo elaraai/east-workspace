@@ -10,11 +10,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { East, DictType, IntegerType, StringType, beast2HasIndex, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, openBeast2PagesFor, variant } from '@elaraai/east';
-import { PackageObjectType, DatasetRefType, EnvironmentSpecType, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
+import { BlobType, East, DictType, FloatType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, isTypeValueEqual, none, openBeast2PagesFor, readBeast2Type, some, toEastTypeValue, variant } from '@elaraai/east';
+import { PackageObjectType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
-import { task } from './task.js';
+import { customTask, partition, streamTask, task } from './task.js';
+import { output } from './output.js';
 import { function_ } from './function.js';
 import { input } from './input.js';
 
@@ -129,11 +130,9 @@ describe('export_', () => {
     // Read zip contents
     const entries = await readZip(zipPath);
 
-    // Should have package ref
-    assert.ok(entries.has('packages/empty-pkg/1.0.0'));
-
-    // Package ref should contain a hash
-    const refContent = entries.get('packages/empty-pkg/1.0.0')!.toString().trim();
+    // The package ref, a String holding the package object's hash, as a
+    // repository keeps one
+    const refContent = decodeBeast2For(StringType)(entries.get('packages/empty-pkg/1.0.0.beast2')!);
     assert.match(refContent, /^[a-f0-9]{64}$/);
 
     // Should have just the package object (no tree objects in new format)
@@ -167,7 +166,7 @@ describe('export_', () => {
     const entries = await readZip(zipPath);
 
     // Get package object
-    const refContent = entries.get('packages/input-pkg/1.0.0')!.toString().trim();
+    const refContent = decodeBeast2For(StringType)(entries.get('packages/input-pkg/1.0.0.beast2')!);
     const packageObjectPath = `objects/${refContent.slice(0, 2)}/${refContent.slice(2)}.beast2`;
     const packageObjectData = entries.get(packageObjectPath)!;
     const decoder = decodeBeast2For(PackageObjectType);
@@ -188,13 +187,11 @@ describe('export_', () => {
     assert.strictEqual(greeting.value.type.type, 'String');
     assert.strictEqual(greeting.value.writable, true);
 
-    // Should have a DatasetRef file for the input
-    const refData = entries.get('data/inputs/greeting.ref');
-    assert.ok(refData, 'Missing data/inputs/greeting.ref');
-    const refDecoder = decodeBeast2For(DatasetRefType);
-    const datasetRef = refDecoder(refData);
-    assert.strictEqual(datasetRef.type, 'value');
-    assert.ok(datasetRef.value.hash, 'Missing hash in dataset ref');
+    // The package object holds the input's ref, and the bundle holds nothing
+    // beside the objects but the package ref
+    const datasetRef = packageObject.data.refs.get('inputs/greeting');
+    assert.strictEqual(datasetRef?.type, 'value');
+    assert.deepStrictEqual([...entries.keys()].filter((key) => !key.startsWith('objects/')), ['packages/input-pkg/1.0.0.beast2']);
   });
 
   it('produces identical output for same package', async () => {
@@ -272,7 +269,7 @@ describe('environment capture on export', () => {
     await export_(pkg, zipPath);
 
     const entries = await readZipEntries(zipPath);
-    const pkgRef = entries.get('packages/env-pkg/1.0.0');
+    const pkgRef = entries.get('packages/env-pkg/1.0.0.beast2');
     assert.ok(pkgRef, 'package ref present');
     const readObj = (hash: string): Buffer => {
       const data = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
@@ -280,7 +277,7 @@ describe('environment capture on export', () => {
       return data;
     };
 
-    const pkgObj = decodePackageObject(readObj(pkgRef.toString('utf-8').trim()));
+    const pkgObj = decodePackageObject(readObj(decodeBeast2For(StringType)(pkgRef)));
     const taskObj = decodeTaskObject(readObj(pkgObj.tasks.get('echo')!));
     assert.strictEqual(taskObj.environment.type, 'some');
     const fnObj = decodeFunctionObject(readObj(pkgObj.functions.get('shout')!));
@@ -293,12 +290,17 @@ describe('environment capture on export', () => {
     const spec = decodeBeast2For(EnvironmentSpecType)(readObj(envHash));
     assert.strictEqual(spec.type, 'node');
     if (spec.type === 'node') {
-      // Every referenced blob rides the bundle: manifest, lockfile, tarball.
-      const manifest = JSON.parse(readObj(spec.value.packageJson).toString('utf-8'));
-      assert.strictEqual(manifest.name, 'e3-capture-fixture');
-      readObj(spec.value.lock);
+      // Every file rides the bundle, as a beast2 Blob of its bytes: the
+      // manifest, the lockfile and the tarball.
+      const file = (hash: string): Buffer => {
+        const data = readObj(hash);
+        assert.ok(isTypeValueEqual(readBeast2Type(data), toEastTypeValue(BlobType)), `object ${hash} is a Blob`);
+        return Buffer.from(decodeBeast2For(BlobType)(data));
+      };
+      assert.strictEqual(JSON.parse(file(spec.value.packageJson).toString('utf-8')).name, 'e3-capture-fixture');
+      assert.ok(file(spec.value.lock).equals(fs.readFileSync(path.join(projectDir, 'package-lock.json'))), 'the lockfile\'s own bytes');
       assert.strictEqual(spec.value.tarballs.length, 1);
-      readObj(spec.value.tarballs[0]!);
+      assert.deepStrictEqual([...file(spec.value.tarballs[0]!).subarray(0, 2)], [0x1f, 0x8b], 'a gzipped tarball');
     }
   });
 });
@@ -338,36 +340,54 @@ describe('collection defaults export PAGEABLE', () => {
     await fs.promises.rm(tempDir, { recursive: true });
   });
 
-  /** The object a dataset ref points at, out of the bundle. */
-  function blobOf(entries: Map<string, Buffer>, refPath: string): Buffer {
-    const refData = entries.get(refPath);
-    assert.ok(refData, `missing ${refPath}`);
-    const ref = decodeBeast2For(DatasetRefType)(refData);
-    assert.strictEqual(ref.type, 'value');
-    const hash = ref.type === 'value' ? ref.value.hash : '';
-    const blob = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
-    assert.ok(blob, `missing object ${hash}`);
-    return blob;
+  /** The object a dataset ref of package `name` points at, out of the bundle. */
+  function blobOf(entries: Map<string, Buffer>, name: string, refPath: string): Buffer {
+    const object = (hash: string): Buffer => {
+      const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+      assert.ok(bytes, `missing object ${hash}`);
+      return bytes;
+    };
+    const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!)));
+    const ref = pkg.data.refs.get(refPath);
+    if (ref?.type !== 'value') assert.fail(`${refPath} holds no value`);
+    return object(ref.value.hash);
   }
 
-  it('a collection default carries a segment index — the store path\'s invariant, at export', async () => {
-    // `datasetWrite` states it: collection roots are ALWAYS stored segmented
-    // with a trailing index, at every size. The export path encoded them flat,
-    // so a freshly DEPLOYED input could not be paged at all until something
-    // wrote it — `dataset_not_indexed`, with no whole-decode fallback.
+  it('a collection default is exported in the segment-object layout — the store path\'s invariant, at export', async () => {
+    // `datasetWrite` states it: collection roots are ALWAYS stored as segment
+    // objects under a manifest, at every size. The export path encoded them
+    // flat, so a freshly DEPLOYED input could not be paged at all until
+    // something wrote it — `dataset_not_indexed`, with no whole-decode
+    // fallback.
+    const type = DictType(StringType, IntegerType);
     const rows = new Map<string, bigint>();
     for (let i = 0; i < 40; i++) rows.set(`u${String(i).padStart(3, '0')}`, BigInt(i));
-    const units = input('units', DictType(StringType, IntegerType), variant('value', rows));
+    const units = input('units', type, variant('value', rows));
     const zipPath = path.join(tempDir, 'paged.zip');
     await export_(package_('paged-pkg', '1.0.0', units), zipPath);
 
-    const blob = blobOf(await readZip(zipPath), 'data/inputs/units.ref');
-    assert.ok(beast2HasIndex(blob), 'collection default must be exported with a segment index');
+    const entries = await readZip(zipPath);
+    const manifest = decodeCollectionManifest(blobOf(entries, 'paged-pkg', 'inputs/units'));
+    assert.strictEqual(manifest.rule, SEGMENT_RULE_KEYED);
+    assert.strictEqual(manifestElementCount(manifest), 40);
+    assert.ok(manifest.entries.length >= 1);
 
-    // ...and it must actually open for paged reads, reporting the true total.
-    const pages = openBeast2PagesFor(DictType(StringType, IntegerType))(blob);
-    assert.strictEqual(pages.elementCount, 40);
-    assert.ok(pages.segmentCount >= 1);
+    // ...and every segment it names must be in the bundle and open for paged
+    // reads: a manifest whose segments did not travel imports a dataset with
+    // no contents.
+    const objectOf = (hash: string): Buffer => {
+      const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+      assert.ok(bytes, `missing object ${hash}`);
+      return bytes;
+    };
+    objectOf(manifest.header);
+    let total = 0;
+    for (const entry of manifest.entries) {
+      const pages = openBeast2PagesFor(type)(objectOf(entry.hash));
+      assert.ok(beast2HasIndex(objectOf(entry.hash)), 'a segment object must carry its own index');
+      total += pages.elementCount;
+    }
+    assert.strictEqual(total, 40);
   });
 
   it('a scalar default stays unsegmented — only collection roots are paged', async () => {
@@ -375,7 +395,7 @@ describe('collection defaults export PAGEABLE', () => {
     const zipPath = path.join(tempDir, 'scalar.zip');
     await export_(package_('scalar-pkg', '1.0.0', greeting), zipPath);
 
-    const blob = blobOf(await readZip(zipPath), 'data/inputs/greeting.ref');
+    const blob = blobOf(await readZip(zipPath), 'scalar-pkg', 'inputs/greeting');
     assert.ok(!beast2HasIndex(blob), 'a scalar root must not be segmented');
   });
 });
@@ -396,14 +416,14 @@ describe('path-initialised inputs (source variants)', () => {
     const file = path.join(tempDir, name);
     const rows = new Map<string, bigint>();
     for (let i = 0; i < n; i++) rows.set(`k${String(i).padStart(4, '0')}`, BigInt(i));
-    fs.writeFileSync(file, encodeBeast2PagedFor(type as typeof RowsType, { batchSize: 8 })(rows));
+    fs.writeFileSync(file, encodeBeast2PagedFor(type as typeof RowsType)(rows));
     return file;
   }
 
   /** The package object of an exported bundle. */
   async function packageObjectOf(zipPath: string, name: string): Promise<ReturnType<typeof decodePackageObject>> {
     const entries = await readZip(zipPath);
-    const ref = entries.get(`packages/${name}/1.0.0`)!.toString().trim();
+    const ref = decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!);
     return decodePackageObject(entries.get(`objects/${ref.slice(0, 2)}/${ref.slice(2)}.beast2`)!);
   }
 
@@ -425,10 +445,9 @@ describe('path-initialised inputs (source variants)', () => {
     await export_(package_('file-src', '1.0.0', table), zipPath);
 
     const entries = await readZip(zipPath);
-    const ref = decodeBeast2For(DatasetRefType)(entries.get('data/inputs/table.ref')!);
-    assert.strictEqual(ref.type, 'unassigned', 'no value travels in the package');
-
     const pkg = await packageObjectOf(zipPath, 'file-src');
+    assert.strictEqual(pkg.data.refs.get('inputs/table')?.type, 'unassigned', 'no value travels in the package');
+
     const source = pkg.sources.get('inputs/table');
     assert.strictEqual(source?.type, 'file');
     assert.strictEqual(source?.type === 'file' ? source.value.path : '', file);
@@ -452,7 +471,7 @@ describe('path-initialised inputs (source variants)', () => {
   it('refuses a delivery whose type differs from the declared one, naming the input and the field', async () => {
     const Drifted = DictType(StringType, StringType);
     const file = path.join(tempDir, 'drifted.beast2');
-    fs.writeFileSync(file, encodeBeast2PagedFor(Drifted, { batchSize: 8 })(new Map([['a', 'x']])));
+    fs.writeFileSync(file, encodeBeast2PagedFor(Drifted)(new Map([['a', 'x']])));
     const table = input('drifted', RowsType, variant('file', file));
 
     await assert.rejects(
@@ -467,28 +486,138 @@ describe('path-initialised inputs (source variants)', () => {
     );
   });
 
-  it('refuses a missing delivery and a delivery with no paging index', async () => {
+  it('refuses a missing delivery and one that is not beast2, and takes one in any layout', async () => {
     await assert.rejects(
       () => export_(package_('missing', '1.0.0', input('gone', RowsType, variant('file', path.join(tempDir, 'nope.beast2')))),
         path.join(tempDir, 'missing.zip')),
       /input 'gone': no file at/
     );
 
-    const flat = path.join(tempDir, 'flat.beast2');
-    fs.writeFileSync(flat, encodeBeast2For(RowsType)(new Map([['a', 1n]])));
+    const junk = path.join(tempDir, 'junk.beast2');
+    fs.writeFileSync(junk, new Uint8Array([1, 2, 3]));
     await assert.rejects(
-      () => export_(package_('flat', '1.0.0', input('flat', RowsType, variant('file', flat))), path.join(tempDir, 'flat.zip')),
-      /input 'flat': .* is not a readable indexed beast2 collection/
+      () => export_(package_('junk', '1.0.0', input('junk', RowsType, variant('file', junk))), path.join(tempDir, 'junk.zip')),
+      /input 'junk': .* is not a readable beast2 container/
     );
+
+    // The store reads a delivery a segment at a time whatever its layout, so
+    // one encoded whole, with no index, is taken as it is.
+    const whole = path.join(tempDir, 'whole.beast2');
+    fs.writeFileSync(whole, encodeBeast2For(RowsType)(new Map([['a', 1n]])));
+    await export_(package_('whole', '1.0.0', input('whole', RowsType, variant('file', whole))), path.join(tempDir, 'whole.zip'));
   });
 
   it('exports a value source exactly as an inline default was', async () => {
     const rows = new Map([['a', 1n], ['b', 2n]]);
     const zipPath = path.join(tempDir, 'value-src.zip');
     await export_(package_('value-src', '1.0.0', input('inline', RowsType, variant('value', rows))), zipPath);
+    const pkg = await packageObjectOf(zipPath, 'value-src');
+    assert.strictEqual(pkg.data.refs.get('inputs/inline')?.type, 'value');
+    assert.strictEqual(pkg.sources.size, 0);
+  });
+});
+
+describe('the typed task object', () => {
+  let tempDir: string;
+  const SaleKeyType = StructType({ sku: StringType, period: IntegerType });
+
+  before(async () => {
+    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'e3-export-tasks-'));
+  });
+  after(async () => {
+    await fs.promises.rm(tempDir, { recursive: true });
+  });
+
+  /** Exports `items` and returns each task's object, and a reader of the bundle's objects. */
+  async function exported(name: string, ...items: Parameters<typeof package_>[2][]) {
+    const zipPath = path.join(tempDir, `${name}.zip`);
+    await export_(package_(name, '1.0.0', ...items), zipPath);
     const entries = await readZip(zipPath);
-    const ref = decodeBeast2For(DatasetRefType)(entries.get('data/inputs/inline.ref')!);
-    assert.strictEqual(ref.type, 'value');
-    assert.strictEqual((await packageObjectOf(zipPath, 'value-src')).sources.size, 0);
+    const object = (hash: string): Uint8Array => {
+      const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+      assert.ok(bytes, `missing object ${hash}`);
+      return new Uint8Array(bytes);
+    };
+    const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!)));
+    const tasks = new Map<string, TaskObject>([...pkg.tasks].map(([task, hash]) => [task, decodeTaskObject(object(hash))]));
+    return { pkg, tasks, object };
+  }
+
+  it('names a task\'s program, and its inputs are the datasets alone', async () => {
+    const greeting = input('greeting', StringType, variant('value', 'hi'));
+    const shout = task('shout', [greeting], East.function([StringType], StringType, ($, g) => g.upperCase()));
+    const { pkg, tasks, object } = await exported('program-pkg', shout);
+
+    const shoutObject = tasks.get('shout')!;
+    assert.strictEqual(shoutObject.kind, TASK_OBJECT_KIND);
+    assert.deepStrictEqual(shoutObject.inputs, [{ path: greeting.path, partition: none }]);
+    assert.deepStrictEqual(shoutObject.output, { path: shout.output.path, kind: variant('value', null) });
+    assert.deepStrictEqual(shoutObject.role, variant('data', null));
+    assert.deepStrictEqual(shoutObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'] }));
+    assert.strictEqual(shoutObject.body.type, 'east');
+    const program = decodeEastIR(object((shoutObject.body.value as { program: string }).program));
+    assert.strictEqual(program.compile([])('hi'), 'HI');
+
+    // The task's subtree holds its output and nothing else.
+    const root = pkg.data.structure.value as Map<string, { value: Map<string, { value: Map<string, unknown> }> }>;
+    assert.deepStrictEqual([...root.get('tasks')!.value.get('shout')!.value.keys()], ['output']);
+  });
+
+  it('writes a stream task\'s partitioned inputs, and the merge its dict output folds with', async () => {
+    const sales = input('sales', DictType(SaleKeyType, IntegerType));
+    const rates = input('rates', FloatType, variant('value', 1.0));
+    const totals = streamTask('totals', {
+      inputs: [partition(sales, { by: ['sku'] }), rates],
+      output: output.dict(StringType, FloatType, { merge: (_$, _sku, a, b) => a.add(b) }),
+    }, ($, sales, rate, emit) => {
+      $.for(sales, ($, qty, key) => {
+        $(emit(key.sku, qty.toFloat().multiply(rate)));
+      });
+    });
+    const { tasks, object } = await exported('stream-pkg', totals);
+
+    const totalsObject = tasks.get('totals')!;
+    assert.deepStrictEqual(totalsObject.inputs, [
+      { path: sales.path, partition: some({ by: ['sku'] }) },
+      { path: rates.path, partition: none },
+    ]);
+    const kind = totalsObject.output.kind;
+    assert.strictEqual(kind.type, 'dict');
+    const merge = (kind.value as { merge: { type: string; value: string } }).merge;
+    assert.strictEqual(merge.type, 'some');
+    assert.strictEqual(decodeEastIR(object(merge.value)).compile([])('a', 1.5, 2.0), 3.5);
+  });
+
+  it('writes a fold\'s zero as a value and its combine as a program', async () => {
+    const amounts = input('amounts', DictType(StringType, IntegerType));
+    const total = streamTask('total', {
+      inputs: [partition(amounts)],
+      output: output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+    }, ($, amounts, emit) => {
+      $.for(amounts, ($, amount) => { $(emit(amount)); });
+    });
+    const { tasks, object } = await exported('fold-pkg', total);
+
+    const kind = tasks.get('total')!.output.kind;
+    assert.strictEqual(kind.type, 'fold');
+    const { zero, combine } = kind.value as { zero: string; combine: string };
+    assert.strictEqual(decodeBeast2For(IntegerType)(object(zero)), 0n);
+    assert.strictEqual(decodeEastIR(object(combine)).compile([])(2n, 3n), 5n);
+  });
+
+  it('writes a custom task\'s command, on the custom runtime with no command of its own, and a UI task\'s role', async () => {
+    const greeting = input('greeting', StringType, variant('value', 'hi'));
+    const copy = customTask('copy', [greeting], StringType, (_$, inputs, out) => East.str`cp ${inputs.get(0n)} ${out}`);
+    const role = variant('ui', { paths: [greeting.path], functions: ['forecast'], records: [], pages: [] });
+    const view = task('view', [greeting], East.function([StringType], StringType, ($, g) => g), { role });
+    const { tasks, object } = await exported('custom-pkg', copy, view);
+
+    const copyObject = tasks.get('copy')!;
+    assert.deepStrictEqual(copyObject.runner, variant('custom', { command: [] }));
+    assert.strictEqual(copyObject.body.type, 'command');
+    const command = decodeEastIR(object((copyObject.body.value as { commandIr: string }).commandIr));
+    assert.deepStrictEqual(command.compile([])(['in.beast2'], 'out.beast2'), ['bash', '-c', 'cp in.beast2 out.beast2']);
+
+    assert.deepStrictEqual(tasks.get('view')!.role, role);
   });
 });

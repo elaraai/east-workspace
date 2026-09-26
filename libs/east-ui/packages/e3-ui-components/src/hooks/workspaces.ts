@@ -6,7 +6,7 @@
 import { useQuery, useMutation, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import type { QueryOverrides } from './types.js';
 import { workspaceList, workspaceCreate, workspaceGet, workspaceStatus, workspaceRemove, workspaceDeploy, workspaceExport } from '@elaraai/e3-api-client';
-import type { RequestOptions, WorkspaceInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
+import type { RequestOptions, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
 import type { WorkspaceState } from '@elaraai/e3-types';
 
 export function useWorkspaceList(url: string, repo: string, requestOptions?: RequestOptions, queryOptions?: QueryOverrides): UseQueryResult<WorkspaceInfo[], Error> {
@@ -48,8 +48,25 @@ export function useWorkspaceRemove(url: string, repo: string, requestOptions?: R
     });
 }
 
-export function useWorkspaceDeploy(url: string, repo: string, requestOptions?: RequestOptions) {
-    return useMutation<void, Error, { name: string; packageRef: string }>({
+/**
+ * Deploy a package to a workspace.
+ *
+ * @remarks
+ * The server runs the deploy as a job, which the mutation polls, so it
+ * settles once the deploy has finished.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param requestOptions - Request options including auth token
+ * @returns A mutation, given the workspace and the package reference, whose
+ *   data is what the deploy decided for each record and index
+ */
+export function useWorkspaceDeploy(
+    url: string,
+    repo: string,
+    requestOptions?: RequestOptions,
+): UseMutationResult<WorkspaceDeployResult, Error, { name: string; packageRef: string }> {
+    return useMutation<WorkspaceDeployResult, Error, { name: string; packageRef: string }>({
         mutationFn: ({ name, packageRef }) => workspaceDeploy(url, repo, name, packageRef, requestOptions ?? { token: null }),
     });
 }

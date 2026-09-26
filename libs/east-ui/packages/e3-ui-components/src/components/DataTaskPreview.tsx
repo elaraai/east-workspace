@@ -56,7 +56,7 @@ export const DataTaskPreview = memo(function DataTaskPreview({
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
     });
-    const outputPath = detailsQuery.data ? treePathToString(detailsQuery.data.output as TreePath) : null;
+    const outputPath = detailsQuery.data ? treePathToString(detailsQuery.data.output.path) : null;
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">

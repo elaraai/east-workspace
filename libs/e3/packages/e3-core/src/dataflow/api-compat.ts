@@ -151,9 +151,9 @@ export function coreEventToApiEvent(event: ExecutionEvent): ApiDataflowEvent | n
 
     // Events without API equivalents.
     // Reactive events (input_changed, task_invalidated, task_deferred) are
-    // internal to the execution loop and not yet exposed via the API.
-    // (Partition progress is callback-only and never persisted — see
-    // ExecutionEventType's wire warning.)
+    // internal to the execution loop and not yet exposed via the API, and
+    // neither are a split task's stages (task_split, task_merge_started,
+    // task_merge_completed): the API's events are a task's.
     case 'execution_started':
     case 'task_ready':
     case 'execution_completed':
@@ -161,6 +161,9 @@ export function coreEventToApiEvent(event: ExecutionEvent): ApiDataflowEvent | n
     case 'input_changed':
     case 'task_invalidated':
     case 'task_deferred':
+    case 'task_split':
+    case 'task_merge_started':
+    case 'task_merge_completed':
       return null;
   }
 }

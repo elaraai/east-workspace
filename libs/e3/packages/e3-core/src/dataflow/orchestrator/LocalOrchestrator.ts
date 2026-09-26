@@ -15,14 +15,17 @@
  * inputs have conflicting provenance (diamond dependency protection).
  */
 
-import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
-import type { DataflowRun, TaskExecutionRecord, Structure } from '@elaraai/e3-types';
-import { WorkspaceStateType } from '@elaraai/e3-types';
+import { decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import type { DataflowRun, TaskExecutionRecord, Structure, TaskObject, VersionVector } from '@elaraai/e3-types';
+import { WorkspaceRecordType, decodeTaskObject } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
-import type { TaskExecuteOptions } from '../../execution/interfaces.js';
-import { taskExecute } from '../../execution/LocalTaskRunner.js';
+import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
+import { taskExecute, taskExecuteUnit, type ExecutionResult } from '../../execution/LocalTaskRunner.js';
+import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
+import { processOwner } from '../../execution/processHelpers.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError } from '../../errors.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
+import { inputsHash } from '../../executions.js';
 import { uuidv7 } from '../../uuid.js';
 import type {
   DataflowOrchestrator,
@@ -37,6 +40,7 @@ import type {
   DataflowExecutionState,
   ExecutionEvent,
   FinalizeResult,
+  PrepareTaskResult,
   TaskState,
 } from '../types.js';
 import {
@@ -44,6 +48,9 @@ import {
   stepGetReady,
   stepPrepareTask,
   stepTaskStarted,
+  stepTaskSplit,
+  stepTaskMergeStarted,
+  stepTaskMergeCompleted,
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,
@@ -59,6 +66,18 @@ import {
   stepTaskForced,
 } from '../steps.js';
 import type { Mutable } from '../types.js';
+
+/** The tasks and units the loop keeps in flight unless its caller sets a
+ *  width. */
+const DEFAULT_LOOP_WIDTH = 4;
+
+/** Refuses a width the loop could never launch under: it would report a run
+ *  it cannot start as stuck. */
+function checkWidth(width: number | undefined): void {
+  if (width !== undefined && !(Number.isInteger(width) && width >= 1)) {
+    throw new RangeError(`width must be a positive integer, got ${width}`);
+  }
+}
 
 // =============================================================================
 // Async Mutex for State Mutations
@@ -112,6 +131,60 @@ class AsyncMutex {
 }
 
 /**
+ * How a task's execution ended, as the loop completes it.
+ */
+interface TaskOutcome {
+  state: 'success' | 'failed' | 'error';
+  cached: boolean;
+  outputHash?: string;
+  executionId: string;
+  exitCode?: number;
+  error?: string;
+  cancelled?: boolean;
+  duration: number;
+}
+
+/** A split task's execution, as the loop completes it. */
+function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
+  return {
+    state: result.state,
+    cached: result.cached,
+    outputHash: result.outputHash ?? undefined,
+    executionId: result.executionId,
+    exitCode: result.exitCode ?? undefined,
+    error: result.error ?? undefined,
+    cancelled: result.cancelled,
+    duration: Date.now() - startTime,
+  };
+}
+
+/**
+ * A task split into pieces while the loop runs its units beside every other
+ * task's: the stage in progress, and where its units are.
+ */
+interface SplitRun {
+  /** The task's stages. */
+  readonly split: SplitTask;
+  /** The task as it was prepared: its hash, inputs and output. */
+  readonly prepared: PrepareTaskResult;
+  /** The merged version vector the task was launched with. */
+  readonly launchVV: VersionVector;
+  /** When the task was launched. */
+  readonly startTime: number;
+  /** The stage's next unit to launch. */
+  next: number;
+  /** The stage's units in flight. */
+  inFlight: number;
+  /** Set once a unit of the stage failed or threw: the stage launches no
+   *  more, and ends when its units in flight have settled. */
+  stopped: boolean;
+  /** Each unit's result, as it settles. */
+  results: (ExecutionResult | undefined)[];
+  /** The units whose runner threw. */
+  thrown: ThrownUnit[];
+}
+
+/**
  * Internal state for a running execution.
  */
 interface RunningExecution {
@@ -133,11 +206,20 @@ interface RunningExecution {
    * immediately without racing the lock release.
    */
   yieldResult?: FinalizeResult;
+  /** What is in flight, each counting against the loop's width: a task by
+   *  its name, a split task's planning by its name, and each of its units by
+   *  a key of its own */
   runningTasks: Map<string, Promise<void>>;
+  /** Split tasks in progress, by name, in the order they started */
+  splits: Map<string, SplitRun>;
+  /** The next key a split task's unit takes in runningTasks */
+  unitSeq: number;
+  /** Set once a task has failed: the loop launches no more tasks */
+  hasFailure: boolean;
+  /** The workspace's package structure, read once for the execution */
+  structure: Structure | null;
   /** Mutex to serialize state mutations from concurrent task completions */
   mutex: AsyncMutex;
-  /** Dataflow run ID (UUIDv7) for DataflowRun recording */
-  runId: string;
   /** Task execution records for DataflowRun */
   taskExecutions: Map<string, TaskExecutionRecord>;
   /** Cleanup function to remove abort listener on normal completion */
@@ -175,6 +257,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     workspace: string,
     options: OrchestratorStartOptions = {}
   ): Promise<ExecutionHandle> {
+    checkWidth(options.width);
+
     // Acquire locks if not provided externally.
     // Dual-lock model:
     //   - Shared lock on workspace (allows concurrent e3 set)
@@ -208,19 +292,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     }
 
     try {
-      // Get next execution ID from state store if available
-      const executionId = this.stateStore
-        ? await this.stateStore.nextExecutionId(repo, workspace)
-        : String(Date.now()); // Fallback to timestamp if no state store
-
-      // Initialize execution state
+      // The run's one id: its execution state's, and its run record's.
       const { state, readyTasks: _ } = await stepInitialize(
         storage,
         repo,
         workspace,
-        executionId,
+        uuidv7(),
         {
-          concurrency: options.concurrency,
           force: options.force,
           filter: options.filter,
         }
@@ -236,7 +314,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         sharedLock,
         externalLock,
         options,
-        runId: uuidv7(),
         taskExecutions: new Map(),
       });
     } catch (err) {
@@ -264,6 +341,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     if (!this.stateStore) {
       throw new DataflowError('Cannot resume: orchestrator has no state store');
     }
+    checkWidth(options.width);
 
     // Same dual-lock model as start()
     const externalLock = !!options.lock;
@@ -308,15 +386,18 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
       // Re-seed DataflowRun task executions for already-completed tasks so
       // the final run record covers the whole execution, not just this
-      // incarnation. Output VVs come from the persisted version vectors.
+      // incarnation: each names the execution its task completed with. Output
+      // VVs come from the persisted version vectors.
       const taskExecutions = new Map<string, TaskExecutionRecord>();
       const graph = state.graph.type === 'some' ? state.graph.value : null;
       if (graph) {
         for (const task of graph.tasks) {
           const ts = state.tasks.get(task.name);
-          if (ts && ts.status === 'completed') {
+          if (ts && ts.status === 'completed' && ts.execution.type === 'some') {
             taskExecutions.set(task.name, {
-              executionId: state.id,
+              executionId: ts.execution.value.executionId,
+              taskHash: task.hash,
+              inputsHash: ts.execution.value.inputsHash,
               cached: ts.cached.type === 'some' ? ts.cached.value : false,
               outputVersions: new Map(state.versionVectors.get(task.output) ?? []),
               executionCount: 1n,
@@ -330,7 +411,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         sharedLock,
         externalLock,
         options,
-        runId: options.runId ?? uuidv7(),
         taskExecutions,
       });
     } catch (err) {
@@ -355,7 +435,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       sharedLock: LockHandle | null;
       externalLock: boolean;
       options: OrchestratorStartOptions;
-      runId: string;
       taskExecutions: Map<string, TaskExecutionRecord>;
     }
   ): ExecutionHandle {
@@ -382,8 +461,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       abortController: new AbortController(),
       yielded: false,
       runningTasks: new Map(),
+      splits: new Map(),
+      unitSeq: 0,
+      hasFailure: false,
+      structure: null,
       mutex: new AsyncMutex(),
-      runId: init.runId,
       taskExecutions: init.taskExecutions,
       completionPromise,
       resolveCompletion,
@@ -507,20 +589,19 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     let completionResult: FinalizeResult | undefined;
 
     try {
-      let hasFailure = false;
-
       // Read workspace state for DataflowRun recording
       const wsData = await storage.refs.workspaceRead(repo, state.workspace);
-      const wsDecoder = decodeBeast2For(WorkspaceStateType);
-      const wsState = wsData && wsData.length > 0 ? wsDecoder(wsData) : null;
+      const wsRecord = wsData === null ? null : decodeBeast2For(WorkspaceRecordType)(wsData);
+      const wsState = wsRecord?.type === 'some' ? wsRecord.value : null;
 
       // Cache structure for the entire execution (immutable during execution)
       const structure = wsState ? await this.readStructure(storage, repo, wsState.packageHash) : null;
+      execution.structure = structure;
 
       // Write initial DataflowRun record
       if (wsState) {
         const initialRun: DataflowRun = {
-          runId: execution.runId,
+          runId: state.id,
           workspaceName: state.workspace,
           packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
           startedAt: state.startedAt,
@@ -563,13 +644,34 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // that aren't in the stale readyTasks array.
         let hadSyncCompletion = false;
 
-        // Launch tasks up to concurrency limit if no failure and not aborted
-        const concurrencyLimit = Number(state.concurrency);
+        // The loop keeps `width` tasks and units in flight; the runner
+        // decides which of them spawn.
+        const width = options.width ?? DEFAULT_LOOP_WIDTH;
+
+        // The units of split tasks in progress launch first, in the order the
+        // tasks started, each counting against the width as a task does. A
+        // stage's first unit launches alone, to measure the stage's peak, and
+        // the rest once it has settled. A split task in progress finishes, as
+        // a running task does, even once another task has failed; nothing
+        // starts once the run is aborted.
+        for (const [taskName, run] of execution.splits) {
+          while (
+            !checkAborted() &&
+            execution.runningTasks.size < width &&
+            !run.stopped &&
+            run.next < run.split.stage.units.length &&
+            (run.inFlight === 0 || !run.split.measuring)
+          ) {
+            this.launchUnit(storage, repo, execution, taskName, run);
+          }
+        }
+
+        // Launch tasks up to the width if no failure and not aborted
         while (
-          !hasFailure &&
+          !execution.hasFailure &&
           !checkAborted() &&
           readyTasks.length > 0 &&
-          execution.runningTasks.size < concurrencyLimit
+          execution.runningTasks.size < width
         ) {
           const taskName = readyTasks.shift()!;
           const taskState = state.tasks.get(taskName);
@@ -582,12 +684,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           // `has()` guard the loop could re-launch the task here — overwriting
           // the live slot — and the old promise's `.finally` would then evict
           // the new one, orphaning a task in `in_progress` (Dataflow stuck).
-          // Defer the re-launch until the prior promise has fully settled.
+          // Defer the re-launch until the prior promise has fully settled. A
+          // split task's units are tracked under keys of their own, so its
+          // split guards it until its completion has run.
           if (
             !taskState ||
             taskState.status === 'in_progress' ||
             taskState.status === 'completed' ||
-            execution.runningTasks.has(taskName)
+            execution.runningTasks.has(taskName) ||
+            execution.splits.has(taskName)
           ) {
             continue;
           }
@@ -618,28 +723,33 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           const prepared = await stepPrepareTask(storage, state, taskName);
 
           // Check cache
-          if (prepared.cachedOutputHash !== null) {
+          const cached = prepared.cached;
+          if (cached !== null) {
             hadSyncCompletion = true;
+            // The execution the cache serves the task from.
+            const served = { inputsHash: inputsHash(prepared.inputHashes), executionId: cached.executionId };
             // Cache hit — wrap in mutex to serialize with concurrent .then() callbacks
             await execution.mutex.runExclusive(async () => {
               // Write ref with merged VV and update state
               await stepApplyTreeUpdate(
                 storage, repo, state.workspace,
-                prepared.outputPath, prepared.cachedOutputHash!, vvCheck.mergedVV
+                prepared.outputPath, cached.outputHash, vvCheck.mergedVV
               );
 
               stepTaskCompleted(
                 state,
                 taskName,
-                prepared.cachedOutputHash!,
+                cached.outputHash,
                 true,
-                0
+                0,
+                served
               );
 
               // Track task execution for DataflowRun
               const existingCached = execution.taskExecutions.get(taskName);
               execution.taskExecutions.set(taskName, {
-                executionId: state.id,
+                ...served,
+                taskHash: prepared.taskHash,
                 cached: true,
                 outputVersions: new Map(vvCheck.mergedVV),
                 executionCount: (existingCached?.executionCount ?? 0n) + 1n,
@@ -667,185 +777,21 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           await this.persistState(execution, state);
           options.onTaskStart?.(taskName);
 
-          // Launch task execution
-          const taskPromise = this.executeTask(
-            storage,
-            repo,
-            execution,
-            taskName,
-            prepared
-          ).then(result =>
-            execution.mutex.runExclusive(async () => {
-              // Handle task completion
-              if (result.state === 'success') {
-                // Check if task's inputs changed during execution by comparing
-                // the launch-time merged VV (captured in closure) against current.
-                // handleInputChanges may have updated root input VVs while this
-                // task was in_progress, making its result stale.
-                const launchMergedVV = vvCheck.mergedVV;
-                const currentVVCheck = stepCheckVersionConsistency(state, taskName);
-                const inputsStale = !currentVVCheck.consistent || (() => {
-                  const current = currentVVCheck.mergedVV;
-                  if (launchMergedVV.size !== current.size) return true;
-                  for (const [key, value] of launchMergedVV) {
-                    if (current.get(key) !== value) return true;
-                  }
-                  return false;
-                })();
-
-                if (inputsStale) {
-                  // Task computed with stale inputs — discard result, reset to pending.
-                  // The reactive loop will re-execute it with the updated inputs.
-                  const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
-                  if (ts) ts.status = 'pending';
-
-                  const mutableState = state as Mutable<DataflowExecutionState>;
-                  mutableState.eventSeq = state.eventSeq + 1n;
-                  const invalidEvent: ExecutionEvent = variant('task_invalidated', {
-                    seq: mutableState.eventSeq,
-                    timestamp: new Date(),
-                    task: taskName,
-                    reason: 'inputs changed during execution',
-                  });
-                  (mutableState.events as ExecutionEvent[]).push(invalidEvent);
-                  mutableState.reexecuted = state.reexecuted + 1n;
-
-                  options.onTaskInvalidated?.(taskName, 'inputs changed during execution');
-                } else {
-                  // Use launch-time VV for the output — it reflects what the task
-                  // actually consumed, not what state.versionVectors says now.
-                  const mergedVV = launchMergedVV;
-
-                  if (result.outputHash) {
-                    // Write output ref with merged VV
-                    await stepApplyTreeUpdate(
-                      storage, repo, state.workspace,
-                      prepared.outputPath, result.outputHash, mergedVV
-                    );
-                  }
-
-                  stepTaskCompleted(
-                    state,
-                    taskName,
-                    result.outputHash ?? '',
-                    result.cached,
-                    result.duration
-                  );
-
-                  // Track task execution for DataflowRun
-                  const existing = execution.taskExecutions.get(taskName);
-                  execution.taskExecutions.set(taskName, {
-                    executionId: result.executionId ?? state.id,
-                    cached: result.cached,
-                    outputVersions: new Map(mergedVV),
-                    executionCount: (existing?.executionCount ?? 0n) + 1n,
-                  });
-
-                  options.onTaskComplete?.({
-                    name: taskName,
-                    cached: result.cached,
-                    state: 'success',
-                    duration: result.duration,
-                  });
-                }
-
-                // Detect input changes after task completion
-                await this.handleInputChanges(storage, state, options, structure);
-              } else if (result.cancelled) {
-                // e3 stopped the task because the run was aborted — not the
-                // task's failure. It goes back to pending, as a stale result
-                // does, with no event (the event wire is frozen), and the run
-                // ends through the abort path as cancelled.
-                const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
-                if (ts) ts.status = 'pending';
-
-                options.onTaskComplete?.({
-                  name: taskName,
-                  cached: false,
-                  state: 'cancelled',
-                  duration: result.duration,
-                });
-              } else {
-                hasFailure = true;
-
-                const { result: failedResult } = stepTaskFailed(
-                  state,
-                  taskName,
-                  result.error,
-                  result.exitCode,
-                  result.duration
-                );
-
-                options.onTaskComplete?.({
-                  name: taskName,
-                  cached: false,
-                  state: result.state === 'failed' ? 'failed' : 'error',
-                  error: result.error,
-                  exitCode: result.exitCode,
-                  duration: result.duration,
-                });
-
-                // Skip dependents (events added by step function)
-                const skipEvents = stepTasksSkipped(state, failedResult.toSkip, taskName);
-                for (const skipEvent of skipEvents) {
-                  if (skipEvent.type === 'task_skipped') {
-                    options.onTaskComplete?.({
-                      name: skipEvent.value.task,
-                      cached: false,
-                      state: 'skipped',
-                      duration: 0,
-                    });
-                  }
-                }
-              }
-
-              // Update state store
-              await this.persistState(execution, state);
-            })
-          ).catch(async (err) => {
-            // The completion handler (writing the output ref, re-reading inputs,
-            // or persisting state) rejected. Without this catch the task is left
-            // in whatever status it had when the throw happened — `in_progress`
-            // if it failed before stepTaskCompleted — and the `.finally` still
-            // drops it from runningTasks. That orphans the arm (in state, not
-            // running) and the dataflow later reports a spurious "Dataflow stuck".
-            // The rejection is otherwise swallowed (a settled Promise.race keeps a
-            // handler on it), so it never surfaces. Mark the task failed with the
-            // real error instead.
-            const msg = err instanceof Error ? err.message : String(err);
-            await execution.mutex.runExclusive(async () => {
-              hasFailure = true;
-              try {
-                stepTaskFailed(state, taskName, msg, undefined, 0);
-                await this.persistState(execution, state);
-              } catch {
-                // best-effort — the original error above is what matters
-              }
-            });
-            options.onTaskComplete?.({
-              name: taskName,
-              cached: false,
-              state: 'error',
-              error: msg,
-              duration: 0,
-            });
-          }).finally(() => {
-            // Identity-checked delete: only clear the slot if it still holds
-            // THIS promise. If a re-launch replaced it, a blind delete-by-name
-            // would drop the newer promise's tracking and orphan the task.
-            if (execution.runningTasks.get(taskName) === taskPromise) {
-              execution.runningTasks.delete(taskName);
-            }
-          });
-
-          execution.runningTasks.set(taskName, taskPromise);
+          // A task whose work is split over its inputs runs as the units of
+          // its stages, which join the loop's; any other task runs as one.
+          const task = await this.readSplitTask(storage, repo, prepared.taskHash);
+          if (task !== null) {
+            this.launchSplit(storage, repo, execution, taskName, prepared, vvCheck.mergedVV, task);
+          } else {
+            this.launchTask(storage, repo, execution, taskName, prepared, vvCheck.mergedVV);
+          }
         }
 
         // Yield checkpoint: stop here rather than waiting on running tasks —
         // anything they finish is recovered from the execution cache on
         // resume. Skipped on failure/abort: the loop is about to finalize
         // those terminally anyway.
-        if (!hasFailure && !checkAborted() && options.shouldYield?.()) {
+        if (!execution.hasFailure && !checkAborted() && options.shouldYield?.()) {
           await this.checkpointYield(execution);
           return;
         }
@@ -857,8 +803,19 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           // A cached task completed synchronously, which may have made new
           // downstream tasks ready. Continue to re-check at the top of the loop.
           continue;
-        } else if (readyTasks.length === 0 || checkAborted() || hasFailure) {
+        } else if (readyTasks.length === 0 || checkAborted() || execution.hasFailure) {
           break;
+        }
+      }
+
+      // A split task the run was aborted before its units could start — its
+      // pieces just planned, or its next stage — ends cancelled, as its
+      // units in flight would have.
+      if (checkAborted()) {
+        for (const [taskName, run] of [...execution.splits]) {
+          const cancelled = await run.split.cancel();
+          await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(cancelled, run.startTime));
+          execution.splits.delete(taskName);
         }
       }
 
@@ -885,7 +842,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         })
         .map(([name, ts]) => `${name} (${ts.status})`)
         .join(', ');
-      if (stuckTasks.length > 0 && !checkAborted() && !hasFailure) {
+      if (stuckTasks.length > 0 && !checkAborted() && !execution.hasFailure) {
         throw new DataflowError(`Dataflow stuck: ${stuckTasks}`);
       }
 
@@ -899,7 +856,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // Write cancelled DataflowRun record
         if (wsState) {
           const cancelledRun: DataflowRun = {
-            runId: execution.runId,
+            runId: state.id,
             workspaceName: state.workspace,
             packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
             startedAt: state.startedAt,
@@ -926,7 +883,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
 
       // Finalize (event added by step function)
-      const { result } = stepFinalize(state, execution.runId);
+      const { result } = stepFinalize(state);
       if (this.stateStore) {
         await this.stateStore.update(state);
       }
@@ -951,7 +908,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         }
 
         const finalRun: DataflowRun = {
-          runId: execution.runId,
+          runId: state.id,
           workspaceName: state.workspace,
           packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
           startedAt: state.startedAt,
@@ -974,14 +931,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // Update workspace state with currentRunId on success
         if (result.success) {
           const currentWsData = await storage.refs.workspaceRead(repo, state.workspace);
-          if (currentWsData && currentWsData.length > 0) {
-            const currentWsState = wsDecoder(currentWsData);
-            const updatedWsState = {
-              ...currentWsState,
-              currentRunId: variant('some', execution.runId),
-            };
-            const encoder = encodeBeast2For(WorkspaceStateType);
-            await storage.refs.workspaceWrite(repo, state.workspace, encoder(updatedWsState));
+          const currentRecord = currentWsData === null ? null : decodeBeast2For(WorkspaceRecordType)(currentWsData);
+          if (currentRecord?.type === 'some') {
+            await storage.refs.workspaceWrite(repo, state.workspace, encodeBeast2For(WorkspaceRecordType)(some({
+              ...currentRecord.value,
+              currentRunId: some(state.id),
+            })));
           }
         }
       }
@@ -1044,6 +999,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     const { state } = execution;
     execution.yielded = true;
     await execution.mutex.runExclusive(async () => {
+      // A split task in progress is left mid-stage: its state keeps naming
+      // the stage's plan, which a resumed run takes up again.
+      for (const run of execution.splits.values()) {
+        await run.split.suspend();
+      }
       stepYield(state);
       if (this.stateStore) {
         await this.stateStore.update(state);
@@ -1051,7 +1011,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     });
     execution.yieldResult = {
       success: false,
-      runId: execution.runId,
+      runId: state.id,
       executed: Number(state.executed),
       cached: Number(state.cached),
       failed: Number(state.failed),
@@ -1098,6 +1058,417 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
+   * Completes a task the loop launched, under the mutex: its output applied
+   * and its dependents made ready; or back to pending, when its inputs changed
+   * while it ran or the run was aborted; or failed, its dependents skipped.
+   */
+  private async completeTask(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    prepared: PrepareTaskResult,
+    launchMergedVV: VersionVector,
+    result: TaskOutcome
+  ): Promise<void> {
+    const { state, options } = execution;
+    await execution.mutex.runExclusive(async () => {
+      // Handle task completion
+      if (result.state === 'success') {
+        // Check if task's inputs changed during execution by comparing
+        // the launch-time merged VV against current. handleInputChanges may
+        // have updated root input VVs while this task was in_progress,
+        // making its result stale.
+        const currentVVCheck = stepCheckVersionConsistency(state, taskName);
+        const inputsStale = !currentVVCheck.consistent || (() => {
+          const current = currentVVCheck.mergedVV;
+          if (launchMergedVV.size !== current.size) return true;
+          for (const [key, value] of launchMergedVV) {
+            if (current.get(key) !== value) return true;
+          }
+          return false;
+        })();
+
+        if (inputsStale) {
+          // Task computed with stale inputs — discard result, reset to pending.
+          // The reactive loop will re-execute it with the updated inputs.
+          const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+          if (ts) {
+            ts.status = 'pending';
+            ts.plan = none;
+          }
+
+          const mutableState = state as Mutable<DataflowExecutionState>;
+          mutableState.eventSeq = state.eventSeq + 1n;
+          const invalidEvent: ExecutionEvent = variant('task_invalidated', {
+            seq: mutableState.eventSeq,
+            timestamp: new Date(),
+            task: taskName,
+            reason: 'inputs changed during execution',
+          });
+          (mutableState.events as ExecutionEvent[]).push(invalidEvent);
+          mutableState.reexecuted = state.reexecuted + 1n;
+
+          options.onTaskInvalidated?.(taskName, 'inputs changed during execution');
+        } else {
+          // Use launch-time VV for the output — it reflects what the task
+          // actually consumed, not what state.versionVectors says now.
+          const mergedVV = launchMergedVV;
+
+          if (result.outputHash) {
+            // Write output ref with merged VV
+            await stepApplyTreeUpdate(
+              storage, repo, state.workspace,
+              prepared.outputPath, result.outputHash, mergedVV
+            );
+          }
+
+          const completed = { inputsHash: inputsHash(prepared.inputHashes), executionId: result.executionId };
+          stepTaskCompleted(
+            state,
+            taskName,
+            result.outputHash ?? '',
+            result.cached,
+            result.duration,
+            completed
+          );
+
+          // Track task execution for DataflowRun
+          const existing = execution.taskExecutions.get(taskName);
+          execution.taskExecutions.set(taskName, {
+            ...completed,
+            taskHash: prepared.taskHash,
+            cached: result.cached,
+            outputVersions: new Map(mergedVV),
+            executionCount: (existing?.executionCount ?? 0n) + 1n,
+          });
+
+          options.onTaskComplete?.({
+            name: taskName,
+            cached: result.cached,
+            state: 'success',
+            duration: result.duration,
+          });
+        }
+
+        // Detect input changes after task completion
+        await this.handleInputChanges(storage, state, options, execution.structure);
+      } else if (result.cancelled) {
+        // e3 stopped the task because the run was aborted — not the
+        // task's failure. It goes back to pending, as a stale result
+        // does, and the run ends through the abort path as cancelled.
+        const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+        if (ts) {
+          ts.status = 'pending';
+          ts.plan = none;
+        }
+
+        options.onTaskComplete?.({
+          name: taskName,
+          cached: false,
+          state: 'cancelled',
+          duration: result.duration,
+        });
+      } else {
+        execution.hasFailure = true;
+
+        const { result: failedResult } = stepTaskFailed(
+          state,
+          taskName,
+          result.error,
+          result.exitCode,
+          result.duration
+        );
+
+        options.onTaskComplete?.({
+          name: taskName,
+          cached: false,
+          state: result.state === 'failed' ? 'failed' : 'error',
+          error: result.error,
+          exitCode: result.exitCode,
+          duration: result.duration,
+        });
+
+        // Skip dependents (events added by step function)
+        const skipEvents = stepTasksSkipped(state, failedResult.toSkip, taskName);
+        for (const skipEvent of skipEvents) {
+          if (skipEvent.type === 'task_skipped') {
+            options.onTaskComplete?.({
+              name: skipEvent.value.task,
+              cached: false,
+              state: 'skipped',
+              duration: 0,
+            });
+          }
+        }
+      }
+
+      // Update state store
+      await this.persistState(execution, state);
+    });
+  }
+
+  /**
+   * Fails a task whose completion threw — writing its output ref, re-reading
+   * inputs, persisting state, or advancing its stages. Left alone, it would
+   * stay in whatever status it had when the throw happened — `in_progress` if
+   * it failed before stepTaskCompleted — while the loop no longer tracks it,
+   * and the dataflow would report a spurious "Dataflow stuck". The rejection
+   * is otherwise swallowed (a settled Promise.race keeps a handler on it), so
+   * it never surfaces. Mark the task failed with the real error instead.
+   */
+  private async failTask(execution: RunningExecution, taskName: string, err: unknown): Promise<void> {
+    const { state, options } = execution;
+    const msg = err instanceof Error ? err.message : String(err);
+    await execution.mutex.runExclusive(async () => {
+      execution.hasFailure = true;
+      try {
+        stepTaskFailed(state, taskName, msg, undefined, 0);
+        await this.persistState(execution, state);
+      } catch {
+        // best-effort — the original error above is what matters
+      }
+    });
+    options.onTaskComplete?.({
+      name: taskName,
+      cached: false,
+      state: 'error',
+      error: msg,
+      duration: 0,
+    });
+  }
+
+  /** Launches a task that runs as one execution, tracked under its name. */
+  private launchTask(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    prepared: PrepareTaskResult,
+    launchMergedVV: VersionVector
+  ): void {
+    const taskPromise = this.executeTask(storage, repo, execution, taskName, prepared)
+      .then((result) => this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, result))
+      .catch((err) => this.failTask(execution, taskName, err))
+      .finally(() => {
+        // Identity-checked delete: only clear the slot if it still holds
+        // THIS promise. If a re-launch replaced it, a blind delete-by-name
+        // would drop the newer promise's tracking and orphan the task.
+        if (execution.runningTasks.get(taskName) === taskPromise) {
+          execution.runningTasks.delete(taskName);
+        }
+      });
+    execution.runningTasks.set(taskName, taskPromise);
+  }
+
+  /**
+   * Launches a task whose work is split over its inputs: plans its pieces, or
+   * takes up the stage its state names, and hands the stage's units to the
+   * loop. The planning is tracked under the task's name, so the loop launches
+   * other work meanwhile.
+   */
+  private launchSplit(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    prepared: PrepareTaskResult,
+    launchMergedVV: VersionVector,
+    task: TaskObject
+  ): void {
+    const { state, options } = execution;
+    const startTime = Date.now();
+    const planned = (async () => {
+      const taskState = state.tasks.get(taskName);
+      const split = await SplitTask.open(
+        storage,
+        repo,
+        prepared.taskHash,
+        task,
+        prepared.inputHashes,
+        { inHash: inputsHash(prepared.inputHashes), executionId: uuidv7(), startTime },
+        {
+          signal: execution.abortController.signal,
+          onPartitionProgress: options.onPartitionProgress
+            ? (progress) => options.onPartitionProgress!(taskName, progress)
+            : undefined,
+        },
+        taskState?.plan.type === 'some' ? taskState.plan.value : null,
+        options.owner === undefined ? await processOwner() : options.owner
+      );
+      if (!(split instanceof SplitTask)) {
+        await this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, outcomeOf(split, startTime));
+        return;
+      }
+      if (execution.yielded) {
+        // The run yielded while the task was planned: a resumed run takes it up.
+        await split.suspend();
+        return;
+      }
+      execution.splits.set(taskName, {
+        split, prepared, launchVV: launchMergedVV, startTime, next: 0, inFlight: 0, stopped: false, results: [], thrown: [],
+      });
+      const { plan, units } = split.stage;
+      if (plan !== null && !split.resumed) {
+        await execution.mutex.runExclusive(async () => {
+          stepTaskSplit(state, taskName, plan, units.length);
+          await this.persistState(execution, state);
+        });
+      }
+    })()
+      .catch(async (err) => {
+        execution.splits.delete(taskName);
+        await this.failTask(execution, taskName, err);
+      })
+      .finally(() => {
+        if (execution.runningTasks.get(taskName) === planned) {
+          execution.runningTasks.delete(taskName);
+        }
+      });
+    execution.runningTasks.set(taskName, planned);
+  }
+
+  /**
+   * Launches the next unit of a split task's stage, expecting to need the
+   * largest peak a unit of the stage has reached. The unit that ends the
+   * stage — the last in flight, once no more will start — advances the task.
+   */
+  private launchUnit(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    run: SplitRun
+  ): void {
+    const index = run.next++;
+    const unit = run.split.stage.units[index]!;
+    const expectedPeakBytes = run.split.stagePeak;
+    const key = `${taskName}\u0000${execution.unitSeq++}`;
+    run.inFlight++;
+    run.split.unitStarted(index);
+    const launched = (async () => {
+      try {
+        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes);
+        run.results[index] = result;
+        run.split.unitSettled(index, result);
+        // A unit e3 stopped because the run was aborted is not a failure.
+        if ((result.state !== 'success' || result.outputHash === null) && !result.cancelled) run.stopped = true;
+      } catch (error) {
+        run.thrown.push({ index, error });
+        run.stopped = true;
+      }
+      run.inFlight--;
+      const more = !run.stopped && !execution.abortController.signal.aborted && run.next < run.split.stage.units.length;
+      // After a yield the task was left mid-stage, for a resumed run.
+      if (run.inFlight > 0 || more || execution.yielded) return;
+      await this.advanceSplit(storage, repo, execution, taskName, run);
+    })()
+      .catch(async (err) => {
+        execution.splits.delete(taskName);
+        await this.failTask(execution, taskName, err);
+      })
+      .finally(() => {
+        if (execution.runningTasks.get(key) === launched) {
+          execution.runningTasks.delete(key);
+        }
+      });
+    execution.runningTasks.set(key, launched);
+  }
+
+  /**
+   * Advances a split task whose stage has ended: the next stage's units join
+   * the loop's, or the task completes as any task does.
+   */
+  private async advanceSplit(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    run: SplitRun
+  ): Promise<void> {
+    const { state } = execution;
+    const ended = run.split.stage.merge;
+    const result = await run.split.advance(run.results, run.thrown);
+    if (result === null) {
+      const { plan, units, merge } = run.split.stage;
+      run.next = 0;
+      run.inFlight = 0;
+      run.stopped = false;
+      run.results = [];
+      run.thrown = [];
+      await execution.mutex.runExclusive(async () => {
+        if (ended !== null) stepTaskMergeCompleted(state, taskName, ended.level, ended.levels);
+        stepTaskMergeStarted(state, taskName, plan!, merge!.level, merge!.levels, units.length);
+        await this.persistState(execution, state);
+      });
+      return;
+    }
+    if (ended !== null && result.state === 'success') {
+      await execution.mutex.runExclusive(() => {
+        stepTaskMergeCompleted(state, taskName, ended.level, ended.levels);
+      });
+    }
+    await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(result, run.startTime));
+    execution.splits.delete(taskName);
+  }
+
+  /**
+   * The task object of a task whose work is split over its inputs; `null` for
+   * any other task, and for one whose object does not read, which its runner
+   * then reports.
+   */
+  private async readSplitTask(storage: StorageBackend, repo: string, taskHash: string): Promise<TaskObject | null> {
+    try {
+      const task = decodeTaskObject(Buffer.from(await storage.objects.read(repo, taskHash)));
+      return isSplitTask(task) ? task : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Execute one unit of a split task, through the run's runner or locally.
+   */
+  private async executeUnit(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    taskHash: string,
+    unit: SplitUnit,
+    expectedPeakBytes: number | undefined
+  ): Promise<ExecutionResult> {
+    const { options } = execution;
+    const execOptions: TaskExecuteOptions = {
+      // Scoped as the task's own cache bypass is: under a filter, only the
+      // target's units re-run.
+      force: stepTaskForced(execution.state, taskName),
+      verbose: options.verbose,
+      signal: execution.abortController.signal,
+      onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
+      onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
+      expectedPeakBytes,
+    };
+    if (!options.runner) {
+      return taskExecuteUnit(storage, repo, taskHash, unit, execOptions);
+    }
+    const startTime = Date.now();
+    const result = await options.runner.executeUnit(storage, taskHash, unit, execOptions);
+    return {
+      inputsHash: inputsHash(unit.inputs),
+      executionId: result.executionId,
+      cached: result.cached,
+      state: result.state,
+      outputHash: result.outputHash ?? null,
+      exitCode: result.exitCode ?? null,
+      duration: Date.now() - startTime,
+      error: result.error ?? null,
+      cancelled: result.cancelled ?? false,
+      ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
+    };
+  }
+
+  /**
    * Execute a single task.
    */
   private async executeTask(
@@ -1106,16 +1477,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     execution: RunningExecution,
     taskName: string,
     prepared: { taskHash: string; inputHashes: string[] }
-  ): Promise<{
-    state: 'success' | 'failed' | 'error';
-    cached: boolean;
-    outputHash?: string;
-    executionId?: string;
-    exitCode?: number;
-    error?: string;
-    cancelled?: boolean;
-    duration: number;
-  }> {
+  ): Promise<TaskOutcome> {
     const { options } = execution;
     const startTime = Date.now();
 
@@ -1127,14 +1489,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       signal: execution.abortController.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
-      partitionConcurrency: options.partitionConcurrency,
-      jobs: options.jobs,
-      // Forward partition progress to the caller's callback ONLY. It is
-      // deliberately not persisted as execution events: ExecutionEventType
-      // is a frozen beast2 wire (appending cases breaks released readers —
-      // see its wire warning), nothing consumes persisted partition
-      // progress, and a per-unit state rewrite would make persistence
-      // O(partitions²) under the orchestrator mutex.
+      // Unit progress goes to the caller's callback only. The state records
+      // a split task's stages, not each unit: a per-unit state rewrite would
+      // make persistence O(units²) under the orchestrator mutex.
       onPartitionProgress: options.onPartitionProgress
         ? (progress) => options.onPartitionProgress!(taskName, progress)
         : undefined,

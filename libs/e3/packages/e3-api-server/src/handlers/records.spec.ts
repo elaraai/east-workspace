@@ -13,14 +13,15 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { IntegerType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant, some, none } from '@elaraai/east';
-import { MockTaskRunner, BEAST2_CONTENT_TYPE, recordHistory } from '@elaraai/e3-core';
+import { MockTaskRunner, recordHistory } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import {
+  BEAST2_CONTENT_TYPE,
   PackageObjectType,
   RecordObjectType,
   MutationObjectType,
   RecordCommitType,
-  WorkspaceStateType,
+  WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import { createWorkspaceRecordRoutes } from '../routes/records.js';
 import { effectiveBudgetMs } from './records.js';
@@ -59,17 +60,21 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
 
   const stateHash = await storage.objects.write(REPO, encodeInt(0n));
   const genesisHash = await storage.objects.write(REPO, encodeBeast2For(RecordCommitType)({
-    parent: none, state: stateHash, mutation: '$init', args: none, actor: 'system:deploy', at: new Date(0),
+    parent: none, state: stateHash, mutation: '$init', args: none, actor: 'system:deploy', at: new Date(0), delta: none,
   }));
   const bodyIrHash = await storage.objects.write(REPO, encodeInt(0n)); // stand-in IR (MockTaskRunner ignores it)
   const mutHash = await storage.objects.write(REPO, encodeBeast2For(MutationObjectType)({
     bodyIr: bodyIrHash,
     argTypes: [toEastTypeValue(IntegerType)],
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    form: 'reduce',
+    programIr: '',
   }));
   const recHash = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
     path: 'records/counter',
     mutations: new Map([['increment', mutHash]]),
+    indexes: new Map(),
+    migrations: [],
   }));
 
   const structure = variant('struct', new Map([
@@ -85,9 +90,9 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
     sources: new Map(),
   }));
 
-  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({
+  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceRecordType)(some({
     packageName: 'counters', packageVersion: '1.0.0', packageHash: pkgHash, deployedAt: new Date(0), currentRunId: none,
-  }));
+  })));
   await storage.datasets.write(REPO, WS, 'records/counter',
     variant('value', { hash: stateHash, versions: new Map([['.records.counter', genesisHash]]) }));
 }

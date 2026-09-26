@@ -14,14 +14,15 @@
  */
 
 import * as fs from 'fs/promises';
-import { createReadStream, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
 import type { Readable } from 'stream';
 import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { createRequire } from 'module';
-import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
+import { DatasetSegments, openDatasetObject } from '../dataset-open.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from '../concurrency.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 // On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
@@ -86,32 +87,122 @@ export function collectVenvBins(startDir: string): string[] {
 /** Options for {@link marshalInputsToDir}. */
 export interface MarshalInputsOptions {
   /**
+   * Whether the runner opens a collection staged as a segment manifest.
+   *
+   * @remarks
+   * True stages a manifest-backed input as the manifest file plus one linked
+   * file per segment, so staging a 2 GB input is O(segments) links and no
+   * bytes and the body reads only the segments it touches. Every stock runner
+   * opens manifests. False splices the segments into one file, which a command
+   * needs — a `customTask`'s, or the `custom` runtime's — since it reads one
+   * ordinary file.
+   */
+  manifests?: boolean;
+  /**
    * Whether a staged input may SHARE the object's storage (a hard link or a
    * reflink) rather than being copied.
    *
    * @remarks
    * True is the default and is safe for every stock runner: east-c maps its
    * inputs read-only, east-node and east-py read them. It must be false for a
-   * `custom` runner, whose command is arbitrary and could `mv` or truncate an
-   * input path — which, through a hard link, would corrupt the object itself.
+   * command, which is arbitrary and could `mv` or truncate an input path —
+   * which, through a hard link, would corrupt the object itself.
    */
   link?: boolean;
 }
 
-/** Bytes per read when streaming an object into scratch without
- *  {@link ObjectStore.materialize}. */
-const MARSHAL_CHUNK_BYTES = 4 * 1024 * 1024;
+/** One object staged at a path, for a runner to read. */
+interface Placement {
+  hash: string;
+  dest: string;
+}
 
 /**
- * Marshal input objects to staged `.beast2` files in a scratch directory.
+ * What staging one stored dataset at `inputPath` places: its manifest and each
+ * segment beside it for a runner that opens the layout, or its one object.
  *
  * @remarks
- * The bytes never pass through this process's heap. A backend whose objects
- * are files links or kernel-copies them (`ObjectStore.materialize`); one that
- * only serves ranges streams them a chunk at a time. Before #767 this read
- * each object whole — measured at 2.1 GB of orchestrator RSS on every
- * execution over a 2 GB input, for bytes the runner then opened lazily
- * anyway.
+ * A runner that does not open manifests is given the value instead: the
+ * segments are spliced into the file here, under their shared header, read
+ * {@link OBJECT_CONCURRENCY} ahead of the write, and nothing is left to place.
+ * An Array that holds two equal segments names one object twice, which is
+ * placed once: a second link onto the first would fail.
+ */
+async function inputPlacements(
+  storage: StorageBackend,
+  repo: string,
+  dataset: string,
+  inputPath: string,
+  manifests: boolean,
+): Promise<Placement[]> {
+  const { hash, manifest } = await openDatasetObject(storage, repo, dataset);
+  if (manifest === null) return [{ hash, dest: inputPath }];
+  if (manifests) {
+    // The manifest itself, then its segments as sibling files named by
+    // hash — the convention every runtime's opener reads.
+    const segmentDir = `${inputPath}.segments`;
+    await fs.mkdir(segmentDir, { recursive: true });
+    const segments = [...new Set(manifest.entries.map((entry) => entry.hash))];
+    return [
+      { hash, dest: inputPath },
+      ...segments.map((segment) => ({ hash: segment, dest: path.join(segmentDir, `${segment}.beast2`) })),
+    ];
+  }
+  const segments = await DatasetSegments.open(storage, repo, hash);
+  const handle = await fs.open(inputPath, 'w');
+  try {
+    for await (const chunk of segments.splice({ readAhead: OBJECT_CONCURRENCY })) await handle.write(chunk);
+  } finally {
+    await handle.close();
+  }
+  return [];
+}
+
+/**
+ * Stages one stored dataset at `inputPath`, for a runner to read.
+ *
+ * @remarks
+ * The bytes never pass through this process's heap: the backend places each
+ * object (`ObjectStore.materialize`), a backend whose objects are files by a
+ * link or one kernel copy. Before #767 an input was read whole — measured at
+ * 2.1 GB of orchestrator RSS on every execution over a 2 GB input, for bytes
+ * the runner then opened lazily anyway.
+ *
+ * A dataset stored as a segment manifest is staged as the manifest plus one
+ * linked file per segment for a runner that opens the layout, and spliced
+ * into one file for a runner that does not. Peak memory is a few segments
+ * either way; for the first, no segment's bytes move at all. Objects are
+ * placed {@link OBJECT_CONCURRENCY} at a time: a link each locally, but a
+ * request each on a remote store. An indexed record's `$record` state is never
+ * staged: its primary is, the rows.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param dataset - The hash of the object the dataset's ref names
+ * @param inputPath - Where the input is staged
+ * @param options - Whether it may share the object's storage, and whether the
+ *   runner opens a manifest
+ */
+export async function stageInput(
+  storage: StorageBackend,
+  repo: string,
+  dataset: string,
+  inputPath: string,
+  options: MarshalInputsOptions = {}
+): Promise<void> {
+  const placements = await inputPlacements(storage, repo, dataset, inputPath, options.manifests === true);
+  await eachAtMost(placements, OBJECT_CONCURRENCY, ({ hash, dest }) =>
+    storage.objects.materialize(repo, hash, dest, { link: options.link !== false }));
+}
+
+/**
+ * Marshal input objects to staged `.beast2` files in a scratch directory, each
+ * as {@link stageInput} stages it.
+ *
+ * @remarks
+ * Every input's objects are placed in one pool, so a unit's staging places at
+ * most {@link OBJECT_CONCURRENCY} objects at once however its inputs divide
+ * them.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -127,110 +218,16 @@ export async function marshalInputsToDir(
   inputHashes: string[],
   options: MarshalInputsOptions = {}
 ): Promise<string[]> {
-  const link = options.link !== false;
-  const materialize = storage.objects.materialize;
-  const readRange = storage.objects.readRange;
   const inputPaths: string[] = [];
+  const placements: Placement[] = [];
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-    const hash = inputHashes[i]!;
-    if (materialize) {
-      await materialize.call(storage.objects, repo, hash, inputPath, { link });
-    } else if (readRange) {
-      const { size } = await storage.objects.stat(repo, hash);
-      const handle = await fs.open(inputPath, 'w');
-      try {
-        for (let offset = 0; offset < size; offset += MARSHAL_CHUNK_BYTES) {
-          const chunk = await readRange.call(storage.objects, repo, hash, offset, Math.min(MARSHAL_CHUNK_BYTES, size - offset));
-          if (chunk.length === 0) break;
-          await handle.write(chunk);
-        }
-      } finally {
-        await handle.close();
-      }
-    } else {
-      await fs.writeFile(inputPath, await storage.objects.read(repo, hash));
-    }
+    placements.push(...await inputPlacements(storage, repo, inputHashes[i]!, inputPath, options.manifests === true));
     inputPaths.push(inputPath);
   }
+  await eachAtMost(placements, OBJECT_CONCURRENCY, ({ hash, dest }) =>
+    storage.objects.materialize(repo, hash, dest, { link: options.link !== false }));
   return inputPaths;
-}
-
-/**
- * Take a runner's output file into the object store, without reading it.
- *
- * @remarks
- * The write-side twin of {@link marshalInputsToDir}: the file is hashed by
- * streaming and linked, reflinked or kernel-copied into the store. The link is
- * taken while the scratch directory still exists — its `finally` cleanup
- * unlinks the scratch NAME, which is not the object.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param outputPath - The runner's output file
- * @returns The object's hash
- */
-export async function adoptOutputFile(
-  storage: StorageBackend,
-  repo: string,
-  outputPath: string
-): Promise<string> {
-  const adopt = storage.objects.adoptFile;
-  if (adopt) return (await adopt.call(storage.objects, repo, outputPath)).hash;
-  return storage.objects.writeStream(repo, createReadStream(outputPath));
-}
-
-/**
- * Marshal raw value bytes to staged `.beast2` files in a scratch directory.
- *
- * The graph-free path writes args to scratch directly from request bytes —
- * no object-store round trip.
- *
- * @returns The staged file paths, in arg order
- */
-export async function marshalBytesToDir(
-  scratchDir: string,
-  blobs: Uint8Array[]
-): Promise<string[]> {
-  const argPaths: string[] = [];
-  for (let i = 0; i < blobs.length; i++) {
-    const argPath = path.join(scratchDir, `input-${i}.beast2`);
-    await fs.writeFile(argPath, blobs[i]!);
-    argPaths.push(argPath);
-  }
-  return argPaths;
-}
-
-/**
- * Read a runner's output file back as bytes.
- *
- * Extracted so the graph-free path returns bytes without writing them to
- * the object store.
- */
-export async function readOutputFile(outputPath: string): Promise<Uint8Array> {
-  return fs.readFile(outputPath);
-}
-
-/**
- * Build the full runner argv for a function/one-shot call.
- *
- * This is the function analogue of a task's `commandIr` output — built
- * directly from the wire runner variant, no IR evaluation. (Task mapping:
- * `args` ⇄ the `-i` data inputs, `bodyIr` ⇄ the trailing IR positional
- * that was `input-0`.)
- */
-export function buildRunnerArgv(
-  runner: RunnerValue,
-  argPaths: string[],
-  outputPath: string,
-  bodyIrPath: string
-): string[] {
-  return [
-    ...runnerToArgv(runner),
-    ...argPaths.flatMap((p) => ['-i', p]),
-    '-o', outputPath,
-    bodyIrPath,
-  ];
 }
 
 /** How long a child e3 stopped is read after it has exited, before its pipes
@@ -417,7 +414,9 @@ export interface SpawnAndCaptureOptions {
   /** Per stream, the bytes handed to its callback whose promises have not
    *  settled above which the stream is paused (default 1 MiB); it resumes once
    *  they fall to half. A child writing faster than the callback settles then
-   *  blocks on its pipe. */
+   *  blocks on its pipe. What is held stays within the cap plus two chunks:
+   *  once the child has exited, Node resumes its output to drain it, and one
+   *  chunk arrives before the stream is paused again. */
   maxPendingBytes?: number;
   /** Gives the child a stdin pipe this process never writes to — the
    *  lifeline a stock runner spawned with `--exit-with-parent` (spliced into
@@ -434,6 +433,11 @@ export interface SpawnAndCaptureOptions {
   /** Directories whose ancestor `node_modules/.bin` dirs are prepended to
    *  PATH so runner CLIs resolve (deduped, nearest first). */
   searchDirs?: string[];
+  /** Variables the child's environment gains after `process.env`'s: the
+   *  secrets a runner's platform functions read, say. Runtime-only, so never
+   *  hashed and never logged. They may not set a variable e3 sets itself,
+   *  `PATH` or `E3_RUNNER_SEARCH_DIRS`: the spawn refuses one that does. */
+  extraEnv?: Readonly<Record<string, string>>;
   /** Called once the child has spawned, with its pid (or null). The tracked
    *  path uses this to write the `running` execution status. When it throws,
    *  the child is stopped and waited for, and the spawn rejects with its
@@ -575,8 +579,17 @@ export async function spawnAndCapture(
     windowsHide: true,
   };
   const pathSep = process.platform === 'win32' ? ';' : ':';
+  // The caller's variables come after the process's own, and may not set the
+  // ones e3 sets for the runner. Windows compares names case-insensitively.
+  for (const name of Object.keys(options.extraEnv ?? {})) {
+    const key = process.platform === 'win32' ? name.toUpperCase() : name;
+    if (key === 'PATH' || key === 'E3_RUNNER_SEARCH_DIRS') {
+      throw new Error(`a runner's environment may not set ${name}, which e3 sets itself`);
+    }
+  }
   spawnOpts.env = {
     ...process.env,
+    ...options.extraEnv,
     PATH: [...(options.extraBins ?? []), ...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
       .filter(Boolean)
       .join(pathSep),
@@ -650,7 +663,11 @@ export async function spawnAndCapture(
       if (!settled) return;
       const bytes = Buffer.byteLength(data, 'utf8');
       pending += bytes;
-      if (!paused && pending > maxPendingBytes) {
+      // Over the cap, paused or not: once the child has exited, Node resumes
+      // its output to drain it to the end, over this pause, and a chunk that
+      // arrives before the pause is renewed would otherwise be followed by the
+      // rest of what the pipe and the stream hold.
+      if (pending > maxPendingBytes) {
         paused = true;
         stream.pause();
       }

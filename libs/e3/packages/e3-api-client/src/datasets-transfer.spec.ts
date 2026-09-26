@@ -7,9 +7,9 @@
  * Tests for the client half of the dataset transfer protocol.
  *
  * `datasetSetStream` (and `datasetSet` above the inline threshold) must speak
- * protocol 2 to a server that plans parts and polls commits, and still speak
- * protocol 1 to a server that predates it. These tests stand a fake server in
- * for `fetch` and pin what reaches the wire: the version on the init and the
+ * the transfer protocol to a server that plans parts and polls commits. These
+ * tests stand a fake server in for `fetch` and pin what reaches the wire: the
+ * version on the init and the
  * commit, each part's exact byte range with the headers the server named and
  * no credentials, a transient part failure retried from a fresh read of its
  * range, the commit polled until it finishes, and every refusal surfaced.
@@ -86,7 +86,7 @@ function streamedSource(bytes: Uint8Array): DatasetTransferSource & { reads: str
 
 const payload = Uint8Array.from({ length: 10 }, (_, i) => 100 + i);
 
-describe('datasetSetStream: transfer protocol 2', () => {
+describe('datasetSetStream: the transfer protocol', () => {
   it('sends the parts the server plans, with their headers and no credentials, and polls the commit', async () => {
     const parts = new Map<number, Uint8Array>();
     let polls = 0;
@@ -137,30 +137,6 @@ describe('datasetSetStream: transfer protocol 2', () => {
         assert.equal(call.headers.get('authorization'), 'Bearer tok');
       }
     }
-  });
-
-  it('sends every byte in one PUT to a server that answers in protocol 1', async () => {
-    let whole: Uint8Array | null = null;
-    const calls = fakeServer(({ method, url, body }) => {
-      if (method === 'POST' && url.pathname.endsWith('/upload')) {
-        return success(TransferUploadResponseType, variant('upload', { id: ID, uploadUrl: 'https://store.test/whole' }));
-      }
-      if (method === 'PUT' && url.href === 'https://store.test/whole') {
-        whole = body;
-        return new Response(null, { status: 200 });
-      }
-      if (method === 'POST' && url.pathname.endsWith(`/upload/${ID}`)) {
-        return success(TransferDoneResponseType, variant('completed', null));
-      }
-      return new Response(`unexpected ${method} ${url.href}`, { status: 500 });
-    });
-
-    const source = streamedSource(payload);
-    await datasetSetStream(BASE, 'r', 'ws', PATH, source, { token: null, retry: NO_WAIT });
-
-    assert.deepEqual([...whole!], [...payload]);
-    assert.deepEqual(source.reads, ['0-10']);
-    assert.equal(calls.filter(c => c.url.pathname.includes('/parts/')).length, 0);
   });
 
   it('re-reads a part\'s range when its PUT meets a transient failure', async () => {

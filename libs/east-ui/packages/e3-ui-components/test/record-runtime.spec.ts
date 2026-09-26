@@ -260,11 +260,10 @@ describe("RecordRuntime — mutation lifecycle", () => {
         assert.deepEqual(cache.refreshes, [ws]);
     });
 
-    test("conflict / failed / too_large / timed_out map onto RecordError arms", async () => {
+    test("conflict / failed / timed_out map onto RecordError arms", async () => {
         const cases: { outcome: MutationResult; kind: string }[] = [
             { outcome: { outcome: variant("conflict", { attempts: 5n }) } as MutationResult, kind: "conflict" },
             { outcome: { outcome: variant("failed", { exitCode: 3n, stderr: "boom" }) } as MutationResult, kind: "failed" },
-            { outcome: { outcome: variant("too_large", { bytes: 99n, limit: 10n, stderr: "" }) } as MutationResult, kind: "too_large" },
             { outcome: { outcome: variant("timed_out", { ms: 60000n, stderr: "" }) } as MutationResult, kind: "timed_out" },
         ];
         for (const c of cases) {

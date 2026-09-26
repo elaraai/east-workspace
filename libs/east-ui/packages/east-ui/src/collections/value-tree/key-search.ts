@@ -37,15 +37,18 @@ export interface DatasetKeyMatchRange {
 
 /**
  * A key query in wire form: a whole-key `.east` literal (`key`), a String
- * prefix (`prefix`), or — for struct keys — exact leading-field literals
- * (`fields`, declaration order) optionally followed by a `prefix` on the
- * next (String) field. Every form addresses one contiguous row range in
- * the canonical key order.
+ * prefix (`prefix`), exact leading-field literals for struct keys (`fields`,
+ * declaration order) optionally followed by a `prefix` on the next (String)
+ * field, or a half-open `from` / `to` RANGE over a leading prefix of the key's
+ * FLATTENED field path, naming at least one end. Every form addresses one
+ * contiguous row range in the canonical key order.
  */
 export type DatasetKeyQuery =
     | { key: string }
     | { prefix: string }
-    | { fields: string[]; prefix?: string };
+    | { fields: string[]; prefix?: string }
+    | { from: string[]; to?: string[] }
+    | { from?: string[]; to: string[] };
 
 /** A parsed search input: a wire query, or the hint to show instead. */
 export type ParsedKeyInput =
@@ -118,20 +121,34 @@ export function keySignature(keyType: EastTypeValue): string {
 
 /**
  * Turns typed search text into a wire query, or a hint when it cannot
- * parse. Struct keys: `(` opens a whole-key `.east` literal; otherwise
- * comma-separated leading field values — exact for all but the last
- * segment (unquoted String segments need no quotes), the last a prefix on
- * a String field or an exact value otherwise, and a trailing comma
- * narrows to the leading exact fields.
+ * parse. String keys: bare text is a prefix. Struct keys: `(` opens a
+ * whole-key `.east` literal; otherwise comma-separated leading field values
+ * — exact for all but the last segment (unquoted String segments need no
+ * quotes), the last a prefix on a String field or an exact value otherwise,
+ * and a trailing comma narrows to the leading exact fields. Any key:
+ * `from..to` is a range over the key's flattened fields, open at one end or
+ * neither.
+ *
+ * Quoting is the escape. A quoted value is a `.east` literal, taken exactly
+ * as written — a `..` or `,` inside it is text — so a String key whose input
+ * is one quoted literal is an exact key: `"../config"` finds `../config`
+ * rather than everything below `/config`.
  *
  * @param keyType - The collection's Dict key / Set element type
  * @param text - The raw search input
  * @returns The query to send, or the hint to display
  */
 export function parseKeyInput(keyType: EastTypeValue, text: string): ParsedKeyInput {
+    const bounds = splitRange(text);
+    if (bounds !== null) return parseRangeInput(keyType, bounds);
     const fields = structKeyFields(keyType);
     if (fields === null) {
-        if (keyType.type === "String") return { kind: "query", query: { prefix: text } };
+        if (keyType.type === "String") {
+            const literal = text.trim().startsWith('"') ? parseFor(StringType)(text) : null;
+            return literal?.success === true
+                ? { kind: "query", query: { key: printFor(StringType)(literal.value) } }
+                : { kind: "query", query: { prefix: text } };
+        }
         const parsed = parseFor(keyType)(text);
         if (!parsed.success) return { kind: "hint", hint: `Key is ${keyType.type}` };
         return { kind: "query", query: { key: printFor(keyType)(parsed.value as never) } };
@@ -173,8 +190,140 @@ export function parseKeyInput(keyType: EastTypeValue, text: string): ParsedKeyIn
     return { kind: "query", query: { fields: exact } };
 }
 
+/**
+ * Splits `from..to` at the top level, or `null` when the text names no range.
+ *
+ * @remarks
+ * `..` is the range operator the search chrome types; either side may be
+ * empty, which is an open end, though not both. Scanned with the same
+ * string/bracket awareness as {@link splitTopLevel}, so a `..` inside a quoted
+ * value is just text.
+ */
+function splitRange(text: string): { from: string; to: string } | null {
+    let inString = false;
+    let depth = 0;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i]!;
+        if (inString) {
+            if (ch === "\\" && i + 1 < text.length) i++;
+            else if (ch === '"') inString = false;
+            continue;
+        }
+        if (ch === '"') inString = true;
+        else if (ch === "(" || ch === "[" || ch === "{") depth++;
+        else if (ch === ")" || ch === "]" || ch === "}") depth--;
+        else if (ch === "." && depth === 0 && text[i + 1] === ".") {
+            return { from: text.slice(0, i), to: text.slice(i + 2) };
+        }
+    }
+    return null;
+}
+
+/** One side of a range as `.east` literals of the key's leading leaves, or
+ *  `null` when a segment does not parse. */
+function parseBound(leaves: readonly KeyLeaf[], text: string): string[] | null {
+    const trimmed = text.trim();
+    if (trimmed === "") return [];
+    const segments = splitTopLevel(trimmed);
+    if (segments.length > leaves.length) return null;
+    const literals: string[] = [];
+    for (let i = 0; i < segments.length; i++) {
+        const leaf = leaves[i]!;
+        const raw = segments[i]!.trim();
+        if (leaf.type.type === "String" && !raw.startsWith('"')) {
+            literals.push(printFor(StringType)(raw));
+            continue;
+        }
+        const parsed = parseFor(leaf.type)(raw);
+        if (!parsed.success) return null;
+        literals.push(printFor(leaf.type)(parsed.value as never));
+    }
+    return literals;
+}
+
+/** The hint for a range the key's leading leaves cannot take. It names the
+ *  escape too, since text a key holds can contain the operator. */
+function rangeHint(leaves: readonly KeyLeaf[]): string {
+    return `Range is from..to over ${leaves.map((l) => `${l.path.join(".") || "key"}: ${l.type.type}`).join(", ")}`
+        + ` — quote text that holds ".."`;
+}
+
+/** A `from..to` search input as a range query, or the hint to display. A
+ *  range open at both ends names no run, so it is a hint as well. */
+function parseRangeInput(keyType: EastTypeValue, bounds: { from: string; to: string }): ParsedKeyInput {
+    const leaves = flattenKeyLeaves(keyType);
+    const from = parseBound(leaves, bounds.from);
+    const to = parseBound(leaves, bounds.to);
+    if (from === null || to === null || (from.length === 0 && to.length === 0)) {
+        return { kind: "hint", hint: rangeHint(leaves) };
+    }
+    return {
+        kind: "query",
+        query: from.length === 0 ? { to } : to.length === 0 ? { from } : { from, to },
+    };
+}
+
 /** Predicates that match no key — a defensively-handled malformed query. */
 const MATCH_NOTHING = { lower: () => false, upper: () => false } as const;
+
+/** One leaf of a key type, and the field path that reaches it. */
+interface KeyLeaf {
+    path: string[];
+    type: EastTypeValue;
+}
+
+/**
+ * A key type's leaves, in declaration order, recursing into nested structs —
+ * the client's mirror of the server's flattening.
+ *
+ * @remarks
+ * Struct keys compare field by field in declaration order, so this flattening
+ * IS the key's sort order, which is what makes a bound on a leading prefix of
+ * it one contiguous run. An index entry's `{ik: {status, due}, k}` flattens to
+ * `status, due, k`, so a bound of two values bounds the index key.
+ *
+ * @param keyType - the collection's Dict key / Set element type
+ * @returns the leaves, in sort order
+ */
+export function flattenKeyLeaves(keyType: EastTypeValue): KeyLeaf[] {
+    if (keyType.type !== "Struct") return [{ path: [], type: keyType }];
+    const out: KeyLeaf[] = [];
+    for (const field of keyType.value as { name: string; type: EastTypeValue }[]) {
+        for (const leaf of flattenKeyLeaves(field.type)) {
+            out.push({ path: [field.name, ...leaf.path], type: leaf.type });
+        }
+    }
+    return out;
+}
+
+/** The value at a flattened field path. */
+function leafAt(key: unknown, path: string[]): unknown {
+    let value = key;
+    for (const segment of path) value = (value as Record<string, unknown>)[segment];
+    return value;
+}
+
+/**
+ * A monotone "is this key at or past the bound?" predicate over a leading
+ * prefix of the flattened key, or `null` when the bound does not parse.
+ */
+function boundPredicate(leaves: KeyLeaf[], literals: readonly string[]): ((key: unknown) => boolean) | null {
+    if (literals.length > leaves.length) return null;
+    const values: unknown[] = [];
+    for (let i = 0; i < literals.length; i++) {
+        const parsed = parseFor(leaves[i]!.type)(literals[i]!);
+        if (!parsed.success) return null;
+        values.push(parsed.value);
+    }
+    const comparators = leaves.slice(0, values.length).map((leaf) => compareFor(leaf.type));
+    return (key) => {
+        for (let i = 0; i < values.length; i++) {
+            const order = comparators[i]!(leafAt(key, leaves[i]!.path), values[i]);
+            if (order !== 0) return order > 0;
+        }
+        return true; // equal on the prefix: at the bound, so past it
+    };
+}
 
 /**
  * Builds the monotone lower/upper row predicates of a RANGE query over
@@ -191,6 +340,21 @@ export function keyRangePredicates(keyType: EastTypeValue, query: DatasetKeyQuer
     | { lower: (k: unknown) => boolean; upper: (k: unknown) => boolean }
     | null {
     if ("key" in query) return null;
+    if ("from" in query || "to" in query) {
+        // A half-open bound on the FLATTENED key, which is what a time window
+        // or a status band asks for — and what the other forms cannot say,
+        // since they all pin a leading prefix to ONE value.
+        const leaves = flattenKeyLeaves(keyType);
+        const lower = boundPredicate(leaves, query.from ?? []);
+        const upper = boundPredicate(leaves, query.to ?? []);
+        if (lower === null || upper === null) return MATCH_NOTHING;
+        return {
+            // An open end: every key is at or past "the start", and none is
+            // at or past "the end".
+            lower: (query.from ?? []).length === 0 ? () => true : lower,
+            upper: (query.to ?? []).length === 0 ? () => false : upper,
+        };
+    }
     if (keyType.type === "Struct") {
         const meta = keyType.value as { name: string; type: EastTypeValue }[];
         const literals = "fields" in query ? query.fields : [];
@@ -209,7 +373,7 @@ export function keyRangePredicates(keyType: EastTypeValue, query: DatasetKeyQuer
             }
             return 0;
         };
-        const prefix = query.prefix;
+        const prefix = "prefix" in query ? query.prefix : undefined;
         if (prefix === undefined) {
             return { lower: (k) => lead(k) >= 0, upper: (k) => lead(k) > 0 };
         }

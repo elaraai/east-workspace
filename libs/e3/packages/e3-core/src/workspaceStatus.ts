@@ -17,7 +17,7 @@
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
   decodePackageObject,
-  WorkspaceStateType,
+  WorkspaceRecordType,
   pathToString,
   type TaskObject,
   type TreePath,
@@ -156,11 +156,11 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
   }
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return decoder(Buffer.from(data));
+  return record.value;
 }
 
 // =============================================================================
@@ -210,15 +210,15 @@ export async function workspaceStatus(
     const taskData = await storage.objects.read(repo, taskHash);
     const task = taskDecoder(Buffer.from(taskData));
 
-    const outputPathStr = pathToString(task.output);
+    const outputPathStr = pathToString(task.output.path);
     outputToTask.set(outputPathStr, taskName);
 
     taskNodes.set(taskName, {
       name: taskName,
       hash: taskHash,
       task,
-      inputPaths: task.inputs,
-      outputPath: task.output,
+      inputPaths: task.inputs.map((input) => input.path),
+      outputPath: task.output.path,
     });
   }
 
@@ -481,6 +481,12 @@ async function computeTaskStatus(
         completedAt: execStatus.value.completedAt.toISOString(),
       };
     }
+
+    case 'cancelled':
+    case 'interrupted':
+      // e3 stopped the execution, or its orchestrator exited, before the task
+      // finished: it neither succeeded nor failed, and can run again
+      return { type: 'ready' };
 
     case 'success': {
       // Execution succeeded - check if workspace output matches

@@ -2103,6 +2103,91 @@ await describe("Patch - Recursive (replace-only)", (test) => {
 });
 
 // =============================================================================
+// Apply conflicts — a patch names what it expects to find, on every runtime
+// =============================================================================
+
+// A patch records what it expects as well as what it writes: a replace's
+// `before`, a deleted key's value, the keys an insert and an update assume.
+// Applied to a value that disagrees it conflicts rather than writing, which is
+// what lets a caller holding a stale patch learn so instead of silently
+// overwriting whatever changed under it. The refusals are the reference's, word
+// for word, so a program that reports one reads the same on every runtime.
+await describe("Patch - Apply conflicts", (test) => {
+    const CountsType = DictType(StringType, IntegerType);
+    const ResultType = VariantType({ ok: IntegerType, error: StringType });
+
+    test("a replace whose before is not the value conflicts", $ => {
+        const patch = $.const(variant("replace", { before: 99n, after: 5n }), PatchType(IntegerType));
+        $(assert.throws(East.applyPatch($.const(3n), patch), /Cannot apply replace - expected 99, found 3/));
+        const text = $.const(variant("replace", { before: "b", after: "c" }), PatchType(StringType));
+        $(assert.throws(East.applyPatch($.const("a"), text), /Cannot apply replace - expected "b", found "a"/));
+    });
+
+    test("a struct field's replace is checked where it lands", $ => {
+        const RowType = StructType({ a: IntegerType, b: StringType });
+        const patch = $.const(variant("patch", {
+            a: variant("replace", { before: 1n, after: 2n }),
+            b: variant("unchanged", null),
+        }), PatchType(RowType));
+        $(assert.throws(East.applyPatch($.const({ a: 5n, b: "x" }, RowType), patch), /Cannot apply replace - expected 1, found 5/));
+        const whole = $.const(variant("replace", { before: { a: 1n, b: "y" }, after: { a: 2n, b: "y" } }), PatchType(RowType));
+        $(assert.throws(East.applyPatch($.const({ a: 1n, b: "x" }, RowType), whole), /Cannot apply replace - base struct does not match expected/));
+    });
+
+    test("a dict delete names a key the dict holds, with the value it holds", $ => {
+        const counts = $.const(new Map([["a", 1n]]), CountsType);
+        const missing = $.const(variant("patch", new Map([["z", variant("delete", 1n)]])), PatchType(CountsType));
+        $(assert.throws(East.applyPatch(counts, missing), /Cannot delete key "z" - key does not exist/));
+        const stale = $.const(variant("patch", new Map([["a", variant("delete", 9n)]])), PatchType(CountsType));
+        $(assert.throws(East.applyPatch(counts, stale), /Cannot delete key "a" - expected value 9, found 1/));
+    });
+
+    test("a dict insert names a key the dict does not hold, an update one it does", $ => {
+        const counts = $.const(new Map([["a", 1n]]), CountsType);
+        const held = $.const(variant("patch", new Map([["a", variant("insert", 2n)]])), PatchType(CountsType));
+        $(assert.throws(East.applyPatch(counts, held), /Cannot insert key "a" - key already exists with value 1/));
+        const absent = $.const(variant("patch", new Map([["z", variant("update", variant("replace", { before: 1n, after: 2n }))]])), PatchType(CountsType));
+        $(assert.throws(East.applyPatch(counts, absent), /Cannot update key "z" - key does not exist/));
+        const stale = $.const(variant("patch", new Map([["a", variant("update", variant("replace", { before: 9n, after: 10n }))]])), PatchType(CountsType));
+        $(assert.throws(East.applyPatch(counts, stale), /Cannot apply replace - expected 9, found 1/));
+        const whole = $.const(variant("replace", { before: new Map([["b", 1n]]), after: new Map<string, bigint>() }), PatchType(CountsType));
+        $(assert.throws(East.applyPatch(counts, whole), /Cannot apply replace - base dict does not match expected/));
+    });
+
+    test("a set delete names an element the set holds, an insert one it does not", $ => {
+        const flags = $.const(new Set([1n, 2n]), SetType(IntegerType));
+        const missing = $.const(variant("patch", new Map([[7n, variant("delete", null)]])), PatchType(SetType(IntegerType)));
+        $(assert.throws(East.applyPatch(flags, missing), /Cannot delete key 7 - key does not exist/));
+        const held = $.const(variant("patch", new Map([[1n, variant("insert", null)]])), PatchType(SetType(IntegerType)));
+        $(assert.throws(East.applyPatch(flags, held), /Cannot insert key 1 - key already exists/));
+        const whole = $.const(variant("replace", { before: new Set([9n]), after: new Set<bigint>() }), PatchType(SetType(IntegerType)));
+        $(assert.throws(East.applyPatch(flags, whole), /Cannot apply replace - base set does not match expected/));
+    });
+
+    test("an array operation addresses an element that is there, holding what it expects", $ => {
+        const items = $.const([1n, 2n, 3n], ArrayType(IntegerType));
+        const OpsType = PatchType(ArrayType(IntegerType));
+        const past = $.const(variant("patch", [{ key: 5n, offset: 0n, operation: variant("delete", 1n) }]), OpsType);
+        $(assert.throws(East.applyPatch(items, past), /Cannot delete at index 5 - array length is 3/));
+        const stale = $.const(variant("patch", [{ key: 0n, offset: 0n, operation: variant("delete", 9n) }]), OpsType);
+        $(assert.throws(East.applyPatch(items, stale), /Cannot delete at index 0 - expected 9, found 1/));
+        const beyond = $.const(variant("patch", [{ key: 9n, offset: 0n, operation: variant("insert", 4n) }]), OpsType);
+        $(assert.throws(East.applyPatch(items, beyond), /Cannot insert at index 9 - array length is 3/));
+        const nowhere = $.const(variant("patch", [{ key: 7n, offset: 0n, operation: variant("update", variant("replace", { before: 1n, after: 2n })) }]), OpsType);
+        $(assert.throws(East.applyPatch(items, nowhere), /Cannot update at index 7 - array length is 3/));
+        const whole = $.const(variant("replace", { before: [9n], after: [] }), OpsType);
+        $(assert.throws(East.applyPatch(items, whole), /Cannot apply replace - base array does not match expected/));
+    });
+
+    test("a variant patch applies to the case it was made for", $ => {
+        const patch = $.const(variant("patch", variant("ok", variant("replace", { before: 1n, after: 2n }))), PatchType(ResultType));
+        $(assert.throws(East.applyPatch($.const(variant("error", "boom"), ResultType), patch), /Cannot apply patch for case ok to variant with case error/));
+        const whole = $.const(variant("replace", { before: variant("ok", 1n), after: variant("ok", 2n) }), PatchType(ResultType));
+        $(assert.throws(East.applyPatch($.const(variant("ok", 5n), ResultType), whole), /Cannot apply replace - base variant does not match expected/));
+    });
+});
+
+// =============================================================================
 // Fuzz Tests - Random Types
 // =============================================================================
 

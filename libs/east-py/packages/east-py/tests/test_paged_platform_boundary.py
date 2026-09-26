@@ -41,8 +41,9 @@ from east.ir.builders import ir_function, ir_platform, ir_variable
 from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
-from east.serialization.beast2 import open_beast2_file, write_beast2_file
+from east.serialization.beast2 import open_beast2_file
 from east.types.types import FunctionType
+from tests.segments import write_in_segments
 
 ROW = StructType([("qty", IntegerType), ("tags", ArrayType(StringType))])
 DT = DictType(StringType, ROW)
@@ -51,13 +52,13 @@ N = 400
 
 def _dict_blob(tmp_path) -> bytes:
     path = tmp_path / "input.beast2"
-    write_beast2_file(
+    write_in_segments(
         path, DT,
         EastDict(StringType, ROW, {
             f"k{i:05d}": {"qty": i * 7, "tags": [f"t{i}-{j}" for j in range(i % 3)]}
             for i in range(N)
         }),
-        segment_rows=50)
+        50)
     return Path(path).read_bytes()
 
 
@@ -155,10 +156,10 @@ def test_platform_fn_unfrozen_mutation_hydrates_and_applies(tmp_path):
     hydrate-once-and-delegate rule, coherent with subsequent reads."""
     path = tmp_path / "flat.beast2"
     flat = DictType(StringType, IntegerType)
-    write_beast2_file(path, flat,
+    write_in_segments(path, flat,
                       EastDict(StringType, IntegerType,
                                {f"k{i:03d}": i for i in range(120)}),
-                      segment_rows=16)
+                      16)
     data = Path(path).read_bytes()
 
     def probe(d):
@@ -216,13 +217,13 @@ def test_platform_fn_returning_a_beast2_file_outlives_the_python_object(tmp_path
     still page (the hold's own lifetime is pinned by the refcount probes in
     the open_paged_file test)."""
     path = tmp_path / "input.beast2"
-    write_beast2_file(
+    write_in_segments(
         path, DT,
         EastDict(StringType, ROW, {
             f"k{i:05d}": {"qty": i * 7, "tags": [f"t{i}-{j}" for j in range(i % 3)]}
             for i in range(N)
         }),
-        segment_rows=50)
+        50)
 
     def source():
         return open_beast2_file(path)  # unreferenced after the return
@@ -266,8 +267,7 @@ def test_platform_fn_array_and_set_inputs(tmp_path):
     membership + streaming iteration, all without hydration."""
     at = ArrayType(IntegerType)
     apath = tmp_path / "a.beast2"
-    write_beast2_file(apath, at, EastArray(IntegerType, list(range(300))),
-                      segment_rows=32)
+    write_in_segments(apath, at, EastArray(IntegerType, list(range(300))), 32)
     seen = {}
 
     def aprobe(a):
@@ -287,8 +287,7 @@ def test_platform_fn_array_and_set_inputs(tmp_path):
 
     st = SetType(IntegerType)
     spath = tmp_path / "s.beast2"
-    write_beast2_file(spath, st, EastSet(IntegerType, list(range(200))),
-                      segment_rows=25)
+    write_in_segments(spath, st, EastSet(IntegerType, list(range(200))), 25)
 
     def sprobe(s):
         assert len(s) == 200

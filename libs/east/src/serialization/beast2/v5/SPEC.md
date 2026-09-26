@@ -7,6 +7,64 @@ table, and count-prefixed containers — in favour of a **single-pass, tagged
 record stream** with per-segment compression and an optional trailing index
 for random access.
 
+## Format v2
+
+The container is unchanged since v5 shipped; what a writer puts in it is not.
+**Format v2** is the set of rules under which a stored collection's bytes are
+a function of its value alone: the same in every runtime, and whichever
+process writes them. Each rule is specified in its own section.
+
+- **Aliasing is scoped per root element** (*Aliasing scope in a
+  self-contained collection*), so an element's bytes depend on it alone.
+- **Segments are cut by the `/2` rules** (*Segmentation rules*): content-defined
+  for every root kind, size-aware and normalized.
+- **A value has one encoding.** No encoder option changes where a cut falls,
+  and frames compress with the deterministic DEFLATE encoder under the frame
+  codec rule (*Value stream — frames*).
+- **East order decides Set and Dict content** (*Order*).
+- **A manifest** names every object by its SHA-256 and records the collection
+  type with canonical recursive ids (*Segment manifests*).
+- **Sorted runs** close at fixed caps and merge in input order, and a
+  **re-cut** writes the canonical writer's segments (*Sorted runs and merges*,
+  *Re-cutting*).
+
+Readers accept every form ever released: v4 containers, index-less blobs,
+segments cut by the earlier rules (*Earlier rules*), aliasing scoped per root
+segment, and manifests that record recursive types under any ids.
+
+### The conformance corpus
+
+The corpus is this specification's executable half.
+`libs/east/test/beast2_corpus.spec.ts` defines collection values, emission
+sequences and merges, and writes each case with its bytes: a value's
+whole-value blob, paged blob and manifest; the runs a run sorter closes for a
+sequence, and their merge; a merge's output as a blob and as a manifest. A fold
+travels as the IR of a `(K, V, V) -> V` function. `make test-export` in
+libs/east writes the corpus beside the compliance IR, in `beast2_corpus/`,
+where east-c's `test_beast2_corpus` and east-py's
+`tests/conformance/test_beast2_corpus.py` write every case again and must match
+its bytes. TypeScript alone re-cuts every value from pieces, as the one runtime
+with a Recut. A change to a rule changes bytes there, so it fails in every
+runtime it has not reached.
+
+### Order
+
+A Set's elements and a Dict's keys ascend in East's total order, the order
+every runtime compares in. Key types are immutable, and they order as follows:
+
+- **Boolean**: `false` before `true`.
+- **Integer** and **DateTime**: numerically.
+- **Float**: numerically, with `-0` before `0`, and NaN after every other
+  value (all NaNs are one value).
+- **String**: by code point, which is the order of the UTF-8 bytes.
+  JavaScript's `<` compares UTF-16 code units, which puts a character above
+  U+FFFF before one in U+E000–U+FFFF; a TypeScript implementation compares
+  code points instead.
+- **Blob**: byte by byte, and a blob before any longer blob it starts.
+- **Struct**: field by field, in declaration order.
+- **Variant**: by case name, as a string, then by payload.
+- **Recursive**: as the type it wraps.
+
 ## Blob layout
 
 ```
@@ -132,14 +190,19 @@ frame:  varint(codec_id) varint(uncompressed_len) varint(payload_len) payload
 ```
 
 - Codec ids: `0 = none` (payload_len MUST equal uncompressed_len),
-  `1 = deflate` — raw DEFLATE per RFC 1951, the mandatory baseline (zlib in
-  C, stdlib `zlib` in Python, `node:zlib` in Node; in browsers the TS runtime
-  ships a portable inflate for the sync decode path and prefers
-  `DecompressionStream("deflate-raw")` on the async path), `2 = zstd`
+  `1 = deflate` — raw DEFLATE per RFC 1951, the mandatory baseline, `2 = zstd`
   (reserved; readers that meet it fail with a clear message naming the
-  codec). The codec is a per-frame writer
-  choice — a blob may mix compressed and uncompressed frames. Writers store
-  tiny or incompressible payloads with codec 0.
+  codec). Any inflate reads a deflate frame: zlib in C and Python, Node's
+  zlib, and in browsers a portable inflate on the sync decode path or
+  `DecompressionStream("deflate-raw")` on the async one. Writers do NOT use a
+  platform deflate — they use the deterministic encoder below, so compressed
+  frames are byte-identical in every runtime.
+- The codec is a per-frame writer choice, and a blob may mix compressed and
+  uncompressed frames. A writer asked for deflate compresses each frame whose
+  logical length is at least 64 bytes and keeps the result when it is
+  strictly shorter than the logical bytes; every other frame, and every frame
+  of a writer asked for no compression, is codec 0. Stored collections are
+  written with deflate.
 - A deflate frame MUST inflate to exactly `uncompressed_len` bytes.
   Decoders MUST reject frames declaring more than 1 GiB uncompressed
   (decompression-bomb guard).
@@ -152,7 +215,47 @@ frame:  varint(codec_id) varint(uncompressed_len) varint(payload_len) payload
   empty frames.
 - Writers targeting paging emit the root tag and the terminator as their own
   frames and exactly one segment per frame, so every indexed frame decodes
-  standalone as `varint(n) + n elements`.
+  standalone as `varint(n) + n elements`. The root tag frame and the
+  terminator frame are then the same four bytes, `00 01 01 00`: a codec-0
+  frame whose one payload byte is the NEW tag, or the `varint(0)`
+  terminator.
+
+## Deterministic DEFLATE encoder
+
+A general-purpose deflate picks its own match finder and Huffman trees, so the
+same input compresses to different valid streams under different libraries.
+e3 content-addresses beast2 bytes, so every runtime encodes with this one
+algorithm, whose output is a pure function of the input (TypeScript
+`v5/deflate.ts`; east-c `v5/deflate.c`, which east-py reaches through the C
+bridge):
+
+- **One block**, `BFINAL = 1`, `BTYPE = 01`: the fixed Huffman codes of RFC
+  1951 §3.2.6, never dynamic trees. The block ends with symbol 256, and the
+  final partial byte is padded with zero bits.
+- **Window** 32768 bytes; matches of 3 to 258 bytes.
+- **Hash** of the three bytes at position `i`:
+  `((b[i] << 10) ^ (b[i+1] << 5) ^ b[i+2]) & 0x7FFF`. The last two positions
+  of the input are never hashed.
+- **Chains.** `head[h]` holds the most recent position with hash `h`, and
+  `prev[i]` the position `head[h]` held before `i` was inserted. Inserting
+  position `i` (when `i + 3 ≤ n`) sets `prev[i] = head[h]; head[h] = i`.
+- **Greedy matching.** At position `pos`, walk the chain from `head[h]`,
+  examining at most 32 candidates and stopping at the first more than 32768
+  bytes back. A candidate's length is the common prefix of the input at the
+  candidate and at `pos`, capped at `min(258, n − pos)`. A candidate replaces
+  the best so far only when it is **strictly** longer, so among equal lengths
+  the nearest wins; the walk stops early at a match of the cap.
+- **Emit.** A best length of 3 or more is a length/distance pair (RFC 1951
+  §3.2.5 codes and extra bits); every position the match covers is inserted,
+  and `pos` advances by the length. Otherwise the byte at `pos` is a literal,
+  `pos` is inserted, and `pos` advances by one.
+
+What is pinned is the symbol stream; how an implementation reaches it (word-
+at-a-time compares, pre-reversed codes, rejecting a candidate by its byte at
+the best length) is free, and each runtime's tests hold its fast path to a
+bit-at-a-time reference. It compresses less than zlib and that is the price of
+determinism. Frames are compressed independently, so a writer may compress
+them in parallel.
 
 ## Value stream — logical encoding
 
@@ -203,7 +306,7 @@ Every mutable container position starts with a tag byte:
 - **Set/Dict content is the canonical value, split at segment boundaries.**
   East Set/Dict values are total-order-canonical in every runtime, and the
   wire holds exactly that value: elements (Set) / keys (Dict) MUST be
-  strictly ascending in East total order within each segment, consecutive
+  strictly ascending in East total order (*Order*) within each segment, consecutive
   segments MUST be disjoint ascending ranges (`last(segment i) <
   first(segment i+1)`), and no element/key repeats anywhere in a stream
   (strict ascent implies this; it also outlaws duplicates within a single
@@ -217,6 +320,36 @@ Every mutable container position starts with a tag byte:
   duplicated Set/Dict content is not the encoding of any East value.
   Streams whose element order is genuinely data belong in an Array typed
   as such.
+
+### Aliasing scope in a self-contained collection
+
+A writer of self-contained segments (below) scopes aliasing per **root
+element** — an Array element, a Set element, or a Dict key/value pair: the
+definition table it looks containers up in starts empty at every root
+element, so no REF reaches a container another root element defined. Sharing
+inside an element is kept; sharing between elements is written out as
+separate definitions. (A Set element or Dict key is an immutable type and
+holds no container, so between elements only Array elements and Dict values
+can ever have shared one.)
+
+Two properties follow, and both are load-bearing:
+
+- **An element's logical bytes depend on the element alone** — never on its
+  neighbours, or on which of their objects it shares. A collection's bytes
+  are fixed by its elements' own encodings, however the elements were
+  produced, grouped or ordered on the way, which is what lets every writer
+  of one collection agree on its content hash.
+- **An encoded element is context-free**, so it can move between segments —
+  sorted, merged, re-cut — by byte copy, without re-encoding.
+
+Readers are unaffected: REF deltas are relative, so a reader resolves them
+the same way whatever scope the writer used. Blobs written before this rule
+scoped aliasing per root segment — an element could REF a container an
+earlier element of its segment defined — and remain valid, since
+`self_contained_segments` promises only that no REF crosses a segment
+(below). A tool that moves encoded elements by byte copy therefore checks,
+as it walks each element, that no REF reaches outside it, and re-encodes the
+segment when one does.
 
 ### Functions
 
@@ -273,16 +406,249 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
   silently resolving to the wrong container.
 - `self_contained_segments` asserts that no REF delta and no source-map
   delta crosses a root-segment boundary, so each indexed segment decodes
-  independently (and in parallel). Random access requires it; sequential
-  decode is unaffected either way (relative deltas decode identically).
-  Only blobs whose root is Array/Set/Dict may carry an index.
+  independently (and in parallel). Writers that set it also scope aliasing
+  per root element (see *Aliasing scope in a self-contained collection*), a
+  stronger promise no reader relies on. Random access requires the flag;
+  sequential decode is unaffected either way (relative deltas decode
+  identically). Only blobs whose root is Array/Set/Dict may carry an index.
+
+## Segmentation rules
+
+Where a collection's root segments end is not part of what a reader
+validates — any segmentation decodes to the same value — but it decides the
+bytes, so a store that addresses segments individually needs it to be a rule.
+Each rule has an id, which a segment manifest records (below). Every writer of
+a stored collection cuts by the current rules, and no encoder option changes
+them; the earlier rules are listed because stored manifests name them.
+
+### Fence bytes
+
+A key's (Dict) or element's (Set) **fence bytes** are its logical encoding
+alone: no header, container or index, encoded against a fresh definition
+table so no container REF can fire. They depend on the key and nothing else,
+and they are what the keyed rule hashes and what a manifest stores as a
+segment's first key.
+
+### Logical size
+
+An element's **logical size** is the length of its logical encoding as a
+writer of self-contained segments produces it, with aliasing scoped to the
+element (see *Aliasing scope in a self-contained collection*), so it depends
+on the element alone. A Dict element is a key/value pair, and its size is the
+key's and the value's together. Sizes are measured before compression, so the
+codec never enters a cut.
+
+### `cdc/keyed/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2` — Set and Dict roots, and `cdc/array/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2` — Array roots
+
+The two rules are one test over different bytes. An element's **hash input**
+is its fence bytes under a Set or Dict root — the key alone, so updating a
+Dict value never moves a cut — and its logical encoding under an Array root,
+which has no key.
+
+- The **boundary hash** of a byte string is the low 32-bit word of its FNV-1a
+  64-bit hash (offset basis and prime as in *Type section*), mixed by
+  murmur3's 32-bit finalizer. The low word evolves on its own, since the
+  prime's 2^40 term never reaches it, so it runs in 32-bit arithmetic:
+
+  ```
+  h = 0x84222325                                  the offset basis's low word
+  for each byte x:  h = (h XOR x) × 0x1b3 mod 2^32  the prime's low word
+  h = h XOR (h >> 16);  h = h × 0x85ebca6b mod 2^32
+  h = h XOR (h >> 13);  h = h × 0xc2b2ae35 mod 2^32
+  h = h XOR (h >> 16)
+  ```
+
+  Over raw bytes: `""` hashes to `0x2c773e2c`, `"a"` to `0xa3eabd3f`, and
+  `"foobar"` to `0x1f341994`.
+- Walk the elements in canonical order, with `c` elements and `b` logical
+  bytes in the open segment. The first element opens segment 0. Each later
+  element, whose hash input hashes to `h`:
+  - starts a new segment when `c ≥ 4096` or `b ≥ 8 MiB`;
+  - otherwise joins the open segment when `c < 256` and `b < 64 KiB`;
+  - otherwise starts a new segment when `h < T`, and joins the open one when
+    not, where `B = max(2^22, ⌊b × 4096 / c⌋)` and `T = ⌊B / 4⌋` while
+    `c < 1024` and `b < 1 MiB`, else `T = min(2^32, 4 × B)`.
+
+  An element that starts a segment leaves `c = 1` and `b` its size; one that
+  joins adds one to `c` and its size to `b`.
+- The base `B` is one element in 1024 until the open segment's average
+  element size, `b / c`, passes 1 KiB, and rises with that average after, so
+  a segment holds about 1024 narrow elements or about 1 MiB of wide ones. The
+  test is **normalized** around that target — a quarter of `B` until the open
+  segment holds 1024 elements or 1 MiB, four times it after — so segment sizes
+  gather near the target instead of spreading geometrically. An average of
+  1 MiB or more makes every element a boundary.
+- The parameters were fixed by the segmentation benchmarks
+  (`libs/e3/test/integration/src/segmentation-bench.spec.ts`): narrow rows as a
+  Dict and as an Array, rows of about a kilobyte, and 1 MiB rows, with and
+  without the normalization and at a quarter to twice these sizes. Normalized,
+  the 95th-percentile segment is about 1.5 times the median, where without it
+  it was three to four times; the stored bytes are the same, and a one-row
+  edit or insert still rewrites one segment.
+- So every segment but the last holds at least 256 elements or at least
+  64 KiB, and at most 4096 elements. A segment closes once it holds 8 MiB, so
+  it passes that by at most its last element, and an element wider than
+  8 MiB is a segment of its own. The last segment holds what is left.
+- A cut falls *before* the deciding element, so a keyed segment's first key
+  is the key that decided its boundary, and a keyed segmentation can be
+  checked from its fences, counts and logical sizes alone. An Array
+  segmentation cannot: the bytes that decided it are whole elements, which no
+  fence carries.
+- Where a cut falls depends only on the elements since the previous cut, so
+  an edit moves the cuts after it only as far as the first cut the old and
+  the new value share. The rule is a pure function of the value: nothing
+  about the writer — the codec, the compressed size, how the elements were
+  produced or batched — enters it.
+
+### Earlier rules
+
+Writers no longer cut by these. A manifest may name one; a store writing to
+such a collection lays it out again under the current rule rather than
+re-cutting part of it, since a re-cut region lines up with the segments
+around it only when both were cut by one rule.
+
+- `cdc/fnv1a64/256-1024-4096/1` — Set and Dict roots. A boundary key was one
+  whose fence bytes' FNV-1a 64-bit hash had its low 10 bits zero, and a
+  segment held 256 to 4096 elements, cut before a boundary key; the last held
+  what was left.
+- `pos/1000-2MiB/1` — Array roots. Segments of at most 1000 elements, refined
+  toward 2 MiB of written wire bytes each. Where a cut fell depended on every
+  element before it, so one edit moved every later cut.
+
+## Segment manifests
+
+A collection can be stored as one standalone blob per root segment plus a
+manifest naming them in order. Equal values then name equal segments, and a
+one-row edit re-cuts one of them. Every runtime pages a manifest directly,
+taking counts and fences from its entries and opening a segment only for a
+read that decodes it: TypeScript's `Beast2Pages` over a
+`Beast2ManifestSource`, east-c's `east_beast2_pages_new_manifest` over a
+segment source, and east-py through east-c.
+
+- A **segment blob** for segment `i` of a segmented, indexed,
+  self-contained blob is: the blob's header bytes up to and including the root
+  tag frame, segment `i`'s frame byte-for-byte, the terminator frame, and an
+  index of that one segment plus the footer. Splicing a manifest's segments
+  back under their shared header reproduces the single-blob form exactly. A
+  canonical writer can hand a collection over as these segment blobs, one at a
+  time, rather than as one blob.
+- The **manifest** is a v5 blob whose root type is the struct
+
+  ```
+  kind:    String      "$segments"
+  level:   Integer     0 — entries name segment blobs (nesting is reserved)
+  type:    EastType    the root collection type
+  rule:    String      the id of the rule the segments were cut under
+  header:  String      the hash of the header bytes the segments share
+  entries: Array<{ hash: String, fence: Blob, count: Integer, bytes: Integer }>
+  ```
+
+  with, per segment: the segment blob's hash, its first key's fence bytes
+  (empty for an Array root), its element (pair) count, and its size in bytes.
+  The manifest itself is a whole-value blob: deflate frames, no index.
+- A recursive type's `wrapper` ids in `type` are **canonical**: numbered in
+  preorder from 0, with each `ref` renamed to its innermost enclosing wrapper
+  of the same id. The ids a runtime gives recursive types are its own, and a
+  manifest's hash names the collection, so a writer renames them before
+  encoding. Readers compare types up to renaming, so a manifest written before
+  this rule still reads.
+- Every hash a manifest holds is the **SHA-256** of the object's bytes in
+  lowercase hex, the name a store gives the object, so each runtime carries
+  one: `v5/sha256.ts` in TypeScript, and east-c's, which east-py binds.
+- A reader recognises a manifest by its root type's exact field names, in
+  that order, and then by `kind`. A struct of the same shape with another
+  `kind` is not a manifest. A manifest whose `level` is not 0 is refused.
+- **On disk**, a manifest directory is the manifest's file at `path` and, in
+  `path.segments/`, the objects it names as `<hash>.beast2`: each segment blob,
+  and the header's bytes under `header`. A reader opens only the segments; the
+  header is written so that a store holds every object a manifest names. A
+  runner that opens manifests pages through the directory, reading only the
+  segments it touches.
+- **Writers.** A canonical writer writes the header object first, then each
+  segment as it is cut, then the manifest, so a manifest never names an object
+  not yet written, and a writer that fails writes none. TypeScript's
+  `Beast2ManifestWriter` hands the objects and the manifest to a sink; east-c's
+  writes a directory, as east-py's does through it.
+
+## Sorted runs and merges
+
+A producer that cannot hand its elements over in canonical order — a re-key,
+an index built in another order than its source's — writes them as **sorted
+runs**, and a **merge** combines the runs into the canonical blob of the whole
+value. Where a run closes decides how a repeated key's values group before
+they fold, and so the bytes of a fold over floats; both are therefore rules
+(TypeScript `v5/runs.ts` and `v5/merge.ts`; east-c `v5/runs.c` and `merge.c`,
+which east-py binds).
+
+- **Closing a run.** Elements are added to the open run one at a time, each
+  encoded as it is added. The run closes once it holds 131072 elements (pairs,
+  for a Dict) or 64 MiB of their logical bytes — checked after each element,
+  so the element that reaches either cap is the run's last — and whatever is
+  open when the producer finishes closes as the last run. Runs are numbered
+  from 0 in the order they close. Both caps are constants of the format, not
+  settings.
+- **Sorting a run.** A run's elements sort by key in East order, and equal
+  keys by the order they were added. A key added more than once then folds: a
+  Dict's values fold `acc = merge(key, acc, value)`, starting from the first
+  value added and in the order added, and the entry keeps the first key's
+  bytes; a Set's equal elements collapse to the first under union. Without a
+  fold, a repeated key is refused.
+- **Writing a run.** A run is the canonical blob of its sorted, folded value —
+  its elements cut by the segmentation rules, as any writer of that value
+  writes them.
+- **Merging.** A merge reads sorted Set or Dict collections of one type,
+  blobs or manifests, and writes the canonical blob of their union, or the
+  union as a manifest and its segments. A key
+  several inputs hold folds in input order, as within a run, and a merge over
+  a key range `[from, to)` merges just those keys. Merging a producer's runs
+  in run order folds every key's values in the order they were added, grouped
+  by run, so with an associative merge function the result is the value a
+  single run would have held.
+
+## Re-cutting
+
+A collection that arrives in **pieces** — the outputs of parts of one
+computation, the segments of a record around an edit — is written whole by a
+**re-cut** (TypeScript `v5/recut.ts`). A piece is a run of consecutive
+segments a canonical writer wrote, or elements in canonical order. The
+re-cut's segments are exactly the canonical writer's for the whole value.
+
+- **Carrying a segment.** Where a cut falls depends only on the elements since
+  the previous cut, so once the whole starts a segment where a piece started
+  one, the two cut alike until the piece ends: each of those segments is a
+  segment of the whole, byte for byte, and is carried over without being read.
+- **A seam.** A piece's last segment ended because the piece did. The whole
+  cuts after it when the rule starts a segment at the next element, given that
+  segment's element count and logical size. When it does not, the segment's
+  elements join what follows, and elements are cut one at a time until the
+  whole starts a segment where a piece does again. Under a Set or Dict root the
+  next element's hash input is a fence; under an Array root it is the next
+  segment's first element, which is read.
+- **Elements** are encoded with aliasing scoped to each, and cut by the rule.
+- **Moving an element by byte copy.** A segment the re-cut looks inside is
+  walked element by element, each decoded against an empty definition table,
+  so an element that refers outside itself is refused rather than copied (see
+  *Aliasing scope in a self-contained collection*).
+- A piece's segments must be a current writer's: cut by the current rules,
+  with aliasing scoped per element, and framed with the codec the re-cut
+  writes. A collection stored any other way — cut by an earlier rule, or not
+  by a canonical writer at all — goes in as its elements: checking its
+  segments would cost what re-encoding them does, and a canonical segment
+  re-encodes to the same bytes.
 
 ## Writer memory / reader memory
 
-- A streaming writer holds one batch plus its identity map. In
-  self-contained mode the map clears per segment — O(batch). In C, a
-  container with refcount 1 at encode time cannot recur in the walk and
-  never enters the identity map, so freshly built/decoded trees track O(1).
+- A writer of the canonical segments holds one open segment of encoded
+  elements; a writer handed its segments as batches holds one batch. Either
+  holds an identity map, which in self-contained mode clears per root element
+  — O(element). In C, a container with refcount 1 at encode time cannot recur
+  in the walk and never enters the identity map, so freshly built/decoded
+  trees track O(1).
+- A run sorter holds its open run — under 64 MiB of encoded elements, plus the
+  element that reaches the cap — and each of its elements' decoded keys. A
+  merge holds one decoded segment per input and one open output segment. A
+  re-cut holds one open output segment and the segments it has read: at most
+  the one it holds at a seam and the one arriving.
 - A sequential whole-value reader is O(value). The segment iterator is
   O(segment) decoded state (plus one pointer per container definition in
   non-self-contained streams). A paging reader is O(segment) per access.
@@ -301,7 +667,17 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
 ## Decoding algorithm
 
 1. Verify magic; read the type section (well-known: verify hash, take the
-   registered schema; structural: parse) and the source map section.
+   registered schema; structural: parse) and the source map section. A decode
+   asked for a type reads the stream by that type, positionally, so the type
+   section must name it or a subtype of it, as East's subtyping has it, whose
+   variant tags line up: each of its variants holds the first cases of the
+   asked one's, and `Never`, which no value has, stands for any type. A
+   collection's element types must be the asked ones, as East's subtyping
+   holds them, and so must a function's signature; recursive types compare up
+   to how they are named or repeated. So `none` reads as any `Option`, and a
+   blob of any other type is refused, `some` alone as an `Option` included,
+   in the same words in every runtime, `beast2: cannot decode a blob of type
+   <the section's> as <the asked>`, a v4 container as much as a v5 one.
 2. Read frames; decode the logical stream type-directed, registering every
    NEW container (create-then-fill) and resolving REF deltas from the tail
    of the definition list.
@@ -318,3 +694,6 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
   hash — cache invalidation, which is why it shipped as one coordinated
   release rather than per-runtime.
 - The streaming/paging APIs are v5-only (v4 cannot stream by construction).
+- Format v2 changed what writers write, not what readers read: every earlier
+  form still decodes (*Format v2*), and a store lays a collection cut by an
+  earlier rule out again under the current one on its first write to it.

@@ -30,12 +30,12 @@ export async function listTasks(
   try {
     const taskNames = await workspaceListTasks(storage, repoPath, workspace);
 
-    // Get hash + kind for each task (the object read is content-addressed and cheap)
+    // Get hash + role for each task (the object read is content-addressed and cheap)
     const result = await Promise.all(
       taskNames.map(async (name) => {
         const hash = await workspaceGetTaskHash(storage, repoPath, workspace, name);
         const task = await workspaceGetTask(storage, repoPath, workspace, name);
-        return { name, hash, kind: task.kind };
+        return { name, hash, role: task.role };
       })
     );
 
@@ -61,11 +61,11 @@ export async function getTask(
     return sendSuccess(TaskDetailsType, {
       name: taskName,
       hash,
-      commandIr: task.commandIr,
+      body: task.body,
+      runner: task.runner,
       inputs: task.inputs,
       output: task.output,
-      kind: task.kind,
-      metadata: task.metadata,
+      role: task.role,
     });
   } catch (err) {
     return sendError(TaskDetailsType, errorToVariant(err));
@@ -85,6 +85,10 @@ function statusToApiStatus(status: ExecutionStatus): ExecutionListItem['status']
       return variant('failed', null);
     case 'error':
       return variant('error', null);
+    case 'cancelled':
+      return variant('cancelled', null);
+    case 'interrupted':
+      return variant('interrupted', null);
   }
 }
 
@@ -121,7 +125,20 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       exitCode: some(status.value.exitCode),
     };
   }
-  if (status.type === 'error') {
+  if (status.type === 'cancelled') {
+    return {
+      inputsHash,
+      inputHashes: status.value.inputHashes,
+      status: statusToApiStatus(status),
+      startedAt: status.value.startedAt.toISOString(),
+      completedAt: some(status.value.completedAt.toISOString()),
+      duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
+      exitCode: none,
+    };
+  }
+  // An interruption's completedAt is when it was found, not when the runner
+  // stopped, so it has no duration.
+  if (status.type === 'error' || status.type === 'interrupted') {
     return {
       inputsHash,
       inputHashes: status.value.inputHashes,

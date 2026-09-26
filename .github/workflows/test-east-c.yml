@@ -150,6 +150,24 @@ jobs:
         working-directory: libs/east-c
         run: ./packages/east-c/scripts/run_compliance.sh build/ir-east build/packages/east-c/test_compliance
 
+      # The beast2 conformance corpus the export writes beside the IR: every
+      # value, run and merge, written here to TypeScript's bytes. The ctest
+      # gates above ran before the artifact landed, so it skipped there.
+      - name: beast2 conformance corpus
+        working-directory: libs/east-c
+        run: ./build/packages/east-c/test_beast2_corpus build/ir-east/beast2_corpus build
+
+      # The runner protocol's corpus, exported beside it: every unit executed
+      # with `exec`, its outputs and outcome held to TypeScript's. The gate
+      # spawns the binary through the platform shell, which on Windows wants
+      # a native path.
+      - name: runner protocol corpus
+        working-directory: libs/east-c/build/packages/east-c-cli
+        run: |
+          BIN="$PWD/east-c"
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN="$(cygpath -w "$PWD/east-c.exe")"; fi
+          ./test_cli_exec "$BIN" ../../ir-east/runner_corpus
+
       # The fs compliance IR bakes the export host's tmpdir() (/tmp/...). On
       # Windows the C runtime resolves that to <drive>:\tmp, absent by default,
       # so create it — writeFile/readFile then round-trip as they do on Unix.
@@ -202,20 +220,6 @@ jobs:
                 "../elaraai-east-c-cli-${TARGET}-${VERSION}.tgz" )
           echo "--- east-c version via launcher ---"
           "$STAGE/proj/node_modules/.bin/east-c" version
-
-      # ── Cross-runtime pin for the CLI emit sink (#507) ─────────────────
-      # Replay the checked-in --emit fixtures through the Release binary
-      # built above and decode the emitted blobs with the TypeScript reader
-      # (the ctest gate validates the same blobs with east-c's own readers).
-      # One leg suffices for a byte-format pin; ubuntu is the cheapest.
-      - uses: pnpm/action-setup@v4
-        if: runner.os == 'Linux'
-      - name: Cross-decode emitted blobs (TS reader)
-        if: runner.os == 'Linux'
-        run: |
-          pnpm install
-          make -C libs/east build
-          make -C libs/east-c test-emit-cross
 
   # ASan + LSan over the whole compliance corpus. east-c is refcounted with a
   # cycle collector and a hand-rolled value slab, so a lifetime regression is

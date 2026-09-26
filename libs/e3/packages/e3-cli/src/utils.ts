@@ -157,9 +157,10 @@ export function parsePackageSpec(spec: string): { name: string; version: string 
 export function formatError(err: unknown): string {
   if (err instanceof ApiError) {
     // A type mismatch carries the one line every door renders (declared type,
-    // given type, first differing field). Print it verbatim, so a remote
-    // `e3 dataset set` reports exactly what a local one does.
-    if (err.code === 'dataset_type_mismatch') {
+    // given type, first differing field), and a refused name the line that
+    // says why. Print them verbatim, so a remote command reports exactly what a
+    // local one does.
+    if (err.code === 'dataset_type_mismatch' || err.code === 'invalid_name') {
       const detail = err.details as { message?: unknown } | undefined;
       if (typeof detail?.message === 'string') return detail.message;
     }

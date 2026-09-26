@@ -3,10 +3,11 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { none } from '@elaraai/east';
+import { readFile, writeFile } from 'node:fs/promises';
+import { none, variant } from '@elaraai/east';
 import { computeHash } from '../../objects.js';
 import { ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
-import type { ExecutionStatus, DataflowRun, DatasetRef } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant } from '@elaraai/e3-types';
 import type {
   StorageBackend,
   ObjectStore,
@@ -74,6 +75,19 @@ class InMemoryObjectStore implements ObjectStore {
     return data.subarray(offset, offset + length);
   }
 
+  async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
+    const data = new Uint8Array(await readFile(file));
+    const digest = await this.write(repo, data);
+    if (hash !== undefined && hash !== digest) {
+      throw new Error(`adoptFile: ${file} hashes to ${digest}, not the ${hash} it was adopted as`);
+    }
+    return { hash: digest, size: data.length };
+  }
+
+  async materialize(repo: string, hash: string, destPath: string): Promise<void> {
+    await writeFile(destPath, await this.read(repo, hash));
+  }
+
   async exists(repo: string, hash: string): Promise<boolean> {
     return this.getRepoObjects(repo).has(hash);
   }
@@ -110,6 +124,12 @@ class InMemoryRefStore implements RefStore {
   private executions = new Map<string, Map<string, ExecutionStatus>>();
   // dataflow runs keyed by workspace/runId
   private dataflowRuns = new Map<string, Map<string, DataflowRun>>();
+  // owner sidecars keyed by repo/taskHash/inputsHash/executionId
+  private owners = new Map<string, ExecutionOwner>();
+  // plan sidecars keyed by repo/taskHash/inputsHash
+  private plans = new Map<string, string>();
+  // adoption memo entries keyed by repo/sourceHash
+  private adoptions = new Map<string, string>();
 
   private getPackages(repo: string): Map<string, string> {
     let repoPackages = this.packages.get(repo);
@@ -200,6 +220,9 @@ class InMemoryRefStore implements RefStore {
 
   async workspaceRemove(repo: string, name: string): Promise<void> {
     this.getWorkspaces(repo).delete(name);
+    for (const runId of await this.dataflowRunList(repo, name)) {
+      await this.dataflowRunDelete(repo, name, runId);
+    }
   }
 
   // Execution operations (with executionId)
@@ -209,6 +232,12 @@ class InMemoryRefStore implements RefStore {
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), status);
+  }
+
+  async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
+    this.getExecutions(repo).delete(key);
+    this.owners.delete(`${repo}/${key}`);
   }
 
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
@@ -227,18 +256,6 @@ class InMemoryRefStore implements RefStore {
     if (ids.length === 0) return null;
     const latestId = ids[ids.length - 1]!;
     return this.executionGet(repo, taskHash, inputsHash, latestId);
-  }
-
-  async executionGetLatestOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
-    const ids = await this.executionListIds(repo, taskHash, inputsHash);
-    // Iterate from latest to oldest
-    for (let i = ids.length - 1; i >= 0; i--) {
-      const status = await this.executionGet(repo, taskHash, inputsHash, ids[i]!);
-      if (status && status.type === 'success') {
-        return status.value.outputHash;
-      }
-    }
-    return null;
   }
 
   async executionList(repo: string): Promise<{ taskHash: string; inputsHash: string }[]> {
@@ -273,6 +290,35 @@ class InMemoryRefStore implements RefStore {
       if (status) result.push({ inputsHash, status });
     }
     return result;
+  }
+
+  async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {
+    this.owners.set(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`, owner);
+  }
+
+  async executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null> {
+    return this.owners.get(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`) ?? null;
+  }
+
+  async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string | null): Promise<void> {
+    const key = `${repo}/${this.makeInputsKey(taskHash, inputsHash)}`;
+    if (planHash === null) {
+      this.plans.delete(key);
+    } else {
+      this.plans.set(key, planHash);
+    }
+  }
+
+  async executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
+    return this.plans.get(`${repo}/${this.makeInputsKey(taskHash, inputsHash)}`) ?? null;
+  }
+
+  async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
+    this.adoptions.set(`${repo}/${sourceHash}`, manifestHash);
+  }
+
+  async adoptionRead(repo: string, sourceHash: string): Promise<string | null> {
+    return this.adoptions.get(`${repo}/${sourceHash}`) ?? null;
   }
 
   // Dataflow run operations
@@ -312,6 +358,9 @@ class InMemoryRefStore implements RefStore {
     this.workspaces.clear();
     this.executions.clear();
     this.dataflowRuns.clear();
+    this.owners.clear();
+    this.plans.clear();
+    this.adoptions.clear();
   }
 }
 
@@ -374,7 +423,7 @@ class InMemoryLockService implements LockService {
 
       const now = new Date();
       const state: LockState = {
-        holder: `.process (pid=${process.pid}, bootId="in-memory", startTime=0, command="test")`,
+        holder: variant('process', { pid: BigInt(process.pid), bootId: 'in-memory', startTime: 0n, command: 'test' }),
         operation,
         acquiredAt: now,
         expiresAt: none,
@@ -394,7 +443,7 @@ class InMemoryLockService implements LockService {
     return this.exclusiveLocks.get(this.makeLockKey(repo, resource)) ?? null;
   }
 
-  async isHolderAlive(_holder: string): Promise<boolean> {
+  async isHolderAlive(_holder: LockHolderVariant): Promise<boolean> {
     return true;
   }
 
@@ -449,6 +498,12 @@ class InMemoryLogStore implements LogStore {
       totalSize: content.length,
       complete: offset + data.length >= content.length,
     };
+  }
+
+  async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    for (const stream of ['stdout', 'stderr']) {
+      this.logs.delete(this.makeLogKey(repo, taskHash, inputsHash, executionId, stream));
+    }
   }
 
   clear(): void {

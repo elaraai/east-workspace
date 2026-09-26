@@ -17,7 +17,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { StringType, StructType, none, some, variant } from '@elaraai/east';
-import { encodeManifest } from '@elaraai/e3-ui/internal';
 import { dictOf, fakeRepo, type FakeApi } from '../../api.fake.js';
 import { taskView } from '../../state/actions.js';
 import { KEY, mountApp, type Mounted } from '../../testing/harness.js';
@@ -45,9 +44,9 @@ function repo(): FakeApi {
         ] as never,
     });
     api.task('main', {
-        name: 'dashboard', status: up, inputs: ['.inputs.sales', '.inputs.params', '.tasks.forecast.output'], dependsOn: ['forecast'], kind: 'ui',
+        name: 'dashboard', status: up, inputs: ['.inputs.sales', '.inputs.params', '.tasks.forecast.output'], dependsOn: ['forecast'],
         output: { type: StructType({ title: StringType }), value: { title: 'Demand planner' } },
-        metadata: encodeManifest({ paths: [tp('inputs', 'sales'), tp('inputs', 'params'), tp('tasks', 'forecast', 'output')], functions: ['refresh'], records: [], pages: [] }),
+        manifest: { paths: [tp('inputs', 'sales'), tp('inputs', 'params'), tp('tasks', 'forecast', 'output')], functions: ['refresh'], records: [], pages: [] },
     });
     api.input('main', { name: 'sales', type: StringType, value: 'rows' });
     return api;

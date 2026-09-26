@@ -7,13 +7,16 @@ import * as path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve, type ServerType } from '@hono/node-server';
-import { LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend } from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
+import {
+  Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend, resolveBudget,
+  checkName,
+} from '@elaraai/e3-core';
+import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
 import { sendError, sendSuccessWithStatus, sendSuccess } from './beast2.js';
-import { StringType, NullType, variant, ArrayType } from '@elaraai/east';
-import { errorToVariant } from './errors.js';
+import { StringType, NullType, variant, ArrayType, configureFramePool } from '@elaraai/east';
+import { errorToVariant, sendJsonError } from './errors.js';
 import { createPackageRoutes } from './routes/packages.js';
 import { createWorkspaceRoutes } from './routes/workspaces.js';
 import { createDatasetRoutes } from './routes/datasets.js';
@@ -55,15 +58,22 @@ export interface ServerConfig {
   /** Byte budget clamping each dataset page's share of the source blob
    *  (default: 4 MiB). Lower it for deployments with tight response limits. */
   pageByteBudget?: number;
-  /** Size of the parts a dataset upload is sent in, for a client that speaks
-   *  transfer protocol 2 (default: 64 MiB). An upload no larger is one part;
-   *  a smaller size suits a proxy that caps request bodies. */
+  /** Size of the parts a dataset upload is sent in (default: 64 MiB). An
+   *  upload no larger is one part; a smaller size suits a proxy that caps
+   *  request bodies. */
   transferPartBytes?: number;
-  /** How long a protocol-2 dataset commit waits for the upload to be verified
-   *  before answering `processing` for the client to poll (default: 5000 ms;
-   *  0 answers `processing` at once). Keep it under any proxy's request
+  /** How long a dataset commit waits for the upload to be verified before
+   *  answering `processing` for the client to poll (default: 5000 ms; 0
+   *  answers `processing` at once). Keep it under any proxy's request
    *  timeout. */
   transferCommitWaitMs?: number;
+  /** The server's budget of cores and memory, which every runner process it
+   *  spawns takes from: dataflow tasks and units, function calls, mutations
+   *  and index builds, across every run. A {@link Budget}, or the settings
+   *  to resolve one from, as `-j` and `--memory` give them (default:
+   *  `E3_JOBS` and `E3_MEMORY`, else what the process may use); settings
+   *  that do not resolve make `createServer` throw a `RangeError`. */
+  budget?: Budget | BudgetSettings;
 }
 
 /**
@@ -98,6 +108,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageByteBudget,
     transferPartBytes, transferCommitWaitMs,
   } = config;
+  const budget = config.budget instanceof Budget ? config.budget : resolveBudget(config.budget);
+  // The store door frames on e3's own pool, whose workers take cores too.
+  configureFramePool({ workers: Math.min(DOOR_FRAME_WORKERS, budget.cores) });
 
   // Validate config: exactly one of reposDir or singleRepoPath must be specified
   if (reposDir && singleRepoPath) {
@@ -120,6 +133,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       // Middleware ensures repoName === 'default' before we get here
       return singleRepoPath!;
     }
+    // A name from the URL becomes a directory under reposDir, never a path out
+    // of it.
+    checkName('repository', repoName);
     return path.join(reposDir!, repoName);
   };
 
@@ -153,11 +169,27 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     app.route('/', oidcProvider.routes);
   }
 
-  // Transfer backend for presigned URL object transfer
+  // Per-repo task runner for every route that runs user East: dataflows,
+  // function and one-shot calls, record mutations, and a deploy job's
+  // migrations and index builds, all on the server's one budget (cached — the
+  // runner is stateless apart from its repo anchor and the budget)
+  const runners = new Map<string, TaskRunner>();
+  const getRunner = (repoPath: string): TaskRunner => {
+    let runner = runners.get(repoPath);
+    if (!runner) {
+      runner = new LocalTaskRunner(repoPath, budget);
+      runners.set(repoPath, runner);
+    }
+    return runner;
+  };
+
+  // Transfer backend for presigned URL object transfer, and the jobs that
+  // outlast a request, which it runs in this process
   const transferBackend: TransferBackend = new InMemoryTransferBackend({
     baseUrl: '',
     storage,
     getRepoPath,
+    getRunner,
     ...(transferPartBytes !== undefined && { partBytes: transferPartBytes }),
   });
 
@@ -251,8 +283,14 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
       const repo = c.req.param('repo')!;
 
-      // Check repo metadata for status
-      const metadata = await storage.repos.getMetadata(repo);
+      // Check repo metadata for status. A repo an older e3 created has none,
+      // and the refusal names the fix — send it, not a bare 500.
+      let metadata;
+      try {
+        metadata = await storage.repos.getMetadata(repo);
+      } catch (err) {
+        return sendJsonError(err);
+      }
       if (!metadata) {
         return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
       }
@@ -260,19 +298,8 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       // If repo is in 'deleting' state, treat as not found for most operations
       // Exception: status endpoint shows 'deleting' state (but we still check repo exists above)
       const statusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/status$/);
-      if (metadata.status === 'deleting' && !statusMatch) {
+      if (metadata.status.type === 'deleting' && !statusMatch) {
         return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-
-      // Also validate the repo structure (for backwards compat with repos without metadata)
-      const repoPath = getRepoPath(repo);
-      try {
-        await storage.validateRepository(repoPath);
-      } catch (err) {
-        if (err instanceof RepoNotFoundError) {
-          return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-        }
-        throw err;
       }
 
       await next();
@@ -302,7 +329,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
         // Check if repo exists and is in 'deleting' state
         const existing = await storage.repos.getMetadata(repo);
         if (existing) {
-          if (existing.status === 'deleting') {
+          if (existing.status.type === 'deleting') {
             return sendError(StringType, variant('internal', { message: `Repository '${repo}' cleanup in progress, try later` }));
           }
           return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
@@ -336,7 +363,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
         }
 
         // If already deleting, return success (idempotent)
-        if (existing.status === 'deleting') {
+        if (existing.status.type === 'deleting') {
           return sendSuccess(NullType, null);
         }
 
@@ -381,18 +408,6 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo', pkgTransfer.repoApi);
   app.route('/api/repos/:repo/packages', pkgTransfer.pkgApi);
 
-  // Per-repo task runner for function / one-shot calls (cached — the
-  // runner is stateless apart from its repo anchor)
-  const runners = new Map<string, TaskRunner>();
-  const getRunner = (repoPath: string): TaskRunner => {
-    let runner = runners.get(repoPath);
-    if (!runner) {
-      runner = new LocalTaskRunner(repoPath);
-      runners.set(repoPath, runner);
-    }
-    return runner;
-  };
-
   // Package routes: /api/repos/:repo/packages/*
   app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath));
 
@@ -423,10 +438,11 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));
 
   // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
-  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));
+  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, { getRunner, width: budget.cores }));
 
-  // Object routes: /api/repos/:repo/objects/:hash
-  app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath));
+  // Object routes: /api/repos/:repo/objects/:hash — a large object is answered
+  // by download URL, as a dataset is
+  app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath, transferBackend));
 
   let httpServer: ServerType | null = null;
   let actualPort = port;

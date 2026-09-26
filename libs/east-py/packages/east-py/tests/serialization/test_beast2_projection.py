@@ -38,7 +38,8 @@ from east import (
     if_else,
 )
 from east.runtime.compiler import eager_stats
-from east.serialization.beast2 import open_beast2_file, write_beast2_file
+from east.serialization.beast2 import open_beast2_file
+from tests.segments import write_in_segments
 
 ROW = StructType([
     ("id", IntegerType),
@@ -69,7 +70,7 @@ def _rows(n):
 @pytest.fixture
 def array_path(tmp_path):
     path = tmp_path / "wide.beast2"
-    write_beast2_file(path, AT, EastArray(ROW, _rows(500)), segment_rows=60)
+    write_in_segments(path, AT, EastArray(ROW, _rows(500)), 60)
     return path
 
 
@@ -77,9 +78,9 @@ def array_path(tmp_path):
 def dict_path(tmp_path):
     path = tmp_path / "wide_dict.beast2"
     rows = _rows(400)
-    write_beast2_file(path, DT, EastDict(StringType, ROW,
+    write_in_segments(path, DT, EastDict(StringType, ROW,
                                          {f"k{i:05d}": rows[i] for i in range(400)}),
-                      segment_rows=50)
+                      50)
     return path
 
 
@@ -223,7 +224,7 @@ def test_aliased_containers_fall_back_per_segment(tmp_path):
     shared = EastArray(IntegerType, [1, 2, 3])
     rows = EastArray(row_t, [{"a": shared, "b": shared} for _ in range(10)])
     path = tmp_path / "aliased.beast2"
-    write_beast2_file(path, ArrayType(row_t), rows, segment_rows=5)
+    write_in_segments(path, ArrayType(row_t), rows, 5)
     with open_beast2_file(path, ArrayType(row_t)) as f:
         got, counted = _delta(lambda: list(f.map(lambda _b, r: r["b"].sum())))
         assert got == [6] * 10
@@ -236,11 +237,11 @@ def test_set_files_never_project(tmp_path):
     decline noise."""
     st = SetType(StructType([("x", IntegerType), ("y", IntegerType)]))
     path = tmp_path / "s.beast2"
-    write_beast2_file(
+    write_in_segments(
         path, st,
         EastSet(StructType([("x", IntegerType), ("y", IntegerType)]),
                 [{"x": i, "y": -i} for i in range(30)]),
-        segment_rows=8)
+        8)
     with open_beast2_file(path, st) as s:
         got, counted = _delta(lambda: s.sum(lambda _b, el: el["x"]))
         assert got == sum(range(30))
@@ -314,8 +315,8 @@ def test_explicit_projection_validation_errors(array_path, dict_path, tmp_path):
 def test_explicit_projection_refuses_find_sorted(tmp_path):
     at = ArrayType(StructType([("k", IntegerType), ("pad", StringType)]))
     path = tmp_path / "sorted.beast2"
-    write_beast2_file(path, at, EastArray(
-        at.value, [{"k": i, "pad": f"p{i}"} for i in range(50)]), segment_rows=10)
+    write_in_segments(path, at, EastArray(
+        at.value, [{"k": i, "pad": f"p{i}"} for i in range(50)]), 10)
     narrow = ArrayType(StructType([("k", IntegerType)]))
     with open_beast2_file(path, project=narrow) as f, \
             pytest.raises(RuntimeError, match="whole elements"):
@@ -357,7 +358,7 @@ def _wide_file(tmp_path):
         for i in range(20_000)
     ])
     path = tmp_path / "perf.beast2"
-    write_beast2_file(path, ArrayType(WIDE_ROW), rows, segment_rows=4000)
+    write_in_segments(path, ArrayType(WIDE_ROW), rows, 4000)
     return path
 
 

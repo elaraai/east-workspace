@@ -493,7 +493,7 @@ describe("Beast2 v5 — Paging", () => {
   test("slice() reads element windows across segment boundaries", () => {
     const AT = ArrayType(IntegerType);
     const rows = Array.from({ length: 2500 }, (_, i) => BigInt(i));
-    const blob = encodeBeast2PagedFor(AT, { batchSize: 1000 })(rows);
+    const blob = encodeBeast2SegmentsFor(AT)([rows.slice(0, 1000), rows.slice(1000, 2000), rows.slice(2000)]);
     const pages = openBeast2PagesFor(AT)(blob);
     assert.deepEqual([...pages.counts], [1000, 1000, 500]);
     // Window spanning two segments.
@@ -514,8 +514,8 @@ describe("Beast2 v5 — Paging", () => {
 
   test("slice() and get() address the canonical order of Set and Dict roots", () => {
     const ST = SetType(IntegerType);
-    const setValue = new Set(Array.from({ length: 250 }, (_, i) => BigInt(i)));
-    const sp = openBeast2PagesFor(ST)(encodeBeast2PagedFor(ST, { batchSize: 100 })(setValue));
+    const setRows = Array.from({ length: 250 }, (_, i) => BigInt(i));
+    const sp = openBeast2PagesFor(ST)(encodeBeast2SegmentsFor(ST)([0, 100, 200].map((at) => new Set(setRows.slice(at, at + 100)))));
     assert.equal(sp.segmentCount, 3);
     assert.deepEqual([...(sp.slice(95, 10) as Set<bigint>)], Array.from({ length: 10 }, (_, i) => BigInt(95 + i)), "set window crosses a segment boundary in sorted order");
     assert.deepEqual([...(sp.slice(240, 100) as Set<bigint>)], Array.from({ length: 10 }, (_, i) => BigInt(240 + i)), "set window clamps at the tail");
@@ -525,8 +525,8 @@ describe("Beast2 v5 — Paging", () => {
     assert.equal(sp.get(-1n), undefined, "below the minimum fence");
 
     const DT = DictType(StringType, IntegerType);
-    const dictValue = new Map(Array.from({ length: 250 }, (_, i) => [`k${String(i).padStart(3, "0")}`, BigInt(i)] as [string, bigint]));
-    const dp = openBeast2PagesFor(DT)(encodeBeast2PagedFor(DT, { batchSize: 100 })(dictValue));
+    const dictRows = Array.from({ length: 250 }, (_, i) => [`k${String(i).padStart(3, "0")}`, BigInt(i)] as [string, bigint]);
+    const dp = openBeast2PagesFor(DT)(encodeBeast2SegmentsFor(DT)([0, 100, 200].map((at) => new Map(dictRows.slice(at, at + 100)))));
     assert.deepEqual(
       [...(dp.slice(98, 4) as Map<string, bigint>).entries()],
       [["k098", 98n], ["k099", 99n], ["k100", 100n], ["k101", 101n]],
@@ -576,51 +576,55 @@ describe("Beast2 v5 — Paging", () => {
     const rows = Array.from({ length: 2500 }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
     const blob = encodeBeast2PagedFor(AT)(rows);
     const pages = openBeast2PagesFor(AT)(blob);
-    assert.equal(pages.segmentCount, 3, "default 1000-element batches");
     assert.equal(pages.elementCount, 2500);
     assert.ok(pages.selfContained);
     assert.ok(equalFor(AT)(decodeBeast2For(AT)(blob), rows), "whole decode equals input");
-    // Identical batching through the batch API produces identical bytes — the
-    // paged encode is the same wire form, just chunked from one value.
-    const batches = [rows.slice(0, 1000), rows.slice(1000, 2000), rows.slice(2000)];
+    // The same segments through the batch API are the same bytes — the paged
+    // encode is the same wire form, cut where the rule says.
+    const batches: typeof rows[] = [];
+    let at = 0;
+    for (const count of pages.counts) {
+      batches.push(rows.slice(at, at + count));
+      at += count;
+    }
     assert.deepEqual(Array.from(blob), Array.from(encodeBeast2SegmentsFor(AT)(batches)));
-    // A collection at or below one batch is a single indexed segment.
+    // A collection below the minimum is a single indexed segment.
     const small = encodeBeast2PagedFor(AT)(rows.slice(0, 10));
     assert.equal(openBeast2PagesFor(AT)(small).segmentCount, 1);
   });
 
   test("paged Set and Dict encodes round-trip and stay canonical", () => {
     const ST = SetType(IntegerType);
-    const setValue = new Set(Array.from({ length: 250 }, (_, i) => BigInt(i)));
-    const sBlob = encodeBeast2PagedFor(ST, { batchSize: 100 })(setValue);
-    assert.equal(openBeast2PagesFor(ST)(sBlob).segmentCount, 3);
+    const setValue = new Set(Array.from({ length: 5000 }, (_, i) => BigInt(i)));
+    const sBlob = encodeBeast2PagedFor(ST)(setValue);
+    assert.ok(openBeast2PagesFor(ST)(sBlob).segmentCount > 1);
     assert.ok(equalFor(ST)(decodeBeast2For(ST)(sBlob), setValue));
 
     const DT = DictType(StringType, IntegerType);
-    const dictValue = new Map(Array.from({ length: 250 }, (_, i) => [`k${String(i).padStart(3, "0")}`, BigInt(i)] as [string, bigint]));
-    const dBlob = encodeBeast2PagedFor(DT, { batchSize: 100 })(dictValue);
+    const dictValue = new Map(Array.from({ length: 5000 }, (_, i) => [`k${String(i).padStart(4, "0")}`, BigInt(i)] as [string, bigint]));
+    const dBlob = encodeBeast2PagedFor(DT)(dictValue);
     const dPages = openBeast2PagesFor(DT)(dBlob);
-    assert.equal(dPages.segmentCount, 3);
+    assert.ok(dPages.segmentCount > 1);
     assert.ok(equalFor(DT)(decodeBeast2For(DT)(dBlob), dictValue));
     // Each segment is itself a valid Dict value of the root type.
     const seg = dPages.segment(1) as Map<string, bigint>;
     assert.ok(equalFor(DT)(decodeBeast2For(DT)(encodeBeast2For(DT)(seg)), seg));
     // One source Map cannot repeat a key, so segments partition the pairs.
-    assert.equal([...dPages.counts].reduce((a, b) => a + b, 0), 250);
+    assert.equal([...dPages.counts].reduce((a, b) => a + b, 0), 5000);
   });
 
-  test("segments adapt to the byte target for wide rows", () => {
+  test("wide rows cut by bytes, not by count", () => {
     const AT = ArrayType(StringType);
-    const rows = Array.from({ length: 40 }, (_, i) => `row-${i}-` + String(i).padStart(4, "0").repeat(50));
-    // A 1-byte target forces one element per segment — the adaptation floor.
-    const tiny = encodeBeast2PagedFor(AT, { targetSegmentBytes: 1 })(rows);
-    const tp = openBeast2PagesFor(AT)(tiny);
-    assert.equal(tp.segmentCount, 40);
-    assert.ok(equalFor(AT)(decodeBeast2For(AT)(tiny), rows));
-    // Small data under the default target stays at the element cap.
-    assert.equal(openBeast2PagesFor(AT)(encodeBeast2PagedFor(AT)(rows)).segmentCount, 1);
-    // Batching is a pure function of the value — bytes are deterministic.
-    assert.deepEqual(Array.from(encodeBeast2PagedFor(AT, { targetSegmentBytes: 1 })(rows)), Array.from(tiny));
+    const rows = Array.from({ length: 40 }, (_, i) => `row-${i}-` + String(i).padStart(4, "0").repeat(25_000));
+    const blob = encodeBeast2PagedFor(AT, { codec: "none" })(rows);
+    // Forty rows are far below the minimum count, but each is 100 KB: past the
+    // minimum bytes after one, and the threshold rises with their width.
+    assert.ok(openBeast2PagesFor(AT)(blob).segmentCount > 1);
+    assert.ok(equalFor(AT)(decodeBeast2For(AT)(blob), rows));
+    // Narrow rows of the same count stay one segment.
+    assert.equal(openBeast2PagesFor(AT)(encodeBeast2PagedFor(AT)(rows.map((r) => r.slice(0, 20)))).segmentCount, 1);
+    // The cut is a pure function of the value — bytes are deterministic.
+    assert.deepEqual(Array.from(encodeBeast2PagedFor(AT, { codec: "none" })(rows)), Array.from(blob));
   });
 
   test("non-collection types are refused by the paged encoder", () => {

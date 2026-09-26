@@ -50,5 +50,5 @@ const keys = Array.from({ length: NROWS }, (_, i) => BigInt(i));
 for (let i = keys.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [keys[i], keys[j]] = [keys[j], keys[i]]; }
 const rows = [];
 for (let i = 0; i < NROWS; i++) rows.push({ key: keys[i], label: `row-${i}`, base: rnd() });
-writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(SeedT), { batchSize: 1000 })(rows));
+writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(SeedT))(rows));
 console.log(`wrote ${out}: ${NROWS} seed rows, ${NARR} arrays x ${NITEMS} items each per value`);

@@ -17,7 +17,7 @@
  * non-TS clients) have the types they need to encode arguments.
  */
 
-import { StructType, StringType, ArrayType, EastTypeType, OptionType, ValueTypeOf, decodeBeast2For, none } from '@elaraai/east';
+import { StructType, StringType, ArrayType, EastTypeType, OptionType, ValueTypeOf, decodeBeast2For } from '@elaraai/east';
 import { RunnerType } from './runner.js';
 
 /**
@@ -25,21 +25,19 @@ import { RunnerType } from './runner.js';
  * `PackageObject.functions`.
  */
 export const FunctionObjectType = StructType({
-  /** Hash of the encoded EastIR bundle (encodeEastIR), like a task's commandIr object. */
+  /** Hash of the encoded EastIR bundle (encodeEastIR), as a task's program is. */
   bodyIr: StringType,
   /** Positional parameter types — the IR's signature, surfaced for arity/type
    *  validation and `describe` without decoding the whole IR. */
   inputTypes: ArrayType(EastTypeType),
   /** Return type — used to decode the result `value` blob client-side. */
   outputType: EastTypeType,
-  /** Author-chosen runtime; resolved to argv by runnerToArgv. One of the known
-   *  runtime tags — there is no raw-argv runner for functions. */
+  /** Author-chosen runtime: a stock runner runs the function as a unit, and a
+   *  `custom` one runs its command with `run`'s arguments. */
   runner: RunnerType,
   /**
    * Hash of an `EnvironmentSpecType` object the function executes in;
-   * `none` ⇒ the stock runtime image. Appended LAST (BEAST2 encodes struct
-   * fields positionally) with a legacy dual decoder — see
-   * {@link decodeFunctionObject}.
+   * `none` ⇒ the stock runtime image.
    */
   environment: OptionType(StringType),
 });
@@ -47,39 +45,28 @@ export type FunctionObjectType = typeof FunctionObjectType;
 
 export type FunctionObject = ValueTypeOf<typeof FunctionObjectType>;
 
-/**
- * The pre-`environment` function object wire shape, kept only so
- * {@link decodeFunctionObject} can read functions exported before execution
- * environments existed.
- */
-const PreEnvironmentFunctionObjectType = StructType({
-  bodyIr: StringType,
-  inputTypes: ArrayType(EastTypeType),
-  outputType: EastTypeType,
-  runner: RunnerType,
-});
-
 const decodeCurrentFunction = decodeBeast2For(FunctionObjectType);
-const decodePreEnvironmentFunction = decodeBeast2For(PreEnvironmentFunctionObjectType);
 
 /**
- * Decode a `FunctionObject` from BEAST2 bytes, tolerating the
- * pre-`environment` wire format (dual-decode migration, like
- * `decodePackageObject`).
+ * Decode a `FunctionObject` from BEAST2 bytes.
  *
- * Every function-read path — local AND cloud — must use this instead of
- * `decodeBeast2For(FunctionObjectType)` directly. Older bytes decode with
- * `environment` defaulted to `none`.
+ * @remarks
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported with the current one, and this says so.
+ *
+ * @param data - the stored bytes
+ * @returns the function object
+ * @throws {Error} When the bytes are not a current function object — a
+ *   package exported by an older SDK, which is re-exported with the current
+ *   one.
  */
 export function decodeFunctionObject(data: Uint8Array): FunctionObject {
   try {
     return decodeCurrentFunction(data);
   } catch (err) {
-    try {
-      const legacy = decodePreEnvironmentFunction(data);
-      return { ...legacy, environment: none };
-    } catch {
-      throw err; // no known shape — surface the current-format error
-    }
+    throw new Error(
+      `the function object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
   }
 }

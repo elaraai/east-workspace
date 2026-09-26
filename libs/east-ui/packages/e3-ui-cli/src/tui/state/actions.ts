@@ -63,7 +63,7 @@ export interface MatchUi {
     /** The query text, for the command box status. */
     text: string;
     /** The query form. */
-    form: 'exact' | 'prefix' | 'fields';
+    form: 'exact' | 'prefix' | 'fields' | 'range';
 }
 
 /** A value tree's UI state. */
@@ -117,7 +117,7 @@ export function isLogTab(tab: TaskTab): tab is 'stdout' | 'stderr' {
 
 /** The tabs of a task, in strip order (`reads` only for a `ui` task). */
 export function taskTabsOf(state: TuiState, ws: string, task: string): TaskTab[] {
-    const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.kind.type === 'some' && x.kind.value === 'ui');
+    const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.role.type === 'ui');
     return ui ? ['output', 'stdout', 'stderr', 'runs', 'reads'] : ['output', 'stdout', 'stderr', 'runs'];
 }
 
@@ -312,7 +312,7 @@ export interface DataState {
     execution: Record<string, ExecutionData>;
     /** Per workspace: every dataset with its type / hash / size. */
     datasets: Record<string, ListEntry[]>;
-    /** Per workspace: the task list (with kinds). */
+    /** Per workspace: the task list (with roles). */
     taskList: Record<string, TaskListItem[]>;
     /** Per workspace, per task: task details. */
     taskDetails: Record<string, Record<string, TaskDetails>>;

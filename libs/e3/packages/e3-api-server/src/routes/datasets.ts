@@ -24,9 +24,6 @@ export interface DatasetRouteOptions {
    *  4 MiB; deployments with tighter response limits (e.g. Lambda proxy's
    *  6 MB, base64-inflated) pass a smaller budget. */
   pageByteBudget?: number;
-  /** Absolute blob-buffering cap for the page endpoint. Defaults to
-   *  512 MiB, until range reads land. */
-  pageReadMaxBytes?: number;
 }
 
 /** Parses an integer query param; `undefined` when absent, `NaN` when
@@ -97,13 +94,19 @@ export function createDatasetRoutes(
       const key = c.req.query('key');
       const prefix = c.req.query('prefix');
       const fields = c.req.queries('field');
+      // `from` / `to` repeat, as `field` does: each is one `.east` literal of
+      // a leading prefix of the flattened key.
+      const from = c.req.queries('from');
+      const to = c.req.queries('to');
+      const index = c.req.query('index');
       return findDatasetKey(storage, repoPath, ws, treePath, {
         ...(key !== undefined && { key }),
         ...(prefix !== undefined && { prefix }),
         ...(fields !== undefined && fields.length > 0 && { fields }),
+        ...(from !== undefined && from.length > 0 && { from }),
+        ...(to !== undefined && to.length > 0 && { to }),
+        ...(index !== undefined && index !== '' && { index }),
         ...(hash !== undefined && hash !== '' && { hash }),
-      }, {
-        ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),
       });
     }
     if (page) {
@@ -112,15 +115,18 @@ export function createDatasetRoutes(
         ...(intParam(c.req.query('offset')) !== undefined && { offset: intParam(c.req.query('offset'))! }),
         ...(intParam(c.req.query('limit')) !== undefined && { limit: intParam(c.req.query('limit'))! }),
         ...(intParam(c.req.query('segment')) !== undefined && { segment: intParam(c.req.query('segment'))! }),
+        ...(c.req.query('index') !== undefined && c.req.query('index') !== '' && { index: c.req.query('index')! }),
+        ...(c.req.query('join') === 'true' && { join: true }),
         ...(hash !== undefined && hash !== '' && { hash }),
       };
       return getDatasetPage(storage, repoPath, ws, treePath, window, {
         ...(options?.pageByteBudget !== undefined && { byteBudget: options.pageByteBudget }),
-        ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),
       });
     }
 
-    return getDataset(storage, repoPath, ws, treePath, repo, c.req.url, transferBackend);
+    // `segments=true`: a collection held as a segment manifest is answered
+    // with its manifest's hash, for a client that downloads the segments.
+    return getDataset(storage, repoPath, ws, treePath, repo, c.req.url, transferBackend, c.req.query('segments') === 'true');
   });
 
   // PUT /api/repos/:repo/workspaces/:ws/datasets/* - Set dataset value
@@ -135,12 +141,32 @@ export function createDatasetRoutes(
     const pathStr = fullPath.startsWith(datasetsPrefix) ? fullPath.slice(datasetsPrefix.length) : '';
     const treePath = urlPathToTreePath(pathStr);
 
-    // Body is raw BEAST2
-    const buffer = await c.req.arrayBuffer();
-    const body = new Uint8Array(buffer);
-
-    return setDataset(storage, repoPath, ws, treePath, body);
+    // Body is raw BEAST2, read as it arrives.
+    return setDataset(storage, repoPath, ws, treePath, bodyChunks(c.req.raw.body));
   });
 
   return app;
+}
+
+/**
+ * A request body's chunks, as they arrive. A reader that stops early — a
+ * refused upload — cancels the body, so the connection is not left holding it.
+ */
+async function* bodyChunks(body: ReadableStream<Uint8Array> | null): AsyncGenerator<Uint8Array> {
+  if (body === null) return;
+  const reader = body.getReader();
+  let done = false;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) {
+        done = true;
+        return;
+      }
+      yield next.value;
+    }
+  } finally {
+    if (!done) await reader.cancel().catch(() => { /* the body may already be errored */ });
+    reader.releaseLock();
+  }
 }

@@ -11,8 +11,8 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
-import { TaskObjectType } from '@elaraai/e3-types';
+import { variant, none, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
+import { TASK_OBJECT_KIND, TaskObjectType } from '@elaraai/e3-types';
 import {
   inputsHash,
   executionGet,
@@ -135,19 +135,33 @@ describe('executions', () => {
       assert.strictEqual(output, null);
     });
 
-    it('returns hash from output ref file', async () => {
+    it('returns the output hash the latest success record holds, and its id, past a later failure', async () => {
       const taskHash = 'a'.repeat(64);
       const inHash = 'b'.repeat(64);
-      const executionId = uuidv7();
+      const succeeded = uuidv7();
+      const failed = uuidv7();
       const outputHash = 'c'.repeat(64);
 
-      // Create execution directory with output ref (new structure includes executionId)
-      const execDir = join(testRepo, 'executions', taskHash, inHash, executionId);
-      mkdirSync(execDir, { recursive: true });
-      writeFileSync(join(execDir, 'output'), outputHash + '\n');
+      await storage.refs.executionWrite(testRepo, taskHash, inHash, succeeded, variant('success', {
+        executionId: succeeded,
+        inputHashes: [],
+        outputHash,
+        startedAt: new Date(0),
+        completedAt: new Date(1),
+        peakBytes: none,
+        plan: none,
+      }));
+      await storage.refs.executionWrite(testRepo, taskHash, inHash, failed, variant('failed', {
+        executionId: failed,
+        inputHashes: [],
+        startedAt: new Date(2),
+        completedAt: new Date(3),
+        exitCode: 1n,
+        peakBytes: none,
+      }));
 
       const output = await executionGetOutput(storage, testRepo, taskHash, inHash);
-      assert.strictEqual(output, outputHash);
+      assert.deepStrictEqual(output, { outputHash, executionId: succeeded });
     });
   });
 
@@ -265,10 +279,13 @@ describe('executions', () => {
     it('returns error for missing command IR', async () => {
       // Create a task object with non-existent command IR hash
       const task = {
-        commandIr: 'a'.repeat(64), // Non-existent hash
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'a'.repeat(64) }), // Non-existent hash
+        runner: variant('custom', { command: [] }),
         inputs: [],
-        output: [],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        output: { path: [], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -289,10 +306,13 @@ describe('executions', () => {
 
       // Create a task object
       const task = {
-        commandIr: commandIrHash,
-        inputs: [[variant('field', 'test')]],
-        output: [variant('field', 'output')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'test')], partition: none }],
+        output: { path: [variant('field', 'output')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -322,10 +342,13 @@ describe('executions', () => {
 
       // Create task
       const task = {
-        commandIr: commandIrHash,
-        inputs: [[variant('field', 'test')]],
-        output: [variant('field', 'output')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'test')], partition: none }],
+        output: { path: [variant('field', 'output')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -357,10 +380,13 @@ describe('executions', () => {
 
       // Create task
       const task = {
-        commandIr: commandIrHash,
-        inputs: [[variant('field', 'test')]],
-        output: [variant('field', 'output')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'test')], partition: none }],
+        output: { path: [variant('field', 'output')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -392,10 +418,13 @@ describe('executions', () => {
 
       // Create task
       const task = {
-        commandIr: commandIrHash,
-        inputs: [[variant('field', 'test')]],
-        output: [variant('field', 'output')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'test')], partition: none }],
+        output: { path: [variant('field', 'output')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -439,10 +468,13 @@ describe('executions', () => {
 
       // Create task
       const task = {
-        commandIr: commandIrHash,
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
         inputs: [],
-        output: [variant('field', 'output')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        output: { path: [variant('field', 'output')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));

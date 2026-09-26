@@ -4,41 +4,38 @@
  */
 
 /**
- * Execution abstraction layer for e3 dataflow.
- *
- * This module provides interfaces that separate orchestration from business
- * logic, enabling different execution strategies:
- * - LocalDataflowExecutor: In-process execution with AsyncMutex (CLI, local dev)
- * - StepFunctionsDataflowExecutor: AWS Step Functions orchestration (cloud)
+ * Task execution for e3: the `TaskRunner` interface, the local runner, and
+ * the process, scratch and budget mechanics beneath it.
  */
 
 export {
-  // Task execution
   type TaskExecuteOptions,
   type TaskResult,
   type TaskRunner,
-  // Dataflow orchestration
-  type ExecutionHandle,
-  type DataflowStatus,
-  type DataflowExecuteOptions,
-  type DataflowExecuteResult,
-  type DataflowExecutor,
-  // Task graph
-  type TaskGraph,
-  // Business logic function types
-  type DataflowGetGraphFn,
-  type DataflowCheckCacheFn,
-  type DataflowWriteOutputFn,
-  type DataflowGetReadyTasksFn,
+  type SplitUnit,
 } from './interfaces.js';
 
 // TaskRunner implementations
 export { LocalTaskRunner } from './LocalTaskRunner.js';
-export { MockTaskRunner, type MockTaskCall } from './MockTaskRunner.js';
+export { MockTaskRunner, type MockTaskCall, type MockTaskResult, type MockUnitCall } from './MockTaskRunner.js';
+
+// The engine: a task split into pieces, as the stages its units run in, and
+// the driver that runs a task on its own
+export {
+  SplitTask,
+  isSplitTask,
+  stageUnits,
+  executeSplitTask,
+  type SplitStage,
+  type SplitTaskDriver,
+  type ThrownUnit,
+  type UnitExecutor,
+} from './engine.js';
 
 // Graph-free execution (functions / one-shot)
 export {
   runDetached,
+  type DetachedArg,
   type DetachedSpec,
   type DetachedResult,
   type DetachedRunOptions,
@@ -47,20 +44,33 @@ export {
 // Persistence-free process helpers (shared by tracked + detached paths)
 export {
   marshalInputsToDir,
-  adoptOutputFile,
   type MarshalInputsOptions,
-  marshalBytesToDir,
-  readOutputFile,
-  buildRunnerArgv,
   spawnAndCapture,
   type SpawnAndCaptureOptions,
   type SpawnAndCaptureResult,
 } from './processExec.js';
 
-export { materializeEnvironment } from './environment.js';
+// An execution environment: its local build, and the reading of the files an
+// environment names, which a remote builder does too
+export { materializeEnvironment, decodeEnvironmentFile, nodeLockFilename } from './environment.js';
 
 // Scratch directories of local executions
-export { sweepScratchDirs, type SweepScratchOptions } from './scratch.js';
+export { sweepScratchDirs } from './scratch.js';
 
-// The jobs budget of a local run
-export { JobSlots, defaultJobs, cgroupCpuQuota, type ReleaseSlot } from './jobs.js';
+// The budget of an e3 process: its cores and memory
+export {
+  Budget,
+  resolveBudget,
+  defaultCores,
+  defaultMemory,
+  parseMemory,
+  cgroupCpuQuota,
+  cgroupMemoryMax,
+  unitThreads,
+  UNIT_MAX_THREADS,
+  DOOR_FRAME_WORKERS,
+  type BudgetCapacity,
+  type BudgetRequest,
+  type BudgetSettings,
+  type ReleaseSlot,
+} from './budget.js';

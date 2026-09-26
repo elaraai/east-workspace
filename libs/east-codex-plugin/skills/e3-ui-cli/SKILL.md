@@ -89,14 +89,14 @@ is never started and Ink is never loaded.
 
 `/` opens it; `Tab` completes; `⏎` runs; `esc` cancels. Plain text without
 `/` fuzzy-jumps to any workspace, task, input or dataset. Every command shows
-its consequence before `⏎` (`run 6 tasks in main, ignoring the cache ·
-concurrency 4`); a confirmation is the same command re-run with `--force`.
+its consequence before `⏎` (`run 6 tasks in main, ignoring the cache`); a
+confirmation is the same command re-run with `--force`.
 
 | Command | Effect |
 |---|---|
 | `/task <name>` · `/input <name>` · `/dataset <path>` | open a task / input / dataset (`.inputs.x`, `.tasks.x.output`) |
 | `/workspace <name>` · `/workspaces` · `/repos` · `/repo <path\|url>` | switch workspace · the lists · open another repository |
-| `/run [--force] [--filter <glob>] [--concurrency <n>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them) |
+| `/run [--force] [--filter <glob>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them); it runs under the server's budget — for a local repository, the embedded server's `-j` / `--memory` |
 | `/logs <task> [stderr]` · `/runs <task>` | a task's stdout (or stderr) / run history |
 | `/find <key>` · `/goto <row\|N%>` · `/save [file] [--force]` | in a value tree: exact `"key"`, prefix, or struct-key fields `a\|b`; jump by row or percent; write the `.beast2` bytes (`.log` for logs) |
 | `/tag <name>` · `/add [key]` · `/remove [--force]` · `/apply` · `/discard [--then "<cmd>"]` · `/reload` | editing an input |
@@ -188,6 +188,8 @@ The terminal UI (the default command).
 | `[workspace]` | The workspace to open (else the one remembered for the repository, the only one, or the list). |
 | `-t, --task <name>` | Open a task on start. |
 | `-i, --input <name>` | Open an input on start (exclusive with `--task`). |
+| `-j, --jobs <n>` | A local repository's embedded server: its cores, the runner processes it keeps in flight (default: `$E3_JOBS`, else the CPUs available). Refused for a remote repository, which runs under its server's budget. |
+| `--memory <size>` | Its memory, as `8G` or `512M` (default: `$E3_MEMORY`, else the memory available, less a reserve). |
 | `--no-mouse` | Disable mouse reporting. |
 | `--ascii` | Box-drawing off (also `E3_UI_ASCII=1`). |
 

@@ -213,8 +213,8 @@ write('S06-dashboard-running', dashboard({ running: true, footer: FOOTER('↑↓
 
 // S06b — run confirmation lives IN the command bar (no dialog)
 write('S06b-run-confirm', dashboard({
-  command: ' > /run --force_                       run 6 tasks in main, ignoring the cache · concurrency 4      ⏎ run · esc',
-  footer: FOOTER('--force  re-run everything    --filter <glob>  only matching tasks    --concurrency <n>', ''),
+  command: ' > /run --force_                       run 6 tasks in main, ignoring the cache                      ⏎ run · esc',
+  footer: FOOTER('--force  re-run everything    --filter <glob>  only matching tasks', ''),
 }));
 
 // S07 — command completion (fzf-style list grows upward from the bar)
@@ -551,6 +551,8 @@ Options:
   -V, --version        output the version number
   -t, --task <name>    open a task on start
   -i, --input <name>   open an input on start
+  -j, --jobs <n>       a local repository's embedded server: cores, the runner processes it keeps in flight
+  --memory <size>      its memory, as 8G or 512M
   --no-mouse           disable mouse reporting
   --ascii              box-drawing off (also E3_UI_ASCII=1) · colour honours NO_COLOR / FORCE_COLOR
   -h, --help           display help for command

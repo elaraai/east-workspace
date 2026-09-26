@@ -3,9 +3,10 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
+import { variant } from '@elaraai/east';
 import type {
   RepoStore,
-  RepoStatus,
+  RepoStatusName,
   RepoMetadata,
   BatchResult,
   GcObjectScanResult,
@@ -54,10 +55,10 @@ export class InMemoryRepoStore implements RepoStore {
       throw new RepoAlreadyExistsError(repo);
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
     this.repos.set(repo, {
       name: repo,
-      status: 'active',
+      status: variant('active', null),
       createdAt: now,
       statusChangedAt: now,
     });
@@ -65,8 +66,8 @@ export class InMemoryRepoStore implements RepoStore {
 
   async setStatus(
     repo: string,
-    status: RepoStatus,
-    expected?: RepoStatus | RepoStatus[]
+    status: RepoStatusName,
+    expected?: RepoStatusName | RepoStatusName[]
   ): Promise<void> {
     const current = this.repos.get(repo);
     if (!current) {
@@ -76,17 +77,15 @@ export class InMemoryRepoStore implements RepoStore {
     // Check expected status (CAS)
     if (expected !== undefined) {
       const expectedArray = Array.isArray(expected) ? expected : [expected];
-      if (!expectedArray.includes(current.status)) {
-        throw new RepoStatusConflictError(repo, expected, current.status);
+      if (!expectedArray.includes(current.status.type)) {
+        throw new RepoStatusConflictError(repo, expected, current.status.type);
       }
     }
 
-    // Update status
-    const now = new Date().toISOString();
     this.repos.set(repo, {
       ...current,
-      status,
-      statusChangedAt: now,
+      status: variant(status, null),
+      statusChangedAt: new Date(),
     });
   }
 

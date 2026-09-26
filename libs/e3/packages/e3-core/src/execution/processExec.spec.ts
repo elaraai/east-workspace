@@ -24,28 +24,49 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
-import { East, FunctionType, IntegerType, NullType, encodeEastIR, variant } from '@elaraai/east';
-import { withRunnerLifeline } from '@elaraai/e3-types';
-import { adoptOutputFile, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, UnitType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
+import { decodeCollectionManifest } from '@elaraai/e3-types';
+import { jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { unitArgv } from './units.js';
+import { storeDatasetFile } from '../store-collection.js';
+import { DatasetSegments } from '../dataset-open.js';
+import { datasetWrite } from '../trees.js';
+import { writeRecordState } from '../records.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { objectPath } from '../storage/local/localHelpers.js';
 import type { ObjectStore, StorageBackend } from '../storage/interfaces.js';
 
 /** Counts the whole-object reads a marshal makes; the point of #767 is that
- *  there are none. */
-function countWholeReads(storage: StorageBackend): { reads: () => number } {
+ *  there are none. `counts` narrows to the objects that matter — for a
+ *  manifest-backed input, its segments, since the manifest itself is the
+ *  index and is meant to be read. */
+function countWholeReads(storage: StorageBackend, counts?: (hash: string) => boolean): { reads: () => number } {
   const objects = storage.objects as ObjectStore;
   const original = objects.read.bind(objects);
   let reads = 0;
   objects.read = async (repo: string, hash: string): Promise<Uint8Array> => {
-    reads++;
+    if (counts === undefined || counts(hash)) reads++;
     return original(repo, hash);
   };
   return { reads: () => reads };
+}
+
+/** Asserts a staged file IS its object — one inode — wherever the scratch
+ *  directory is on the object's volume, as a test's scratch and repository
+ *  are, both under the system temp directory. Across volumes a stage can only
+ *  copy, and then it must hold exactly the object's bytes. */
+function assertSharesStorage(staged: string, object: string, what: string): void {
+  const input = statSync(staged, { bigint: true });
+  const stored = statSync(object, { bigint: true });
+  if (statSync(dirname(staged), { bigint: true }).dev === stored.dev) {
+    assert.ok(input.dev === stored.dev && input.ino === stored.ino, `${what} is the object itself, by a hard link`);
+  } else {
+    assert.deepEqual(readFileSync(staged), readFileSync(object), `${what} holds exactly the object's bytes`);
+  }
 }
 
 describe('staging by link or kernel copy', () => {
@@ -88,14 +109,7 @@ describe('staging by link or kernel copy', () => {
     const { hash } = await store(4096, 0x43);
     const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash]);
 
-    const object = statSync(objectPath(testRepo, hash));
-    const input = statSync(staged!);
-    // A hard link on one volume, a reflink where the file system has them:
-    // either way the bytes were never copied through this process.
-    assert.ok(
-      (input.ino === object.ino && input.dev === object.dev) || input.size === object.size,
-      'the staged input is the object, or exactly its bytes'
-    );
+    assertSharesStorage(staged!, objectPath(testRepo, hash), 'the staged input');
   });
 
   it('never links an input a custom runner could write through', async () => {
@@ -112,18 +126,162 @@ describe('staging by link or kernel copy', () => {
     assert.deepEqual(readFileSync(objectPath(testRepo, hash)), Buffer.from(new Uint8Array(4096).fill(0x44)));
   });
 
-  it('stages through ranged reads when the backend cannot materialize', async () => {
-    // The fallback every non-file backend takes: chunked `readRange` into the
-    // scratch file, never `read`.
-    const { hash, bytes } = await store(9000, 0x45);
-    const objects = storage.objects as ObjectStore;
-    delete (objects as { materialize?: unknown }).materialize;
-    const spy = countWholeReads(storage);
+  it('stages a manifest-backed input as its manifest plus linked segments', async () => {
+    const rows = new SortedMap<string, bigint>(
+      Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+      compareFor(StringType),
+    );
+    const type = DictType(StringType, IntegerType);
+    const hash = await datasetWrite(storage, testRepo, rows, type);
+    const manifest = decodeCollectionManifest(await storage.objects.read(testRepo, hash));
+    assert.ok(manifest.entries.length > 1);
+    const segmentHashes = new Set(manifest.entries.map((e) => e.hash));
+    const spy = countWholeReads(storage, (read) => segmentHashes.has(read));
+
+    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash], { manifests: true });
+
+    // The manifest file, and one file per segment beside it named by hash —
+    // the convention every runtime's opener reads.
+    assert.deepEqual(readFileSync(staged!), readFileSync(objectPath(testRepo, hash)));
+    const segmentDir = `${staged!}.segments`;
+    assert.deepEqual(
+      readdirSync(segmentDir).sort(),
+      manifest.entries.map((e) => `${e.hash}.beast2`).sort(),
+    );
+    // Not one byte of any segment moved: each staged file IS its object.
+    for (const entry of manifest.entries) {
+      assertSharesStorage(join(segmentDir, `${entry.hash}.beast2`), objectPath(testRepo, entry.hash), `segment ${entry.hash}`);
+    }
+    // The manifest is read — it IS the index, and it is a few dozen bytes
+    // per segment — but not one segment's bytes pass through this process.
+    assert.equal(spy.reads(), 0, 'staging a manifest reads no segment whole');
+  });
+
+  it('splices a manifest-backed input for a runner that does not open one', async () => {
+    const rows = new SortedMap<string, bigint>(
+      Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+      compareFor(StringType),
+    );
+    const type = DictType(StringType, IntegerType);
+    const hash = await datasetWrite(storage, testRepo, rows, type);
 
     const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash]);
 
-    assert.deepEqual(readFileSync(staged!), Buffer.from(bytes));
-    assert.equal(spy.reads(), 0, 'ranged reads, not a whole read');
+    // One file, no siblings: the value, exactly as every runner got it
+    // before the layout.
+    assert.equal(existsSync(`${staged!}.segments`), false);
+    const decoded = decodeBeast2For(type)(readFileSync(staged!)) as Map<string, bigint>;
+    assert.equal(decoded.size, 20_000);
+    assert.equal(decoded.get('k0019999'), 19_999n);
+  });
+
+  it('stages an indexed record as its rows, whatever its primary is stored as', async () => {
+    // An indexed record's ref names a `$record` state, which names the rows'
+    // collection and each index's. A runner is handed the rows: the manifest
+    // and its segments, or the value, never the state.
+    const type = DictType(StringType, IntegerType);
+    const rows = new SortedMap<string, bigint>(
+      Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+      compareFor(StringType),
+    );
+    const manifestPrimary = await datasetWrite(storage, testRepo, rows, type);
+    const blobPrimary = await storage.objects.write(testRepo, encodeBeast2For(type)(rows));
+    const index = {
+      manifest: await datasetWrite(storage, testRepo, new SortedMap<string, bigint>([['other', 1n]], compareFor(StringType)), type),
+      index: await storage.objects.write(testRepo, new Uint8Array([0])),
+    };
+
+    for (const primary of [manifestPrimary, blobPrimary]) {
+      const state = await writeRecordState(storage, testRepo, { primary, indexes: new Map([['by_value', index]]) });
+      for (const manifests of [true, false]) {
+        const dir = join(scratch, `${primary === manifestPrimary ? 'manifest' : 'blob'}-${manifests}`);
+        mkdirSync(dir);
+        const [staged] = await marshalInputsToDir(storage, testRepo, dir, [state], { manifests });
+        if (primary === manifestPrimary && manifests) {
+          assert.deepEqual(readFileSync(staged!), readFileSync(objectPath(testRepo, primary)), 'the primary\'s manifest is staged');
+          const manifest = decodeCollectionManifest(readFileSync(staged!));
+          assert.deepEqual(readdirSync(`${staged!}.segments`).sort(), manifest.entries.map((e) => `${e.hash}.beast2`).sort());
+        } else {
+          const decoded = decodeBeast2For(type)(readFileSync(staged!)) as Map<string, bigint>;
+          assert.equal(decoded.size, 20_000, `a ${dir} input decodes to the rows`);
+          assert.equal(decoded.get('k0019999'), 19_999n);
+        }
+      }
+    }
+  });
+
+  /** `n` rows of a Dict whose keys start with `prefix`. */
+  const rowsOf = (prefix: string, n: number): SortedMap<string, bigint> => new SortedMap<string, bigint>(
+    Array.from({ length: n }, (_, i) => [`${prefix}${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+    compareFor(StringType),
+  );
+
+  /** Counts how many of an object store's calls are in flight at once, each
+   *  held a moment as a remote store's request is. */
+  function countInFlight<A extends unknown[], R>(call: (...args: A) => Promise<R>, counts: (...args: A) => boolean = () => true) {
+    let inFlight = 0;
+    let peak = 0;
+    const counted = async (...args: A): Promise<R> => {
+      if (!counts(...args)) return call(...args);
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      try {
+        return await call(...args);
+      } finally {
+        inFlight--;
+      }
+    };
+    return { counted, peak: () => peak, reset: () => { peak = 0; } };
+  }
+
+  it('places a unit\'s objects sixteen at a time, its inputs\' together', async () => {
+    const type = DictType(StringType, IntegerType);
+    const a = await datasetWrite(storage, testRepo, rowsOf('a', 20_000), type);
+    const b = await datasetWrite(storage, testRepo, rowsOf('b', 20_000), type);
+    const objects = storage.objects as ObjectStore;
+    const counter = countInFlight(objects.materialize.bind(objects));
+    objects.materialize = counter.counted;
+
+    const staged = await marshalInputsToDir(storage, testRepo, scratch, [a, b], { manifests: true });
+
+    for (const input of staged) {
+      const manifest = decodeCollectionManifest(readFileSync(input));
+      assert.deepEqual(readdirSync(`${input}.segments`).sort(), manifest.entries.map((e) => `${e.hash}.beast2`).sort());
+    }
+    assert.equal(counter.peak(), 16, 'sixteen objects placed at once, never more');
+  });
+
+  it('stages a segment an Array names twice once', async () => {
+    // Equal rows cut into equal segments, which one object holds. Linking it
+    // into the segments directory a second time would fail.
+    const hash = await datasetWrite(storage, testRepo, Array.from({ length: 20_000 }, () => 'the same row'), ArrayType(StringType));
+    const manifest = decodeCollectionManifest(await storage.objects.read(testRepo, hash));
+    const distinct = new Set(manifest.entries.map((e) => e.hash));
+    assert.ok(distinct.size < manifest.entries.length, `a segment is named twice: ${manifest.entries.length} entries, ${distinct.size} objects`);
+
+    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash], { manifests: true });
+    assert.deepEqual(readdirSync(`${staged!}.segments`).sort(), [...distinct].map((h) => `${h}.beast2`).sort());
+  });
+
+  it('reads a spliced input\'s segments sixteen ahead of its write, and a download\'s one at a time', async () => {
+    const type = DictType(StringType, IntegerType);
+    const hash = await datasetWrite(storage, testRepo, rowsOf('k', 40_000), type);
+    const manifest = decodeCollectionManifest(await storage.objects.read(testRepo, hash));
+    assert.ok(manifest.entries.length > 16, `more segments than are read at once: ${manifest.entries.length}`);
+    const segmentHashes = new Set(manifest.entries.map((e) => e.hash));
+    const objects = storage.objects as ObjectStore;
+    const counter = countInFlight(objects.read.bind(objects), (_repo, read) => segmentHashes.has(read));
+    objects.read = counter.counted;
+
+    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash]);
+    const decoded = decodeBeast2For(type)(readFileSync(staged!)) as Map<string, bigint>;
+    assert.equal(decoded.size, 40_000);
+    assert.equal(counter.peak(), 16, 'a custom runner\'s splice reads sixteen segments at once');
+
+    counter.reset();
+    for await (const chunk of (await DatasetSegments.open(storage, testRepo, hash)).splice()) void chunk;
+    assert.equal(counter.peak(), 1, 'a splice reads one segment at a time unless asked to read ahead');
   });
 
   it('adopts an output onto the hash objects.write would have produced', async () => {
@@ -131,7 +289,7 @@ describe('staging by link or kernel copy', () => {
     const bytes = new Uint8Array(3000).fill(0x46);
     writeFileSync(outputPath, bytes);
 
-    const adopted = await adoptOutputFile(storage, testRepo, outputPath);
+    const adopted = await storeDatasetFile(storage, testRepo, outputPath);
     const written = await storage.objects.write(testRepo, bytes);
 
     assert.equal(adopted, written, 'adopt and write are one content address');
@@ -150,7 +308,7 @@ describe('staging by link or kernel copy', () => {
     const bytes = new Uint8Array(1500).fill(0x47);
     writeFileSync(outputPath, bytes);
 
-    const hash = await adoptOutputFile(storage, testRepo, outputPath);
+    const hash = await storeDatasetFile(storage, testRepo, outputPath);
     rmSync(outputPath);
 
     assert.deepEqual(await storage.objects.read(testRepo, hash), bytes);
@@ -320,6 +478,76 @@ describe('a runner\'s command line', () => {
     assert.equal(result.exitCode, 7);
     assert.equal(result.signal, null);
     assert.equal(result.stoppedByE3, false);
+  });
+
+  it('gives the runner the caller\'s variables, after the process\'s own', async () => {
+    const previous = process.env.E3_TEST_OVERRIDDEN;
+    process.env.E3_TEST_OVERRIDDEN = 'the process\'s';
+    try {
+      const result = await spawnAndCapture([process.execPath, '-e',
+        'process.stdout.write(JSON.stringify([process.env.E3_TEST_OVERRIDDEN, process.env.E3_TEST_ADDED]))'], dir,
+        { extraEnv: { E3_TEST_OVERRIDDEN: 'the caller\'s', E3_TEST_ADDED: 'added' } });
+      assert.equal(result.exitCode, 0, result.stderrTail);
+      assert.deepEqual(JSON.parse(result.stdoutTail), ['the caller\'s', 'added']);
+    } finally {
+      if (previous === undefined) delete process.env.E3_TEST_OVERRIDDEN;
+      else process.env.E3_TEST_OVERRIDDEN = previous;
+    }
+  });
+});
+
+describe('output held for a callback that has not settled', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = createTempDir();
+  });
+
+  afterEach(() => {
+    removeTempDir(dir);
+  });
+
+  it('stays paused when the child exits and Node resumes the stream to drain it', {
+    skip: process.platform === 'win32' ? 'POSIX pipes: the child finishes writing while its output is held' : false,
+  }, async () => {
+    // Three blocks written apart, so each reaches e3 as its own chunk, then
+    // the child exits. The first chunk takes the capture over its one-byte cap
+    // and pauses the stream; the other two wait in the pipe and the stream.
+    // Once the child has exited, Node resumes the stream to drain it: one
+    // chunk arrives before the capture pauses it again, and the last waits
+    // until the chunks held settle.
+    const block = 8192;
+    let pid: number | null = null;
+    let holding = true;
+    const held: (() => void)[] = [];
+    let delivered = 0;
+    let deliveredWhileHeld = 0;
+    const run = spawnAndCapture(['bash', '-c', `for i in 1 2 3; do head -c ${block} /dev/zero | tr "\\0" x; sleep 0.1; done`], dir, {
+      maxPendingBytes: 1,
+      onSpawned: (spawned) => {
+        pid = spawned;
+      },
+      onStdout: (data) => {
+        delivered += Buffer.byteLength(data);
+        if (!holding) return Promise.resolve();
+        deliveredWhileHeld++;
+        return new Promise<void>((resolve) => {
+          held.push(resolve);
+        });
+      },
+    });
+    try {
+      assert.ok(pid !== null && await exitsWithin(pid, 10_000), 'the child exited while its output was held');
+      // Node's drain runs as the exit is handled; a turn more lets it land.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.equal(deliveredWhileHeld, 2, 'the chunk that crossed the cap, and the one Node resumed with before the pause was renewed');
+    } finally {
+      holding = false;
+      for (const settle of held) settle();
+    }
+    const result = await run;
+    assert.equal(result.exitCode, 0, result.stderrTail);
+    assert.equal(delivered, 3 * block, 'every byte reached the callback once the held chunks settled');
   });
 });
 
@@ -512,8 +740,8 @@ describe('the stdin lifeline (#770)', () => {
     // the job launcher, with e3, and the launcher's job ends the runner
     // beneath the pnpm shim; the lifeline would end it too, as it does where
     // the launcher is not installed (east-node-cli's own tests pin that on
-    // Windows). The sink opens the output file before the body runs, so the
-    // file's existence is the sign the runner is up and computing; the body
+    // Windows). A unit's set output directory is made before the body runs,
+    // so its existence is the sign the runner is up and computing; the body
     // loops forever after one emission.
     const spin = East.function([FunctionType([IntegerType], NullType)], NullType, ($, emit) => {
       $(emit(1n));
@@ -522,16 +750,21 @@ describe('the stdin lifeline (#770)', () => {
         $.assign(turns, turns.add(1n));
       });
     });
-    const irPath = join(dir, 'spin.beast2');
-    writeFileSync(irPath, encodeEastIR(spin.toIR()));
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
-    const outputPath = join(dir, 'output.beast2');
+    writeFileSync(join(scratch, 'spin.beast2'), encodeEastIR(spin.toIR()));
+    const unitPath = join(scratch, 'unit.beast2');
+    writeFileSync(unitPath, encodeBeast2For(UnitType)({
+      work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'output') }),
+      platforms: [],
+      threads: 1n,
+      result: 'result.beast2',
+    }));
+    const outputPath = join(scratch, 'output');
 
-    // The e3 process: this build's spawnAndCapture, reporting the runner's pid
-    // and passing its stderr through.
-    const argv = withRunnerLifeline(variant('east_node', { platforms: [] }),
-      ['east-node', 'run', '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', outputPath, irPath]);
+    // The e3 process: this build's spawnAndCapture of a unit's command line,
+    // reporting the runner's pid and passing its stderr through.
+    const argv = unitArgv(variant('east_node', { platforms: [] }), { file: unitPath, result: join(scratch, 'result.beast2') });
     const e3Script = join(dir, 'e3.mjs');
     writeFileSync(e3Script, [
       `import { spawnAndCapture } from ${JSON.stringify(new URL('./processExec.js', import.meta.url).href)};`,

@@ -6,12 +6,12 @@
 /**
  * Runner `-v/--verbose` output — one canonical format across every runner.
  *
- * e3's `-v` flag (on `e3 run` / `e3 dataflow run`) is a runtime toggle that
- * splices `-v` into a known runtime's argv just before spawn (see
- * `withRunnerVerbose` in e3-types). All three runners then print the SAME
- * timing/perf block to **stderr** — east-c/main.c, east-node-cli/runner.ts and
+ * A runner's `run -v` prints a timing/perf block to **stderr**, and all three
+ * print the SAME one — east-c/main.c, east-node-cli/runner.ts and
  * east-py-cli/runner.py are kept in lockstep on purpose so tooling and users
- * see identical output regardless of runtime.
+ * see identical output regardless of runtime. (e3's own `-v` adds `-v` to a
+ * unit's `exec`, which prints this block's Timing and Memory sections; see
+ * verbose-e2e.spec.ts.)
  *
  * This suite pins that contract:
  *  - each runner, with `-v`, prints the exact canonical block (and still runs);

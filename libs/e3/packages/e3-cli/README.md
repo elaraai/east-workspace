@@ -18,9 +18,15 @@ Every command that takes `<repo>` accepts either a local path or an `http(s)://`
 e3 repo create <repo>                # Create a new repository
 e3 repo status <repo>                # Show repository status
 e3 repo remove <repo> [-r]           # Remove a repository (-r removes workspaces first)
-e3 repo gc <repo> [--dry-run]        # Remove unreferenced objects
+e3 repo gc <repo> [--dry-run] [--keep-runs <n>] [--keep-days <d>]   # Remove old history and unreferenced objects
 e3 repo list <server-url>            # List repositories on a server
 ```
+
+`repo gc` keeps each workspace's last 10 runs (`--keep-runs`), every run from
+the last 7 days (`--keep-days`) and the run its current state came from, with
+the executions they used; every execution a workspace's current state is served
+from, so a re-run stays cached; and every execution from the last 7 days. The
+rest of the history goes, with the outputs only it kept.
 
 ### Packages
 
@@ -67,22 +73,33 @@ e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId> 
 ### Dataflow execution
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--memory <size>] [--force] [-v]
 ```
 
-`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
-e3 keeps in flight at once, across the dataflow's tasks and the partitions and
-merge units of its partitioned tasks alike (every runner takes one slot, first
-come first served, whatever launched it). It defaults to the CPUs available to
-e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
-older `--concurrency` and `--partition-concurrency` are accepted as deprecated
-aliases of the same budget.
+`-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
+e3 spawns. `-j` is its cores: the runners in flight at once, across the
+dataflow's tasks and the partitions and merge units of its partitioned tasks
+alike (every runner takes one, first come first served, whatever launched it).
+`--memory` is the memory those runners may reserve between them, as `8G` or
+`512M`. They default to `E3_JOBS` and `E3_MEMORY`, else to what e3 may use: the
+CPUs of its affinity mask, capped by a cgroup quota, and the cgroup's
+`memory.max` or else physical memory, less a reserve for e3 and the OS.
 
-A local run's per-execution scratch directories are created under
-`E3_SCRATCH_DIR`, or the system temp directory when unset; a tmpfs temp
-directory holds an output in memory until it is stored, so large outputs want
-it on a disk. A scratch directory left by a dead process is removed by the next
-run or `e3 repo gc`.
+A unit of a partitioned task reserves the largest peak memory a unit of its
+stage (its partitions, or one level of its merges) has reached in the run, so
+each stage runs its first unit alone and then fans out. Anything else reserves
+nothing.
+
+`e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
+`e3 workspace deploy` take the same two flags for a local repository. Against a
+server they are refused: it runs the work under its own budget
+(`e3-api-server -j` / `--memory`).
+
+A local run's per-execution scratch directories are created inside the
+repository, under `<repo>/tmp/scratch` — on the object store's filesystem, so
+an output that is not a collection is stored by a link rather than a copy — or
+under `E3_SCRATCH_DIR` when it is set. A scratch directory left by a dead process is removed by the
+next run or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block to the task's logs (`e3 task logs <repo> <ws.task>`) — identical across
@@ -110,7 +127,7 @@ e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [-v]
 ### Watch / live development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--memory <size>] [--abort-on-change]
 ```
 
 ### Authentication
@@ -191,6 +208,7 @@ release may reshape it. Application code should use
 | `e3 workspace import <repo> <ws> <zip>`          | `e3 workspace deploy <repo> <ws> --from-zip <zip>`    |
 | `e3 run <repo> <pkg>/<task>`                     | `e3 run <repo> <pkg>.<task>`                          |
 | `e3 watch <repo> <ws> <source>`                  | `e3 watch <source> <repo> <ws>`                       |
+| `--concurrency <n>`, `--partition-concurrency <n>` | `-j <n>` / `--jobs <n>`                             |
 
 ## Example
 

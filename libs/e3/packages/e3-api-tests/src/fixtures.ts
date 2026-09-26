@@ -13,8 +13,8 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import e3 from '@elaraai/e3';
-import { ArrayType, DictType, IntegerType, StringType, StructType, East, variant } from '@elaraai/east';
+import e3, { type PackageDef } from '@elaraai/e3';
+import { ArrayType, DictType, IntegerType, NullType, StringType, StructType, East, variant } from '@elaraai/east';
 import { Time } from '@elaraai/east-node-std';
 
 /**
@@ -51,19 +51,19 @@ export async function createPackageZip(
 }
 
 /**
- * Create a package mixing task kinds for the list API (#341).
+ * Create a package mixing task roles for the list API.
  *
  * Creates a package with:
  * - Input: "value" (Integer, default 10)
- * - Task: "compute" - plain task (no kind)
- * - Task: "display" - kind "ui" (what e3-ui's `ui()` wrapper sets)
+ * - Task: "compute" - a data task
+ * - Task: "display" - a ui task (the role e3-ui's `ui()` wrapper sets)
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
  * @param version - Package version
  * @returns Path to the created zip file
  */
-export async function createKindsPackageZip(
+export async function createRolesPackageZip(
   tempDir: string,
   name: string,
   version: string
@@ -80,7 +80,7 @@ export async function createKindsPackageZip(
     'display',
     [input],
     East.function([IntegerType], StringType, ($, x) => East.print(x)),
-    { kind: 'ui' }
+    { role: variant('ui', { paths: [], functions: [], records: [], pages: [] }) }
   );
   const pkg = e3.package(name, version, compute, display);
 
@@ -95,6 +95,8 @@ export async function createKindsPackageZip(
  *
  * Creates a package with:
  * - Input: "value" (Integer, default 10)
+ * - Input: "prices" (Dict<String, Integer>, default {a: 1, b: 2, c: 3}) - a
+ *   collection, stored as a manifest, for a one-shot call to bind
  * - Task: "compute" - multiplies input by 2 (so the package is deployable)
  * - Function: "add" - (Integer, Integer) -> Integer
  * - Function: "slow" - (Integer) -> Integer, sleeps 30s (for timeout/cancel tests)
@@ -128,7 +130,8 @@ export async function createFunctionPackageZip(
       return $.return(x);
     })
   );
-  const pkg = e3.package(name, version, compute, add, slow);
+  const prices = e3.input('prices', DictType(StringType, IntegerType), variant('value', new Map([['a', 1n], ['b', 2n], ['c', 3n]])));
+  const pkg = e3.package(name, version, compute, add, slow, prices);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
@@ -157,12 +160,12 @@ export async function createRecordPackageZip(
   mkdirSync(tempDir, { recursive: true });
 
   const counter = e3.record('counter', IntegerType, 0n);
-  const increment = e3.mutation(
+  const increment = e3.mutation.reduce(
     'increment',
     counter,
     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
   );
-  const addPositive = e3.mutation(
+  const addPositive = e3.mutation.reduce(
     'add_positive',
     counter,
     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) =>
@@ -173,6 +176,129 @@ export async function createRecordPackageZip(
     )
   );
   const pkg = e3.package(name, version, counter, increment, addPositive);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** The row of the keyed record fixture. */
+export const PlanRowType = StructType({ status: StringType, due: IntegerType, title: StringType });
+/** The keyed record fixture's state: a Dict big enough to span segments. */
+export const PlansType = DictType(StringType, PlanRowType);
+/** The `by_status` index key — the order a queue view wants. */
+export const PlanStatusKeyType = StructType({ status: StringType, due: IntegerType });
+
+/**
+ * Create a package holding a KEYED record — the shape every write form and the
+ * segment-wise apply are for.
+ *
+ * The record carries one secondary index and all three write forms: `seed`
+ * (reduce), `retitle` (edit) and `patch`. A scalar record exercises the commit
+ * protocol; only a keyed one exercises the delta and the segment-wise apply,
+ * which a remote backend has to reproduce.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createKeyedRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const plans = e3.record('plans', PlansType, new Map());
+  const seed = e3.mutation.reduce('seed', plans,
+    East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
+      const out = $.let(new Map(), PlansType);
+      $.for(East.Array.range(0n, rows), ($, i) => {
+        const status = $.let('ok');
+        $.if(East.equal(i.remainder(3n), 0n), ($) => {
+          $.assign(status, 'late');
+        });
+        $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
+      });
+      return out;
+    }));
+  const retitle = e3.mutation.edit('retitle', plans,
+    East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, state, key, edit) => {
+      const row = $.let(state.get(key));
+      $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
+    }));
+  const byStatus = e3.recordIndex('by_status', plans, {
+    key: East.function([StringType, PlanRowType], PlanStatusKeyType,
+      ($, _k, v) => ({ status: v.status, due: v.due })),
+    value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
+  });
+  const pkg = e3.package(name, version, plans, seed, retitle, e3.mutation.patch(plans), byStatus);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** A row of the migration fixture's record before its migration. */
+export const TaskRowV1Type = StructType({ title: StringType });
+/** A row after it, which gives each row an owner. */
+export const TaskRowV2Type = StructType({ title: StringType, owner: StringType });
+/** The migration fixture's record before its migration. */
+export const TasksV1Type = DictType(StringType, TaskRowV1Type);
+/** The migration fixture's record after it. */
+export const TasksV2Type = DictType(StringType, TaskRowV2Type);
+
+/** The versions of the migration fixture. */
+export type MigrationFixtureVersion = '1.0.0' | '2.0.0' | '2.1.0' | '3.0.0' | '4.0.0';
+
+/**
+ * Create a version of a package whose record a deploy migrates.
+ *
+ * Creates a package with, by version:
+ * - `1.0.0`: Record "tasks" (rows of a title, holding "a"), and Mutation
+ *   "add" (id, title) => the rows with that one added
+ * - `2.0.0`: "tasks" with an owner on each row, and the `rows` migration
+ *   "add_owner", which carries a row to it
+ * - `2.1.0`: 2.0.0 and Input "note": the package changed, its record did not
+ * - `3.0.0`: "tasks" with an owner on each row, and no migration to carry it
+ * - `4.0.0`: Input "note", and no record
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - The version to create
+ * @returns Path to the created zip file
+ */
+export async function createMigrationPackageZip(
+  tempDir: string,
+  name: string,
+  version: MigrationFixtureVersion
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const note = e3.input('note', StringType, variant('value', version));
+  let pkg: PackageDef<Record<string, unknown>>;
+  if (version === '1.0.0') {
+    const tasks = e3.record('tasks', TasksV1Type, new Map([['a', { title: 'A' }]]));
+    const add = e3.mutation.reduce('add', tasks,
+      East.function([TasksV1Type, StringType, StringType], TasksV1Type, ($, state, id, title) => {
+        const next = $.let(state.copy());
+        $(next.insert(id, { title }));
+        return next;
+      }));
+    pkg = e3.package(name, version, tasks, add);
+  } else if (version === '4.0.0') {
+    pkg = e3.package(name, version, note);
+  } else {
+    const tasks = e3.record('tasks', TasksV2Type, new Map());
+    const addOwner = e3.migration.rows('add_owner', tasks,
+      East.function([StringType, TaskRowV1Type], TaskRowV2Type, ($, _id, row) => ({ title: row.title, owner: 'nobody' })));
+    if (version === '3.0.0') pkg = e3.package(name, version, tasks);
+    else if (version === '2.1.0') pkg = e3.package(name, version, tasks, addOwner, note);
+    else pkg = e3.package(name, version, tasks, addOwner);
+  }
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

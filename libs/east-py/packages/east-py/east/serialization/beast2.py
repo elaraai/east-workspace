@@ -51,11 +51,17 @@ from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]
     _beast2_read_type,
     _beast2_splice_extents,
     _beast2_splice_tail,
+    _Beast2ElementWriterCore,
+    _Beast2ManifestWriterCore,
     _Beast2PagesCore,
     _Beast2Projection,
     _Beast2ReaderCore,
+    _Beast2RunSorterCore,
     _Beast2WriterCore,
+    _decode_manifest_dir,
+    _encode_beast2_paged,
     _encode_beast2_v5,
+    _read_manifest,
     decode_beast2_for,
     decode_beast2_with_header_for,
     encode_beast2_for,
@@ -103,6 +109,10 @@ class Beast2Writer:
     the paging index and footer, so the output is append-only end to end.
     Usable as a context manager; :meth:`close` is idempotent.
 
+    Where the segments fall is the caller's choice here — a geometry of its
+    own. A stored collection is written through :class:`Beast2ElementWriter`,
+    which cuts where the content-defined rule says.
+
     The resulting blob decodes through the ordinary entry points
     (``decode_beast2_with_header_for`` merges every segment) or segment by
     segment via :func:`iter_beast2_segments_for`.
@@ -115,24 +125,13 @@ class Beast2Writer:
         self._core = _Beast2WriterCore(collection_type, codec, self_contained, index)
         # Frame deflates on east-c's worker pool (issue #763): the bytes are
         # identical, but ``write`` then hands the stream only the frames
-        # already done, so a caller sizing batches from the bytes written must
-        # read :meth:`emitted_bounds` instead of the stream position.
+        # already done, and ``close`` the rest.
         if parallel:
             self._core.set_parallel(True)
         self._stream = stream
         self._closed = False
         self.segments = 0
         stream.write(self._core.take())
-
-    def emitted_bounds(self) -> tuple[int, int]:
-        """``(lo, hi)`` bracketing the total bytes this writer will have
-        written once every in-flight frame lands (``lo == hi`` when serial)."""
-        return self._core.emitted_bounds()
-
-    def settle(self) -> None:
-        """Wait for every in-flight frame and hand its bytes to the stream."""
-        self._core.settle()
-        self._stream.write(self._core.take())
 
     def write(self, batch) -> None:
         """Encode ``batch`` (a value of the declared type) as one segment.
@@ -168,6 +167,135 @@ class Beast2Writer:
         self.close()
 
 
+class Beast2ElementWriter:
+    """Write a collection to ``stream`` one element at a time, as the
+    canonical blob for its value.
+
+    Elements go in in canonical order — a Set's elements and a Dict's keys
+    ascending strictly in East order, an Array's in its own order — and
+    segments come out wherever the content-defined cut rule places them. Each
+    element is encoded as it arrives with aliasing scoped to itself, so the
+    blob is a function of the value: this runtime, east-c and TypeScript
+    write the same bytes for it, however its elements were produced. Memory
+    is one open segment. The blob is always self-contained and indexed.
+
+    East-c's writer (the east-c CLI's and the emit sink's) does every byte of
+    it. Usable as a context manager; :meth:`close` is idempotent.
+    """
+
+    def __init__(self, collection_type, stream, *, codec: str = "deflate",
+                 parallel: bool = False):
+        _check_segmented(collection_type)
+        self._core = _Beast2ElementWriterCore(collection_type, codec)
+        # Frame deflates on east-c's worker pool (issue #763); where the
+        # segments fall never depends on it.
+        if parallel:
+            self._core.set_parallel(True)
+        self._stream = stream
+        self._closed = False
+        stream.write(self._core.take())
+
+    @property
+    def segments(self) -> int:
+        """Segments closed so far; the open one is not counted until it
+        closes."""
+        return self._core.segments()
+
+    def add(self, element) -> None:
+        """Add one element — for a Dict, a ``(key, value)`` pair. A Set
+        element or Dict key that does not ascend strictly from the last is
+        refused, and an element that fails to encode leaves the writer as it
+        was."""
+        if self._closed:
+            raise ValueError("add() after close()")
+        self._core.add(element)
+        self._stream.write(self._core.take())
+
+    def add_all(self, batch) -> None:
+        """Add every element of ``batch`` — a value of the declared
+        collection type — in its order, as :meth:`add` would one by one. The
+        loop runs in east-c."""
+        if self._closed:
+            raise ValueError("add_all() after close()")
+        self._core.add_all(batch)
+        self._stream.write(self._core.take())
+
+    def close(self) -> None:
+        """Write the open segment, then the terminator, index and footer.
+        Idempotent."""
+        if not self._closed:
+            self._closed = True
+            self._core.finish()
+            self._stream.write(self._core.take())
+
+    def __enter__(self) -> Beast2ElementWriter:
+        return self
+
+    def __exit__(self, exc_type, *exc) -> None:
+        if exc_type is not None:
+            # Same contract as Beast2Writer.__exit__: never mask the
+            # in-flight error with a finish failure.
+            self._closed = True
+            return
+        self.close()
+
+
+#: The elements a sorted run holds before it closes (pairs, for a Dict), and
+#: the bytes of their canonical encoding — keys and values both. Platform
+#: constants, not settings: where a run closes decides how a repeated key's
+#: values group before they fold, which for a fold over floats decides the
+#: output's bytes. Mirrors east-c's ``EAST_BEAST2_RUN_MAX_*`` and TypeScript's
+#: ``RUN_MAX_*``.
+RUN_MAX_COUNT = 131_072
+RUN_MAX_BYTES = 64 * 1024 * 1024
+
+
+class Beast2RunSorter:
+    """Sort a Set's or Dict's elements, given in any order, into sorted
+    canonical runs.
+
+    Each element is encoded as it is added, so what the sorter holds is
+    bounded by bytes rather than by what the elements decode to. Once it holds
+    :data:`RUN_MAX_COUNT` elements or :data:`RUN_MAX_BYTES` of their encoding,
+    the run closes: its elements sort by key, stably, so a key's values stay
+    in the order they were added; a key added more than once folds with
+    ``merge``, a compiled ``(K, V, V) -> V`` East function (Dict roots), is
+    kept once under ``union`` (Set roots), or is refused; and the run is
+    written as the canonical blob of its value. Runs are numbered from zero in
+    the order they close, and each goes to the sink ``open_run(run)`` returns
+    — anything with ``write(bytes)`` and ``close()``, a file included. A key
+    that repeats across runs is the merge's to fold.
+
+    East-c's sorter does every byte of it, so the runs are the ones east-c
+    and TypeScript write for the same elements.
+    """
+
+    def __init__(self, collection_type, open_run, *, merge=None, union: bool = False,
+                 codec: str = "deflate", parallel: bool = False):
+        self._core = _Beast2RunSorterCore(collection_type, open_run, codec, merge, union)
+        # Frame deflates on east-c's worker pool (issue #763); the bytes are
+        # the inline writer's either way.
+        if parallel:
+            self._core.set_parallel(True)
+
+    @property
+    def runs(self) -> int:
+        """Runs written so far; the open run is not among them until a cap or
+        :meth:`finish` closes it."""
+        return self._core.runs()
+
+    def add(self, element) -> None:
+        """Add one element — for a Dict, a ``(key, value)`` pair. An element
+        that fails to encode leaves the sorter as it was; a run that fails as
+        it closes — a key added twice without a fold, the merge function's
+        error, the sink's — ends the sorter."""
+        self._core.add(element)
+
+    def finish(self) -> None:
+        """Write the open run, if it holds anything. Idempotent."""
+        self._core.finish()
+
+
 def encode_beast2_v5_for(collection_or_value_type, *, codec: str = "deflate",
                          index: bool = False):
     """Curried whole-value v5 encoder: ``encode(value) -> bytes``.
@@ -188,8 +316,10 @@ def encode_beast2_segments_for(collection_type, *, codec: str = "deflate",
     """Curried batch encoder: ``encode(batches) -> bytes``.
 
     ``batches`` is an iterable of values of the declared collection type; each
-    non-empty batch becomes one segment. The in-memory convenience form of
-    :class:`Beast2Writer` — use the writer to stream to a file.
+    non-empty batch becomes one segment — a geometry of the caller's own,
+    where :func:`encode_beast2_paged_for` writes the canonical one. The
+    in-memory convenience form of :class:`Beast2Writer` — use the writer to
+    stream to a file.
     """
     _check_segmented(collection_type)
 
@@ -206,104 +336,44 @@ def encode_beast2_segments_for(collection_type, *, codec: str = "deflate",
     return encode
 
 
-#: Default element (pair) cap per segment for :func:`encode_beast2_paged_for`.
-BEAST2_PAGED_BATCH_DEFAULT = 1_000
+#: The content-defined cut rule's bounds. Counts are elements (pairs for a
+#: Dict) and sizes logical bytes — the canonical encoding before compression,
+#: which per-element aliasing makes a function of the element alone. A
+#: segment's hash is consulted once it holds the minimum count or bytes; the
+#: threshold makes a segment about the target count of narrow elements or
+#: the target bytes of wide ones; one at the maximum count or bytes always
+#: closes. Mirrors east-c's ``EAST_BEAST2_SEGMENT_*`` and TypeScript's
+#: ``SEGMENT_*`` — the rule is wire state, so a change to one is a change to
+#: all three and to the rule id a segment manifest records.
+SEGMENT_MIN_COUNT = 256
+SEGMENT_TARGET_COUNT = 1024
+SEGMENT_MAX_COUNT = 4096
+SEGMENT_MIN_BYTES = 64 * 1024
+SEGMENT_TARGET_BYTES = 1024 * 1024
+SEGMENT_MAX_BYTES = 8 * 1024 * 1024
 
-#: Default wire-byte target per segment for :func:`encode_beast2_paged_for` —
-#: batches shrink below the element cap when measured element size would
-#: exceed it, so wide rows still produce right-sized segments.
-BEAST2_PAGED_TARGET_BYTES_DEFAULT = 2 * 1024 * 1024
-
-#: The probe batch that seeds the byte-adaptive batching (mirrors the
-#: TypeScript ``encodeBeast2PagedFor`` constants).
-_PAGED_PROBE_BATCH = 16
+#: The rule ids a segment manifest records: a Set or Dict hashes each key's
+#: fence bytes, an Array each element's canonical bytes.
+SEGMENT_RULE_KEYED = "cdc/keyed/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2"
+SEGMENT_RULE_ARRAY = "cdc/array/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2"
 
 
-def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
-                            target_segment_bytes: int | None = None,
-                            codec: str = "deflate"):
+def encode_beast2_paged_for(collection_type, *, codec: str = "deflate"):
     """Curried paged encoder: ``encode(value) -> bytes``.
 
     Writes one whole collection value as a segmented, self-contained,
     **indexed** v5 blob — the write-side sibling of
     :func:`open_beast2_pages_for`, and the Python mirror of TypeScript's
-    ``encodeBeast2PagedFor``. Batching is byte-adaptive: a small probe batch
-    measures the average wire size and batches then target
-    ``target_segment_bytes`` (never above ``batch_size`` elements), refined
-    from real output as segments flush. Deterministic per value. Re-batching
-    slices the collection natively (eager containers are btrees), so no
-    per-element python runs.
+    ``encodeBeast2PagedFor``. The segments fall where the content-defined cut
+    rule places them, so the bytes are a function of the value: this runtime,
+    east-c and TypeScript write the same blob for it — which is what makes two
+    equal values share their segment objects, and a one-row edit re-cut the
+    segments around it. East-c's writer does the whole encode.
     """
-    kind = _check_segmented(collection_type)
-    batch_cap = max(1, int(batch_size if batch_size is not None else BEAST2_PAGED_BATCH_DEFAULT))
-    target = max(1, int(target_segment_bytes if target_segment_bytes is not None
-                        else BEAST2_PAGED_TARGET_BYTES_DEFAULT))
+    _check_segmented(collection_type)
 
     def encode(value) -> bytes:
-        import io
-
-        from east.types.values.collections import EastDict
-
-        n = len(value)
-        # Ordered native views for O(chunk) re-batching (canonical order is
-        # the containers' own iteration order).
-        if kind == "Array":
-            def chunk(i: int, j: int):
-                return value.slice(i, j)
-        elif kind == "Set":
-            ordered = value.to_array()
-
-            def chunk(i: int, j: int):
-                return ordered.slice(i, j).to_set()
-        else:
-            kt = collection_type.value["key"]
-            vt = collection_type.value["value"]
-            keys = value.to_array(lambda _b, _v, k: k, out=kt)
-            values = value.to_array(lambda _b, v: v, out=vt)
-
-            def chunk(i: int, j: int):
-                rebuilt: Any = EastDict(kt, vt)
-                rebuilt.update_many(keys.slice(i, j), values.slice(i, j))
-                return rebuilt
-
-        # Probe: a throwaway scratch encode of the first few elements
-        # measures the average wire size and seeds the batch size.
-        next_batch = batch_cap
-        probe_n = min(n, _PAGED_PROBE_BATCH)
-        if probe_n > 0:
-            scratch = io.BytesIO()
-            scratch_writer = Beast2Writer(collection_type, scratch, codec=codec)
-            header_len = scratch.tell()
-            scratch_writer.write(chunk(0, probe_n))
-            avg = max(1.0, (scratch.tell() - header_len) / probe_n)
-            next_batch = max(1, min(batch_cap, int(target / avg)))
-
-        def refine(body: int, elements: int) -> int:
-            avg = max(1.0, body / elements)
-            return max(1, min(batch_cap, int(target / avg)))
-
-        buf = io.BytesIO()
-        # Frames deflate on east-c's worker pool (#763). The refinement is
-        # monotone in the bytes emitted, so deciding at both of the writer's
-        # bounds and settling only when they disagree reproduces the serial
-        # decisions exactly — and with them every byte.
-        writer = Beast2Writer(collection_type, buf, codec=codec, parallel=True)
-        header_len = buf.tell()
-        written = 0
-        i = 0
-        while i < n:
-            j = min(n, i + next_batch)
-            writer.write(chunk(i, j))
-            written += j - i
-            i = j
-            lo, hi = writer.emitted_bounds()
-            next_batch = refine(lo - header_len, written)
-            if next_batch != refine(hi - header_len, written):
-                writer.settle()
-                lo, _ = writer.emitted_bounds()
-                next_batch = refine(lo - header_len, written)
-        writer.close()
-        return buf.getvalue()
+        return _encode_beast2_paged(collection_type, value, codec)
 
     return encode
 
@@ -462,8 +532,8 @@ def read_beast2_type(source):
 # Path + East type in, East values out: `Beast2File` owns the fd + mmap and
 # east-c does every byte-level operation, so user code never touches buffers,
 # iterators, or batch sizes. The read surface mirrors the corresponding eager
-# collection's read surface name-for-name; the write mode re-batches whatever
-# it is handed into target-sized segments.
+# collection's read surface name-for-name; the write mode cuts whatever it is
+# handed into the canonical segments.
 #
 # The compute family (issue #481 W4) runs every remaining eager read method
 # as a segment fold: each decoded segment executes the ordinary eager method
@@ -538,16 +608,6 @@ def _inner_dict_merge(value_type, combine):
         ivt, ikt, "Cannot insert duplicate key ", " into dict")
     return function([value_type, value_type], value_type,
                     lambda _b, x, y: x.union(y, on_shared))
-
-
-#: Managed cap on rows per segment when the caller doesn't override.
-_TARGET_SEGMENT_ROWS = 8192
-
-#: Managed wire-byte target per segment (#560): the managed writer batches
-#: toward this many bytes of output, capped at ``_TARGET_SEGMENT_ROWS``
-#: elements — so pathologically wide rows still produce right-sized segments
-#: instead of a fixed row grain whose decoded size is unbounded.
-_TARGET_SEGMENT_BYTES = 2 * 1024 * 1024
 
 
 class Beast2File:
@@ -3167,119 +3227,49 @@ _FILE_KINDS = {"Array": Beast2ArrayFile, "Set": Beast2SetFile, "Dict": Beast2Dic
 
 
 class Beast2FileWriter:
-    """Managed write access: hand it rows, batches, or whole collections in
-    any mix; it re-batches into target-sized segments and writes the index.
+    """Managed write access: hand it batches or whole collections in any mix;
+    it writes the canonical segments and the index.
 
-    The managed batching is BYTE-adaptive (#560): a small probe encode seeds
-    the rows-per-segment estimate toward ``_TARGET_SEGMENT_BYTES`` of wire
-    output (never above ``_TARGET_SEGMENT_ROWS`` elements), refined from real
-    output as segments flush — segment size is a memory bound at read time,
-    and a fixed row grain leaves it unbounded for wide rows. An explicit
-    ``segment_rows`` pins the old row-grain batching instead.
+    Every element goes through :class:`Beast2ElementWriter`, so the file is
+    the canonical blob for the value its batches add up to — byte-identical
+    to :func:`encode_beast2_paged_for` of that value, whatever the batching —
+    and segment size is bounded by the cut rule's byte bounds, however wide
+    the rows. Set and Dict batches must continue strictly ascending from the
+    last element written.
 
     Opened by ``open_beast2_file(path, T, mode="w")`` (or use
-    :func:`write_beast2_file` for a value you already hold whole). Append-only
-    streaming underneath (:class:`Beast2Writer`), so writer memory is one
-    batch regardless of total size. Close via ``with`` or :meth:`close` — the
-    index and footer are written on close.
+    :func:`write_beast2_file` for a value you already hold whole). Writer
+    memory is one open segment regardless of total size. Close via ``with``
+    or :meth:`close` — the index and footer are written on close.
     """
 
-    def __init__(self, path, collection_type, *, codec: str = "deflate",
-                 segment_rows: int | None = None):
+    def __init__(self, path, collection_type, *, codec: str = "deflate"):
         _check_segmented(collection_type)
         self.collection_type = collection_type
         """The declared root collection type (Array/Set/Dict)."""
         self.path = os.fspath(path)
         """The file being written."""
-        self._rows_override = None if segment_rows is None else int(segment_rows)
-        if self._rows_override is not None and self._rows_override <= 0:
-            raise ValueError(f"segment_rows must be positive, got {segment_rows}")
-        self._codec = codec
-        self._next_rows: int | None = None
-        self._rows_written = 0
         self._file = open(self.path, "wb")  # noqa: SIM115 — the writer owns the handle
         try:
-            self._writer = Beast2Writer(collection_type, self._file, codec=codec)
+            self._writer = Beast2ElementWriter(collection_type, self._file, codec=codec,
+                                               parallel=True)
         except BaseException:
             self._file.close()
             raise
-        self._header_len = self._file.tell()
         self._closed = False
 
     @property
     def segments(self) -> int:
-        """Segments written so far."""
+        """Segments closed so far; the open one is not counted until it
+        closes."""
         return self._writer.segments
-
-    @property
-    def bytes_written(self) -> int:
-        """Logical bytes appended to the file so far (header included).
-
-        Streaming callers use this to re-batch byte-adaptively: the running
-        average of ``bytes_written / elements written`` sizes the next batch
-        toward a wire-byte target, the segment-size discipline the paged
-        encoders follow.
-        """
-        return self._file.tell()
 
     def write(self, batch) -> None:
         """Append ``batch`` — an East collection of the declared type, or the
-        matching python builtin (list/tuple, dict, set) — re-batched into
-        segments of at most ~2x the managed target size."""
+        matching python builtin (list/tuple, dict, set)."""
         if self._closed:
             raise ValueError("write() after close()")
-        batch = self._coerce(batch)
-        n = len(batch)
-        if n == 0:
-            return
-        if self._rows_override is not None:
-            if n <= 2 * self._rows_override:
-                self._writer.write(batch)
-                return
-            chunk = self._chunker(batch)
-            for i in range(0, n, self._rows_override):
-                self._writer.write(chunk(i, min(i + self._rows_override, n)))
-            return
-        # Byte-adaptive managed batching (#560): probe once for the average
-        # wire size, then refine from real output as segments flush.
-        chunk = None
-        if self._next_rows is None:
-            import io
-
-            chunk = self._chunker(batch)
-            probe_n = min(n, _PAGED_PROBE_BATCH)
-            scratch = io.BytesIO()
-            probe_writer = Beast2Writer(self.collection_type, scratch,
-                                        codec=self._codec)
-            header = scratch.tell()
-            probe_writer.write(chunk(0, probe_n) if probe_n < n else batch)
-            avg = max(1.0, (scratch.tell() - header) / probe_n)
-            self._next_rows = max(1, min(_TARGET_SEGMENT_ROWS,
-                                         int(_TARGET_SEGMENT_BYTES / avg)))
-        if n <= 2 * self._next_rows:
-            self._writer.write(batch)
-            self._rows_written += n
-            self._refine()
-            return
-        if chunk is None:
-            chunk = self._chunker(batch)
-        i = 0
-        while i < n:
-            j = min(n, i + self._next_rows)
-            self._writer.write(chunk(i, j))
-            self._rows_written += j - i
-            i = j
-            self._refine()
-
-    def _refine(self) -> None:
-        """Move the rows-per-segment estimate toward the byte target using
-        the writer's ACTUAL output (header included — a slight average
-        overestimate that only makes segments marginally smaller)."""
-        if self._rows_written <= 0:
-            return
-        avg = max(1.0, (self.bytes_written - self._header_len) / self._rows_written)
-        self._next_rows = max(1, min(_TARGET_SEGMENT_ROWS,
-                                     int(_TARGET_SEGMENT_BYTES / avg)))
+        self._writer.add_all(self._coerce(batch))
 
     def close(self) -> None:
         """Write the terminator, index and footer, then close the file.
@@ -3317,47 +3307,15 @@ class Beast2FileWriter:
             return EastSet(self.collection_type.value, batch)
         return batch
 
-    def _chunker(self, batch):
-        """A ``chunk(i, j)`` range extractor over ``batch``, natively.
-
-        Arrays slice; Sets go through one ordered array; Dicts go through
-        ordered key/value arrays rebuilt per chunk with the bulk
-        ``update_many`` path. Chunk boundaries follow the collection's
-        sorted order, so the segments stay key-disjoint — the shape W2's
-        keyed reads require.
-        """
-        kind = self.collection_type.type
-        if kind == "Array":
-            return batch.slice
-        if kind == "Set":
-            ordered = batch.to_array()
-
-            def set_chunk(i: int, j: int):
-                return ordered.slice(i, j).to_set()
-
-            return set_chunk
-        kt = self.collection_type.value["key"]
-        vt = self.collection_type.value["value"]
-        keys = batch.to_array(lambda _b, _v, k: k, out=kt)
-        values = batch.to_array(lambda _b, v: v, out=vt)
-
-        def dict_chunk(i: int, j: int):
-            rebuilt: Any = EastDict(kt, vt)
-            rebuilt.update_many(keys.slice(i, j), values.slice(i, j))
-            return rebuilt
-
-        return dict_chunk
-
 
 def open_beast2_file(path, collection_type=None, mode: str = "r", *,
-                     project=None, codec: str = "deflate",
-                     segment_rows: int | None = None):
+                     project=None, codec: str = "deflate"):
     """Open a beast2 v5 collection file, managed end to end.
 
     Read mode returns the root-kind flavor of :class:`Beast2File`
     (:class:`Beast2ArrayFile` / :class:`Beast2DictFile` /
     :class:`Beast2SetFile`) over an owned mmap; write mode returns a
-    :class:`Beast2FileWriter` that re-batches into target-sized segments.
+    :class:`Beast2FileWriter` that writes the canonical segments.
 
     Args:
         path: The file to open.
@@ -3380,16 +3338,14 @@ def open_beast2_file(path, collection_type=None, mode: str = "r", *,
             projection (the file is sorted by whole elements).
         codec: Write mode only — segment codec, ``"deflate"`` (default) or
             ``"none"``.
-        segment_rows: Write mode only — rows per segment; managed when
-            omitted.
 
     Returns:
         A :class:`Beast2File` flavor (read) or :class:`Beast2FileWriter`
         (write); both are context managers.
     """
     if mode == "r":
-        if codec != "deflate" or segment_rows is not None:
-            raise ValueError("codec/segment_rows are write-mode options")
+        if codec != "deflate":
+            raise ValueError("codec is a write-mode option")
         resolved = project if project is not None else (
             collection_type if collection_type is not None else read_beast2_type(path))
         kind = _check_segmented(resolved)
@@ -3402,27 +3358,152 @@ def open_beast2_file(path, collection_type=None, mode: str = "r", *,
                 "open_beast2_file: write mode requires collection_type — only "
                 "an existing file can supply its own type"
             )
-        return Beast2FileWriter(path, collection_type, codec=codec,
-                                segment_rows=segment_rows)
+        return Beast2FileWriter(path, collection_type, codec=codec)
     raise ValueError(f"open_beast2_file mode must be 'r' or 'w', not {mode!r}")
 
 
-def write_beast2_file(path, collection_type, value, *, codec: str = "deflate",
-                      segment_rows: int | None = None) -> None:
+def write_beast2_file(path, collection_type, value, *, codec: str = "deflate") -> None:
     """Write ``value`` (a collection of the declared type, of any size) to
-    ``path`` as one indexed v5 file — re-batched into target-sized segments,
-    so the result pages well. One call, no knobs needed.
+    ``path`` as one indexed v5 file — the canonical blob for the value, so the
+    result pages well and is byte-identical to what every runtime writes for
+    it. One call, no knobs needed.
 
     Args:
         path: The file to create (overwritten if present).
         collection_type: The root Array/Set/Dict type.
         value: The collection to write.
         codec: Segment codec, ``"deflate"`` (default) or ``"none"``.
-        segment_rows: Rows per segment; managed when omitted.
     """
-    with Beast2FileWriter(path, collection_type, codec=codec,
-                          segment_rows=segment_rows) as writer:
+    with Beast2FileWriter(path, collection_type, codec=codec) as writer:
         writer.write(value)
+
+
+# ── Segment manifests ─────────────────────────────────────────────────────
+#
+# A collection held as standalone segment blobs and a manifest naming them,
+# the form e3 stores a collection in. A manifest directory is the manifest's
+# file and, in `<file>.segments/`, every object it names — the header and
+# each segment — as `<sha256>.beast2`. east-c reads and writes it, so a
+# directory written here is the one east-c and TypeScript write for the same
+# value.
+
+
+class Beast2ManifestWriter:
+    """Write a collection as a manifest directory, one element at a time.
+
+    Elements go in as :class:`Beast2ElementWriter` takes them, in canonical
+    order, and the segments are the ones it cuts: each is written to
+    ``<path>.segments/`` as a standalone blob under the header they share,
+    named by its SHA-256, and :meth:`close` writes the manifest naming them
+    to ``path``. The directory is a function of the value — the one east-c
+    and TypeScript write for it. A writer left by an exception writes no
+    manifest. Memory is one open segment; east-c's writer does every byte.
+    """
+
+    def __init__(self, collection_type, path, *, codec: str = "deflate"):
+        _check_segmented(collection_type)
+        self.collection_type = collection_type
+        """The declared root collection type (Array/Set/Dict)."""
+        self.path = os.fspath(path)
+        """The manifest's file; the objects it names go in ``<path>.segments/``."""
+        self._core = _Beast2ManifestWriterCore(collection_type, self.path, codec)
+        self._closed = False
+
+    @property
+    def segments(self) -> int:
+        """Segments written so far; the open one is not counted until it
+        closes."""
+        return self._core.segments()
+
+    def add(self, element) -> None:
+        """Add one element — for a Dict, a ``(key, value)`` pair. A Set
+        element or Dict key that does not ascend strictly from the last is
+        refused; an element that fails to encode leaves the writer as it was,
+        and a segment that cannot be written ends it."""
+        if self._closed:
+            raise ValueError("add() after close()")
+        self._core.add(element)
+
+    def add_all(self, batch) -> None:
+        """Add every element of ``batch`` — a value of the declared
+        collection type — in its order, as :meth:`add` would one by one. The
+        loop runs in east-c."""
+        if self._closed:
+            raise ValueError("add_all() after close()")
+        self._core.add_all(batch)
+
+    def close(self) -> None:
+        """Write the open segment, then the manifest. Idempotent."""
+        if not self._closed:
+            self._closed = True
+            self._core.finish()
+
+    def __enter__(self) -> Beast2ManifestWriter:
+        return self
+
+    def __exit__(self, exc_type, *exc) -> None:
+        if exc_type is not None:
+            # Same contract as Beast2Writer.__exit__: never mask the
+            # in-flight error with a finish failure — and no manifest names
+            # a collection that did not finish.
+            self._closed = True
+            return
+        self.close()
+
+
+def read_beast2_manifest(source):
+    """The segment manifest ``source`` holds, or ``None`` when it holds
+    anything else — a value, another root type, or a struct of the
+    manifest's shape carrying another kind. TypeScript's
+    ``readBeast2Manifest``: a blob that turns out to be a value is read no
+    further than its type section.
+
+    Args:
+        source: A path (a manifest's file), or any buffer (``bytes``,
+            ``bytearray``, ``memoryview``, an ``mmap``).
+
+    Returns:
+        The manifest — a struct of ``kind``, ``level``, ``type`` (the
+        collection's type, as an East type value), ``rule``, ``header`` and
+        ``entries``, each entry ``{hash, fence, count, bytes}`` — or ``None``.
+
+    Raises:
+        ValueError: When the data is typed as a manifest but does not decode
+            as one, or names manifests rather than segments.
+    """
+    if isinstance(source, (str, os.PathLike)):
+        path = os.fspath(source)
+        with open(path, "rb") as f:
+            if os.fstat(f.fileno()).st_size == 0:
+                return None
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                try:
+                    return _read_manifest(mm)
+                except ValueError as exc:
+                    raise ValueError(f"{path}: {exc}") from None
+    return _read_manifest(_as_buffer(source))
+
+
+def load_beast2_manifest(path, collection_type=None):
+    """Decode the whole collection a manifest directory holds — the value
+    its segments spliced into one blob decode to — segment by segment inside
+    east-c, each segment file mapped only while it decodes.
+
+    Args:
+        path: The manifest's file; its segments are read from
+            ``<path>.segments/``.
+        collection_type: The root Array/Set/Dict type. Optional — a manifest
+            records its type; when given it must be that one, and a mismatch
+            fails before anything decodes.
+
+    Returns:
+        The collection.
+
+    Raises:
+        ValueError: When ``path`` holds no manifest, the types differ, or a
+            segment is missing or malformed.
+    """
+    return _decode_manifest_dir(collection_type, os.fspath(path))
 
 
 # ── Splice: merge v5 files without re-encoding (issue #484) ───────────────
@@ -3580,8 +3661,9 @@ def splice_beast2_files(path, collection_type, sources, *, verify: bool = False)
 #
 # Shards are for CPUs and live for minutes; segments are for memory and live
 # forever: N workers each write a private temp shard and the parent splices
-# them, in partition order, into ONE file that is byte-identical to a single
-# writer writing the same batches. Where the platform has fork (Linux, macOS)
+# them, in partition order, into ONE file — the same file however many
+# processes wrote it, since each partition's segments are cut canonically from
+# the partition's start. Where the platform has fork (Linux, macOS)
 # the workers are forked processes, so whatever expensive context `produce`
 # closes over is inherited copy-on-write and east-c's single-threadedness is
 # never in play — each child owns a whole address space. Where it doesn't
@@ -3599,15 +3681,13 @@ def _produce_batches(produce, partition):
     return result
 
 
-def _write_one_shard(shard_path, collection_type, produce, partition, codec, segment_rows):
-    with Beast2FileWriter(shard_path, collection_type, codec=codec,
-                          segment_rows=segment_rows) as writer:
+def _write_one_shard(shard_path, collection_type, produce, partition, codec):
+    with Beast2FileWriter(shard_path, collection_type, codec=codec) as writer:
         for batch in _produce_batches(produce, partition):
             writer.write(batch)
 
 
-def _forked_shards(dest, collection_type, partitions, produce, processes, codec,
-                   segment_rows):
+def _forked_shards(dest, collection_type, partitions, produce, processes, codec):
     """Yield each partition's finished shard path, in partition order.
 
     Runs up to ``processes`` forked children at once; a child writes its shard
@@ -3637,7 +3717,7 @@ def _forked_shards(dest, collection_type, partitions, produce, processes, codec,
             code = 1
             try:
                 _write_one_shard(shard_path(i), collection_type, produce,
-                                 partitions[i], codec, segment_rows)
+                                 partitions[i], codec)
                 code = 0
             except BaseException:
                 import traceback
@@ -3699,8 +3779,8 @@ def _forked_shards(dest, collection_type, partitions, produce, processes, codec,
 
 def write_beast2_file_parallel(path, collection_type, partitions, produce, *,
                                processes: int | None = None, strategy: str = "auto",
-                               codec: str = "deflate", segment_rows: int | None = None,
-                               keep_shards: bool = False, verify: bool = False) -> tuple[int, int]:
+                               codec: str = "deflate", keep_shards: bool = False,
+                               verify: bool = False) -> tuple[int, int]:
     """Write one indexed v5 file from partitioned work, in parallel where the
     platform allows.
 
@@ -3708,9 +3788,11 @@ def write_beast2_file_parallel(path, collection_type, partitions, produce, *,
     that partition's rows — an iterable of East collections (or python
     builtins), or a single collection meaning one batch. Each partition writes
     a private temp shard through a managed writer, and the shards splice —
-    **in partition order**, incrementally, as they finish — into ``path``. The
-    result is byte-identical to one writer writing the same batches, so
-    readers never learn how many processes wrote it.
+    **in partition order**, incrementally, as they finish — into ``path``.
+    Each partition's segments are cut canonically from the partition's start,
+    so the file is the same however many processes wrote it, and differs from
+    the canonical blob of the whole value only in the segments where two
+    partitions meet.
 
     On POSIX (Linux, macOS) the partitions run in **forked** children, so any
     expensive context ``produce`` closes over is built once, pre-fork, and
@@ -3728,7 +3810,6 @@ def write_beast2_file_parallel(path, collection_type, partitions, produce, *,
         strategy: ``"auto"`` (default — fork where available, else inline),
             ``"fork"`` (error where unavailable), or ``"inline"``.
         codec: Segment codec, ``"deflate"`` (default) or ``"none"``.
-        segment_rows: Rows per segment; managed when omitted.
         keep_shards: Leave the per-partition shard files behind (debugging).
         verify: Re-walk the spliced result with east-c's sequential reader.
 
@@ -3753,14 +3834,12 @@ def write_beast2_file_parallel(path, collection_type, partitions, produce, *,
     try:
         if use_fork:
             workers = min(len(parts), processes or os.cpu_count() or 4)
-            sources = _forked_shards(dest, collection_type, parts, produce, workers,
-                                     codec, segment_rows)
+            sources = _forked_shards(dest, collection_type, parts, produce, workers, codec)
         else:
 
             def _inline():
                 for i, partition in enumerate(parts):
-                    _write_one_shard(shard_paths[i], collection_type, produce,
-                                     partition, codec, segment_rows)
+                    _write_one_shard(shard_paths[i], collection_type, produce, partition, codec)
                     yield shard_paths[i]
 
             sources = _inline()
@@ -3781,6 +3860,10 @@ def write_beast2_file_parallel(path, collection_type, partitions, produce, *,
 __all__ = [
     "Beast2DecodeOptions",
     "Beast2Writer",
+    "Beast2ElementWriter",
+    "Beast2RunSorter",
+    "RUN_MAX_COUNT",
+    "RUN_MAX_BYTES",
     "encode_beast2_for",
     "decode_beast2_for",
     "encode_beast2_with_header_for",
@@ -3788,6 +3871,14 @@ __all__ = [
     "encode_beast2_v5_for",
     "encode_beast2_segments_for",
     "encode_beast2_paged_for",
+    "SEGMENT_MIN_COUNT",
+    "SEGMENT_TARGET_COUNT",
+    "SEGMENT_MAX_COUNT",
+    "SEGMENT_MIN_BYTES",
+    "SEGMENT_TARGET_BYTES",
+    "SEGMENT_MAX_BYTES",
+    "SEGMENT_RULE_KEYED",
+    "SEGMENT_RULE_ARRAY",
     "iter_beast2_segments_for",
     "read_beast2_index",
     "read_beast2_type",
@@ -3802,6 +3893,9 @@ __all__ = [
     "write_beast2_file",
     "write_beast2_file_parallel",
     "splice_beast2_files",
+    "Beast2ManifestWriter",
+    "read_beast2_manifest",
+    "load_beast2_manifest",
     "BEAST2_MAGIC_BYTES",
     "BEAST2_V4_MAGIC",
     "BEAST2_V5_MAGIC",

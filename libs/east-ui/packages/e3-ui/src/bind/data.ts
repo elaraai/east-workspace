@@ -11,6 +11,7 @@
 
 import {
     East,
+    ArrayType,
     NullType,
     BooleanType,
     FunctionType,
@@ -22,15 +23,16 @@ import {
     none,
     some,
     variant,
+    type DictType,
     type EastType,
     type ExprType,
 } from '@elaraai/east';
-import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
+import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-types';
 // The row-source contract is east-ui's (#567): a paged handle IS a
 // `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
 // take it without either package importing the other's data layer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
-import type { DatasetDef, TaskDef } from '@elaraai/e3';
+import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
 
 // ============================================================================
 // Mode + binding descriptor types — shared with the Diff component.
@@ -364,6 +366,37 @@ export const DataPagedHandleType = <T extends EastType | string>(t: T) => Struct
     seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
 });
 
+/** The window type an index-selected {@link Data.bindPaged} serves, spelled at
+ *  the TypeScript level so a component's prop types against it. */
+export type IndexWindowType<T extends EastType, IK extends EastType, P extends EastType> =
+    T extends DictType<infer K, infer V>
+        ? ArrayType<StructType<{ ik: IK; key: K; value: P; row: OptionType<V> }>>
+        : never;
+
+/** Reading a record through one of its secondary indexes. */
+export interface BindPagedIndexOptions<T extends EastType, IK extends EastType, P extends EastType> {
+    /**
+     * The index to read through, as the `e3.recordIndex` declaration.
+     *
+     * @remarks
+     * The declaration rather than the name: the window's type — the index key
+     * and the covering projection — comes from it, so a component binding an
+     * index gets the row shape it will actually render, checked at compile
+     * time. Only the NAME travels in the IR.
+     */
+    index: RecordIndexDef<string, T, IK, P>;
+    /**
+     * Read each entry's row from the record too.
+     *
+     * @remarks
+     * Off by default, which is what a covering projection is for: a queue view
+     * that renders from `value` alone touches the index's segments and none of
+     * the record's. Turn it on when the view needs fields the projection does
+     * not carry, and accept a read per entry's segment.
+     */
+    join?: boolean;
+}
+
 /**
  * The TypeScript type of a {@link Data.bindPaged} handle bound to source type
  * `T` — the paged sibling of {@link BoundValue}.
@@ -379,6 +412,15 @@ export const DataPagedHandleType = <T extends EastType | string>(t: T) => Struct
  */
 export type PagedValue<T extends EastType> = ExprType<ReturnType<typeof DataPagedHandleType<T>>>;
 
+/** The handle every paged bind returns, declared once so the plain and the
+ *  index binds cannot drift apart. */
+const PAGED_HANDLE = StructType({
+    id:    StringType,
+    page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
+    total: FunctionType([], OptionType(IntegerType)),
+    seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+});
+
 /**
  * The underlying `Data.bindPaged` platform-function definition. End-users
  * should call {@link Data.bindPaged}; runtime implementations register
@@ -388,12 +430,26 @@ export const bindPagedPlatformFn = East.genericPlatform(
     "data_bind_paged",
     ["T"],
     [TreePathType],
-    StructType({
-        id:    StringType,
-        page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
-        total: FunctionType([], OptionType(IntegerType)),
-        seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
-    }),
+    PAGED_HANDLE,
+    { optional: true },
+);
+
+/**
+ * The underlying platform function of a {@link Data.bindPaged} that reads a
+ * record through one of its indexes — the source path, the index's name, and
+ * whether each entry is joined to its row.
+ *
+ * @remarks
+ * A function of its own rather than more arguments on `data_bind_paged`: the
+ * one-argument call is baked into every UI package already exported, and a
+ * platform call is checked against its implementation's arity, so widening
+ * that function would refuse every one of them.
+ */
+export const bindPagedIndexPlatformFn = East.genericPlatform(
+    "data_bind_paged_index",
+    ["T"],
+    [TreePathType, StringType, BooleanType],
+    PAGED_HANDLE,
     { optional: true },
 );
 
@@ -403,7 +459,10 @@ export const bindPagedPlatformFn = East.genericPlatform(
 // path (the value type rides as a type-arg), so a paged handle is ordinary
 // serializable East data. Implemented by `PagedRuntime` in
 // `@elaraai/e3-ui-components`.
-const PAGED_DESCRIPTOR = [TreePathType] as const;
+// The index selector rides the descriptor as plain data — a name, not a
+// handle — so a paged handle stays ordinary serializable East data and the
+// runtime reads it back from the call's own arguments.
+const PAGED_DESCRIPTOR = [TreePathType, OptionType(StringType), BooleanType] as const;
 const data_page = East.genericPlatform(
     "data_page", ["T"], [...PAGED_DESCRIPTOR, IntegerType, IntegerType], OptionType("T"), { optional: true });
 const data_page_total = East.genericPlatform(
@@ -421,12 +480,15 @@ const data_page_seek = East.genericPlatform(
  * @internal Not for direct use — author against {@link Data.bindPaged}.
  */
 export const DataPagedPrimitives = {
-    /** `data_page([T], source, offset, limit) -> Option<T>` — one window (`none` = in flight). */
+    /** `data_page([T], source, index, join, offset, limit) -> Option<T>` — one
+     *  window (`none` = in flight). */
     page: data_page,
-    /** `data_page_total([T], source) -> Option<Integer>` — total elements, once known. */
+    /** `data_page_total([T], source, index, join) -> Option<Integer>` — total
+     *  elements, once known. */
     total: data_page_total,
-    /** `data_page_seek([T], source, query) -> Option<SeekRange>` — where a key
-     *  query lands in the source's row order (`none` = search in flight). */
+    /** `data_page_seek([T], source, index, join, query) -> Option<SeekRange>` —
+     *  where a key query lands in the source's row order (`none` = search in
+     *  flight). */
     seek: data_page_seek,
 } as const;
 
@@ -483,18 +545,46 @@ export const DataPagedPrimitives = {
  */
 function bindDataPaged<T extends EastType>(
     dataset: DatasetDef<T> | TaskDef<T>,
-): PagedValue<T> {
+): PagedValue<T>;
+function bindDataPaged<T extends EastType, IK extends EastType, P extends EastType>(
+    record: RecordDef<T>,
+    options: BindPagedIndexOptions<T, IK, P>,
+): PagedValue<IndexWindowType<T, IK, P>>;
+// The implementation's return is erased: an index window's TS type is a
+// conditional over the record's Dict, which TypeScript cannot resolve against
+// an unbound `T`. The overloads above carry the precise types.
+function bindDataPaged(
+    dataset: DatasetDef<EastType> | TaskDef<EastType>,
+    options?: BindPagedIndexOptions<EastType, EastType, EastType>,
+): PagedValue<any> {
     // A TaskDef binds its output dataset; a DatasetDef binds itself.
     const def = dataset.kind === 'task' ? dataset.output : dataset;
     // The source path comes from the def, so it is statically known by
     // construction — `deriveManifest` reads it back as a single literal
     // `Value` IR node, which `East.value(...)` forces.
     const sourceValue = East.value(def.path, TreePathType);
-    // Two-step cast: the platform definition spells its window type with the
-    // `"T"` type-var, which TS reads as `some: string` inside the nested
-    // `Option`, so it does not overlap the instantiated handle directly. The
-    // East-side substitution is what actually types the value.
-    return bindPagedPlatformFn([def.type as T], sourceValue) as unknown as PagedValue<T>;
+    const index = options?.index;
+    if (index === undefined) {
+        return bindPagedPlatformFn([def.type], sourceValue) as unknown as PagedValue<EastType>;
+    }
+    // An index window is the index's OWN order: ORDERED rows, each carrying
+    // what a view needs to render without the record — the index key, the
+    // row's own key and the covering projection, plus the row itself when the
+    // read joins. A Dict would re-sort by its own key and throw that order
+    // away, which is the whole reason the window is positional. The server
+    // encodes the window with the same `indexWindowType`.
+    const record = def.type as unknown as { type: string; key: EastType; value: EastType };
+    if (record.type !== 'Dict') {
+        throw new Error(
+            `Data.bindPaged: an index reads a Dict record; this one holds ${record.type}`,
+        );
+    }
+    return bindPagedIndexPlatformFn(
+        [indexWindowType(record.key, index.keyType, index.valueType, record.value)],
+        sourceValue,
+        East.value(index.name, StringType),
+        East.value(options?.join === true, BooleanType),
+    ) as unknown as PagedValue<EastType>;
 }
 
 /**

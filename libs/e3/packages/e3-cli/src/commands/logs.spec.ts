@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { variant } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import { LocalStorage, executionReadLog, repoInit } from '@elaraai/e3-core';
 import { DEFAULT_TAIL_LINES, lastLines, logsCommand, parseExecutionRef, parseLines, pipeToEnd, readTail } from './logs.js';
 
@@ -59,6 +59,8 @@ describe('logsCommand --execution', () => {
       outputHash: 'e'.repeat(64),
       startedAt: new Date(0),
       completedAt: new Date(0),
+      peakBytes: none,
+      plan: none,
     }));
     await storage.logs.append(repo, taskHash, inputsHash, executionId, 'stdout', 'unit says hello\n');
     await storage.logs.append(repo, taskHash, inputsHash, executionId, 'stderr', 'e3: cancelled: e3 stopped the runner because the run was aborted\n');

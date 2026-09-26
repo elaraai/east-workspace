@@ -3,25 +3,28 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ArrayType, NullType, encodeBeast2For, decodeBeast2For, some, none } from '@elaraai/east';
+import { ArrayType, NullType, encodeBeast2For, decodeBeast2For, some, none, variant } from '@elaraai/east';
 import {
   WorkspaceStateType,
   type WorkspaceState,
   PackageJobResponseType,
   type PackageExportProgress,
 } from '@elaraai/e3-types';
-import type { WorkspaceInfo, WorkspaceStatusResult } from './types.js';
+import type {
+  SchemaPolicy, WorkspaceDeployProgress, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult,
+} from './types.js';
 import {
   WorkspaceInfoType,
   WorkspaceCreateRequestType,
   WorkspaceDeployRequestType,
+  WorkspaceDeployStatusType,
   WorkspaceStatusResultType,
   WorkspaceExportRequestType,
   ResponseType,
 } from './types.js';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { get, post, del, fetchWithAuth, fetchWithProgress, ApiError, type RequestOptions } from './http.js';
-import { pollExport } from './packages.js';
+import { JOB_POLL_MAX_MS, JOB_POLL_MIN_MS, pollExport } from './packages.js';
 
 /**
  * List all workspaces in the repository.
@@ -82,7 +85,7 @@ export async function workspaceGet(url: string, repo: string, name: string, opti
 /**
  * Get comprehensive workspace status including datasets, tasks, and lock info.
  *
- * Use this to poll for execution progress after calling dataflowStart().
+ * Use this to poll for execution progress after calling dataflowExecuteLaunch().
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -121,31 +124,75 @@ export async function workspaceRemove(url: string, repo: string, name: string, o
 }
 
 /**
+ * Options for a workspace deploy.
+ */
+export interface WorkspaceDeployOptions {
+  /** What the deploy does with a record it cannot keep as it is (default
+   *  `migrate`). */
+  schema?: SchemaPolicy;
+  /** Whether a record the package no longer declares may be dropped, with its
+   *  state and history (default false). */
+  allowDropRecords?: boolean;
+  /** Say what the deploy would do, and write nothing (default false). */
+  plan?: boolean;
+  /** Called with the job's progress each time a poll finds it running. */
+  onProgress?: (progress: WorkspaceDeployProgress) => void;
+  signal?: AbortSignal;
+}
+
+/**
  * Deploy a package to a workspace.
+ *
+ * @remarks
+ * The server runs the deploy as a job, since one that migrates a record, or
+ * builds an index over one, can outlast a request. This starts the job and
+ * polls it until it answers: 100 ms apart at first, backing off to a second.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param name - Workspace name
  * @param packageRef - Package reference (name or name@version)
  * @param options - Request options including auth token
- * @throws {ApiError} On application-level errors
+ * @param deployOptions - What the deploy does with a record it cannot keep,
+ *   whether it only plans, and its progress and cancellation
+ * @returns What the deploy decided for each record and index, and the inputs
+ *   it left unassigned
+ * @throws {ApiError} When the server does not start the deploy, such as for a
+ *   package the repository does not hold
  * @throws {AuthError} On 401 Unauthorized
+ * @throws {Error} When the deploy fails, or refuses a record
  */
 export async function workspaceDeploy(
   url: string,
   repo: string,
   name: string,
   packageRef: string,
-  options: RequestOptions
-): Promise<void> {
-  await post(
+  options: RequestOptions,
+  deployOptions: WorkspaceDeployOptions = {},
+): Promise<WorkspaceDeployResult> {
+  const path = `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/deploy`;
+  const { id } = await post(
     url,
-    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/deploy`,
-    { packageRef },
+    path,
+    {
+      packageRef,
+      schema: variant(deployOptions.schema ?? 'migrate', null),
+      allowDropRecords: deployOptions.allowDropRecords ?? false,
+      plan: deployOptions.plan ?? false,
+    },
     WorkspaceDeployRequestType,
-    NullType,
-    options
+    PackageJobResponseType,
+    options,
   );
+
+  for (let wait = JOB_POLL_MIN_MS; ; wait = Math.min(wait * 2, JOB_POLL_MAX_MS)) {
+    deployOptions.signal?.throwIfAborted();
+    const status = await get(url, `${path}/${encodeURIComponent(id)}`, WorkspaceDeployStatusType, options);
+    if (status.type === 'completed') return status.value;
+    if (status.type === 'failed') throw new Error(`Workspace deploy failed: ${status.value.message}`);
+    deployOptions.onProgress?.(status.value);
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
 }
 
 /**

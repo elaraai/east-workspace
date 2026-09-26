@@ -7,111 +7,206 @@
  * Execution status type definitions.
  *
  * An execution represents a single run of a task with specific inputs.
- * Executions are stored at: executions/<taskHash>/<inputsHash>/
+ * A local repository keeps each attempt at
+ * executions/<taskHash>/<inputsHash>/<executionId>/
  *
  * The status file tracks:
  * - For running: process identification for crash detection
- * - For success: output hash and timing
- * - For failed: exit code and timing
+ * - For success: output hash, timing, peak memory and a split task's last plan
+ * - For failed: exit code, timing and peak memory
  * - For error: internal error message and timing
+ * - For cancelled and interrupted: how e3, not the task, ended it
  */
 
 import {
   VariantType,
   StructType,
   ArrayType,
+  OptionType,
   StringType,
   IntegerType,
   DateTimeType,
   ValueTypeOf,
+  decodeBeast2For,
 } from '@elaraai/east';
 
+/** A running execution's process identification. */
+const RunningStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** Process ID of the runner */
+  pid: IntegerType,
+  /** Process start time in jiffies since boot (from /proc/<pid>/stat field 22) */
+  pidStartTime: IntegerType,
+  /** System boot ID (from /proc/sys/kernel/random/boot_id) */
+  bootId: StringType,
+});
+
+const SuccessStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** Hash of the output dataset */
+  outputHash: StringType,
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** When execution completed */
+  completedAt: DateTimeType,
+  /** The highest peak resident memory, in bytes, a runner process of the
+   *  execution reached — a split task's, the largest of its units' — when
+   *  its runners reported one */
+  peakBytes: OptionType(IntegerType),
+  /** A split task's: the `$plan` of the last stage it ran, which names the
+   *  stages before it, and so every unit its output was assembled from;
+   *  `none` for any other execution */
+  plan: OptionType(StringType),
+});
+
+const FailedStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** When execution completed */
+  completedAt: DateTimeType,
+  /** Process exit code */
+  exitCode: IntegerType,
+  /** The highest peak resident memory, in bytes, a runner process of the
+   *  execution reached — a split task's, the largest of its units' — when
+   *  its runners reported one */
+  peakBytes: OptionType(IntegerType),
+});
+
+const ErrorStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** When execution completed */
+  completedAt: DateTimeType,
+  /** Error message describing what went wrong */
+  message: StringType,
+});
+
 /**
- * Execution status stored in executions/<taskHash>/<inputsHash>/status.beast2
- *
- * A variant type representing the four possible states of an execution:
+ * Execution status, stored locally at
+ * executions/<taskHash>/<inputsHash>/<executionId>/status.beast2
  *
  * - `running`: Task has been launched but not yet completed
  * - `success`: Task ran and returned exit code 0
  * - `failed`: Task ran and returned non-zero exit code
  * - `error`: e3 execution engine had an internal error (runner not found, output missing, etc.)
+ * - `cancelled`: e3 stopped the execution because the run was aborted, before
+ *   its runner started or while it ran — not the task's own failure
+ * - `interrupted`: the orchestrator that owned the execution exited before it
+ *   finished, and its runner is gone too, so nothing will write its outcome
  *
  * The `running` state includes process identification fields (pid, pidStartTime, bootId)
  * to enable detection of crashed executions. See design/e3-execution.md for details.
+ *
+ * Stored state: read it with {@link decodeExecutionStatus}.
  */
 export const ExecutionStatusType = VariantType({
-  /** Task has been launched but not yet completed */
-  running: StructType({
+  running: RunningStatusType,
+  success: SuccessStatusType,
+  failed: FailedStatusType,
+  error: ErrorStatusType,
+  cancelled: StructType({
     /** Unique execution ID (UUIDv7) */
     executionId: StringType,
     /** Input dataset hashes */
     inputHashes: ArrayType(StringType),
     /** When execution started */
     startedAt: DateTimeType,
-    /** Process ID of the runner */
+    /** When e3 stopped it */
+    completedAt: DateTimeType,
+  }),
+  interrupted: StructType({
+    /** Unique execution ID (UUIDv7) */
+    executionId: StringType,
+    /** Input dataset hashes */
+    inputHashes: ArrayType(StringType),
+    /** When execution started */
+    startedAt: DateTimeType,
+    /** When the interruption was found */
+    completedAt: DateTimeType,
+    /** Process ID the runner had */
     pid: IntegerType,
-    /** Process start time in jiffies since boot (from /proc/<pid>/stat field 22) */
-    pidStartTime: IntegerType,
-    /** System boot ID (from /proc/sys/kernel/random/boot_id) */
-    bootId: StringType,
-  }),
-  /** Task ran and returned exit code 0 */
-  success: StructType({
-    /** Unique execution ID (UUIDv7) */
-    executionId: StringType,
-    /** Input dataset hashes */
-    inputHashes: ArrayType(StringType),
-    /** Hash of the output dataset */
-    outputHash: StringType,
-    /** When execution started */
-    startedAt: DateTimeType,
-    /** When execution completed */
-    completedAt: DateTimeType,
-  }),
-  /** Task ran and returned non-zero exit code */
-  failed: StructType({
-    /** Unique execution ID (UUIDv7) */
-    executionId: StringType,
-    /** Input dataset hashes */
-    inputHashes: ArrayType(StringType),
-    /** When execution started */
-    startedAt: DateTimeType,
-    /** When execution completed */
-    completedAt: DateTimeType,
-    /** Process exit code */
-    exitCode: IntegerType,
-  }),
-  /** e3 execution engine had an internal error */
-  error: StructType({
-    /** Unique execution ID (UUIDv7) */
-    executionId: StringType,
-    /** Input dataset hashes */
-    inputHashes: ArrayType(StringType),
-    /** When execution started */
-    startedAt: DateTimeType,
-    /** When execution completed */
-    completedAt: DateTimeType,
-    /** Error message describing what went wrong */
-    message: StringType,
   }),
 });
 
 export type ExecutionStatus = ValueTypeOf<typeof ExecutionStatusType>;
 
 /**
- * The orchestrator process that launched an execution (issue #770).
+ * The objects an execution's record keeps from garbage collection: a
+ * success's output, and a split task's last `$plan`, which names every stage
+ * before it and so the units gc keeps beside the task.
  *
  * @remarks
- * Written beside the execution's `running` status as the `owner` sidecar. A
+ * Every backend's scan of execution roots applies it, as gc does to the
+ * executions it keeps.
+ *
+ * @param status - the execution's status
+ * @returns the hashes of the objects it keeps
+ */
+export function executionStatusRoots(status: ExecutionStatus): string[] {
+  if (status.type !== 'success') return [];
+  const { outputHash, plan } = status.value;
+  return plan.type === 'some' ? [outputHash, plan.value] : [outputHash];
+}
+
+const decodeCurrentStatus = decodeBeast2For(ExecutionStatusType);
+
+/**
+ * Decode an execution status.
+ *
+ * @remarks
+ * Stored state, so it changes by hard cutover: a repository an older e3 wrote
+ * is re-created rather than read, and this says so.
+ *
+ * @param data - the stored bytes
+ * @returns the status
+ * @throws {Error} When the bytes are not a current status — one an older e3
+ *   wrote, whose repository is re-created.
+ */
+export function decodeExecutionStatus(data: Uint8Array): ExecutionStatus {
+  try {
+    return decodeCurrentStatus(data);
+  } catch (err) {
+    throw new Error(
+      `the execution status does not decode: an older e3 wrote this repository — re-create it: deploy again and import its data again ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+}
+
+/**
+ * The orchestrator process that launched an execution.
+ *
+ * @remarks
+ * Written beside the execution's `running` status as its owner record. A
  * `running` record whose runner is gone is repaired only when its owner is
  * gone too: a live owner may be between the runner's exit and the record's
  * write, hashing the output.
+ *
+ * Stored state: a record of another shape is read as none recorded.
  */
-export interface ExecutionOwner {
+export const ExecutionOwnerType = StructType({
   /** Process ID of the orchestrator */
-  pid: number;
+  pid: IntegerType,
   /** Orchestrator start time in jiffies since boot (from /proc/<pid>/stat field 22) */
-  pidStartTime: number;
+  pidStartTime: IntegerType,
   /** System boot ID (from /proc/sys/kernel/random/boot_id) */
-  bootId: string;
-}
+  bootId: StringType,
+});
+
+export type ExecutionOwner = ValueTypeOf<typeof ExecutionOwnerType>;

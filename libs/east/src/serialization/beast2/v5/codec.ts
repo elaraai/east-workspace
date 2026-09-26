@@ -54,7 +54,7 @@ import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, type Runt
 import { InternalError } from "../../../error.js";
 import type { FunctionIR, AsyncFunctionIR } from "../../../ir.js";
 import { SourceMap, type Location } from "../../../location.js";
-import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
+import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, checkDecodeType, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
 import { type Beast2Codec, FrameReader, type FrameInflate, writeFrame, preInflateFrames } from "./frames.js";
 
@@ -76,13 +76,13 @@ export const TAG_REF = 0x01;
 
 /** Mutable state threaded through a v5 encode pass. */
 export interface V5EncodeContext {
-  /** Identity map: container object → definition index. Cleared per root
-   *  segment by self-contained writers. */
+  /** Identity map: container object → definition index. Cleared at every root
+   *  element of a segmented collection, so no REF reaches past its element. */
   containerIndex: Map<any, number>;
   /** Count of container definitions so far (the definition counter). */
   containerCount: number;
-  /** Definition count at the start of the current root segment — REFs
-   *  reaching below this mark are cross-segment aliases. */
+  /** Definition count at the start of the current root element — REFs
+   *  reaching below this mark would alias across elements. */
   segmentBaseDef: number;
   /** Whether any REF crossed a root-segment boundary. */
   crossSegmentRef: boolean;
@@ -100,7 +100,8 @@ export interface V5EncodeContext {
 /** Creates a fresh v5 encode context.
  *
  * @param sourceMap - the pre-resolved header source map, if any
- * @param selfContained - whether the writer scopes aliasing per segment
+ * @param selfContained - whether the writer's segments must decode on their
+ *   own, which forbids inline source-map growth
  * @returns the initialized context
  */
 export function createV5EncodeContext(sourceMap: SourceMap | null, selfContained: boolean): V5EncodeContext {
@@ -825,14 +826,27 @@ export function encodeBeast2V5For(type: EastTypeValue | EastType, options?: Beas
     return writer.toUint8Array();
   };
 
+  // Every root element starts with an identity map holding only the root, as
+  // in the streaming writer: no REF reaches a neighbouring element, so each
+  // element's bytes depend on the element alone. The root stays registered,
+  // so an element that reaches back to it is still a REF — which marks the
+  // blob as not self-contained, rather than writing the root out again.
   function encodeSegmentElements(rootType: EastTypeValue, value: any, logical: BufferWriter, ctx: V5EncodeContext, typeCtx: Map<bigint, V5Encoder>): void {
     if (rootType.type === "Array" || rootType.type === "Set") {
       const elem = getElemEncoder(rootType.value, typeCtx);
-      for (const item of value) elem(item, logical, ctx);
+      for (const item of value) {
+        ctx.containerIndex.clear();
+        ctx.containerIndex.set(value, 0);
+        ctx.segmentBaseDef = ctx.containerCount;
+        elem(item, logical, ctx);
+      }
     } else {
       const key = getElemEncoder(rootType.value.key, typeCtx);
       const val = getElemEncoder(rootType.value.value, typeCtx);
       for (const [k, v] of value) {
+        ctx.containerIndex.clear();
+        ctx.containerIndex.set(value, 0);
+        ctx.segmentBaseDef = ctx.containerCount;
         key(k, logical, ctx);
         val(v, logical, ctx);
       }
@@ -988,6 +1002,7 @@ function readHeader(data: Uint8Array): { rootType: EastTypeValue; sourceMap: Sou
  *  root type), enforcing whole-stream strictness. */
 function decodeV5(data: Uint8Array, decodeType: EastTypeValue | null, options: Beast2DecodeOptions | undefined, inflate?: FrameInflate): V5DecodeResult {
   const { rootType, sourceMap, frameOffset } = readHeader(data);
+  if (decodeType !== null) checkDecodeType(rootType, decodeType);
   const typeValue = decodeType ?? rootType;
   const ctx: V5DecodeContext = {
     containers: [],

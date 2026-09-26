@@ -1,6 +1,5 @@
 /*
- * The segment writer shared by the emit sink and the blob merge — see
- * emit_writer.h.
+ * The blob merge's segment writer — see emit_writer.h.
  */
 
 #include <east/compat.h>
@@ -15,7 +14,7 @@
 /* Moves the bytes the writer has produced to the file. */
 static bool emit_writer_drain(EmitWriter *w)
 {
-    ByteBuffer *buf = east_beast2_writer_take(w->writer);
+    ByteBuffer *buf = east_beast2_element_writer_take(w->writer);
     if (!buf) return true;
     size_t wrote = fwrite(buf->data, 1, buf->len, w->out);
     bool ok = wrote == buf->len;
@@ -24,58 +23,33 @@ static bool emit_writer_drain(EmitWriter *w)
     return ok;
 }
 
-/* After a segment of `n` elements landed: the running average wire size of
- * an element — the header left out — refines the next batch toward the byte
- * target. Frames may still be deflating on the writer's pool, so the byte
- * count is known only within bounds; the refinement is monotone in it, so
- * agreeing decisions at both bounds are the serial decision, and disagreeing
- * ones wait for the frames. The segmentation, and every byte, is what a
- * serial writer produces. */
-static void emit_writer_refine(EmitWriter *w, size_t n)
+/* Writes the held entry through the element writer and lets it go. The file
+ * takes the writer's bytes whenever a segment closes, so what waits in the
+ * writer is the frames still deflating. */
+static bool emit_writer_settle(EmitWriter *w)
 {
-    w->written_elements += n;
-    size_t lo, hi;
-    east_beast2_writer_emitted_bounds(w->writer, &lo, &hi);
-    size_t at_lo =
-        east_beast2_paged_next_batch(EMIT_TARGET_BYTES, lo - w->header, w->written_elements);
-    size_t at_hi =
-        east_beast2_paged_next_batch(EMIT_TARGET_BYTES, hi - w->header, w->written_elements);
-    if (at_lo != at_hi) {
-        east_beast2_writer_settle(w->writer);
-        east_beast2_writer_emitted_bounds(w->writer, &lo, &hi);
-        at_lo =
-            east_beast2_paged_next_batch(EMIT_TARGET_BYTES, lo - w->header, w->written_elements);
+    if (!w->key) return true;
+    if (w->manifest) {
+        /* A manifest directory takes each segment as a file as it closes. */
+        bool ok = w->type->kind == EAST_TYPE_DICT
+                      ? east_beast2_manifest_writer_add_pair(w->manifest, w->key, w->value)
+                      : east_beast2_manifest_writer_add(w->manifest, w->key);
+        east_value_release(w->key);
+        if (w->value) east_value_release(w->value);
+        w->key = NULL;
+        w->value = NULL;
+        return ok;
     }
-    w->next_batch = at_lo;
-}
-
-/* An empty batch of `type`'s collection kind. */
-static EastValue *emit_batch_new(EastType *type)
-{
-    switch (type->kind) {
-    case EAST_TYPE_ARRAY:
-        return east_array_new(type->data.element);
-    case EAST_TYPE_SET:
-        return east_set_new(type->data.element);
-    default:
-        return east_dict_new(type->data.dict.key, type->data.dict.value);
-    }
-}
-
-/* Appends element `i` of `from` to `to`. */
-static void emit_batch_append_at(EastType *type, EastValue *to, EastValue *from, size_t i)
-{
-    switch (type->kind) {
-    case EAST_TYPE_ARRAY:
-        east_array_push(to, from->data.array.items[i]);
-        break;
-    case EAST_TYPE_SET:
-        east_set_insert(to, east_set_at(from, i));
-        break;
-    default:
-        east_dict_set(to, east_dict_key_at(from, i), east_dict_val_at(from, i));
-        break;
-    }
+    size_t before = east_beast2_element_writer_segments(w->writer);
+    bool ok = w->type->kind == EAST_TYPE_DICT
+                  ? east_beast2_element_writer_add_pair(w->writer, w->key, w->value)
+                  : east_beast2_element_writer_add(w->writer, w->key);
+    east_value_release(w->key);
+    if (w->value) east_value_release(w->value);
+    w->key = NULL;
+    w->value = NULL;
+    if (!ok) return false;
+    return east_beast2_element_writer_segments(w->writer) == before || emit_writer_drain(w);
 }
 
 bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
@@ -89,95 +63,47 @@ bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
         east_builtin_error(msg);
         return false;
     }
-    w->writer = east_beast2_writer_new(type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    w->writer = east_beast2_element_writer_new(type, EAST_BEAST2_CODEC_DEFLATE);
     if (!w->writer) {
         fclose(w->out);
         w->out = NULL;
         east_builtin_error("emit: failed to construct the output writer");
         return false;
     }
-    /* Frames deflate on worker threads (#763); emit_writer_refine reads the
-     * byte count through the writer's bounds, so the output is byte-identical
-     * to a serial writer's. */
-    east_beast2_writer_set_parallel(w->writer, true);
-    size_t lo, hi;
-    east_beast2_writer_emitted_bounds(w->writer, &lo, &hi);
-    w->header = lo;
-    w->next_batch = EMIT_BATCH_CAP;
+    /* Frames deflate on worker threads (#763); where the segments fall never
+     * depends on it. */
+    east_beast2_element_writer_set_parallel(w->writer, true);
     return true;
 }
 
-bool emit_writer_write(EmitWriter *w, EastValue *batch, size_t n)
+bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path)
 {
-    if (n == 0) return true;
-    if (!east_beast2_writer_write(w->writer, batch)) return false;
-    if (!emit_writer_drain(w)) return false;
-    emit_writer_refine(w, n);
+    memset(w, 0, sizeof(*w));
+    w->type = type;
+    w->manifest = east_beast2_manifest_writer_new_dir(type, EAST_BEAST2_CODEC_DEFLATE, path);
+    if (!w->manifest) return false;
+    /* Frames deflate on worker threads, as for a blob. */
+    east_beast2_manifest_writer_set_parallel(w->manifest, true);
     return true;
 }
 
-bool emit_writer_probe(EmitWriter *w, EastValue **batch, size_t *count)
+bool emit_writer_push(EmitWriter *w, EastValue *key, EastValue *value)
 {
-    if (w->probed || *count < EMIT_PROBE_BATCH) return true;
-    w->probed = true;
-
-    /* A throwaway encode of what is held measures the average wire size of an
-     * element, exactly as east_beast2_encode_paged's probe does. Serial: the
-     * bounds coincide, and the measurement is the same either way. */
-    Beast2StreamWriter *scratch =
-        east_beast2_writer_new(w->type, EAST_BEAST2_CODEC_DEFLATE, true, true);
-    if (!scratch) {
-        east_builtin_error("emit: out of memory");
-        return false;
+    if (!emit_writer_settle(w)) return false;
+    east_value_retain(key);
+    w->key = key;
+    if (value) {
+        east_value_retain(value);
+        w->value = value;
     }
-    size_t lo = 0, hi = 0;
-    east_beast2_writer_emitted_bounds(scratch, &lo, &hi);
-    size_t header = lo;
-    bool ok = east_beast2_writer_write(scratch, *batch);
-    east_beast2_writer_emitted_bounds(scratch, &lo, &hi);
-    size_t body = lo - header;
-    east_beast2_writer_free(scratch);
-    if (!ok) return false;
-    w->next_batch = east_beast2_paged_next_batch(EMIT_TARGET_BYTES, body, *count);
-    if (w->next_batch >= *count) return true;
-
-    /* Elements wider than one segment's share: what is held goes out in
-     * refined-size segments, which is what the paged encoder writes for the
-     * same elements — it pumps its own probe through the refined size too. */
-    EastValue *held = *batch;
-    size_t n = *count;
-    EastValue *acc = emit_batch_new(w->type);
-    size_t acc_n = 0;
-    if (!acc) {
-        east_builtin_error("emit: out of memory");
-        return false;
-    }
-    for (size_t i = 0; i < n; i++) {
-        if (acc_n >= w->next_batch) {
-            ok = emit_writer_write(w, acc, acc_n);
-            east_value_release(acc);
-            acc = ok ? emit_batch_new(w->type) : NULL;
-            acc_n = 0;
-            if (!acc) {
-                if (ok) east_builtin_error("emit: out of memory");
-                east_value_release(held);
-                *batch = NULL;
-                *count = 0;
-                return false;
-            }
-        }
-        emit_batch_append_at(w->type, acc, held, i);
-        acc_n++;
-    }
-    east_value_release(held);
-    *batch = acc;
-    *count = acc_n;
     return true;
 }
 
 bool emit_writer_finish(EmitWriter *w)
 {
-    bool ok = east_beast2_writer_finish(w->writer);
+    if (w->manifest)
+        return emit_writer_settle(w) && east_beast2_manifest_writer_finish(w->manifest);
+    bool ok = emit_writer_settle(w) && east_beast2_element_writer_finish(w->writer);
     ok = emit_writer_drain(w) && ok;
     ok = fclose(w->out) == 0 && ok;
     w->out = NULL;
@@ -188,6 +114,9 @@ bool emit_writer_finish(EmitWriter *w)
 void emit_writer_close(EmitWriter *w)
 {
     if (w->out) fclose(w->out);
-    if (w->writer) east_beast2_writer_free(w->writer);
+    if (w->writer) east_beast2_element_writer_free(w->writer);
+    if (w->manifest) east_beast2_manifest_writer_free(w->manifest);
+    if (w->key) east_value_release(w->key);
+    if (w->value) east_value_release(w->value);
     memset(w, 0, sizeof(*w));
 }

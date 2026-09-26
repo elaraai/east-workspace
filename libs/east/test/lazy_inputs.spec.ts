@@ -28,16 +28,29 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  East, Expr, equalFor, IRType, toJSONFor, some, none,
-  encodeBeast2PagedFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe,
+  East, EastError, Expr, equalFor, compareFor, IRType, toJSONFor, some, none, ref, variant, get_location,
+  encodeBeast2SegmentsFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe, spliceBeast2,
   ArrayType, SetType, DictType, IntegerType, FloatType, StringType, NullType, StructType, OptionType,
-  type EastType,
+  type EastType, type Location,
 } from "../src/index.js";
 import { Builtins, type BuiltinName } from "../src/builtins.js";
 
-/** Multi-segment even for tiny corpus collections, so segment boundaries
+/** A collection input as a blob of two-element segments in canonical order —
+ *  multi-segment even for the tiny corpus collections, so segment boundaries
  *  and fence lookups are exercised, not just the single-segment fast path. */
-const SWEEP_BATCH = { batchSize: 2 };
+function sweepBlob(type: EastType, value: unknown): Uint8Array {
+  const t = type as { type: string; key?: EastType };
+  const cmp = t.type === "Array" ? null : compareFor(t.key!) as (a: unknown, b: unknown) => number;
+  const items = t.type === "Array" ? [...(value as unknown[])]
+    : t.type === "Set" ? [...(value as Set<unknown>)].sort(cmp!)
+    : [...(value as Map<unknown, unknown>)].sort((a, b) => cmp!(a[0], b[0]));
+  const batches: unknown[] = [];
+  for (let i = 0; i < items.length; i += 2) {
+    const chunk = items.slice(i, i + 2);
+    batches.push(t.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : t.type === "Set" ? new Set(chunk) : chunk);
+  }
+  return encodeBeast2SegmentsFor(type)(batches as never);
+}
 
 /** Builtins whose only collection input is a compile-time literal the fluent
  *  surface constructs itself (datetime format tokens parsed from a format
@@ -136,7 +149,7 @@ async function sweep(c: SweepCase, mentioned: Set<string>): Promise<void> {
   const lazyArgs = [...c.inputs];
   for (const i of positions) {
     const t = fnType.inputs[i]!;
-    const blob = encodeBeast2PagedFor(t, SWEEP_BATCH)(c.inputs[i] as never);
+    const blob = sweepBlob(t, c.inputs[i]);
     eagerArgs[i] = decodeBeast2For(t)(blob);
     // The runner policy: lazy only for shape-gate-safe types. A corpus case
     // whose eligibility does not match its declared intent has silently
@@ -515,7 +528,7 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
 describe("lazy inputs — iteration semantics (#510)", () => {
   const Table = DictType(IntegerType, StringType);
   const table = new Map<bigint, string>(Array.from({ length: 10 }, (_, i) => [BigInt(i), `row-${i}`]));
-  const tableBlob = encodeBeast2PagedFor(Table, SWEEP_BATCH)(table);
+  const tableBlob = sweepBlob(Table, table);
   const openers = [
     ["eager", decodeBeast2For(Table)],
     ["lazy", openBeast2LazyFor(Table)],
@@ -549,7 +562,7 @@ describe("lazy inputs — iteration semantics (#510)", () => {
   test("hydration mid-loop keeps the in-flight iteration yielding the canonical sequence", () => {
     const Tags = SetType(StringType);
     const tags = new Set(Array.from({ length: 9 }, (_, i) => `tag-${i}`));
-    const blob = encodeBeast2PagedFor(Tags, SWEEP_BATCH)(tags);
+    const blob = sweepBlob(Tags, tags);
     const fn = East.function([Tags, Tags], ArrayType(StringType), ($, s, other) => {
       const seen = $.let([], ArrayType(StringType));
       $.for(s, ($, k) => {
@@ -566,5 +579,213 @@ describe("lazy inputs — iteration semantics (#510)", () => {
     const lazy = compiled(openBeast2LazyFor(Tags)(blob), other) as string[];
     assert.equal(eager.length, 9);
     assert.deepEqual(lazy, eager, "mid-loop hydration must not disturb the sequence");
+  });
+});
+
+describe("lazy inputs — a read that fails", () => {
+  const Table = DictType(IntegerType, StringType);
+  const Keys = SetType(IntegerType);
+  /** Six rows from `from`, as a blob of two-row segments. */
+  const rows = (from: number): Uint8Array =>
+    sweepBlob(Table, new Map(Array.from({ length: 6 }, (_, i) => [BigInt(from + i), `row-${from + i}`])));
+  // A high key range spliced before a low one: the fences do not ascend, so a
+  // keyed read refuses the blob, and a walk meets a key below the one before.
+  const corrupt = spliceBeast2([rows(1000), rows(0)]);
+  const open = () => openBeast2LazyFor(Table, { frozen: true })(corrupt);
+  const fenceMessage = "beast2 v5: segments 2 and 3 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)";
+  const orderMessage = "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)";
+
+  /** The East error `run` raises, awaited when it is async. */
+  async function eastErrorOf(run: () => unknown): Promise<EastError> {
+    try {
+      await run();
+    } catch (err) {
+      assert.ok(err instanceof EastError, `an East error, not ${String(err)}`);
+      return err;
+    }
+    assert.fail("the run did not fail");
+  }
+
+  /** Asserts that a location stack names the line `expected` was taken on:
+   *  the same frames, bar the innermost's column. */
+  function assertSameLine(actual: readonly Location[], expected: readonly Location[]): void {
+    const line = (stack: readonly Location[]) => stack.map((l, i) => i === 0 ? { ...l, column: 0n } : l);
+    assert.ok(expected.length > 0, "the expected stack holds a frame");
+    assert.deepEqual(line(actual), line(expected));
+  }
+
+  test("a keyed read raises an East error at the read, where the builtin raises its own", async () => {
+    const lookup = East.function([Table], StringType, (_$, d) => d.get(5n)).toIR().compile([]);
+    const failed = await eastErrorOf(() => lookup(open()));
+    assert.equal(failed.message, fenceMessage);
+    const missing = await eastErrorOf(() => lookup(openBeast2LazyFor(Table, { frozen: true })(rows(1000))));
+    assert.match(missing.message, /does not contain key/);
+    assert.ok(failed.location.length > 0, "the error has a location");
+    assert.deepEqual(failed.location, missing.location, "the missing key is raised at the same node");
+
+    // The same builtin in an async function, its key awaited.
+    const keyLater = East.asyncPlatform("key_later", [], IntegerType);
+    const lookupLater = East.asyncFunction([Table], StringType, (_$, d) => d.get(keyLater()))
+      .toIR().compile([keyLater.implement(() => Promise.resolve(5n))]);
+    const failedLater = await eastErrorOf(() => lookupLater(open()));
+    assert.equal(failedLater.message, fenceMessage);
+    const missingLater = await eastErrorOf(() => lookupLater(openBeast2LazyFor(Table, { frozen: true })(rows(1000))));
+    assert.deepEqual(failedLater.location, missingLater.location);
+  });
+
+  test("a loop fails before its first iteration, at the loop, in a function or an async one", async () => {
+    // As east-c's paged loop does, the loop checks every segment's first key
+    // before it runs an iteration, so it fails on the fences, not partway.
+    let iterations = 0;
+    const saw = East.platform("saw_row", [], NullType);
+    let at: Location[] = [];
+    const walk = East.function([Table], NullType, ($, d) => {
+      at = get_location(); $.for(d, ($, _value, _key) => { $(saw()); });
+      return null;
+    }).toIR().compile([saw.implement(() => { iterations++; return null; })]);
+    const failed = await eastErrorOf(() => walk(open()));
+    assert.equal(failed.message, fenceMessage);
+    assertSameLine(failed.location, at);
+    assert.equal(iterations, 0, "no iteration ran");
+
+    const tick = East.asyncPlatform("tick", [], NullType);
+    let atLater: Location[] = [];
+    const walkLater = East.asyncFunction([Table], NullType, ($, d) => {
+      atLater = get_location(); $.for(d, ($, _value, _key) => { $(tick()); });
+      return null;
+    }).toIR().compile([tick.implement(() => { iterations++; return Promise.resolve(null); })]);
+    const failedLater = await eastErrorOf(() => walkLater(open()));
+    assert.equal(failedLater.message, fenceMessage);
+    assertSameLine(failedLater.location, atLater);
+    assert.equal(iterations, 0, "no iteration ran");
+  });
+
+  test("a loop over segments that overlap runs the rows before them, and fails before the first that overlaps the next", async () => {
+    // Segments [0, 1], [2, 10] and [5, 20]: the first keys ascend, but the
+    // second segment's last key passes the third's first.
+    const seen: bigint[] = [];
+    const saw = East.platform("saw_key", [IntegerType], NullType);
+    const platform = [saw.implement((key: bigint) => { seen.push(key); return null; })];
+
+    const dict = spliceBeast2([
+      sweepBlob(Table, new Map([[0n, "a"], [1n, "b"], [2n, "c"], [10n, "d"]])),
+      sweepBlob(Table, new Map([[5n, "e"], [20n, "f"]])),
+    ]);
+    const walkDict = East.function([Table], NullType, ($, d) => {
+      $.for(d, ($, _value, key) => { $(saw(key)); });
+      return null;
+    }).toIR().compile(platform);
+    const failed = await eastErrorOf(() => walkDict(openBeast2LazyFor(Table, { frozen: true })(dict)));
+    assert.equal(failed.message, "beast2 v5: segments 1 and 2 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)");
+    assert.deepEqual(seen, [0n, 1n]);
+
+    seen.length = 0;
+    const set = spliceBeast2([
+      sweepBlob(Keys, new Set([0n, 1n, 2n, 10n])),
+      sweepBlob(Keys, new Set([5n, 20n])),
+    ]);
+    const walkSet = East.function([Keys], NullType, ($, s) => {
+      $.for(s, ($, key) => { $(saw(key)); });
+      return null;
+    }).toIR().compile(platform);
+    const failedSet = await eastErrorOf(() => walkSet(openBeast2LazyFor(Keys, { frozen: true })(set)));
+    assert.equal(failedSet.message, "beast2 v5: segments 1 and 2 are not disjoint ascending element ranges — the wire must hold the canonical value (corrupt or pre-contract blob)");
+    assert.deepEqual(seen, [0n, 1n]);
+  });
+
+  test("a container reads a lazy value whole where it is built, and a read that fails fails there", async () => {
+    // As east-c does: a struct, array, variant or ref, or a dict literal as
+    // a value, reads a lazy input whole when the input goes into it. (A set
+    // element or dict key is never a collection: its type must be immutable.)
+    const holders: [string, (d: Expr) => unknown][] = [
+      ["a struct", (d) => ({ rows: d })],
+      ["an array", (d) => [d]],
+      ["a variant", (d) => variant("held", d)],
+      ["a ref", (d) => ref(d)],
+      ["a dict literal", (d) => new Map([[1n, d]])],
+    ];
+    for (const [holder, hold] of holders) {
+      let at: Location[] = [];
+      const build = East.function([Table], IntegerType, ($, d) => {
+        at = get_location(); $.let(hold(d) as never);
+        return 0n;
+      }).toIR().compile([]);
+      const failed = await eastErrorOf(() => build(open()));
+      assert.equal(failed.message, orderMessage, holder);
+      assertSameLine(failed.location, at);
+    }
+
+    // A valid input, held, is the input.
+    const Held = StructType({ rows: Table });
+    const held = East.function([Table], Held, (_$, d) => ({ rows: d })).toIR().compile([]);
+    const table = new Map(Array.from({ length: 6 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]));
+    const value = held(openBeast2LazyFor(Table, { frozen: true })(rows(0)));
+    assert.ok(equalFor(Held)(value, { rows: decodeBeast2For(Table)(sweepBlob(Table, table)) }));
+  });
+
+  test("a platform function that reads the input raises it at its call, sync or async", async () => {
+    const rowsIn = (d: Map<bigint, string>): bigint => {
+      let n = 0n;
+      for (const _row of d) n++;
+      return n;
+    };
+    const count = East.platform("count_rows", [Table], IntegerType);
+    const countLater = East.asyncPlatform("count_rows_later", [Table], IntegerType);
+    const countFrom = East.asyncPlatform("count_rows_from", [Table, IntegerType], IntegerType);
+    const oneLater = East.asyncPlatform("one_later", [], IntegerType);
+    const platform = [
+      count.implement(rowsIn),
+      // Each reads the input after it has returned its promise, so the read
+      // fails as a rejection.
+      countLater.implement(async (d) => { await Promise.resolve(); return rowsIn(d); }),
+      countFrom.implement(async (d, from) => { await Promise.resolve(); return from + rowsIn(d); }),
+      oneLater.implement(() => Promise.resolve(1n)),
+    ];
+
+    let at: Location[] = [];
+    const sync = East.function([Table], IntegerType, (_$, d) => {
+      at = get_location(); return count(d);
+    }).toIR().compile(platform);
+    const failed = await eastErrorOf(() => sync(open()));
+    assert.equal(failed.message, orderMessage);
+    assertSameLine(failed.location, at);
+
+    let atLater: Location[] = [];
+    const later = East.asyncFunction([Table], IntegerType, (_$, d) => {
+      atLater = get_location(); return countLater(d);
+    }).toIR().compile(platform);
+    const failedLater = await eastErrorOf(() => later(open()));
+    assert.equal(failedLater.message, orderMessage);
+    assertSameLine(failedLater.location, atLater);
+
+    // An argument that is itself awaited.
+    let atFrom: Location[] = [];
+    const from = East.asyncFunction([Table], IntegerType, (_$, d) => {
+      atFrom = get_location(); return countFrom(d, oneLater());
+    }).toIR().compile(platform);
+    const failedFrom = await eastErrorOf(() => from(open()));
+    assert.equal(failedFrom.message, orderMessage);
+    assertSameLine(failedFrom.location, atFrom);
+  });
+
+  test("a program can catch it, and a fill that failed leaves the input unread", () => {
+    // Set algebra fills a lazy Set; this one fails partway, past the high
+    // range. Caught, the input still has every element, not the ones filled.
+    const keys = spliceBeast2([
+      sweepBlob(Keys, new Set(Array.from({ length: 6 }, (_, i) => BigInt(1000 + i)))),
+      sweepBlob(Keys, new Set(Array.from({ length: 6 }, (_, i) => BigInt(i)))),
+    ]);
+    const program = East.function([Keys, Keys], StructType({ caught: StringType, size: IntegerType }), ($, s, other) => {
+      const caught = $.let("");
+      $.try(($) => {
+        $(s.union(other));
+      }).catch(($, message, _stack) => {
+        $.assign(caught, message);
+      });
+      return { caught, size: s.size() };
+    }).toIR().compile([]);
+    const result = program(openBeast2LazyFor(Keys, { frozen: true })(keys), new Set([7n]));
+    assert.equal(result.caught, "beast2 v5: Set elements are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)");
+    assert.equal(result.size, 12n);
   });
 });

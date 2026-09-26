@@ -14,11 +14,10 @@ import {
 import { get, post, verboseQuery, ApiError, type RequestOptions } from './http.js';
 
 /**
- * Options for starting dataflow execution.
+ * Options for starting dataflow execution. The run takes the server's budget
+ * of cores and memory.
  */
 export interface DataflowOptions {
-  /** Maximum parallel tasks (default: 4) */
-  concurrency?: number;
   /** Force re-execution of all tasks */
   force?: boolean;
   /** Filter to specific task names */
@@ -65,7 +64,6 @@ export async function dataflowExecuteLaunch(
         url,
         verboseQuery(`/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow`, options),
         {
-          concurrency: dataflowOptions.concurrency != null ? some(BigInt(dataflowOptions.concurrency)) : none,
           force: dataflowOptions.force ?? false,
           filter: dataflowOptions.filter != null ? some(dataflowOptions.filter) : none,
         },
@@ -202,9 +200,6 @@ export async function dataflowExecute(
   throw new Error('Dataflow execution timed out');
 }
 
-// Backward compatibility alias
-export { dataflowExecuteLaunch as dataflowStart };
-
 /**
  * Get the dependency graph for a workspace.
  *
@@ -315,9 +310,6 @@ export async function dataflowExecutePoll(
 
   return get(url, path, DataflowExecutionStateType, options);
 }
-
-// Backward compatibility alias
-export { dataflowExecutePoll as dataflowExecution };
 
 /**
  * Cancel a running dataflow execution.

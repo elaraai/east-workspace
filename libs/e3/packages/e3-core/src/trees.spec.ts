@@ -180,7 +180,7 @@ describe('trees', () => {
 
     it('throws for non-existent hash', async () => {
       const structure = structStructure({});
-      const fakeHash = 'nonexistent'.padEnd(64, '0');
+      const fakeHash = '0'.repeat(64);
 
       await assert.rejects(
         async () => await treeRead(storage, testRepo, fakeHash, structure),
@@ -259,7 +259,7 @@ describe('trees', () => {
     });
 
     it('throws for non-existent hash', async () => {
-      const fakeHash = 'nonexistent'.padEnd(64, '0');
+      const fakeHash = '0'.repeat(64);
 
       await assert.rejects(
         async () => await datasetRead(storage, testRepo, fakeHash),

@@ -417,6 +417,22 @@ describe("PagedRuntime — key search (#574)", () => {
         );
     });
 
+    test("a range re-tags with its open end omitted; open at both ends it is refused, never sent", () => {
+        assert.deepEqual(toFindQuery(variant("range", { from: ['"late"', "2"], to: ['"ok"'] })),
+            { from: ['"late"', "2"], to: ['"ok"'] });
+        assert.deepEqual(toFindQuery(variant("range", { from: ['"late"'], to: [] })), { from: ['"late"'] });
+        assert.deepEqual(toFindQuery(variant("range", { from: [], to: ['"ok"'] })), { to: ['"ok"'] });
+
+        // No end names no run. The server refuses it, and a refused search is
+        // retried every couple of seconds for as long as the view is up — so
+        // the seek refuses it where it was written, and nothing is fetched.
+        const g = gatedApi();
+        const runtime = new PagedRuntime();
+        runtime.initialize(g.api, ws);
+        assert.throws(() => callSeek(runtime, KeyedType, variant("range", { from: [], to: [] })), /names no end/);
+        assert.equal(g.finds.length, 0);
+    });
+
     test("a failed search is rate-limited, exactly like a failed window", async () => {
         // The search chrome polls while the user types; a failing server must
         // not be hammered once per keystroke-frame.

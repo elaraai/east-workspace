@@ -15,16 +15,27 @@ import {
   getWorkspace,
   getWorkspaceStatus,
   deleteWorkspace,
-  deployWorkspace,
+  startWorkspaceDeploy,
+  getWorkspaceDeployStatus,
   exportWorkspace,
 } from '../handlers/workspaces.js';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExportRequestType } from '../types.js';
 
+/**
+ * Workspace routes, mounted at `/api/repos/:repo/workspaces`.
+ *
+ * @param storage - Storage backend
+ * @param getRepoPath - The repository identifier for a repo name
+ * @param transferBackend - Files and dispatches the jobs a deploy and an
+ *   asynchronous export run as. A deploy job runs its migrations and index
+ *   builds on the runner the backend was given.
+ * @returns The routes
+ */
 export function createWorkspaceRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
-  transferBackend?: TransferBackend,
+  transferBackend: TransferBackend,
 ) {
   const app = new Hono();
 
@@ -67,55 +78,61 @@ export function createWorkspaceRoutes(
     return deleteWorkspace(storage, repoPath, ws);
   });
 
-  // POST /api/repos/:repo/workspaces/:ws/deploy - Deploy a package to a workspace
+  // POST /api/repos/:repo/workspaces/:ws/deploy - Start a deploy job
   app.post('/:ws/deploy', async (c) => {
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     const body = await decodeBody(c, WorkspaceDeployRequestType);
-    return deployWorkspace(storage, repoPath, ws, body.packageRef);
+    return startWorkspaceDeploy(storage, repoPath, repo, ws, body, transferBackend.workspaceDeploy);
+  });
+
+  // GET /api/repos/:repo/workspaces/:ws/deploy/:id - Poll a deploy job
+  app.get('/:ws/deploy/:id', (c) => {
+    const repo = c.req.param('repo')!;
+    const ws = c.req.param('ws')!;
+    const id = c.req.param('id');
+    return getWorkspaceDeployStatus(transferBackend.workspaceDeploy, repo, ws, id);
   });
 
   // POST /api/repos/:repo/workspaces/:ws/export - Trigger async workspace export
-  if (transferBackend) {
-    app.post('/:ws/export', async (c) => {
-      const repo = c.req.param('repo')!;
-      const repoPath = getRepoPath(repo);
-      const ws = c.req.param('ws')!;
+  app.post('/:ws/export', async (c) => {
+    const repo = c.req.param('repo')!;
+    const repoPath = getRepoPath(repo);
+    const ws = c.req.param('ws')!;
 
-      // Determine name and version from request body or deployed package
-      let requestName: string | undefined;
-      let requestVersion: string | undefined;
-      try {
-        const body = await decodeBody(c, WorkspaceExportRequestType);
-        if (body.name?.type === 'some') requestName = body.name.value;
-        if (body.version?.type === 'some') requestVersion = body.version.value;
-      } catch {
-        // No body or invalid — use defaults
-      }
+    // Determine name and version from request body or deployed package
+    let requestName: string | undefined;
+    let requestVersion: string | undefined;
+    try {
+      const body = await decodeBody(c, WorkspaceExportRequestType);
+      if (body.name?.type === 'some') requestName = body.name.value;
+      if (body.version?.type === 'some') requestVersion = body.version.value;
+    } catch {
+      // No body or invalid — use defaults
+    }
 
-      const state = await workspaceGetState(storage, repoPath, ws);
-      if (!state) {
-        return sendError(PackageJobResponseType, variant('internal', { message: 'workspace not found or not deployed' }));
-      }
+    const state = await workspaceGetState(storage, repoPath, ws);
+    if (!state) {
+      return sendError(PackageJobResponseType, variant('internal', { message: 'workspace not found or not deployed' }));
+    }
 
-      const exportName = requestName ?? state.packageName;
-      const exportVersion = requestVersion ?? `${state.packageVersion}-${Date.now().toString(36)}`;
+    const exportName = requestName ?? state.packageName;
+    const exportVersion = requestVersion ?? `${state.packageVersion}-${Date.now().toString(36)}`;
 
-      const id = randomUUID();
-      await transferBackend.packageExport.create(id, {
-        repo,
-        name: exportName,
-        version: exportVersion,
-        workspace: some(ws),
-        status: variant('processing', variant('pending', null)),
-        createdAt: new Date(),
-      });
-
-      await transferBackend.packageExport.execute(id, repo);
-      return sendSuccess(PackageJobResponseType, { id });
+    const id = randomUUID();
+    await transferBackend.packageExport.create(id, {
+      repo,
+      name: exportName,
+      version: exportVersion,
+      workspace: some(ws),
+      status: variant('processing', variant('pending', null)),
+      createdAt: new Date(),
     });
-  }
+
+    await transferBackend.packageExport.execute(id, repo);
+    return sendSuccess(PackageJobResponseType, { id });
+  });
 
   // GET /api/repos/:repo/workspaces/:ws/export - Export workspace as a package zip
   app.get('/:ws/export', async (c) => {

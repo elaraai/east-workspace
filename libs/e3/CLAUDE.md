@@ -36,7 +36,7 @@ An e3 repository holds and manages datasets and East programs, and automatically
  - **dataflow** - the DAG of tasks and datasets to be executed in a workspace
  - **execution** - a single run of a task, identified by `(taskHash, inputsHash, executionId)` where executionId is a UUIDv7
  - **dataflow run** - a complete execution of a workspace's dataflow, tracking which task executions were used
- - **per-dataset ref** - each dataset has its own atomic `.ref` file (`workspaces/<ws>/data/<path>.ref`) instead of a single root tree hash, enabling concurrent per-dataset writes
+ - **per-dataset ref** - each dataset has its own atomic ref record (`workspaces/<ws>/data/<path>.beast2`) instead of a single root tree hash, enabling concurrent per-dataset writes
  - **version vector** - a `Map<string, string>` tracking which root input content hashes contributed to each dataset, used to detect stale reads in diamond dependencies
  - **reactive execution** - after each task completes, the orchestrator detects root input changes, invalidates affected tasks, and re-executes until a fixpoint is reached
  - **storage backend** - `StorageBackend` interface in e3-core abstracts object/dataset-ref storage (local filesystem today; S3/DynamoDB or EFS in cloud deployments)
@@ -73,6 +73,7 @@ See design/e3-dataset-status.md for dataset/task status semantics.
 See design/e3-watch.md for the `e3 watch` file-watching workflow.
 See design/e3-ui.md for first-class UI tasks (Data bindings, `e3.ui()`).
 See design/e3-functions.md for named package functions (`e3.function`) and graph-free / one-shot execution.
+See design/e3-data-architecture.md for the target data and execution architecture (one stored form, one door, one engine, the runner protocol, scheduling on cores and memory) and the staged plan to reach it; its evidence is design/e3-data-architecture-review.md.
 See design/repo-manager-abstraction.md and design/task-runner-implementation.md for the storage/execution abstractions.
 
 You can find the East language implementation at ../east

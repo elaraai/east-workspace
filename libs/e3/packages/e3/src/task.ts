@@ -6,16 +6,18 @@
 /**
  * Task definitions for e3 packages.
  *
- * Tasks are organized under `.tasks.${name}` with:
- * - `.tasks.${name}.function_ir` - The compiled IR (private)
- * - `.tasks.${name}.output` - The output dataset (public)
+ * A task reads datasets and writes one output, the dataset at
+ * `.tasks.${name}.output`: {@link task} returns it, {@link streamTask} emits
+ * it into an output kind, and {@link customTask} runs a command that writes
+ * it. The program a task runs is named by the task object export writes, not
+ * held in the data tree.
  */
 
-import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, DictType, EastType, ExprType, FunctionExpr, FunctionIR, NeverType, SetType, SubtypeExprOrValue } from '@elaraai/east';
-import { Expr, variant, some, none, ArrayType, StringType, NullType, FunctionType, StructType, East, IRType, EastIR, AsyncEastIR, encodeEastIR, toEastTypeValue, isTypeValueEqual } from '@elaraai/east';
-import { TASK_KIND_PARTITION, TASK_KIND_STREAM, encodePartitionTaskMetadata, encodeStreamTaskMetadata, mergeCommandIr, partitionProjectionShape, streamCommandIr, type ProjectionShape, type StreamMergeMode } from '@elaraai/e3-types';
-import type { DatasetDef, DataTreeDef, TaskDef } from './types.js';
-import { DEFAULT_RUNNER, runnerToCommand, runnerToVariant, type Runner } from './runner.js';
+import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, EastType, ExprType, FunctionExpr } from '@elaraai/east';
+import { Expr, variant, ArrayType, StringType, NullType, East, EastIR, isTypeValueEqual, printType, toEastTypeValue } from '@elaraai/east';
+import type { TaskRole } from '@elaraai/e3-types';
+import type { DatasetDef, DataTreeDef, OutputDef, PartitionDef, TaskDef } from './types.js';
+import { DEFAULT_RUNNER, type Runner } from './runner.js';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
 
 /**
@@ -25,6 +27,9 @@ import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js'
 type ExtractDatasetTypes<T extends readonly DatasetDef[]> = {
   [K in keyof T]: T[K] extends DatasetDef<infer U> ? U : never;
 } & EastType[];
+
+/** The task-output path tuple for task `Name`. */
+type TaskOutputPath<Name extends string> = [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>];
 
 /**
  * Singleton tree definition for `.tasks`.
@@ -54,30 +59,6 @@ function createTaskTree(name: string): DataTreeDef {
 }
 
 /**
- * Creates a private IR dataset for a task at `.tasks.${name}.${field}`: the
- * task's `function_ir`, or a stream task's `merge_ir`.
- *
- * @param name - Task name
- * @param taskTree - The task's subtree
- * @param field - The dataset's name within the task's subtree
- * @param eastIR - The compiled function IR
- * @returns A DatasetDef for the IR (private, not typed)
- */
-function createIRDataset(name: string, taskTree: DataTreeDef, field: 'function_ir' | 'merge_ir', eastIR: EastIR<any, any> | AsyncEastIR<any, any>): DatasetDef {
-  return {
-    kind: 'dataset',
-    name: field,
-    path: [variant('field', 'tasks'), variant('field', name), variant('field', field)],
-    type: IRType,
-    // Store the full EastIR/AsyncEastIR bundle so export.ts can use encodeEastIR
-    // and preserve source_map into the beast2 blob.
-    default: eastIR as any,
-    writable: false,
-    deps: new Set([...taskTree.deps, taskTree]),
-  };
-}
-
-/**
  * Creates an output dataset for a task at `.tasks.${name}.output`.
  *
  * @param name - Task name
@@ -89,7 +70,7 @@ function createOutputDataset<Name extends string, Output extends EastType>(
   name: Name,
   taskTree: DataTreeDef,
   outputType: Output,
-): DatasetDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> {
+): DatasetDef<Output, TaskOutputPath<Name>> {
   return {
     kind: 'dataset',
     name: 'output',
@@ -104,13 +85,13 @@ function createOutputDataset<Name extends string, Output extends EastType>(
  * Collects all dependencies for a task.
  *
  * Walks the dependency graph to include:
- * - The task's subtree and its contents (function_ir, output)
+ * - The task's subtree and its output
  * - All input datasets and their dependencies
  */
 function collectDeps(
   taskTree: DataTreeDef,
   outputDataset: DatasetDef,
-  inputs: DatasetDef[],
+  inputs: readonly DatasetDef[],
 ): Set<DataTreeDef | DatasetDef | TaskDef> {
   const deps = new Set<DataTreeDef | DatasetDef | TaskDef>();
 
@@ -138,10 +119,11 @@ function collectDeps(
  * Defines a task that runs an East function to produce an output dataset.
  *
  * Tasks read from input datasets and produce an output dataset.
- * When input datasets change, the task re-runs automatically.
+ * When input datasets change, the task re-runs automatically. The function
+ * runs once, as one unit: a large input opens lazily, and a collection it
+ * returns is written segment by segment.
  *
  * Task structure:
- * - `.tasks.${name}.function_ir` - The compiled IR (private)
  * - `.tasks.${name}.output` - The output dataset
  *
  * @typeParam Name - Task name (literal type)
@@ -150,8 +132,15 @@ function collectDeps(
  * @param name - Task name
  * @param inputs - Input datasets to read from
  * @param fn - Implementation function
+ * @param config - The runner the function runs on (default
+ *   {@link DEFAULT_RUNNER}), the environment it runs in, and its role: a data
+ *   task (the default), or a UI task with the data its surface reads
  * @returns A TaskDef with `.output` for chaining
- * 
+ * @throws {Error} When an input is marked with `e3.partition`, which only
+ *   {@link streamTask} takes.
+ *
+ * @see {@link streamTask} for an output emitted instead of returned, and work
+ * split over an input.
  * @see {@link customTask} for defining tasks with custom command logic (e.g. performing non-East operations).
  *
  * @example
@@ -179,78 +168,37 @@ export function task<Name extends string, Inputs extends readonly DatasetDef[], 
     | CallableFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
     | AsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
     | CallableAsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
-  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array, environment?: EnvironmentDecl },
-): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]>;
+  config?: { runner?: Runner, environment?: EnvironmentDecl, role?: TaskRole },
+): TaskDef<Output, TaskOutputPath<Name>>;
 export function task(
   name: string,
   inputs: DatasetDef[],
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
-  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array, environment?: EnvironmentDecl },
+  config?: { runner?: Runner, environment?: EnvironmentDecl, role?: TaskRole },
 ): TaskDef {
   if (config?.environment) validateEnvironmentDecl(config.environment, name);
-  // Keep the full EastIR bundle (IR + source_map) so we don't drop the
-  // source map before it reaches the beast2 encoder in export.ts.
-  const eastIR = fn.toIR();
-  const outputType = Expr.type(fn as Expr<any>).output as EastType;
-
-  // Create the task's subtree at .tasks.${name}
-  const taskTree = createTaskTree(name);
-
-  // Create the function_ir dataset (private, holds the IR bundle)
-  const functionIRDataset = createIRDataset(name, taskTree, 'function_ir', eastIR);
-
-  // The first input is the FunctionIR to execute
-  const input_datasets = [
-    functionIRDataset,
-    ...inputs
-  ];
-
-  // Create the output dataset
-  const output = createOutputDataset(name, taskTree, outputType);
-
-  // Resolve the typed Runner to argv at task-definition time. The variant is
-  // SDK-only metadata: it never reaches the IR or the wire — only the
-  // resolved string array does, baked in as an East constant below. Default
-  // is east-node + east-node-std (every e3 project has Node already).
-  const argvPrefix = runnerToCommand(config?.runner ?? DEFAULT_RUNNER);
-
-  // Build the command IR. At task-execution time this East function is
-  // evaluated with the staged input/output paths and returns the final argv.
-  const commandFn = East.function(
-    [ArrayType(StringType), StringType],
-    ArrayType(StringType),
-    ($, input_paths, output_path) => {
-      const command = $.let(argvPrefix, ArrayType(StringType));
-
-      // Function argument paths
-      const i = $.let(1n);
-      $.while(East.less(i, input_paths.size()), $ => {
-        $(command.pushLast("-i"));
-        $(command.pushLast(input_paths.get(i)));
-        $.assign(i, i.add(1n));
-      });
-
-      // Output path
-      $(command.pushLast('-o'))
-      $(command.pushLast(output_path))
-
-      // Function IR is the first input
-      $(command.pushLast(input_paths.get(0n)))
-
-      $.return(command);
+  for (const input of inputs as readonly (DatasetDef | PartitionDef)[]) {
+    if (input.kind === 'partition') {
+      throw new Error(
+        `task '${name}': input '${input.dataset.name}' is marked with e3.partition, which only e3.streamTask takes — ` +
+        `pass the dataset itself`
+      );
     }
-  );
+  }
+
+  const taskTree = createTaskTree(name);
+  const output = createOutputDataset(name, taskTree, Expr.type(fn as Expr<any>).output as EastType);
 
   const taskDef: TaskDef = {
     kind: 'task',
     name,
-    // Keep the full EastIR bundle so export.ts can encode with source map.
-    command: commandFn.toIR() as EastIR<[string[], string], string[]>,
-    inputs: input_datasets,
+    // Keep the full EastIR bundle (IR + source map) so export.ts can encode
+    // it with its source map.
+    body: { kind: 'east', program: fn.toIR() },
+    inputs,
     output,
-    deps: collectDeps(taskTree, output, input_datasets),
-    taskKind: config?.kind,
-    metadata: config?.metadata,
+    role: config?.role ?? variant('data', null),
+    deps: collectDeps(taskTree, output, inputs),
     runner: config?.runner ?? DEFAULT_RUNNER,
     environment: config?.environment,
   };
@@ -261,13 +209,27 @@ export function task(
   return taskDef;
 }
 
+/**
+ * Defines a task that runs a command rather than East: a bash script built
+ * from the staged input paths and the path the output must be written to.
+ *
+ * @typeParam Name - Task name (literal type)
+ * @typeParam Inputs - Input dataset types
+ * @typeParam Output - Output type
+ * @param name - Task name
+ * @param inputs - Input datasets, staged as beast2 files
+ * @param outputType - The East type of the beast2 file the command writes
+ * @param command - Builds the bash script from the input paths and the output path
+ * @param config - The environment the command runs in
+ * @returns A TaskDef with `.output` for chaining
+ */
 export function customTask<Name extends string, Inputs extends Array<DatasetDef>, Output extends EastType>(
   name: Name,
   inputs: Inputs,
   outputType: Output,
   command: ($: BlockBuilder<StringType>, input_paths: ExprType<ArrayType<StringType>>, output_path: ExprType<StringType>) => Expr<StringType> | void,
   config?: { environment?: EnvironmentDecl },
-): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> {
+): TaskDef<Output, TaskOutputPath<Name>> {
   if (config?.environment) validateEnvironmentDecl(config.environment, name);
 
   // Create the task's subtree at .tasks.${name}
@@ -290,13 +252,14 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
     ($, input_paths, output_path) => ["bash", "-c", bashCommandFn(input_paths, output_path)]
   );
 
-  const taskDef: TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> = {
+  const taskDef: TaskDef<Output, TaskOutputPath<Name>> = {
     kind: 'task',
     name,
     // Keep the full EastIR bundle so export.ts can encode with source map.
-    command: commandFn.toIR() as EastIR<[string[], string], string[]>,
+    body: { kind: 'command', command: commandFn.toIR() as EastIR<[string[], string], string[]> },
     inputs,
     output,
+    role: variant('data', null),
     deps: collectDeps(taskTree, output, inputs),
     environment: config?.environment,
   };
@@ -308,700 +271,247 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
 }
 
 // =============================================================================
-// Partitioned tasks
-// =============================================================================
-
-/** The task-output path tuple for task `Name`. */
-type TaskOutputPath<Name extends string> = [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>];
-
-/** The expression parameters a body callback receives for a dataset tuple. */
-type DatasetExprs<T extends readonly DatasetDef[]> = {
-  [K in keyof T]: T[K] extends DatasetDef<infer U> ? ExprType<U> : never;
-};
-
-/** The key type a partitioned collection is carved by: Dict keys, Set
- *  elements, or Array elements. */
-type CollectionKeyType<T> =
-  T extends DictType<infer K, any> ? K :
-  T extends SetType<infer E> ? E :
-  T extends ArrayType<infer E> ? E :
-  never;
-
-/** The per-dataset key types of a partition tuple. */
-type PartitionKeyTypes<Ps extends readonly DatasetDef[]> = {
-  [K in keyof Ps]: Ps[K] extends DatasetDef<infer T> ? CollectionKeyType<T> : never;
-};
-
-/** Field-wise intersection of two key types: for struct keys, the fields
- *  present in both with the identical East type; otherwise the types must
- *  agree exactly. */
-type IntersectKeys<A, B> =
-  A extends StructType<infer FA> ? B extends StructType<infer FB>
-    ? StructType<{ [F in keyof FA & keyof FB as FA[F] extends FB[F] ? (FB[F] extends FA[F] ? F : never) : never]: FA[F] }>
-    : never
-  : A extends B ? (B extends A ? A : never) : never;
-
-/** The strict field-wise intersection of every partitioned dataset's key
- *  type — what a co-partitioned `by` projection receives. */
-type PartitionByKey<Ps extends readonly DatasetDef[]> =
-  PartitionKeyTypes<Ps> extends readonly [infer Only] ? Only :
-  PartitionKeyTypes<Ps> extends readonly [infer A, ...infer Rest] ? IntersectKeysAll<A, Rest> :
-  never;
-
-/** Folds {@link IntersectKeys} over the remaining key types. */
-type IntersectKeysAll<A, Rest> =
-  Rest extends readonly [] ? A :
-  Rest extends readonly [infer B, ...infer More] ? IntersectKeysAll<IntersectKeys<A, B>, More> :
-  never;
-
-/** What a `by` projection may return: an expression over the key (the
- *  identity, a field read, or a nested path — leading-prefix ORDER is
- *  validated at build time, since TypeScript types carry no field order), or
- *  a struct literal drawn from the key's own fields with their own
- *  expression types. Anything else is a type error at the call site. */
-type ByResult<K> =
-  | Expr<any>
-  | (K extends StructType<infer F> ? { [P in keyof F]?: ExprType<F[P]> } : never);
-
-/** What `merge` takes for a keyed output: a Dict output folds the values of
- *  equal keys with a function of the key and two values, a Set output
- *  collapses equal elements with the literal `'union'`, and no other output
- *  takes one. */
-type OutputMerge<Output extends EastType> =
-  Output extends DictType<infer K, infer V>
-    ? ($: BlockBuilder<V>, key: ExprType<K>, a: ExprType<V>, b: ExprType<V>) => SubtypeExprOrValue<V> | void
-    : Output extends SetType<any> ? 'union' : never;
-
-/**
- * The declaration half of {@link partitionTask} — everything structural about
- * the task; the body comes last as the `fn` argument.
- *
- * @typeParam Partitions - The partitioned (huge, co-partitioned) input datasets
- * @typeParam Inputs - The ordinary input datasets
- * @typeParam Output - The output dataset's East type
- */
-export interface PartitionTaskSpec<
-  Partitions extends readonly [DatasetDef, ...DatasetDef[]],
-  Inputs extends readonly DatasetDef[],
-  Output extends EastType,
-> {
-  /** One or more huge collection inputs, carved into shared key-range
-   *  partitions. Two or more entries co-partition: all must be Dict or all
-   *  Set roots with a shared key space. */
-  readonly partitions: [...Partitions];
-  /** Boundary-alignment projection: rows with equal `by(key)` never split
-   *  across partitions. Must read a leading prefix of every partitioned
-   *  dataset's key, so aligned runs stay contiguous in canonical order.
-   *  Accepted shapes (validated at build time): the key itself; a leading
-   *  field (`key.f`); a nested leading-field path (`key.a.b`, each step the
-   *  first field of its level); or a struct literal of leading fields in
-   *  declared order (`{ f1: key.f1, f2: key.f2 }`). Any other body is
-   *  rejected at build time — semantically monotone projections outside
-   *  these shapes are deliberately not inferred. The return type admits
-   *  only expressions over the key or a struct literal of the key's own
-   *  fields ({@link ByResult}); field ORDER is the build-time half. */
-  readonly by?: ($: BlockBuilder<NeverType>, key: ExprType<PartitionByKey<Partitions>>) => ByResult<PartitionByKey<Partitions>>;
-  /** Ordinary inputs, passed whole to every partition execution (small ⇒
-   *  broadcast; huge + indexed ⇒ opened lazily by the runner). Any change to
-   *  them re-runs all partitions. */
-  readonly inputs?: [...Inputs];
-  /** The output dataset's East type. */
-  readonly output: Output;
-  /** Associative fold merging two partials into one. When present, each
-   *  partition execution returns a partial of the output and partials fold
-   *  pairwise in a fixed tree order; when absent, each execution returns its
-   *  shard of the output and the shards splice in partition order. */
-  readonly combine?: ($: BlockBuilder<Output>, a: ExprType<Output>, b: ExprType<Output>) => SubtypeExprOrValue<Output> | void;
-  /**
-   * Per-key resolution for keyed partials that may collide — the third
-   * assembly mode, alongside splice and `combine`.
-   *
-   * @remarks
-   * The partials are merged by the task's runner — its `merge` command, over
-   * sorted partials, in one pass; the orchestrator never decodes them.
-   * Partials whose key ranges overlap are grouped, and each group merges
-   * through a tree of merge executions (up to 32 partials each) folding equal
-   * keys in partition order; partials no other partial reaches take no merge
-   * at all, and the results splice. Every merge unit is an ordinary cached
-   * execution: a re-run with unchanged partials merges nothing again, and the
-   * intermediate results of the tree are stored like any other execution
-   * output. The merge command is built here, at export, and carried in the
-   * package's metadata like any other command IR.
-   *
-   * A `Dict` output takes a function of the key and two of its values, over
-   * the output's own key and value types; a `Set` output takes the literal
-   * `'union'`. The function must be associative — a key's values may fold in
-   * any grouping, though never out of partition order. Mutually exclusive with
-   * {@link combine}, which stays the mode for non-collection outputs (KPIs,
-   * counts) and for authors who want a whole-value fold.
-   *
-   * Needs a stock runtime: the merge units run the runner's `merge` command,
-   * which the `custom` runtime does not have and an older runner does not
-   * ship.
-   */
-  readonly merge?: OutputMerge<Output>;
-  /** Target carved-slice size in wire bytes. Defaults to 256 MiB. */
-  readonly targetPartitionBytes?: number;
-  /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. */
-  readonly runner?: Runner;
-  /** Execution environment declaration, as for {@link task}. */
-  readonly environment?: EnvironmentDecl;
-}
-
-/** Default carved-slice byte target for {@link partitionTask}. */
-const DEFAULT_TARGET_PARTITION_BYTES = 256 * 1024 * 1024;
-
-/** The East key type a collection dataset is carved by. */
-function collectionKeyType(name: string, dataset: DatasetDef): EastType {
-  const type = dataset.type as EastType & { key?: EastType; value?: EastType };
-  switch (type.type) {
-    case 'Dict': return type.key!;
-    case 'Set': return type.key!;
-    case 'Array': return type.value!;
-    default:
-      throw new Error(`partitionTask '${name}': partitioned dataset '${dataset.name}' must be a collection (Array, Set or Dict), got ${type.type}`);
-  }
-}
-
-/**
- * Defines a partitioned task: e3 carves the huge partitioned input(s) into
- * key-range slices, runs `fn` once per partition as an ordinary
- * content-addressed execution (parallel, memoized per partition), and
- * assembles the output — by splicing shards in partition order, by merging
- * keyed partials on the task's runner when `merge` is given, or by folding
- * partials pairwise when `combine` is given.
- *
- * `fn` always returns the output type: without `combine` each execution
- * returns its *shard* of the output (Array shards concatenate freely;
- * Dict/Set shard key ranges must ascend disjointly in partition order — any
- * key-preserving or monotone re-keying transform qualifies). The shard
- * contract is deliberately enforced at SPLICE TIME, not build time: whether
- * an arbitrary body preserves key order is not decidable from types, and a
- * static rule would false-reject permitted monotone re-keys — a violation
- * fails the task deterministically at splice, naming the offending
- * partitions and the remedies (`combine` / `customTask`). With `combine`
- * each execution returns a *partial* and the partials fold.
- *
- * Parameter order is fixed and fully typed: the partition slices first (in
- * declared order, each typed as its dataset's own collection type), then the
- * ordinary `inputs` in order.
- *
- * @typeParam Name - Task name (literal type)
- * @typeParam Partitions - Partitioned input dataset defs
- * @typeParam Inputs - Ordinary input dataset defs
- * @typeParam Output - Output type
- * @param name - Task name
- * @param spec - The declaration: partitioned inputs, alignment, output type,
- *   combine mode, sizing, runner and environment
- * @param fn - Implementation body, run once per partition
- * @returns A TaskDef with `.output` for chaining
- * @throws {Error} When a partitioned dataset is not a collection, partitions
- *   mix collection kinds (or include Arrays) under co-partitioning, key
- *   types cannot align, `by` (explicit or the implicit alignment under
- *   co-partitioning) does not read a leading prefix of every partitioned
- *   dataset's key, the output is not a collection in splice mode (no
- *   `combine`), or `merge` is given alongside `combine`, on an Array output,
- *   in the wrong form for the output's kind, or with the `custom` runtime.
- *
- * @example
- * ```ts
- * const sales = e3.input('sales', DictType(StringType, SaleType));
- *
- * const cleaned = e3.partitionTask('cleaned', {
- *   partitions: [sales],
- *   output: DictType(StringType, SaleType),
- * }, ($, slice) => slice.filter(($, sale) => East.greater(sale.qty, 0n)));
- * ```
- */
-export function partitionTask<
-  Name extends string,
-  const Partitions extends readonly [DatasetDef, ...DatasetDef[]],
-  const Inputs extends readonly DatasetDef[] = [],
-  Output extends EastType = EastType,
->(
-  name: Name,
-  spec: PartitionTaskSpec<Partitions, Inputs, Output>,
-  fn: (
-    $: BlockBuilder<Output>,
-    ...args: [...DatasetExprs<Partitions>, ...DatasetExprs<Inputs>]
-  ) => SubtypeExprOrValue<Output> | void,
-): TaskDef<Output, TaskOutputPath<Name>> {
-  const partitions = spec.partitions as readonly DatasetDef[];
-  const inputs = (spec.inputs ?? []) as readonly DatasetDef[];
-  const output = spec.output as EastType;
-
-  // Partitioned inputs must be collections; co-partitioning is restricted to
-  // Dict/Set roots (a shared key space must exist for boundary alignment —
-  // an Array has none).
-  const keyTypes = partitions.map((p) => collectionKeyType(name, p));
-  const kinds = partitions.map((p) => (p.type as EastType).type);
-  if (partitions.length > 1) {
-    const first = kinds[0]!;
-    if (first === 'Array' || kinds.some((k) => k !== first)) {
-      throw new Error(
-        `partitionTask '${name}': co-partitioning is restricted to Dict/Set roots sharing a key space — ` +
-        `got [${kinds.join(', ')}]. Partition one dataset and access the others as ordinary inputs, or re-key upstream.`
-      );
-    }
-  }
-
-  // The `by` parameter type: a single partition's own key, or the strict
-  // field-wise intersection of every key struct under co-partitioning.
-  let byParamType: EastType;
-  if (partitions.length === 1) {
-    byParamType = keyTypes[0]!;
-  } else if (keyTypes.every((k) => k.type === 'Struct')) {
-    const first = keyTypes[0]! as EastType & { fields: Record<string, EastType> };
-    const shared: Record<string, EastType> = {};
-    for (const [field, fieldType] of Object.entries(first.fields)) {
-      const everywhere = keyTypes.every((k) => {
-        const other = (k as EastType & { fields: Record<string, EastType> }).fields[field];
-        return other !== undefined && isTypeValueEqual(toEastTypeValue(other), toEastTypeValue(fieldType));
-      });
-      if (everywhere) shared[field] = fieldType;
-    }
-    if (Object.keys(shared).length === 0) {
-      throw new Error(`partitionTask '${name}': co-partitioned key types share no identically-typed fields — the datasets have no common key space`);
-    }
-    byParamType = StructType(shared);
-  } else {
-    const first = toEastTypeValue(keyTypes[0]!);
-    if (!keyTypes.every((k) => isTypeValueEqual(toEastTypeValue(k), first))) {
-      throw new Error(`partitionTask '${name}': co-partitioned key types must be identical (or share struct fields) for boundary alignment`);
-    }
-    byParamType = keyTypes[0]!;
-  }
-
-  // Reify `by` and validate the leading-prefix soundness condition per
-  // dataset: struct keys sort lexicographically by declared field order, so
-  // the projection must read a leading prefix of each dataset's OWN order.
-  let byIr: Uint8Array | undefined;
-  let byShape: ProjectionShape | null = null;
-  if (spec.by !== undefined) {
-    const byFn = East.function([byParamType], undefined, spec.by as any);
-    const bundle = byFn.toIR();
-    const shape = partitionProjectionShape(bundle.ir as FunctionIR);
-    if (shape === null) {
-      throw new Error(
-        `partitionTask '${name}': \`by\` must project a leading prefix of the partition key — ` +
-        `accepted shapes: the key itself, a leading field (\`key.f\`), a nested leading-field ` +
-        `path (\`key.a.b\`, each step the first field of its level), or a struct literal of ` +
-        `leading fields in declared order (\`{ f1: key.f1, f2: key.f2 }\`)`
-      );
-    }
-    if (shape.names.length > 0) {
-      for (let i = 0; i < partitions.length; i++) {
-        const keyType = keyTypes[i]!;
-        if (keyType.type !== 'Struct') {
-          throw new Error(
-            `partitionTask '${name}': \`by\` reads key fields, but partitioned dataset '${partitions[i]!.name}' has a non-struct key (${keyType.type}) — use the identity projection`
-          );
-        }
-        if (shape.kind === 'fields') {
-          const order = Object.keys((keyType as EastType & { fields: Record<string, EastType> }).fields);
-          const misaligned = shape.names.length > order.length || shape.names.some((f, j) => order[j] !== f);
-          if (misaligned) {
-            throw new Error(
-              `partitionTask '${name}': \`by\` projects (${shape.names.join(', ')}), which is not a leading prefix of ` +
-              `partitioned dataset '${partitions[i]!.name}' key field order (${order.join(', ')})`
-            );
-          }
-        } else {
-          // Nested path: every step must read the FIRST field of its
-          // level's struct — struct keys sort lexicographically by declared
-          // field order, so only first-field descent preserves it.
-          let level: EastType = keyType;
-          for (let j = 0; j < shape.names.length; j++) {
-            const step = shape.names[j]!;
-            if (level.type !== 'Struct') {
-              throw new Error(
-                `partitionTask '${name}': \`by\` path (key.${shape.names.join('.')}) descends into a ${level.type} at '${step}' — ` +
-                `every step must read the first field of a struct level of partitioned dataset '${partitions[i]!.name}'`
-              );
-            }
-            const levelFields: Record<string, EastType> = (level as EastType & { fields: Record<string, EastType> }).fields;
-            const order = Object.keys(levelFields);
-            if (order[0] !== step) {
-              throw new Error(
-                `partitionTask '${name}': \`by\` path (key.${shape.names.slice(0, j + 1).join('.')}) reads '${step}', which is not ` +
-                `the first field of partitioned dataset '${partitions[i]!.name}' key level (${order.join(', ')})`
-              );
-            }
-            level = levelFields[step]!;
-          }
-        }
-      }
-    }
-    byShape = shape;
-    byIr = encodeEastIR(bundle);
-  }
-
-  // Under co-partitioning with non-identical key types, the EFFECTIVE
-  // boundary projection must ALSO be a leading prefix of every dataset's
-  // key order when it is implicit:
-  // - with no `by`, the runtime aligns secondaries under the PRIMARY's key
-  //   comparator — the projection is the primary's full field sequence;
-  // - with an identity `by`, it is the shared-intersection struct in its
-  //   declared field order.
-  // A key set like {sku,period} × {period,sku} passes the field-wise
-  // intersection yet sorts differently per dataset — accepted, it would
-  // silently mis-assign rows at run time with a success status.
-  if (partitions.length > 1) {
-    const firstKey = toEastTypeValue(keyTypes[0]!);
-    const keysIdentical = keyTypes.every((k) => isTypeValueEqual(toEastTypeValue(k), firstKey));
-    const validatedByFields = byShape !== null && byShape.names.length > 0;
-    if (!keysIdentical && !validatedByFields) {
-      // Non-identical keys reach here only via the struct-intersection path.
-      const sourceFields = (t: EastType): Record<string, EastType> =>
-        (t as EastType & { fields: Record<string, EastType> }).fields;
-      const effective = spec.by !== undefined
-        ? { label: 'the identity `by` projection reads the shared key fields', fields: sourceFields(byParamType) }
-        : { label: `with no \`by\`, co-partition boundaries align on partitioned dataset '${partitions[0]!.name}' key order`, fields: sourceFields(keyTypes[0]!) };
-      const eff = Object.keys(effective.fields);
-      for (let i = 0; i < partitions.length; i++) {
-        const fields = sourceFields(keyTypes[i]!);
-        const order = Object.keys(fields);
-        const misaligned = eff.length > order.length || eff.some((f, j) =>
-          order[j] !== f || !isTypeValueEqual(toEastTypeValue(effective.fields[f]!), toEastTypeValue(fields[f]!)));
-        if (misaligned) {
-          throw new Error(
-            `partitionTask '${name}': ${effective.label} (${eff.join(', ')}), which is not a leading prefix of ` +
-            `partitioned dataset '${partitions[i]!.name}' key field order (${order.join(', ')}) — ` +
-            `declare \`by\` as a shared leading-prefix projection, or re-key upstream`
-          );
-        }
-      }
-    }
-  }
-
-  // Splice mode (no `combine`) assembles the output from per-partition
-  // SHARDS in partition order — only a collection can splice. A
-  // non-collection output would pass definition time and fail only when the
-  // input first carves into two or more partitions.
-  if (spec.combine === undefined && output.type !== 'Array' && output.type !== 'Set' && output.type !== 'Dict') {
-    throw new Error(
-      `partitionTask '${name}': without \`combine\`, each partition returns a shard of the output and the shards ` +
-      `splice (or, with \`merge\`, merge) in key order — the output must be a collection (Array, Set or Dict), ` +
-      `got ${output.type}. Provide \`combine\` to fold non-collection partials.`
-    );
-  }
-
-  // Reify `combine` as a free East function (Out, Out) -> Out.
-  let combineIr: Uint8Array | undefined;
-  if (spec.combine !== undefined) {
-    const combineFn = East.function([output, output], output, spec.combine as any);
-    combineIr = encodeEastIR(combineFn.toIR());
-  }
-
-  // Reify `merge` as a free East function (Key, Value, Value) -> Value for a
-  // Dict output, or record the Set union flag. The task's runner merges the
-  // partials with it through its `merge` command, whose command IR is built
-  // here and carried in the metadata — the orchestrator runs it as an
-  // ordinary execution per group of partials.
-  let mergeIr: Uint8Array | undefined;
-  let mergeSets = false;
-  let mergeCommand: Uint8Array | undefined;
-  if (spec.merge !== undefined) {
-    if (spec.combine !== undefined) {
-      throw new Error(
-        `partitionTask '${name}': \`merge\` and \`combine\` are two assembly modes — give one. ` +
-        `\`merge\` merges keyed partials by key; \`combine\` folds whole partials.`
-      );
-    }
-    if (spec.runner?.runtime === 'custom') {
-      throw new Error(
-        `partitionTask '${name}': merge runs the fan-in on the task's runner, which must be a stock runtime ` +
-        `(east-node, east-py, east-c) — the custom runtime has no merge command`
-      );
-    }
-    if (spec.merge === 'union') {
-      if (output.type !== 'Set') {
-        throw new Error(`partitionTask '${name}': \`merge: 'union'\` assembles a Set output, got ${output.type}` +
-          (output.type === 'Dict' ? ' — a Dict output takes a per-key merge function' : ''));
-      }
-      mergeSets = true;
-    } else {
-      if (output.type !== 'Dict') {
-        throw new Error(
-          `partitionTask '${name}': a \`merge\` FUNCTION resolves a key present in two partials, so the output must be a Dict, ` +
-          `got ${output.type}${output.type === 'Set' ? " — a Set output takes `merge: 'union'`" : ''}`
-        );
-      }
-      const keyType = (output as EastType & { key?: EastType }).key!;
-      const valueType = (output as EastType & { value?: EastType }).value!;
-      const mergeFn = East.function([keyType, valueType, valueType], valueType, spec.merge as any);
-      mergeIr = encodeEastIR(mergeFn.toIR());
-    }
-    mergeCommand = encodeEastIR(mergeCommandIr(runnerToVariant(spec.runner ?? DEFAULT_RUNNER), mergeSets ? 'union' : 'function'));
-  }
-
-  const targetPartitionBytes = spec.targetPartitionBytes ?? DEFAULT_TARGET_PARTITION_BYTES;
-  if (!Number.isInteger(targetPartitionBytes) || targetPartitionBytes <= 0) {
-    throw new Error(`partitionTask '${name}': targetPartitionBytes must be a positive integer, got ${spec.targetPartitionBytes}`);
-  }
-
-  const bodyFn = East.function(
-    [...partitions.map((p) => p.type), ...inputs.map((i) => i.type)] as EastType[],
-    output,
-    fn as any,
-  );
-
-  const metadata = encodePartitionTaskMetadata({
-    partitions: BigInt(partitions.length),
-    by: byIr !== undefined ? some(byIr) : none,
-    combine: combineIr !== undefined ? some(combineIr) : none,
-    targetPartitionBytes: BigInt(targetPartitionBytes),
-    merge: mergeIr !== undefined ? some(mergeIr) : none,
-    mergeSets,
-    mergeCommand: mergeCommand !== undefined ? some(mergeCommand) : none,
-  });
-
-  return task(
-    name,
-    [...partitions, ...inputs] as DatasetDef[],
-    bodyFn as any,
-    {
-      kind: TASK_KIND_PARTITION,
-      metadata,
-      ...(spec.runner !== undefined && { runner: spec.runner }),
-      ...(spec.environment !== undefined && { environment: spec.environment }),
-    },
-  ) as TaskDef<Output, TaskOutputPath<Name>>;
-}
-
-// =============================================================================
 // Streaming tasks
 // =============================================================================
 
-/** The `emit` capability's function type for an output collection: Dict
- *  outputs emit `(key, value)`, Array/Set outputs emit `(element)`. */
-export type EmitOf<Out extends EastType> =
-  Out extends DictType<infer K, infer V> ? FunctionType<[K, V], NullType> :
-  Out extends SetType<infer E> ? FunctionType<[E], NullType> :
-  Out extends ArrayType<infer E> ? FunctionType<[E], NullType> :
-  never;
+/**
+ * Marks an input of a {@link streamTask} as one its work may be split over.
+ *
+ * The body receives one piece of the dataset, typed as the whole: a key range
+ * of a Set or Dict, or a position range of an Array. Pieces are cut where the
+ * content says, so an insertion re-cuts only the pieces around it. Rows whose
+ * `by` fields are equal are never split across pieces.
+ *
+ * `by` names leading key fields, in order — `['account']`, or
+ * `['account', 'at.day']`, whose last entry reads the first field of `at`. Two
+ * or more partitioned inputs are cut at the same keys, so they must be Sets or
+ * Dicts whose keys, or whose `by` fields, have the same types. {@link
+ * streamTask} checks all of this against the dataset, naming the task.
+ *
+ * @typeParam T - The dataset's East type
+ * @param dataset - The dataset
+ * @param config - `by`, the fields rows are grouped by
+ * @returns The marked input, to pass in a stream task's `inputs`
+ *
+ * @example
+ * ```ts
+ * const totals = e3.streamTask('totals', {
+ *   inputs: [e3.partition(sales, { by: ['account'] }), rates],
+ *   output: e3.output.dict(StringType, FloatType, { merge: ($, account, a, b) => a.add(b) }),
+ * }, ($, sales, rates, emit) => {
+ *   $.for(sales, ($, sale, key) => {
+ *     $(emit(key.account, sale.amount.multiply(rates.get(sale.currency))));
+ *   });
+ * });
+ * ```
+ */
+export function partition<T extends EastType>(dataset: DatasetDef<T>, config?: { by?: string[] }): PartitionDef<T> {
+  return { kind: 'partition', dataset, by: [...(config?.by ?? [])] };
+}
+
+/** The expression a stream task's body receives for each input. */
+type InputExprs<T extends readonly (DatasetDef | PartitionDef)[]> = {
+  [K in keyof T]:
+    T[K] extends PartitionDef<infer U> ? ExprType<U> :
+    T[K] extends DatasetDef<infer U> ? ExprType<U> :
+    never;
+};
 
 /**
- * The declaration half of {@link streamTask} — everything structural about
- * the task; the body comes last as the `fn` argument.
+ * The declaration half of {@link streamTask}; the body comes last as the `fn`
+ * argument.
  *
- * @typeParam Stream - The streamed input dataset def, when present
- * @typeParam Inputs - The ordinary input datasets
- * @typeParam Output - The output collection's East type
+ * @typeParam Inputs - The inputs, some marked with {@link partition}
+ * @typeParam Output - The output kind
  */
 export interface StreamTaskSpec<
-  Stream extends DatasetDef | undefined,
-  Inputs extends readonly DatasetDef[],
-  Output extends EastType,
+  Inputs extends readonly (DatasetDef | PartitionDef)[],
+  Output extends OutputDef,
 > {
-  /** The input the runner feeds through the body in canonical order with
-   *  O(segment) memory. Omit entirely for a producer task (the body loops
-   *  over platform-function sources and emits). */
-  readonly stream?: Stream;
-  /** Ordinary inputs, decoded whole. */
-  readonly inputs?: [...Inputs];
-  /** The output collection type. An Array output stores its elements in
-   *  emission order. A Set or Dict output must be emitted in ascending key
-   *  order (East's total order): the runner writes it in one pass, segment by
-   *  segment, and an out-of-order key fails the task with the same message
-   *  on every runtime. Duplicate Set/Dict keys are a runtime error unless
-   *  {@link merge} folds them. */
+  /** The inputs, in the body's parameter order. An input wrapped in
+   *  {@link partition} is one the work may be split over; the others reach
+   *  every piece whole, opened lazily when large. Empty for a producer. */
+  readonly inputs: [...Inputs];
+  /** The output kind — `e3.output.array`, `set`, `dict` or `fold`. It fixes
+   *  `emit`'s signature and how the parts of the output combine. */
   readonly output: Output;
-  /**
-   * How the runner's sink folds emissions with equal keys that arrive
-   * together, instead of failing on the duplicate.
-   *
-   * @remarks
-   * A `Dict` output takes a function of the key and two values: adjacent
-   * equal keys fold left in emission order, `acc = merge(key, acc, value)`. A
-   * `Set` output takes the literal `'union'`: adjacent equal elements collapse
-   * to the first. The ascending contract stands — `merge` folds the equal keys
-   * of a grouped stream; keys that collide across the stream are a
-   * `partitionTask` with `merge`. The stored dataset is exactly the output the
-   * folded emissions would write. An Array output takes no `merge`.
-   */
-  readonly merge?: OutputMerge<Output>;
-  /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. Every
-   *  stock runtime streams the output through `emit` and feeds the `stream`
-   *  input lazily (segment-fed iteration and keyed reads at O(segment)
-   *  decoded memory; any other operation on it decodes the whole value
-   *  once). The `custom` runtime is rejected — its argv cannot carry the
-   *  streaming flags. */
+  /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. A stock
+   *  runtime: the `custom` one runs only a program that returns its output. */
   readonly runner?: Runner;
   /** Execution environment declaration, as for {@link task}. */
   readonly environment?: EnvironmentDecl;
 }
 
-/** The body parameters of a {@link streamTask}: the stream value when
- *  declared, the ordinary inputs, then the `emit` capability. */
-type StreamTaskArgs<
-  Stream extends DatasetDef | undefined,
-  Inputs extends readonly DatasetDef[],
-  Output extends EastType,
-> = Stream extends DatasetDef<infer S>
-  ? [ExprType<S>, ...DatasetExprs<Inputs>, ExprType<EmitOf<Output>>]
-  : [...DatasetExprs<Inputs>, ExprType<EmitOf<Output>>];
+/** The key a Set or Dict is cut by; an Array, cut by position, has none. */
+function collectionKey(type: EastType): EastType | undefined {
+  const collection = type as EastType & { key?: EastType };
+  return collection.type === 'Set' || collection.type === 'Dict' ? collection.key : undefined;
+}
 
 /**
- * Defines a streaming task: one execution whose runner feeds the `stream`
- * input segment-by-segment in canonical order (state is ordinary `$.let`
- * locals) and writes the output incrementally through the `emit` capability
- * — bounded memory at both ends, exact left-fold semantics, no parallelism
- * and no partial recompute.
+ * Checks a stream task's partitioned inputs against their datasets: each is a
+ * collection, each `by` names leading key fields, and co-partitioned inputs
+ * are Sets or Dicts cut by fields of the same types.
+ */
+function checkPartitions(name: string, partitions: readonly PartitionDef[]): void {
+  const cuts: { input: string; types: EastType[] }[] = [];
+  for (const { dataset, by } of partitions) {
+    const where = `streamTask '${name}': partitioned input '${dataset.name}'`;
+    const type = dataset.type as EastType;
+    if (type.type !== 'Array' && type.type !== 'Set' && type.type !== 'Dict') {
+      throw new Error(`${where} must be a collection (Array, Set or Dict), got ${type.type}`);
+    }
+    const key = collectionKey(type);
+    if (key === undefined) {
+      if (by.length > 0) throw new Error(`${where} is an Array, cut by position, so it has no key for \`by\` to name`);
+      continue;
+    }
+    if (by.length === 0) {
+      cuts.push({ input: dataset.name, types: [key] });
+      continue;
+    }
+    if (key.type !== 'Struct') {
+      throw new Error(`${where} has a ${key.type} key, which has no fields for \`by\` to name`);
+    }
+    const fields = (key as EastType & { fields: Record<string, EastType> }).fields;
+    const order = Object.keys(fields);
+    const types = by.map((entry, i) => {
+      const [head, ...path] = entry.split('.');
+      if (order[i] !== head || (path.length > 0 && i !== by.length - 1)) {
+        throw new Error(
+          `${where}: \`by\` (${by.join(', ')}) must name leading key fields in order — the key's fields are ` +
+          `(${order.join(', ')}), and only the last entry may read into one, as 'at.day' does`
+        );
+      }
+      let level = fields[head!]!;
+      for (const step of path) {
+        const levelFields = level.type === 'Struct' ? Object.keys((level as EastType & { fields: Record<string, EastType> }).fields) : [];
+        if (levelFields[0] !== step) {
+          throw new Error(
+            `${where}: \`by\` path '${entry}' reads '${step}', which is not the first field of ` +
+            `${level.type === 'Struct' ? `(${levelFields.join(', ')})` : `a ${level.type}`} — rows sort by a struct's first field, so only it groups them`
+          );
+        }
+        level = (level as EastType & { fields: Record<string, EastType> }).fields[step]!;
+      }
+      return level;
+    });
+    cuts.push({ input: dataset.name, types });
+  }
+
+  if (partitions.length < 2) return;
+  if (cuts.length < partitions.length) {
+    throw new Error(
+      `streamTask '${name}': co-partitioned inputs are cut at the same keys, so each must be a Set or a Dict — ` +
+      `partition one input and pass the others whole`
+    );
+  }
+  const [first, ...rest] = cuts;
+  for (const other of rest) {
+    const same = other.types.length === first!.types.length &&
+      other.types.every((t, i) => isTypeValueEqual(toEastTypeValue(t), toEastTypeValue(first!.types[i]!)));
+    if (!same) {
+      throw new Error(
+        `streamTask '${name}': co-partitioned inputs '${first!.input}' and '${other.input}' have no common key — ` +
+        `they are cut by (${first!.types.map((t) => printType(t)).join(', ')}) and (${other.types.map((t) => printType(t)).join(', ')}); ` +
+        `give each a \`by\` naming fields of the same types`
+      );
+    }
+  }
+}
+
+/**
+ * Defines a stream task: a body that emits its output into an output kind
+ * rather than returning it, over inputs its work may be split across.
  *
- * `emit` is a runner-implemented function value: `emit(key, value)` for Dict
- * outputs, `emit(element)` for Array/Set outputs. The streaming writer
- * re-batches emissions byte-adaptively and writes the output in one pass,
- * with one open batch in memory whatever the output's size. An Array output
- * takes its elements in emission order; a Set or Dict output must be emitted
- * in ascending key order, and an out-of-order key fails the task (`beast2
- * v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must
- * ascend in East order`, the same words on every runtime). A re-key whose
- * output keys do not arrive in order is a `partitionTask` with `merge`.
- * Duplicate Set/Dict keys are a runtime error unless `merge` folds them: a
- * function for a Dict output (adjacent equal keys fold left in emission
- * order), `'union'` for a Set output. The body's return value is unused —
- * the output dataset is what `emit` wrote.
+ * `emit` is the body's trailing parameter, and the output kind fixes its
+ * signature: `emit(t)` for `array`, `set` and `fold`, `emit(k, v)` for
+ * `dict`. Emission order is free — the platform sorts sets and dicts — and
+ * the parts of the output combine as the kind says: concatenated for an
+ * array, united for a set, by key for a dict (equal keys folding with its
+ * `merge`), and folded with `combine` from `zero` for a fold.
  *
- * With no `stream`, the task is a producer: its body loops over
- * platform-function sources (paginated APIs, database cursors) and emits.
- * A producer's real input is the outside world, so it follows the existing
- * integration-task conventions for re-run semantics — `emit` changes nothing
- * about that.
+ * An input wrapped in {@link partition} is one the work may be split over:
+ * the body runs once per piece, each piece typed as the whole dataset, and
+ * the pieces' outputs combine by the output kind. The other inputs reach
+ * every piece whole. With no partitioned input the task is one unit, with
+ * exact left-to-right semantics; a producer has no inputs at all, and emits
+ * what it reads from platform functions.
+ *
+ * The author's contract, the only one: `merge` and `combine` are associative,
+ * `zero` is an identity of `combine`, and a partitioned body's combined
+ * result does not depend on where its input was cut.
  *
  * @typeParam Name - Task name (literal type)
- * @typeParam Output - Output collection type
- * @typeParam Stream - Streamed input dataset def, when present
- * @typeParam Inputs - Ordinary input dataset defs
+ * @typeParam Inputs - The inputs, some marked with {@link partition}
+ * @typeParam Output - The output kind
  * @param name - Task name
- * @param spec - The declaration: stream input, ordinary inputs, output
- *   collection type, merge, runner and environment
- * @param fn - Implementation body; receives the stream value (when
- *   declared), the inputs, then `emit`, and returns nothing
+ * @param spec - The inputs, the output kind, the runner and the environment
+ * @param fn - The body; receives the inputs, then `emit`, and returns nothing
  * @returns A TaskDef with `.output` for chaining
- * @throws {Error} When the output is not a collection type, the runner is
- *   the `custom` runtime, or `merge` is given for an Array output or in the
- *   wrong form for the output's kind.
+ * @throws {Error} When the output is not an output kind, the runner is the
+ *   `custom` runtime, a partitioned input is not a collection, a `by` names
+ *   something other than leading key fields, or co-partitioned inputs have no
+ *   common key.
  *
  * @example
  * ```ts
- * const events = e3.input('events', ArrayType(EventType));
+ * const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
  *
- * const balances = e3.streamTask('balances', {
- *   stream: events,
- *   output: ArrayType(BalanceType),
- * }, ($, events, emit) => {
- *   const balance = $.let(0.0);
- *   $.for(events, ($, event) => {
- *     $.assign(balance, balance.add(event.amount));
- *     $(emit({ at: event.at, balance }));
+ * const byAccount = e3.streamTask('by_account', {
+ *   inputs: [e3.partition(sales)],
+ *   output: e3.output.dict(StringType, FloatType, { merge: ($, account, a, b) => a.add(b) }),
+ * }, ($, sales, emit) => {
+ *   $.for(sales, ($, sale) => {
+ *     $(emit(sale.account, sale.amount));
  *   });
  * });
  * ```
  */
 export function streamTask<
   Name extends string,
-  Output extends EastType,
-  const Stream extends DatasetDef | undefined = undefined,
-  const Inputs extends readonly DatasetDef[] = [],
+  const Inputs extends readonly (DatasetDef | PartitionDef)[],
+  Output extends OutputDef,
 >(
   name: Name,
-  spec: StreamTaskSpec<Stream, Inputs, Output>,
-  fn: ($: BlockBuilder<NullType>, ...args: StreamTaskArgs<Stream, Inputs, Output>) => void,
-): TaskDef<Output, TaskOutputPath<Name>> {
+  spec: StreamTaskSpec<Inputs, Output>,
+  fn: ($: BlockBuilder<NullType>, ...args: [...InputExprs<Inputs>, ExprType<Output['emit']>]) => void,
+): TaskDef<Output['type'], TaskOutputPath<Name>> {
   if (spec.environment) validateEnvironmentDecl(spec.environment, name);
-  const output = spec.output as EastType & { key?: EastType; value?: EastType };
-  const inputs = (spec.inputs ?? []) as readonly DatasetDef[];
-
-  let emitKind: 'array' | 'set' | 'dict';
-  let emitType: EastType;
-  switch (output.type) {
-    case 'Dict':
-      emitKind = 'dict';
-      emitType = FunctionType([output.key!, output.value!], NullType);
-      break;
-    case 'Set':
-      emitKind = 'set';
-      emitType = FunctionType([output.key!], NullType);
-      break;
-    case 'Array':
-      emitKind = 'array';
-      emitType = FunctionType([output.value!], NullType);
-      break;
-    default:
-      throw new Error(`streamTask '${name}': output must be a collection type (Array, Set or Dict), got ${output.type} — for small results use e3.task`);
+  const outputKind = spec.output as OutputDef;
+  if (!['array', 'set', 'dict', 'fold'].includes(outputKind?.kind)) {
+    throw new Error(`streamTask '${name}': output is an output kind — e3.output.array, set, dict or fold`);
   }
-
   const runner = spec.runner ?? DEFAULT_RUNNER;
   if (runner.runtime === 'custom') {
-    throw new Error(`streamTask '${name}': the custom runtime cannot carry the streaming flags — use a stock runtime (east-node, east-py, east-c)`);
+    throw new Error(
+      `streamTask '${name}': the custom runtime runs only a program that returns its output — ` +
+      `use a stock runtime (east-node, east-py, east-c)`
+    );
   }
 
-  // `merge` folds equal keys in the runner's sink: a function for a Dict
-  // output, reified as a free East function (Key, Value, Value) -> Value;
-  // `'union'` for a Set output.
-  let mergeMode: StreamMergeMode = 'none';
-  let mergeIR: EastIR<any, any> | undefined;
-  if (spec.merge !== undefined) {
-    if (output.type === 'Dict' && typeof spec.merge === 'function') {
-      mergeMode = 'function';
-      mergeIR = East.function([output.key!, output.value!, output.value!], output.value!, spec.merge as any).toIR();
-    } else if (output.type === 'Set' && spec.merge === 'union') {
-      mergeMode = 'union';
-    } else {
-      const given = output.type === 'Array' ? '' : typeof spec.merge === 'function' ? ' with a function' : ` with '${String(spec.merge)}'`;
-      throw new Error(`streamTask '${name}': merge applies to Dict (a function) or Set ('union') outputs, got ${output.type}${given}`);
-    }
-  }
+  const inputs = spec.inputs as readonly (DatasetDef | PartitionDef)[];
+  checkPartitions(name, inputs.filter((i): i is PartitionDef => i.kind === 'partition'));
+  const datasets = inputs.map((i) => (i.kind === 'partition' ? i.dataset : i));
+  const parameters: EastType[] = [...datasets.map((d) => d.type), outputKind.emit];
 
-  const paramTypes: EastType[] = [
-    ...(spec.stream !== undefined ? [(spec.stream as DatasetDef).type] : []),
-    ...inputs.map((i) => i.type),
-    emitType,
-  ];
-  const bodyFn = East.function(paramTypes, NullType, fn as any);
-  const eastIR = bodyFn.toIR();
+  const bodyFn = East.function(parameters, NullType, fn as any);
 
-  // Wire inputs: the body IR, the merge IR (function mode), the stream, then
-  // the ordinary inputs — the layout streamCommandIr's argv reads.
   const taskTree = createTaskTree(name);
-  const functionIRDataset = createIRDataset(name, taskTree, 'function_ir', eastIR);
-  const input_datasets = [
-    functionIRDataset,
-    ...(mergeIR !== undefined ? [createIRDataset(name, taskTree, 'merge_ir', mergeIR)] : []),
-    ...(spec.stream !== undefined ? [spec.stream as DatasetDef] : []),
-    ...inputs,
-  ];
-  const outputDataset = createOutputDataset(name, taskTree, output);
-
-  // The runner constructs the emit sink for the output kind, folding equal
-  // keys as `merge` says, and feeds the stream (always the first `-i` input)
-  // lazily instead of whole-decoding it.
-  const command = streamCommandIr(runnerToVariant(runner), {
-    emit: emitKind,
-    merge: mergeMode,
-    stream: spec.stream !== undefined ? 'first' : 'none',
-  });
-
-  const metadata = encodeStreamTaskMetadata({
-    stream: spec.stream !== undefined,
-    emit: emitKind,
-    merge: mergeMode,
-  });
-
+  const output = createOutputDataset(name, taskTree, outputKind.type as EastType);
   const taskDef: TaskDef = {
     kind: 'task',
     name,
-    command,
-    inputs: input_datasets,
-    output: outputDataset,
-    deps: collectDeps(taskTree, outputDataset, input_datasets),
-    taskKind: TASK_KIND_STREAM,
-    metadata,
+    body: { kind: 'east', program: bodyFn.toIR() },
+    inputs,
+    output,
+    outputKind,
+    role: variant('data', null),
+    deps: collectDeps(taskTree, output, datasets),
     runner,
-    ...(spec.environment !== undefined && { environment: spec.environment }),
+    environment: spec.environment,
   };
-  outputDataset.deps.add(taskDef);
+  output.deps.add(taskDef);
 
-  return taskDef as TaskDef<Output, TaskOutputPath<Name>>;
+  return taskDef as TaskDef<Output['type'], TaskOutputPath<Name>>;
 }

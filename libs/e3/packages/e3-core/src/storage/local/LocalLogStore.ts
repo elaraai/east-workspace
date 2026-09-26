@@ -7,6 +7,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { LogChunk, LogStore } from '../interfaces.js';
 import { isNotFoundError } from '../../errors.js';
+import { executionPath } from './localHelpers.js';
 
 /**
  * Length of the longest prefix of `buffer` that ends on a UTF-8 character
@@ -39,14 +40,7 @@ function completeUtf8Length(buffer: Buffer): number {
  */
 export class LocalLogStore implements LogStore {
   private logPath(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr'): string {
-    return path.join(
-      repo,
-      'executions',
-      taskHash,
-      inputsHash,
-      executionId,
-      `${stream}.txt`
-    );
+    return path.join(executionPath(repo, taskHash, inputsHash, executionId), `${stream}.txt`);
   }
 
   async append(
@@ -116,6 +110,16 @@ export class LocalLogStore implements LogStore {
         };
       }
       throw err;
+    }
+  }
+
+  async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    for (const stream of ['stdout', 'stderr'] as const) {
+      try {
+        await fs.unlink(this.logPath(repo, taskHash, inputsHash, executionId, stream));
+      } catch (err) {
+        if (!isNotFoundError(err)) throw err;
+      }
     }
   }
 }

@@ -3,9 +3,9 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ArrayType, NullType, StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { ArrayType, NullType, StringType, decodeBeast2For, encodeBeast2For, spliceBeast2Segments } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { BEAST2_CONTENT_TYPE, TRANSFER_PROTOCOL_VERSION, transferPartCount, transferPartRange } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import { computeHash } from './util.js';
 import { ApiError, AuthError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, type RequestOptions, type Response } from './http.js';
 import {
@@ -85,6 +85,11 @@ export async function datasetListAt(
  * The returned bytes are raw BEAST2 encoded data from the object store.
  * Use decodeBeast2 or decodeBeast2For to decode with the appropriate type.
  *
+ * A collection is downloaded as the segment objects its manifest names, a few
+ * at a time, each checked against its hash, and spliced here into the one blob
+ * the value is: no response carries more than one segment, so a server that
+ * cannot stream a response still serves a collection of any size.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
@@ -101,7 +106,7 @@ export async function datasetGet(
 ): Promise<{ data: Uint8Array; hash: string; size: number }> {
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
   const response = await fetchWithAuth(
-    `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}`,
+    `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?segments=true`,
     {
       method: 'GET',
       headers: { 'Accept': BEAST2_CONTENT_TYPE },
@@ -118,10 +123,15 @@ export async function datasetGet(
     throw error;
   }
 
-  // Handle redirect response — server returns JSON with download URL for large datasets
+  // A JSON answer names a collection's manifest, or the URL a large value is
+  // downloaded from.
   const contentType = response.headers.get('Content-Type') ?? '';
   if (contentType.includes('application/json')) {
-    const body = await response.json() as { url: string };
+    const body = await response.json() as { manifest: string } | { url: string };
+    if ('manifest' in body) {
+      const data = await collectionGet(url, repo, body.manifest, options);
+      return { data, hash: response.headers.get('X-Content-SHA256') ?? '', size: data.byteLength };
+    }
     const redirectResponse = await fetch(body.url, {
       method: 'GET',
       headers: { 'Accept': BEAST2_CONTENT_TYPE },
@@ -139,8 +149,85 @@ export async function datasetGet(
   const buffer = await response.arrayBuffer();
   const data = new Uint8Array(buffer);
   const hash = response.headers.get('X-Content-SHA256') ?? '';
-  const size = parseInt(response.headers.get('Content-Length') ?? '0', 10);
-  return { data, hash, size };
+  return { data, hash, size: data.byteLength };
+}
+
+/** How many of a collection's objects are fetched at a time. */
+const SEGMENT_CONCURRENCY = 8;
+
+/**
+ * A collection's value: the objects its manifest names, fetched a few at a
+ * time ahead of a splice that takes them in order, into the blob the dataset
+ * route would stream.
+ */
+async function collectionGet(url: string, repo: string, manifestHash: string, options: RequestOptions): Promise<Uint8Array> {
+  const manifest = decodeCollectionManifest(await objectGet(url, repo, manifestHash, options));
+  const pending: Promise<Uint8Array>[] = [];
+  let next = 0;
+  const fill = (): void => {
+    for (; next < manifest.entries.length && pending.length < SEGMENT_CONCURRENCY; next++) {
+      const fetched = objectGet(url, repo, manifest.entries[next]!.hash, options);
+      // A failure is raised when the splice reaches it, and must not be
+      // reported unhandled before then.
+      fetched.catch(() => { /* raised in order */ });
+      pending.push(fetched);
+    }
+  };
+  fill();
+  const head = await objectGet(url, repo, manifest.header, options);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const chunk of spliceBeast2Segments(head, (async function* () {
+    while (pending.length > 0) {
+      const segment = pending.shift()!;
+      fill();
+      yield await segment;
+    }
+  })())) {
+    chunks.push(chunk);
+    total += chunk.length;
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
+}
+
+/**
+ * An object's bytes, read through the objects route and checked against the
+ * hash they were asked by. A large object is answered with a URL, fetched
+ * without the API's auth: it may be presigned.
+ */
+async function objectGet(url: string, repo: string, hash: string, options: RequestOptions): Promise<Uint8Array> {
+  const response = await fetchWithAuth(`${url}/api/repos/${encodeURIComponent(repo)}/objects/${hash}`, {
+    method: 'GET',
+    headers: { 'Accept': BEAST2_CONTENT_TYPE },
+  }, options);
+  if (!response.ok) {
+    throw parseErrorBody(await response.text(), `http_${response.status}`);
+  }
+  let bytes: Uint8Array;
+  if ((response.headers.get('Content-Type') ?? '').includes('application/json')) {
+    const { url: download } = await response.json() as { url: string };
+    const downloaded = await fetchWithRetry(download, {
+      method: 'GET',
+      headers: { 'Accept': BEAST2_CONTENT_TYPE },
+    }, { idempotent: true, retry: options.retry });
+    if (!downloaded.ok) {
+      throw new Error(`Failed to get object ${hash} (download): ${downloaded.status} ${downloaded.statusText}`);
+    }
+    bytes = new Uint8Array(await downloaded.arrayBuffer());
+  } else {
+    bytes = new Uint8Array(await response.arrayBuffer());
+  }
+  const received = await computeHash(bytes);
+  if (received !== hash) {
+    throw new Error(`object ${hash} arrived as ${received}: the download was cut short or corrupted`);
+  }
+  return bytes;
 }
 
 /** Window addressing for {@link datasetGetPage}: an element window or one
@@ -148,7 +235,17 @@ export async function datasetGet(
  *  immutable-cacheable (same URL ⇒ same bytes); a stale pin is refused with
  *  an error rather than answered with different bytes — refetch the status
  *  for the current hash and retry. */
-export type DatasetPageWindow = ({ offset: number; limit: number } | { segment: number }) & { hash?: string };
+export type DatasetPageWindow = ({ offset: number; limit: number } | { segment: number }) & {
+  hash?: string;
+  /** Read through one of a record's secondary indexes. The page's `data` is
+   *  then an ORDERED `Array<{ik, key, value, row}>` in index order — decode it
+   *  with the index's window type, never the record's. */
+  index?: string;
+  /** Fill each window entry's `row` from the primary. A view rendering from
+   *  the index's covering projection alone leaves this off and never reads a
+   *  primary segment. */
+  join?: boolean;
+};
 
 /** One page of a collection dataset. */
 export interface DatasetPage {
@@ -212,6 +309,10 @@ export async function datasetGetPage(
   if (window.hash !== undefined) {
     params.set('hash', window.hash);
   }
+  if (window.index !== undefined) {
+    params.set('index', window.index);
+    if (window.join === true) params.set('join', 'true');
+  }
   const response = await fetchWithAuth(
     `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`,
     {
@@ -250,13 +351,24 @@ export async function datasetGetPage(
 /** Query for {@link datasetFindKey}, optionally pinned to a content hash:
  *  `key` (a whole-key `.east` literal, any key type), `prefix` (String
  *  keys — or, for Struct keys, a prefix on the FIRST field when it is a
- *  String), or `fields` (Struct keys: `.east` literals of exact leading
+ *  String), `fields` (Struct keys: `.east` literals of exact leading
  *  fields in declaration order, optionally with `prefix` continuing into
- *  the next String field). Every form addresses one contiguous row range
- *  in the canonical key order. Pinned queries are immutable-cacheable
- *  (same URL ⇒ same answer); a stale pin is refused with an error rather
- *  than answered against different content. */
-export type DatasetFindQuery = ({ key: string } | { prefix: string } | { fields: string[]; prefix?: string }) & { hash?: string };
+ *  the next String field), or a `from` / `to` RANGE over a leading prefix
+ *  of the key's flattened field path, naming at least one end. Every form
+ *  addresses one contiguous row range in the canonical key order. Pinned
+ *  queries are immutable-cacheable (same URL ⇒ same answer); a stale pin is
+ *  refused with an error rather than answered against different content.
+ *
+ *  `index` searches one of a record's secondary indexes instead of the
+ *  record itself, so the rows the answer names are the index's — the same
+ *  row space an index page serves. */
+export type DatasetFindQuery = (
+  | { key: string }
+  | { prefix: string }
+  | { fields: string[]; prefix?: string }
+  | { from: string[]; to?: string[] }
+  | { from?: string[]; to: string[] }
+) & { hash?: string; index?: string };
 
 /** A key-search result over a Set/Dict dataset. */
 export interface DatasetFindResult {
@@ -314,11 +426,17 @@ export async function datasetFindKey(
     }
   } else if ('key' in query) {
     params.set('key', query.key);
-  } else {
+  } else if ('prefix' in query) {
     params.set('prefix', query.prefix);
+  } else {
+    for (const literal of query.from ?? []) params.append('from', literal);
+    for (const literal of query.to ?? []) params.append('to', literal);
   }
   if (query.hash !== undefined) {
     params.set('hash', query.hash);
+  }
+  if (query.index !== undefined) {
+    params.set('index', query.index);
   }
   const response = await fetchWithAuth(
     `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`,
@@ -433,12 +551,11 @@ export interface DatasetTransferSource {
  * Set a large dataset using the transfer flow (init → upload → commit).
  *
  * @remarks
- * Speaks transfer protocol 2 and still understands a server that predates it:
- * the init answers `completed` (the object is stored already), `upload` (one
- * PUT of every byte — a protocol-1 server) or `upload_parts` (the parts the
- * server planned, each sent to the URL and with the headers it names for that
- * part, a few at a time). The commit may answer `processing` while the server
- * verifies the bytes, and is polled until it finishes.
+ * The init answers `completed` (the object is stored already) or
+ * `upload_parts` (the parts the server planned, each sent to the URL and with
+ * the headers it names for that part, a few at a time). The commit may answer
+ * `processing` while the server verifies the bytes, and is polled until it
+ * finishes.
  */
 async function datasetSetTransfer(
   url: string,
@@ -483,11 +600,7 @@ async function datasetSetTransfer(
   if (init.type === 'completed') return;
 
   // 2. Upload to staging (no auth — the URLs may be presigned S3 URLs)
-  if (init.type === 'upload') {
-    await putRange(init.value.uploadUrl, {}, source, 0, source.size, options, 'Transfer upload failed');
-  } else {
-    await putParts(url, `${uploadPath}/${init.value.id}`, Number(init.value.partBytes), source, options);
-  }
+  await putParts(url, `${uploadPath}/${init.value.id}`, Number(init.value.partBytes), source, options);
 
   // 3. Commit — server verifies hash + updates ref (BEAST2 response), and
   //    answers `processing` while that is still running

@@ -91,7 +91,7 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
         { type: 'data/workspaceState', ws: 'main', state: { packageName: 'demand', packageVersion: '1.4.2', packageHash: 'p', deployedAt: new Date(now - 3 * 86_400_000), currentRunId: none } as never },
         { type: 'data/status', ws: 'main', result: status as never, at: now - 400 },
         { type: 'data/datasets', ws: 'main', entries: entries as never },
-        { type: 'data/taskList', ws: 'main', tasks: taskList.map(t => ({ name: t.name, hash: t.hash, kind: none })) as never },
+        { type: 'data/taskList', ws: 'main', tasks: taskList.map(t => ({ name: t.name, hash: t.hash, role: variant('data', null) })) as never },
         { type: 'data/execution', ws: 'main', state: execution as never, events: events as never, startedAt: execution.startedAt },
     ];
 }

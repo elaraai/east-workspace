@@ -9,6 +9,8 @@
  * This package provides a fluent API for defining e3 packages in TypeScript:
  * - `e3.input()` - Define input datasets
  * - `e3.task()` - Define tasks that transform datasets
+ * - `e3.streamTask()` - Define tasks that emit their output into an output
+ *   kind (`e3.output.*`), their work split over `e3.partition` inputs
  * - `e3.package()` - Bundle definitions into a package
  * - `e3.export()` - Export package to a .zip bundle
  *
@@ -45,32 +47,51 @@
  */
 
 import type {
+  ArrayOutputDef,
   DatasetDef,
   DataTreeDef,
   DatasetsOf,
+  DictOutputDef,
+  FoldOutputDef,
   FunctionDef,
   MergeDatasets,
+  MigrationDef,
   MutationDef,
+  OutputDef,
   PackageDef,
   PackageItem,
+  PartitionDef,
   RecordDef,
+  RecordIndexDef,
+  SetOutputDef,
   TaskDef,
 } from './types.js';
 import { input } from './input.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
-import { task, customTask, partitionTask, streamTask } from './task.js';
+import { migration } from './migration.js';
+import { recordIndex } from './record-index.js';
+import { task, customTask, streamTask, partition } from './task.js';
+import { output } from './output.js';
 import { function_ } from './function.js';
 import { package_ } from './package.js';
 import { export_ } from './export.js';
 
 export type {
+  ArrayOutputDef,
   DataTreeDef,
   DatasetDef,
   DatasetsOf,
+  DictOutputDef,
+  FoldOutputDef,
   FunctionDef,
+  MigrationDef,
   MutationDef,
+  OutputDef,
+  PartitionDef,
   RecordDef,
+  RecordIndexDef,
+  SetOutputDef,
   TaskDef,
   PackageDef,
   PackageItem,
@@ -86,7 +107,7 @@ export type {
   EastNodePlatform,
   EastCPlatform,
 } from './runner.js';
-export { runnerToCommand, runnerToVariant, DEFAULT_RUNNER } from './runner.js';
+export { runnerToVariant, DEFAULT_RUNNER } from './runner.js';
 
 /**
  * The e3 SDK namespace.
@@ -97,10 +118,13 @@ const e3 = {
   input,
   record,
   mutation,
+  migration,
+  recordIndex,
   task,
   customTask,
-  partitionTask,
   streamTask,
+  partition,
+  output,
   function: function_,
   package: package_,
   export: export_,
@@ -109,8 +133,9 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, task, customTask, partitionTask, streamTask, function_, package_ as package, export_ as export };
-export type { PartitionTaskSpec, StreamTaskSpec, EmitOf } from './task.js';
+export { input, record, mutation, migration, recordIndex, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
+export type { StreamTaskSpec } from './task.js';
+export type { MigrationConfig } from './migration.js';
 
 // Singleton tree definitions
 export { inputsTree } from './input.js';
@@ -129,3 +154,5 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
+export { indexBuildProgram, buildMutationProgram, migrationProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
+export type { RecordIndexSpec, IndexFunction, IndexKeyOf, ProjectionOf } from './record-index.js';

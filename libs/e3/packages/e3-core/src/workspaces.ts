@@ -11,21 +11,23 @@
  * - Modifying data (inputs/outputs)
  * - Exporting changes back to a new package version
  *
- * State is stored in workspaces/<name>.beast2 as a single atomic file.
- * No state file means the workspace does not exist.
- *
- * Per-dataset refs are stored in workspaces/<ws>/data/<path>.ref files.
+ * A workspace's record is a `WorkspaceRecordType`: `none` from its creation
+ * until a package is deployed, then its state. No record means the workspace
+ * does not exist. A local repository keeps it at `workspaces/<name>.beast2`,
+ * and its dataset refs at `workspaces/<ws>/data/<path>.beast2`.
  */
 
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceStateType, RecordObjectType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceRecordType, DataflowRunType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
+import type {
+  PackageObject, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, Structure, TreePath,
+} from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
-import { packageResolve, packageRead } from './packages.js';
+import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import { workspaceSetDatasetByHash } from './trees.js';
 import {
@@ -33,8 +35,15 @@ import {
   WorkspaceNotDeployedError,
   WorkspaceExistsError,
   WorkspaceLockError,
+  RecordDeployRefusedError,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
+import type { TaskRunner } from './execution/interfaces.js';
+import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords } from './records.js';
+import {
+  planRecordDeployments, recordDeployCommits, recordLeafType, runRecordMigrations, type PriorDeployment,
+} from './record-deploy.js';
+import { withRunningWork } from './storage/local/gc.js';
 
 /**
  * List workspace names.
@@ -48,12 +57,10 @@ export async function workspaceList(storage: StorageBackend, repo: string): Prom
 }
 
 /**
- * Write workspace state via storage backend.
+ * Write a deployed workspace's state via storage backend.
  */
 async function writeState(storage: StorageBackend, repo: string, name: string, state: WorkspaceState): Promise<void> {
-  const encoder = encodeBeast2For(WorkspaceStateType);
-  const data = encoder(state);
-  await storage.refs.workspaceWrite(repo, name, data);
+  await storage.refs.workspaceWrite(repo, name, encodeBeast2For(WorkspaceRecordType)(some(state)));
 }
 
 /**
@@ -77,13 +84,11 @@ async function readState(
     return { exists: false };
   }
 
-  // Empty file means workspace exists but is not deployed
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  if (record.type === 'none') {
     return { exists: true, deployed: false };
   }
-
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return { exists: true, deployed: true, state: decoder(Buffer.from(data)) };
+  return { exists: true, deployed: true, state: record.value };
 }
 
 /**
@@ -106,7 +111,7 @@ async function readStateOrThrow(storage: StorageBackend, repo: string, name: str
 /**
  * Create an empty workspace.
  *
- * Creates an undeployed workspace (state file with null package info).
+ * Creates an undeployed workspace: its record is `none`.
  * Use workspaceDeploy to deploy a package.
  *
  * @param storage - Storage backend
@@ -125,8 +130,7 @@ export async function workspaceCreate(
     throw new WorkspaceExistsError(name);
   }
 
-  // Create empty state to mark workspace as existing but not deployed
-  await storage.refs.workspaceWrite(repo, name, new Uint8Array(0));
+  await storage.refs.workspaceWrite(repo, name, encodeBeast2For(WorkspaceRecordType)(none));
 }
 
 /**
@@ -242,6 +246,49 @@ export async function workspaceGetPackage(
  */
 export interface WorkspaceDeployOptions {
   /**
+   * What the deploy does with a record it cannot keep as it is: run the
+   * migrations the workspace has not applied (`migrate`), refuse to run any
+   * (`fail`), or reset it to the package's initial value (`reset`).
+   *
+   * @defaultValue 'migrate'
+   */
+  schema?: SchemaPolicy;
+  /**
+   * Whether a record the package no longer declares may be dropped, with its
+   * state and history. Without it the deploy is refused.
+   *
+   * @defaultValue false
+   */
+  allowDropRecords?: boolean;
+  /**
+   * Say what the deploy would do, through {@link onRecordPlan} and
+   * {@link onRecordIndex}, and write nothing. A plan with refusals reports
+   * them rather than throwing.
+   *
+   * @defaultValue false
+   */
+  plan?: boolean;
+  /**
+   * Called once per record the deploy touches, with what it decided: `mint`,
+   * `keep`, `migrate`, `reset`, `drop` or `refused`.
+   *
+   * @remarks
+   * Called before the deploy writes anything, and before it refuses: a
+   * migration over a large record is the part of a deploy that takes minutes,
+   * and a refusal is the part an operator acts on.
+   */
+  onRecordPlan?: (plan: RecordPlan) => void;
+  /**
+   * Called once per declared or dropped index of every record the deploy
+   * touches, with what the deploy decided: `build`, `drop` or `keep`.
+   *
+   * @remarks
+   * An index is derived, so a deploy reconciles it without asking — but which
+   * indexes it is about to build is the one thing an operator wants to know
+   * before a deploy over a large record takes minutes.
+   */
+  onRecordIndex?: (plan: RecordIndexPlan) => void;
+  /**
    * External workspace lock to use. If provided, the caller is responsible
    * for releasing the lock after the operation. If not provided, workspaceDeploy
    * will acquire and release a lock internally.
@@ -266,6 +313,22 @@ export interface WorkspaceDeployOptions {
    * @defaultValue true
    */
   resolveFileSources?: boolean;
+  /**
+   * Task runner for the migrations and index builds a deploy owes.
+   *
+   * @remarks
+   * A record that declares an index needs that index built before anything can
+   * read through it, and an index is built by running its program on the
+   * runner its author chose. Deploy is where that debt falls due: a record
+   * minted here has no index yet, and a record whose declaration changed has
+   * one built under the wrong declaration. A migration runs on its author's
+   * runner too.
+   *
+   * Omit it only where no package can declare an index or a migration: a
+   * deploy that owes either without a runner is refused before it writes
+   * anything.
+   */
+  runner?: TaskRunner;
   /**
    * The sink for warnings about `file` sources this deploy leaves unassigned.
    *
@@ -298,6 +361,12 @@ export interface WorkspaceDeployOptions {
  * @param pkgVersion - Package version
  * @param options - Optional settings including external lock
  * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws {RecordDeployRefusedError} When a record cannot be carried into the
+ *   package: it changed type with no migration, its applied migrations are not
+ *   the package's, the policy runs none, or the package drops it
+ * @throws {Error} When a garbage collection is running in the repository, the
+ *   workspace's deployment does not read, or a migration or an index build
+ *   fails
  */
 export async function workspaceDeploy(
   storage: StorageBackend,
@@ -325,69 +394,113 @@ export async function workspaceDeploy(
     const packageHash = await packageResolve(storage, repo, pkgName, pkgVersion);
     const pkg = await packageRead(storage, repo, pkgName, pkgVersion);
 
-    // Capture any existing record state BEFORE wiping, so a redeploy preserves
-    // operational record state + audit history rather than resetting it.
-    const priorRecords = await capturePriorRecords(storage, repo, name);
+    // Decide what happens to each record BEFORE any destructive write, so a
+    // refused redeploy leaves the workspace fully intact rather than
+    // half-wiped with a torn state/data-dir mismatch.
+    const prior = await readPriorDeployment(storage, repo, name);
+    const deployments = await planRecordDeployments(
+      storage, repo, pkg, packageHash, prior, options.schema ?? 'migrate', options.allowDropRecords ?? false,
+    );
+    for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
+    const refusals = deployments.flatMap(({ plan }) =>
+      plan.action.type === 'refused' ? [{ record: plan.record, reason: plan.action.value.reason }] : []);
+    if (refusals.length > 0 && options.plan !== true) throw new RecordDeployRefusedError(refusals);
 
-    // Reject an incompatible (type-changed) redeploy BEFORE any destructive
-    // write, so a doomed redeploy leaves the workspace fully intact rather than
-    // half-wiped with a torn state/data-dir mismatch. A path-initialised input
-    // whose delivery is missing or has drifted follows the same rule: every
-    // file source is validated here, before the wipe.
-    await assertRecordTypesCompatible(storage, repo, pkg, priorRecords);
+    // The state each record holds once the refs are written, which its
+    // indexes are built over: the package's initial value for a record minted
+    // or reset, the workspace's for one kept, and its last step's for one
+    // migrated. A plan migrates nothing, and plans a migrated record's
+    // indexes over the initial value, which names no index, as the migrated
+    // state will not.
+    const deploymentAt = new Map(deployments.map((deployment) => [deployment.path, deployment]));
+    const stateOf = (migrated: ReadonlyMap<string, ReadonlyArray<{ state: string }>>) => (path: string): string | undefined => {
+      const deployment = deploymentAt.get(path);
+      if (deployment === undefined) return undefined;
+      switch (deployment.plan.action.type) {
+        case 'keep': return deployment.prior!.hash;
+        case 'migrate': return migrated.get(path)?.at(-1)?.state ?? deployment.initial;
+        case 'mint': case 'reset': return deployment.initial;
+        default: return undefined;
+      }
+    };
+    if (options.plan === true) {
+      await buildDeployIndexes(storage, repo, pkg, stateOf(new Map()), undefined, options.onRecordIndex, true);
+      return;
+    }
+
+    // A path-initialised input whose delivery is missing or has drifted
+    // follows the same rule as a record: every file source is validated here,
+    // before the wipe.
     const sourceFiles = validateDatasetSources(
       pkg, options.sourceWarning, options.resolveFileSources ?? true,
     );
 
-    // Adopt every validated delivery into the object store, still before the
-    // wipe. Objects are repo-wide and content-addressed, so this is safe and
-    // idempotent whatever follows (an object no ref names is gc's to collect),
-    // and it moves every step that can fail for an I/O reason — the hash, a
-    // cross-device copy, ENOSPC, a delivery replaced since it was validated —
-    // ahead of the first destructive write. Only the ref writes come after.
-    const adoptedSources = new Map<string, string>();
-    for (const [refPath, file] of sourceFiles) {
-      const { hash } = await objectAdoptFile(storage, repo, file);
-      adoptedSources.set(refPath, hash);
-    }
+    // The tasks lock is held from the first object this deploy writes — an
+    // adopted delivery's segments, an index build's output — to the last ref
+    // that names one, since until then nothing roots them against a sweep.
+    await withRunningWork(storage, repo, async () => {
+      // Adopt every validated delivery into the object store, still before
+      // the wipe. Objects are repo-wide and content-addressed, so this is safe
+      // and idempotent whatever follows (an object no ref names is gc's to
+      // collect), and it moves every step that can fail for an I/O reason —
+      // the hash, a cross-device copy, ENOSPC, a delivery replaced since it
+      // was validated — ahead of the first destructive write. Only the ref
+      // writes come after.
+      const adoptedSources = new Map<string, string>();
+      for (const [refPath, { file, declared }] of sourceFiles) {
+        const { hash } = await objectAdoptFile(storage, repo, file, { declared });
+        adoptedSources.set(refPath, hash);
+      }
 
-    // Remove any existing dataset refs
-    await storage.datasets.removeAll(repo, name);
-
-    // Initialize per-dataset ref files from the package
-    await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
-
-
-    // Mint each new record's genesis ($init) commit, and restore any existing
-    // record's committed state + history across a redeploy (errors if its type
-    // changed). A record is thus never unassigned and never silently reset.
-    await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
-
-    const now = new Date();
-    const state: WorkspaceState = {
-      packageName: pkgName,
-      packageVersion: pkgVersion,
-      packageHash,
-      deployedAt: now,
-      currentRunId: variant('none', null),
-    };
-
-    await writeState(storage, repo, name, state);
-
-    // Point each path-initialised input at the object adopted above — the
-    // one step after the wipe, a ref write per input. The self entry in the
-    // version vector names the file's hash, which is what makes change
-    // detection exact for the input's consumers.
-    //
-    // The file IS the value, so a new delivery under the same path is a new
-    // hash: its consumers re-run and `partitionTask`'s per-partition
-    // memoization keeps the partitions whose slices did not move.
-    for (const [refPath, hash] of adoptedSources) {
-      await workspaceSetDatasetByHash(
-        storage, repo, name, treePathOfRefPath(refPath), hash,
-        new Map([[refPathToKeypath(refPath), hash]]),
+      // A migration and an index build both run user East, so they are the
+      // steps likeliest to fail, and both run before the wipe below: a deploy
+      // that fails leaves the workspace as it was. What they write is named
+      // by nothing until the commits after the new refs. A record migrated
+      // here has no index, and one minted here none either, so their indexes
+      // are built over the state the record will hold, as a changed
+      // declaration's are.
+      const migrated = await runRecordMigrations(storage, repo, deployments, options.runner);
+      const indexBuilds = await buildDeployIndexes(
+        storage, repo, pkg, stateOf(migrated), options.runner, options.onRecordIndex,
       );
-    }
+
+      // Remove any existing dataset refs
+      await storage.datasets.removeAll(repo, name);
+
+      // Initialize per-dataset ref files from the package
+      await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+
+      // Commit what was decided for each record: a minted one's `$init`, a
+      // kept one's history with a `$deploy` commit when the package changed,
+      // a migrated one's `$migrate` commit per step, a reset one's `$reset`.
+      // A record is never unassigned, never silently reset, and its history
+      // says what each deploy did to it.
+      await commitDeployRecords(storage, repo, name, recordDeployCommits(deployments, migrated));
+      await commitDeployIndexes(storage, repo, name, indexBuilds);
+
+      await writeState(storage, repo, name, {
+        packageName: pkgName,
+        packageVersion: pkgVersion,
+        packageHash,
+        deployedAt: new Date(),
+        currentRunId: none,
+      });
+
+      // Point each path-initialised input at the value adopted above — a ref
+      // write per input. The self entry in the version vector names the
+      // value's hash, which is what makes change detection exact for the
+      // input's consumers.
+      //
+      // The file IS the value, so a new delivery under the same path is a new
+      // hash: its consumers re-run, and a task that splits its work over it
+      // keeps the pieces that did not move.
+      for (const [refPath, hash] of adoptedSources) {
+        await workspaceSetDatasetByHash(
+          storage, repo, name, treePathOfRefPath(refPath), hash,
+          new Map([[refPathToKeypath(refPath), hash]]),
+        );
+      }
+    });
   } finally {
     // Only release the lock if we acquired it internally
     if (!externalLock) {
@@ -406,12 +519,11 @@ function treePathOfRefPath(refPath: string): TreePath {
  * adopt.
  *
  * @remarks
- * Called BEFORE `datasets.removeAll`, for the reason
- * {@link assertRecordTypesCompatible} is: a deploy that cannot succeed must
- * leave the workspace exactly as it found it. A path this process cannot read
- * is therefore a deploy error naming the input and the path — never a silently
- * unassigned input — unless the caller passes a `warn` sink, which turns it
- * into a warning and an unassigned input.
+ * Called BEFORE `datasets.removeAll`, as the records' plan is: a deploy that
+ * cannot succeed must leave the workspace exactly as it found it. A path this
+ * process cannot read is therefore a deploy error naming the input and the
+ * path — never a silently unassigned input — unless the caller passes a `warn`
+ * sink, which turns it into a warning and an unassigned input.
  *
  * With `resolve` false no path is opened at all. That is the server-side half
  * of a remote deploy: a `file` source names a path on the machine that exported
@@ -426,8 +538,8 @@ function treePathOfRefPath(refPath: string): TreePath {
  *   rather than failing the deploy
  * @param resolve - Whether this process reads and validates the `file` sources;
  *   false leaves every one unassigned without touching its path
- * @returns refPath -> absolute file path, for the sources to adopt (always
- *   empty when `resolve` is false)
+ * @returns refPath -> the absolute file path and the type it must hold, for
+ *   the sources to adopt (always empty when `resolve` is false)
  * @throws {DatasetTypeMismatchError} When a delivery's type has drifted
  * @throws {Error} When a `file` source is unreadable (and no `warn` sink is
  *   given), or names a path that is not a dataset
@@ -436,12 +548,12 @@ function validateDatasetSources(
   pkg: PackageObject,
   warn: ((message: string) => void) | undefined,
   resolve: boolean,
-): Map<string, string> {
-  const files = new Map<string, string>();
+): Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }> {
+  const files = new Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }>();
   for (const [refPath, source] of pkg.sources) {
     const inputName = refPath.split('/').pop() ?? refPath;
-    const declared = datasetLeafType(pkg.data.structure, refPath);
-    if (!declared) {
+    const type = datasetLeafType(pkg.data.structure, refPath);
+    if (!type) {
       throw new Error(`input '${inputName}': the package declares a source for '${refPath}', which is not a dataset`);
     }
     if (!resolve) {
@@ -451,9 +563,10 @@ function validateDatasetSources(
       );
       continue;
     }
+    const declared = { subject: `input '${inputName}'`, type };
     try {
-      readDatasetFileHeader(source.value.path, `input '${inputName}'`, declared);
-      files.set(refPath, source.value.path);
+      readDatasetFileHeader(source.value.path, declared.subject, declared.type);
+      files.set(refPath, { file: source.value.path, declared });
     } catch (err) {
       if (!warn || err instanceof DatasetFileTypeMismatchError) throw err;
       warn(
@@ -469,128 +582,50 @@ function datasetLeafType(structure: Structure, refPath: string): EastTypeValue |
   return recordLeafType(structure, refPath);
 }
 
-const decodeRecordObject = decodeBeast2For(RecordObjectType);
-const encodeRecordCommit = encodeBeast2For(RecordCommitType);
-const recordTypesEqual = equalFor(EastTypeType);
-
-/** The East type of the record leaf at a refPath (e.g. `records/orders`). */
-function recordLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
-  let current: Structure = structure;
-  for (const segment of refPath.split('/')) {
-    if (current.type !== 'struct') return undefined;
-    const next = current.value.get(segment);
-    if (!next) return undefined;
-    current = next;
-  }
-  return current.type === 'value' ? current.value.type : undefined;
-}
-
-/** A prior deployment's record refs + types, captured before a redeploy wipes
- *  the data dir, so committed state can be preserved. Null when the workspace
- *  was not previously deployed (or had no records). */
-type PriorRecords = Map<string, { ref: DatasetRef; type: EastTypeValue }>;
-
-async function capturePriorRecords(
-  storage: StorageBackend,
-  repo: string,
-  ws: string,
-): Promise<PriorRecords | null> {
-  const stateBytes = await storage.refs.workspaceRead(repo, ws);
-  if (!stateBytes || stateBytes.length === 0) return null; // not previously deployed
-  let priorPkg: PackageObject;
-  try {
-    const state = decodeBeast2For(WorkspaceStateType)(stateBytes);
-    priorPkg = decodePackageObject(await storage.objects.read(repo, state.packageHash));
-  } catch {
-    return null; // unreadable prior deployment — treat as a fresh deploy
-  }
-  if (priorPkg.records.size === 0) return null;
-
-  const captured: PriorRecords = new Map();
-  for (const recHash of priorPkg.records.values()) {
-    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
-    const ref = await storage.datasets.read(repo, ws, recObj.path);
-    const type = recordLeafType(priorPkg.data.structure, recObj.path);
-    if (ref && ref.type === 'value' && type) {
-      captured.set(recObj.path, { ref, type });
-    }
-  }
-  return captured.size > 0 ? captured : null;
-}
-
 /**
- * Reject a redeploy whose record changed East type, BEFORE any destructive
- * write — so the workspace is never left half-wiped. Throws on the first record
- * whose new type differs from its preserved prior type.
- */
-async function assertRecordTypesCompatible(
-  storage: StorageBackend,
-  repo: string,
-  pkg: PackageObject,
-  prior: PriorRecords | null,
-): Promise<void> {
-  if (!prior) return;
-  for (const recHash of pkg.records.values()) {
-    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
-    const priorRecord = prior.get(recObj.path);
-    if (!priorRecord) continue;
-    const newType = recordLeafType(pkg.data.structure, recObj.path);
-    if (newType && !recordTypesEqual(priorRecord.type, newType)) {
-      throw new Error(
-        `Cannot redeploy: record '${recObj.path}' changed type, so its committed state ` +
-        `is incompatible. Remove the workspace to reset the record, or keep its type stable.`,
-      );
-    }
-  }
-}
-
-/**
- * For each record in a freshly-deployed package: restore its prior committed
- * state + history across a redeploy when the record already existed (types were
- * checked compatible before any wipe), otherwise mint the genesis ($init)
- * commit over the package's initial value.
+ * The workspace's deployment as a deploy over it finds it: the package it has
+ * deployed, and each of that package's records with the ref the workspace
+ * holds and the type the package declares.
  *
- * The initial-state value ref was already written by writeRefsFromPackage; this
- * either overwrites it with the preserved prior ref or adds the genesis commit
- * that makes the initial state the head of the record's history. Runs under the
- * deploy lock, so unconditional ref writes are safe.
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @returns The deployment, or null when the workspace has none
+ * @throws {Error} When the deployed package or one of its record objects does
+ *   not read, so its records cannot be carried forward. A deploy used to take
+ *   such a workspace as never deployed, and reset every record silently.
  */
-async function writeRecordGenesis(
+async function readPriorDeployment(
   storage: StorageBackend,
   repo: string,
   ws: string,
-  pkg: PackageObject,
-  prior: PriorRecords | null,
-): Promise<void> {
-  const at = new Date();
-  for (const recHash of pkg.records.values()) {
-    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
-    const stateRef = pkg.data.refs.get(recObj.path);
-    if (!stateRef || stateRef.type !== 'value') continue; // a record always has initial state
+): Promise<PriorDeployment | null> {
+  const stateBytes = await storage.refs.workspaceRead(repo, ws);
+  if (stateBytes === null) return null; // no workspace yet
+  const record = decodeBeast2For(WorkspaceRecordType)(stateBytes);
+  if (record.type === 'none') return null; // not previously deployed
 
-    const priorRecord = prior?.get(recObj.path);
-    if (priorRecord) {
-      // Preserve the existing committed state and full commit chain (type was
-      // already checked compatible by assertRecordTypesCompatible).
-      await storage.datasets.write(repo, ws, recObj.path, priorRecord.ref);
-      continue;
+  let priorPkg: PackageObject;
+  const recordObjects: RecordObject[] = [];
+  try {
+    priorPkg = decodePackageObject(await storage.objects.read(repo, record.value.packageHash));
+    for (const recHash of priorPkg.records.values()) {
+      recordObjects.push(decodeRecordObject(await storage.objects.read(repo, recHash)));
     }
-
-    const commit: RecordCommit = {
-      parent: none,
-      state: stateRef.value.hash,
-      mutation: '$init',
-      args: none,
-      actor: 'system:deploy',
-      at,
-    };
-    const commitHash = await storage.objects.write(repo, encodeRecordCommit(commit));
-    const selfKeypath = refPathToKeypath(recObj.path);
-    await storage.datasets.write(
-      repo, ws, recObj.path,
-      variant('value', { hash: stateRef.value.hash, versions: new Map([[selfKeypath, commitHash]]) }),
+  } catch (err) {
+    throw new Error(
+      `workspace '${ws}' has a deployment that does not read, so its records cannot be carried ` +
+      `forward (${err instanceof Error ? err.message : String(err)}) — remove the workspace and deploy again`,
     );
   }
+
+  const records: PriorDeployment['records'] = new Map();
+  for (const recObj of recordObjects) {
+    const ref = await storage.datasets.read(repo, ws, recObj.path);
+    const type = recordLeafType(priorPkg.data.structure, recObj.path);
+    if (ref && ref.type === 'value' && type) records.set(recObj.path, { ref: ref.value, type });
+  }
+  return { packageHash: record.value.packageHash, records };
 }
 
 /**
@@ -625,7 +660,8 @@ const DETERMINISTIC_MTIME = new Date(0);
  * 2. Read deployed package structure using stored packageHash
  * 3. Create new PackageObject with current structure
  * 4. Collect all referenced objects from dataset refs
- * 5. Write per-dataset refs and objects to .zip
+ * 5. Write the objects, the package ref and the current run's executions to
+ *    the .zip
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -707,102 +743,17 @@ export async function workspaceExport(
   const pkgData = encoder(newPkgObject);
   const packageHash = await storage.objects.write(repo, pkgData);
 
-  // Create zip file
   const zipfile = new yazl.ZipFile();
-
-  // Track which objects we've added to avoid duplicates
-  const addedObjects = new Set<string>();
-
-  // Helper to add an object to the zip
-  const addObject = async (hash: string): Promise<void> => {
-    if (addedObjects.has(hash)) return;
-    addedObjects.add(hash);
-
+  let objectCount = 0;
+  await walkPackageObjects(storage, repo, packageHash, newPkgObject, async (hash) => {
     const data = await storage.objects.read(repo, hash);
-    const objPath = `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`;
-    zipfile.addBuffer(Buffer.from(data), objPath, { mtime: DETERMINISTIC_MTIME });
-    if (options?.onProgress) await options.onProgress({ objectsProcessed: addedObjects.size });
-  };
+    zipfile.addBuffer(Buffer.from(data), `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`, { mtime: DETERMINISTIC_MTIME });
+    objectCount++;
+    if (options?.onProgress) await options.onProgress({ objectsProcessed: objectCount });
+  });
 
-  // Helper to collect children from a beast2 object via hash scanning
-  const collectTreeChildren = async (treeData: Uint8Array): Promise<void> => {
-    const dataStr = Buffer.from(treeData).toString('latin1');
-    const hashPattern = /[a-f0-9]{64}/g;
-    const matches = dataStr.matchAll(hashPattern);
-
-    for (const match of matches) {
-      const potentialHash = match[0];
-      if (addedObjects.has(potentialHash)) continue;
-
-      try {
-        await addObject(potentialHash);
-        const childData = await storage.objects.read(repo, potentialHash);
-        await collectTreeChildren(childData);
-      } catch {
-        addedObjects.delete(potentialHash);
-      }
-    }
-  };
-
-  // Add an environment spec object and every blob it references
-  const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
-  const addEnvironment = async (envHash: string): Promise<void> => {
-    await addObject(envHash);
-    const specData = await storage.objects.read(repo, envHash);
-    const spec = decodeEnvironmentSpec(Buffer.from(specData));
-    for (const blobHash of environmentSpecObjectHashes(spec)) {
-      await addObject(blobHash);
-    }
-  };
-
-  // Add the package object
-  await addObject(packageHash);
-
-  // Collect all task objects and their commandIr references
-  const taskDecoder = decodeTaskObject;
-  for (const taskHash of newPkgObject.tasks.values()) {
-    await addObject(taskHash);
-    const taskData = await storage.objects.read(repo, taskHash);
-    const taskObject: TaskObject = taskDecoder(Buffer.from(taskData));
-    await addObject(taskObject.commandIr);
-    const irData = await storage.objects.read(repo, taskObject.commandIr);
-    await collectTreeChildren(irData);
-    if (taskObject.environment.type === 'some') {
-      await addEnvironment(taskObject.environment.value);
-    }
-  }
-
-  // Collect all function objects and their bodyIr references
-  const fnDecoder = decodeFunctionObject;
-  for (const fnHash of newPkgObject.functions.values()) {
-    await addObject(fnHash);
-    const fnData = await storage.objects.read(repo, fnHash);
-    const fnObject: FunctionObject = fnDecoder(Buffer.from(fnData));
-    await addObject(fnObject.bodyIr);
-    const fnIrData = await storage.objects.read(repo, fnObject.bodyIr);
-    await collectTreeChildren(fnIrData);
-    if (fnObject.environment.type === 'some') {
-      await addEnvironment(fnObject.environment.value);
-    }
-  }
-
-  // Write ref files to zip and collect value objects
-  const refEncoder = encodeBeast2For(DatasetRefType);
-
-  for (const [refPath, ref] of workspaceRefs) {
-    // Write the DatasetRef to data/ dir in zip
-    const refData = refEncoder(ref);
-    zipfile.addBuffer(Buffer.from(refData), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
-
-    // Add the value object if present
-    if (ref.type === 'value') {
-      await addObject(ref.value.hash);
-    }
-  }
-
-  // Write the package ref
-  const refPath = `packages/${finalName}/${finalVersion}`;
-  zipfile.addBuffer(Buffer.from(packageHash + '\n'), refPath, { mtime: DETERMINISTIC_MTIME });
+  // The package ref, as a repository keeps one
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(packageHash)), `packages/${finalName}/${finalVersion}.beast2`, { mtime: DETERMINISTIC_MTIME });
 
   // Include executions and logs if currentRunId exists
   if (state.currentRunId.type === 'some') {
@@ -814,54 +765,23 @@ export async function workspaceExport(
       const dataflowPath = `dataflows/${name}/${currentRunId}.beast2`;
       zipfile.addBuffer(Buffer.from(runEncoder(dataflowRun)), dataflowPath, { mtime: DETERMINISTIC_MTIME });
 
-      // Include execution files for each task
-      for (const [taskName, execRecord] of dataflowRun.taskExecutions) {
-        const taskHash = newPkgObject.tasks.get(taskName);
-        if (!taskHash) continue;
-
-        // Get the task to find its inputs
-        const taskData = await storage.objects.read(repo, taskHash);
-        const task: TaskObject = taskDecoder(Buffer.from(taskData));
-
-        // Compute inputsHash from workspace refs
-        const inputHashes: string[] = [];
-        for (const inputPath of task.inputs) {
-          try {
-            const { workspaceGetDatasetHash } = await import('./trees.js');
-            const { hash } = await workspaceGetDatasetHash(storage, repo, name, inputPath);
-            if (hash) inputHashes.push(hash);
-          } catch {
-            // Skip if input not available
-          }
-        }
-
-        if (inputHashes.length !== task.inputs.length) continue;
-
-        const { inputsHash } = await import('./executions.js');
-        const inHash = inputsHash(inputHashes);
-
+      // Include the execution each task used, which the run's record names
+      // whole: its inputs may have changed in the workspace since.
+      const statusEncoder = encodeBeast2For(ExecutionStatusType);
+      for (const { taskHash, inputsHash: inHash, executionId } of dataflowRun.taskExecutions.values()) {
         // Read and add execution status
-        const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, execRecord.executionId);
+        const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
         if (execStatus) {
-          const statusEncoder = await import('@elaraai/e3-types').then(m =>
-            encodeBeast2For(m.ExecutionStatusType)
-          );
-          const statusPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/status.beast2`;
+          const statusPath = `executions/${taskHash}/${inHash}/${executionId}/status.beast2`;
           zipfile.addBuffer(Buffer.from(statusEncoder(execStatus)), statusPath, { mtime: DETERMINISTIC_MTIME });
-
-          // Add output file if success
-          if (execStatus.type === 'success') {
-            const outputPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/output`;
-            zipfile.addBuffer(Buffer.from(execStatus.value.outputHash + '\n'), outputPath, { mtime: DETERMINISTIC_MTIME });
-          }
         }
 
         // Read and add logs (stdout/stderr)
         for (const stream of ['stdout', 'stderr'] as const) {
           try {
-            const logChunk = await storage.logs.read(repo, taskHash, inHash, execRecord.executionId, stream, { limit: 100 * 1024 * 1024 });
+            const logChunk = await storage.logs.read(repo, taskHash, inHash, executionId, stream, { limit: 100 * 1024 * 1024 });
             if (logChunk.data && logChunk.data.length > 0) {
-              const logPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/${stream}.txt`;
+              const logPath = `executions/${taskHash}/${inHash}/${executionId}/${stream}.txt`;
               zipfile.addBuffer(Buffer.from(logChunk.data), logPath, { mtime: DETERMINISTIC_MTIME });
             }
           } catch {
@@ -887,7 +807,7 @@ export async function workspaceExport(
 
   return {
     packageHash,
-    objectCount: addedObjects.size,
+    objectCount,
     name: finalName,
     version: finalVersion,
   };

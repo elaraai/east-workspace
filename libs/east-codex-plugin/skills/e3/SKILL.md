@@ -75,7 +75,10 @@ Task → What do you need?
 ├─ Authoring a package (SDK)
 │   ├─ Input dataset        → e3.input(name, type, source?) — variant('value', v) | variant('file', path)
 │   ├─ Record (audited state)→ e3.record(name, type, initial)
-│   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
+│   ├─ Mutation (reducer)    → e3.mutation(name, record, fn) — sees the whole state
+│   ├─ Mutation (lazy write) → e3.editMutation(name, record, fn) — (state, …args, edit) => Null
+│   ├─ Mutation (client diff)→ e3.patchMutation(record) — the argument IS the change
+│   ├─ Secondary index       → e3.recordIndex(name, record, { key | keys, value? })
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
 │   ├─ Huge input, per-row / per-entity / reduce / re-key → e3.partitionTask(name, spec, fn)
 │   ├─ Huge input, one-pass fold in order / ingest → e3.streamTask(name, spec, fn)
@@ -114,14 +117,15 @@ Task → What do you need?
 ├─ Datasets (read / write values)
 │   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 │   ├─ Write a value        → e3 dataset set <repo> <ws.name> <file>
-│   ├─ Adopt a .beast2 file  → e3 dataset set <repo> <ws.name> --from-file <path> (by hash, never read whole)
+│   ├─ Adopt a .beast2 file  → e3 dataset set <repo> <ws.name> --from-file <path> (a segment at a time, never read whole)
 │   ├─ List all paths       → e3 dataset list <repo> <ws> [-l]
 │   ├─ Status (kind/type)   → e3 dataset status <repo> <ws.name>
 │   └─ Search               → e3 dataset find <repo> <ws> <pattern>
 │
 ├─ Records (audited mutable state — mutations only, no raw set)
 │   ├─ Apply a mutation     → e3 mutate <repo> <record.mutation> [args...] -w <ws>
-│   ├─ Commit history       → e3 history <repo> <record> -w <ws> [--limit n] [--from hash]
+│   ├─ Commit history       → e3 history <repo> <record> -w <ws> [--limit n] [--from hash] [--delta]
+│   ├─ Rebuild an index     → e3 reindex <repo> <record> -w <ws> [--index <name>]
 │   └─ Compact history      → e3 compact <repo> <record> -w <ws>
 │
 ├─ Tasks (inspect / logs)
@@ -151,7 +155,7 @@ The third argument is always a **source variant** — there is no bare-value for
 | Source | Meaning |
 |---|---|
 | `variant('value', v)` | An inline value, carried in the package. |
-| `variant('file', path)` | A beast2 file on the machine that **deploys** the package. The package carries only the path; deploy adopts the file into the object store **by hash** (reflink, hard link, or one kernel copy — never read whole, never modified). Relative paths resolve against the working directory at export. |
+| `variant('file', path)` | A beast2 file on the machine that **deploys** the package. The package carries only the path; deploy takes the file into the object store as the value it holds — a collection a segment at a time, as the store's own segment objects; any other value by reflink, hard link or one kernel copy. Never read whole, never modified. Relative paths resolve against the working directory at export. |
 | omitted | Unassigned until something sets it. |
 
 ```typescript
@@ -167,10 +171,14 @@ A `file` source is checked twice against the declared type: at `e3.export`
 (a schema drift is a build error naming the input and the first differing
 field) and at deploy, before the workspace is touched (a missing or drifted
 delivery fails the deploy with the previous deployment intact). A collection
-delivery must be an indexed, self-contained v5 blob — the at-rest contract
-every collection dataset keeps, and what lets runners page it and
-`partitionTask` carve it. Deliveries are immutable by contract: the object may
-be a hard link to the file, so replace a delivery with a new file rather than
+delivery may be in any layout a beast2 writer produces — segmented or encoded
+whole, indexed or not — so long as no segment of it is larger than a collection
+is read in at once (64 MiB): a large value encoded whole is one such segment,
+refused with a message to write it segmented, the Writer's default. The store
+cuts a delivery into its own segments, so a new delivery that differs from the
+last in a few rows stores only the segments around them, and the same bytes
+delivered again are not read a second time. Any other value's object may be a
+hard link to the file, so replace a delivery with a new file rather than
 editing it in place.
 
 A `file` source is read on the machine that runs `e3 workspace deploy`, local
@@ -555,7 +563,7 @@ const ingest = e3.streamTask('ingest', {
 Array/Set outputs. An Array output stores its elements in emission order. A
 Set or Dict output must be emitted in **ascending key order** (East's total
 order): the runner writes the output in one pass, segment by segment, with
-one open batch in memory whatever the output's size, and an out-of-order key
+one open segment in memory whatever the output's size, and an out-of-order key
 fails the task — `beast2 v5: Dict key emitted out of order: 1 after 2 —
 Set/Dict emissions must ascend in East order`, the same words on every
 runtime. Duplicate Dict keys / Set elements are a runtime error unless
@@ -707,6 +715,105 @@ Mutations are the only writer — a raw `e3 dataset set` on a record path is
 rejected. Apply with `e3 mutate`, inspect with `e3 history`, drop history with
 `e3 compact` (see CLI).
 
+### The three write forms
+
+Every form commits the same thing — a **mutation delta**, the record's and each
+index's changes addressed by key — which the engine applies by rewriting only
+the segments those keys fall in. They differ in how the author says what
+changed, and so in what a write costs.
+
+| Form | Body | Reach for it when |
+|---|---|---|
+| `e3.mutation(name, rec, fn)` | `(state, …args) => state` | the rule is over the whole state, or the record is small |
+| `e3.editMutation(name, rec, fn)` | `(state, …args, edit) => Null` | server-side logic touches a few entries of a large record |
+| `e3.patchMutation(rec, name?)` | none — the argument is `PatchType(state)` | an interactive edit from a view, or an integration that sends diffs |
+
+A reducer sees the whole state, so its cost in the runner is the record's size
+however little it changes. An **edit** body reads the state lazily and writes
+through `edit.set(key, value)` / `edit.delete(key)` / `edit.update(key, patch)`,
+so the body decodes only the entries it reads and the commit rewrites only the
+segments its keys fall in. The record still reaches the runner as a stream of
+its segments: a write moves the record's bytes, one segment at a time, but
+never holds them. Repeated edits of one key fold; a `set` of the value a row
+already holds changes nothing; and a `delete` or `update` of a key the record
+does not hold is a conflict naming the key — the caller's view of the record is
+stale. A **patch** mutation has no body at all — on a record with no index
+nothing runs, which makes it the form to use for interactive latency at any
+record size.
+
+```typescript
+const PlanType = StructType({
+  title: StringType, owner: StringType, status: StringType,
+  due: DateTimeType, resources: SetType(StringType),
+});
+const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
+
+// `edit` is typed from the record: edit.set(key, row), edit.delete(key),
+// edit.update(key, patch) — each checked against the record's key and row.
+const reschedule = e3.editMutation('reschedule', plans,
+  East.function([plans.type, StringType, DateTimeType, e3.editTypeOf(plans.type)], NullType,
+    ($, state, id, due, edit) => {
+      const plan = $.let(state.get(id));       // one segment decoded, not the record
+      $(edit.set(id, { title: plan.title, owner: plan.owner, status: plan.status, due, resources: plan.resources }));
+    }));
+
+const pkg = e3.package('planning', '1.0.0', plans, reschedule, e3.patchMutation(plans));
+```
+
+`e3.editTypeOf(recordType)` is the edit capability's type — the struct of three
+East functions an edit body declares as its last parameter.
+
+Costs are counted in segments. A Dict or Set record is cut into segments by
+key, and the cut weighs each entry's encoded size as well as counting it: narrow
+rows share a segment with many others, while rows that carry large blobs or big
+nested collections get segments of a few rows, down to one row each. Reading or
+rewriting a row costs its segment, so a one-row edit stays cheap however wide
+the rows are. A view that pages a record still reads every field of each row it
+shows, so keep a bulky payload the view does not display in a second record
+keyed the same way.
+
+### e3.recordIndex(name, record, spec)
+
+A record is paged and searched in its primary key order and nothing else. An
+index is a **second canonical collection whose sort order IS the query order**,
+stored and read exactly like the record, and maintained inside the same commit —
+so a view by an attribute of the row, or by a related entity a row names many
+of, is a page rather than a scan.
+
+Declare exactly one of `key` (one entry per row) or `keys` (a `Set` return: one
+entry per element, so a row naming five resources appears under five keys; an
+empty set is a row the index does not carry). An optional `value` projection is
+what a view renders from the index alone, without touching the record.
+
+```typescript
+const StatusKeyType = StructType({ status: StringType, due: DateTimeType });
+
+const byStatus = e3.recordIndex('by_status', plans, {
+  key:   East.function([StringType, PlanType], StatusKeyType,
+           ($, k, v) => ({ status: v.status, due: v.due })),
+  value: East.function([StringType, PlanType], StringType, ($, k, v) => v.title),
+});
+const byResource = e3.recordIndex('by_resource', plans, {
+  keys: East.function([StringType, PlanType], SetType(StringType), ($, k, v) => v.resources),
+});
+
+const pkg = e3.package('planning', '1.0.0', plans, byStatus, byResource);
+```
+
+The functions must be pure and synchronous: an index is maintained on every
+commit and rebuilt on demand, and the two must agree to the byte. `primary` is
+reserved — it names the record's own collection wherever an index is selected.
+Read through one by passing `index=<name>` to a dataset page, or rebuild one
+with `e3 reindex`.
+
+A deploy reconciles indexes by itself — one the package declares and the state
+does not hold is BUILT, one the state holds and the package does not is
+DROPPED, one that matches is kept and nothing runs — and says which as it goes.
+A build over a record too large for one process fans out: the record is cut
+into slices, a unit per slice emits its entries, and the partials merge through
+the same tree a partitioned task's fan-in uses. Every unit is an ordinary
+cached execution, so rebuilding over an unchanged record runs nothing at all.
+
 ### e3.package(name, version, ...items)
 
 Bundle into a package. Dependencies are collected automatically.
@@ -775,7 +882,7 @@ Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to its storage
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
-e3 dataset set <repo> <ws.name> --from-file <path.beast2>  # adopt by hash: streamed SHA-256, header checked, link/copy — never decoded
+e3 dataset set <repo> <ws.name> --from-file <path.beast2>  # streamed SHA-256, header checked; a collection re-cut a segment at a time (bytes seen before cost their hash), anything else linked/copied
 e3 dataset list <repo> <ws> [-l]            # List dataset paths (-l adds columns)
 e3 dataset status <repo> <ws.name>          # Kind/type/status/size for one dataset
 e3 dataset find <repo> <ws> <pattern>       # Substring or glob (`*`, `?`) match
@@ -796,13 +903,16 @@ dataset.
 
 ```bash
 e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]  # apply a mutation; args = .east literals or .beast2/.json/.east files; -v = runner timing/perf (local)
-e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>]  # commit chain, newest first (--from pages)
+e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]  # commit chain, newest first (--from pages; --delta counts what each commit changed, per target)
+e3 reindex <repo> <record> -w <ws> [--index <name>]   # rebuild a secondary index from the record (all of them by default)
 e3 compact <repo> <record> -w <ws>                    # collapse history to a $compact root (state preserved)
 ```
 
 ```bash
 e3 mutate . counter.increment 5.east -w main   # state += 5
+e3 mutate . plans.patch ./edit.beast2 -w main  # a patch mutation's one argument IS the change
 e3 history . counter -w main --limit 10
+e3 history . plans -w main --delta             # …with +inserts ~updates -deletes per target
 ```
 
 ### Task
@@ -828,15 +938,14 @@ After a successful run the output paths are printed in flat form, ready to read 
 processes e3 keeps in flight at once, across the dataflow's tasks and the
 partitions and merge units of its partitioned tasks alike (one slot per
 runner, first come first served). Default: the CPUs available to e3 (affinity
-mask, capped by a cgroup quota), or `E3_JOBS`. `--concurrency` and
-`--partition-concurrency` are deprecated aliases of the same budget.
+mask, capped by a cgroup quota), or `E3_JOBS`.
 
 **`E3_SCRATCH_DIR`** names the directory a local run's per-execution scratch
 directories (inputs marshalled, the output written before it is stored) are
-created under — the system temp directory when unset. A tmpfs temp directory
-holds an output in memory until it is stored, so large outputs want it on a
-disk; a scratch directory left by a dead process is removed by the next run or
-`e3 repo gc`.
+created under — `<repo>/tmp/scratch` when unset, on the object store's own
+disk. Set it only to move scratch to another disk: one on tmpfs holds each
+output in memory until it is stored. A scratch directory left by a dead process
+is removed by the next run or `e3 repo gc`.
 
 **`-v` / `--verbose`** forwards `-v` to each task's runner so it prints a
 timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — identical

@@ -205,7 +205,7 @@ function checkRowType(type: EastType, fn: string): void {
  * ```ts
  * const rows = e3.streamTask('rows', {
  *     inputs: [path],
- *     output: ArrayType(RowType),
+ *     output: e3.output.array(RowType),
  * }, ($, p, emit) => {
  *     const handle = $.let(Json.open(p, "/data"));
  *     $.while(Json.more(handle), $ => {

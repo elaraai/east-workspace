@@ -5,7 +5,6 @@
 
 import { NullType, some, none, variant } from '@elaraai/east';
 import {
-  JobSlots,
   dataflowGetGraph,
   workspaceStatus,
   executionFindCurrent,
@@ -19,7 +18,7 @@ import {
   type TaskStatusInfo as CoreTaskStatusInfo,
   type DataflowExecutionStatus,
 } from '@elaraai/e3-core';
-import type { StorageBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TaskRunner } from '@elaraai/e3-core';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -161,24 +160,30 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  *
  * Returns 202 Accepted immediately and runs execution in background.
  * Creates execution state that can be polled via getDataflowExecution().
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository's path
+ * @param workspace - The workspace whose dataflow runs
+ * @param options - The runner the run's tasks and units run on, which holds
+ *   the server's budget; the tasks and units the loop keeps in flight; and
+ *   the run's force, filter and verbosity
+ * @returns 202 once the run has started, or the error that stopped it
  */
 export async function startDataflow(
   storage: StorageBackend,
   repoPath: string,
   workspace: string,
-  options: { jobs: number; force: boolean; filter?: string; verbose?: boolean }
+  options: { runner: TaskRunner; width: number; force: boolean; filter?: string; verbose?: boolean }
 ): Promise<Response> {
   try {
     const orchestrator = getOrchestrator(repoPath);
-    if (!Number.isInteger(options.jobs) || options.jobs < 1) {
-      return sendError(NullType, variant('internal', { message: `jobs must be a positive integer, got ${options.jobs}` }));
-    }
 
-    // Start execution via orchestrator (acquires lock internally). The run's
-    // jobs budget bounds the runners it spawns, tasks and partition units alike.
+    // Start execution via orchestrator (acquires lock internally). The loop
+    // keeps `width` tasks and units in flight, and the runner decides which
+    // of them spawn.
     const handle = await orchestrator.start(storage, repoPath, workspace, {
-      concurrency: options.jobs,
-      jobs: new JobSlots(options.jobs),
+      runner: options.runner,
+      width: options.width,
       force: options.force,
       filter: options.filter,
       verbose: options.verbose,

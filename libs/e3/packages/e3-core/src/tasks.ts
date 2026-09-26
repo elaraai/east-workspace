@@ -17,7 +17,7 @@
 import { decodeBeast2For } from '@elaraai/east';
 import {
   decodePackageObject,
-  WorkspaceStateType,
+  WorkspaceRecordType,
   type TaskObject,
   decodeTaskObject,
 } from '@elaraai/e3-types';
@@ -100,12 +100,11 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
     throw new WorkspaceNotFoundError(ws);
   }
 
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
-
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return decoder(Buffer.from(data));
+  return record.value;
 }
 
 /**

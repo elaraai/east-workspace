@@ -396,7 +396,7 @@ export async function get<T extends EastType>(
   url: string,
   path: string,
   successType: T,
-  options: RequestOptions
+  options: RequestOptions,
 ): Promise<ValueTypeOf<T>> {
   const response = await fetchWithRetry(`${url}/api${path}`, {
     method: 'GET',
@@ -517,7 +517,7 @@ export async function putEmpty<T extends EastType>(
  */
 async function decodeResponse<T extends EastType>(
   response: globalThis.Response,
-  successType: T
+  successType: T,
 ): Promise<ValueTypeOf<T>> {
   // Handle HTTP-level errors
   if (!response.ok) {
@@ -530,9 +530,8 @@ async function decodeResponse<T extends EastType>(
   }
 
   // Decode BEAST2 response
-  const buffer = await response.arrayBuffer();
-  const decode = decodeBeast2For(ResponseType(successType));
-  const result = decode(new Uint8Array(buffer)) as Response<ValueTypeOf<T>>;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const result = decodeBeast2For(ResponseType(successType))(bytes) as Response<ValueTypeOf<T>>;
 
   // Handle application-level errors in BEAST2 response
   if (result.type === 'error') {
@@ -584,16 +583,4 @@ export async function fetchWithProgress(
     offset += chunk.byteLength;
   }
   return result;
-}
-
-/**
- * Unwrap a response, throwing on error.
- * @deprecated Functions now throw ApiError on error; this function is no longer needed.
- */
-export function unwrap<T>(response: Response<T>): T {
-  if (response.type === 'error') {
-    const err = response.value;
-    throw new ApiError(err.type, err.value);
-  }
-  return response.value;
 }

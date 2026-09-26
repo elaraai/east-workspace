@@ -5,7 +5,7 @@
 
 /**
  * Record mutation and history client methods. Records are workspace-scoped —
- * a mutation runs the reducer server-side under optimistic concurrency and
+ * a mutation runs its program server-side under optimistic concurrency and
  * returns the terminal MutationResult; history reads the commit chain.
  */
 
@@ -49,7 +49,8 @@ export async function workspaceRecordMutate(
   // after a gateway timeout cannot double-apply, and adding it changes no wire
   // type — an un-upgraded server simply ignores the header.
   const extraHeaders = idempotencyKey !== undefined ? { 'Idempotency-Key': idempotencyKey } : undefined;
-  return post(url, verboseQuery(`${recordBase(repo, ws, record)}/mutations/${enc(mutation)}`, options), req, MutationCallRequestType, MutationResultType, options, extraHeaders);
+  return post(url, verboseQuery(`${recordBase(repo, ws, record)}/mutations/${enc(mutation)}`, options), req,
+    MutationCallRequestType, MutationResultType, options, extraHeaders);
 }
 
 /** Compact a record's history (drops the prior chain), returning the result of
@@ -61,7 +62,8 @@ export async function workspaceRecordCompact(
   record: string,
   options: RequestOptions,
 ): Promise<MutationResult> {
-  return post(url, `${recordBase(repo, ws, record)}/compact`, { args: [], actor: none, limits: none }, MutationCallRequestType, MutationResultType, options);
+  return post(url, `${recordBase(repo, ws, record)}/compact`, { args: [], actor: none, limits: none },
+    MutationCallRequestType, MutationResultType, options);
 }
 
 /** Fetch a record's commit history (newest first); page with `from` (a commit

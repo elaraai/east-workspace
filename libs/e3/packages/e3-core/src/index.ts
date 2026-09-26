@@ -49,8 +49,17 @@ export {
   type SweepBatchResult,
 } from './storage/local/gc.js';
 
-// Object storage
-export { computeHash, BEAST2_CONTENT_TYPE } from './objects.js';
+// The history gc keeps: which runs and executions, and the deletion of the rest
+export {
+  pruneHistory,
+  DEFAULT_KEEP_RUNS,
+  DEFAULT_KEEP_DAYS,
+  type HistoryOptions,
+  type HistoryResult,
+} from './storage/local/history.js';
+
+// Object storage, and the form every store checks an object's hash has
+export { computeHash, isObjectHash } from './objects.js';
 
 // Local object storage functions (for backwards compatibility)
 export {
@@ -65,6 +74,7 @@ export {
   objectAbbrev,
   transferStagingDir,
   transferStagingPath,
+  packageStagingPath,
 } from './storage/local/localHelpers.js';
 
 // Package operations
@@ -95,12 +105,25 @@ export {
   type WorkspaceDeployOptions,
 } from './workspaces.js';
 
+// What a deploy decides for each record and index, and its schema policy: the
+// wire types' values, which its callbacks and its job report alike
+export type { SchemaPolicy, RecordPlan, RecordIndexPlan } from '@elaraai/e3-types';
+
 // Record mutations and history (the write half of the CQRS pair)
 export {
   recordMutate,
   recordHistory,
   recordDescribe,
   recordCompact,
+  recordReindex,
+  readRecordState,
+  writeRecordState,
+  resolveRecordIndex,
+  recordIndexNames,
+  appliedMigrations,
+  type RecordRef,
+  type RecordStateRefs,
+  type ResolvedRecordIndex,
   type MutationOutcome,
   type RecordMutateOptions,
   type RecordMutateLimits,
@@ -120,10 +143,36 @@ export {
   type TreeObject,
 } from './trees.js';
 
+// The opener door: how every reader reaches a stored collection dataset,
+// whether it is a segment manifest or a bare segmented blob
+export {
+  DatasetSegments,
+  readManifest,
+  openDatasetObject,
+  readDatasetWhole,
+} from './dataset-open.js';
+
+// The store's door: the one way a collection reaches the object store
+export {
+  storeCollection,
+  storeDatasetFile,
+  storeDatasetBytes,
+  type CollectionSource,
+} from './store-collection.js';
+
+// The write path a mutation delta takes: only the segments it touched
+export {
+  applyDelta,
+  summarizeDelta,
+  DeltaConflictError,
+  type DeltaArmSummary,
+} from './record-apply.js';
+
 // Taking an existing file into a workspace as a dataset value (#765)
 export {
   datasetAdoptFile,
   datasetAdoptObject,
+  deliveryKnown,
   objectAdoptFile,
   type DatasetAdoptOptions,
   type DatasetAdoptResult,
@@ -137,6 +186,7 @@ export {
   workspaceGetDatasetHash,
   workspaceGetDatasetStatus,
   workspaceSetDataset,
+  workspaceSetDatasetBytes,
   workspaceSetDatasetByHash,
   workspaceGetTree,
   type DatasetStatusResult,
@@ -181,10 +231,14 @@ export {
 // UUID utilities (for execution history)
 export { uuidv7, uuidv7Timestamp, isUuidv7 } from './uuid.js';
 
-// Local process execution (in execution/ directory)
+// Local process execution (in execution/ directory), and the execution cache
+// every runner serves from
 export {
   taskExecute,
+  taskExecuteUnit,
+  probeExecutionCache,
   type ExecuteOptions,
+  type ExecutionIds,
   type ExecutionResult,
 } from './execution/LocalTaskRunner.js';
 
@@ -193,6 +247,7 @@ export {
   getBootId,
   getPidStartTime,
   isProcessAlive,
+  processOwner,
 } from './execution/processHelpers.js';
 
 // Dataflow execution
@@ -234,6 +289,9 @@ export {
   stepGetReady,
   stepPrepareTask,
   stepTaskStarted,
+  stepTaskSplit,
+  stepTaskMergeStarted,
+  stepTaskMergeCompleted,
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,
@@ -316,11 +374,16 @@ export {
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
+  RepoLayoutError,
+  // Names
+  InvalidNameError,
+  checkName,
   // Workspace
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceExistsError,
   WorkspaceLockError,
+  RecordDeployRefusedError,
   type LockHolderInfo,
   // Package
   PackageNotFoundError,

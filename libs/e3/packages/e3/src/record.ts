@@ -63,6 +63,8 @@ export function record<Name extends string, T extends EastType>(
     default: initialValue,
     writable: false,
     mutations: {},
+    indexes: {},
+    migrations: [],
     deps: new Set([...recordsTree.deps, recordsTree]),
   };
 }

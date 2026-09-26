@@ -41,39 +41,25 @@ export {
 
 // Task definitions
 export {
+  TASK_OBJECT_KIND,
   TaskObjectType,
   type TaskObject,
   decodeTaskObject,
-  TASK_KIND_PARTITION,
-  TASK_KIND_STREAM,
-  TASK_KIND_MERGE,
-  PartitionTaskMetadataType,
-  type PartitionTaskMetadata,
-  encodePartitionTaskMetadata,
-  decodePartitionTaskMetadata,
-  StreamTaskMetadataType,
-  type StreamTaskMetadata,
-  encodeStreamTaskMetadata,
-  decodeStreamTaskMetadata,
-  PartitionPlanType,
-  MergeRangePlanType,
-  type PartitionPlan,
-  type MergeRangePlan,
-  encodePartitionPlan,
-  decodePartitionPlan,
-  type ProjectionShape,
-  partitionProjectionShape,
-  projectedKeyType,
-  projectKey,
+  TaskBodyType,
+  type TaskBody,
+  TaskPartitionType,
+  type TaskPartition,
+  TaskInputType,
+  type TaskInput,
+  TaskOutputKindType,
+  type TaskOutputKind,
+  TaskOutputType,
+  type TaskOutput,
+  DataManifestType,
+  type DataManifest,
+  TaskRoleType,
+  type TaskRole,
 } from './task.js';
-
-// Stream and merge commands
-export {
-  type StreamMergeMode,
-  type StreamCommandSpec,
-  streamCommandIr,
-  mergeCommandIr,
-} from './stream.js';
 
 // Execution environments
 export {
@@ -109,17 +95,12 @@ export {
   parseDatasetPath,
   parsePackageRef,
   urlPathToTreePath,
-  // Backwards compatibility
-  DatasetSchemaType,
-  type DatasetSchema,
 } from './structure.js';
 
-// Runner wire types (functions)
+// Runner wire types
 export {
   RunnerType,
   type RunnerValue,
-  runnerToArgv,
-  withRunnerVerbose,
   withRunnerLifeline,
 } from './runner.js';
 
@@ -138,6 +119,27 @@ export {
   type MutationObject,
   RecordObjectType,
   type RecordObject,
+  decodeRecordObject,
+  RecordIndexObjectType,
+  type RecordIndexObject,
+  RECORD_STATE_KIND,
+  RecordStateType,
+  type RecordState,
+  isRecordStateType,
+  indexCollectionType,
+  indexWindowType,
+  decodeRecordCommit,
+  decodeMutationObject,
+  type MutationForm,
+  MigrationObjectType,
+  type MigrationObject,
+  decodeMigrationObject,
+  type MigrationForm,
+  DELTA_CONFLICT,
+  patchOpsType,
+  mutationDeltaType,
+  editTypeOf,
+  type DeltaTarget,
 } from './record.js';
 
 // Package objects
@@ -149,9 +151,6 @@ export {
   DatasetSourceWireType,
   type DatasetSourceWire,
   decodePackageObject,
-  // Backwards compatibility
-  PackageDatasetsType,
-  type PackageDatasets,
   // Package transfer types
   PackageTransferInitRequestType,
   type PackageTransferInitRequest,
@@ -177,12 +176,17 @@ export {
 export {
   WorkspaceStateType,
   type WorkspaceState,
+  WorkspaceRecordType,
+  type WorkspaceRecord,
 } from './workspace.js';
 
 // Execution status
 export {
   ExecutionStatusType,
   type ExecutionStatus,
+  decodeExecutionStatus,
+  executionStatusRoots,
+  ExecutionOwnerType,
   type ExecutionOwner,
 } from './execution.js';
 
@@ -192,9 +196,24 @@ export {
   type LockOperation,
   ProcessHolderType,
   type ProcessHolder,
+  LambdaHolderType,
+  type LambdaHolder,
+  LockHolderVariantType,
+  type LockHolderVariant,
   LockStateType,
   type LockState,
 } from './lock.js';
+
+// The repository's own record
+export {
+  RepoStatusType,
+  type RepoStatus,
+  RepoMetadataType,
+  type RepoMetadata,
+} from './repository.js';
+
+// The names e3 makes paths of
+export { type NamedKind, nameProblem } from './names.js';
 
 // Dataset transfer types
 export {
@@ -212,11 +231,31 @@ export {
 } from './transfer.js';
 
 // Dataset blob encoding — the ONE branch deciding segmentation, shared by the
-// store path (e3-core `datasetWrite`) and the package export path (e3 `export_`)
+// store's door (e3-core `storeCollection`) and the package export (e3 `export_`)
 export {
   isCollectionRoot,
   encodeDatasetBlob,
+  writeCollectionManifest,
+  type CollectionSegmentRef,
+  type CollectionPiece,
+  type SegmentSink,
 } from './dataset-blob.js';
+
+// The segment-object layout: a collection dataset is a manifest naming
+// standalone segment objects, and the manifest is what the ref points at
+export {
+  COLLECTION_MANIFEST_KIND,
+  CollectionManifestType,
+  CollectionManifestEntryType,
+  type CollectionManifest,
+  type CollectionManifestEntry,
+  isCollectionManifestType,
+  isCollectionManifest,
+  encodeCollectionManifest,
+  decodeCollectionManifest,
+  manifestElementCount,
+  manifestByteSize,
+} from './collection-manifest.js';
 
 // The ONE declared-type-vs-wire-type check, shared by every door a value
 // enters a dataset through (the export, the set, the adopt, the API)
@@ -249,6 +288,7 @@ export {
   InternalErrorType,
   RepositoryNotFoundErrorType,
   DatasetTypeMismatchErrorType,
+  InvalidNameErrorType,
   ErrorType,
   ResponseType,
   // Repository
@@ -265,7 +305,13 @@ export {
   // Workspaces
   WorkspaceCreateRequestType,
   WorkspaceInfoType,
+  SchemaPolicyType,
   WorkspaceDeployRequestType,
+  RecordPlanType,
+  RecordIndexPlanType,
+  WorkspaceDeployResultType,
+  WorkspaceDeployProgressType,
+  WorkspaceDeployStatusType,
   WorkspaceExportRequestType,
   // Workspace Status
   DatasetStatusType,
@@ -327,6 +373,12 @@ export {
   type WorkspaceInfo,
   type WorkspaceCreateRequest,
   type WorkspaceDeployRequest,
+  type SchemaPolicy,
+  type RecordPlan,
+  type RecordIndexPlan,
+  type WorkspaceDeployResult,
+  type WorkspaceDeployProgress,
+  type WorkspaceDeployStatus,
   type DatasetStatus,
   type TaskStatus as ApiTaskStatus,
   type DatasetStatusInfo,
@@ -374,8 +426,10 @@ export {
   ExecutionEventType,
   type ExecutionEvent,
   type PartitionProgress,
+  EXECUTION_STATE_VERSION,
   DataflowExecutionStateType,
   type DataflowExecutionState,
+  decodeDataflowExecutionState,
   // Dataflow run history
   DataflowRunStatusType,
   type DataflowRunStatus,
@@ -386,3 +440,16 @@ export {
   DataflowRunType,
   type DataflowRun,
 } from './dataflow.js';
+
+// A split task's unit graph, a stage at a time
+export {
+  UNIT_PLAN_KIND,
+  UnitPlanGroupType,
+  type UnitPlanGroup,
+  UnitPlanStageType,
+  type UnitPlanStage,
+  UnitPlanType,
+  type UnitPlan,
+  encodeUnitPlan,
+  decodeUnitPlan,
+} from './unit-plan.js';

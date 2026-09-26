@@ -61,6 +61,8 @@ program
     .option('-i, --input <name>', 'open an input on start')
     .option('--no-mouse', 'disable mouse reporting')
     .option('--ascii', 'box-drawing off (also E3_UI_ASCII=1) · colour honours NO_COLOR / FORCE_COLOR')
+    .option('-j, --jobs <n>', "a local repository's embedded server: cores, the runner processes it keeps in flight (default: $E3_JOBS, else the CPUs available)")
+    .option('--memory <size>', 'its memory, as 8G or 512M (default: $E3_MEMORY, else the memory available, less a reserve)')
     .action(tuiCommand);
 
 // `auth` is e3-cli's own command group, mounted unchanged, so the credential

@@ -47,12 +47,14 @@ export type { Beast2Codec } from "./v5/frames.js";
 export {
   Beast2Writer,
   type Beast2WriterOptions,
+  Beast2ElementWriter,
+  type Beast2ElementWriterOptions,
+  type Beast2ElementOf,
+  type Beast2Segment,
+  type Beast2SegmentSink,
   encodeBeast2SegmentsFor,
   encodeBeast2PagedFor,
   type Beast2PagedEncodeOptions,
-  BEAST2_PAGED_BATCH_DEFAULT,
-  BEAST2_PAGED_PROBE_BATCH,
-  BEAST2_PAGED_TARGET_BYTES_DEFAULT,
   iterBeast2SegmentsFor,
   Beast2Pages,
   openBeast2PagesFor,
@@ -60,6 +62,7 @@ export {
 export {
   type Beast2Extents,
   readBeast2Extents,
+  readBeast2SegmentLogicalBytes,
   carveBeast2,
   spliceBeast2,
   rebuildBeast2,
@@ -73,8 +76,69 @@ export {
   isBeast2SyncRangeReader,
   carveBeast2Ranged,
   spliceBeast2Tail,
+  spliceBeast2Segments,
 } from "./v5/geometry.js";
 export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
+export {
+  RUN_MAX_COUNT,
+  RUN_MAX_BYTES,
+  Beast2RunSorter,
+  type Beast2RunSink,
+  type Beast2RunSorterOptions,
+} from "./v5/runs.js";
+export {
+  mergeBeast2For,
+  type Beast2MergeSource,
+  type Beast2MergeOptions,
+  type Beast2MergeStats,
+} from "./v5/merge.js";
+export { decodeBeast2ElementsFor } from "./v5/elements.js";
+export {
+  recutBeast2For,
+  type Beast2SegmentRef,
+  type Beast2RecutPiece,
+  type Beast2RecutSink,
+  type Beast2RecutOptions,
+  type Beast2RecutStats,
+} from "./v5/recut.js";
+export {
+  COLLECTION_MANIFEST_KIND,
+  CollectionManifestType,
+  CollectionManifestEntryType,
+  type CollectionManifest,
+  type CollectionManifestEntry,
+  type Beast2ManifestSource,
+  isCollectionManifestType,
+  isCollectionManifest,
+  isBeast2ManifestSource,
+  encodeCollectionManifest,
+  decodeCollectionManifest,
+  readBeast2Manifest,
+  manifestElementCount,
+  manifestByteSize,
+} from "./v5/manifest.js";
+export { Beast2ManifestWriter, type Beast2ManifestSink } from "./v5/manifest-writer.js";
+export { sha256Hex } from "./v5/sha256.js";
+export { configureFramePool, type FramePoolSettings } from "./v5/frame-pool.js";
+export {
+  SEGMENT_MIN_COUNT,
+  SEGMENT_TARGET_COUNT,
+  SEGMENT_MAX_COUNT,
+  SEGMENT_MIN_BYTES,
+  SEGMENT_TARGET_BYTES,
+  SEGMENT_MAX_BYTES,
+  SEGMENT_RULE_KEYED,
+  SEGMENT_RULE_ARRAY,
+  SegmentCutter,
+  segmentBoundaryHash,
+  isSegmentBoundary,
+  startsSegmentAfter,
+  segmentRuleFor,
+  segmentKeyTypeOf,
+  encodeBeast2FenceFor,
+  decodeBeast2FenceFor,
+} from "./v5/boundary.js";
+export { fnv1a64 } from "./shared.js";
 import { readIndex, MAGIC_BYTES_V5 } from "./v5/codec.js";
 import type { Beast2SyncRangeReader } from "./v5/range.js";
 
@@ -246,11 +310,15 @@ export function encodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
  * Builds a decoder closure for the given type.
  *
  * The returned function dispatches on the blob's magic version byte, so v4
- * blobs decode through the same entry point as newer container versions.
+ * blobs decode through the same entry point as newer container versions. It
+ * decodes a blob whose header names `type`, or a subtype of it whose variant
+ * tags line up — each of its variants holds the first cases of `type`'s, so a
+ * `none` reads as any `Option` — and refuses any other, naming both types.
  *
  * @param type - the expected root East type (as `EastType` or `EastTypeValue`)
  * @param options - decode options (platform functions for decoded functions)
- * @returns a reusable function decoding beast2 bytes to values of `type`
+ * @returns a reusable function decoding beast2 bytes to values of `type`,
+ *   which throws when the blob's header names a type that does not read as it
  */
 export function decodeBeast2For(type: EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => any
 export function decodeBeast2For<T extends EastType>(type: T, options?: Beast2DecodeOptions): (data: Uint8Array) => ValueTypeOf<T>
@@ -281,7 +349,9 @@ export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
  *
  * @param type - the expected root East type (as `EastType` or `EastTypeValue`)
  * @param options - decode options (platform functions for decoded functions)
- * @returns a reusable async function decoding beast2 bytes to values of `type`
+ * @returns a reusable async function decoding beast2 bytes to values of
+ *   `type`, which rejects when the blob's header names a type that does not
+ *   read as it
  */
 export function decodeBeast2ForAsync(type: EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => Promise<any>
 export function decodeBeast2ForAsync<T extends EastType>(type: T, options?: Beast2DecodeOptions): (data: Uint8Array) => Promise<ValueTypeOf<T>>

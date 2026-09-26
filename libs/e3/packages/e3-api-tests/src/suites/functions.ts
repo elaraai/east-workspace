@@ -9,8 +9,8 @@
  * Exercises the graph-free execution path end-to-end against a real server
  * + real east-node runner: list/describe, sync calls, limits
  * (too_large / timed_out), cancellation, both scopes (package + workspace),
- * runner override, one-shot with value and dataset args, and the
- * "persists nothing" guarantee.
+ * runner override, one-shot with value, dataset and collection-dataset args,
+ * and the "persists nothing" guarantee.
  */
 
 import { describe, it } from 'node:test';
@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 
 import {
   East,
+  DictType,
   IntegerType,
   StringType,
   encodeBeast2For,
@@ -242,6 +243,29 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         opts
       );
       assert.equal(successValue(result), 30n);
+    });
+
+    it('one-shot binds a collection dataset arg as the value it holds', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('oneshot-dict-ws');
+      await ctx.deployPackage('oneshot-dict-ws', `${PKG}@${VERSION}`);
+
+      // The dataset's ref names its manifest; the runner is given the dict.
+      const total = East.function([DictType(StringType, IntegerType)], IntegerType,
+        ($, prices) => prices.reduce(($, sum, price) => sum.add(price), 0n));
+      const result = await oneShotExecute(
+        ctx.config.baseUrl, ctx.repoName, 'oneshot-dict-ws',
+        {
+          bodyIr: encodeEastIR(total.toIR()),
+          args: [variant('dataset', [variant('field', 'inputs'), variant('field', 'prices')])],
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+          limits: none,
+        },
+        opts
+      );
+      assert.equal(successValue(result), 6n);
     });
 
   });

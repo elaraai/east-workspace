@@ -28,7 +28,7 @@ import {
     type WorkspaceInfo,
     type WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
-import type { TreePath, WorkspaceState } from '@elaraai/e3-types';
+import type { DataManifest, TreePath, WorkspaceState } from '@elaraai/e3-types';
 import { encodeDatasetBlob } from '@elaraai/e3-types';
 import {
     compareFor,
@@ -51,7 +51,6 @@ import { dottedPath } from './api.js';
 /** A task's fixture. */
 export interface FakeTask {
     name: string;
-    kind?: 'ui' | undefined;
     status: TaskStatus;
     inputs: string[];
     dependsOn: string[];
@@ -59,8 +58,8 @@ export interface FakeTask {
     output?: { type: EastType | EastTypeValue; value: unknown } | undefined;
     /** The output path (default `.tasks.<name>.output`). */
     outputPath?: string | undefined;
-    /** Task metadata blob (a `ui` task's manifest). */
-    metadata?: Uint8Array | undefined;
+    /** A `ui` task's data manifest; absent for a data task. */
+    manifest?: DataManifest | undefined;
     logs?: { stdout?: string; stderr?: string } | undefined;
     executions?: ExecutionListItem[] | undefined;
     /** Marks the output as a legacy, un-pageable blob (`dataset_not_indexed`). */
@@ -341,7 +340,11 @@ export class FakeApi implements Api {
     }
 
     async taskList(ws: string): Promise<TaskListItem[]> {
-        return this.call(`taskList ${ws}`, () => this.ws(ws).tasks.map(t => ({ name: t.name, hash: sha256(new TextEncoder().encode(t.name)), kind: t.kind !== undefined ? some(t.kind) : none })));
+        return this.call(`taskList ${ws}`, () => this.ws(ws).tasks.map(t => ({
+            name: t.name,
+            hash: sha256(new TextEncoder().encode(t.name)),
+            role: t.manifest !== undefined ? variant('ui', t.manifest) : variant('data', null),
+        })));
     }
 
     async taskGet(ws: string, task: string): Promise<TaskDetails> {
@@ -352,11 +355,11 @@ export class FakeApi implements Api {
             return {
                 name: t.name,
                 hash: sha256(new TextEncoder().encode(t.name)),
-                commandIr: '',
-                inputs: t.inputs.map(toPath),
-                output: toPath(this.outputPathOf(t)),
-                kind: t.kind !== undefined ? some(t.kind) : none,
-                metadata: t.metadata !== undefined ? some(t.metadata) : none,
+                body: variant('east', { program: '' }),
+                runner: variant('east_node', { platforms: [] }),
+                inputs: t.inputs.map(p => ({ path: toPath(p), partition: none })),
+                output: { path: toPath(this.outputPathOf(t)), kind: variant('value', null) },
+                role: t.manifest !== undefined ? variant('ui', t.manifest) : variant('data', null),
             };
         });
     }
@@ -520,7 +523,7 @@ export class FakeApi implements Api {
     }
 
     async dataflowExecuteLaunch(ws: string, options: DataflowOptions = {}): Promise<void> {
-        const flags = `${options.force === true ? ' --force' : ''}${options.filter != null ? ` --filter ${options.filter}` : ''}${options.concurrency != null ? ` --concurrency ${options.concurrency}` : ''}`;
+        const flags = `${options.force === true ? ' --force' : ''}${options.filter != null ? ` --filter ${options.filter}` : ''}`;
         return this.call(`dataflowExecuteLaunch ${ws}${flags}`, () => {
             const w = this.ws(ws);
             if (w.lock !== undefined) throw new ApiError('workspace_locked', { workspace: ws, holder: variant('known', { pid: BigInt(w.lock.pid), acquiredAt: w.lock.acquiredAt, bootId: none, command: some(w.lock.command) }) });

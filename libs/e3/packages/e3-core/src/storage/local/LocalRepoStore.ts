@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type {
   RepoStore,
-  RepoStatus,
+  RepoStatusName,
   RepoMetadata,
   BatchResult,
   GcObjectEntry,
@@ -19,22 +19,13 @@ import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
+  checkName,
 } from '../../errors.js';
-import { decodeBeast2For } from '@elaraai/east';
-import { WorkspaceStateType } from '@elaraai/e3-types';
+import { decodeBeast2For, variant } from '@elaraai/east';
+import { WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
 import { refPathToKeypath } from '../../dataset-refs.js';
-
-/**
- * Metadata file format stored in each repository.
- */
-interface MetadataFile {
-  name: string;
-  status: RepoStatus;
-  createdAt: string;
-  statusChangedAt: string;
-}
-
-const METADATA_FILENAME = '.e3-metadata.json';
+import { atomicWriteFile } from './localHelpers.js';
+import { REPOSITORY_FILENAME, REPOSITORY_LAYOUT, encodeRepositoryRecord, readRepositoryRecord, writeNewRepoMetadata } from './repository.js';
 
 /**
  * Local filesystem implementation of RepoStore.
@@ -59,14 +50,15 @@ export class LocalRepoStore implements RepoStore {
    * Get the path to a repository directory.
    */
   private getRepoPath(repo: string): string {
+    checkName('repository', repo);
     return path.join(this.reposDir, repo);
   }
 
   /**
-   * Get the path to a repository's metadata file.
+   * Get the path to a repository's record.
    */
-  private getMetadataPath(repo: string): string {
-    return path.join(this.getRepoPath(repo), METADATA_FILENAME);
+  private getRecordPath(repo: string): string {
+    return path.join(this.getRepoPath(repo), REPOSITORY_FILENAME);
   }
 
   /**
@@ -114,6 +106,12 @@ export class LocalRepoStore implements RepoStore {
     return this.isValidRepository(repoPath);
   }
 
+  /**
+   * The repository's metadata, or `null` when there is no repository.
+   *
+   * @throws {RepoLayoutError} When the repository has no record, or one of
+   *   another layout: it is re-created.
+   */
   async getMetadata(repo: string): Promise<RepoMetadata | null> {
     const repoPath = this.getRepoPath(repo);
 
@@ -122,32 +120,7 @@ export class LocalRepoStore implements RepoStore {
       return null;
     }
 
-    const metadataPath = this.getMetadataPath(repo);
-    try {
-      const content = await fs.readFile(metadataPath, 'utf-8');
-      const metadata = JSON.parse(content) as MetadataFile;
-      return {
-        name: metadata.name,
-        status: metadata.status,
-        createdAt: metadata.createdAt,
-        statusChangedAt: metadata.statusChangedAt,
-      };
-    } catch {
-      // No metadata file - synthesize for legacy repos
-      // Get mtime from repo directory for createdAt
-      try {
-        const stat = await fs.stat(repoPath);
-        const createdAt = stat.birthtime.toISOString();
-        return {
-          name: repo,
-          status: 'active',
-          createdAt,
-          statusChangedAt: createdAt,
-        };
-      } catch {
-        return null;
-      }
-    }
+    return readRepositoryRecord(repoPath).metadata;
   }
 
   // ===========================================================================
@@ -169,24 +142,13 @@ export class LocalRepoStore implements RepoStore {
     await fs.mkdir(path.join(repoPath, 'executions'), { recursive: true });
     await fs.mkdir(path.join(repoPath, 'workspaces'), { recursive: true });
 
-    // Write metadata file
-    const now = new Date().toISOString();
-    const metadata: MetadataFile = {
-      name: repo,
-      status: 'active',
-      createdAt: now,
-      statusChangedAt: now,
-    };
-    await fs.writeFile(
-      this.getMetadataPath(repo),
-      JSON.stringify(metadata, null, 2)
-    );
+    writeNewRepoMetadata(repoPath, repo);
   }
 
   async setStatus(
     repo: string,
-    status: RepoStatus,
-    expected?: RepoStatus | RepoStatus[]
+    status: RepoStatusName,
+    expected?: RepoStatusName | RepoStatusName[]
   ): Promise<void> {
     const current = await this.getMetadata(repo);
     if (!current) {
@@ -196,25 +158,15 @@ export class LocalRepoStore implements RepoStore {
     // Check expected status (CAS)
     if (expected !== undefined) {
       const expectedArray = Array.isArray(expected) ? expected : [expected];
-      if (!expectedArray.includes(current.status)) {
-        throw new RepoStatusConflictError(repo, expected, current.status);
+      if (!expectedArray.includes(current.status.type)) {
+        throw new RepoStatusConflictError(repo, expected, current.status.type);
       }
     }
 
-    // Update metadata
-    const now = new Date().toISOString();
-    const metadata: MetadataFile = {
-      name: current.name,
-      status,
-      createdAt: current.createdAt,
-      statusChangedAt: now,
-    };
-
-    // Atomic write using rename
-    const metadataPath = this.getMetadataPath(repo);
-    const tempPath = `${metadataPath}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify(metadata, null, 2));
-    await fs.rename(tempPath, metadataPath);
+    await atomicWriteFile(this.getRecordPath(repo), encodeRepositoryRecord({
+      layout: REPOSITORY_LAYOUT,
+      metadata: { ...current, status: variant(status, null), statusChangedAt: new Date() },
+    }));
   }
 
   async remove(repo: string): Promise<void> {
@@ -235,9 +187,8 @@ export class LocalRepoStore implements RepoStore {
     const repoPath = this.getRepoPath(repo);
     let deleted = 0;
 
-    // For local storage, we delete all refs in one pass
-    // (packages/, workspaces/, executions/, locks/)
-    const refDirs = ['packages', 'workspaces', 'executions', 'locks'];
+    // For local storage, we delete every record in one pass
+    const refDirs = ['packages', 'workspaces', 'executions', 'dataflows', 'adoptions', 'locks'];
 
     for (const dir of refDirs) {
       const dirPath = path.join(repoPath, dir);
@@ -311,14 +262,15 @@ export class LocalRepoStore implements RepoStore {
 
   async gcScanWorkspaceRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
     const roots: string[] = [];
-    const decoder = decodeBeast2For(WorkspaceStateType);
+    const decoder = decodeBeast2For(WorkspaceRecordType);
     const names = await this.refs.workspaceList(repo);
     for (const name of names) {
       const data = await this.refs.workspaceRead(repo, name);
-      if (!data || data.length === 0) continue;
+      if (data === null) continue;
       try {
-        const state = decoder(data);
-        roots.push(state.packageHash);
+        const record = decoder(data);
+        if (record.type === 'none') continue; // not deployed
+        roots.push(record.value.packageHash);
         // Scan per-dataset ref files for value hashes
         if (this.datasets) {
           const refPaths = await this.datasets.list(repo, name);
@@ -347,22 +299,18 @@ export class LocalRepoStore implements RepoStore {
     const roots: string[] = [];
     const entries = await this.refs.executionList(repo);
     for (const { taskHash, inputsHash } of entries) {
-      // A partitioned execution's plan. It is the only reference to the
-      // slices it carved and the key ranges it planned, and it lives in a
-      // sidecar no other scan reads — unrooted, the sweep takes the plan and
-      // everything it records, and the next run re-plans and re-carves from
-      // scratch. gc walks the plan itself (see isPartitionPlanShape).
-      const planHash = await this.refs.executionPlanRead?.(repo, taskHash, inputsHash);
-      if (planHash && /^[a-f0-9]{64}$/.test(planHash)) roots.push(planHash);
+      // The plan of a split task's execution that can resume: the `$plan` of
+      // the stage it is in. It is the only reference to the pieces it cut and
+      // the key ranges it planned, and it lives in a record no other scan
+      // reads — unrooted, the sweep takes the plan and everything it records,
+      // and a resumed run plans again from scratch. gc walks the plan itself,
+      // by its kind tag.
+      const planHash = await this.refs.executionPlanRead(repo, taskHash, inputsHash);
+      if (planHash !== null) roots.push(planHash);
       const ids = await this.refs.executionListIds(repo, taskHash, inputsHash);
       for (const executionId of ids) {
         const status = await this.refs.executionGet(repo, taskHash, inputsHash, executionId);
-        if (!status) continue;
-        // ExecutionStatus is a variant; extract outputHash from success
-        const raw = status as unknown as { type: string; value: { outputHash?: string } };
-        if (raw.type === 'success' && raw.value.outputHash && /^[a-f0-9]{64}$/.test(raw.value.outputHash)) {
-          roots.push(raw.value.outputHash);
-        }
+        if (status !== null) roots.push(...executionStatusRoots(status));
       }
     }
     return { roots };

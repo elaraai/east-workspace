@@ -26,6 +26,11 @@ import {
   DateTimeType,
   OptionType,
   ValueTypeOf,
+  decodeBeast2,
+  decodeBeast2For,
+  isTypeValueEqual,
+  readBeast2Type,
+  toEastTypeValue,
 } from '@elaraai/east';
 
 // =============================================================================
@@ -70,6 +75,18 @@ export const TaskStateType = StructType({
   completedAt: OptionType(DateTimeType),
   /** Duration in milliseconds */
   duration: OptionType(IntegerType),
+  /** The `$plan` object of the stage a task split into pieces is in, while
+   *  it runs, and across a yield, so a resumed run takes the stage up where
+   *  it stopped. */
+  plan: OptionType(StringType),
+  /** The execution the task completed with — run, or served from the cache —
+   *  by its inputs hash and id, which the run's record names. */
+  execution: OptionType(StructType({
+    /** The combined hash of the task's inputs */
+    inputsHash: StringType,
+    /** The execution's id (UUIDv7) */
+    executionId: StringType,
+  })),
 });
 export type TaskState = ValueTypeOf<typeof TaskStateType>;
 
@@ -112,6 +129,13 @@ export type DataflowGraph = ValueTypeOf<typeof DataflowGraphType>;
  *
  * Events track the progress of a dataflow execution and are stored
  * inline in the execution state (not as a separate JSONL file).
+ *
+ * @remarks
+ * Part of the execution state's wire, which changes only by version (see
+ * {@link EXECUTION_STATE_VERSION}): a reader decodes a state against the whole
+ * type it was written with, so a new event is a new version of the state.
+ * Each unit's progress is a callback, {@link PartitionProgress}, and is not
+ * persisted.
  */
 export const ExecutionEventType = VariantType({
   /** Execution started */
@@ -247,38 +271,69 @@ export const ExecutionEventType = VariantType({
     /** Path where version conflict was detected */
     conflictPath: StringType,
   }),
-  // WIRE WARNING — this variant's case list is FROZEN by the persisted
-  // beast2 state (workspaces/<ws>/execution.beast2). beast2 v5 encodes
-  // variant cases POSITIONALLY against the reader's alphabetically-sorted
-  // case list, NOT by case name — adding a case that sorts before any
-  // existing one shifts every later case's index, so released readers
-  // mis-decode (or fail to decode) old states, and vice versa. Do not add
-  // cases here without a state-file version/migration story; runtime-only
-  // signals (e.g. partition progress) belong on callbacks, not in this
-  // persisted stream.
+  /** A task was split into pieces: its units start as the pieces, and its
+   *  `$plan` names them. */
+  task_split: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** The pieces the task was split into */
+    pieces: IntegerType,
+  }),
+  /** A level of the merges assembling a split task's pieces started. */
+  task_merge_started: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** The level, from 1 */
+    level: IntegerType,
+    /** The number of levels the merges take */
+    levels: IntegerType,
+    /** The merge units of the level */
+    units: IntegerType,
+  }),
+  /** A level of the merges assembling a split task's pieces finished. */
+  task_merge_completed: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** The level, from 1 */
+    level: IntegerType,
+    /** The number of levels the merges take */
+    levels: IntegerType,
+  }),
 });
 export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
 
 /**
- * Progress notification for one unit of a partitioned task — a partition
- * slice execution, a combine step or a merge unit. Delivered through
- * runner-layer callbacks while the logical task runs. Deliberately NOT
- * persisted as execution events: {@link ExecutionEventType} is a frozen beast2
- * wire (see its wire warning), and nothing consumes persisted partition
- * progress — local `[PART]`/`[MERGE]`/`[COMBINE]` lines come straight from
- * this callback.
+ * Progress notification for one unit of a task split into pieces — a piece,
+ * or a unit merging or folding their outputs. Delivered through runner-layer
+ * callbacks while the task runs, and not persisted: the execution state records
+ * a split task's stages, not each unit, so it stays small however many pieces
+ * a task has. The local `[PART]`/`[MERGE]`/`[COMBINE]` lines come straight
+ * from this callback.
  */
 export interface PartitionProgress {
-  /** Which phase the unit belongs to. */
+  /** Which phase the unit belongs to: a piece (`partition`), a merge of a set
+   *  or dict output, or a fold of a fold output (`combine`). */
   phase: 'partition' | 'combine' | 'merge';
   /** Zero-based index of the unit within its phase. */
   index: number;
-  /** Total units in the phase (partitions, or combine steps in the level). */
+  /** Total units in the phase (the pieces, or the units of a merge level). */
   total: number;
-  /** Units of the phase completed so far, including this one when `state`
-   *  is `completed`. */
+  /** Units of the phase that succeeded so far, including this one when
+   *  `state` is `completed`. */
   completed: number;
-  /** Whether the unit started or finished. */
+  /** Whether the unit started, or succeeded. */
   state: 'started' | 'completed';
   /** Whether the unit was served from the execution cache (completed only). */
   cached?: boolean;
@@ -291,6 +346,23 @@ export interface PartitionProgress {
 // =============================================================================
 
 /**
+ * The version of the execution state this e3 writes.
+ *
+ * @remarks
+ * A reader decodes a stored state against the whole type it was written with,
+ * so the type changes only by version, and
+ * {@link decodeDataflowExecutionState} reads this version alone, refusing any
+ * other and naming it.
+ *
+ * - 1: as first released, without a `version`.
+ * - 2: a task's `plan`, and the events of a split task's stages.
+ * - 3: no `concurrency`: the budget of the process that runs it decides what
+ *   runs, and is never persisted.
+ * - 4: a task's `execution`: the one it completed with.
+ */
+export const EXECUTION_STATE_VERSION = 4n;
+
+/**
  * Persistent state for a dataflow execution.
  *
  * Stored in workspaces/<ws>/execution.beast2
@@ -299,10 +371,15 @@ export interface PartitionProgress {
  * - Tasks are stored as a Dict (serializes as object, not array of tuples)
  * - Events are stored inline (not as separate JSONL file)
  * - Dates are Date objects (via DateTimeType)
+ * - Read it back with {@link decodeDataflowExecutionState}, which reads
+ *   {@link EXECUTION_STATE_VERSION} alone
  */
 export const DataflowExecutionStateType = StructType({
+  /** The state's version: {@link EXECUTION_STATE_VERSION} */
+  version: IntegerType,
+
   // Identity
-  /** Unique execution ID (local: auto-increment, cloud: UUID) */
+  /** The run's id, a UUIDv7, which its `DataflowRun` record carries as `runId` */
   id: StringType,
   /** Repository identifier */
   repo: StringType,
@@ -312,8 +389,6 @@ export const DataflowExecutionStateType = StructType({
   startedAt: DateTimeType,
 
   // Config (immutable after initialization)
-  /** Maximum concurrent task executions */
-  concurrency: IntegerType,
   /** Force re-execution even if cached */
   force: BooleanType,
   /** Filter to run only specific task(s) by exact name */
@@ -365,6 +440,43 @@ export const DataflowExecutionStateType = StructType({
 });
 export type DataflowExecutionState = ValueTypeOf<typeof DataflowExecutionStateType>;
 
+const STATE_TYPE = toEastTypeValue(DataflowExecutionStateType);
+const decodeState = decodeBeast2For(DataflowExecutionStateType);
+
+/**
+ * Decodes a stored execution state.
+ *
+ * The version is told by the type the state's header declares, since a
+ * decoder built for another version's type would misread it rather than fail.
+ * Stored state changes by hard cutover, so a state of another version is
+ * refused, naming its version: an older e3's, whose repository is re-created,
+ * or a newer one's.
+ *
+ * @param data - the stored state
+ * @returns the state
+ * @throws {Error} When an older or a newer e3 wrote the state, naming its
+ *   version, or the data is not an execution state.
+ */
+export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutionState {
+  const type = readBeast2Type(data);
+  if (isTypeValueEqual(type, STATE_TYPE)) return decodeState(data);
+  const { value } = decodeBeast2(data);
+  const state = typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
+  const version = state?.version;
+  if (typeof version === 'bigint' && version > EXECUTION_STATE_VERSION) {
+    throw new Error(
+      `the execution state was written by a newer e3: it is version ${version}, and this e3 reads version ${EXECUTION_STATE_VERSION}`,
+    );
+  }
+  if (state !== null && 'workspace' in state && 'tasks' in state && 'events' in state) {
+    throw new Error(
+      `the execution state was written by an older e3: it is version ${typeof version === 'bigint' ? version : 1n}, and this e3 reads version ${EXECUTION_STATE_VERSION} — ` +
+      're-create the repository: deploy again and import its data again',
+    );
+  }
+  throw new Error('the data is not an execution state: its type is not the execution state\'s');
+}
+
 // =============================================================================
 // Dataflow Run History
 // =============================================================================
@@ -390,11 +502,18 @@ export const DataflowRunStatusType = VariantType({
 export type DataflowRunStatus = ValueTypeOf<typeof DataflowRunStatusType>;
 
 /**
- * Record of a task execution within a dataflow run.
+ * Record of a task execution within a dataflow run: the execution the run
+ * used, which a local repository keeps at
+ * executions/<taskHash>/<inputsHash>/<executionId>/, whatever the workspace
+ * has held since.
  */
 export const TaskExecutionRecordType = StructType({
-  /** Execution ID (UUIDv7) */
+  /** Execution ID (UUIDv7): the attempt that ran, or the one the cache served */
   executionId: StringType,
+  /** Hash of the task object */
+  taskHash: StringType,
+  /** Combined hash of the task's inputs */
+  inputsHash: StringType,
   /** Whether this was a cache hit */
   cached: BooleanType,
   /** Output version vector (which root input versions produced this output) */

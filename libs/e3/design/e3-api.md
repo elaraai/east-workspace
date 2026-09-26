@@ -396,34 +396,31 @@ carry no `Authorization` header. Every path below is under
 
 | Step | Method | Path | Request | Response |
 |------|--------|------|---------|----------|
-| Init | POST | `…/upload[?protocol=2]` | `TransferUploadRequestType` `{hash, size}` | `TransferUploadResponseType` |
-| Part target (protocol 2) | GET | `…/upload/<id>/parts/<n>` | - | `TransferPartResponseType` `{url, headers}` |
-| Send bytes | PUT | the upload URL, or each part's URL | raw bytes (+ the part's `headers`) | HTTP status only |
-| Commit | POST | `…/upload/<id>[?protocol=2]` | - | `TransferDoneResponseType` |
-| Poll (protocol 2) | GET | `…/upload/<id>` | - | `TransferDoneResponseType` |
+| Init | POST | `…/upload?protocol=2` | `TransferUploadRequestType` `{hash, size}` | `TransferUploadResponseType` |
+| Part target | GET | `…/upload/<id>/parts/<n>` | - | `TransferPartResponseType` `{url, headers}` |
+| Send bytes | PUT | each part's URL | raw bytes (+ the part's `headers`) | HTTP status only |
+| Commit | POST | `…/upload/<id>?protocol=2` | - | `TransferDoneResponseType` |
+| Poll | GET | `…/upload/<id>` | - | `TransferDoneResponseType` |
 
 ```typescript
 const TransferUploadResponseType = VariantType({
   completed: NullType,                                        // already stored: the ref is set
-  upload: StructType({ id: StringType, uploadUrl: StringType }), // protocol 1: every byte in one PUT
-  upload_parts: StructType({ id: StringType, partBytes: IntegerType }), // protocol 2
+  upload_parts: StructType({ id: StringType, partBytes: IntegerType }),
 });
 const TransferPartResponseType = StructType({ url: StringType, headers: DictType(StringType, StringType) });
 const TransferDoneResponseType = VariantType({
   completed: NullType,
   error: StructType({ message: StringType }),
-  processing: NullType,                                       // protocol 2: poll
+  processing: NullType,                                       // poll
 });
 ```
 
-**Versions.** A client names the protocol it speaks with `?protocol=N` on the
-init and the commit; without it the request is protocol 1, and the server
-answers only in protocol-1 forms (`completed`/`upload`, `completed`/`error`).
-Protocol 2 adds variant cases whose names sort after the protocol-1 cases, so
-the tags a protocol-1 peer encodes and decodes are unchanged
-(`e3-types/src/transfer.spec.ts` pins this).
+**The version.** A client names the protocol it speaks with `?protocol=N` on
+the init and the commit (`TRANSFER_PROTOCOL_VERSION`, 2). A server speaks one
+version, and refuses a request that names another, or none, with an `internal`
+error naming the fix: an older client is upgraded, and so is an older server.
 
-**Parts (protocol 2).** The server plans the upload: part `n` (from 1) is the
+**Parts.** The server plans the upload: part `n` (from 1) is the
 byte range `[(n-1)·partBytes, min(size, n·partBytes))`, and an upload no larger
 than `partBytes` is one part (`transferPartCount` / `transferPartRange`). The
 client asks for each part's URL and headers just before sending it — a
@@ -434,22 +431,25 @@ it (the client retries a transient failure from a fresh read of the range). The
 client commits once every part has been sent.
 
 **Commit.** The server checks the staged bytes are `size` bytes hashing to
-`hash`, checks the header against the dataset's declared type, stores the
-object and points the dataset at it (with the version-vector self entry). A
-refusal is an `error` answer, or the `dataset_type_mismatch` API error. A
-protocol-2 commit may answer `processing` instead; the client polls
+`hash`, checks the header against the dataset's declared type, and takes the
+bytes into the store — a collection through the store's door, split a segment
+at a time into the store's own segments; any other value as the object the
+bytes are — then points the dataset at what it stored (with the version-vector
+self entry). A refusal is an `error` answer, or the `dataset_type_mismatch` API error. A
+commit may answer `processing` instead; the client polls
 `GET …/upload/<id>` (100 ms, doubling to 1 s) until it answers `completed` or
 `error`. A finished commit's answer stays pollable for a while, so a client
-whose response was lost asks again and hears the same thing. A protocol-1
-commit answers only when it is done.
+whose response was lost asks again and hears the same thing.
 
-**Dedup.** An init whose hash is already stored answers `completed` after
-checking that object's header against the dataset's declared type — the one
-door that skips the commit.
+**Dedup.** An init whose hash the store already knows answers `completed`: it
+knows the bytes as the manifest a delivery of them was split into (the
+adoption memo), or as an object. Either is checked against the dataset's
+declared type first, and a collection object goes through the store's door.
+It is the one door that skips the commit.
 
 **Local server (`e3-api-server`).** Parts stream to their own offsets in one
-staged file under `<repo>/tmp/transfers`, so the commit adopts the file exactly
-as a single `PUT`'s, by link or rename; the server refuses a part longer or
+staged file under `<repo>/tmp/transfers`, so the commit takes the file in with
+nothing to assemble; the server refuses a part longer or
 shorter than its range (a longer one would overwrite its neighbour), and a
 part never sent leaves a hole the hash check refuses. `transferPartBytes`
 (default 64 MiB) sets the plan, and the commit runs in the background:
@@ -466,6 +466,33 @@ the part count bounded, completed at the commit and verified by a background
 job while the commit answers `processing`. A single `PUT` tops out at 5 GB, and
 S3 cannot checksum a multipart object with SHA-256, which is what the parts and
 the polled commit are for.
+
+### Dataset download
+
+`GET /api/repos/:repo/workspaces/:ws/datasets/<path>` answers the value's
+BEAST2 bytes. A collection is held as a segment manifest, many objects, so the
+route streams their splice a segment at a time. Any other value over 1 MB is
+answered, when the server has a transfer backend, with JSON `{ url }` (and
+`X-Content-Length`, `X-Content-SHA256`), which the client fetches without its
+`Authorization` header.
+
+A host that buffers its responses cannot stream a collection, and caps a
+response's size, so a client asks for the segments instead: `?segments=true`,
+which e3-api-client's `datasetGet` always sends. A collection is then answered
+with JSON `{ manifest }`, the manifest's hash — the primary's, for an indexed
+record — with the dataset's own hash in `X-Content-SHA256`; any other value as
+before. The client reads the manifest, the header it names and each segment
+through `GET /api/repos/:repo/objects/<hash>`, a few at a time, checks each
+against its hash, and splices them in order (east's `spliceBeast2Segments`)
+into the bytes the route would have streamed.
+
+The objects route answers an object over 1 MB as the dataset route does, with
+JSON `{ url }`, so a segment's bytes go from object storage to the client: an
+element larger than the cut rule's target is a segment of its own, so a
+segment can exceed a response cap.
+
+Pages (`?page=true`) are unchanged: each is decoded on the server from the
+segments it touches, and capped by `pageByteBudget`.
 
 ### Tasks
 
@@ -499,6 +526,10 @@ const TaskListItemType = StructType({
 2. Spawns `dataflowExecute()` in background
 3. Returns immediately with 202 Accepted
 
+The request carries no parallelism: the server runs the dataflow under its own
+budget of cores and memory (`e3-api-server -j` / `--memory`), which every run
+and call it serves shares.
+
 Client polls `GET /status` to track progress:
 - `lock` field shows who holds the lock (PID, start time)
 - `tasks[].status` shows each task's state (`in-progress`, `up-to-date`, `failed`, etc.)
@@ -523,7 +554,6 @@ This is stateless - all execution state is persisted to filesystem by `dataflowE
 
 ```typescript
 const DataflowRequestType = StructType({
-  concurrency: OptionType(IntegerType),
   force: BooleanType,
   filter: OptionType(StringType),
 });

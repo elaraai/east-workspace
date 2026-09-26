@@ -14,12 +14,13 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, StringType, IntegerType, ArrayType, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
+import { variant, none, some, StringType, IntegerType, ArrayType, DictType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
+  TASK_OBJECT_KIND,
   TaskObjectType,
   PackageObjectType,
+  decodeUnitPlan,
   type TreePath,
   type Structure,
   type DatasetRef,
@@ -106,10 +107,13 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     for (const t of tasks) {
       const commandIrHash = await createCommandIr(repoPath, t.command);
       const taskObj = {
-        commandIr: commandIrHash,
-        inputs: t.inputs,
-        output: t.output,
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: t.inputs.map((path) => ({ path, partition: none })),
+        output: { path: t.output, kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const taskHash = await objectWrite(repoPath, taskEncoder(taskObj));
       tasksMap.set(t.name, taskHash);
@@ -127,10 +131,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       records: new Map(), sources: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
-
-    const pkgDir = join(repoPath, 'packages', 'test');
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, '1.0.0'), pkgHash + '\n');
+    await storage.refs.packageWrite(repoPath, 'test', '1.0.0', pkgHash);
 
     return tasksMap;
   }
@@ -228,7 +229,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -240,8 +240,8 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
   });
 
-  describe('concurrency limit', () => {
-    it('respects concurrency limit with mock runner', async () => {
+  describe('width', () => {
+    it('runs within the loop\'s width with mock runner', async () => {
       // Create package with 4 independent tasks
       const structure: Structure = {
         type: 'struct',
@@ -293,7 +293,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       let startCount = 0;
       await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 2,
+        width: 2,
         onTaskStart: () => {
           startCount++;
         },
@@ -307,6 +307,20 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // The key test is that all tasks were executed
       const calls = mockRunner.getCalls();
       assert.strictEqual(calls.length, 4);
+    });
+
+    it('refuses a width it could never launch under', async () => {
+      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      for (const width of [0, -1, 1.5, Number.NaN]) {
+        await assert.rejects(
+          orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner, width }),
+          { name: 'RangeError', message: `width must be a positive integer, got ${width}` },
+        );
+        await assert.rejects(
+          orchestrator.resume(storage, testRepo, 'test-ws', '1', { runner: mockRunner, width }),
+          { name: 'RangeError', message: `width must be a positive integer, got ${width}` },
+        );
+      }
     });
   });
 
@@ -1219,7 +1233,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1260,7 +1273,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1296,7 +1308,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, false);
@@ -1368,7 +1379,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1406,7 +1416,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1441,7 +1450,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1513,7 +1521,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1581,7 +1588,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1643,6 +1649,51 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       const outputVersions = run.outputVersions.value;
       assert.strictEqual(outputVersions.get('.output'), 'task-a-output-hash');
       assert.strictEqual(outputVersions.has('.input'), false, 'Input should not appear in outputVersions');
+    });
+
+    it('names each task\'s execution whole: the attempt that ran, and the one a cached task was served from', async () => {
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['input', { type: 'value', value: { type: StringType, writable: true } }],
+          ['output', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+      const inputPath: TreePath = [variant('field', 'input')];
+      const outputPath: TreePath = [variant('field', 'output')];
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [{ name: 'task-a', command: ['echo'], inputs: [inputPath], output: outputPath }],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'test', StringType);
+      const taskHash = taskHashes.get('task-a')!;
+
+      const ran = '0190a0b0-6666-7000-8000-000000000001';
+      let seen: string[] = [];
+      mockRunner.setResult(taskHash, (inputHashes) => {
+        seen = [...inputHashes];
+        return { state: 'success', cached: false, outputHash: 'task-a-output', executionId: ran };
+      });
+      const first = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+      assert.strictEqual(first.executed, 1);
+      const executed = (await storage.refs.dataflowRunGet(testRepo, 'test-ws', first.runId))!.taskExecutions.get('task-a')!;
+      assert.deepStrictEqual([executed.taskHash, executed.inputsHash, executed.executionId, executed.cached],
+        [taskHash, inputsHash(seen), ran, false]);
+
+      // An execution the cache serves the task from, as the dataflow reads the
+      // cache: the latest success over the task's inputs.
+      const served = '0190a0b0-6666-7000-8000-000000000002';
+      await storage.refs.executionWrite(testRepo, taskHash, inputsHash(seen), served, variant('success', {
+        executionId: served, inputHashes: seen, outputHash: 'task-a-output',
+        startedAt: new Date(), completedAt: new Date(), peakBytes: none, plan: none,
+      }));
+      const second = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+      assert.strictEqual(second.cached, 1);
+      const cached = (await storage.refs.dataflowRunGet(testRepo, 'test-ws', second.runId))!.taskExecutions.get('task-a')!;
+      assert.deepStrictEqual([cached.taskHash, cached.inputsHash, cached.executionId, cached.cached],
+        [taskHash, inputsHash(seen), served, true], 'the run names the execution it was served from, not its own id');
     });
 
     it('records outputVersions for all completed tasks in a chain', async () => {
@@ -1832,7 +1883,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result1 = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
       assert.strictEqual(result1.success, true);
       assert.strictEqual(result1.executed, 2);
@@ -1852,6 +1902,8 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           outputHash: `output-${name}`,
           startedAt: now,
           completedAt: now,
+          peakBytes: none,
+          plan: none,
         }));
       }
 
@@ -1859,7 +1911,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       mockRunner.clearCalls();
       const result2 = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result2.success, true);
@@ -1974,14 +2025,16 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(aCalls.length, 1);
     });
 
-    it('continues the DataflowRun record across resume via runId', async () => {
+    it('keeps the run\'s one id across a resume: its execution state\'s, and its record\'s, which names each task\'s execution', async () => {
       const taskHashes = await createChainFixture();
       const stateStore = new InMemoryStateStore();
       const orchestrator = new LocalOrchestrator(stateStore);
 
+      // Each task's attempt, by the id its runner reports.
+      const attempts = new Map([...taskHashes.keys()].map((name, i) => [name, `0190a0b0-7777-7000-8000-00000000000${i}`]));
       for (const [name, hash] of taskHashes) {
         mockRunner.setResult(hash, {
-          state: 'success', cached: false, outputHash: `output-${name}`,
+          state: 'success', cached: false, outputHash: `output-${name}`, executionId: attempts.get(name)!,
         });
       }
 
@@ -1994,23 +2047,27 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       });
       const result1 = await orchestrator.wait(handle);
       assert.strictEqual(result1.yielded, true);
+      assert.strictEqual(result1.runId, handle.id, 'the run is named by its execution state\'s id');
+      assert.match(handle.id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, 'a UUIDv7');
 
-      // Resume under the original runId
       const handle2 = await orchestrator.resume(storage, testRepo, 'test-ws', handle.id, {
         runner: mockRunner,
-        runId: result1.runId,
       });
       const result2 = await orchestrator.wait(handle2);
       assert.strictEqual(result2.success, true);
-      assert.strictEqual(result2.runId, result1.runId);
+      assert.strictEqual(result2.runId, handle.id);
 
-      // The final run record is written under the original runId and covers
-      // tasks completed before the yield, not just this incarnation.
-      const run = await storage.refs.dataflowRunGet(testRepo, 'test-ws', result1.runId);
+      // The final run record is written under the run's id and covers tasks
+      // completed before the yield, not just this incarnation.
+      assert.deepStrictEqual(await storage.refs.dataflowRunList(testRepo, 'test-ws'), [handle.id], 'one run, one record');
+      const run = await storage.refs.dataflowRunGet(testRepo, 'test-ws', handle.id);
       assert.ok(run);
       assert.strictEqual(run.status.type, 'completed');
       for (const name of ['task-a', 'task-b', 'task-c']) {
         assert.ok(run.taskExecutions.has(name), `run record should include ${name}`);
+        // task-a completed before the yield: its execution comes from the state.
+        assert.strictEqual(run.taskExecutions.get(name)!.executionId, attempts.get(name), `${name}'s execution`);
+        assert.strictEqual(run.taskExecutions.get(name)!.taskHash, taskHashes.get(name));
       }
     });
 
@@ -2118,6 +2175,262 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
   });
 
+  describe('split tasks', () => {
+    // A task split into pieces runs as the units of its stages, which join the
+    // loop's beside every other task's and go through the runner's
+    // executeUnit. A fold's assembly reads nothing but its last unit's
+    // output, so the mock's units hand back names and write nothing.
+    let tempDir: string;
+    let pieceBytes: string | undefined;
+
+    beforeEach(() => {
+      tempDir = createTempDir();
+      pieceBytes = process.env.E3_TEST_PIECE_BYTES;
+      // Pieces of 16 to 256 stored bytes: a piece a segment.
+      process.env.E3_TEST_PIECE_BYTES = '64';
+    });
+
+    afterEach(() => {
+      if (pieceBytes === undefined) delete process.env.E3_TEST_PIECE_BYTES;
+      else process.env.E3_TEST_PIECE_BYTES = pieceBytes;
+      removeTempDir(tempDir);
+    });
+
+    it('runs a split task\'s units through the runner, within the loop\'s width, and records its stages', async () => {
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const report = e3.task('report', [total.output], East.function([IntegerType], IntegerType, ($, sum) => sum.multiply(2n)));
+      const zip = join(tempDir, 'split.zip');
+      await e3.export(e3.package('split', '1.0.0', rows, total, report), zip);
+      await packageImport(storage, testRepo, zip);
+      await workspaceCreate(storage, testRepo, 'test-ws');
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'split', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, (await workspaceGetPackage(storage, testRepo, 'test-ws')).hash));
+      const totalHash = deployed.tasks.get('total')!;
+
+      let inFlight = 0;
+      let peak = 0;
+      let pieces = 0;
+      mockRunner.setUnitResult(totalHash, async (unit) => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        inFlight--;
+        return { state: 'success', cached: false, outputHash: unit.merge === null ? `piece-${pieces++}` : 'sum' };
+      });
+      mockRunner.setResult(deployed.tasks.get('report')!, { state: 'success', cached: false, outputHash: 'report' });
+
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner, width: 2 });
+      const result = await orchestrator.wait(handle);
+      assert.strictEqual(result.success, true);
+
+      const units = mockRunner.getUnitCalls();
+      const pieceCalls = units.filter((call) => call.unit.merge === null);
+      const mergeCalls = units.filter((call) => call.unit.merge !== null);
+      assert.ok(pieceCalls.length > 4, 'the input was cut into many pieces');
+      assert.strictEqual(mergeCalls.length, 1);
+      assert.deepStrictEqual(mergeCalls[0]!.unit.merge!.parts, Array.from({ length: pieces }, (_, i) => `piece-${i}`), 'the fold takes its partials in piece order');
+      assert.strictEqual(peak, 2, 'the units ran two at a time, as the loop\'s width allows');
+      assert.deepStrictEqual(mockRunner.getCalls().map((call) => [call.taskHash, call.inputHashes]), [[deployed.tasks.get('report')!, ['sum']]],
+        'the split task never ran as one execution, and its output fed the task after it');
+
+      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
+      const events = final!.events.filter((event) => 'task' in event.value && event.value.task === 'total' && event.type !== 'task_ready');
+      assert.deepStrictEqual(events.map((event) => event.type), ['task_started', 'task_split', 'task_merge_started', 'task_merge_completed', 'task_completed']);
+      const split = events.find((event) => event.type === 'task_split');
+      assert.ok(split?.type === 'task_split' && split.value.pieces === BigInt(pieceCalls.length));
+      assert.deepStrictEqual(final!.tasks.get('total')!.plan, none, 'the task ended, and names no plan');
+      const rowsRef = await storage.datasets.read(testRepo, 'test-ws', 'inputs/rows');
+      assert.ok(rowsRef?.type === 'value');
+      const inHash = inputsHash([rowsRef.value.hash]);
+      assert.strictEqual(await storage.refs.executionPlanRead(testRepo, totalHash, inHash), null, 'nor does its sidecar');
+      assert.strictEqual((await storage.refs.executionGetLatest(testRepo, totalHash, inHash))?.type, 'success');
+    });
+
+    it('launches each stage\'s first unit alone, and the rest expecting the largest peak the stage has reached', async () => {
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const zip = join(tempDir, 'split.zip');
+      await e3.export(e3.package('split', '1.0.0', rows, total), zip);
+      await packageImport(storage, testRepo, zip);
+      await workspaceCreate(storage, testRepo, 'test-ws');
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'split', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, (await workspaceGetPackage(storage, testRepo, 'test-ws')).hash));
+      const totalHash = deployed.tasks.get('total')!;
+
+      // Each piece reports a peak of its own, and the merge a larger one. A
+      // unit notes, as it launches, what it expects and what had settled.
+      const launches: { merge: boolean; alone: boolean; expected: number | undefined; settled: number[] }[] = [];
+      const settled: number[] = [];
+      let inFlight = 0;
+      let pieces = 0;
+      mockRunner.setUnitResult(totalHash, async (unit) => {
+        const calls = mockRunner.getUnitCalls();
+        launches.push({ merge: unit.merge !== null, alone: inFlight === 0, expected: calls[calls.length - 1]!.options?.expectedPeakBytes, settled: [...settled] });
+        inFlight++;
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        inFlight--;
+        if (unit.merge !== null) return { state: 'success', cached: false, outputHash: 'sum', peakBytes: 5_000 };
+        const peakBytes = 1_000 + ((pieces * 7_919) % 97);
+        settled.push(peakBytes);
+        return { state: 'success', cached: false, outputHash: `piece-${pieces++}`, peakBytes };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner, width: 4 });
+      assert.strictEqual(result.success, true);
+
+      const [first, ...rest] = launches.filter((launch) => !launch.merge);
+      assert.ok(rest.length > 4, 'the input was cut into many pieces');
+      assert.deepStrictEqual(first, { merge: false, alone: true, expected: undefined, settled: [] }, 'the first piece launched alone, expecting nothing');
+      for (const launch of rest) {
+        assert.ok(launch.settled.length > 0, 'no piece launched before the first had settled');
+        assert.strictEqual(launch.expected, Math.max(...launch.settled));
+      }
+      assert.ok(rest.some((launch) => !launch.alone), 'the rest ran side by side');
+      assert.deepStrictEqual(launches.filter((launch) => launch.merge).map(({ alone, expected }) => ({ alone, expected })), [{ alone: true, expected: undefined }],
+        'the merge level measures afresh');
+
+      // The task's own record holds the largest peak of its units.
+      const rowsRef = await storage.datasets.read(testRepo, 'test-ws', 'inputs/rows');
+      assert.ok(rowsRef?.type === 'value');
+      const recorded = await storage.refs.executionGetLatest(testRepo, totalHash, inputsHash([rowsRef.value.hash]));
+      assert.deepStrictEqual(recorded?.type === 'success' && recorded.value.peakBytes, some(5_000n));
+    });
+
+    it('yields mid-task and resumes at the stage it stopped in, running none of the finished units again', async () => {
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const zip = join(tempDir, 'split.zip');
+      await e3.export(e3.package('split', '1.0.0', rows, total), zip);
+      await packageImport(storage, testRepo, zip);
+      await workspaceCreate(storage, testRepo, 'test-ws');
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'split', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, (await workspaceGetPackage(storage, testRepo, 'test-ws')).hash));
+      const totalHash = deployed.tasks.get('total')!;
+
+      // The merge holds until released, and asks the run to yield.
+      let yieldRequested = false;
+      let releaseMerge!: () => void;
+      const mergeGate = new Promise<void>((resolve) => { releaseMerge = resolve; });
+      let merges = 0;
+      mockRunner.setUnitResult(totalHash, async (unit) => {
+        if (unit.merge === null) return { state: 'success', cached: false, outputHash: `piece-${unit.inputs[0]}` };
+        merges++;
+        if (merges === 1) {
+          yieldRequested = true;
+          await mergeGate;
+        }
+        return { state: 'success', cached: false, outputHash: `sum-${merges}` };
+      });
+
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        width: 2,
+        shouldYield: () => yieldRequested,
+      });
+      const yielded = await orchestrator.wait(handle);
+      assert.strictEqual(yielded.yielded, true);
+
+      // The task is left mid-stage: its state names the merge level's plan,
+      // and its own execution is recorded interrupted.
+      const persisted = await stateStore.read(testRepo, 'test-ws', handle.id);
+      const task = persisted!.tasks.get('total')!;
+      assert.strictEqual(task.status, 'pending');
+      assert.ok(task.plan.type === 'some');
+      const plan = decodeUnitPlan(await storage.objects.read(testRepo, task.plan.value));
+      assert.ok(plan.stage.type === 'merge' && plan.stage.value.level === 1n);
+      const rowsRef = await storage.datasets.read(testRepo, 'test-ws', 'inputs/rows');
+      assert.ok(rowsRef?.type === 'value');
+      const inHash = inputsHash([rowsRef.value.hash]);
+      assert.strictEqual(await storage.refs.executionPlanRead(testRepo, totalHash, inHash), task.plan.value, 'the plan stays rooted for the resume');
+      assert.strictEqual((await storage.refs.executionGetLatest(testRepo, totalHash, inHash))?.type, 'interrupted');
+
+      releaseMerge();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const piecesRun = mockRunner.getUnitCalls().filter((call) => call.unit.merge === null).length;
+      mockRunner.clearCalls();
+      const handle2 = await orchestrator.resume(storage, testRepo, 'test-ws', handle.id, { runner: mockRunner });
+      const result = await orchestrator.wait(handle2);
+      assert.strictEqual(result.success, true);
+
+      assert.ok(piecesRun > 4);
+      assert.deepStrictEqual(mockRunner.getUnitCalls().map((call) => call.unit.merge === null ? 'piece' : 'merge'), ['merge'],
+        'the resumed run took up the merges, and ran no piece again');
+      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
+      assert.deepStrictEqual(final!.tasks.get('total')!.outputHash, variant('some', 'sum-2'));
+      const stages = final!.events.filter((event) => 'task' in event.value && event.value.task === 'total' && event.type !== 'task_ready')
+        .map((event) => event.type);
+      assert.deepStrictEqual(stages, ['task_started', 'task_split', 'task_merge_started', 'task_started', 'task_merge_completed', 'task_completed']);
+    });
+
+    it('fails as the lowest-index piece that failed, and skips what depends on it', async () => {
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const report = e3.task('report', [total.output], East.function([IntegerType], IntegerType, ($, sum) => sum.multiply(2n)));
+      const zip = join(tempDir, 'split.zip');
+      await e3.export(e3.package('split', '1.0.0', rows, total, report), zip);
+      await packageImport(storage, testRepo, zip);
+      await workspaceCreate(storage, testRepo, 'test-ws');
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'split', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, (await workspaceGetPackage(storage, testRepo, 'test-ws')).hash));
+
+      // One unit at a time, so the pieces run in index order: the third fails.
+      let calls = 0;
+      mockRunner.setUnitResult(deployed.tasks.get('total')!, () => {
+        calls++;
+        return calls === 3
+          ? { state: 'failed', cached: false, exitCode: 1 }
+          : { state: 'success', cached: false, outputHash: `piece-${calls}` };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner, width: 1 });
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.failed, 1);
+      assert.strictEqual(result.skipped, 1);
+      const failed = result.tasks.find((task) => task.name === 'total');
+      assert.strictEqual(failed?.state, 'failed');
+      assert.match(failed?.error ?? '', /^Piece 3 of \d+ failed \(exit code 1\)$/);
+      assert.strictEqual(calls, 3, 'the stage started no unit after the failure');
+      assert.deepStrictEqual(mockRunner.getCalls(), [], 'the task after it never ran');
+    });
+  });
+
   describe('lock release ordering', () => {
     // Build a single-task workspace whose run we can drive to completion.
     async function deploySingleTask(): Promise<Map<string, string>> {
@@ -2211,16 +2524,17 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     // the commit-granular change detection that records-as-task-input relies on.
     const encodeInt = encodeBeast2For(IntegerType);
     const decodeInt = decodeBeast2For(IntegerType);
-    // A reducer runner: returns the new state bytes without spawning a process.
+    // A reducer runner: its unit succeeds with the new state as its output, and
+    // no process starts.
     const fixedState = (value: bigint): TaskRunner => ({
-      runDetached: async () => ({ kind: 'success', value: encodeInt(value), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }),
+      execute: async () => ({ state: 'success', cached: false, outputHash: await storage.objects.write(testRepo, encodeInt(value)) }),
     }) as unknown as TaskRunner;
 
     it('feeds the dependent task the record state, and the mutated value on the next run', async () => {
       const tempDir = createTempDir();
       try {
         const counter = e3.record('counter', IntegerType, 0n);
-        const increment = e3.mutation(
+        const increment = e3.mutation.reduce(
           'increment', counter,
           East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
         );
@@ -2239,16 +2553,11 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, hash));
         const readerHash = deployed.tasks.get('reader')!;
 
-        // Capture the record state the reader is actually fed each run by decoding
-        // whichever input object is the IntegerType state (the runner is also fed
-        // the function IR, which is not an integer).
+        // Capture the record state the reader is fed each run: its one input.
         const seen: bigint[] = [];
         mockRunner.setResult(readerHash, async (inputHashes) => {
-          let state: bigint | undefined;
-          for (const h of inputHashes) {
-            try { state = decodeInt(await storage.objects.read(testRepo, h) as Uint8Array); break; } catch { /* not the state input */ }
-          }
-          seen.push(state!);
+          assert.strictEqual(inputHashes.length, 1);
+          seen.push(decodeInt(await storage.objects.read(testRepo, inputHashes[0]!) as Uint8Array));
           return { state: 'success' as const, cached: false, outputHash: `reader-v${seen.length}` };
         });
 
@@ -2335,6 +2644,8 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           outputHash: `output-${name}`,
           startedAt: now,
           completedAt: now,
+          peakBytes: none,
+          plan: none,
         }));
       }
 

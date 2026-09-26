@@ -177,12 +177,6 @@ function errorOfMutationResult(result: MutationResult): RecordError {
                 message: `reducer exited with code ${outcome.value.exitCode}`,
                 stderr: outcome.value.stderr,
             };
-        case "too_large":
-            return {
-                kind: variant("too_large", { bytes: outcome.value.bytes, limit: outcome.value.limit }),
-                message: `new state too large (${outcome.value.bytes} bytes, limit ${outcome.value.limit})`,
-                stderr: outcome.value.stderr,
-            };
         case "timed_out":
             return {
                 kind: variant("timed_out", { ms: outcome.value.ms }),
@@ -677,6 +671,7 @@ export function createInMemoryRecordApi(
             mutation: "$init",
             actor: "memory",
             at: new Date(0),
+            delta: none,
         };
         compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0 });
         // Seed the record's current value into the dataset cache.
@@ -711,6 +706,7 @@ export function createInMemoryRecordApi(
                 mutation,
                 actor: "memory",
                 at: new Date(0),
+                delta: none,
             });
             return { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
         },

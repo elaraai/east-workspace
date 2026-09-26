@@ -5,7 +5,7 @@
 
 /**
  * Internal exports — the `Diff` / `Ontology` **factories** (`Diff.Root(…)`,
- * `Diff.Component`) plus `Data`, manifest helpers and types.
+ * `Diff.Component`) plus `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -29,7 +29,10 @@ export {
     DataBindPrimitives,
     DataPagedHandleType,
     type PagedValue,
+    type IndexWindowType,
+    type BindPagedIndexOptions,
     bindPagedPlatformFn,
+    bindPagedIndexPlatformFn,
     DataPagedPrimitives,
 } from './bind/data.js';
 export {
@@ -52,7 +55,7 @@ export {
     recordBindPlatformFn,
     RecordBindPrimitives,
 } from './bind/record.js';
-export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './utils/manifest.js';
+export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest } from './utils/derive.js';
 export {
     Diff,

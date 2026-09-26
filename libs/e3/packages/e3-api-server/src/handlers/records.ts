@@ -6,13 +6,14 @@
 /**
  * Handlers for record mutations and history.
  *
- * A mutation is the only write door into a record: it runs a pure East reducer
- * server-side under optimistic concurrency and appends an audited commit.
+ * A mutation is the only write door into a record: it runs the mutation's pure
+ * East program server-side under optimistic concurrency and appends an audited
+ * commit.
  * History is a read of the commit chain. Both are workspace-scoped — a record's
  * state is live, so there is no package-scoped form.
  */
 
-import { variant } from '@elaraai/east';
+import { none, some, variant } from '@elaraai/east';
 import { recordMutate, recordHistory, recordDescribe, recordCompact, DatasetNotFoundError } from '@elaraai/e3-core';
 import type { StorageBackend, TaskRunner, MutationOutcome } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
@@ -26,11 +27,10 @@ import {
   type ExecuteLimits,
 } from '../types.js';
 
-// Mutations persist their new state, so the result cap is far higher than the
-// 1 MB inline-result default for function calls.
-const DEFAULT_LIMITS = { timeoutMs: 60_000, maxResultBytes: 64 * 1024 * 1024, maxLogBytes: 64 * 1024 };
+// A mutation's output is stored as segments and never read whole, so of a
+// call's limits it takes the time and the stderr it returns, and no result cap.
+const DEFAULT_LIMITS = { timeoutMs: 60_000, maxLogBytes: 64 * 1024 };
 const MAX_TIMEOUT_MS = 10 * 60_000;
-const MAX_RESULT_BYTES = 256 * 1024 * 1024;
 const MAX_LOG_BYTES = 256 * 1024;
 
 /** Wall-clock reserved (ms) below a caller's mutation budget for the final,
@@ -65,9 +65,8 @@ export interface MutationCallControls {
 function resolveLimits(limits: { type: 'some'; value: ExecuteLimits } | { type: 'none'; value: null }) {
   const req = limits.type === 'some' ? limits.value : undefined;
   const timeoutMs = Math.min(req && req.timeoutMs.type === 'some' ? Number(req.timeoutMs.value) : DEFAULT_LIMITS.timeoutMs, MAX_TIMEOUT_MS);
-  const maxResultBytes = Math.min(req && req.maxResultBytes.type === 'some' ? Number(req.maxResultBytes.value) : DEFAULT_LIMITS.maxResultBytes, MAX_RESULT_BYTES);
   const maxLogBytes = Math.min(req && req.maxLogBytes.type === 'some' ? Number(req.maxLogBytes.value) : DEFAULT_LIMITS.maxLogBytes, MAX_LOG_BYTES);
-  return { timeoutMs: Math.max(1, timeoutMs), maxResultBytes: Math.max(1, maxResultBytes), maxLogBytes: Math.max(0, maxLogBytes) };
+  return { timeoutMs: Math.max(1, timeoutMs), maxLogBytes: Math.max(0, maxLogBytes) };
 }
 
 /** Map the e3-core mutation outcome to the wire result. */
@@ -79,12 +78,15 @@ function outcomeToResult(outcome: MutationOutcome): MutationResult {
       return { outcome: variant('invalid', { message: outcome.message }) };
     case 'failed':
       return { outcome: variant('failed', { exitCode: BigInt(outcome.exitCode), stderr: outcome.stderr }) };
-    case 'too_large':
-      return { outcome: variant('too_large', { bytes: BigInt(outcome.bytes), limit: BigInt(outcome.limit), stderr: outcome.stderr }) };
     case 'timed_out':
       return { outcome: variant('timed_out', { ms: BigInt(outcome.ms), stderr: outcome.stderr }) };
     case 'conflict':
-      return { outcome: variant('conflict', { attempts: BigInt(outcome.attempts) }) };
+      return {
+        outcome: variant('conflict', {
+          attempts: BigInt(outcome.attempts),
+          detail: outcome.detail !== undefined ? some(outcome.detail) : none,
+        }),
+      };
   }
 }
 
@@ -197,6 +199,7 @@ export async function getRecordHistory(
       mutation: e.commit.mutation,
       actor: e.commit.actor,
       at: e.commit.at,
+      delta: e.commit.delta,
     }));
     return sendSuccess(RecordHistoryResultType, { commits });
   } catch (err) {

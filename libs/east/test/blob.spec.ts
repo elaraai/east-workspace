@@ -6,11 +6,11 @@ import { East, StringType, BlobType, IntegerType, ArrayType, DictType, StructTyp
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./blob.examples.js";
 
-// An indexed, self-contained blob for the openBeast error paths: 30 rows in
-// segments of 10 (the paged writers' shape).
+// An indexed, self-contained blob for the openBeast error paths: 30 rows, as
+// the paged writer writes them.
 const OpenRowType = StructType({ id: IntegerType, name: StringType });
 const OpenTableType = DictType(IntegerType, OpenRowType);
-const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType, { batchSize: 10 })(
+const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType)(
   new SortedMap(
     Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
     compareFor(IntegerType),

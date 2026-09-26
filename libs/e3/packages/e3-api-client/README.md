@@ -22,8 +22,10 @@ import { repoStatus, repoGc } from '@elaraai/e3-api-client';
 const status = await repoStatus('http://localhost:3000');
 // { path: '/path/to/repo', objectCount: 42n, packageCount: 3n, workspaceCount: 2n }
 
-const gcResult = await repoGc(url, { dryRun: true, minAge: variant('none', null) });
-// { deletedObjects: 0n, retainedObjects: 42n, bytesFreed: 0n, ... }
+// Keep each workspace's last 5 runs and 30 days of history; the server's
+// defaults when `none`
+const gcResult = await repoGc(url, { dryRun: true, minAge: none, keepRuns: some(5n), keepDays: some(30n) });
+// { deletedRuns: 2n, deletedExecutions: 14n, deletedObjects: 0n, retainedObjects: 42n, bytesFreed: 0n, ... }
 ```
 
 ### Packages
@@ -58,8 +60,10 @@ import { workspaceList, workspaceCreate, workspaceGet, workspaceStatus, workspac
 const info = await workspaceCreate(url, 'production');
 // { name: 'production', deployed: false, packageName: null, packageVersion: null }
 
-// Deploy package to workspace
-await workspaceDeploy(url, 'production', 'my-pkg@1.0.0');
+// Deploy package to workspace: the server runs the deploy as a job, which
+// this polls, and answers what it decided for each record and index
+const deployed = await workspaceDeploy(url, 'production', 'my-pkg@1.0.0');
+// { records: [{ record: 'records/plans', action: <mint | keep | migrate | reset | drop | refused> }], indexes: [...], warnings: [] }
 
 // Get workspace status
 const status = await workspaceStatus(url, 'production');
@@ -93,6 +97,11 @@ const encoded = encodeBeast2For(StringType)('new value');
 await datasetSet(url, 'production', path, encoded);
 ```
 
+`datasetGet` downloads a collection as the segment objects its manifest names,
+a few at a time, checks each against its hash, and splices them into the value's
+bytes, so no response carries more than one segment and a server whose host
+caps its responses still serves a collection of any size.
+
 ### Tasks
 
 ```typescript
@@ -100,20 +109,21 @@ import { taskList, taskGet } from '@elaraai/e3-api-client';
 
 // List tasks
 const tasks = await taskList(url, 'production');
-// [{ name: 'compute', hash: 'abc123...' }, ...]
+// [{ name: 'compute', hash: 'abc123...', role: <data | ui> }, ...]
 
 // Get task details
 const task = await taskGet(url, 'production', 'compute');
-// { name: 'compute', hash: '...', commandIr: '...', inputs: [...], output: [...] }
+// { name: 'compute', hash: '...', body: <east program | command>, runner: <runtime>,
+//   inputs: [{ path, partition }], output: { path, kind }, role: <data | ui> }
 ```
 
 ### Execution
 
 ```typescript
-import { dataflowStart, dataflowExecute, dataflowGraph, taskLogs } from '@elaraai/e3-api-client';
+import { dataflowExecuteLaunch, dataflowExecute, dataflowGraph, taskLogs } from '@elaraai/e3-api-client';
 
 // Start execution (non-blocking)
-await dataflowStart(url, 'production', { force: true });
+await dataflowExecuteLaunch(url, 'production', { force: true });
 
 // Execute and wait for result (blocking)
 const result = await dataflowExecute(url, 'production', { force: true });

@@ -40,7 +40,7 @@ export function datasetEntries(state: TuiState, ws: string): Map<string, { type:
         const leaf = raw.get(task.output.replace(/\.output$/, ''));
         if (leaf !== undefined) raw.set(task.output, leaf);
     }
-    const uiTasks = new Set((state.data.taskList[ws] ?? []).filter(t => t.kind.type === 'some' && t.kind.value === 'ui').map(t => `.tasks.${t.name}.output`));
+    const uiTasks = new Set((state.data.taskList[ws] ?? []).filter(t => t.role.type === 'ui').map(t => `.tasks.${t.name}.output`));
     const out = new Map<string, { type: string; size: number | null; hash: string | null }>();
     for (const [path, entry] of raw) out.set(path, { type: compactType(entry.type, uiTasks.has(path)), size: entry.size, hash: entry.hash });
     return out;

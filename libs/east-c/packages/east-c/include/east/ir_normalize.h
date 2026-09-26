@@ -33,6 +33,15 @@
  */
 EastValue *east_ir_normalize(EastValue *ir);
 
+/* A type value (an EastTypeType variant) with its recursive ids renumbered as
+ * east_ir_normalize renumbers every type in an IR: wrappers in pre-order from
+ * 0, and each ref by the innermost enclosing wrapper of its id. The ids a
+ * runtime gives recursive types are its own, so a type value stored as data —
+ * a segment manifest's collection type — is renumbered first, and equal types
+ * encode equally in every runtime. A fresh retained value; the input is not
+ * modified. */
+EastValue *east_type_value_normalize(EastValue *type_value);
+
 /* The first structural difference between two values, as a path from the
  * root — `$(Function).body(Block).statements[2](Let).type` reads: the root
  * is a Function whose payload field `body` is a Block whose statement 2 is a

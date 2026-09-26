@@ -3,16 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-// Reproduction for issue #756: a stream task emitting Dict entries whose keys
-// arrive out of order, each value a struct of nested arrays of small structs
-// built by the body. Generates IR + a paged input for east-c --emit dict.
+// Reproduction for issue #756: a task emitting Dict entries whose keys arrive
+// out of order, each value a struct of nested arrays of small structs built by
+// the body. Generates IR, a paged input, and the unit `east-c exec` runs them
+// in, the entries going to a dict output's sorted runs in out/.
 //
 //   node contrib/bench_756.mjs <outdir> [rows] [arrays] [items]
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import {
-  ArrayType, East, FloatType, FunctionType, IntegerType, NullType, StringType, StructType,
-  encodeBeast2PagedFor, encodeEastIR,
+  ArrayType, East, FloatType, FunctionType, IntegerType, NullType, StringType, StructType, UnitType,
+  encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, none, variant,
 } from '@elaraai/east';
 
 const out = process.argv[2] ?? 'bench_756';
@@ -58,5 +60,11 @@ for (let i = 0; i < NROWS; i++) {
   }
   rows.push({ key: keys[i], label: `row-${i}`, parts });
 }
-writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(RowT), { batchSize: 200 })(rows));
+writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(RowT))(rows));
+writeFileSync(join(out, 'unit.beast2'), encodeBeast2For(UnitType)({
+  work: variant('run', { program: 'ir.beast2', inputs: ['rows.beast2'], output: variant('dict', { dir: 'out', merge: none }) }),
+  platforms: [],
+  threads: BigInt(availableParallelism()),
+  result: 'result.beast2',
+}));
 console.log(`wrote ${out}: ${NROWS} rows, ${NARR} arrays x ${NITEMS} items each`);

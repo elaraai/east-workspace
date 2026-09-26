@@ -5,13 +5,16 @@
 
 /**
  * Version-agnostic beast2 building blocks shared by the v4 and v5 codecs:
- * decode options, the IRType singleton, the "no IR attached" diagnostic, and
- * the decoded-function compile glue. Wire-format-specific code lives in
- * `v4/` and `v5/`; this module must stay format-neutral.
+ * decode options, the IRType singleton, the check of a blob's type against
+ * the one a decode was asked for, the "no IR attached" diagnostic, and the
+ * decoded-function compile glue. Wire-format-specific code lives in `v4/` and
+ * `v5/`; this module must stay format-neutral.
  */
 
 import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
+import { getTypeId } from "../../types.js";
 import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, ReturnException, compile_internal, type RuntimeContext } from "../../compile.js";
+import { printTypeValue } from "../../compile/runtime.js";
 import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
 import type { AnalyzedIR } from "../../analyze.js";
 import type { PlatformFunction } from "../../platform.js";
@@ -33,9 +36,119 @@ export type Beast2DecodeOptions = {
  *  the function encoders/decoders of both codec versions. */
 export const irTypeValue = toEastTypeValue(IRType);
 
-const FNV_OFFSET = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-const U64_MASK = 0xffffffffffffffffn;
+/** Header types found to read as the types decodes were asked for. A header's
+ *  type is one object per type section, which the section read caches, so
+ *  repeated decodes of one schema compare it once. */
+const matchedTypes = new WeakMap<object, WeakSet<object>>();
+
+/**
+ * Refuses a blob whose header names a type its body does not read as: the
+ * type a decode was asked for.
+ *
+ * @remarks
+ * A decode reads the body by the asked type, and the encoding is positional —
+ * a variant's tag is its case's position. So the header's type must be the
+ * asked type, or a subtype of it, as East's subtyping has it, whose tags line
+ * up: it may differ only where a variant of the asked type has further cases
+ * after all of the header's, or where the header's is `Never`, which no value
+ * has. A `none` then reads as any `Option`, and `some` alone, read as an
+ * `Option`, is refused rather than misread. A collection's element types must
+ * be the asked ones, as East's subtyping has them, since a program can write
+ * to a collection, and so must a function's signature. Recursive types
+ * compare up to how their wrappers are named, or repeated, as a table an
+ * earlier TypeScript wrote repeats a wrapper inside its own unfolding.
+ *
+ * @param wire - the type the blob's header names
+ * @param asked - the type the decode was asked for
+ * @throws {Error} When the header's type does not read as the asked type, naming both
+ */
+export function checkDecodeType(wire: EastTypeValue, asked: EastTypeValue): void {
+  if (wire === asked || matchedTypes.get(wire)?.has(asked)) return;
+  if (!readsAs(wire, asked, { wire: new Map(), asked: new Map(), assumed: [] }, false)) {
+    throw new Error(`beast2: cannot decode a blob of type ${printTypeValue(wire)} as ${printTypeValue(asked)}`);
+  }
+  let matched = matchedTypes.get(wire);
+  if (matched === undefined) matchedTypes.set(wire, matched = new WeakSet());
+  matched.add(asked);
+}
+
+/** One {@link readsAs} walk. */
+interface ReadsAsWalk {
+  /** The header's recursive wrappers the walk has entered, by the id its refs name. */
+  readonly wire: Map<bigint, EastTypeValue>;
+  /** The asked type's recursive wrappers the walk has entered, by id. */
+  readonly asked: Map<bigint, EastTypeValue>;
+  /** The pairs in progress through a recursive type, each read exactly or
+   *  not: a pair met again inside itself holds, since a recursive type is
+   *  its own unfolding. */
+  readonly assumed: [wire: EastTypeValue, asked: EastTypeValue, exact: boolean][];
+}
+
+/** The wrapper a recursive type is: itself, entered into `scope`, or the one
+ *  its ref names. */
+function wrapperOf(type: Extract<EastTypeValue, { type: "Recursive" }>, scope: Map<bigint, EastTypeValue>): EastTypeValue | undefined {
+  if (type.value.type === "ref") return scope.get(type.value.value);
+  scope.set(type.value.value.id, type);
+  return type;
+}
+
+/** Whether a body written as `wire` reads as `asked` — `exact`ly inside a
+ *  collection or a function's signature. */
+function readsAs(wire: EastTypeValue, asked: EastTypeValue, walk: ReadsAsWalk, exact: boolean): boolean {
+  if (wire === asked) return true;
+  const wireId = getTypeId(wire);
+  if (wireId !== undefined && wireId === getTypeId(asked)) return true;
+  if (wire.type === "Recursive" || asked.type === "Recursive") {
+    const w = wire.type === "Recursive" ? wrapperOf(wire, walk.wire) : wire;
+    const a = asked.type === "Recursive" ? wrapperOf(asked, walk.asked) : asked;
+    if (w === undefined || a === undefined) return false;
+    if (walk.assumed.some(([pw, pa, pe]) => pw === w && pa === a && pe === exact)) return true;
+    walk.assumed.push([w, a, exact]);
+    try {
+      return readsAs(
+        w.type === "Recursive" && w.value.type === "wrapper" ? w.value.value.inner : w,
+        a.type === "Recursive" && a.value.type === "wrapper" ? a.value.value.inner : a,
+        walk, exact);
+    } finally {
+      walk.assumed.pop();
+    }
+  }
+  if (wire.type === "Never") return !exact || asked.type === "Never";
+  if (wire.type !== asked.type) return false;
+  switch (wire.type) {
+    case "Null": case "Boolean": case "Integer": case "Float":
+    case "String": case "DateTime": case "Blob":
+      return true;
+    case "Ref": case "Array": case "Set": case "Vector": case "Matrix":
+      return readsAs(wire.value, (asked as typeof wire).value, walk, true);
+    case "Dict": {
+      const other = (asked as typeof wire).value;
+      return readsAs(wire.value.key, other.key, walk, true) && readsAs(wire.value.value, other.value, walk, true);
+    }
+    case "Struct": case "Variant": {
+      const mine: { name: string; type: EastTypeValue }[] = wire.value;
+      const theirs: { name: string; type: EastTypeValue }[] = (asked as typeof wire).value;
+      // A variant's tags are its cases' positions: the header's cases must be
+      // the asked variant's first ones.
+      if ((wire.type === "Struct" || exact) ? mine.length !== theirs.length : mine.length > theirs.length) return false;
+      return mine.every((entry, i) => entry.name === theirs[i]!.name && readsAs(entry.type, theirs[i]!.type, walk, exact));
+    }
+    case "Function": case "AsyncFunction": {
+      const other = (asked as typeof wire).value;
+      return wire.value.inputs.length === other.inputs.length
+        && wire.value.inputs.every((input: EastTypeValue, i: number) => readsAs(input, other.inputs[i]!, walk, true))
+        && readsAs(wire.value.output, other.output, walk, true);
+    }
+  }
+}
+
+/** FNV-1a 64-bit offset basis, as its high and low 32-bit words. */
+const FNV_OFFSET_HIGH = 0xcbf29ce4;
+const FNV_OFFSET_LOW = 0x84222325;
+/** The FNV-1a 64-bit prime is 2^40 + 0x1b3: a hash times it is the hash times
+ *  0x1b3 plus the hash shifted up 40 bits, which is what lets it run in 32-bit
+ *  words. */
+const FNV_PRIME_LOW = 0x1b3;
 
 /**
  * Computes the FNV-1a 64-bit hash of a byte array.
@@ -44,16 +157,25 @@ const U64_MASK = 0xffffffffffffffffn;
  * byte-for-byte across the TS, C, and Python runtimes) and as the key of the
  * type-table section caches (#417).
  *
+ * @remarks
+ * Computed in two 32-bit words rather than one BigInt: the low word times
+ * 0x1b3 stays under 2^41, so its carry into the high word is exact in a
+ * double, and the prime's 2^40 term reaches the high word as the low word
+ * shifted up 8.
+ *
  * @param bytes - the bytes to hash
  * @returns the 64-bit hash
  */
 export function fnv1a64(bytes: Uint8Array): bigint {
-  let hash = FNV_OFFSET;
+  let high = FNV_OFFSET_HIGH;
+  let low = FNV_OFFSET_LOW;
   for (let i = 0; i < bytes.length; i++) {
-    hash ^= BigInt(bytes[i]!);
-    hash = (hash * FNV_PRIME) & U64_MASK;
+    low = (low ^ bytes[i]!) >>> 0;
+    const product = low * FNV_PRIME_LOW;
+    high = (Math.imul(high, FNV_PRIME_LOW) + Math.floor(product / 0x100000000) + (low << 8)) >>> 0;
+    low = product >>> 0;
   }
-  return hash;
+  return (BigInt(high) << 32n) | BigInt(low);
 }
 
 // Shared empty set for compile_internal's compilingNodes parameter (avoids per-call allocation)

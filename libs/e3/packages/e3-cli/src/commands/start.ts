@@ -8,7 +8,7 @@
  *
  * Usage:
  *   e3 start . my-workspace
- *   e3 start . my-workspace --jobs 2
+ *   e3 start . my-workspace --jobs 2 --memory 8G
  *   e3 start . my-workspace --force
  *   e3 start https://server/repos/myrepo my-workspace
  */
@@ -16,18 +16,19 @@
 import { join } from 'node:path';
 import {
   DataflowAbortedError,
-  JobSlots,
   LocalStorage,
   LocalOrchestrator,
+  LocalTaskRunner,
   FileStateStore,
   sweepScratchDirs,
   workspaceGetTree,
+  type Budget,
   type TaskCompletedCallback,
   type TreeNode,
 } from '@elaraai/e3-core';
 import {
-  dataflowStart as dataflowStartRemote,
-  dataflowExecution as dataflowExecutionRemote,
+  dataflowExecuteLaunch as dataflowExecuteLaunchRemote,
+  dataflowExecutePoll as dataflowExecutePollRemote,
   dataflowCancel as dataflowCancelRemote,
   datasetListRecursive as datasetListRecursiveRemote,
   type DataflowEvent,
@@ -37,7 +38,7 @@ import { type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { getValidToken } from '../credentials.js';
 import { formatSize } from '../format.js';
-import { resolveJobs, type JobsFlags } from './jobs.js';
+import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 /** Polling interval for remote execution (ms) */
 const POLL_INTERVAL = 500;
@@ -48,7 +49,7 @@ const POLL_INTERVAL = 500;
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: JobsFlags & { filter?: string; force?: boolean; verbose?: boolean }
+  options: BudgetFlags & { filter?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -68,15 +69,18 @@ export async function startCommand(
 
   try {
     const location = await parseRepoLocation(repoArg);
-    // One budget for the run: the runner processes in flight at once, across
-    // the dataflow's tasks and the units of its partitioned tasks.
-    const jobs = resolveJobs(options);
+    if (location.type === 'remote') refuseRemoteBudget(options);
+    // A local run's budget: the cores and memory its runner processes take,
+    // across the dataflow's tasks and the units of its partitioned tasks.
+    const budget = location.type === 'local' ? commandBudget(options) : null;
 
     console.log(`Starting tasks in workspace: ${ws}`);
     if (options.filter) {
       console.log(`Filter: ${options.filter}`);
     }
-    console.log(`Jobs: ${jobs}`);
+    if (budget !== null) {
+      console.log(`Budget: ${budget.cores} ${budget.cores === 1 ? 'core' : 'cores'}, ${formatSize(budget.memory)}`);
+    }
     if (options.force) {
       console.log(
         options.filter
@@ -88,7 +92,7 @@ export async function startCommand(
 
     if (location.type === 'local') {
       await executeLocal(location.path, ws, {
-        jobs,
+        budget: budget!,
         force: options.force,
         verbose: options.verbose,
         filter: options.filter,
@@ -100,7 +104,6 @@ export async function startCommand(
         location.repo,
         ws,
         {
-          jobs,
           force: options.force,
           filter: options.filter,
           verbose: options.verbose,
@@ -127,8 +130,9 @@ export async function startCommand(
 // =============================================================================
 
 interface LocalExecuteOptions {
-  /** The runner processes in flight at once, across tasks and partition units. */
-  jobs: number;
+  /** The run's budget: the cores and memory its runner processes take, tasks
+   *  and partition units alike. */
+  budget: Budget;
   force?: boolean;
   verbose?: boolean;
   filter?: string;
@@ -147,16 +151,16 @@ async function executeLocal(
 
   // Scratch directories an earlier run left behind when its process died.
   try {
-    await sweepScratchDirs({ minAge: 60_000 });
+    await sweepScratchDirs(repoPath);
   } catch {
     // Not a reason to fail the run
   }
 
-  // The task loop may launch as many tasks as the budget holds; the budget
-  // itself decides which runners spawn, tasks and partition units alike.
+  // The loop keeps as many tasks and units in flight as the budget has cores;
+  // the runner, which holds the budget, decides which of them spawn.
   const handle = await orchestrator.start(storage, repoPath, ws, {
-    concurrency: options.jobs,
-    jobs: new JobSlots(options.jobs),
+    runner: new LocalTaskRunner(repoPath, options.budget),
+    width: options.budget.cores,
     force: options.force,
     verbose: options.verbose,
     filter: options.filter,
@@ -235,8 +239,6 @@ async function executeLocal(
 // =============================================================================
 
 interface RemoteExecuteOptions {
-  /** The runner processes the server keeps in flight for the run. */
-  jobs: number;
   force?: boolean;
   filter?: string;
   verbose?: boolean;
@@ -253,11 +255,8 @@ async function executeRemote(
   // whole run: getValidToken refreshes it as it nears expiry, so a long dataflow
   // run never sends an expired token and dies mid-flight with "Token expired".
 
-  // Start the dataflow execution
-  // The API carries the budget in its `concurrency` field; the server runs
-  // it as its jobs budget.
-  await dataflowStartRemote(baseUrl, repo, ws, {
-    concurrency: options.jobs,
+  // Start the dataflow execution, which the server runs under its own budget
+  await dataflowExecuteLaunchRemote(baseUrl, repo, ws, {
     force: options.force,
     filter: options.filter,
   }, { token: await getValidToken(baseUrl), verbose: options.verbose });
@@ -267,7 +266,7 @@ async function executeRemote(
   let lastStatus: DataflowExecutionState['status']['type'] | null = null;
 
   while (!isAborted()) {
-    const state = await dataflowExecutionRemote(baseUrl, repo, ws, {
+    const state = await dataflowExecutePollRemote(baseUrl, repo, ws, {
       offset: eventOffset,
     }, { token: await getValidToken(baseUrl) });
 

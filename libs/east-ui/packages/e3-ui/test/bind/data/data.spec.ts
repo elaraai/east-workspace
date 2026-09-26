@@ -17,6 +17,7 @@ describeEast("Data", (test) => {
         dataBindStagedFloat: ex.dataBindStagedFloat,
         dataBindStagedVariants: ex.dataBindStagedVariants,
         dataBindPagedPlan: ex.dataBindPagedPlan,
+        dataBindPagedIndex: ex.dataBindPagedIndex,
     });
 
     // Panels — every merged example stays mounted as a captioned row (#464).

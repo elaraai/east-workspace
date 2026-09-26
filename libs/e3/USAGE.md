@@ -105,6 +105,8 @@ A computation that reads input datasets and produces an output dataset. Tasks ar
 
 The DAG of tasks and their dependencies. When you run `e3 dataflow run`, tasks execute in dependency order. Cached results are reused when inputs haven't changed.
 
+[How runs work](docs/HOW_RUNS_WORK.md) follows one run over very large collections from start to finish: how its data moves, how its work is split and scheduled, and where records and functions fit.
+
 ### Content Addressing
 
 All objects (IR, data, results) are stored by SHA256 hash. This enables:
@@ -123,7 +125,7 @@ Defines an input dataset. CLI users address it as `<ws>.${name}`; the on-disk st
 The third argument says where the initial value comes from, and is always a variant:
 
 - `variant('value', v)` — an inline value, carried in the package.
-- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` adopts the file into the object store **by hash** (a reflink, hard link or one kernel copy — the file is never read whole and never modified). Relative paths resolve against the working directory at export.
+- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` takes the file into the object store as the value it holds — a collection a segment at a time, stored as the store's own segment objects; any other value by a reflink, hard link or one kernel copy. The file is never read whole and never modified. Relative paths resolve against the working directory at export.
 - omitted — unassigned until set.
 
 ```typescript
@@ -145,11 +147,19 @@ const table = e3.input('table', ArrayType(RowType), variant('file', './deliverie
 ```
 
 A `file` source is validated against the declared type at `e3.export` and
-again at deploy, before the workspace is touched: a missing file, a collection
-without a paging index, or a header whose type differs from the declared one
-fails with the input's name, both types and the first differing field.
-Deliveries are immutable by contract — the stored object may be a hard link to
-the file, so publish a new file rather than editing one in place.
+again at deploy, before the workspace is touched: a missing file, one that is
+not beast2, or a header whose type differs from the declared one fails with the
+input's name, both types and the first differing field.
+
+A collection delivery may be in any layout a beast2 writer produces — segmented
+or encoded whole, indexed or not — so long as no segment of it is larger than a
+collection is read in at once (64 MiB); a large value encoded whole is one such
+segment, and is refused with a message saying to write it segmented, the
+Writer's default. The store cuts the delivery into its own segments, so a new
+delivery that differs from the last in a few rows stores only the segments
+around them, and the same bytes delivered again are not read a second time.
+Any other value's object may be a hard link to the file, so publish a new file
+rather than editing one in place.
 
 The file is read on the machine that runs `e3 workspace deploy`, whichever
 repository it deploys to. Against a remote repository — a package spec,
@@ -479,10 +489,19 @@ await e3.export(pkg, '/tmp/myapp.zip');
 e3 repo create <repo>             # Create repository (local path or remote URL)
 e3 repo remove <repo> [-r]        # Remove repository (-r to remove workspaces first)
 e3 repo status <repo>             # Show repository status (packages, workspaces)
-e3 repo gc <repo> [--dry-run]     # Remove unreferenced objects
+e3 repo gc <repo> [--dry-run] [--keep-runs <n>] [--keep-days <d>]   # Remove old history and unreferenced objects
 ```
 
 The `repo remove` command will refuse to remove a repository that contains workspaces unless the `-r` (`--recursive`) flag is provided. With `-r`, all workspaces are removed before the repository is deleted.
+
+`repo gc` bounds the history a repository keeps before it removes the objects
+nothing names. It keeps each workspace's last 10 runs (`--keep-runs`), every
+run from the last 7 days (`--keep-days`) and the run its current state came
+from, with every execution those runs used; every execution a workspace's
+current state is served from, so a re-run stays cached; every execution from
+the last 7 days; and whatever is running. Every other execution — its record
+and its logs — and run record goes, and the outputs only they kept go with
+them. `--dry-run` reports what would go without deleting anything.
 
 ### Package Commands
 
@@ -513,7 +532,7 @@ Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
-e3 dataset set <repo> <ws.name> --from-file <path.beast2>   # Adopt a beast2 file by hash
+e3 dataset set <repo> <ws.name> --from-file <path.beast2>   # Take a beast2 file in as the value
 e3 dataset list <repo> <ws> [-l]                 # List paths (with -l for type/status/size table)
 e3 dataset status <repo> <ws.name>               # Kind, type, status, size (+ segments/rows for a collection)
 e3 dataset find <repo> <ws> <pattern>            # Substring or glob (`*`, `?`) match
@@ -532,12 +551,14 @@ e3 dataset find . dev '*output*'      # Find names matching a glob
 Every set checks the value's type **equals** the dataset's declared type —
 not merely assignable, since runners decode by the declared type — and
 refuses a mismatch before anything is written, naming the dataset, both types
-and the first differing field. `--from-file` never decodes the file: its hash
-is streamed, its header is checked by two ranged reads, and it enters the
-object store by reflink, hard link or one kernel copy (against a remote
-repository it is streamed through the transfer protocol and checked the same
-way at the server's commit). `--type`/`--type-file` on a `.beast2` argument is
-checked against the file's own header rather than silently overriding it.
+and the first differing field. `--from-file` never holds the file whole: its
+hash is streamed and its header checked by ranged reads; a collection is then
+read a segment at a time and stored as the store's own segments — bytes the
+store has taken before cost only their hash — and any other value enters the
+object store by reflink, hard link or one kernel copy. Against a remote
+repository the file is streamed through the transfer protocol and checked the
+same way at the server's commit. `--type`/`--type-file` on a `.beast2` argument
+is checked against the file's own header rather than silently overriding it.
 
 The resolver gives `did you mean` suggestions on typos:
 
@@ -572,24 +593,36 @@ units — the partitions and merge units, each an execution of its own, named by
 ### Dataflow Commands
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--memory <size>] [--force] [-v]
 ```
 
-`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
-e3 keeps in flight at once, across the dataflow's tasks and the partitions and
-merge units of its partitioned tasks alike (every runner takes one slot, first
-come first served, whatever launched it). It defaults to the CPUs available to
-e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
-older `--concurrency` and `--partition-concurrency` are accepted as deprecated
-aliases of the same budget.
+`-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
+e3 spawns. `-j` is its cores: the runners in flight at once, across the
+dataflow's tasks and the partitions and merge units of its partitioned tasks
+alike (every runner takes one, first come first served, whatever launched it).
+`--memory` is the memory those runners may reserve between them, as `8G` or
+`512M`. They default to `E3_JOBS` and `E3_MEMORY`, else to what e3 may use: the
+CPUs of its affinity mask, capped by a cgroup quota, and the cgroup's
+`memory.max` or else physical memory, less a reserve for e3 and the OS.
+
+A unit of a partitioned task reserves the largest peak memory a unit of its
+stage (its partitions, or one level of its merges) has reached in the run, so
+each stage runs its first unit alone and then fans out. Anything else reserves
+nothing.
+
+`e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
+`e3 workspace deploy` take the same two flags for a local repository. Against a
+server they are refused: it runs the work under its own budget
+(`e3-api-server -j` / `--memory`).
 
 A local run gives every execution a scratch directory — its inputs are marshalled
-there and its output written there before it is stored — under `E3_SCRATCH_DIR`,
-or the system temp directory when that is unset. A temp directory on tmpfs holds
-an output in memory until it is stored, so a run with large outputs wants
-`E3_SCRATCH_DIR` on a disk with room for them. Each directory is named after its
-execution and the process that owns it; one left behind by a process that died
-is removed by the next `e3 dataflow run` or `e3 repo gc`.
+there and its output written there before it is stored — inside the repository,
+under `<repo>/tmp/scratch`, or under `E3_SCRATCH_DIR` when that is set. Inside
+the repository it is on the object store's own filesystem, so an output never
+waits in memory on a tmpfs temp directory, and one that is not a collection is
+stored by a link rather than a copy. Each directory is named after its execution and the process that owns
+it; one left behind by a process that died is removed by the next
+`e3 dataflow run` or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block (load, compile, execute, output, total + peak RSS) to the task's logs
@@ -637,10 +670,10 @@ repository byte-for-byte unchanged.
 ### Watch / Live Development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--memory <size>] [--abort-on-change]
 ```
 
-The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` is the jobs budget of the runs `--start` launches, as for `e3 dataflow run`.
+The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` and `--memory` are the budget its deploys and the runs `--start` launches share, as for `e3 dataflow run`.
 
 **Cancellation:** Press Ctrl-C in a running `e3 dataflow run` to abort it. In watch mode, `--abort-on-change` cancels in-flight runs when files change.
 

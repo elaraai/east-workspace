@@ -12,12 +12,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
+  NullType, NeverType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
   ArrayType, SetType, DictType, StructType, VariantType, RecursiveType,
   RefType, VectorType, MatrixType, FunctionType,
   type EastType,
 } from "../../types.js";
-import { toEastTypeValue, EastTypeValueType } from "../../type_of_type.js";
+import { canonicalTypeValue, toEastTypeValue, EastTypeValueType } from "../../type_of_type.js";
+import { printTypeValue } from "../../compile/runtime.js";
 import { TypeTableBuilder } from "./v4/type-table.js";
 import { IRType } from "../../ir.js";
 import { equalFor } from "../../comparison.js";
@@ -27,6 +28,7 @@ import { matrix } from "../../containers/matrix.js";
 import {
   encodeBeast2For,
   decodeBeast2For,
+  decodeBeast2ForAsync,
   decodeBeast2,
 } from "./index.js";
 
@@ -690,6 +692,95 @@ describe("Beast2 v2 — Decoder reuse", () => {
     assert.deepEqual(decoder(encode([1n, 2n])), [1n, 2n]);
     assert.deepEqual(decoder(encode([3n, 4n, 5n])), [3n, 4n, 5n]);
     assert.deepEqual(decoder(encode([])), []);
+  });
+});
+
+describe("Beast2 — a typed decode checks the header's type", () => {
+  const containers = [
+    { label: "v4", options: { version: 4 } as const },
+    { label: "v5/none", options: { version: 5, codec: "none" } as const },
+    { label: "v5/deflate", options: { version: 5, codec: "deflate" } as const },
+  ];
+  const refusal = (written: EastType, asked: EastType) => ({
+    message: `beast2: cannot decode a blob of type ${printTypeValue(toEastTypeValue(written))} as ${printTypeValue(toEastTypeValue(asked))}`,
+  });
+
+  test("refuses a blob whose header names another type, naming both", () => {
+    const Written = StructType({ a: IntegerType });
+    const Asked = StructType({ a: StringType });
+    for (const { label, options } of containers) {
+      const blob = encodeBeast2For(Written, options)({ a: 1n });
+      assert.throws(() => decodeBeast2For(Asked)(blob), refusal(Written, Asked), label);
+    }
+  });
+
+  test("refuses a variant whose tags the asked type would shift", () => {
+    // Read as the asked type, tag 0 would be `a`.
+    const Written = VariantType({ b: IntegerType });
+    const Asked = VariantType({ a: IntegerType, b: IntegerType });
+    for (const { label, options } of containers) {
+      const blob = encodeBeast2For(Written, options)(variant("b", 1n));
+      assert.throws(() => decodeBeast2For(Asked)(blob), refusal(Written, Asked), label);
+    }
+  });
+
+  test("refuses a variant wider than the one asked for", () => {
+    const Written = VariantType({ none: NullType, some: IntegerType });
+    const Asked = VariantType({ none: NullType });
+    for (const { label, options } of containers) {
+      const blob = encodeBeast2For(Written, options)(none);
+      assert.throws(() => decodeBeast2For(Asked)(blob), refusal(Written, Asked), label);
+    }
+  });
+
+  test("reads a subtype whose variants hold the asked ones' first cases as the asked type", () => {
+    const OptionInteger = VariantType({ none: NullType, some: IntegerType });
+    const Row = StructType({ a: OptionInteger, b: IntegerType });
+    for (const { label, options } of containers) {
+      // A `none` written as the type of its own value.
+      const one = encodeBeast2For(VariantType({ none: NullType }), options)(none);
+      assert.ok(equalFor(OptionInteger)(decodeBeast2For(OptionInteger)(one), none), label);
+      // Inside a struct, and beside a case of Never, which no value has.
+      const row = encodeBeast2For(StructType({ a: VariantType({ none: NullType, some: NeverType }), b: IntegerType }), options)({ a: none, b: 1n });
+      assert.ok(equalFor(Row)(decodeBeast2For(Row)(row), { a: none, b: 1n }), label);
+    }
+  });
+
+  test("refuses a collection of another element type, which East's subtyping holds invariant", () => {
+    const Written = ArrayType(VariantType({ none: NullType }));
+    const Asked = ArrayType(VariantType({ none: NullType, some: IntegerType }));
+    for (const { label, options } of containers) {
+      const blob = encodeBeast2For(Written, options)([none]);
+      assert.throws(() => decodeBeast2For(Asked)(blob), refusal(Written, Asked), label);
+    }
+  });
+
+  test("refuses a function of another signature, however close", () => {
+    const Written = FunctionType([IntegerType], VariantType({ none: NullType }));
+    const Asked = FunctionType([IntegerType], VariantType({ none: NullType, some: IntegerType }));
+    const fn = East.compile(East.function([IntegerType], VariantType({ none: NullType }), () => none), []);
+    for (const { label, options } of containers) {
+      const blob = encodeBeast2For(Written, options)(fn);
+      assert.throws(() => decodeBeast2For(Asked)(blob), refusal(Written, Asked), label);
+    }
+  });
+
+  test("the async decode refuses the same", async () => {
+    const blob = encodeBeast2For(IntegerType)(1n);
+    await assert.rejects(decodeBeast2ForAsync(StringType)(blob), refusal(IntegerType, StringType));
+  });
+
+  test("decodes a recursive type asked for under other ids", () => {
+    const ListType = RecursiveType(self => VariantType({
+      nil: NullType,
+      cons: StructType({ head: IntegerType, tail: self }),
+    }));
+    const list = variant("cons", { head: 1n, tail: variant("nil", null) });
+    const renamed = canonicalTypeValue(toEastTypeValue(ListType));
+    for (const { label, options } of containers) {
+      const decoded = decodeBeast2For(renamed)(encodeBeast2For(ListType, options)(list));
+      assert.ok(equalFor(ListType)(decoded, list), label);
+    }
   });
 });
 

@@ -37,6 +37,7 @@ import {
 
 import { StructureType, TreePathType } from './structure.js';
 import { RunnerType } from './runner.js';
+import { TaskBodyType, TaskInputType, TaskOutputType, TaskRoleType } from './task.js';
 
 // =============================================================================
 // Error Types
@@ -78,6 +79,13 @@ export const DatasetTypeMismatchErrorType = StructType({
   path: StringType,
   message: StringType,
 });
+/** A name e3 would make a path of that cannot be one path segment: a
+ *  repository's, a workspace's, or a package's name or version. */
+export const InvalidNameErrorType = StructType({
+  kind: StringType,
+  name: StringType,
+  message: StringType,
+});
 
 export const ErrorType = VariantType({
   repository_not_found: RepositoryNotFoundErrorType,
@@ -96,9 +104,8 @@ export const ErrorType = VariantType({
   dataflow_aborted: NullType,
   permission_denied: PermissionDeniedErrorType,
   internal: InternalErrorType,
-  // Appended last: BEAST2 encodes a variant case by index, so a case added at
-  // the end leaves every existing payload decodable.
   dataset_type_mismatch: DatasetTypeMismatchErrorType,
+  invalid_name: InvalidNameErrorType,
 });
 
 // =============================================================================
@@ -134,10 +141,16 @@ export const RepositoryStatusType = StructType({
  *
  * @property dryRun - If true, report what would be deleted without deleting
  * @property minAge - Minimum age in milliseconds for objects to be considered for deletion
+ * @property keepRuns - The runs of each workspace kept however old, the latest
+ *   first; the server's default when `none`
+ * @property keepDays - The days of runs and executions kept however many; the
+ *   server's default when `none`
  */
 export const GcRequestType = StructType({
   dryRun: BooleanType,
   minAge: OptionType(IntegerType),
+  keepRuns: OptionType(IntegerType),
+  keepDays: OptionType(IntegerType),
 });
 
 /**
@@ -148,6 +161,9 @@ export const GcRequestType = StructType({
  * @property retainedObjects - Number of objects still referenced
  * @property skippedYoung - Number of objects skipped due to minAge
  * @property bytesFreed - Total bytes freed by deletion
+ * @property deletedRuns - Number of dataflow run records deleted
+ * @property deletedExecutions - Number of execution attempts deleted, each with
+ *   its owner record and logs
  */
 export const GcResultType = StructType({
   deletedObjects: IntegerType,
@@ -155,6 +171,8 @@ export const GcResultType = StructType({
   retainedObjects: IntegerType,
   skippedYoung: IntegerType,
   bytesFreed: IntegerType,
+  deletedRuns: IntegerType,
+  deletedExecutions: IntegerType,
 });
 
 // =============================================================================
@@ -270,12 +288,117 @@ export const WorkspaceInfoType = StructType({
 });
 
 /**
+ * What a deploy does with a record it cannot keep as it is.
+ *
+ * - `migrate`: run the migrations the workspace has not applied, and refuse a
+ *   record no migration carries to the package's type
+ * - `fail`: run none, and refuse a record with migrations to run, for a
+ *   workspace whose migrations go through their own change control
+ * - `reset`: reset a record it can neither keep nor migrate to the package's
+ *   initial value, under a `$reset` commit, so the reset is in its history
+ */
+export const SchemaPolicyType = VariantType({
+  migrate: NullType,
+  fail: NullType,
+  reset: NullType,
+});
+
+/**
  * Request to deploy a package to a workspace.
  *
  * @property packageRef - Package reference in format "name" or "name@version"
+ * @property schema - What the deploy does with a record it cannot keep as it is
+ * @property allowDropRecords - Whether a record the package no longer declares
+ *   may be dropped, with its state and history
+ * @property plan - Say what the deploy would do, and write nothing
  */
 export const WorkspaceDeployRequestType = StructType({
   packageRef: StringType,
+  schema: SchemaPolicyType,
+  allowDropRecords: BooleanType,
+  plan: BooleanType,
+});
+
+/**
+ * What a deploy decided for one record.
+ *
+ * @property record - The record's dataset ref path
+ * @property action - What the deploy does to it:
+ *   - `mint`: the workspace does not hold it, so it is minted from the
+ *     package's initial value
+ *   - `keep`: kept as the workspace holds it; `deploy` when the package under
+ *     it changed, which a `$deploy` commit records in its history
+ *   - `migrate`: migrated by the steps the workspace has not applied, in order
+ *   - `reset`: reset to the package's initial value under the `reset` policy,
+ *     and why it could not be kept or migrated
+ *   - `drop`: the package does not declare it, so it is dropped, with its
+ *     state and history
+ *   - `refused`: refused, and why, with the fix: the deploy writes nothing
+ */
+export const RecordPlanType = StructType({
+  record: StringType,
+  action: VariantType({
+    mint: NullType,
+    keep: StructType({ deploy: BooleanType }),
+    migrate: StructType({ steps: ArrayType(StringType) }),
+    reset: StructType({ reason: StringType }),
+    drop: NullType,
+    refused: StructType({ reason: StringType }),
+  }),
+});
+
+/**
+ * What a deploy decided for one of a record's indexes.
+ *
+ * @property record - The record's dataset ref path
+ * @property index - The index's name
+ * @property action - `build` when the state names no index under the
+ *   package's declaration, `drop` when it names one the package does not
+ *   declare, and `keep` when the two agree and nothing runs
+ */
+export const RecordIndexPlanType = StructType({
+  record: StringType,
+  index: StringType,
+  action: VariantType({
+    build: NullType,
+    drop: NullType,
+    keep: NullType,
+  }),
+});
+
+/**
+ * What a deploy did, or under `plan` would do.
+ *
+ * @property records - What it decided for each record
+ * @property indexes - What it decided for each index of the records it keeps
+ * @property warnings - The inputs it left unassigned, and why: a server never
+ *   reads a `file` source, whose path is on the client's machine
+ */
+export const WorkspaceDeployResultType = StructType({
+  records: ArrayType(RecordPlanType),
+  indexes: ArrayType(RecordIndexPlanType),
+  warnings: ArrayType(StringType),
+});
+
+/**
+ * A deploy job's progress: `pending` until it starts, then `deploying`.
+ */
+export const WorkspaceDeployProgressType = VariantType({
+  pending: NullType,
+  deploying: NullType,
+});
+
+/**
+ * A deploy job's status.
+ *
+ * - `processing`: still running, and how far it has got
+ * - `completed`: what the deploy did
+ * - `failed`: why it did not
+ */
+export const WorkspaceDeployStatusType = VariantType({
+  processing: WorkspaceDeployProgressType,
+  completed: WorkspaceDeployResultType,
+  failed: StructType({ message: StringType }),
 });
 
 /**
@@ -451,31 +574,34 @@ export const WorkspaceStatusResultType = StructType({
  *
  * @property name - Task name
  * @property hash - Task definition hash
- * @property kind - Task kind: "ui" (e3-ui `ui()`), other future kinds; none for plain tasks / old packages
+ * @property role - What the task's output is for: data, or a ui with what it
+ *   binds
  */
 export const TaskListItemType = StructType({
   name: StringType,
   hash: StringType,
-  kind: OptionType(StringType),
+  role: TaskRoleType,
 });
 
 /**
- * Detailed task information.
+ * Detailed task information: the task object's fields.
  *
  * @property name - Task name
  * @property hash - Task definition hash
- * @property commandIr - East IR for the task's command
- * @property inputs - Tree paths for task inputs
- * @property output - Tree path for task output
+ * @property body - What the task runs: an East program, or a command
+ * @property runner - The runtime it runs on
+ * @property inputs - The datasets it reads, each with its partition
+ * @property output - Where its output goes, and how it is made
+ * @property role - What its output is for: data, or a ui with what it binds
  */
 export const TaskDetailsType = StructType({
   name: StringType,
   hash: StringType,
-  commandIr: StringType,
-  inputs: ArrayType(TreePathType),
-  output: TreePathType,
-  kind: OptionType(StringType),
-  metadata: OptionType(BlobType),
+  body: TaskBodyType,
+  runner: RunnerType,
+  inputs: ArrayType(TaskInputType),
+  output: TaskOutputType,
+  role: TaskRoleType,
 });
 
 // =============================================================================
@@ -483,14 +609,13 @@ export const TaskDetailsType = StructType({
 // =============================================================================
 
 /**
- * Request to start dataflow execution.
+ * Request to start dataflow execution. The run takes the server's budget of
+ * cores and memory, which it shares with everything else the server runs.
  *
- * @property concurrency - Maximum parallel tasks (default: 4)
  * @property force - Force re-execution of all tasks
  * @property filter - Filter to specific task names (glob pattern)
  */
 export const DataflowRequestType = StructType({
-  concurrency: OptionType(IntegerType),
   force: BooleanType,
   filter: OptionType(StringType),
 });
@@ -658,13 +783,17 @@ export const ApiDataflowExecutionStateType = StructType({
 // =============================================================================
 
 /**
- * Execution status for history listing.
+ * Execution status for history listing: `cancelled` when e3 stopped the
+ * execution because its run was aborted, `interrupted` when the orchestrator
+ * that owned it exited before it finished.
  */
 export const ExecutionHistoryStatusType = VariantType({
   running: NullType,
   success: NullType,
   failed: NullType,
   error: NullType,
+  cancelled: NullType,
+  interrupted: NullType,
 });
 
 /**
@@ -739,8 +868,7 @@ export const DatasetStatusDetailType = StructType({
   size: OptionType(IntegerType),
   /** Segment and element counts of a stored collection, read from the blob's
    *  trailing index — so a re-pointed input is inspectable without decoding
-   *  it. `none` for a non-collection or an unset dataset. Appended LAST, per
-   *  the positional struct rule. */
+   *  it. `none` for a non-collection or an unset dataset. */
   segments: OptionType(IntegerType),
   rows: OptionType(IntegerType),
 });
@@ -834,6 +962,10 @@ export const OneShotRequestType = StructType({
 /**
  * A record mutation call. Positional args (after the implicit current state),
  * one beast2-encoded value per declared parameter.
+ *
+ * Of the limits, `timeoutMs` bounds each run of the mutation's program and
+ * `maxLogBytes` the stderr a failure returns. `maxResultBytes` does not apply:
+ * a mutation's output is stored as segments and never read whole.
  */
 export const MutationCallRequestType = StructType({
   args:   ArrayType(BlobType),
@@ -846,19 +978,19 @@ export const MutationCallRequestType = StructType({
  *
  * - `committed`: the new commit + state hashes
  * - `invalid`: record/mutation lookup or arity error; nothing ran
- * - `failed`: the reducer process exited non-zero (incl. a reducer `$.error`; see stderr)
- * - `too_large`: the new state exceeded the result cap
- * - `timed_out`: the reducer exceeded its time budget
- * - `conflict`: the compare-and-swap lost the race `attempts` times
+ * - `failed`: the mutation's program failed (incl. a body's `$.error`; see stderr)
+ * - `timed_out`: the program exceeded its time budget
+ * - `conflict`: the compare-and-swap lost the race `attempts` times, or the
+ *   write disagreed with the state it landed on — then `detail` names the key,
+ *   and resubmitting the same write cannot help
  */
 export const MutationResultType = StructType({
   outcome: VariantType({
     committed: StructType({ commitHash: StringType, stateHash: StringType }),
     invalid:   StructType({ message: StringType }),
     failed:    StructType({ exitCode: IntegerType, stderr: StringType }),
-    too_large: StructType({ bytes: IntegerType, limit: IntegerType, stderr: StringType }),
     timed_out: StructType({ ms: IntegerType, stderr: StringType }),
-    conflict:  StructType({ attempts: IntegerType }),
+    conflict:  StructType({ attempts: IntegerType, detail: OptionType(StringType) }),
   }),
 });
 
@@ -872,6 +1004,10 @@ export const RecordSignatureType = StructType({
   mutations: ArrayType(StructType({
     name:     StringType,
     argTypes: ArrayType(EastTypeType),
+    /** The write form — `reduce`, `edit` or `patch` — which says what the
+     *  arguments MEAN: a `patch` mutation's one argument is a
+     *  `PatchType(State)`, not a value of the record's own type. */
+    form:     StringType,
   })),
 });
 
@@ -883,6 +1019,9 @@ export const RecordCommitInfoType = StructType({
   mutation: StringType,
   actor:    StringType,
   at:       DateTimeType,
+  /** The delta this commit applied, when it wrote one — so history shows WHAT
+   *  changed without diffing two states. */
+  delta:    OptionType(StringType),
 });
 
 /** A page of a record's commit history, newest first. */
@@ -907,6 +1046,13 @@ export type PackageDetails = ValueTypeOf<typeof PackageDetailsType>;
 export type WorkspaceInfo = ValueTypeOf<typeof WorkspaceInfoType>;
 export type WorkspaceCreateRequest = ValueTypeOf<typeof WorkspaceCreateRequestType>;
 export type WorkspaceDeployRequest = ValueTypeOf<typeof WorkspaceDeployRequestType>;
+/** A {@link SchemaPolicyType} by its name, as a deploy's options take it. */
+export type SchemaPolicy = ValueTypeOf<typeof SchemaPolicyType>['type'];
+export type RecordPlan = ValueTypeOf<typeof RecordPlanType>;
+export type RecordIndexPlan = ValueTypeOf<typeof RecordIndexPlanType>;
+export type WorkspaceDeployResult = ValueTypeOf<typeof WorkspaceDeployResultType>;
+export type WorkspaceDeployProgress = ValueTypeOf<typeof WorkspaceDeployProgressType>;
+export type WorkspaceDeployStatus = ValueTypeOf<typeof WorkspaceDeployStatusType>;
 export type DatasetStatus = ValueTypeOf<typeof DatasetStatusType>;
 export type TaskStatus = ValueTypeOf<typeof TaskStatusType>;
 export type DatasetStatusInfo = ValueTypeOf<typeof DatasetStatusInfoType>;

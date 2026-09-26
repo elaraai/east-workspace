@@ -1,6 +1,6 @@
-add_executable(east-c-cli src/main.c src/snapshot.c)
+add_executable(east-c-cli src/main.c)
 set_target_properties(east-c-cli PROPERTIES OUTPUT_NAME east-c)
-target_link_libraries(east-c-cli east-c-std microtar)
+target_link_libraries(east-c-cli east-c-std)
 if(WIN32)
     target_link_libraries(east-c-cli psapi)
 endif()
@@ -9,40 +9,25 @@ target_compile_definitions(east-c-cli PRIVATE
     EAST_RUNTIME_VERSION="${EAST_VERSION}"
 )
 
-# CLI --emit gate (issues #507, #518, #770): spawns the built east-c binary
-# over the checked-in IR fixtures in tests/fixtures and byte-validates the
-# emitted blobs (decode, index present, canonical error text on a duplicate
-# or out-of-order key), the --merge/--union fold contract over ascending
-# emissions, and the --exit-with-parent stdin lifeline. Runs in the ASan
-# tree too (leak-check's ctest pass), where the spawned CLI is instrumented —
-# the harness fails on any sanitizer report in the child's stderr, covering
-# the emit sink's error path (freed without finish).
-add_executable(test_cli_emit tests/test_cli_emit.c)
-target_link_libraries(test_cli_emit east-c)
-add_test(NAME cli_emit COMMAND test_cli_emit $<TARGET_FILE:east-c-cli>
+# CLI lifeline gate (issue #770): `exec --exit-with-parent` on a unit whose
+# program never returns exits once its stdin pipe closes — on Windows over a
+# synchronous pipe and an overlapped one. The unit is built from the
+# protocol's type (hence the east-c link) around a checked-in program. Runs
+# in the ASan tree too (leak-check's ctest pass), where the spawned CLI is
+# instrumented and the gate fails on a sanitizer report in its stderr.
+add_executable(test_cli_lifeline tests/test_cli_lifeline.c)
+target_link_libraries(test_cli_lifeline east-c)
+add_test(NAME cli_lifeline COMMAND test_cli_lifeline $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
-set_tests_properties(cli_emit PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-
-# CLI merge gate (issue #770): spawns the binary over checked-in sorted
-# Dict/Set blobs (written by the TS paged writer) and pins the blob merge —
-# `merge --merge` and `merge --union` write exactly the bytes `run --emit`
-# writes for the folded sequence emitted ascending, the -v account, and the
-# refusals: a duplicate without a fold, an input of another type, an Array
-# input, a fold of the wrong signature, --merge on a Set, --union on a Dict,
-# an input whose keys descend. Runs in the ASan tree too.
-add_executable(test_cli_merge tests/test_cli_merge.c)
-target_link_libraries(test_cli_merge east-c)
-add_test(NAME cli_merge COMMAND test_cli_merge $<TARGET_FILE:east-c-cli>
-         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
-set_tests_properties(cli_merge PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(cli_lifeline PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # CLI lazy paged-input gate (#516): spawns the binary with
 # EAST_LAZY_INPUT_BYTES=1 over checked-in fixtures and pins the lazy
 # contract end to end — the iteration-lock error on a paged $.for, pager
 # error propagation through keyed `has` on a corrupt blob, the
-# mutable-nested shape gate falling back to the eager decode, and the
-# residency of a mapped input (a wide fixture the gate writes itself, hence
-# the east-c link).
+# mutable-nested shape gate falling back to the eager decode, the residency
+# of a mapped input, and a manifest-rooted input paging over its directory
+# (wide fixtures the gate writes itself, hence the east-c link).
 add_executable(test_cli_paged tests/test_cli_paged.c)
 target_link_libraries(test_cli_paged east-c)
 add_test(NAME cli_paged COMMAND test_cli_paged $<TARGET_FILE:east-c-cli>
@@ -58,6 +43,18 @@ target_link_libraries(test_cli_profile east-c)
 add_test(NAME cli_profile COMMAND test_cli_profile $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 set_tests_properties(cli_profile PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# CLI exec gate: the runner protocol's conformance corpus, which TypeScript
+# exports beside the compliance IR (east/test/runner_corpus.spec.ts) — every
+# unit copied into a scratch directory and executed with `exec`, its exit
+# status, its result's outcome and every output byte held to the corpus.
+# Skips (exit 77) unless `make test-export` has produced
+# /tmp/east-test-ir/runner_corpus. Runs in the ASan tree too.
+add_executable(test_cli_exec tests/test_cli_exec.c)
+target_link_libraries(test_cli_exec east-c)
+add_test(NAME cli_exec COMMAND test_cli_exec $<TARGET_FILE:east-c-cli>)
+set_tests_properties(cli_exec PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600
+                     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # CLI `ir` toolbox gate (#627): spawns the binary over checked-in IR fixtures
 # and pins normalize (a fixed point, loc_ids zero, no map), diff (exit code +

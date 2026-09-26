@@ -17,15 +17,19 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
 import {
-  DictType, IntegerType, StringType, SortedMap, compareFor,
-  encodeBeast2For, encodeBeast2PagedFor, isFrozenValue, Beast2Pages,
+  DictType, East, IntegerType, StringType, SortedMap, compareFor,
+  decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, isFrozenValue, Beast2Pages,
+  COLLECTION_MANIFEST_KIND, carveBeast2, encodeBeast2FenceFor, encodeCollectionManifest,
+  openBeast2PagesFor, readBeast2Extents, segmentRuleFor, toEastTypeValue,
 } from '@elaraai/east';
 
-import { loadPlatform, loadPlatformWithMetadata, loadInputLazy } from './loader.js';
+import { inputBytes, loadPlatform, loadPlatformWithMetadata, loadInput, loadInputLazy, lazyInputBytesRead } from './loader.js';
+import { runProgram } from './runner.js';
 
 /**
  * Plant a self-contained fake platform package on disk and return its dir.
@@ -182,7 +186,7 @@ describe('loadInputLazy — the input pages from its file descriptor', () => {
     const dir = mkdtempSync(join(tmpdir(), 'enc-lazy-'));
     try {
       const path = join(dir, 'table.beast2');
-      writeFileSync(path, encodeBeast2PagedFor(DT, { batchSize: 250 })(table));
+      writeFileSync(path, encodeBeast2PagedFor(DT)(table));
       const value = loadInputLazy(path) as SortedMap<bigint, string>;
       assert.ok(value instanceof SortedMap);
       assert.ok(isFrozenValue(value));
@@ -214,6 +218,195 @@ describe('loadInputLazy — the input pages from its file descriptor', () => {
       writeFileSync(text, '{}');
       assert.equal(loadInputLazy(text), undefined);
       assert.equal(loadInputLazy(join(dir, 'missing.beast2')), undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('loadInputLazy — an input staged as a manifest over segment files', () => {
+  const DT = DictType(IntegerType, StringType);
+
+  /** `n` rows keyed 0..n-1. */
+  const rows = (n: number): SortedMap<bigint, string> => new SortedMap<bigint, string>(
+    Array.from({ length: n }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]),
+    compareFor(IntegerType),
+  );
+
+  /**
+   * Stages `value` the way e3 does: the manifest at `<dir>/table.beast2` and
+   * one file per segment under `<dir>/table.beast2.segments/`, named by the
+   * segment's own hash.
+   */
+  function stageManifest(dir: string, value: SortedMap<bigint, string>): string {
+    const blob = encodeBeast2PagedFor(DT)(value);
+    const extents = readBeast2Extents(blob);
+    const segmentDir = join(dir, 'table.beast2.segments');
+    mkdirSync(segmentDir, { recursive: true });
+    const fence = encodeBeast2FenceFor(IntegerType);
+    const pages = openBeast2PagesFor(DT)(blob);
+    const entries = Array.from({ length: extents.offsets.length }, (_, i) => {
+      const segment = carveBeast2(blob, i, i + 1, extents);
+      const hash = createHash('sha256').update(segment).digest('hex');
+      writeFileSync(join(segmentDir, `${hash}.beast2`), segment);
+      return { hash, fence: fence(pages.fence(i)), count: BigInt(extents.counts[i]!), bytes: BigInt(segment.byteLength) };
+    });
+    const path = join(dir, 'table.beast2');
+    writeFileSync(path, encodeCollectionManifest({
+      kind: COLLECTION_MANIFEST_KIND,
+      level: 0n,
+      type: toEastTypeValue(DT),
+      rule: segmentRuleFor(DT),
+      header: 'header',
+      entries,
+    }));
+    return path;
+  }
+
+  it('is the collection the manifest describes, read one segment at a time', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const table = rows(20_000);
+      const path = stageManifest(dir, table);
+      const value = loadInputLazy(path) as SortedMap<bigint, string>;
+      assert.ok(value instanceof SortedMap);
+      assert.ok(isFrozenValue(value));
+      assert.equal(value.size, 20_000);
+
+      // A keyed read decodes ONE segment: the fences came with the manifest,
+      // so the bisect reads nothing, and only the owning segment's file is
+      // opened. That is the whole claim of staging by link.
+      const before = lazyInputBytesRead(value)!;
+      assert.equal(value.get(9_999n), 'row-9999');
+      const after = lazyInputBytesRead(value)!;
+      assert.ok(after > before, 'the read reached a segment file');
+      assert.ok(after < 20_000 * 8, `one segment, not the value: ${after} bytes`);
+      assert.equal((value as unknown as { hydrated: boolean }).hydrated, false, 'served reads never hydrate');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('iterates the whole collection in canonical order', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const value = loadInputLazy(stageManifest(dir, rows(5_000))) as SortedMap<bigint, string>;
+      let n = 0n;
+      for (const [key, row] of value) {
+        assert.equal(key, n);
+        assert.equal(row, `row-${n}`);
+        n++;
+      }
+      assert.equal(n, 5_000n);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is the value the eager load splices from the same files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const table = rows(5_000);
+      const path = stageManifest(dir, table);
+      const eager = loadInput(path, toEastTypeValue(DT)) as SortedMap<bigint, string>;
+      assert.equal(eager.size, 5_000);
+      assert.equal(eager.get(4_999n), 'row-4999');
+      const lazy = loadInputLazy(path) as SortedMap<bigint, string>;
+      assert.deepEqual([...lazy.keys()], [...eager.keys()]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the eager load when a segment file is missing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const path = stageManifest(dir, rows(5_000));
+      rmSync(join(dir, 'table.beast2.segments'), { recursive: true, force: true });
+      assert.equal(loadInputLazy(path), undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('holds an empty collection with no segment files at all', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const path = stageManifest(dir, rows(0));
+      assert.equal((loadInputLazy(path) as SortedMap<bigint, string>).size, 0);
+      assert.equal((loadInput(path, toEastTypeValue(DT)) as SortedMap<bigint, string>).size, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('measures a staged input by the value it names, not by the manifest file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const path = stageManifest(dir, rows(20_000));
+      const segmentDir = join(dir, 'table.beast2.segments');
+      const value = readdirSync(segmentDir).reduce((sum, name) => sum + statSync(join(segmentDir, name)).size, statSync(path).size);
+      assert.equal(inputBytes(path), value);
+      assert.ok(statSync(path).size * 10 < value, 'the manifest file is a small fraction of the value');
+
+      const blob = join(dir, 'blob.beast2');
+      writeFileSync(blob, encodeBeast2PagedFor(DT)(rows(1_000)));
+      assert.equal(inputBytes(blob), statSync(blob).size, 'a blob is its own file');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('opens lazily once the value crosses the threshold, however small its manifest', async () => {
+    // A runner that measured the file would find a few kilobytes of manifest
+    // and decode a multi-gigabyte input whole.
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const path = stageManifest(dir, rows(20_000));
+      const threshold = statSync(path).size + 1;
+      const irPath = join(dir, 'program.beast2');
+      writeFileSync(irPath, encodeEastIR(East.function([DT], StringType, ($, table) => table.get(9_999n)).toIR()));
+      const outputPath = join(dir, 'output.beast2');
+
+      const lines: string[] = [];
+      const original = console.error;
+      const saved = process.env.EAST_LAZY_INPUT_BYTES;
+      console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+      process.env.EAST_LAZY_INPUT_BYTES = String(threshold);
+      try {
+        await runProgram(irPath, [], [], [path], outputPath, true);
+      } finally {
+        console.error = original;
+        if (saved === undefined) delete process.env.EAST_LAZY_INPUT_BYTES;
+        else process.env.EAST_LAZY_INPUT_BYTES = saved;
+      }
+      assert.ok(lines.some((line) => line.includes('input 0: opened lazily')), lines.join('\n'));
+      assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), 'row-9999');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('holds no descriptor per segment file while the body iterates', { skip: existsSync('/proc/self/fd') ? false : 'counts descriptors in /proc/self/fd' }, () => {
+    // An index build over one partition iterates the whole primary, and a
+    // descriptor held per segment ran out of them — EMFILE — around a million
+    // rows at the common limit of 1024.
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const value = loadInputLazy(stageManifest(dir, rows(60_000))) as SortedMap<bigint, string>;
+      const segments = readdirSync(join(dir, 'table.beast2.segments')).length;
+      assert.ok(segments > 20, `precondition: many segment files, got ${segments}`);
+      const descriptors = (): number => readdirSync('/proc/self/fd').length;
+
+      const before = descriptors();
+      let n = 0n;
+      for (const [key] of value) {
+        assert.equal(key, n);
+        n++;
+      }
+      assert.equal(n, 60_000n);
+      const held = descriptors() - before;
+      assert.ok(held <= 1, `iterating ${segments} segment files left ${held} descriptors open`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

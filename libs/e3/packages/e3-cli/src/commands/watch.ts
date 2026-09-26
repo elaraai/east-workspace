@@ -23,19 +23,24 @@ import {
   workspaceGetState,
   workspaceDeploy,
   DataflowAbortedError,
-  JobSlots,
   LocalStorage,
   LocalOrchestrator,
   InMemoryStateStore,
   type TaskCompletedCallback,
+  LocalTaskRunner,
+  RecordDeployRefusedError,
 } from '@elaraai/e3-core';
 import { resolveRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
-import { resolveJobs, type JobsFlags } from './jobs.js';
+import { commandBudget, type BudgetFlags } from './budget.js';
+import { recordPlanLine, schemaPolicy } from './workspace.js';
+import { formatSize } from '../format.js';
 
-interface WatchOptions extends JobsFlags {
+interface WatchOptions extends BudgetFlags {
   start?: boolean;
   abortOnChange?: boolean;
+  /** What each deploy does with a record it cannot keep as it is. */
+  schema?: string;
   /** Function manifests resolving `East.importFunction` references (#628). */
   functions?: string[];
 }
@@ -61,7 +66,11 @@ export async function watchCommand(
 ): Promise<void> {
   const repoPath = resolveRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
-  const jobs = resolveJobs(options);
+  const schema = schemaPolicy(options.schema);
+  // One budget for the watch: the runner processes of its runs and of each
+  // deploy's index builds take from it.
+  const budget = commandBudget(options);
+  const runner = new LocalTaskRunner(repoPath, budget);
 
   // Validate source file exists
   if (!fs.existsSync(absoluteSourcePath)) {
@@ -72,7 +81,7 @@ export async function watchCommand(
   console.log(`Repository: ${repoPath}`);
   console.log(`Target workspace: ${workspace}`);
   if (options.start) {
-    console.log(`Auto-start: enabled (jobs: ${jobs})`);
+    console.log(`Auto-start: enabled (budget: ${budget.cores} ${budget.cores === 1 ? 'core' : 'cores'}, ${formatSize(budget.memory)})`);
     if (options.abortOnChange) {
       console.log(`Abort on change: enabled`);
     }
@@ -146,11 +155,29 @@ export async function watchCommand(
 
     // Deploy to workspace
     try {
-      await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version);
+      await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version, {
+        runner,
+        ...(schema !== undefined && { schema }),
+        // A migration, and a changed index declaration's rebuild, run on this
+        // save — the parts of a redeploy that can take minutes, so each is
+        // said up front.
+        onRecordPlan: (plan) => {
+          if (plan.action.type === 'migrate' || plan.action.type === 'reset') console.log(`[${timestamp()}] ${recordPlanLine(plan)}`);
+        },
+        onRecordIndex: (plan) => {
+          if (plan.action.type !== 'keep') console.log(`[${timestamp()}] ${plan.action.type} index ${plan.record}.${plan.index}`);
+        },
+      });
       console.log(`[${timestamp()}] Deployed to workspace: ${workspace}`);
     } catch (err) {
       console.log(`[${timestamp()}] Error deploying:`);
       console.log(`  ${formatError(err)}`);
+      // A record whose type changed on this save has no migration yet, which
+      // while developing is usually the point: the watch can reset it.
+      if (err instanceof RecordDeployRefusedError && schema !== 'reset') {
+        console.log(`  Restart the watch with --schema=reset to reset a record the deploy cannot keep:`);
+        console.log(`  e3 watch ${sourceFile} ${repoArg} ${workspace} --schema=reset`);
+      }
       return null;
     }
 
@@ -170,8 +197,8 @@ export async function watchCommand(
 
     try {
       const handle = await orchestrator.start(storage, repoPath, workspace, {
-        concurrency: jobs,
-        jobs: new JobSlots(jobs),
+        runner,
+        width: budget.cores,
         signal,
         onTaskStart: (name) => {
           console.log(`  [START] ${name}`);

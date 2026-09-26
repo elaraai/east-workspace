@@ -14,8 +14,9 @@
  * implementation code (via lockfile + sdist/tarball hashes) into execution
  * cache identity.
  *
- * All fields hold object-store hashes, never inline file contents: the blobs
- * ride the existing content-addressed object store and transfer machinery.
+ * All fields hold object-store hashes, never inline file contents: each names
+ * an object holding the file's bytes as a beast2 Blob, which rides the
+ * content-addressed object store and transfer machinery.
  */
 
 import { ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType } from '@elaraai/east';

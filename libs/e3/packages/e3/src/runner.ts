@@ -13,13 +13,10 @@
  * the typed path stays typo-safe; the `custom` runtime branch is the full
  * escape hatch (any argv).
  *
- * The runner is consumed at task-definition time inside `e3.task` and
- * resolved into the existing argv-emitting `commandIr` constant — the wire
- * format (`TaskObjectType`) is unchanged.
- *
- * `e3.function` instead stores the runner as a wire variant (`RunnerType`
- * in e3-types) via {@link runnerToVariant}, which excludes the `custom`
- * runtime (see {@link FunctionRunner}).
+ * Tasks and functions both store the runner as a wire variant (`RunnerType`
+ * in e3-types) via {@link runnerToVariant}, and e3 builds the runner's argv
+ * when it runs one. A stock runtime runs a unit through its `exec` command; a
+ * `custom` one is run with `run`'s arguments (see {@link FunctionRunner}).
  */
 
 import { variant } from '@elaraai/east';
@@ -79,19 +76,21 @@ export type Runner =
 /**
  * Functions accept the same runners as tasks (symmetric model). `custom`
  * commands must speak the runner CLI convention (`<command…> -i <arg>…
- * -o <out> <ir>`), since the server appends that suffix at call time.
- * Kept as an alias for source compatibility.
+ * -o <out> <ir>`), since e3 appends that suffix when it runs a function or a
+ * task on one. Kept as an alias for source compatibility.
  */
 export type FunctionRunner = Runner;
 
 /**
  * Convert a {@link Runner} to its wire-format {@link RunnerValue} variant
- * (used by `e3.function` / `e3.export`). Rejects the `custom` runtime —
+ * (used by `e3.function` / `e3.export`).
+ *
+ * @param r - The runner
+ * @returns Its wire variant
  */
 export function runnerToVariant(r: Runner): RunnerValue {
   // The SDK makes `platforms` optional and allows `{ custom: name }` entries;
-  // the wire type requires a plain string array — collapse both here, exactly
-  // like runnerToCommand.
+  // the wire type requires a plain string array — collapse both here.
   if (r.runtime === 'custom') {
     return variant('custom', { command: [...r.command] });
   }
@@ -101,21 +100,6 @@ export function runnerToVariant(r: Runner): RunnerValue {
     case 'east-py':   return variant('east_py',   { platforms });
     case 'east-c':    return variant('east_c',    { platforms });
   }
-}
-
-/**
- * Resolves a {@link Runner} to the argv prefix. The `-i` / `-o` / IR path
- * suffix is appended by {@link task}'s East command IR at evaluation time;
- * this function only produces what goes ahead of those.
- */
-export function runnerToCommand(r: Runner): string[] {
-  if (r.runtime === 'custom') return [...r.command];
-  const platforms = r.platforms ?? [];
-  const flags: string[] = [];
-  for (const p of platforms) {
-    flags.push('-p', typeof p === 'string' ? p : p.custom);
-  }
-  return [r.runtime, 'run', ...flags];
 }
 
 /**

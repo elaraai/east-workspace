@@ -4,7 +4,7 @@
  */
 import { describe, test as unitTest } from "node:test";
 import assert from "node:assert/strict";
-import { East, ArrayType, DictType, IntegerType, StringType, StructType, SortedMap, compareFor, encodeBeast2PagedFor, toEastTypeValue, isFrozenValue, Beast2Pages, type EastTypeValue } from "@elaraai/east";
+import { East, ArrayType, DictType, IntegerType, StringType, StructType, SortedMap, compareFor, encodeBeast2SegmentsFor, toEastTypeValue, isFrozenValue, Beast2Pages, type EastTypeValue } from "@elaraai/east";
 import { describeEast, Assert, FileSystem, FileSystemImpl, NodePlatform } from "@elaraai/east-node-std";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,12 +15,11 @@ import * as ex from "./fs.examples.js";
 
 // 30 rows in segments of 10: three segments, so a keyed read decodes one.
 const TableType = DictType(IntegerType, StructType({ id: IntegerType, name: StringType }));
-const TABLE_BLOB = encodeBeast2PagedFor(TableType, { batchSize: 10 })(
-    new SortedMap(
-        Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
-        compareFor(IntegerType),
-    ),
-);
+const TABLE_ROWS = [...new SortedMap(
+    Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
+    compareFor(IntegerType),
+)];
+const TABLE_BLOB = encodeBeast2SegmentsFor(TableType)([0, 10, 20].map((at) => new Map(TABLE_ROWS.slice(at, at + 10))));
 
 describeEast("FileSystem platform functions", (test) => {
     Assert.examples(test, { fsWriteAndReadFile: ex.fsWriteAndReadFile, fsAppendFile: ex.fsAppendFile, fsExists: ex.fsExists, fsIsFile: ex.fsIsFile, fsIsDirectory: ex.fsIsDirectory, fsCreateDirectory: ex.fsCreateDirectory, fsReadDirectory: ex.fsReadDirectory, fsDeleteFile: ex.fsDeleteFile, fsWriteAndReadFileBytes: ex.fsWriteAndReadFileBytes, fsOpenBeastDict: ex.fsOpenBeastDict, fsOpenBeastDictForLoop: ex.fsOpenBeastDictForLoop, fsOpenBeastArray: ex.fsOpenBeastArray, fsOpenBeastSet: ex.fsOpenBeastSet, fsOpenBeastIndexless: ex.fsOpenBeastIndexless });
@@ -198,19 +197,19 @@ describe("FileSystem.openBeast laziness and build-time checks", () => {
         const compiled = East.compile(fn, FileSystemImpl);
         const proto = Beast2Pages.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
         const originalGet = proto.get!;
-        const originalSegment = proto.segment!;
+        const originalSegment = proto.segmentDisjoint!;
         let keyed = 0;
         let segments = 0;
         proto.get = function (this: unknown, ...args: unknown[]) { keyed++; return originalGet.apply(this, args); };
-        proto.segment = function (this: unknown, ...args: unknown[]) { segments++; return originalSegment.apply(this, args); };
+        proto.segmentDisjoint = function (this: unknown, ...args: unknown[]) { segments++; return originalSegment.apply(this, args); };
         try {
             assert.equal(compiled(path), 37n + 435n);
         } finally {
             proto.get = originalGet;
-            proto.segment = originalSegment;
+            proto.segmentDisjoint = originalSegment;
         }
         assert.equal(keyed, 1, "one keyed read reaches the pager");
-        assert.equal(segments, 3, "the for loop streams each segment exactly once");
+        assert.equal(segments, 3, "the for loop streams each segment exactly once, checked against the next");
     });
 
     unitTest("the opened value is frozen and stays un-hydrated after served reads", () => {

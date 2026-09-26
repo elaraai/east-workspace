@@ -20,7 +20,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parseFor, printFor, StringType, type EastTypeValue } from '@elaraai/east';
+import type { EastTypeValue } from '@elaraai/east';
 import {
     fmtLeaf,
     humanize,
@@ -472,8 +472,9 @@ function afterToggle(controller: Controller, before: TreeContext): void {
 }
 
 /**
- * Parses `/find` text for a key type: a quoted string is an exact key,
- * `a|b` are struct-key fields, anything else goes to the shared grammar.
+ * Parses `/find` text for a key type: `a|b` are struct-key fields, and the
+ * rest is the grammar the browser's search box uses — a quoted string is an
+ * exact key and `from..to` a range, here as there.
  *
  * @param keyType - The collection's key type
  * @param text - The typed text
@@ -481,17 +482,13 @@ function afterToggle(controller: Controller, before: TreeContext): void {
  */
 export function parseFindText(keyType: EastTypeValue, text: string): ParsedKeyInput {
     const trimmed = text.trim();
-    if (keyType.type === 'String' && /^".*"$/.test(trimmed)) {
-        const parsed = parseFor(StringType)(trimmed);
-        if (parsed.success) return { kind: 'query', query: { key: printFor(StringType)(parsed.value) } };
-    }
     if (keyType.type === 'Struct') return parseKeyInput(keyType, trimmed.replace(/\|/g, ','));
     return parseKeyInput(keyType, trimmed);
 }
 
 /** The query's form word for the footer / toast. */
 function formOf(query: DatasetKeyQuery): MatchUi['form'] {
-    return 'key' in query ? 'exact' : 'fields' in query ? 'fields' : 'prefix';
+    return 'key' in query ? 'exact' : 'fields' in query ? 'fields' : 'prefix' in query ? 'prefix' : 'range';
 }
 
 /** The `/save` target: `<ws>.<name>.beast2` in the working directory unless a file is given. */

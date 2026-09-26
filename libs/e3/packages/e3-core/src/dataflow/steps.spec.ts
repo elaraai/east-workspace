@@ -13,8 +13,18 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { some, none, variant, StringType, encodeBeast2For } from '@elaraai/east';
-import type { TreePath, Structure } from '@elaraai/e3-types';
-import { stepInvalidateTasks, stepDetectInputChanges, stepCheckVersionConsistency, stepYield } from './steps.js';
+import { EXECUTION_STATE_VERSION, type TreePath, type Structure } from '@elaraai/e3-types';
+import {
+  stepInvalidateTasks,
+  stepDetectInputChanges,
+  stepCheckVersionConsistency,
+  stepYield,
+  stepTaskSplit,
+  stepTaskMergeStarted,
+  stepTaskMergeCompleted,
+  stepTaskCompleted,
+  stepTaskFailed,
+} from './steps.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
 import type { DataflowGraph } from '../dataflow.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
@@ -24,11 +34,10 @@ import { workspaceSetDataset } from '../trees.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import {
   PackageObjectType,
+  TASK_OBJECT_KIND,
   TaskObjectType,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
-import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { East, ArrayType, IRType } from '@elaraai/east';
 
 /**
@@ -46,11 +55,11 @@ function makeState(
   }>,
 ): DataflowExecutionState {
   return {
+    version: EXECUTION_STATE_VERSION,
     id: 'test-1',
     repo: overrides?.repo ?? '/tmp/test-repo',
     workspace: overrides?.workspace ?? 'test-ws',
     startedAt: new Date(),
-    concurrency: 4n,
     force: false,
     filter: none,
     graph: some(graph),
@@ -86,6 +95,8 @@ function makeTaskState(name: string, status: TaskState['status']): TaskState {
     startedAt: none,
     completedAt: none,
     duration: none,
+    plan: none,
+    execution: none,
   } as TaskState;
 }
 
@@ -143,6 +154,55 @@ describe('stepYield', () => {
   });
 });
 
+describe('split task stages', () => {
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
+      { name: 'task-b', hash: 'hash-b', inputs: ['.input'], output: '.out_b', dependsOn: [] },
+    ],
+  };
+
+  it('names each stage\'s plan in the task\'s state, and records the stages on the timeline', () => {
+    const tasks = new Map<string, TaskState>();
+    tasks.set('task-a', makeTaskState('task-a', 'in_progress'));
+    const state = makeState(graph, tasks);
+
+    stepTaskSplit(state, 'task-a', 'plan-pieces', 12);
+    assert.deepStrictEqual(state.tasks.get('task-a')!.plan, some('plan-pieces'));
+    stepTaskMergeStarted(state, 'task-a', 'plan-level-1', 1, 2, 3);
+    assert.deepStrictEqual(state.tasks.get('task-a')!.plan, some('plan-level-1'));
+    stepTaskMergeCompleted(state, 'task-a', 1, 2);
+
+    assert.deepStrictEqual(state.events.map((event) => event.type), ['task_split', 'task_merge_started', 'task_merge_completed']);
+    assert.deepStrictEqual(state.events.map((event) => event.value.seq), [1n, 2n, 3n]);
+    const [split, started, completed] = state.events;
+    assert.ok(split?.type === 'task_split' && started?.type === 'task_merge_started' && completed?.type === 'task_merge_completed');
+    assert.strictEqual(split.value.pieces, 12n);
+    assert.deepStrictEqual([started.value.level, started.value.levels, started.value.units], [1n, 2n, 3n]);
+    assert.deepStrictEqual([completed.value.level, completed.value.levels], [1n, 2n]);
+  });
+
+  it('keeps the plan across a yield, and clears it when the task ends, recording the execution it completed with', () => {
+    const tasks = new Map<string, TaskState>();
+    tasks.set('task-a', makeTaskState('task-a', 'in_progress'));
+    tasks.set('task-b', makeTaskState('task-b', 'in_progress'));
+    const state = makeState(graph, tasks);
+    stepTaskSplit(state, 'task-a', 'plan-a', 4);
+    stepTaskSplit(state, 'task-b', 'plan-b', 4);
+
+    stepYield(state);
+    assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+    assert.deepStrictEqual(state.tasks.get('task-a')!.plan, some('plan-a'));
+
+    stepTaskCompleted(state, 'task-a', 'output-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' });
+    stepTaskFailed(state, 'task-b', 'Piece 1 of 4 failed', 1, 10);
+    assert.deepStrictEqual(state.tasks.get('task-a')!.plan, none);
+    assert.deepStrictEqual(state.tasks.get('task-b')!.plan, none);
+    assert.deepStrictEqual(state.tasks.get('task-a')!.execution, some({ inputsHash: 'inputs-a', executionId: 'execution-a' }));
+    assert.deepStrictEqual(state.tasks.get('task-b')!.execution, none);
+  });
+});
+
 describe('stepInvalidateTasks', () => {
   it('does not invalidate failed tasks', () => {
     const graph: DataflowGraph = {
@@ -162,7 +222,7 @@ describe('stepInvalidateTasks', () => {
     assert.strictEqual(state.tasks.get('task-a')!.status, 'failed');
   });
 
-  it('resets completed tasks to pending', () => {
+  it('resets completed tasks to pending, forgetting the execution each completed with', () => {
     const graph: DataflowGraph = {
       tasks: [
         { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
@@ -174,6 +234,7 @@ describe('stepInvalidateTasks', () => {
     // Mark as executed (not cached) so the counter decrement path is exercised
     (completedTask as Mutable<TaskState>).cached = some(false);
     (completedTask as Mutable<TaskState>).outputHash = some('old-output');
+    (completedTask as Mutable<TaskState>).execution = some({ inputsHash: 'old-inputs', executionId: 'old-execution' });
     tasks.set('task-a', completedTask);
 
     const state = makeState(graph, tasks, { executed: 1n });
@@ -182,6 +243,7 @@ describe('stepInvalidateTasks', () => {
 
     assert.deepStrictEqual(invalidated, ['task-a']);
     assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+    assert.deepStrictEqual(state.tasks.get('task-a')!.execution, none);
     assert.strictEqual(state.executed, 0n);
   });
 
@@ -334,10 +396,13 @@ describe('stepDetectInputChanges', () => {
     for (const t of tasks) {
       const commandIrHash = await createCommandIr(repoPath, t.command);
       const taskObj = {
-        commandIr: commandIrHash,
-        inputs: t.inputs,
-        output: t.output,
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: t.inputs.map((path) => ({ path, partition: none })),
+        output: { path: t.output, kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const taskHash = await objectWrite(repoPath, taskEncoder(taskObj));
       tasksMap.set(t.name, taskHash);
@@ -354,10 +419,7 @@ describe('stepDetectInputChanges', () => {
       records: new Map(), sources: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
-
-    const pkgDir = join(repoPath, 'packages', 'test');
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, '1.0.0'), pkgHash + '\n');
+    await storage.refs.packageWrite(repoPath, 'test', '1.0.0', pkgHash);
 
     return tasksMap;
   }
