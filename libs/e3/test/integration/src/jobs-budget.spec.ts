@@ -111,7 +111,7 @@ describe('the jobs budget', () => {
     rmSync(hold);
     const result = await run.result;
     assert.equal(result.exitCode, 0, `${result.stdout}\n${result.stderr}`);
-    assert.match(result.stdout, /Jobs: 2/);
+    assert.match(result.stdout, /Budget: 2 cores, /);
     for (const name of [...PLAIN_TASKS, 'held_p']) assert.match(result.stdout, new RegExp(`\\[DONE\\] ${name} `));
     assert.deepEqual(await runnersUp(run.pid), [], 'no runner is left running');
     // Every execution — three plain tasks, a piece per segment of the table,
