@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import yauzl from 'yauzl';
 import {
   East, DictType, FunctionType, IntegerType, StringType, StructType,
-  decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
+  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
 import { decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import { export_ } from './export.js';
 import { package_ } from './package.js';
@@ -96,7 +96,7 @@ async function readZip(zipPath: string): Promise<Map<string, Buffer>> {
 function programOf(entries: Map<string, Buffer>, name: string) {
   const object = (hash: string) => new Uint8Array(entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`)!);
   const pkgRef = [...entries.keys()].find((key) => key.startsWith('packages/'))!;
-  const pkg = decodePackageObject(object(entries.get(pkgRef)!.toString().trim()));
+  const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(pkgRef)!)));
   const task = decodeTaskObject(object(pkg.tasks.get(name)!));
   assert.strictEqual(task.body.type, 'east');
   return decodeEastIR(object((task.body.value as { program: string }).program));

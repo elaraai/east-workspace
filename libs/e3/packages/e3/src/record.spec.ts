@@ -199,7 +199,7 @@ describe('e3.record / e3.mutation.reduce', () => {
       await export_(pkg, zip);
 
       const entries = await readZip(zip);
-      const pkgHash = entries.get('packages/counters/1.0.0')!.toString().trim();
+      const pkgHash = decodeBeast2For(StringType)(entries.get('packages/counters/1.0.0.beast2')!);
       const pkgObject = decodePackageObject(objectAt(entries, pkgHash));
 
       // records map points at a RecordObject

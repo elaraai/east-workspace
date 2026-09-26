@@ -14,10 +14,9 @@ import * as fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import yauzl from 'yauzl';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import {
   DataflowRunType,
-  DatasetRefType,
   EnvironmentSpecType,
   RecordIndexObjectType,
   environmentSpecObjectHashes,
@@ -58,13 +57,17 @@ export interface PackageImportOptions {
 /**
  * Import a package from a .zip file into the repository.
  *
- * Extracts objects to `objects/`, creates ref at `packages/<name>/<version>`.
+ * Writes the zip's objects to the store and its package ref,
+ * `packages/<name>/<version>.beast2`, to the repository, with the run and
+ * executions a workspace's export carries.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param zipPath - Path to the .zip package file
  * @param options - Optional import options (e.g. progress callback)
  * @returns Import result with package name, version, and stats
+ * @throws {PackageInvalidError} When the zip holds no package ref, or an older
+ *   e3 exported it
  */
 export async function packageImport(
   storage: StorageBackend,
@@ -125,18 +128,17 @@ export async function packageImport(
         continue;
       }
 
-      // Handle package ref: packages/<name>/<version>
+      // The package ref, packages/<name>/<version>.beast2, as a repository
+      // keeps one. An older e3 wrote it as text, without the extension.
       if (fileName.startsWith('packages/')) {
         const parts = fileName.split('/');
         if (parts.length === 3) {
-          packageName = parts[1];
-          packageVersion = parts[2];
-
-          // Read the hash from the ref file
-          const data = await getData();
-          packageHash = data.toString('utf-8').trim();
-
-          // Write the ref to the repository
+          if (!parts[2]!.endsWith('.beast2')) {
+            throw new PackageInvalidError('an older e3 exported it — export it again with the current one');
+          }
+          packageName = parts[1]!;
+          packageVersion = parts[2]!.slice(0, -'.beast2'.length);
+          packageHash = decodeBeast2For(StringType)(await getData());
           await storage.refs.packageWrite(repo, packageName, packageVersion, packageHash);
         }
         continue;
@@ -188,13 +190,6 @@ export async function packageImport(
           currentExecDir = execDir;
           currentExecFiles.set(file, await getData());
         }
-        continue;
-      }
-
-      // Handle data refs: data/<path>.ref
-      if (fileName.startsWith('data/') && fileName.endsWith('.ref')) {
-        // Per-dataset ref files in the zip are redundant — refs are stored
-        // inline in the PackageObject's data.refs field. Skip them.
         continue;
       }
 
@@ -515,15 +510,8 @@ export async function packageExport(
     if (options?.onProgress) await options.onProgress({ objectsProcessed: objectCount });
   });
 
-  // Each DatasetRef as a data/ file too, for roundtrip compatibility.
-  const refEncoder = encodeBeast2For(DatasetRefType);
-  for (const [refPath, ref] of packageObject.data.refs) {
-    zipfile.addBuffer(Buffer.from(refEncoder(ref)), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
-  }
-
-  // Write the package ref
-  const refPath = `packages/${name}/${version}`;
-  zipfile.addBuffer(Buffer.from(packageHash + '\n'), refPath, { mtime: DETERMINISTIC_MTIME });
+  // The package ref, as a repository keeps one
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(packageHash)), `packages/${name}/${version}.beast2`, { mtime: DETERMINISTIC_MTIME });
 
   // Finalize and write zip to disk
   await new Promise<void>((resolve, reject) => {

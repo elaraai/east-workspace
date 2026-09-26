@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
 import { BlobType, East, DictType, FloatType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, isTypeValueEqual, none, openBeast2PagesFor, readBeast2Type, some, toEastTypeValue, variant } from '@elaraai/east';
-import { PackageObjectType, DatasetRefType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
+import { PackageObjectType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
 import { customTask, partition, streamTask, task } from './task.js';
@@ -130,11 +130,9 @@ describe('export_', () => {
     // Read zip contents
     const entries = await readZip(zipPath);
 
-    // Should have package ref
-    assert.ok(entries.has('packages/empty-pkg/1.0.0'));
-
-    // Package ref should contain a hash
-    const refContent = entries.get('packages/empty-pkg/1.0.0')!.toString().trim();
+    // The package ref, a String holding the package object's hash, as a
+    // repository keeps one
+    const refContent = decodeBeast2For(StringType)(entries.get('packages/empty-pkg/1.0.0.beast2')!);
     assert.match(refContent, /^[a-f0-9]{64}$/);
 
     // Should have just the package object (no tree objects in new format)
@@ -168,7 +166,7 @@ describe('export_', () => {
     const entries = await readZip(zipPath);
 
     // Get package object
-    const refContent = entries.get('packages/input-pkg/1.0.0')!.toString().trim();
+    const refContent = decodeBeast2For(StringType)(entries.get('packages/input-pkg/1.0.0.beast2')!);
     const packageObjectPath = `objects/${refContent.slice(0, 2)}/${refContent.slice(2)}.beast2`;
     const packageObjectData = entries.get(packageObjectPath)!;
     const decoder = decodeBeast2For(PackageObjectType);
@@ -189,13 +187,11 @@ describe('export_', () => {
     assert.strictEqual(greeting.value.type.type, 'String');
     assert.strictEqual(greeting.value.writable, true);
 
-    // Should have a DatasetRef file for the input
-    const refData = entries.get('data/inputs/greeting.ref');
-    assert.ok(refData, 'Missing data/inputs/greeting.ref');
-    const refDecoder = decodeBeast2For(DatasetRefType);
-    const datasetRef = refDecoder(refData);
-    assert.strictEqual(datasetRef.type, 'value');
-    assert.ok(datasetRef.value.hash, 'Missing hash in dataset ref');
+    // The package object holds the input's ref, and the bundle holds nothing
+    // beside the objects but the package ref
+    const datasetRef = packageObject.data.refs.get('inputs/greeting');
+    assert.strictEqual(datasetRef?.type, 'value');
+    assert.deepStrictEqual([...entries.keys()].filter((key) => !key.startsWith('objects/')), ['packages/input-pkg/1.0.0.beast2']);
   });
 
   it('produces identical output for same package', async () => {
@@ -273,7 +269,7 @@ describe('environment capture on export', () => {
     await export_(pkg, zipPath);
 
     const entries = await readZipEntries(zipPath);
-    const pkgRef = entries.get('packages/env-pkg/1.0.0');
+    const pkgRef = entries.get('packages/env-pkg/1.0.0.beast2');
     assert.ok(pkgRef, 'package ref present');
     const readObj = (hash: string): Buffer => {
       const data = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
@@ -281,7 +277,7 @@ describe('environment capture on export', () => {
       return data;
     };
 
-    const pkgObj = decodePackageObject(readObj(pkgRef.toString('utf-8').trim()));
+    const pkgObj = decodePackageObject(readObj(decodeBeast2For(StringType)(pkgRef)));
     const taskObj = decodeTaskObject(readObj(pkgObj.tasks.get('echo')!));
     assert.strictEqual(taskObj.environment.type, 'some');
     const fnObj = decodeFunctionObject(readObj(pkgObj.functions.get('shout')!));
@@ -344,16 +340,17 @@ describe('collection defaults export PAGEABLE', () => {
     await fs.promises.rm(tempDir, { recursive: true });
   });
 
-  /** The object a dataset ref points at, out of the bundle. */
-  function blobOf(entries: Map<string, Buffer>, refPath: string): Buffer {
-    const refData = entries.get(refPath);
-    assert.ok(refData, `missing ${refPath}`);
-    const ref = decodeBeast2For(DatasetRefType)(refData);
-    assert.strictEqual(ref.type, 'value');
-    const hash = ref.type === 'value' ? ref.value.hash : '';
-    const blob = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
-    assert.ok(blob, `missing object ${hash}`);
-    return blob;
+  /** The object a dataset ref of package `name` points at, out of the bundle. */
+  function blobOf(entries: Map<string, Buffer>, name: string, refPath: string): Buffer {
+    const object = (hash: string): Buffer => {
+      const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+      assert.ok(bytes, `missing object ${hash}`);
+      return bytes;
+    };
+    const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!)));
+    const ref = pkg.data.refs.get(refPath);
+    if (ref?.type !== 'value') assert.fail(`${refPath} holds no value`);
+    return object(ref.value.hash);
   }
 
   it('a collection default is exported in the segment-object layout — the store path\'s invariant, at export', async () => {
@@ -370,7 +367,7 @@ describe('collection defaults export PAGEABLE', () => {
     await export_(package_('paged-pkg', '1.0.0', units), zipPath);
 
     const entries = await readZip(zipPath);
-    const manifest = decodeCollectionManifest(blobOf(entries, 'data/inputs/units.ref'));
+    const manifest = decodeCollectionManifest(blobOf(entries, 'paged-pkg', 'inputs/units'));
     assert.strictEqual(manifest.rule, SEGMENT_RULE_KEYED);
     assert.strictEqual(manifestElementCount(manifest), 40);
     assert.ok(manifest.entries.length >= 1);
@@ -398,7 +395,7 @@ describe('collection defaults export PAGEABLE', () => {
     const zipPath = path.join(tempDir, 'scalar.zip');
     await export_(package_('scalar-pkg', '1.0.0', greeting), zipPath);
 
-    const blob = blobOf(await readZip(zipPath), 'data/inputs/greeting.ref');
+    const blob = blobOf(await readZip(zipPath), 'scalar-pkg', 'inputs/greeting');
     assert.ok(!beast2HasIndex(blob), 'a scalar root must not be segmented');
   });
 });
@@ -426,7 +423,7 @@ describe('path-initialised inputs (source variants)', () => {
   /** The package object of an exported bundle. */
   async function packageObjectOf(zipPath: string, name: string): Promise<ReturnType<typeof decodePackageObject>> {
     const entries = await readZip(zipPath);
-    const ref = entries.get(`packages/${name}/1.0.0`)!.toString().trim();
+    const ref = decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!);
     return decodePackageObject(entries.get(`objects/${ref.slice(0, 2)}/${ref.slice(2)}.beast2`)!);
   }
 
@@ -448,10 +445,9 @@ describe('path-initialised inputs (source variants)', () => {
     await export_(package_('file-src', '1.0.0', table), zipPath);
 
     const entries = await readZip(zipPath);
-    const ref = decodeBeast2For(DatasetRefType)(entries.get('data/inputs/table.ref')!);
-    assert.strictEqual(ref.type, 'unassigned', 'no value travels in the package');
-
     const pkg = await packageObjectOf(zipPath, 'file-src');
+    assert.strictEqual(pkg.data.refs.get('inputs/table')?.type, 'unassigned', 'no value travels in the package');
+
     const source = pkg.sources.get('inputs/table');
     assert.strictEqual(source?.type, 'file');
     assert.strictEqual(source?.type === 'file' ? source.value.path : '', file);
@@ -515,10 +511,9 @@ describe('path-initialised inputs (source variants)', () => {
     const rows = new Map([['a', 1n], ['b', 2n]]);
     const zipPath = path.join(tempDir, 'value-src.zip');
     await export_(package_('value-src', '1.0.0', input('inline', RowsType, variant('value', rows))), zipPath);
-    const entries = await readZip(zipPath);
-    const ref = decodeBeast2For(DatasetRefType)(entries.get('data/inputs/inline.ref')!);
-    assert.strictEqual(ref.type, 'value');
-    assert.strictEqual((await packageObjectOf(zipPath, 'value-src')).sources.size, 0);
+    const pkg = await packageObjectOf(zipPath, 'value-src');
+    assert.strictEqual(pkg.data.refs.get('inputs/inline')?.type, 'value');
+    assert.strictEqual(pkg.sources.size, 0);
   });
 });
 
@@ -543,7 +538,7 @@ describe('the typed task object', () => {
       assert.ok(bytes, `missing object ${hash}`);
       return new Uint8Array(bytes);
     };
-    const pkg = decodePackageObject(object(entries.get(`packages/${name}/1.0.0`)!.toString().trim()));
+    const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!)));
     const tasks = new Map<string, TaskObject>([...pkg.tasks].map(([task, hash]) => [task, decodeTaskObject(object(hash))]));
     return { pkg, tasks, object };
   }

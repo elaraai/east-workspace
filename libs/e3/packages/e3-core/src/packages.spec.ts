@@ -24,7 +24,7 @@ import {
   packageRead,
 } from './packages.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
-import { PackageNotFoundError } from './errors.js';
+import { PackageInvalidError, PackageNotFoundError } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, zipEqual } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -141,6 +141,24 @@ describe('packages', () => {
         });
         await assert.rejects(packageImport(storage, testRepo, crafted), refusal);
       }
+    });
+
+    it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {
+      const zipPath = join(tempDir, 'current.zip');
+      await e3.export(e3.package('older', '1.0.0') as any, zipPath);
+      const older = join(tempDir, 'older.zip');
+      const zip = new yazl.ZipFile();
+      for (const [name, bytes] of await readZipEntries(zipPath)) {
+        if (name === 'packages/older/1.0.0.beast2') zip.addBuffer(Buffer.from(`${decodeBeast2For(StringType)(bytes)}\n`), 'packages/older/1.0.0');
+        else zip.addBuffer(bytes, name);
+      }
+      await new Promise<void>((resolve, reject) => {
+        zip.outputStream.pipe(createWriteStream(older)).on('close', resolve).on('error', reject);
+        zip.end();
+      });
+      await assert.rejects(packageImport(storage, testRepo, older), (err: unknown) =>
+        err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
+      assert.deepStrictEqual(await packageList(storage, testRepo), []);
     });
   });
 
@@ -292,6 +310,10 @@ describe('packages', () => {
       const result = await packageExport(storage, testRepo, 'export-input', '1.0.0', exportZip);
 
       assert.ok(result.objectCount >= 2, `Expected at least 2 objects, got ${result.objectCount}`);
+      // Beside the objects, only the package ref, as the repository keeps it
+      const entries = await readZipEntries(exportZip);
+      assert.deepStrictEqual([...entries.keys()].filter((name) => !name.startsWith('objects/')), ['packages/export-input/1.0.0.beast2']);
+      assert.strictEqual(decodeBeast2For(StringType)(entries.get('packages/export-input/1.0.0.beast2')!), result.packageHash);
     });
 
     it('produces zip with same content as original', async () => {

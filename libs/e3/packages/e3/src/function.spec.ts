@@ -182,9 +182,9 @@ describe('export_ with functions', () => {
     const entries = await readZip(zipPath);
 
     // Resolve the package object from the ref
-    const refData = entries.get('packages/fn-pkg/1.0.0');
+    const refData = entries.get('packages/fn-pkg/1.0.0.beast2');
     assert.ok(refData, 'package ref missing');
-    const pkgHash = refData.toString('utf-8').trim();
+    const pkgHash = decodeBeast2For(StringType)(refData);
     const pkgData = objectEntry(entries, pkgHash);
     assert.ok(pkgData, 'package object missing');
 

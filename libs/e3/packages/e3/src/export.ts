@@ -7,19 +7,18 @@
  * Export functionality for e3 packages.
  *
  * Exports a package definition to a .zip bundle that can be imported
- * into an e3 repository. The bundle is a valid subset of an e3 repository:
- * - `packages/<name>/<version>` - ref to package object hash
+ * into an e3 repository. The bundle holds a repository's own forms:
+ * - `packages/<name>/<version>.beast2` - the package ref: the package object's hash, a String
  * - `objects/<ab>/<cdef...>.beast2` - content-addressed objects
- * - `data/<path>.ref` - per-dataset reference files (beast2 encoded DatasetRef)
  */
 
 import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, some, none, BlobType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
+import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { DatasetRefType, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
 import { buildMutationProgram, hasKeyedDelta, indexBuildProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
@@ -35,9 +34,8 @@ const encodeFile = encodeBeast2For(BlobType);
  * Exports a package to a .zip bundle.
  *
  * The bundle can be imported into an e3 repository using `e3 package import`.
- * It contains all objects needed for the package, plus a ref at
- * `packages/<name>/<version>` pointing to the package object, and per-dataset
- * reference files in `data/`.
+ * It contains all objects needed for the package, plus the package ref at
+ * `packages/<name>/<version>.beast2`, as a repository keeps one.
  *
  * @param pkg - The package to export
  * @param outputPath - Path to write the .zip file
@@ -211,7 +209,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       structures.set(path, childStructure);
 
     } else if (item.kind === "dataset") {
-      // Datasets: serialize value to object store, write DatasetRef to data/ dir
+      // Datasets: the value goes to the object store, and its ref into the
+      // package object
 
       // Get parent structure
       const parentPath = item.path.slice(0, -1).map(segment => {
@@ -277,11 +276,6 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
 
       // Store ref in the package-level refs map
       refs.set(refPath, datasetRef);
-
-      // Also write DatasetRef to zip as data/<refPath>.ref (for readability/debugging)
-      const refEncoder = encodeBeast2For(DatasetRefType);
-      const refData = refEncoder(datasetRef);
-      zipfile.addBuffer(Buffer.from(refData), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
 
       // Update structure: add value type with writable flag to parent
       const typeValue = toEastTypeValue(item.type);
@@ -448,9 +442,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const packageObjectData = packageObjectEncoder(packageObject);
   const packageHash = addObject(zipfile, Buffer.from(packageObjectData));
 
-  // Write the package ref at packages/<name>/<version>
-  const refPath = `packages/${pkg.name}/${pkg.version}`;
-  zipfile.addBuffer(Buffer.from(packageHash + '\n'), refPath, { mtime: DETERMINISTIC_MTIME });
+  // The package ref, as a repository keeps one
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(packageHash)), `packages/${pkg.name}/${pkg.version}.beast2`, { mtime: DETERMINISTIC_MTIME });
 
   // Finalize and write zip to disk
   await new Promise<void>((resolve, reject) => {

@@ -20,9 +20,9 @@
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, some, EastTypeType, type EastTypeValue } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, some, EastTypeType, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceRecordType, RecordCommitType, DataflowRunType, DatasetRefType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceRecordType, RecordCommitType, DataflowRunType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
 import type { PackageObject, WorkspaceState, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
@@ -667,7 +667,8 @@ const DETERMINISTIC_MTIME = new Date(0);
  * 2. Read deployed package structure using stored packageHash
  * 3. Create new PackageObject with current structure
  * 4. Collect all referenced objects from dataset refs
- * 5. Write per-dataset refs and objects to .zip
+ * 5. Write the objects, the package ref and the current run's executions to
+ *    the .zip
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -758,15 +759,8 @@ export async function workspaceExport(
     if (options?.onProgress) await options.onProgress({ objectsProcessed: objectCount });
   });
 
-  // Each DatasetRef as a data/ file too.
-  const refEncoder = encodeBeast2For(DatasetRefType);
-  for (const [refPath, ref] of workspaceRefs) {
-    zipfile.addBuffer(Buffer.from(refEncoder(ref)), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
-  }
-
-  // Write the package ref
-  const refPath = `packages/${finalName}/${finalVersion}`;
-  zipfile.addBuffer(Buffer.from(packageHash + '\n'), refPath, { mtime: DETERMINISTIC_MTIME });
+  // The package ref, as a repository keeps one
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(packageHash)), `packages/${finalName}/${finalVersion}.beast2`, { mtime: DETERMINISTIC_MTIME });
 
   // Include executions and logs if currentRunId exists
   if (state.currentRunId.type === 'some') {
