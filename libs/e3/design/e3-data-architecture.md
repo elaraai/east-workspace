@@ -832,6 +832,13 @@ A compaction cleared the slots, so a keyed retry arriving just after one applied
 
 **GC.** A record object's migrations are walked, and a migration object's `bodyIr` and `programIr` are leaves.
 
+**Found while building part 2:**
+- An export's IR carries the source locations of the stack it was built on, the call site's among them, so a package's hash, a generated program's and an index declaration's change whenever the code that builds them moves. A `$deploy` commit follows any change to a package's code. A deploy run again is served a finished step from the execution cache when that step's code, and the code that exports it, have not moved, as a re-export from the same source has not.
+- A prior deployment that does not read is refused, naming the fix: remove the workspace and deploy again. Such a deployment is an older e3's, whose repository is re-created (D1), so `--schema=reset` does not reach it.
+- A deploy names every record it refuses at once, each with its fix. `--plan` reports the refusals, and each index's build, drop or keep, without writing, and the CLI's `--plan` fails when the deploy would be refused.
+- Until part 3's job takes them, the CLI refuses `--schema`, `--allow-drop-records` and `--plan` against a server, and a server's deploy migrates and refuses a dropped record.
+- The compaction's `$idem.commit` and the `$reset` commit's slots land with part 2, as the table has them.
+
 **Surfaces.** e3-core's `workspaceDeploy` options (`schema`, `allowDropRecords`, `plan`, and an `onRecordPlan` callback beside `onRecordIndex`); the CLI's `workspace deploy` and `watch`; the API's deploy job and e3-api-client's `workspaceDeploy`; e3-ui's record history, which names the new commits.
 
 Built in four parts, in this order:
@@ -842,7 +849,7 @@ Built in four parts, in this order:
 
 Acceptance:
 - Each row of the plan table, through e3-core and through the API.
-- A migration that fails mid-chain leaves the workspace as it was, and the deploy run again is served its finished steps from the cache.
+- A migration that fails mid-chain leaves the workspace as it was, and the deploy run again is served its finished steps from the cache when their code has not moved.
 - A `rows` or `rekey` step over many pieces (`E3_TEST_PIECE_BYTES`) writes the manifest the `value` step writes for the same change, and a `rekey` that lands two rows on one key is refused, naming it, while one that lands two elements of a Set on one keeps one.
 - `$schema` survives a mutation, a compaction, a reindex and a system commit; a keyed retry is answered, not applied, after each of those, a rollback and a migration.
 - A `$deploy` commit only when the package changed; a dropped record refused, then allowed.
@@ -872,8 +879,9 @@ Acceptance:
   - the `partitionTask` and `streamTask` sections, and the "Which task kind?" table, are rewritten;
   - the runner docs follow the protocol;
   - `e3 repo gc` takes `--keep-runs` and `--keep-days`, and removes the history the repository no longer keeps (§3.13) as well as unreferenced objects (found while building the repository's records, part 4);
+  - records carry migrations (`e3.migration.*`), and a deploy's plan, `--schema`, `--allow-drop-records` and `--plan`; the record section's "a type change is rejected" and its `e3.mutation(` call go (found while building record migrations, part 2);
   - it is a plugin skill: coordinate the change and regenerate the example index (plugin-artifacts).
-- **Other docs:** `libs/e3/USAGE.md`, the Codex plugin's copy of the e3 skill, and the runner READMEs.
+- **Other docs:** `libs/e3/USAGE.md`, with `workspace deploy`'s `--schema`, `--allow-drop-records` and `--plan` and `watch --schema`, the Codex plugin's copy of the e3 skill, and the runner READMEs.
 - **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted. `e3-reactive-dataflow.md`, `e3-api.md`, `e3-core.md`, `e3-mvp-core.md` and `e3-execution-history.md` describe a repository e3 no longer keeps — locks beside the workspaces, `.ref` files, an `output` ref, a workspace's runs deleted when the next starts and never gc'd — and are rewritten to the code or deleted (found while building the repository's records, parts 1 and 4).
 
 ### Stage 8 — e3-cloud
