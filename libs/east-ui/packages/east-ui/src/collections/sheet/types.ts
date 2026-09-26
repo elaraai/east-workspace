@@ -181,9 +181,9 @@ export type SheetSubRowType = typeof SheetSubRowType;
  * its group by `key`.
  *
  * @remarks
- * A line has no id of its own: on `Array` lines `key` is the line's index
- * printed, on `Dict` lines the dictionary key. The line's cells are the line
- * columns' projection, exactly a flat row's `cells`.
+ * A line has no id of its own: its `key` is its index in the group's lines
+ * array, printed. The line's cells are the line columns' projection, exactly
+ * a flat row's `cells`.
  *
  * @property key - The line's address within its group
  * @property cells - Column key → cell, one entry per declared line column
@@ -477,6 +477,7 @@ export type SheetCountedType = typeof SheetCountedType;
  * driver lookup — so a field of the host's row that has no column keeps its
  * value in every provider, check, edit event and patch.
  *
+ * @property drafts - Row id → its current draft, encoded
  * @property rowIndex - The row's index in `rows` (a grouped sheet: a line's index within its group)
  * @property rowId - The row's id — the source lookup's argument (a grouped sheet: a line's GROUP's id, a loose row's own)
  * @property offset - The row's source offset — the paged arm's `page` lookup
@@ -624,6 +625,8 @@ export type SheetSuggestType = typeof SheetSuggestType;
 /**
  * The WIRE check context — what a bridged member check receives (B§2).
  *
+ * @property drafts - Row id → its current draft, encoded
+ * @property group - A grouped sheet: the line's GROUP row; `none` on a flat sheet, and for a loose row (#846)
  * @property rowIndex - Sheet position among real rows (a grouped sheet: a line's index within its group, a loose row's among the loose rows)
  * @property rowId - The row's id (the source lookup's argument; a grouped sheet: a line's GROUP's id, a loose row's own)
  * @property offset - The row's source offset
@@ -858,15 +861,13 @@ export type SheetNounType = typeof SheetNounType;
  * The group declaration (#740) — how a grouped sheet's rows carry their
  * lines, and what the band draws.
  *
- * @property lines - The group row's field that holds the lines
- * @property keyed - `true` ⇒ `Dict<String, L>` lines (keys are stable), `false` ⇒ `Array<L>` lines (a line's key is its position)
+ * @property lines - The group row's field that holds the lines — an `Array<L>`, so a line's key is its position
  * @property cells - The band's cells, the title first under {@link SHEET_TITLE_CELL}
  * @property noun - The host's word for a group (#844); `none` ⇒ the renderer's own (#861)
  * @property loose - `true` ⇒ the source's entries are `Sheet.Types.Entry(P, "lines")`: a group, or a LOOSE row of the line type between the groups (#846) — a wire row with no band
  */
 export const SheetGroupType = StructType({
     lines: StringType,
-    keyed: BooleanType,
     cells: ArrayType(SheetGroupCellType),
     noun:  OptionType(SheetNounType),
     loose: BooleanType,
@@ -1018,7 +1019,6 @@ export type SheetStyleType = typeof SheetStyleType;
  * @property selection - Controlled selection when `some`
  * @property newRowId - Overrides the renderer's id minting for inserted rows
  * @property group - The group declaration (#740); `none` on a flat sheet
- * @property newLineKey - Overrides the renderer's key minting for lines inserted into `Dict` lines
  * @property readOnly - The whole sheet is read-only
  * @property blanks - Padding rows below the last real one (default 18)
  * @property density - Row rhythm
@@ -1040,7 +1040,6 @@ export const SheetRootType = StructType({
     selection:     OptionType(SheetSelectionType),
     newRowId:      OptionType(FunctionType([], StringType)),
     group:         OptionType(SheetGroupType),
-    newLineKey:    OptionType(FunctionType([], StringType)),
     readOnly:      OptionType(BooleanType),
     blanks:        OptionType(IntegerType),
     density:       OptionType(DensityType),
@@ -1176,8 +1175,8 @@ export function SheetCheckContextTypeFor<R extends StructType>(rowType: R) {
 // ============================================================================
 
 /**
- * The keys of a group row whose field can hold the lines — an `Array<L>` or a
- * `Dict<String, L>` of structs.
+ * The keys of a group row whose field can hold the lines — an `Array<L>` of
+ * structs.
  *
  * @typeParam P - The group's row type
  */
@@ -1206,31 +1205,21 @@ export type SheetLineOf<P extends StructType, F extends SheetLinesField<P>> =
 export type SheetEntryOf<P extends StructType, F extends SheetLinesField<P>> = VariantType<{ group: P; row: SheetLineOf<P, F> }>;
 
 /**
- * A line's address within its group — the index of `Array` lines, the key of
- * `Dict` lines.
- *
- * @typeParam P - The group's row type
- * @typeParam F - The lines field
- */
-export type SheetLineAddress<P extends StructType, F extends SheetLinesField<P>> =
-    P["fields"][F] extends ArrayTypeOf<StructType> ? IntegerType : StringType;
-
-/**
- * The line type and shape a group row's lines field holds, checked at build time.
+ * The line type a group row's lines field holds, checked at build time.
  *
  * @param groupType - The group's row type value
  * @param field - The lines field
- * @returns The line type and whether the lines are keyed
- * @throws Error naming the field when it is not an `Array<Struct>` or `Dict<String, Struct>`
+ * @returns The line type
+ * @throws Error naming the field when it is not an `Array<Struct>`
  */
-export function sheetLinesOf(groupType: StructType, field: string): { lineType: StructType; keyed: boolean } {
+export function sheetLinesOf(groupType: StructType, field: string): { lineType: StructType } {
     const fields = groupType.fields as Record<string, EastType>;
     const t = fields[field] as { type?: string; key?: EastType; value?: EastType } | undefined;
     if (t === undefined) {
         throw new Error(`Sheet: \`group\` names "${field}", which is not a field of the row type (${Object.keys(fields).join(", ")})`);
     }
     if (t.type === "Array" && (t.value as { type?: string } | undefined)?.type === "Struct") {
-        return { lineType: t.value as StructType, keyed: false };
+        return { lineType: t.value as StructType };
     }
     throw new Error(`Sheet: the lines field "${field}" must be an Array of row structs — got ${t.type ?? "an unknown type"}`);
 }

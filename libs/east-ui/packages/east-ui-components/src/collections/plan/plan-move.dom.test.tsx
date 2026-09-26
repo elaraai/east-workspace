@@ -71,6 +71,17 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         expect(sameJob(storedJobs(canvas, "m1")[0]!, { key: "j1", label: "J1", start: W(30), end: W(32) })).toBe(true);
     }, 30_000);
 
+    test("a run let go in the week it was grabbed in moved nowhere — said as not dropped, and nothing drafted", async () => {
+        const canvas = await mountMoves();
+        const c = canvas.container;
+        const y = layOutPlots(c);
+        // Grabbed early in W28, let go late in W28: no whole week.
+        await dragTo(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28, 1), y: y("jobs", "m1") }, { x: xAt(28, 5), y: y("jobs", "m1") });
+        expect(announced()).toBe("J1 was not dropped.");
+        expect(canvas.patches).toEqual([]);
+        expect(markOf(c, "jobs", "m1")).toBeUndefined();
+    }, 30_000);
+
     test("with Shift held it moves by days — the finer unit under a week", async () => {
         const canvas = await mountMoves();
         const c = canvas.container;

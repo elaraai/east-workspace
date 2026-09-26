@@ -674,9 +674,11 @@ function createPagedOf(
     const keyed = collectionType.type === "Dict";
     // Evaluate the input once when creating the source, then detach nested
     // mutable values. Page and seek closures share that captured snapshot;
-    // passing a live read expression cannot make later pages drift.
+    // passing a live read expression cannot make later pages drift. The copy
+    // is beast v2: v1 writes neither a recursive type nor a function, and an
+    // entry may be either (a Plan's entries, #822).
     const capture = East.function([StringType, collectionType], PagedSourceType(collectionType), ($, snapshotId, input) => {
-        const snapshot = $.const(East.Blob.encodeBeast(input).decodeBeast(collectionType), collectionType);
+        const snapshot = $.const(East.Blob.encodeBeast(input, "v2").decodeBeast(collectionType, "v2"), collectionType);
         return keyed ? keyedPagedOf(snapshotId, snapshot, pageLimit)
             : arrayPagedOf(snapshotId, snapshot as ExprType<ArrayType<EastType>>, options);
     });

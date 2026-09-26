@@ -6,7 +6,7 @@
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, variant, some, none } from "@elaraai/east";
+import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, equalFor, variant, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Plan, Table } from "@elaraai/east-ui/internal";
 import { buildRowSource, resolveRowSource } from "../../src/contracts/source.js";
@@ -388,5 +388,40 @@ describe("Paged source lifecycle — revision and refresh (#744, #821)", () => {
         assert.deepEqual(value.value.revision(), none);
         assert.throws(() => value.value.refresh(none), /legacy source cannot refresh/);
         assert.deepEqual(value.value.page(0n, 10n), some([]));
+    });
+});
+
+describe("Paged.of snapshots entries of any type (#822)", () => {
+    // The snapshot is a beast round trip. Beast v1 writes neither a recursive
+    // type nor a function, so a v1 copy refused both — and a Plan's entries
+    // may be either.
+    const Node = RecursiveType(self => StructType({ name: StringType, children: DictType(StringType, self) }));
+    const Tree = DictType(StringType, Node);
+
+    hostTest("recursive entries page, detached from the input at every depth", () => {
+        const capture = East.function([Tree], Paged.Types.Source(Tree), (_$, tree) => Paged.of("tree", tree));
+        const children = new Map([["b", { name: "B", children: new Map() }]]);
+        const input = new Map([["a", { name: "A", children }]]);
+        const source = East.compile(capture, [])(input);
+        children.set("c", { name: "C", children: new Map() });
+        // East's own equality: the runtime's dicts are sorted maps, not `Map`s.
+        const pageEqual = equalFor(OptionType(Tree));
+        assert.ok(pageEqual(source.page(0n, 10n), some(new Map([["a", { name: "A", children: new Map([["b", { name: "B", children: new Map() }]]) }]]))));
+        assert.deepEqual(source.total(), some(1n));
+    });
+
+    hostTest("entries carrying a function page, and the function still runs", () => {
+        const Job = StructType({ name: StringType, cost: FunctionType([IntegerType], IntegerType) });
+        const Jobs = ArrayType(Job);
+        const program = East.function([], Paged.Types.Source(Jobs), ($) => {
+            const double = $.const(East.function([IntegerType], IntegerType, (_$, n) => n.multiply(2n)));
+            const jobs = $.let([{ name: "weld", cost: double }], Jobs);
+            return Paged.of("jobs", jobs);
+        });
+        const page = East.compile(program, [])().page(0n, 10n);
+        assert.equal(page.type, "some");
+        if (page.type !== "some") return;
+        assert.equal(page.value[0]!.name, "weld");
+        assert.equal(page.value[0]!.cost(21n), 42n);
     });
 });

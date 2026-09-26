@@ -25,7 +25,7 @@ export type SheetSubRowValue = ValueTypeOf<typeof Sheet.Types.SubRow>;
 export type SheetNounValue = ValueTypeOf<typeof Sheet.Types.Noun>;
 /** The band a group row draws (#740) — `{ sub, folded }`. */
 export type SheetBandValue = ValueTypeOf<typeof Sheet.Types.Band>;
-/** The group declaration on the wire (#740) — the lines field, `keyed`, the band's cells. */
+/** The group declaration on the wire (#740) — the lines field, the band's cells, the noun and whether loose rows stand between the groups. */
 export type SheetGroupValue = ValueTypeOf<typeof Sheet.Types.Group>;
 /** One decoded cell — a `LiteralValue`-style variant, or a `Link`. */
 export type SheetCellValue = ValueTypeOf<typeof Sheet.Types.Cell>;

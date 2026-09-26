@@ -762,7 +762,10 @@ const RequestsType = DictType(StringType, RequestType);
  * A confirmed request replays before any stale-base check. A throwing write
  * leaves an unresolved request in the store: retries confirm the target by
  * reading it, and never repeat an uncertain mutation. The request table lives
- * in the same browser state store as the binding, surviving remounts.
+ * in the same browser state store as the binding, surviving remounts. It
+ * holds the source's latest request alone — a new one is taken only once
+ * every earlier one is resolved, so none of those is retried again — and a
+ * confirmed request keeps no copy of the collection it wrote.
  *
  * @internal
  * @param entryType - The exact domain schema
@@ -837,7 +840,8 @@ function inlineApply(
                         const current = $.const(East.Blob.encodeBeast(reader(), "v2"));
                         return East.equal(request.expected, some(current)).ifElse(($) => {
                             const confirmed = $.const(variant("applied", { revision: none }), EditingApplyResultType);
-                            $(requests.insertOrUpdate(batch.requestId, { payload, result: some(confirmed), expected: request.expected }, (_$, _old, next) => next));
+                            // Confirmed: the target it was recovered by is no longer needed.
+                            $(requests.insertOrUpdate(batch.requestId, { payload, result: some(confirmed), expected: none }, (_$, _old, next) => next));
                             $(EditingRequestStore.write(key, East.Blob.encodeBeast(requests, "v2")));
                             return confirmed;
                         }, ($) => $.error("The previous write has an unknown outcome — retry after its target is confirmed; it cannot be safely issued twice"));
@@ -850,23 +854,27 @@ function inlineApply(
                 $.if(unresolved.greater(0n), ($) => {
                     $.error("This source already has an unresolved write — recover its original request before submitting another batch");
                 });
+                // Every earlier request is resolved, so none is retried again:
+                // the ledger keeps this one alone.
+                const ledger = $.let(new Map(), RequestsType);
                 const current = $.const(reader());
                 const applied = $.const(transform(current, batch, none));
                 return applied.match({
                     conflict: ($, issues) => {
                         const result = $.const(variant("conflict", issues), EditingApplyResultType);
-                        $(requests.insert(batch.requestId, { payload, result: some(result), expected: none }));
-                        $(EditingRequestStore.write(key, East.Blob.encodeBeast(requests, "v2")));
+                        $(ledger.insert(batch.requestId, { payload, result: some(result), expected: none }));
+                        $(EditingRequestStore.write(key, East.Blob.encodeBeast(ledger, "v2")));
                         return result;
                     },
                     applied: ($, rows) => {
                         const expected = $.const(some(East.Blob.encodeBeast(rows, "v2")), OptionType(BlobType));
-                        $(requests.insert(batch.requestId, { payload, result: none, expected }));
-                        $(EditingRequestStore.write(key, East.Blob.encodeBeast(requests, "v2")));
+                        $(ledger.insert(batch.requestId, { payload, result: none, expected }));
+                        $(EditingRequestStore.write(key, East.Blob.encodeBeast(ledger, "v2")));
                         $(writer(rows));
                         const result = $.const(variant("applied", { revision: none }), EditingApplyResultType);
-                        $(requests.insertOrUpdate(batch.requestId, { payload, result: some(result), expected }, (_$, _old, next) => next));
-                        $(EditingRequestStore.write(key, East.Blob.encodeBeast(requests, "v2")));
+                        // Confirmed: the target is kept only while the outcome is unknown.
+                        $(ledger.insertOrUpdate(batch.requestId, { payload, result: some(result), expected: none }, (_$, _old, next) => next));
+                        $(EditingRequestStore.write(key, East.Blob.encodeBeast(ledger, "v2")));
                         return result;
                     },
                 });

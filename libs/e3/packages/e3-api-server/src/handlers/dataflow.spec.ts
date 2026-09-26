@@ -13,7 +13,7 @@ import { repoGc } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { PackageObjectType, WorkspaceStateType, type DataflowRun } from '@elaraai/e3-types';
 import { getDataflowExecution, startDataflow } from './dataflow.js';
-import { getStateStore } from '../orchestrator-manager.js';
+import { getActiveExecution, getOrchestrator, getStateStore } from '../orchestrator-manager.js';
 import { ResponseType, DataflowExecutionStateType, type DataflowExecutionState } from '../types.js';
 
 const WS = 'finishing-ws';
@@ -93,6 +93,72 @@ describe('getDataflowExecution', () => {
       assert.ok(after.summary.value.duration >= 10, `a run that took 20 ms reports ${after.summary.value.duration} ms`);
       assert.equal(after.summary.value.duration, Date.parse(after.completedAt.value) - Date.parse(after.startedAt));
       await repoGc(storage, repo, { dryRun: true });
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('a run that has let go clears only its own active execution — a run started after it still reads as running while it holds the workspace', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'e3-dataflow-successor-'));
+    try {
+      const storage = new InMemoryStorage();
+      await seedWorkspace(storage, repo);
+      // The second run holds the workspace at its final run record until the
+      // test lets it go.
+      let terminal = 0;
+      let arrive!: () => void;
+      const holding = new Promise<void>((resolve) => { arrive = resolve; });
+      let finishSecond!: () => void;
+      const secondGate = new Promise<void>((resolve) => { finishSecond = resolve; });
+      const writeRun = storage.refs.dataflowRunWrite.bind(storage.refs);
+      storage.refs.dataflowRunWrite = async (r: string, ws: string, run: DataflowRun) => {
+        if (run.status.type !== 'running' && ++terminal === 2) {
+          arrive();
+          await secondGate;
+        }
+        return writeRun(r, ws, run);
+      };
+      // The first run's completion handler is held back past its letting go
+      // of the workspace — long enough for the next run to start.
+      const orchestrator = getOrchestrator(repo);
+      const wait = orchestrator.wait.bind(orchestrator);
+      let calls = 0;
+      let letGo!: () => void;
+      const firstLetGo = new Promise<void>((resolve) => { letGo = resolve; });
+      let releaseFirst!: () => void;
+      const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+      orchestrator.wait = async (handle) => {
+        const n = ++calls;
+        const result = await wait(handle);
+        if (n === 1) {
+          letGo();
+          await firstHeld;
+        }
+        return result;
+      };
+
+      assert.equal((await startDataflow(storage, repo, WS, { jobs: 1, force: false })).status, 202);
+      await firstLetGo;
+      assert.equal((await startDataflow(storage, repo, WS, { jobs: 1, force: false })).status, 202);
+      const second = getActiveExecution(repo, WS)?.id;
+      assert.notEqual(second, undefined);
+      await holding;
+
+      // The first run's handler runs now: the second run is the workspace's
+      // active execution, holding it, and reads as running.
+      releaseFirst();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(getActiveExecution(repo, WS)?.id, second);
+      assert.equal((await poll(repo)).status.type, 'running');
+
+      finishSecond();
+      let after = await poll(repo);
+      for (let i = 0; i < 100 && after.status.type === 'running'; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        after = await poll(repo);
+      }
+      assert.equal(after.status.type, 'completed');
+      assert.equal(getActiveExecution(repo, WS), null);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

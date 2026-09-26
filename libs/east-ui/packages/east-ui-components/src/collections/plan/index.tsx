@@ -447,20 +447,19 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     // only while the session can take one. A card lands; the canvas's own
     // runs, chips, tiles and marks move and resize (#825) — where one lands is
     // what its rows proposed at the drop point, from the press it began with
-    // (`edit/store.ts`).
+    // (`edit/store.ts`). The drag layer is told whether the gesture was
+    // drafted: a drop the row's write refused, or a move back to where it
+    // began, is announced as not dropped.
     const [editStore] = useState(() => new PlanEditStore());
     const { drop: draftDrop, move: draftMove } = editing;
-    const onDrag = useCallback((event: DragEventValue) => {
-        if (event.type === "add") {
-            draftDrop(event);
-            return;
-        }
-        if (event.type !== "move" && event.type !== "resize") return;
+    const onDrag = useCallback((event: DragEventValue): boolean => {
+        if (event.type === "add") return draftDrop(event);
+        if (event.type !== "move" && event.type !== "resize") return false;
         const { grab, proposal } = editStore;
         editStore.disarm();
         const row = event.type === "move" ? event.value.to.row : event.value.event.row;
-        if (grab === null || proposal === null || proposal.rowKey !== row || unmoved(grab.movable, proposal)) return;
-        draftMove({
+        if (grab === null || proposal === null || proposal.rowKey !== row || unmoved(grab.movable, proposal)) return false;
+        return draftMove({
             key: grab.movable.key, from: grab.movable.rowKey, to: proposal.rowKey, span: proposal.span,
             origin: event.type === "resize" ? "resize" : originOf(grab.movable, proposal).kind,
             label: grab.movable.label,

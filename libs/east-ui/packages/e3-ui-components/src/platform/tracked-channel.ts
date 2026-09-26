@@ -100,6 +100,12 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
         return this.keyVersions.get(key) ?? 0;
     }
 
+    /** Whether any consumer subscribes to this channel now — a read that
+     *  something still holds. */
+    protected isSubscribed(key: string): boolean {
+        return (this.keySubscribers.get(key)?.size ?? 0) > 0;
+    }
+
     protected notify(key: string): void {
         this.keyVersions.set(key, (this.keyVersions.get(key) ?? 0) + 1);
         const subs = this.keySubscribers.get(key);

@@ -98,11 +98,17 @@ export function getActiveExecution(repoPath: string, workspace: string): Executi
 }
 
 /**
- * Clear the active execution for a workspace — once its run has let go of
- * the workspace (the orchestrator's `wait()` has settled).
+ * Clear a run's active execution for a workspace — once the run has let go of
+ * the workspace (the orchestrator's `wait()` has settled). A run started after
+ * it may be the workspace's active execution by then, and stays.
+ *
+ * @param repoPath - The repository
+ * @param workspace - The workspace
+ * @param executionId - The run that has let go
  */
-export function clearActiveExecution(repoPath: string, workspace: string): void {
-  activeExecutions.delete(makeWorkspaceKey(repoPath, workspace));
+export function clearActiveExecution(repoPath: string, workspace: string, executionId: string): void {
+  const key = makeWorkspaceKey(repoPath, workspace);
+  if (activeExecutions.get(key)?.id === executionId) activeExecutions.delete(key);
 }
 
 /**

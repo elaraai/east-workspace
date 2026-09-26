@@ -84,11 +84,27 @@ test("targeted refresh preserves demand and ignores late page success and total 
     if (window.type === "some") assert.equal(window.value.get("row")!.quantity, 7);
 });
 
+/** A consumer's read of a key search: in a tracked evaluation, subscribed to
+ *  what it read until the returned release — as a search chrome holds its
+ *  query until the viewer types the next. */
+function holdSearch(h: ReturnType<typeof harness>, prefix: string): () => void {
+    if (h.handle.seek.type !== "some") throw new Error("expected keyed source");
+    h.runtime.enableTracking();
+    let keys: string[];
+    try { h.handle.seek.value(variant("prefix", prefix)); }
+    finally { keys = h.runtime.disableTracking(); }
+    const unsubs = keys.map(key => h.runtime.subscribe(key, () => {}));
+    return () => { for (const u of unsubs) u(); };
+}
+
+/** The key searches asked, as `prefix@hash`. */
+const asked = (h: ReturnType<typeof harness>) => h.seeks.map(s => `${"prefix" in s.query ? s.query.prefix : ""}@${s.query.hash ?? ""}`);
+
 test("refresh invalidates answered seek results and ignores a superseded search error", async () => {
     const h = harness();
     if (h.handle.seek.type !== "some") throw new Error("expected keyed source");
     const seek = h.handle.seek.value;
-    seek(variant("prefix", "r"));
+    const release = holdSearch(h, "r");
     h.revisions[0]!.resolve("A");
     await tick();
     h.handle.refresh(some("B"));
@@ -102,6 +118,35 @@ test("refresh invalidates answered seek results and ignores a superseded search 
     assert.deepEqual(seek(variant("prefix", "r")), none);
     await tick();
     assert.equal(h.seeks[2]!.query.hash, "C");
+    release();
+});
+
+test("a refresh asks again only the key searches still read; one let go is searched afresh when read again (#821)", async () => {
+    const h = harness();
+    if (h.handle.seek.type !== "some") throw new Error("expected keyed source");
+    const seek = h.handle.seek.value;
+    // The viewer types "r", "ro", "row": each keystroke's search is asked
+    // once, and the one before it let go.
+    let held = holdSearch(h, "r");
+    h.revisions[0]!.resolve("A");
+    await tick();
+    for (const prefix of ["ro", "row"]) {
+        const next = holdSearch(h, prefix);
+        held();
+        held = next;
+    }
+    await tick();
+    assert.deepEqual(asked(h), ["r@A", "ro@A", "row@A"]);
+    // The dataset moves (a source that follows it refreshes on every change):
+    // only the search still read is asked again.
+    h.handle.refresh(some("B"));
+    await tick();
+    assert.deepEqual(asked(h).slice(3), ["row@B"]);
+    // A search let go and read again is not answered from A.
+    assert.deepEqual(seek(variant("prefix", "r")), none);
+    await tick();
+    assert.deepEqual(asked(h).slice(4), ["r@B"]);
+    held();
 });
 
 test("superseded discovery cannot roll back a target snapshot or start stale demand", async () => {

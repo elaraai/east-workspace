@@ -5,8 +5,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, diffFor, encodeBeast2For, none, some, variant } from "@elaraai/east";
-import { Sheet, State, UIComponentType, buildInlineApply } from "@elaraai/east-ui/internal";
+import { ArrayType, BlobType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, diffFor, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { Editing, EditingRequestStore, Sheet, State, UIComponentType, buildInlineApply } from "@elaraai/east-ui/internal";
 import { StateImpl, initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
 
@@ -25,6 +25,17 @@ const request = {
     changes: [{ id: "a", patch: diffFor(OptionType(Row))(some(before[0]!), some(after[0]!)), place: none }],
 };
 const payload = encode(request);
+
+/** The adapter's request ledger as the UI store holds it — its records by request id. */
+const decodeLedger = decodeBeast2For(DictType(StringType, StructType({
+    payload: BlobType, result: OptionType(Editing.Types.ApplyResult), expected: OptionType(BlobType),
+})));
+const readLedger = East.compile(East.function([], OptionType(BlobType), () => EditingRequestStore.read("editing.requests:test-binding")), StateImpl);
+function ledger() {
+    const saved = readLedger();
+    if (saved.type !== "some") throw new Error("no ledger was written");
+    return decodeLedger(saved.value);
+}
 
 test("inline apply reads the latest collection and writes once for an entire batch", () => {
     initializeStore(new UIStore());
@@ -69,6 +80,34 @@ test("an uncertain successful write is recovered by exact target without writing
     assert.throws(() => apply(payload), /lost acknowledgement/);
     assert.equal(apply(payload).type, "applied");
     assert.equal(writes, 1);
+    // Confirmed: the target it was recovered by is no longer kept.
+    assert.equal(ledger().get("request-a")!.expected.type, "none");
+});
+
+test("the ledger keeps only what a retry can replay — the latest request, and no copy of the collection once confirmed", () => {
+    initializeStore(new UIStore());
+    let current = structuredClone(before);
+    const apply = East.compile(adapter, [...StateImpl,
+        read.implement(() => current), write.implement(rows => { current = rows; return null; }),
+    ]);
+    // Ten batches, each against the collection the last one left: a new
+    // request is taken only once every earlier one is resolved.
+    let last = payload;
+    for (let i = 0; i < 10; i++) {
+        const next = [{ id: "a", qty: BigInt(i + 10) }];
+        last = encode({
+            requestId: `request-${i}`, base: variant("snapshot", current), label: "Edit quantity",
+            changes: [{ id: "a", patch: diffFor(OptionType(Row))(some(current[0]!), some(next[0]!)), place: none }],
+        });
+        assert.equal(apply(last).type, "applied");
+    }
+    const kept = ledger();
+    assert.deepEqual([...kept.keys()], ["request-9"]);
+    assert.equal(kept.get("request-9")!.expected.type, "none");
+    // The latest still replays its confirmed result, writing nothing.
+    const held = structuredClone(current);
+    assert.equal(apply(last).type, "applied");
+    assert.deepEqual(current, held);
 });
 
 test("unknown outcome prevents a second batch and unrelated source values cannot acknowledge it", () => {

@@ -34,10 +34,10 @@ import { getRegisteredPlatformImplementations } from "../../platform/registry.js
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "../../dnd/dnd.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
-import { testKeyOf } from "./plan.test-utils.js";
+import { rowSel, testKeyOf } from "./plan.test-utils.js";
 import {
     JOBS, PHASES, Press, SEED, SURFACE,
-    dropCellOf, dropJob, history, jobsDrawn, marks, mountCanvas, releaseCanvases,
+    dropCellOf, dropJob, history, jobsDrawn, marks, mountCanvas, releaseCanvases, settle,
 } from "./plan-editing.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -178,6 +178,70 @@ describe("Plan drop target (#880)", () => {
             expect(sameInstant(jobs[0]!.at, at)).toBe(true);
         }, 30_000);
     }
+});
+
+// ── A card the row's own write refuses (#825) ────────────────────────────────
+
+/** Press 1, already holding job-1. */
+const HOLDING = new Map([["p1", { ...SEED.get("p1")!, jobs: [{ key: "job-1", at: variant("time", W28) }] }]]);
+
+/** Press 1's jobs as keyed marks that take a card — its write refuses a job the press already holds, which no veto can see coming: `create` mints the key. */
+const KEYED = East.function([], UIComponentType, ($) => {
+    const presses = $.const(State.bind([DictType(StringType, Press)], "plan-825.keyed", HOLDING));
+    return Plan.Root({
+        axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
+        data: presses,
+        series: [
+            Plan.series.events(Press, {
+                key: "marks", title: "Marks", label: (p) => p.label,
+                marks: (p) => p.jobs.map((_$, j) => Plan.mark({ key: j.key, at: j.at, kind: "milestone" })),
+                edit: { items: "jobs", key: "key", at: "at", create: (drop) => ({ key: drop.from.key, at: drop.at }) },
+            }),
+        ],
+        editing: { onUpdate: presses.write },
+        id: SURFACE,
+        sources: [JOBS],
+    });
+});
+
+function Card({ job }: { job: string }) {
+    const drag = useDragSourceItem({ library: JOBS, key: job, label: job }, <div />);
+    return <div data-testid={`card-${job}`} {...drag} />;
+}
+
+describe("Plan drop target — a drop its write refuses (#825)", () => {
+    test("a card whose job the press already holds is said as not dropped and drafts nothing; one it does not hold lands", async () => {
+        const ui = East.compile(KEYED, getRegisteredPlatformImplementations())();
+        if (ui.type !== "Plan") throw new Error(`Expected a Plan, got ${ui.type}`);
+        const { container, getByTestId } = render(
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <Card job="job-1" />
+                    <Card job="job-2" />
+                    <EastChakraPlan value={ui.value as PlanRootValue} storageKey="plan-825-keyed" />
+                </DragLayerProvider>
+            </ChakraProvider>,
+        );
+        await settle();
+        const row = () => container.querySelector<HTMLElement>(rowSel("p1", "data-plan-row", "marks"))!;
+        const drop = async (job: string) => {
+            fireEvent.pointerDown(getByTestId(`card-${job}`), { clientX: 0, clientY: 0 });
+            pointAt(row().querySelector("[data-drag-cell]"));
+            fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+            fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+            await settle();
+        };
+
+        await drop("job-1");
+        expect(announced()).toBe("job-1 was not dropped.");
+        expect(row().hasAttribute("data-draft")).toBe(false);
+        expect([...row().querySelectorAll("[data-mark]")].map((m) => m.getAttribute("data-mark"))).toEqual(["job-1"]);
+
+        // jsdom's zero-width rect puts the pointer in the FIRST bucket.
+        await drop("job-2");
+        expect(announced()).toBe("job-2 was dropped on Press 1, Week of Jun 29, 2026.");
+        expect(row().hasAttribute("data-draft")).toBe(true);
+    }, 30_000);
 });
 
 describe("Plan drop target by keyboard (#608)", () => {

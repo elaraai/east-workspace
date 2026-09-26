@@ -269,7 +269,6 @@ export interface SheetOptions<R extends StructType> {
  * @property group - The group declaration (`Sheet.group`)
  * @property suggest - The row-proposal declaration, over the LINE type
  * @property onUpdate - The whole collection of groups with the edit applied (inline arm only)
- * @property newLineKey - Overrides the renderer's key minting for lines inserted into `Dict` lines
  * @property subRows - Read-only sub rows under each LINE, declared over the line type (#844)
  */
 export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows"> {
@@ -285,8 +284,6 @@ export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesF
     suggest?: SheetSuggestInput<SheetLineOf<P, F>>;
     /** Observe a gesture with drafts over this group's child array. */
     onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<P, F>>], NullType>>;
-    /** Overrides the renderer's key minting for lines inserted into `Dict` lines. */
-    newLineKey?: SubtypeExprOrValue<FunctionType<[], StringType>>;
     /** Read-only sub rows under each line, declared over the line type. */
     subRows?: SheetSubRowsValue<SheetLineOf<P, F>>;
 }
@@ -329,7 +326,6 @@ type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onP
     onPatch?: unknown;
     newRow?: unknown;
     newGroup?: unknown;
-    newLineKey?: SubtypeExprOrValue<FunctionType<[], StringType>>;
 };
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -833,7 +829,6 @@ export function createSheet(
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
         ? East.value(some({
             lines: groupDecl.lines,
-            keyed: groupBridge.keyed,
             cells: East.value(cellMetas.map((m) => East.value({
                 key:         m.key,
                 field:       m.field,
@@ -882,7 +877,6 @@ export function createSheet(
         selection:     opts.selection !== undefined ? East.value(opts.selection, OptionType(SheetSelectionType)) : East.value(none, OptionType(SheetSelectionType)),
         newRowId:      opts.newRowId !== undefined ? some(East.value(opts.newRowId, FunctionType([], StringType))) : none,
         group:         groupValue,
-        newLineKey:    opts.newLineKey !== undefined ? some(East.value(opts.newLineKey, FunctionType([], StringType))) : none,
         readOnly:      opts.readOnly !== undefined ? some(opts.readOnly) : none,
         blanks:        opts.blanks !== undefined ? some(typeof opts.blanks === "number" ? BigInt(opts.blanks) : opts.blanks) : none,
         density:       opts.density !== undefined ? some(resolveTag(opts.density, DensityType)) : none,

@@ -12,7 +12,7 @@
  * sinks all register here; the provider wires the flow by matching the
  * surfaces' declared ids, so DnD-aware components never wire handlers at each
  * other. Every completed drag reduces to one `DragEventType` value delivered to
- * the owning target's `onDrag`.
+ * the owning target's `onDrag`, which may say it did not take it.
  *
  * A drag is picked up by the pointer — a mouse or pen after 4px of travel, a
  * touch after a 300ms hold, a touch on a grip at once ({@link DragPointerSensor})
@@ -117,8 +117,13 @@ export interface DragTargetConfig {
     sources: readonly string[];
     /** Supported event kinds. */
     kinds: DragKinds;
-    /** Receives every completed drag on this surface. */
-    onDrag?: (event: DragEventValue, meta?: DragMeta) => void;
+    /**
+     * Receives every completed drag on this surface. Answering `false` says
+     * it did not take the drag — its own write refused it, or it changed
+     * nothing — and the drop is announced as not dropped; any other answer
+     * takes it.
+     */
+    onDrag?: (event: DragEventValue, meta?: DragMeta) => unknown;
 }
 
 /**
@@ -772,17 +777,18 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 outcome.current = { kind: "notDropped", item };
                 return;
             }
-            target.onDrag(event, payload.kind === "item" && payload.label !== undefined ? { label: payload.label } : undefined);
-            outcome.current = { kind: "dropped", item, target: name };
+            const taken = target.onDrag(event, payload.kind === "item" && payload.label !== undefined ? { label: payload.label } : undefined);
+            // A target whose own write refused the drop says so.
+            outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: name };
             return;
         }
         if (sink !== undefined && sinkValid(sink, payload) && payload.kind === "event") {
             const target = targets.current.get(payload.from.surface);
-            target?.onDrag?.(variant("remove", {
+            const taken = target?.onDrag?.(variant("remove", {
                 from: cellRefValue(payload.from),
                 to: variant(sink.kind === "trash" ? "trash" : "source", null),
             }));
-            outcome.current = { kind: "dropped", item, target: targetName(el, point, payload) };
+            outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: targetName(el, point, payload) };
             return;
         }
         outcome.current = { kind: "notDropped", item };

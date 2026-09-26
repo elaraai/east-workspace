@@ -30,7 +30,7 @@
  * group's band over its lines (pseudo rows tagged with their group), one
  * blank line per open group during the insertion migration. A write on a line
  * rewrites its group (`lineCommit` / `lineInsert` / `lineRemove` carry the
- * whole group after the edit, a line's address as its position or key); a
+ * whole group after the edit, a line's address as its position); a
  * summary field commits the group. Explicit insertion controls create groups.
  *
  * A line may carry SUB ROWS (#844): read-only rows under the line that
@@ -397,7 +397,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onViewsChangeFn = useMemo(() => getSomeorUndefined(value.onViewsChange), [value.onViewsChange]);
     const newRowIdFn = useMemo(() => getSomeorUndefined(value.newRowId), [value.newRowId]);
-    const newLineKeyFn = useMemo(() => getSomeorUndefined(value.newLineKey), [value.newLineKey]);
     // The controlled selection follows the host's DATA: a closure-only change
     // must not snap the ring back to it.
     const selection = useMemo(() => getSomeorUndefined(data.selection), [data.selection]);
@@ -989,7 +988,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                         cells.set(meta.key, w.cell);
                         changed = true;
                         g = withLine(g, lg.key, new Map(cells));
-                        events.push(variant("lineCommit", { rowId: g.id, offset: BigInt(it.position), line: lineAddress(group.keyed, lg.key, lg.index), key: meta.key, row: g, source: src }));
+                        events.push(variant("lineCommit", { rowId: g.id, offset: BigInt(it.position), line: lineAddress(lg.index), key: meta.key, row: g, source: src }));
                     }
                     if (changed) setGroup(g);
                     ids.push(it.row.id);
@@ -1005,14 +1004,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                         if (meta !== undefined) cells.set(meta.key, w.cell);
                     }
                     if (columns.list.every((c) => cellIsBlank(cells.get(c.key)))) continue;
-                    const key = group.keyed && newLineKeyFn !== undefined ? newLineKeyFn() : mintLineKey(g0);
+                    const key = mintLineKey(g0);
                     const index = g0.lines.length;
                     const last = g0.lines[index - 1];
                     const g: SheetRowValue = { ...g0, lines: [...g0.lines, { key, cells, subRows: [] }] };
                     events.push(variant("lineInsert", {
                         rowId: g.id, offset: BigInt(it.position),
-                        after: last !== undefined ? some(lineAddress(group.keyed, last.key, index - 1)) : none,
-                        line: lineAddress(group.keyed, key, index), row: g, source: src,
+                        after: last !== undefined ? some(lineAddress(index - 1)) : none,
+                        line: lineAddress(index), row: g, source: src,
                     }));
                     setGroup(g);
                     ids.push(lineId(g.id, key));
@@ -1092,7 +1091,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, newLineKeyFn, setLayer, emitEdit, readOnly, canInsertRows, keyed, editingState.available]);
+    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, setLayer, emitEdit, readOnly, canInsertRows, keyed, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`) and loose rows in it leave the sheet
@@ -1116,7 +1115,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 if (it.kind === "real" && it.group !== undefined) {
                     const entry = byGroup.get(it.group.row.id) ?? { row: it.group.row, position: it.position, keys: [], addresses: [] };
                     entry.keys.push(it.group.key);
-                    entry.addresses.push(lineAddress(group.keyed, it.group.key, it.group.index));
+                    entry.addresses.push(lineAddress(it.group.index));
                     byGroup.set(it.group.row.id, entry);
                     removedRs.push(r);
                 } else if (it.kind === "real" && it.loose !== undefined) {

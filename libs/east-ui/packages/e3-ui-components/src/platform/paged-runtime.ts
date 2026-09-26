@@ -17,7 +17,8 @@
  * One tracked channel per window `(workspace, path, offset, limit)`, plus one
  * per source for the element total (any landed window teaches it). Windows are
  * immutable within a content revision. Refresh invalidates windows, totals
- * and key search together, preserving resident demand for the next snapshot.
+ * and key search together, preserving resident demand for the next snapshot:
+ * the windows the cache holds, and the key searches something still reads.
  *
  * A bound source follows its dataset (#821): the API's `watchRevision`
  * reports each new content hash, and a hash that is not the served revision
@@ -439,17 +440,23 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         });
     }
 
-    /** Invalidate one logical source, retaining its resident window demand. */
+    /** Invalidate one logical source, retaining its resident window demand
+     *  and the key searches something still reads. */
     private refresh(workspace: string, path: TreePath, target: ValueTypeOf<OptionType<StringType>>): void {
         const previous = this.snapshot(workspace, path);
+        // A key search nothing reads any more is not asked again: a search
+        // session types one query per keystroke, and a source that follows
+        // its dataset refreshes on every change. Every previous search's
+        // answer is invalidated all the same, so one read again is asked afresh.
+        const seeks = new Map([...previous.seeks].filter(([key]) => this.isSubscribed(key)));
         const snapshot: SourceSnapshot = {
             ...previous, generation: ++this.generation, revision: undefined,
             resolving: target.type === "some", error: undefined, failedAtMs: undefined,
-            windows: new Map(previous.windows), seeks: new Map(previous.seeks),
+            windows: new Map(previous.windows), seeks,
         };
         const totalKey = pagedTotalKey(workspace, path);
         this.snapshots.set(totalKey, snapshot);
-        const keys = [totalKey, ...snapshot.windows.keys(), ...snapshot.seeks.keys()];
+        const keys = [totalKey, ...snapshot.windows.keys(), ...previous.seeks.keys()];
         for (const key of keys) {
             this.entries.delete(key);
             this.loadedWindows.delete(key);

@@ -186,12 +186,10 @@ export async function startDataflow(
     // Track as active execution for this workspace
     setActiveExecution(repoPath, workspace, handle);
 
-    // Set up completion handler to clear active execution
-    orchestrator.wait(handle).then(() => {
-      clearActiveExecution(repoPath, workspace);
-    }).catch(() => {
-      clearActiveExecution(repoPath, workspace);
-    });
+    // Once the run has let go of the workspace, it is no longer its active
+    // execution — unless a run started after it already is.
+    const letGo = (): void => clearActiveExecution(repoPath, workspace, handle.id);
+    orchestrator.wait(handle).then(letGo, letGo);
 
     // Return immediately with 202 Accepted
     return sendSuccessWithStatus(NullType, null, 202);

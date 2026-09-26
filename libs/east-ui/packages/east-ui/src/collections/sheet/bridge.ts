@@ -473,10 +473,8 @@ export type SheetBridgeSource =
  * @internal
  */
 export interface SheetGroupBridge {
-    /** The field holding the lines. */
+    /** The field holding the lines — an `Array<L>`, a line addressed by its index. */
     linesField: string;
-    /** `true` ⇒ `Dict<String, L>` lines; `false` ⇒ `Array<L>` lines. */
-    keyed: boolean;
     /** The band's cells, the title first. */
     cellMetas: SheetColumnMeta[];
     /** `P` → the band's cells. */
@@ -824,7 +822,7 @@ function buildGroupBridge(
     input: SheetBridgeGroupInput,
     projectRow: SheetBridge["projectRow"],
     projectSubRows: SheetBridge["projectSubRows"],
-): Pick<SheetGroupBridge, "linesField" | "keyed" | "cellMetas" | "projectGroupCells" | "projectLines"> {
+): Pick<SheetGroupBridge, "linesField" | "cellMetas" | "projectGroupCells" | "projectLines"> {
     const { linesField, cellMetas } = input;
     const linesType = rowType.fields[linesField] as ArrayType<StructType>;
     const projectGroupCells = East.function([rowType], SheetCellsType, ($, p) => {
@@ -838,7 +836,7 @@ function buildGroupBridge(
         const lines = $.const(p[linesField] as ExprType<ArrayType<StructType>>, linesType);
         return lines.map((_$, line, index) => East.value({ key: East.print(index), cells: project(line), subRows: subRowsOf(line) }, SheetLineType));
     }) as SheetGroupBridge["projectLines"];
-    return { linesField, keyed: false, cellMetas, projectGroupCells, projectLines };
+    return { linesField, cellMetas, projectGroupCells, projectLines };
 }
 
 // ============================================================================

@@ -866,6 +866,28 @@ describe("announcements (#608)", () => {
         expect(announced()).toBe("patel was not dropped.");
     });
 
+    test("a drop its target did not take — its `onDrag` answered `false` — is said as not dropped, onto a cell or a sink", () => {
+        const events: DragEventValue[] = [];
+        // A target whose own write refused what it was handed.
+        const refuse = (e: DragEventValue) => { events.push(e); return false; };
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: refuse }} />
+                <Card library="people" itemKey="patel" />
+                <Chip surface="roster" row="cho" slot="mon" event="s1" />
+                <Cell surface="roster" row="patel" slot="thu" />
+                <Trash />
+            </DragLayerProvider>,
+        );
+        drag(getByTestId("card-patel"), getByTestId("cell-patel-thu"));
+        // Delivered, once — the target decides — and said as it ended.
+        expect(sole(events).type).toBe("add");
+        expect(announced()).toBe("patel was not dropped.");
+        drag(getByTestId("chip-s1"), getByTestId("trash"));
+        expect(events.map((e) => e.type)).toEqual(["add", "remove"]);
+        expect(announced()).toBe("s1 was not dropped.");
+    });
+
     test("a host rendering again with a new inline table mid-drag leaves every cell registered — the drag keeps resting where it rests", () => {
         const events: DragEventValue[] = [];
         function Page({ n }: { n: number }) {

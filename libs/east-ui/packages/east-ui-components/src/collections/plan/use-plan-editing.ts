@@ -87,8 +87,14 @@ export interface PlanEditing {
     verdict(key: RowKey, verdict: PlanDraftVerdict): void;
     /** Draft a verdict on every one of `rows` that takes one — one gesture. Stable. */
     verdictAll(verdict: PlanDraftVerdict, rows: readonly PlanRowValue[]): void;
-    /** A card dropped on a row — drafted into its entry. Stable. */
-    drop(event: DragEventValue): void;
+    /**
+     * A card dropped on a row — drafted into its entry. Stable.
+     *
+     * @returns Whether it was drafted — `false` when the session cannot take
+     *   it or the row's series refused it (a job the row's list already
+     *   holds, #825)
+     */
+    drop(event: DragEventValue): boolean;
     /**
      * A run, chip, tile or mark moved or resized (#825) — drafted into the
      * entry its row came from, and, when it lands on a row of another entry,
@@ -451,14 +457,14 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             record([...byEntry].map(([id, ids]) => ({ id, rows: ids })), variant("verdict", variant(verdict, null)), "verdict",
                 verdict === "approved" ? "Approve all" : "Reject all");
         },
-        drop(event: DragEventValue): void {
-            if (event.type !== "add") return;
+        drop(event: DragEventValue): boolean {
+            if (event.type !== "add") return false;
             const { from, into, duplicate } = event.value;
             const id = rowIdOfKey(into.row);
             const entry = id !== undefined ? entryOf(id) : undefined;
             const at = fromPlanSlot(value.axis.type, into.slot);
-            if (id === undefined || entry === undefined || at === undefined) return;
-            record([{ id: entry, rows: [id] }], variant("drop", { from, row: id, at, duplicate }), "drop",
+            if (id === undefined || entry === undefined || at === undefined) return false;
+            return record([{ id: entry, rows: [id] }], variant("drop", { from, row: id, at, duplicate }), "drop",
                 `Drop ${from.key} on ${args.labelOf(into.row)}`);
         },
         move(request: PlanMoveRequest): boolean {

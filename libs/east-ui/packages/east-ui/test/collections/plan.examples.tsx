@@ -3299,11 +3299,11 @@ export const planUiState = example({
                     selected: s.selected, collapsed: [], expanded: lineIds, charts: s.charts, focus: s.focus,
                 }, Plan.Types.UiState)));
             }));
+            const noCharts = $.const([], ArrayType(Plan.Types.RowId));
+            const kpiChart = $.const([kpi], ArrayType(Plan.Types.RowId));
             const chart = $.const(East.function([], NullType, ($) => {
                 const s = $.let(ui.read());
-                const charts = $.let(s.charts.size().greater(0n).ifElse(
-                    () => East.value([], ArrayType(Plan.Types.RowId)),
-                    () => East.value([kpi], ArrayType(Plan.Types.RowId))), ArrayType(Plan.Types.RowId));
+                const charts = $.let(s.charts.size().greater(0n).ifElse(() => noCharts, () => kpiChart));
                 $(ui.write(East.value({
                     selected: s.selected, collapsed: s.collapsed, expanded: s.expanded, charts, focus: s.focus,
                 }, Plan.Types.UiState)));

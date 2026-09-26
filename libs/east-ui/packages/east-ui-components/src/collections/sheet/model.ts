@@ -263,10 +263,8 @@ export interface LineGroup {
  * declaration against the line columns.
  */
 export interface SheetGroupIndex {
-    /** The field holding the lines. */
+    /** The field holding the lines — an `Array`, so a line's address is its position. */
     linesField: string;
-    /** `Dict` lines — a line's address is its key, not its position. */
-    keyed: boolean;
     /** The band's cells by the line column key they sit under (the title under {@link TITLE_KEY}). */
     cells: ReadonlyMap<string, SheetColumnMeta>;
     /** How many leading columns the title spans — up to three, stopping before the first column with a band cell. */
@@ -296,7 +294,7 @@ export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex, ti
     }
     let firstCell = columns.list.length;
     columns.list.forEach((c, i) => { if (i < firstCell && cells.has(c.key)) firstCell = i; });
-    return { linesField: group.lines, keyed: group.keyed, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)), noun: getSomeorUndefined(group.noun), loose: group.loose };
+    return { linesField: group.lines, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)), noun: getSomeorUndefined(group.noun), loose: group.loose };
 }
 
 /**
@@ -355,9 +353,9 @@ export function withoutLines(group: SheetRowValue, keys: ReadonlySet<string>): S
     return { ...group, lines: group.lines.filter((l) => !keys.has(l.key)) };
 }
 
-/** A line's ADDRESS in an edit event — its position on `Array` lines, its key on `Dict` lines. */
-export function lineAddress(keyed: boolean, key: string, index: number): string {
-    return keyed ? key : String(index);
+/** A line's ADDRESS in an edit event — its position among its group's lines. */
+export function lineAddress(index: number): string {
+    return String(index);
 }
 
 /** The band's height per density (px). */

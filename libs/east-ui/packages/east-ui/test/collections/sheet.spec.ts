@@ -588,7 +588,6 @@ describeEast("Sheet", (test) => {
         // The declaration on the wire: the title first, then the cells in declaration order.
         const group = $.let(root.group.unwrap("some"));
         $(Assert.equal(group.lines, "lines"));
-        $(Assert.equal(group.keyed, false));
         $(Assert.equal(group.cells.size(), 4n));
         $(Assert.equal(group.cells.get(0n).key, "$title"));
         $(Assert.equal(group.cells.get(0n).field, "name"));
@@ -603,7 +602,6 @@ describeEast("Sheet", (test) => {
         // The columns are the LINE columns.
         $(Assert.equal(root.columns.size(), 4n));
         $(Assert.equal(root.columns.get(0n).key, "start"));
-        $(Assert.equal(root.newLineKey.hasTag("none"), true));
     });
 
     test("group draft decoding preserves hidden fields while children insert, move, remove and edit", $ => {

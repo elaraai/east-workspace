@@ -190,7 +190,6 @@ export {
     type SheetLinesField,
     type SheetLineOf,
     type SheetEntryOf,
-    type SheetLineAddress,
     type SheetPatchInput,
     type SheetFieldsOf,
 } from "./types.js";
