@@ -6,7 +6,8 @@
 /**
  * A deploy's record migrations, on the real runner: the plan it makes for each
  * record, the steps it runs before it writes, the commits it leaves, and the
- * reserved slots those commits keep.
+ * reserved slots those commits keep. And the system commits that roll a record
+ * back or restore it, which never take it back past a migration.
  *
  * A workspace moves through one record's versions. v1 holds rows of a title;
  * v2 adds an owner to each row (a `rows` step) and indexes the rows by owner;
@@ -17,12 +18,16 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
-  DictType, East, IntegerType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant,
+  DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, variant,
   type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
 import type { RecordIndexPlan, RecordPlan, TreePath } from '@elaraai/e3-types';
-import { appliedMigrations, readRecordState, recordCompact, recordHistory, recordMutate, recordReindex } from './records.js';
+import {
+  appliedMigrations, readRecordState, recordCompact, recordHistory, recordMutate, recordReindex, recordSystemCommit,
+  type RecordSystemCommitOptions, type RecordSystemCommitTarget,
+} from './records.js';
+import { storeDatasetBytes } from './store-collection.js';
 import { readDatasetWhole } from './dataset-open.js';
 import { repoGc } from './storage/local/gc.js';
 import { RecordDeployRefusedError } from './errors.js';
@@ -444,5 +449,126 @@ describe('a deploy\'s record migrations', () => {
     assert.deepEqual(old.get('p-3'), { title: 'Plan 3' });
     const migrated = decodeBeast2For(PlansV2Type)(await readDatasetWhole(storage, repo, byName.get('$migrate:add_owner')!));
     assert.deepEqual(migrated.get('p-3'), { title: 'Plan 3', owner: 'unassigned' });
+  });
+
+  it('rolls a record back to a commit, carrying every slot, and answers a keyed retry with the write it rolled back', async () => {
+    await deploy(v2());
+    const added = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('a')], { actor: 'cli:test' });
+    assert.equal(added.kind, 'committed', JSON.stringify(added));
+    const target = (added as { commitHash: string }).commitHash;
+    const keyed = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('q')], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.equal(keyed.kind, 'committed', JSON.stringify(keyed));
+
+    const rolled = await recordSystemCommit(storage, runner, repo, ws, 'plans',
+      { name: '$rollback', target: { commit: target }, actor: 'ops:test', args: [encodeStr(target)] });
+    assert.equal(rolled.kind, 'committed', JSON.stringify(rolled));
+    assert.deepEqual([...(await workspaceGetDataset(storage, repo, ws, plansPath) as Map<string, unknown>).keys()], ['a'],
+      'the rows the commit held');
+    const [head] = await recordHistory(storage, repo, ws, 'plans');
+    assert.equal(head!.commit.mutation, '$rollback');
+    assert.equal(head!.commit.actor, 'ops:test');
+    assert.equal(head!.commit.args.type, 'some', 'the commit carries its arguments');
+    const held = await ref();
+    assert.deepEqual(appliedMigrations(held.versions), ['add_owner']);
+    assert.equal(held.versions.get('$idem'), 'k1');
+    assert.deepEqual([...(await readRecordState(storage, repo, held.hash)).indexes.keys()], ['by_owner']);
+
+    const retry = await recordMutate(storage,
+      { execute: () => { throw new Error('the retry ran the mutation again'); } } as unknown as TaskRunner,
+      repo, ws, 'plans', 'add', [encodeStr('q')], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.deepEqual(retry, keyed, 'the keyed write the rollback undid answers the retry, which is not applied again');
+  });
+
+  it("refuses a rollback past a migration, even one that keeps the record's type, and past a reset or a compaction", async () => {
+    const rollback = async (commit: string, workspace = ws): Promise<string> => {
+      const outcome = await recordSystemCommit(storage, runner, repo, workspace, 'plans',
+        { name: '$rollback', target: { commit }, actor: 'ops:test' });
+      assert.equal(outcome.kind, 'invalid', JSON.stringify(outcome));
+      return (outcome as { message: string }).message;
+    };
+    await seeded(10n);
+    const [seededAt] = await recordHistory(storage, repo, ws, 'plans');
+    await deploy(v2());
+    const [beforeRekey] = await recordHistory(storage, repo, ws, 'plans');
+    await deploy(v3());
+    const before = await ref();
+    // v3's rekey keeps the record's type: only the history says the state
+    // before it was never keyed by title.
+    assert.match(await rollback(beforeRekey!.hash), /goes past its '\$migrate:by_title' commit: migrations run forward only/);
+    assert.match(await rollback(seededAt!.hash), /goes past its '\$migrate:by_title' commit/);
+    assert.deepEqual(await ref(), before, 'nothing was written');
+
+    assert.equal((await recordCompact(storage, repo, ws, 'plans', { actor: 'cli:test' })).kind, 'committed');
+    assert.match(await rollback(beforeRekey!.hash), /is not in record 'plans''s history: a compaction has cut it from the chain/);
+
+    const other = 'other';
+    await workspaceCreate(storage, repo, other);
+    await seeded(10n, other);
+    const [seededOther] = await recordHistory(storage, repo, other, 'plans');
+    const unmigrated = (() => {
+      const plans = e3.record('plans', PlansV2Type, new Map());
+      return e3.package('planning', '2.0.1', plans);
+    })();
+    await deploy(unmigrated, { schema: 'reset' }, other);
+    assert.match(await rollback(seededOther!.hash, other), /goes past its '\$reset' commit/);
+  });
+
+  it('restores a state from outside the history only at the migrations the record has applied, and of its type', async () => {
+    await deploy(v2());
+    await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('a')], { actor: 'cli:test' });
+    const taken = await ref();
+    await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('b')], { actor: 'cli:test' });
+    const restore = (target: RecordSystemCommitTarget) => recordSystemCommit(storage, runner, repo, ws, 'plans',
+      { name: '$restore', target, actor: 'ops:test' });
+
+    const unapplied = await restore({ state: taken.hash, applied: [] });
+    assert.equal(unapplied.kind, 'invalid');
+    assert.match((unapplied as { message: string }).message,
+      /has had migrations 'add_owner' applied, and the state to restore had had none/);
+
+    const foreign = await storeDatasetBytes(storage, repo, encodeBeast2For(PlansV1Type)(
+      new SortedMap([['x', { title: 'X' }]], compareFor(StringType))));
+    const mistyped = await restore({ state: foreign, applied: ['add_owner'] });
+    assert.equal(mistyped.kind, 'invalid');
+    assert.match((mistyped as { message: string }).message, /is declared as .*, and the state [0-9a-f]+ holds /);
+
+    const restored = await restore({ state: taken.hash, applied: appliedMigrations(taken.versions) });
+    assert.equal(restored.kind, 'committed', JSON.stringify(restored));
+    assert.deepEqual([...(await workspaceGetDataset(storage, repo, ws, plansPath) as Map<string, unknown>).keys()], ['a']);
+    assert.deepEqual((await history()).slice(0, 2), ['$restore', 'add']);
+  });
+
+  it('builds the indexes a state was not built under, and refuses a name of its own or a head it did not expect', async () => {
+    await deploy(v2());
+    const added = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('a')], { actor: 'cli:test' });
+    const { commitHash: target, stateHash } = added as { commitHash: string; stateHash: string };
+    // A package that keys `by_owner` on the title: a declaration the state
+    // rolled back to was not built under.
+    const retitled = (() => {
+      const plans = e3.record('plans', PlansV2Type, new Map());
+      return e3.package('planning', '2.1.0', plans, addOwner(plans), e3.recordIndex('by_owner', plans, {
+        key: East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.title),
+      }));
+    })();
+    await deploy(retitled);
+    const declared = (await readRecordState(storage, repo, (await ref()).hash)).indexes.get('by_owner')!.index;
+    assert.notEqual((await readRecordState(storage, repo, stateHash)).indexes.get('by_owner')!.index, declared);
+    const rollback = (opts: Partial<RecordSystemCommitOptions>) => recordSystemCommit(storage, runner, repo, ws, 'plans',
+      { name: '$rollback', target: { commit: target }, actor: 'ops:test', ...opts });
+
+    for (const name of ['$compact', 'rollback', '$migrate:by_title']) {
+      const refused = await rollback({ name });
+      assert.equal(refused.kind, 'invalid', name);
+      assert.match((refused as { message: string }).message, /a system commit is named '\$' and an identifier/);
+    }
+    const stale = await rollback({ expectedHead: target });
+    assert.equal(stale.kind, 'invalid');
+    assert.match((stale as { message: string }).message, /has moved on from the head expected/);
+
+    const [head] = await recordHistory(storage, repo, ws, 'plans');
+    const rolled = await rollback({ expectedHead: head!.hash });
+    assert.equal(rolled.kind, 'committed', JSON.stringify(rolled));
+    assert.equal((await readRecordState(storage, repo, (await ref()).hash)).indexes.get('by_owner')!.index, declared,
+      'the index is built under the declaration the package has now');
   });
 });

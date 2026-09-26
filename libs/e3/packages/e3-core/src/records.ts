@@ -16,7 +16,10 @@
  * the execution cache.
  */
 
-import { variant, some, none, ArrayType, BlobType, PatchType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, fromEastTypeValue, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
+import {
+  variant, some, none, ArrayType, BlobType, PatchType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, fromEastTypeValue,
+  isTypeValueEqual, printTypeValueSummary, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue,
+} from '@elaraai/east';
 import {
   RECORD_STATE_KIND,
   RecordCommitType,
@@ -38,9 +41,10 @@ import {
   type RecordCommit,
   type RecordIndexObject,
   type RecordIndexPlan,
+  type Structure,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
-import { readManifest } from './dataset-open.js';
+import { openDatasetObject, readManifest } from './dataset-open.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
@@ -110,6 +114,30 @@ export interface RecordRef {
 export function appliedMigrations(versions: ReadonlyMap<string, string>): string[] {
   const slot = versions.get(SCHEMA_SLOT);
   return slot === undefined || slot === '' ? [] : slot.split(',');
+}
+
+/** A list of migration steps' names as a refusal says it. */
+export function namedSteps(names: readonly string[]): string {
+  return names.length === 0 ? 'none' : names.map((name) => `'${name}'`).join(', ');
+}
+
+/**
+ * The East type of the dataset leaf at a ref path, as a package's structure
+ * declares it.
+ *
+ * @param structure - The package's data structure
+ * @param refPath - The dataset's ref path, such as `records/orders`
+ * @returns The leaf's type, or undefined when the path names no dataset
+ */
+export function recordLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
+  let current: Structure = structure;
+  for (const segment of refPath.split('/')) {
+    if (current.type !== 'struct') return undefined;
+    const next = current.value.get(segment);
+    if (!next) return undefined;
+    current = next;
+  }
+  return current.type === 'value' ? current.value.type : undefined;
 }
 
 /**
@@ -201,6 +229,8 @@ function casBackoffMs(attempt: number): number {
 interface ResolvedRecord {
   refPath: string;
   selfKeypath: string;
+  /** The record's type, as the deployed package declares it. */
+  type: EastTypeValue;
   mutations: Map<string, string>;
   /** Index name -> RecordIndexObject hash, as the deployed package declares
    *  them. What the state names is what was BUILT; deploy reconciles the two. */
@@ -270,8 +300,8 @@ export async function writeRecordState(storage: StorageBackend, repo: string, st
   }));
 }
 
-/** Resolve a record name in a workspace's deployed package to its ref path and
- *  mutation table. Returns null if the workspace has no such record. */
+/** Resolve a record name in a workspace's deployed package to its ref path,
+ *  type and declarations. Returns null if the workspace has no such record. */
 async function resolveRecord(
   storage: StorageBackend,
   repo: string,
@@ -283,9 +313,12 @@ async function resolveRecord(
   const recHash = pkg.records.get(recordName);
   if (!recHash) return null;
   const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+  const type = recordLeafType(pkg.data.structure, recObj.path);
+  if (type === undefined) return null;
   return {
     refPath: recObj.path,
     selfKeypath: refPathToKeypath(recObj.path),
+    type,
     mutations: recObj.mutations,
     indexes: recObj.indexes,
   };
@@ -1270,6 +1303,241 @@ export async function recordCompact(
       }
     }
   });
+}
+
+/** A system commit's name: `$` and an identifier. The names deploy's
+ *  `$migrate:<name>` and a one-index `$reindex:<name>` take hold a colon. */
+const SYSTEM_COMMIT_NAME = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** The names e3's own commits take, whose meaning the commit protocol fixes. */
+const OWN_COMMIT_NAMES: readonly string[] = ['$init', '$deploy', '$reset', '$reindex', '$compact'];
+
+/**
+ * What a system commit points a record at.
+ *
+ * - `{ commit }`: a commit in the record's history, whose state the record
+ *   goes back to: a rollback.
+ * - `{ state, applied }`: a state from outside the record's history, such as a
+ *   backup's, and the migrations it had had applied when it was taken: a
+ *   restore.
+ */
+export type RecordSystemCommitTarget =
+  | { commit: string }
+  | { state: string; applied: readonly string[] };
+
+/** What {@link recordSystemCommit} commits, and how it retries. */
+export interface RecordSystemCommitOptions {
+  /** The commit's name: `$` and an identifier, such as `$rollback` or
+   *  `$restore`, and none of the names e3's own commits take. */
+  name: string;
+  /** What the record is pointed at. */
+  target: RecordSystemCommitTarget;
+  /** Caller identity recorded on the commit. */
+  actor: string;
+  /** Recorded as the commit's arguments, as a mutation's are: what a reader of
+   *  the history needs to know of the commit, such as a backup's id. */
+  args?: Uint8Array[];
+  /** The record's head the caller saw. When the record has moved on from it,
+   *  the commit is refused rather than made over a write the caller never
+   *  saw. */
+  expectedHead?: string;
+  /** Wall-clock budget for CAS retries (default 30s); on expiry returns conflict. */
+  maxRetryMs?: number;
+  /** Hard cap on CAS attempts (mainly for tests forcing a conflict). */
+  maxAttempts?: number;
+  /** Cancellation, for an index build the commit runs. */
+  signal?: AbortSignal;
+  /** Externally-held shared workspace lock; acquired internally when omitted. */
+  lock?: LockHandle;
+}
+
+/**
+ * Commit a state to a record as a named system commit: a rollback to a commit
+ * of its history, or a restore of a state from outside it.
+ *
+ * @remarks
+ * The door for a commit made on an operator's behalf, such as e3-cloud's
+ * `$rollback` and `$restore`, so that what the commit does to the reserved
+ * slots is the commit protocol's, as every other commit's is. It carries every
+ * one: `$schema`, since the state it commits is at the migrations the record
+ * has applied, and the idempotency key, whose commit stays in the chain under
+ * this one, so a keyed retry after a rollback is answered by the write the
+ * operator rolled back rather than applied again.
+ *
+ * Migrations run forward only. A rollback past a `$migrate` or `$reset` commit
+ * is refused: the state it would go back to is not at the migrations the
+ * record has applied, and a `rekey`, or a `rows` step, can keep the record's
+ * type, so the type alone cannot say so. So is a rollback to a commit the
+ * chain no longer reaches, which a compaction cut from it, since what that
+ * commit had applied is unknown. A restore names the migrations its state had
+ * applied, which must be the record's. Either is refused a state whose type is
+ * not the record's.
+ *
+ * The state's indexes are reconciled with the package's declarations as a
+ * deploy reconciles them: one built under another declaration, or none, is
+ * built over the state's primary, and one the package does not declare is
+ * dropped.
+ *
+ * @param storage - Storage backend
+ * @param runner - Task runner for the index builds the commit owes
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param recordName - The record to commit to
+ * @param opts - The commit's name, target, actor and arguments, and its retries
+ * @returns `committed`; `invalid`, naming why nothing was written; an index
+ *   build's failure; or `conflict`
+ */
+export async function recordSystemCommit(
+  storage: StorageBackend,
+  runner: TaskRunner,
+  repo: string,
+  ws: string,
+  recordName: string,
+  opts: RecordSystemCommitOptions,
+): Promise<MutationOutcome> {
+  if (!SYSTEM_COMMIT_NAME.test(opts.name) || OWN_COMMIT_NAMES.includes(opts.name)) {
+    return {
+      kind: 'invalid',
+      message: `a system commit is named '$' and an identifier, such as '$rollback', and not ${OWN_COMMIT_NAMES.join(', ')}, ` +
+        `which e3's own commits are named: not '${opts.name}'`,
+    };
+  }
+  return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
+    const resolved = await resolveRecord(storage, repo, ws, recordName);
+    if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
+    const argsHash = opts.args !== undefined && opts.args.length > 0
+      ? await storage.objects.write(repo, encodeArgsTuple(opts.args))
+      : undefined;
+
+    const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
+    for (let attempt = 1; ; attempt++) {
+      const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
+      if (!existing || existing.ref.type !== 'value') {
+        return { kind: 'invalid', message: `record '${recordName}' has no state` };
+      }
+      const head = existing.ref.value.versions.get(resolved.selfKeypath);
+      if (opts.expectedHead !== undefined && head !== opts.expectedHead) {
+        return { kind: 'invalid', message: `record '${recordName}' has moved on from the head expected, ${opts.expectedHead}: read its history again` };
+      }
+      const target = await systemCommitState(storage, repo, recordName, head, existing.ref.value.versions, opts.target);
+      if ('refusal' in target) return { kind: 'invalid', message: target.refusal };
+
+      const state = await readRecordState(storage, repo, target.state);
+      const opened = await openDatasetObject(storage, repo, state.primary);
+      const held = opened.manifest !== null ? opened.manifest.type : readBeast2Type(await storage.objects.read(repo, opened.hash));
+      if (!isTypeValueEqual(held, resolved.type)) {
+        return {
+          kind: 'invalid',
+          message: `record '${recordName}' is declared as ${printTypeValueSummary(resolved.type, 2, 8)}, ` +
+            `and the state ${target.state} holds ${printTypeValueSummary(held, 2, 8)}`,
+        };
+      }
+
+      const build = new Map<string, string>();
+      for (const [name, indexHash] of resolved.indexes) {
+        if (state.indexes.get(name)?.index !== indexHash) build.set(name, indexHash);
+      }
+      const outcome = build.size === 0
+        ? { built: new Map<string, { manifest: string; index: string }>() }
+        : await buildRecordIndexes(storage, runner, repo, build, state.primary, {
+          ...(opts.signal !== undefined && { signal: opts.signal }),
+        });
+      if ('failure' in outcome) return outcome.failure;
+      const indexes = new Map<string, { manifest: string; index: string }>();
+      for (const name of resolved.indexes.keys()) indexes.set(name, outcome.built.get(name) ?? state.indexes.get(name)!);
+      const stateHash = await writeRecordState(storage, repo, { primary: state.primary, indexes });
+
+      const commitHash = await storage.objects.write(repo, encodeCommit({
+        parent: head !== undefined ? some(head) : none,
+        state: stateHash,
+        mutation: opts.name,
+        args: argsHash !== undefined ? some(argsHash) : none,
+        actor: opts.actor,
+        at: new Date(),
+        delta: none,
+      }));
+      try {
+        await storage.datasets.writeIf(
+          repo, ws, resolved.refPath,
+          variant('value', {
+            hash: stateHash,
+            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash),
+          }),
+          existing.revision,
+        );
+        return { kind: 'committed', commitHash, stateHash };
+      } catch (err) {
+        if (!(err instanceof DatasetRefConflictError)) throw err;
+        if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline) {
+          return { kind: 'conflict', attempts: attempt };
+        }
+        await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
+      }
+    }
+  });
+}
+
+/**
+ * The state a system commit's target names, or why it is refused.
+ *
+ * @remarks
+ * A rollback walks the chain back from the head to its commit, and is refused
+ * past a `$migrate` or `$reset` commit, or when the chain ends before it. A
+ * restore is refused unless its state had had the migrations the record has
+ * applied.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param recordName - The record, as a refusal names it
+ * @param head - The record's head commit
+ * @param versions - The record ref's version vector
+ * @param target - What the commit points the record at
+ * @returns The state to commit, or the refusal
+ */
+async function systemCommitState(
+  storage: StorageBackend,
+  repo: string,
+  recordName: string,
+  head: string | undefined,
+  versions: ReadonlyMap<string, string>,
+  target: RecordSystemCommitTarget,
+): Promise<{ state: string } | { refusal: string }> {
+  if ('state' in target) {
+    const applied = appliedMigrations(versions);
+    if (target.applied.length !== applied.length || target.applied.some((name, i) => applied[i] !== name)) {
+      return {
+        refusal: `record '${recordName}' has had migrations ${namedSteps(applied)} applied, and the state to restore had had ` +
+          `${namedSteps(target.applied)}: migrations run forward only, so a record is restored only to a state at the migrations it has applied`,
+      };
+    }
+    if (!await storage.objects.exists(repo, target.state)) {
+      return { refusal: `the state ${target.state} is not in the repository` };
+    }
+    return { state: target.state };
+  }
+  const seen = new Set<string>();
+  let at = head;
+  while (at !== undefined && !seen.has(at)) {
+    seen.add(at);
+    let commit: RecordCommit;
+    try {
+      commit = decodeRecordCommit(await storage.objects.read(repo, at));
+    } catch {
+      break;
+    }
+    if (at === target.commit) return { state: commit.state };
+    if (commit.mutation === '$reset' || commit.mutation.startsWith('$migrate:')) {
+      return {
+        refusal: `rolling record '${recordName}' back to ${target.commit} goes past its '${commit.mutation}' commit: ` +
+          `migrations run forward only, so a record rolls back no further than its last migration or reset`,
+      };
+    }
+    at = commit.parent.type === 'some' ? commit.parent.value : undefined;
+  }
+  return {
+    refusal: `commit ${target.commit} is not in record '${recordName}''s history: ` +
+      `a compaction has cut it from the chain, or it is another record's`,
+  };
 }
 
 /** A commit in a record's history, with its content hash. */

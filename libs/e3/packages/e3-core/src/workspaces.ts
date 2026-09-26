@@ -24,7 +24,7 @@ import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import { PackageObjectType, WorkspaceRecordType, DataflowRunType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
 import type {
-  PackageObject, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, Structure, TreePath,
+  PackageObject, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, TreePath,
 } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
@@ -39,10 +39,8 @@ import {
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords } from './records.js';
-import {
-  planRecordDeployments, recordDeployCommits, recordLeafType, runRecordMigrations, type PriorDeployment,
-} from './record-deploy.js';
+import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLeafType } from './records.js';
+import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
 import { withRunningWork } from './storage/local/gc.js';
 
 /**
@@ -552,7 +550,7 @@ function validateDatasetSources(
   const files = new Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }>();
   for (const [refPath, source] of pkg.sources) {
     const inputName = refPath.split('/').pop() ?? refPath;
-    const type = datasetLeafType(pkg.data.structure, refPath);
+    const type = recordLeafType(pkg.data.structure, refPath);
     if (!type) {
       throw new Error(`input '${inputName}': the package declares a source for '${refPath}', which is not a dataset`);
     }
@@ -575,11 +573,6 @@ function validateDatasetSources(
     }
   }
   return files;
-}
-
-/** The East type of the dataset leaf at a refPath (e.g. `inputs/table`). */
-function datasetLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
-  return recordLeafType(structure, refPath);
 }
 
 /**

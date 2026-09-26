@@ -21,19 +21,20 @@
  */
 
 import {
-  EastTypeType, diffTypeValues, encodeBeast2For, equalFor, none, printTypeValueSummary, renderTypeDiff, some, variant,
+  diffTypeValues, encodeBeast2For, isTypeValueEqual, none, printTypeValueSummary, renderTypeDiff, some, variant,
   type EastTypeValue,
 } from '@elaraai/east';
 import {
   TASK_OBJECT_KIND, TaskObjectType, decodeMigrationObject, decodeRecordObject,
-  type MigrationObject, type PackageObject, type RecordPlan, type SchemaPolicy, type Structure, type TaskOutputKind,
+  type MigrationObject, type PackageObject, type RecordPlan, type SchemaPolicy, type TaskOutputKind,
 } from '@elaraai/e3-types';
-import { appliedMigrations, readRecordState, type DeployRecordCommit, type RecordRef } from './records.js';
+import {
+  appliedMigrations, namedSteps, readRecordState, recordLeafType, type DeployRecordCommit, type RecordRef,
+} from './records.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
-const typesEqual = equalFor(EastTypeType);
 
 /** A workspace's deployment, as a deploy over it finds it. */
 export interface PriorDeployment {
@@ -61,25 +62,6 @@ export interface RecordDeployment {
   steps: Array<{ name: string; object: MigrationObject }>;
 }
 
-/**
- * The East type of the dataset leaf at a ref path, as a package's structure
- * declares it.
- *
- * @param structure - The package's data structure
- * @param refPath - The dataset's ref path, such as `records/orders`
- * @returns The leaf's type, or undefined when the path names no dataset
- */
-export function recordLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
-  let current: Structure = structure;
-  for (const segment of refPath.split('/')) {
-    if (current.type !== 'struct') return undefined;
-    const next = current.value.get(segment);
-    if (!next) return undefined;
-    current = next;
-  }
-  return current.type === 'value' ? current.value.type : undefined;
-}
-
 /** A type as a refusal names it: its head, and its members by name. */
 const describe = (type: EastTypeValue): string => printTypeValueSummary(type, 2, 8);
 
@@ -89,10 +71,6 @@ function typeChange(held: EastTypeValue, declared: EastTypeValue): string {
   const diff = renderTypeDiff(diffTypeValues(held, declared));
   return diff !== '' ? diff : `from ${describe(held)} to ${describe(declared)}`;
 }
-
-/** A list of step names as a refusal says it. */
-const named = (names: readonly string[]): string =>
-  names.length === 0 ? 'none' : names.map((name) => `'${name}'`).join(', ');
 
 /**
  * Decide what a deploy does to each record, before it writes anything.
@@ -162,13 +140,13 @@ export async function planRecordDeployments(
     const applied = appliedMigrations(held.ref.versions);
     if (applied.length > chain.length || applied.some((name, i) => chain[i] !== name)) {
       deployments.push(refuse(
-        `has had migrations ${named(applied)} applied, and the package declares ${named(chain)}: ` +
+        `has had migrations ${namedSteps(applied)} applied, and the package declares ${namedSteps(chain)}: ` +
         `an applied migration was renamed, reordered or removed, or the package is older than the workspace.`,
       ));
       continue;
     }
     if (applied.length === chain.length) {
-      deployments.push(typesEqual(held.type, type)
+      deployments.push(isTypeValueEqual(held.type, type)
         ? { ...deployment, prior: held.ref, plan: { record: path, action: variant('keep', { deploy: prior!.packageHash !== packageHash }) } }
         : refuse(
           `changed type with no migration:\n${typeChange(held.type, type).replace(/^/gm, '    ')}\n` +
@@ -188,7 +166,7 @@ export async function planRecordDeployments(
     let at = held.type;
     let broken: string | undefined;
     for (const [i, step] of steps.entries()) {
-      if (!typesEqual(at, step.object.from)) {
+      if (!isTypeValueEqual(at, step.object.from)) {
         broken = i === 0
           ? `holds its state as ${describe(at)}, and its next migration, '${step.name}', takes it as ${describe(step.object.from)}.`
           : `has a migration, '${step.name}', that takes it as ${describe(step.object.from)}, where '${steps[i - 1]!.name}' leaves it as ${describe(at)}.`;
@@ -196,7 +174,7 @@ export async function planRecordDeployments(
       }
       at = step.object.to;
     }
-    if (broken === undefined && !typesEqual(at, type)) {
+    if (broken === undefined && !isTypeValueEqual(at, type)) {
       broken = `has a last migration, '${steps[steps.length - 1]!.name}', that leaves it as ${describe(at)}, and the package declares it as ${describe(type)}.`;
     }
     if (broken !== undefined) {
@@ -208,7 +186,7 @@ export async function planRecordDeployments(
         plan: {
           record: path,
           action: variant('refused', {
-            reason: `has migrations ${named(steps.map((step) => step.name))} to run, and this deploy runs none. ` +
+            reason: `has migrations ${namedSteps(steps.map((step) => step.name))} to run, and this deploy runs none. ` +
               `Deploy with --schema=migrate to run them.`,
           }),
         },
@@ -290,7 +268,7 @@ export async function runRecordMigrations(
     if (action.type !== 'migrate') continue;
     if (runner === undefined) {
       throw new Error(
-        `deploying record '${deployment.path}' must run migrations ${named(action.value.steps)}, ` +
+        `deploying record '${deployment.path}' must run migrations ${namedSteps(action.value.steps)}, ` +
         `but this deploy was given no task runner.`,
       );
     }
