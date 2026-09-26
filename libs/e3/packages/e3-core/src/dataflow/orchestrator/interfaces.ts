@@ -11,7 +11,7 @@
  * - StepFunctionsOrchestrator: AWS Step Functions state machine (in e3-aws)
  */
 
-import type { PartitionProgress } from '@elaraai/e3-types';
+import type { ExecutionOwner, PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { TaskRunner } from '../../execution/interfaces.js';
 import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../types.js';
@@ -83,6 +83,15 @@ export interface OrchestratorStartOptions {
    * integer.
    */
   width?: number;
+  /**
+   * The owner a split task's own execution is recorded under while the loop
+   * drives its stages, which run in this process whatever runs the units: this
+   * process unless given. `null` records none, whose execution is never
+   * repaired as interrupted — what a host passes when no other process can
+   * check its liveness, as a cloud function's. A runtime setting like
+   * {@link signal}: never persisted.
+   */
+  owner?: ExecutionOwner | null;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */

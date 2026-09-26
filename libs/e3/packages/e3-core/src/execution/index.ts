@@ -19,13 +19,17 @@ export {
 export { LocalTaskRunner } from './LocalTaskRunner.js';
 export { MockTaskRunner, type MockTaskCall, type MockTaskResult, type MockUnitCall } from './MockTaskRunner.js';
 
-// The engine: a task split into pieces, as the stages its units run in
+// The engine: a task split into pieces, as the stages its units run in, and
+// the driver that runs a task on its own
 export {
   SplitTask,
   isSplitTask,
   stageUnits,
+  executeSplitTask,
   type SplitStage,
+  type SplitTaskDriver,
   type ThrownUnit,
+  type UnitExecutor,
 } from './engine.js';
 
 // Graph-free execution (functions / one-shot)

@@ -548,6 +548,7 @@ describe('gc', () => {
         inputs: inputsHash,
         stage: variant('pieces', [[piece]]),
         previous: none,
+        peakBytes: none,
       }));
       await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, plan);
 
@@ -1033,13 +1034,14 @@ describe('gc', () => {
         const piecesPlan = 'd'.repeat(64);
         const mergePlan = 'e'.repeat(64);
         const objects = new Map<string, Uint8Array>([
-          [piecesPlan, encodeUnitPlan({ kind: UNIT_PLAN_KIND, task: taskHash, inputs: '9'.repeat(64), stage: variant('pieces', pieces), previous: none })],
+          [piecesPlan, encodeUnitPlan({ kind: UNIT_PLAN_KIND, task: taskHash, inputs: '9'.repeat(64), stage: variant('pieces', pieces), previous: none, peakBytes: none })],
           [mergePlan, encodeUnitPlan({
             kind: UNIT_PLAN_KIND,
             task: taskHash,
             inputs: '9'.repeat(64),
             stage: variant('merge', { level: 1n, levels: 2n, groups: [{ range: some(range), entries: parts }, { range: none, entries: [passing] }] }),
             previous: some(piecesPlan),
+            peakBytes: some(1024n),
           })],
           [taskHash, encodeBeast2For(TaskObjectType)({
             kind: TASK_OBJECT_KIND,
@@ -1067,7 +1069,7 @@ describe('gc', () => {
         const root = 'f'.repeat(64);
         const input = '1'.repeat(64);
         const store = tracedStore(new Map([[root, encodeUnitPlan({
-          kind: '$something-else', task: 'b'.repeat(64), inputs: '9'.repeat(64), stage: variant('pieces', [[input]]), previous: none,
+          kind: '$something-else', task: 'b'.repeat(64), inputs: '9'.repeat(64), stage: variant('pieces', [[input]]), previous: none, peakBytes: none,
         })]]));
 
         const reachable = await markReachable(store.readObject, new Set([root]), { readHead: store.readHead });
@@ -1573,6 +1575,7 @@ describe('gc', () => {
         inputs: '9'.repeat(64),
         stage: variant('pieces', [[piece]]),
         previous: none,
+        peakBytes: none,
         a_field_appended_later: 0n,
       } as never)]]);
 

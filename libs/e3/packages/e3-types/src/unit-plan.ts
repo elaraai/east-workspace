@@ -74,6 +74,7 @@ export type UnitPlanStage = ValueTypeOf<typeof UnitPlanStageType>;
  *   inputs: '9c01de…',
  *   stage: variant('pieces', [['a1b2…'], ['c3d4…']]),
  *   previous: none,
+ *   peakBytes: none,
  * };
  * ```
  */
@@ -88,6 +89,12 @@ export const UnitPlanType = StructType({
   stage: UnitPlanStageType,
   /** The plan of the stage before this one; `none` for the pieces. */
   previous: OptionType(StringType),
+  /** The largest peak resident memory, in bytes, a unit of the stages before
+   *  this one reached, as their execution records hold it; `none` for the
+   *  pieces, or when no unit reported one. A task taken up at this stage
+   *  starts its own peak from it, so its record counts every stage wherever
+   *  it was taken up. */
+  peakBytes: OptionType(IntegerType),
 });
 export type UnitPlanType = typeof UnitPlanType;
 export type UnitPlan = ValueTypeOf<typeof UnitPlanType>;

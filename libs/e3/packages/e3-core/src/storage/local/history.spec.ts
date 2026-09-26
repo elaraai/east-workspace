@@ -124,14 +124,14 @@ describe('the history gc keeps', () => {
     const [inputs, resumable, abandoned] = ['c', 'd', 'e'].map((c) => c.repeat(64));
     const [x1, x2, o1, o2, y1, z1] = ['5', '6', '7', '8', '9', '0'].map((c) => c.repeat(64));
     const pieces = await objectWrite(repo, encodeUnitPlan({
-      kind: UNIT_PLAN_KIND, task: split, inputs, stage: variant('pieces', [[x1], [x2]]), previous: none,
+      kind: UNIT_PLAN_KIND, task: split, inputs, stage: variant('pieces', [[x1], [x2]]), previous: none, peakBytes: none,
     }));
     const merge = await objectWrite(repo, encodeUnitPlan({
       kind: UNIT_PLAN_KIND, task: split, inputs, stage: variant('merge', { level: 1n, levels: 1n, groups: [{ range: none, entries: [o1, o2] }] }),
-      previous: some(pieces),
+      previous: some(pieces), peakBytes: none,
     }));
     const [resumes, abandons] = await Promise.all([[resumable, y1], [abandoned, z1]].map(([over, piece]) => objectWrite(repo, encodeUnitPlan({
-      kind: UNIT_PLAN_KIND, task: split, inputs: over!, stage: variant('pieces', [[piece!]]), previous: none,
+      kind: UNIT_PLAN_KIND, task: split, inputs: over!, stage: variant('pieces', [[piece!]]), previous: none, peakBytes: none,
     }))));
     // The task's success, which a kept run used, names the merge level's plan.
     const succeeded = idAt(old, 1);

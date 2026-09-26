@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import type { StorageBackend } from '@elaraai/e3-core';
+import { isObjectHash, type StorageBackend } from '@elaraai/e3-core';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { sendJsonError } from '../errors.js';
 
@@ -20,7 +20,7 @@ export function createObjectRoutes(
     const repoPath = getRepoPath(repo);
     const hash = c.req.param('hash')!;
 
-    if (!/^[a-f0-9]{64}$/.test(hash)) {
+    if (!isObjectHash(hash)) {
       return new Response(JSON.stringify({ error: { type: 'bad_request', message: `invalid hash format: ${hash}` } }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },

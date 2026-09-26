@@ -18,9 +18,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'path';
 import { isUuidv7 } from '../../uuid.js';
-
-/** A SHA-256 in lowercase hex, as every object is named. */
-export const HASH = /^[0-9a-f]{64}$/;
+import { isObjectHash } from '../../objects.js';
 
 /**
  * The directory of an execution's attempts, `executions/<taskHash>/<inputsHash>`,
@@ -39,8 +37,8 @@ export const HASH = /^[0-9a-f]{64}$/;
  * @throws {Error} When a hash or the id is not of its form
  */
 export function executionPath(repoPath: string, taskHash: string, inputsHash: string, executionId?: string): string {
-  if (!HASH.test(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
-  if (!HASH.test(inputsHash)) throw new Error(`'${inputsHash}' is not an inputs hash`);
+  if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
+  if (!isObjectHash(inputsHash)) throw new Error(`'${inputsHash}' is not an inputs hash`);
   const inputsDir = path.join(repoPath, 'executions', taskHash, inputsHash);
   if (executionId === undefined) return inputsDir;
   if (!isUuidv7(executionId)) throw new Error(`'${executionId}' is not an execution id`);
@@ -61,7 +59,7 @@ export function executionPath(repoPath: string, taskHash: string, inputsHash: st
  * @throws {Error} When the hash is not a SHA-256 in lowercase hex
  */
 export function objectPath(repoPath: string, hash: string): string {
-  if (!HASH.test(hash)) throw new Error(`'${hash}' is not an object hash`);
+  if (!isObjectHash(hash)) throw new Error(`'${hash}' is not an object hash`);
   const dirName = hash.slice(0, 2);
   const fileName = hash.slice(2) + '.beast2';
   return path.join(repoPath, 'objects', dirName, fileName);

@@ -22,6 +22,7 @@ import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
 import { taskExecute, taskExecuteUnit, type ExecutionResult } from '../../execution/LocalTaskRunner.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
+import { processOwner } from '../../execution/processHelpers.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError } from '../../errors.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
@@ -1292,7 +1293,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             ? (progress) => options.onPartitionProgress!(taskName, progress)
             : undefined,
         },
-        taskState?.plan.type === 'some' ? taskState.plan.value : null
+        taskState?.plan.type === 'some' ? taskState.plan.value : null,
+        options.owner === undefined ? await processOwner() : options.owner
       );
       if (!(split instanceof SplitTask)) {
         await this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, outcomeOf(split, startTime));

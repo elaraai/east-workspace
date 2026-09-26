@@ -46,10 +46,10 @@
  * the pool width, the budget or timing, so a task writes the same bytes on
  * every machine at every `-j`.
  *
- * While the units run, the task's own execution is recorded `running` under
- * this process, with the owner sidecar naming it, and its log names each unit's
- * execution. An aborted run records it `cancelled`, and a failure is the
- * lowest-index failing unit's.
+ * While the units run, the task's own execution is recorded `running`, under
+ * the owner its driver passes when it passes one, and its log names each
+ * unit's execution. An aborted run records it `cancelled`, and a failure is
+ * the lowest-index failing unit's.
  *
  * @packageDocumentation
  */
@@ -59,6 +59,7 @@ import {
   UNIT_PLAN_KIND,
   decodeUnitPlan,
   encodeUnitPlan,
+  type ExecutionOwner,
   type ExecutionStatus,
   type PartitionProgress,
   type TaskObject,
@@ -76,10 +77,6 @@ import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type Execu
 import { planPieces, pieceSizes, type PieceSizes } from './pieces.js';
 import { mergeComponents, mergeTreeGroups, mergeTreeLevels, planMergeRanges } from './steps.js';
 import type { MergeParts } from './units.js';
-
-/** The pool width — the most units in flight at once — of a task run on its
- *  own without a budget. */
-const DEFAULT_POOL_WIDTH = 4;
 
 /** The first of a merge unit's inputs as its execution records them — then its
  *  range, when it has one, and its parts — so no merge shares an identity with
@@ -265,6 +262,11 @@ export class SplitTask {
    * @param ids - The task's own execution identity
    * @param options - The run's signal and progress callback
    * @param plan - The `$plan` of a stage the task was in, or `null`
+   * @param owner - The owner the task's own execution is recorded under while
+   *   its stages run: the process that drives them, which a probe finds
+   *   exited if the execution cannot finish, or `null` for none, whose
+   *   execution is never repaired as interrupted — what a driver passes when no
+   *   other process can check its liveness
    * @returns The task; or its execution, recorded `error`, when its pieces
    *   cannot be planned
    * @throws {Error} When the plan or the task's `running` record cannot be
@@ -279,6 +281,7 @@ export class SplitTask {
     ids: ExecutionIds,
     options: ExecuteOptions,
     plan: string | null,
+    owner: ExecutionOwner | null,
   ): Promise<SplitTask | ExecutionResult> {
     const split = new SplitTask(storage, repo, taskHash, task, inputHashes, ids, options);
     let stage: UnitPlanStage | null = null;
@@ -290,6 +293,8 @@ export class SplitTask {
         if (named.task === taskHash && named.inputs === ids.inHash) {
           stage = named.stage;
           previous = named.previous.type === 'some' ? named.previous.value : null;
+          // The stages before this one reached it; this one adds its own.
+          split.peakBytes = named.peakBytes.type === 'some' ? Number(named.peakBytes.value) : undefined;
         } else if (named.task === taskHash && (await storage.refs.executionPlanRead(repo, taskHash, named.inputs)) === plan) {
           // A stage of the task over inputs it no longer has, which nothing
           // takes up again: it is no longer rooted.
@@ -315,24 +320,20 @@ export class SplitTask {
     }
     await split.begin(stage, previous);
 
-    // The task's execution is this process's own work while its units run,
-    // recorded `running` under this process with the owner sidecar naming it,
-    // so a run that dies here is found interrupted.
-    const bootId = await getBootId();
-    const pidStartTime = await getPidStartTime(process.pid);
+    // The task's execution is recorded `running` while its units run, under
+    // the owner its driver names, so a run that dies here is found
+    // interrupted; with no owner it never is.
     await storage.refs.executionWrite(repo, taskHash, ids.inHash, ids.executionId, variant('running', {
       executionId: ids.executionId,
       inputHashes,
       startedAt: new Date(ids.startTime),
       pid: BigInt(process.pid),
-      pidStartTime: BigInt(pidStartTime),
-      bootId,
+      pidStartTime: BigInt(await getPidStartTime(process.pid)),
+      bootId: await getBootId(),
     }));
-    await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, {
-      pid: BigInt(process.pid),
-      pidStartTime: BigInt(pidStartTime),
-      bootId,
-    });
+    if (owner !== null) {
+      await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, owner);
+    }
     split.running = true;
     return split;
   }
@@ -529,8 +530,11 @@ export class SplitTask {
     }));
   }
 
-  /** Starts a stage: writes its plan, naming the plan of the stage before it,
-   *  roots it, and lists its units. */
+  /** Starts a stage: writes its plan, naming the plan of the stage before it
+   *  and the largest peak the stages before it reached, roots it, and lists its
+   *  units. A plan is made of the stage's outputs and the execution records of
+   *  the units before it, so writing it again, as a driver taking up a stage
+   *  does, writes the same object. */
   private async begin(stage: UnitPlanStage, previous: string | null): Promise<void> {
     const plan = await this.storage.objects.write(this.repo, encodeUnitPlan({
       kind: UNIT_PLAN_KIND,
@@ -538,6 +542,7 @@ export class SplitTask {
       inputs: this.ids.inHash,
       stage,
       previous: previous === null ? none : some(previous),
+      peakBytes: this.peakBytes === undefined ? none : some(BigInt(this.peakBytes)),
     }));
     await this.storage.refs.executionPlanWrite(this.repo, this.taskHash, this.ids.inHash, plan);
     this.rooted = true;
@@ -707,18 +712,31 @@ async function runPool(
   return { results, thrown };
 }
 
+/** How a driver runs a split task on its own ({@link executeSplitTask}). */
+export interface SplitTaskDriver {
+  /** The most units in flight at once, a positive integer. */
+  readonly width: number;
+  /** The owner the task's own execution is recorded under while its stages
+   *  run, or `null` for none (see {@link SplitTask.open}). */
+  readonly owner: ExecutionOwner | null;
+}
+
 /**
  * Executes a task whose work is split over its inputs on its own: runs each
  * stage's units in a pool, and records the result under the task's own
  * `(taskHash, inputsHash)` identity.
  *
  * @remarks
- * Called by `taskExecute` after its cache probe and task decode. The stage the
- * plan sidecar names is taken up again, so a run that stopped mid-task
- * resumes where it stopped. Every unit is probed in the execution cache here,
- * and run by `execute` only on a miss. A stage's first unit runs alone, and the
- * rest then as many at once as the pool is wide, each expecting to need the
- * largest peak the stage has reached.
+ * `taskExecute` calls it after its cache probe and task decode, and a remote
+ * runner calls it for a task run outside the dataflow — an index build — with
+ * an `execute` that runs each unit where it runs. The stage the plan sidecar
+ * names is taken up again, so a run that stopped mid-task resumes where it
+ * stopped. Every unit is probed in the execution cache here, and run by
+ * `execute` only on a miss. A stage's first unit runs alone, and the rest then
+ * as many at once as the driver's width, each expecting to need the largest
+ * peak the stage has reached. The driver holds the task in memory from its
+ * first stage to its end; one that cannot drives {@link SplitTask} a step at a
+ * time instead.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -726,9 +744,12 @@ async function runPool(
  * @param task - The task, which {@link isSplitTask}
  * @param inputHashes - The task's input hashes
  * @param ids - The task's execution identity
- * @param options - Execution options
+ * @param options - Execution options: the run's signal, progress callback and
+ *   `force`
  * @param execute - Runs one unit on a cache miss
+ * @param driver - The pool's width, and the owner of the task's execution
  * @returns The task's execution result
+ * @throws {RangeError} When the width is not a positive integer.
  * @throws The error of the lowest-index unit whose executor or cache probe
  *   threw, once the task's execution is recorded `error`.
  */
@@ -741,18 +762,20 @@ export async function executeSplitTask(
   ids: ExecutionIds,
   options: ExecuteOptions,
   execute: UnitExecutor,
+  driver: SplitTaskDriver,
 ): Promise<ExecutionResult> {
+  const { width, owner } = driver;
+  if (!(Number.isInteger(width) && width >= 1)) {
+    throw new RangeError(`width must be a positive integer, got ${width}`);
+  }
   let plan: string | null = null;
   try {
     plan = await storage.refs.executionPlanRead(repo, taskHash, ids.inHash);
   } catch {
     // Unreadable: the pieces are planned again.
   }
-  const split = await SplitTask.open(storage, repo, taskHash, task, inputHashes, ids, options, plan);
+  const split = await SplitTask.open(storage, repo, taskHash, task, inputHashes, ids, options, plan, owner);
   if (!(split instanceof SplitTask)) return split;
-  // The pool width. Under a budget the pool is as wide as its cores, and the
-  // budget, not the pool, bounds the runner processes.
-  const width = Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH);
   for (;;) {
     const { units } = split.stage;
     const outcome = await runPool(units.length, width, options.signal, () => !split.measuring, async (index) => {

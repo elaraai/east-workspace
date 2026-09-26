@@ -58,8 +58,8 @@ export {
   type HistoryResult,
 } from './storage/local/history.js';
 
-// Object storage
-export { computeHash } from './objects.js';
+// Object storage, and the form every store checks an object's hash has
+export { computeHash, isObjectHash } from './objects.js';
 
 // Local object storage functions (for backwards compatibility)
 export {
@@ -226,10 +226,12 @@ export {
 // UUID utilities (for execution history)
 export { uuidv7, uuidv7Timestamp, isUuidv7 } from './uuid.js';
 
-// Local process execution (in execution/ directory)
+// Local process execution (in execution/ directory), and the execution cache
+// every runner serves from
 export {
   taskExecute,
   taskExecuteUnit,
+  probeExecutionCache,
   type ExecuteOptions,
   type ExecutionIds,
   type ExecutionResult,
@@ -240,6 +242,7 @@ export {
   getBootId,
   getPidStartTime,
   isProcessAlive,
+  processOwner,
 } from './execution/processHelpers.js';
 
 // Dataflow execution

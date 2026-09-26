@@ -22,7 +22,7 @@ import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
-import { getBootId, getPidStartTime, isProcessAlive } from './processHelpers.js';
+import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { storeDatasetFile } from '../store-collection.js';
 import { materializeEnvironment } from './environment.js';
@@ -31,6 +31,10 @@ import { executionScratchDir } from './scratch.js';
 import { unitThreads, type Budget, type ReleaseSlot } from './budget.js';
 import { readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv, type MergeParts, type StagedUnit, type TaskUnit } from './units.js';
 import { executeSplitTask, isSplitTask } from './engine.js';
+
+/** The pool width — the most units in flight at once — of a task run on its
+ *  own without a budget. */
+const DEFAULT_POOL_WIDTH = 4;
 
 /**
  * Options for task execution
@@ -238,9 +242,13 @@ export async function taskExecute(
   if (!('body' in task)) return task;
 
   if (isSplitTask(task)) {
+    // Under a budget the pool is as wide as its cores, and the budget, not the
+    // pool, bounds the runner processes. This process drives the stages, so it
+    // owns the task's execution.
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
       (unitInputs, unitIds, merge, expectedPeakBytes) =>
-        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge));
+        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge),
+      { width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH), owner: await processOwner() });
   }
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
 }
@@ -314,21 +322,19 @@ async function readTaskObject(
 }
 
 /**
- * Probes the execution cache for a successful prior execution.
+ * Probes the execution cache for a successful prior execution: the cache every
+ * runner serves a task or a unit from, its latest `success`, with the peak its
+ * record holds.
  *
- * A latest record still `running` whose runner and orchestrator have both
- * exited is first rewritten as `interrupted` (see
- * {@link repairInterruptedExecution}), so it no longer reads as live.
- *
- * Exported for the engine, which probes every unit before running it.
+ * A latest record still `running` whose runner and owner have both exited is
+ * first rewritten as `interrupted` (see {@link repairInterruptedExecution}), so
+ * it no longer reads as live. One with no owner recorded is left alone.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param taskHash - Hash of the task object
  * @param inHash - Combined inputs hash
  * @returns The cached result, or `null` when no successful execution exists
- *
- * @internal
  */
 export async function probeExecutionCache(
   storage: StorageBackend,
@@ -799,11 +805,7 @@ async function runCommand(
         // A `running` record with no owner is never repaired, so one whose
         // owner cannot be recorded is recorded failed before the spawn fails.
         try {
-          await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, {
-            pid: BigInt(process.pid),
-            pidStartTime: BigInt(await getPidStartTime(process.pid)),
-            bootId,
-          });
+          await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, await processOwner());
         } catch (err) {
           await storage.refs.executionWrite(repo, taskHash, inHash, executionId, variant('error', {
             executionId,

@@ -11,7 +11,8 @@ import type { ExecutionOwner, ExecutionStatus, DataflowRun } from '@elaraai/e3-t
 import type { RefStore } from '../interfaces.js';
 import { isNotFoundError, ExecutionCorruptError, checkName } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
-import { HASH, atomicWriteFile, executionPath } from './localHelpers.js';
+import { isObjectHash } from '../../objects.js';
+import { atomicWriteFile, executionPath } from './localHelpers.js';
 import { removeStaleLocks } from './LocalLockService.js';
 
 /** A record that names an object by its hash. */
@@ -35,7 +36,7 @@ async function readHash(file: string): Promise<string | null> {
   }
   try {
     const hash = decodeHash(data);
-    return HASH.test(hash) ? hash : null;
+    return isObjectHash(hash) ? hash : null;
   } catch {
     return null;
   }
@@ -283,7 +284,7 @@ export class LocalRefStore implements RefStore {
       const taskDirs = await fs.readdir(executionsDir);
 
       for (const taskHash of taskDirs) {
-        if (!HASH.test(taskHash)) continue;
+        if (!isObjectHash(taskHash)) continue;
 
         const taskDir = path.join(executionsDir, taskHash);
         const stat = await fs.stat(taskDir);
@@ -291,7 +292,7 @@ export class LocalRefStore implements RefStore {
 
         const inputsDirs = await fs.readdir(taskDir);
         for (const inputsHash of inputsDirs) {
-          if (HASH.test(inputsHash)) {
+          if (isObjectHash(inputsHash)) {
             result.push({ taskHash, inputsHash });
           }
         }
@@ -306,12 +307,12 @@ export class LocalRefStore implements RefStore {
   }
 
   async executionListForTask(repo: string, taskHash: string): Promise<string[]> {
-    if (!HASH.test(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
+    if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
     const taskDir = path.join(repo, 'executions', taskHash);
 
     try {
       const entries = await fs.readdir(taskDir);
-      return entries.filter((e) => HASH.test(e));
+      return entries.filter(isObjectHash);
     } catch (err) {
       if (!isNotFoundError(err)) {
         throw err;
@@ -385,7 +386,7 @@ export class LocalRefStore implements RefStore {
    * the hash a transfer init asks after, so nothing else is joined into a path.
    */
   private adoptionPath(repo: string, sourceHash: string): string | null {
-    if (!HASH.test(sourceHash)) return null;
+    if (!isObjectHash(sourceHash)) return null;
     return path.join(repo, 'adoptions', sourceHash.slice(0, 2), `${sourceHash.slice(2)}.beast2`);
   }
 

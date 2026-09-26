@@ -23,8 +23,9 @@ import {
 } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
 import { decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
-import { taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
-import { executeSplitTask } from './engine.js';
+import { probeExecutionCache, taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
+import { SplitTask, executeSplitTask } from './engine.js';
+import { processOwner } from './processHelpers.js';
 import { Budget } from './budget.js';
 import { executionReadLog, inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
@@ -433,6 +434,8 @@ describe('a task split into pieces', () => {
 
     const first = await taskExecute(storage, repo, taskHash, [input]);
     assert.equal(first.state, 'success', first.error ?? '');
+    assert.deepEqual(await storage.refs.executionOwnerRead!(repo, taskHash, first.inputsHash, first.executionId), await processOwner(),
+      'a task run on its own is owned by the process that drove it');
     assert.equal(plans.length, 3, 'the pieces\' plan, the merge level\'s, and the clear');
     assert.equal(plans[2], null);
     assert.equal(await storage.refs.executionPlanRead(repo, taskHash, first.inputsHash), null, 'an execution that ended roots no plan');
@@ -455,11 +458,85 @@ describe('a task split into pieces', () => {
       (unitInputs, ids, merge) => {
         ran.push(unitInputs);
         return taskExecuteBody(storage, repo, taskHash, task, unitInputs, ids, {}, merge);
-      });
+      },
+      { width: 4, owner: null });
     assert.equal(resumed.state, 'success', resumed.error ?? '');
     assert.equal(resumed.outputHash, first.outputHash);
     assert.deepEqual(ran, [], 'every unit of the stage ran before');
     assert.deepEqual([...new Set(events.map((event) => event.phase))], ['merge'], 'the pieces were neither planned nor run again');
+  });
+
+  it('is driven a step at a time: taken up from its plan with the units that settled, each advance writing the one next stage', async () => {
+    const taskHash = await deploy(e3.streamTask('stepped', {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, _amount, key) => {
+        $(emit(key.remainder(97n), 1n));
+      });
+    }));
+    const input = await datasetWrite(storage, repo, salesOf(8000), SalesType);
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+    const ids = { inHash: inputsHash([input]), executionId: uuidv7(), startTime: Date.now() };
+    // Each step of a state machine opens the task afresh from the plan it
+    // names, and records no owner: no other function can check its liveness.
+    const open = async (plan: string | null): Promise<SplitTask> => {
+      const split = await SplitTask.open(storage, repo, taskHash, task, [input], ids, {}, plan, null);
+      assert.ok(split instanceof SplitTask);
+      return split;
+    };
+    // Settles units `[from, to)` of the stage, from the cache where they ran before.
+    const settle = async (split: SplitTask, from: number, to: number): Promise<ExecutionResult[]> => {
+      const results: ExecutionResult[] = [];
+      for (let i = from; i < to; i++) {
+        const unit = split.stage.units[i]!;
+        const unitHash = inputsHash(unit.inputs);
+        const result = await probeExecutionCache(storage, repo, taskHash, unitHash)
+          ?? await taskExecuteBody(storage, repo, taskHash, task, unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, {}, unit.merge);
+        split.unitSettled(i, result);
+        results.push(result);
+      }
+      return results;
+    };
+
+    // A step plans the pieces, settles half of them, and ends.
+    const first = await open(null);
+    const pieces = first.stage.plan!;
+    assert.ok(first.stage.units.length > 4, 'the input was cut into many pieces');
+    assert.equal(await storage.refs.executionOwnerRead!(repo, taskHash, ids.inHash, ids.executionId), null, 'a driver naming no owner records none');
+    const half = Math.floor(first.stage.units.length / 2);
+    const ranFirst = await settle(first, 0, half);
+
+    // The next takes the stage up from its plan: the settled half comes from
+    // the cache with the peaks it reached, and only the rest runs.
+    const second = await open(pieces);
+    assert.equal(second.resumed, true);
+    const replayed = await settle(second, 0, half);
+    assert.ok(replayed.every((result) => result.cached), 'the pieces that settled replay from the cache');
+    assert.equal(second.measuring, false);
+    assert.equal(second.stagePeak, Math.max(...ranFirst.map((result) => result.peakBytes!)), 'with the peaks they reached');
+    const rest = await settle(second, half, second.stage.units.length);
+
+    // A step that dies once it has advanced leaves the next to advance again,
+    // and the two write one next stage.
+    const third = await open(pieces);
+    const all = await settle(third, 0, third.stage.units.length);
+    assert.equal(await second.advance([...replayed, ...rest], []), null);
+    assert.equal(await third.advance(all, []), null);
+    assert.ok(second.stage.plan !== null && second.stage.plan === third.stage.plan, 'both wrote the one next stage');
+    const piecePeak = Math.max(...all.map((result) => result.peakBytes!));
+    const merges = decodeUnitPlan(await storage.objects.read(repo, second.stage.plan!));
+    assert.deepEqual(merges.peakBytes, some(BigInt(piecePeak)), 'the plan carries the largest peak of the stages before it');
+
+    // A step that takes up the merges and ends the task records the largest
+    // peak of every stage, though it ran none of the pieces.
+    const last = await open(second.stage.plan!);
+    const merged = await settle(last, 0, last.stage.units.length);
+    const result = await last.advance(merged, []);
+    assert.equal(result?.state, 'success', result?.error ?? '');
+    const own = await storage.refs.executionGetLatest(repo, taskHash, ids.inHash);
+    assert.deepEqual(own?.type === 'success' && own.value.peakBytes,
+      some(BigInt(Math.max(piecePeak, ...merged.map((unit) => unit.peakBytes!)))));
   });
 
   it('runs a task whose input fits in one piece as one unit, under the task\'s own identity', async () => {

@@ -13,6 +13,7 @@
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import type { ExecutionOwner } from '@elaraai/e3-types';
 
 const execFileAsync = promisify(execFile);
 
@@ -55,6 +56,20 @@ export async function getPidStartTime(pid: number): Promise<number> {
     return isNaN(t) ? 0 : Math.floor(t / 1000);
   } catch {}
   return 0;
+}
+
+/**
+ * This process as an execution's owner: the one that writes the execution's
+ * outcome, which a probe finds exited when the execution cannot finish.
+ *
+ * @returns This process's pid, start time and boot id
+ */
+export async function processOwner(): Promise<ExecutionOwner> {
+  return {
+    pid: BigInt(process.pid),
+    pidStartTime: BigInt(await getPidStartTime(process.pid)),
+    bootId: await getBootId(),
+  };
 }
 
 /** Whether a process with `pid` exists — signal 0 sends nothing.
