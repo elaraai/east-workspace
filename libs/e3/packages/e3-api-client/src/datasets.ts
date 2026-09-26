@@ -465,12 +465,11 @@ export interface DatasetTransferSource {
  * Set a large dataset using the transfer flow (init → upload → commit).
  *
  * @remarks
- * Speaks transfer protocol 2 and still understands a server that predates it:
- * the init answers `completed` (the object is stored already), `upload` (one
- * PUT of every byte — a protocol-1 server) or `upload_parts` (the parts the
- * server planned, each sent to the URL and with the headers it names for that
- * part, a few at a time). The commit may answer `processing` while the server
- * verifies the bytes, and is polled until it finishes.
+ * The init answers `completed` (the object is stored already) or
+ * `upload_parts` (the parts the server planned, each sent to the URL and with
+ * the headers it names for that part, a few at a time). The commit may answer
+ * `processing` while the server verifies the bytes, and is polled until it
+ * finishes.
  */
 async function datasetSetTransfer(
   url: string,
@@ -515,11 +514,7 @@ async function datasetSetTransfer(
   if (init.type === 'completed') return;
 
   // 2. Upload to staging (no auth — the URLs may be presigned S3 URLs)
-  if (init.type === 'upload') {
-    await putRange(init.value.uploadUrl, {}, source, 0, source.size, options, 'Transfer upload failed');
-  } else {
-    await putParts(url, `${uploadPath}/${init.value.id}`, Number(init.value.partBytes), source, options);
-  }
+  await putParts(url, `${uploadPath}/${init.value.id}`, Number(init.value.partBytes), source, options);
 
   // 3. Commit — server verifies hash + updates ref (BEAST2 response), and
   //    answers `processing` while that is still running

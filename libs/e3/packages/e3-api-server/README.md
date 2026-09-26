@@ -128,8 +128,8 @@ interface ServerConfig {
 
   // Dataset reads and uploads (optional)
   pageByteBudget?: number;        // Byte budget per dataset page (default: 4 MiB)
-  transferPartBytes?: number;     // Part size for protocol-2 uploads (default: 64 MiB)
-  transferCommitWaitMs?: number;  // How long a protocol-2 commit waits before answering `processing` (default: 5000)
+  transferPartBytes?: number;     // Part size for dataset uploads (default: 64 MiB)
+  transferCommitWaitMs?: number;  // How long a commit waits before answering `processing` (default: 5000)
 
   // Runner processes (optional)
   budget?: Budget | BudgetSettings;  // Cores and memory every runner the server spawns shares (default: from E3_JOBS / E3_MEMORY, else the machine)
@@ -185,19 +185,19 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 
 ### Dataset transfer
 
-Values too large to `PUT` inline are staged and committed. A client adds
-`?protocol=2` to the init and the commit to be planned in parts and to accept a
-commit that answers `processing`; without it the server answers as protocol 1.
-The full protocol is in [`design/e3-api.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-api.md#dataset-transfer).
+Values too large to `PUT` inline are staged in parts and committed. The init
+and the commit name the protocol version with `?protocol=2`, and a request of
+another version, or none, is refused, naming the fix. The full protocol is in
+[`design/e3-api.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-api.md#dataset-transfer).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload` | Start an upload: `completed` (already stored), `upload` or `upload_parts` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload` | Start an upload: `completed` (already stored) or `upload_parts` |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id/parts/:n` | URL and headers for part `n` |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Commit: `completed`, `error`, or `processing` |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Poll a commit |
-| PUT | `/api/uploads/:id` | The bytes of a protocol-1 upload (no `Authorization`) |
-| PUT | `/api/uploads/:id/parts/:n` | Part `n` of a protocol-2 upload (no `Authorization`) |
+| PUT | `/api/uploads/:id` | A package zip being imported (no `Authorization`) |
+| PUT | `/api/uploads/:id/parts/:n` | Part `n` of a dataset upload (no `Authorization`) |
 
 ### Tasks
 

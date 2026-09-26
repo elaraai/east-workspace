@@ -29,7 +29,7 @@ import type {
 import type { DatasetUpload, PackageImport, PackageExport } from './types.js';
 import { handleProcessExport, handleProcessImport } from './process.js';
 
-/** The part size a protocol-2 dataset upload is planned with by default. */
+/** The part size a dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
 
 // =============================================================================
@@ -53,10 +53,6 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
   async delete(id: string): Promise<void> {
     this.records.delete(id);
     this.partPlans.delete(id);
-  }
-
-  async getUploadUrl(id: string, _repo: string, _hash: string): Promise<string> {
-    return `${this.baseUrl}/api/uploads/${id}`;
   }
 
   async createParts(id: string, _record: DatasetUpload): Promise<bigint> {
@@ -266,7 +262,7 @@ export interface InMemoryTransferBackendOptions {
   storage?: StorageBackend;
   getRepoPath?: (repo: string) => string;
   /**
-   * The part size protocol-2 dataset uploads are planned with (default
+   * The part size dataset uploads are planned with (default
    * {@link DEFAULT_TRANSFER_PART_BYTES}). An upload no larger is one part.
    */
   partBytes?: number;

@@ -396,34 +396,31 @@ carry no `Authorization` header. Every path below is under
 
 | Step | Method | Path | Request | Response |
 |------|--------|------|---------|----------|
-| Init | POST | `…/upload[?protocol=2]` | `TransferUploadRequestType` `{hash, size}` | `TransferUploadResponseType` |
-| Part target (protocol 2) | GET | `…/upload/<id>/parts/<n>` | - | `TransferPartResponseType` `{url, headers}` |
-| Send bytes | PUT | the upload URL, or each part's URL | raw bytes (+ the part's `headers`) | HTTP status only |
-| Commit | POST | `…/upload/<id>[?protocol=2]` | - | `TransferDoneResponseType` |
-| Poll (protocol 2) | GET | `…/upload/<id>` | - | `TransferDoneResponseType` |
+| Init | POST | `…/upload?protocol=2` | `TransferUploadRequestType` `{hash, size}` | `TransferUploadResponseType` |
+| Part target | GET | `…/upload/<id>/parts/<n>` | - | `TransferPartResponseType` `{url, headers}` |
+| Send bytes | PUT | each part's URL | raw bytes (+ the part's `headers`) | HTTP status only |
+| Commit | POST | `…/upload/<id>?protocol=2` | - | `TransferDoneResponseType` |
+| Poll | GET | `…/upload/<id>` | - | `TransferDoneResponseType` |
 
 ```typescript
 const TransferUploadResponseType = VariantType({
   completed: NullType,                                        // already stored: the ref is set
-  upload: StructType({ id: StringType, uploadUrl: StringType }), // protocol 1: every byte in one PUT
-  upload_parts: StructType({ id: StringType, partBytes: IntegerType }), // protocol 2
+  upload_parts: StructType({ id: StringType, partBytes: IntegerType }),
 });
 const TransferPartResponseType = StructType({ url: StringType, headers: DictType(StringType, StringType) });
 const TransferDoneResponseType = VariantType({
   completed: NullType,
   error: StructType({ message: StringType }),
-  processing: NullType,                                       // protocol 2: poll
+  processing: NullType,                                       // poll
 });
 ```
 
-**Versions.** A client names the protocol it speaks with `?protocol=N` on the
-init and the commit; without it the request is protocol 1, and the server
-answers only in protocol-1 forms (`completed`/`upload`, `completed`/`error`).
-Protocol 2 adds variant cases whose names sort after the protocol-1 cases, so
-the tags a protocol-1 peer encodes and decodes are unchanged
-(`e3-types/src/transfer.spec.ts` pins this).
+**The version.** A client names the protocol it speaks with `?protocol=N` on
+the init and the commit (`TRANSFER_PROTOCOL_VERSION`, 2). A server speaks one
+version, and refuses a request that names another, or none, with an `internal`
+error naming the fix: an older client is upgraded, and so is an older server.
 
-**Parts (protocol 2).** The server plans the upload: part `n` (from 1) is the
+**Parts.** The server plans the upload: part `n` (from 1) is the
 byte range `[(n-1)·partBytes, min(size, n·partBytes))`, and an upload no larger
 than `partBytes` is one part (`transferPartCount` / `transferPartRange`). The
 client asks for each part's URL and headers just before sending it — a
@@ -439,11 +436,10 @@ bytes into the store — a collection through the store's door, split a segment
 at a time into the store's own segments; any other value as the object the
 bytes are — then points the dataset at what it stored (with the version-vector
 self entry). A refusal is an `error` answer, or the `dataset_type_mismatch` API error. A
-protocol-2 commit may answer `processing` instead; the client polls
+commit may answer `processing` instead; the client polls
 `GET …/upload/<id>` (100 ms, doubling to 1 s) until it answers `completed` or
 `error`. A finished commit's answer stays pollable for a while, so a client
-whose response was lost asks again and hears the same thing. A protocol-1
-commit answers only when it is done.
+whose response was lost asks again and hears the same thing.
 
 **Dedup.** An init whose hash the store already knows answers `completed`: it
 knows the bytes as the manifest a delivery of them was split into (the
@@ -452,8 +448,8 @@ declared type first, and a collection object goes through the store's door.
 It is the one door that skips the commit.
 
 **Local server (`e3-api-server`).** Parts stream to their own offsets in one
-staged file under `<repo>/tmp/transfers`, so the commit takes the file in
-exactly as a single `PUT`'s; the server refuses a part longer or
+staged file under `<repo>/tmp/transfers`, so the commit takes the file in with
+nothing to assemble; the server refuses a part longer or
 shorter than its range (a longer one would overwrite its neighbour), and a
 part never sent leaves a hole the hash check refuses. `transferPartBytes`
 (default 64 MiB) sets the plan, and the commit runs in the background:

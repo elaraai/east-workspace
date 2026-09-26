@@ -58,13 +58,13 @@ export interface ServerConfig {
   /** Byte budget clamping each dataset page's share of the source blob
    *  (default: 4 MiB). Lower it for deployments with tight response limits. */
   pageByteBudget?: number;
-  /** Size of the parts a dataset upload is sent in, for a client that speaks
-   *  transfer protocol 2 (default: 64 MiB). An upload no larger is one part;
-   *  a smaller size suits a proxy that caps request bodies. */
+  /** Size of the parts a dataset upload is sent in (default: 64 MiB). An
+   *  upload no larger is one part; a smaller size suits a proxy that caps
+   *  request bodies. */
   transferPartBytes?: number;
-  /** How long a protocol-2 dataset commit waits for the upload to be verified
-   *  before answering `processing` for the client to poll (default: 5000 ms;
-   *  0 answers `processing` at once). Keep it under any proxy's request
+  /** How long a dataset commit waits for the upload to be verified before
+   *  answering `processing` for the client to poll (default: 5000 ms; 0
+   *  answers `processing` at once). Keep it under any proxy's request
    *  timeout. */
   transferCommitWaitMs?: number;
   /** The server's budget of cores and memory, which every runner process it

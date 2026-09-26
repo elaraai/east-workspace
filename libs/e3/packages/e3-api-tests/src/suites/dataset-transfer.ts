@@ -8,8 +8,8 @@
  *
  * Tests: redirect-based GET for large objects, transfer upload flow for large SET,
  * dedup shortcut, and hash mismatch rejection — through the client, and at the
- * wire for both protocol versions, so a server keeps serving clients that
- * predate protocol 2 and answers a protocol-2 client in its own forms.
+ * wire, where a server speaks the one protocol version and refuses a request
+ * naming another, or none, in the same words.
  */
 
 import { describe, it } from 'node:test';
@@ -108,8 +108,8 @@ function success<T extends EastType>(envelope: Envelope<T>): ValueTypeOf<T> {
 }
 
 /**
- * Commit an upload in protocol 2 and poll until the commit finishes, returning
- * the final envelope.
+ * Commit an upload and poll until the commit finishes, returning the final
+ * envelope.
  */
 async function commitAndPoll(uploadUrl: string, id: string, opts: RequestOptions) {
   let done = await transferCall(`${uploadUrl}/${id}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferDoneResponseType, opts);
@@ -310,36 +310,32 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       assert.deepStrictEqual(status.hash, some(hash));
     });
 
-    it('serves a client that predates protocol 2: one upload URL, and a commit that answers when it is done', async (t) => {
+    it('refuses an init or a commit naming another protocol version, or none, naming the fix', async (t) => {
       const ctx = await withStringPackage(t);
       const opts = await ctx.opts();
-      const path = [variant('field', 'inputs'), variant('field', 'config')];
       const uploadUrl = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/transfer-ws/datasets/inputs/config/upload`;
 
       const data = encodeBeast2For(StringType)(incompressibleString(1_100_003));
-      const hash = computeHash(data);
-      const request = encodeBeast2For(TransferUploadRequestType)({ hash, size: BigInt(data.byteLength) });
+      const request = encodeBeast2For(TransferUploadRequestType)({ hash: computeHash(data), size: BigInt(data.byteLength) });
+      const speaks = `this server speaks transfer protocol ${TRANSFER_PROTOCOL_VERSION}, and the request`;
+      const older = `${speaks} names none: an older e3 sent it — upgrade it`;
+      for (const [query, message] of [
+        ['', older],
+        [`?protocol=${TRANSFER_PROTOCOL_VERSION - 1}`, `${speaks} speaks ${TRANSFER_PROTOCOL_VERSION - 1}: an older e3 sent it — upgrade it`],
+        [`?protocol=${TRANSFER_PROTOCOL_VERSION + 1}`, `${speaks} speaks ${TRANSFER_PROTOCOL_VERSION + 1}: a newer e3 sent it — upgrade the server`],
+      ]) {
+        const refused = await transferCall(`${uploadUrl}${query}`, 'POST', TransferUploadResponseType, opts, request);
+        assert.deepStrictEqual(refused, variant('error', variant('internal', { message })), query || 'no version');
+      }
 
-      // No `?protocol`: the request is protocol 1, so the answer is too.
-      const init = success(await transferCall(uploadUrl, 'POST', TransferUploadResponseType, opts, request));
-      assert.strictEqual(init.type, 'upload');
-      if (init.type !== 'upload') return;
-
-      const put = await fetch(init.value.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
-        body: data,
-      });
-      assert.ok(put.ok, `upload PUT: ${put.status} ${put.statusText}`);
-
-      const done = success(await transferCall(`${uploadUrl}/${init.value.id}`, 'POST', TransferDoneResponseType, opts));
-      assert.deepStrictEqual(done, variant('completed', null), 'a protocol-1 commit never answers processing');
-
-      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, opts);
-      assert.deepStrictEqual(status.hash, some(hash));
+      const init = success(await transferCall(`${uploadUrl}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferUploadResponseType, opts, request));
+      assert.strictEqual(init.type, 'upload_parts');
+      if (init.type !== 'upload_parts') return;
+      const commit = await transferCall(`${uploadUrl}/${init.value.id}`, 'POST', TransferDoneResponseType, opts);
+      assert.deepStrictEqual(commit, variant('error', variant('internal', { message: older })));
     });
 
-    it('takes a protocol-2 upload as the parts it plans, in any order, and keeps the commit\'s answer pollable', async (t) => {
+    it('takes an upload as the parts it plans, in any order, and keeps the commit\'s answer pollable', async (t) => {
       const ctx = await withStringPackage(t);
       const opts = await ctx.opts();
       const path = [variant('field', 'inputs'), variant('field', 'config')];

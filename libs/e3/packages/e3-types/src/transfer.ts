@@ -9,24 +9,22 @@
  * Used by both the API server and client for large dataset uploads
  * that exceed inline body size limits.
  *
- * Two protocol versions share these types. A client names the version it speaks
- * with `?protocol=N` on the init and commit requests (a request without it is
- * version 1), and a server answers only in the forms that version understands —
- * every case version 2 adds sorts after the version-1 cases, so the tags a
- * version-1 client decodes keep their numbers.
+ * A client names the protocol version it speaks with `?protocol=N` on the init
+ * and commit requests, and a server refuses a request that names another
+ * version, or none, naming the fix.
  */
 
 import { VariantType, StructType, StringType, IntegerType, NullType, DictType, type ValueTypeOf } from '@elaraai/east';
 
 /**
- * The dataset transfer protocol version this build speaks.
+ * The dataset transfer protocol version this build speaks, and the only one.
  *
  * @remarks
- * Version 2 lets the server plan an upload as parts — each sent to its own URL
- * with the request headers the server names, so an object store can bind a
- * checksum to a single PUT or take a multipart upload larger than one PUT
- * allows — and lets a commit answer `processing` while the server verifies the
- * bytes, for the client to poll.
+ * The server plans an upload as parts — each sent to its own URL with the
+ * request headers the server names, so an object store can bind a checksum to
+ * a single PUT or take a multipart upload larger than one PUT allows — and a
+ * commit may answer `processing` while the server verifies the bytes, for the
+ * client to poll.
  */
 export const TRANSFER_PROTOCOL_VERSION = 2;
 
@@ -81,11 +79,9 @@ export type TransferUploadRequest = ValueTypeOf<typeof TransferUploadRequestType
  * Transfer upload init response.
  *
  * - `completed`: Object already exists (dedup), dataset ref updated
- * - `upload`: Staging slot created; the client PUTs every byte to `uploadUrl`,
- *   then commits
- * - `upload_parts` (protocol 2): the client sends the bytes as parts of
- *   `partBytes` bytes each (the last part holds the remainder, and an upload no
- *   larger than `partBytes` is one part). Part `n` (1-based) is the byte range
+ * - `upload_parts`: the client sends the bytes as parts of `partBytes` bytes
+ *   each (the last part holds the remainder, and an upload no larger than
+ *   `partBytes` is one part). Part `n` (1-based) is the byte range
  *   `[(n - 1) * partBytes, min(size, n * partBytes))`; its URL and required
  *   headers come from `GET …/upload/<id>/parts/<n>`. Parts may be sent in any
  *   order and concurrently, and re-sending a part replaces it. The client
@@ -93,10 +89,6 @@ export type TransferUploadRequest = ValueTypeOf<typeof TransferUploadRequestType
  */
 export const TransferUploadResponseType = VariantType({
   completed: NullType,
-  upload: StructType({
-    id: StringType,
-    uploadUrl: StringType,
-  }),
   upload_parts: StructType({
     id: StringType,
     partBytes: IntegerType,
@@ -105,7 +97,7 @@ export const TransferUploadResponseType = VariantType({
 export type TransferUploadResponse = ValueTypeOf<typeof TransferUploadResponseType>;
 
 /**
- * Where and how to send one part of a protocol-2 upload.
+ * Where and how to send one part of an upload.
  *
  * @property url - The URL the client PUTs the part's bytes to, without an
  *   `Authorization` header (it may be a presigned object-store URL)
@@ -124,7 +116,7 @@ export type TransferPartResponse = ValueTypeOf<typeof TransferPartResponseType>;
  *
  * - `completed`: Hash verified, object stored, dataset ref updated
  * - `error`: Hash mismatch or other failure
- * - `processing` (protocol 2): the server is still verifying the bytes; poll
+ * - `processing`: the server is still verifying the bytes; poll
  *   `GET …/upload/<id>` until it answers `completed` or `error`
  */
 export const TransferDoneResponseType = VariantType({

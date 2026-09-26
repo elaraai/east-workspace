@@ -32,10 +32,8 @@ export interface DatasetPartUpload {
 /**
  * Manages staged dataset uploads.
  *
- * Flow (protocol 1): create → getUploadUrl → (client uploads) → commitObject → delete
- *
- * Flow (protocol 2): create → createParts → getPartUpload per part → (client
- * uploads the parts) → commit → delete
+ * Flow: create → createParts → getPartUpload per part → (client uploads the
+ * parts) → commit → delete
  */
 export interface DatasetUploadStore {
   create(id: string, record: DatasetUpload): Promise<void>;
@@ -43,13 +41,7 @@ export interface DatasetUploadStore {
   delete(id: string): Promise<void>;
 
   /**
-   * URL the client PUTs bytes to. The upload ID is embedded in the URL
-   * so concurrent uploads to the same hash are unambiguous.
-   */
-  getUploadUrl(id: string, repo: string, hash: string): Promise<string>;
-
-  /**
-   * Plan a created upload as parts, for a protocol-2 client.
+   * Plan a created upload as parts.
    *
    * @remarks
    * Every part but the last is exactly the returned size, and an upload no
