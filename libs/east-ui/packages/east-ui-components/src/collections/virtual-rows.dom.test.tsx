@@ -420,11 +420,11 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
     const keysOf = (prefix: string, n: number): string[] => Array.from({ length: n }, (_u, i) => `${prefix}${i}`);
     const ROWS = keysOf("r", 100);
     /** The frame over `keys` — every row may anchor unless `anchorable` says otherwise. */
-    const frame = (keys: readonly string[], opts: { anchorable?: ((i: number) => boolean) | null; scrollToIndex?: number } = {}) => (
+    const frame = (keys: readonly string[], opts: { anchorable?: ((i: number) => boolean) | null; scrollToIndex?: number; scrollNonce?: number } = {}) => (
         <ChakraProvider value={system}>
             <VirtualRows height="200px" maxHeight={undefined} count={keys.length} estimateSize={() => ROW_H} overscan={2}
                 getItemKey={(i) => keys[i]!} anchorable={opts.anchorable === null ? undefined : opts.anchorable ?? (() => true)}
-                scrollToIndex={opts.scrollToIndex}
+                scrollToIndex={opts.scrollToIndex} scrollNonce={opts.scrollNonce}
                 renderRow={(i) => <div data-key={keys[i]}>{keys[i]}</div>} />
         </ChakraProvider>
     );
@@ -637,6 +637,25 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
             rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 80 }));
             expect(scrollEl.scrollTop).toBe(30 * ROW_H);
             expect(inView(container, "r20")).toBe(0);
+        });
+
+        test("a served request is its row's: the same row at a new index is not asked again under the same nonce — a new nonce asks again", () => {
+            const { container, rerender } = render(frame(ROWS));
+            const scrollEl = container.firstElementChild as HTMLElement;
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 120 * ROW_H });
+            // Row 80 is brought in, and its scroll reported.
+            rerender(frame(ROWS, { scrollToIndex: 80 }));
+            fireEvent.scroll(scrollEl);
+            expect(inView(container, "r80")).toBe((200 - ROW_H) / 2);
+            // The reader scrolls on to row 20. Ten rows land above: the collection names row 80 at its new index.
+            scrollTo(container, 20 * ROW_H);
+            rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 90 }));
+            // It is the request already served — the reader's rows keep their place.
+            expect(inView(container, "r20")).toBe(0);
+            // The same row asked for again — a new nonce — is brought in again.
+            rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 90, scrollNonce: 1 }));
+            fireEvent.scroll(scrollEl);
+            expect(inView(container, "r80")).toBe((200 - ROW_H) / 2);
         });
 
         test("a request is followed for five seconds at most, TanStack's own cap", () => {

@@ -232,13 +232,15 @@ interface VirtualRowsBaseProps {
      * unbounded frame with nothing to watch does not scroll, and ignores it.
      * In a keyed frame the request is the row's at that index when it is
      * applied: rows landing above it as it comes into view leave the scroll on
-     * it (#885).
+     * it (#885), and it is served ONCE — the same row named again at another
+     * index, under the same `scrollNonce`, scrolls nothing.
      */
     scrollToIndex?: number | undefined;
     /**
-     * Bump to apply `scrollToIndex` AGAIN at an unchanged index — a control
-     * the user can press twice ("show me the first skipped row", then scroll
-     * away, then press it again) is a second request, not a no-op.
+     * Bump to apply `scrollToIndex` AGAIN — a control the user can press
+     * twice ("show me the first skipped row", then scroll away, then press it
+     * again) is a second request, not a no-op, at the same index or, in a
+     * keyed frame, for the same row.
      */
     scrollNonce?: number | undefined;
     /**
@@ -678,6 +680,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // A keyed frame's scroll request, followed by its row's key until it
     // settles (#885).
     const requestRef = useRef<ScrollRequest | null>(null);
+    // The last request a keyed frame served — its row, its nonce, and what it
+    // scrolled: the same row asked for again under the same nonce is that
+    // request, wherever the row's index has moved.
+    const servedRef = useRef<{ key: ItemKey; nonce: number | undefined; scroller: Rows["scrollElement"] } | null>(null);
 
     const estimate = sizes !== undefined
         ? (i: number) => sizes[i] ?? 0
@@ -779,6 +785,13 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // scrolls to the offset the request's alignment gives the row, which
     // TanStack's reconcile then holds where its `scrollToIndex` would follow
     // the index, and follows the row by its key itself (#885, below).
+    //
+    // A keyed request is its ROW's, served once: the same row at another
+    // index — rows landed or folded above it — under the same nonce is the
+    // request already served. Serving it again took the view back from a
+    // reader who had scrolled on (a standing key search pulled the page back
+    // to its match each time a window landed above it); a new nonce asks
+    // again.
     useEffect(() => {
         if (scrollToIndex === undefined || !virtualized) return;
         if (getItemKey === undefined) {
@@ -787,8 +800,13 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         }
         if (count === 0) return;
         const index = Math.max(0, Math.min(scrollToIndex, count - 1));
+        const key = getItemKey(index);
+        const served = servedRef.current;
+        if (served !== null && served.key === key && served.nonce === scrollNonce
+            && served.scroller === virtualizer.scrollElement) return;
         const target = virtualizer.getOffsetForIndex(index, scrollAlign);
         if (target === undefined) return;
+        servedRef.current = { key, nonce: scrollNonce, scroller: virtualizer.scrollElement };
         requestRef.current = {
             key: getItemKey(index), index, align: target[1], offset: target[0],
             scroller: virtualizer.scrollElement, at: performance.now(),

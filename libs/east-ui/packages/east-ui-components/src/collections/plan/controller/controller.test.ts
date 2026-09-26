@@ -528,6 +528,27 @@ describe("a bound ui state (#824)", () => {
         expect(host.state().expanded).toEqual([rowId("G")]);
     });
 
+    test("a callback the action fires reads the action in the bound state, and what it writes stands — the write-back goes first", async () => {
+        // The host's accordion: opening a group folds every other one.
+        const host = hostState({ expanded: [rowId("G")] });
+        const rows = [folded("G"), planRow("g1", span(), "G"), folded("H"), planRow("h1", span(), "H")];
+        const { c } = mount(rows, host, {
+            collapsed: ["G", "H"],
+            root: {
+                onGroupToggle: some((e: { row: PlanRowId; expanded: boolean }) => {
+                    if (e.expanded) host.set({ expanded: [e.row] });
+                }),
+            },
+        });
+        expect(c.getSnapshot().store.ui.collapsed.has(rowKey("G"))).toBe(false);
+        c.dispatch({ t: "group.toggle", key: rowKey("H") });
+        await microtasks();
+        // The host read H open and folded G — and its write is the state.
+        expect(host.state().expanded).toEqual([rowId("H")]);
+        expect(c.getSnapshot().store.ui.collapsed.has(rowKey("H"))).toBe(false);
+        expect(c.getSnapshot().store.ui.collapsed.has(rowKey("G"))).toBe(true);
+    });
+
     test("bound, the canvas persists no toggles of its own — the host holds them", () => {
         const writes: PlanPersisted[] = [];
         const { c } = mount(ROWS, hostState(), { persist: (p) => writes.push(p) });
@@ -830,6 +851,53 @@ describe("a new source revision (#821)", () => {
         expect(c.getSnapshot().paging.revision).toBe("A");
         expect(c.getSnapshot().seek.sought).not.toBeNull();
         expect(c.getSnapshot().seek.epoch).toBe(0);
+    });
+});
+
+describe("a key search is a request, served once (#574)", () => {
+    /** 50 windows of one group entry and ten members each; the key search
+     *  answers with the window its key names (`g<w>`). */
+    function searchedSource() {
+        return {
+            id: "c574-served",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                return some([planRow(`g${w}`, group()), ...Array.from({ length: 10 }, (_u, i) => planRow(`g${w}c${i}`, span(), `g${w}`))]);
+            },
+            total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
+            seek: some((q: { type: string; value: string }) => {
+                const w = Number(/g(\d+)/u.exec(q.value)?.[1] ?? "0");
+                return some({ found: true, row: BigInt(w * PLAN_PAGE_SIZE), count: 1n });
+            }),
+            revision: () => none,
+            refresh: () => null,
+        };
+    }
+
+    test("a search whose element is not on the canvas waits for its window — it never lands on the first loaded row after its key", async () => {
+        const { c } = show(root([], { source: searchedSource() }));
+        // The canvas is at window 30; a search for g1 — window 1 — is typed.
+        c.search.jump(30 * PLAN_PAGE_SIZE);
+        c.committed(c.getSnapshot().paging);
+        await c.search.find({ prefix: "g1" });
+        // Every loaded row (g29 on) sorts after "g1": none of them is its row.
+        expect(c.getSnapshot().scroll.targetKey).toBeUndefined();
+        // Committed, its window lands, and the search is served — once.
+        c.search.jump(1 * PLAN_PAGE_SIZE);
+        expect(c.getSnapshot().scroll).toMatchObject({ owner: "search", targetKey: rowKey("g1"), searchSeq: 1 });
+    });
+
+    test("a search served is not served again — its window leaving as the reader moves on retargets nothing", async () => {
+        const { c } = show(root([], { source: searchedSource() }));
+        await c.search.find({ prefix: "g30" });
+        c.search.jump(30 * PLAN_PAGE_SIZE);
+        c.committed(c.getSnapshot().paging);
+        expect(c.getSnapshot().scroll).toMatchObject({ targetKey: rowKey("g30"), searchSeq: 1 });
+        // The reader moves far on: the run rebases, and window 30 leaves.
+        c.reportViewport({ kind: "window", block: 0, w: 45 }, false);
+        expect(c.getSnapshot().paging.rows.some((r) => r.key === rowKey("g30"))).toBe(false);
+        // The first loaded row after the key is g44 now — the search is not retargeted there.
+        expect(c.getSnapshot().scroll).toMatchObject({ targetKey: rowKey("g30"), searchSeq: 1 });
     });
 });
 

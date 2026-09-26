@@ -132,8 +132,12 @@ export interface PlanScrollTarget {
     owner: "search" | "skipped" | "nav";
     /** Bumped per chip click, so the chip scrolls there again after the user moved. */
     skippedSeq: number;
+    /** Bumped each time a key search's request is served — its target row
+     *  resolved — so the frame brings it in once per search (#574). */
+    searchSeq: number;
     /** The key search's target row — the first LOADED row at-or-after the
-     *  sought key — once it has landed. */
+     *  sought key, resolved ONCE per search, when the window holding the
+     *  matched element has landed. */
     targetKey: string | undefined;
     /** The keyboard's target item (`bodyItemKey`), how to bring it into view,
      *  and a nonce per move — so moving back onto a row the user has since
@@ -369,7 +373,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         phase: restored.anchor === null ? "settled" : "pending",
         restore: undefined,
     };
-    let scroll: PlanScrollTarget = { owner: "search", skippedSeq: 0, targetKey: undefined, nav: undefined };
+    let scroll: PlanScrollTarget = { owner: "search", skippedSeq: 0, searchSeq: 0, targetKey: undefined, nav: undefined };
+    // A key search waiting to be served (#574): the key it sought and the
+    // source element its answer (or its jump) named. Served once, when the
+    // window holding that element has landed — like the Sheet's — and never
+    // again for that search: a window landing above the row, or the row's
+    // window leaving as the reader scrolls on, retargets nothing.
+    let searchRequest: { key: string; row: number } | undefined;
     let nav = NO_NAV;
     let navSeq = 0;
     let announce: PlanAnnouncement | null = null;
@@ -480,6 +490,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         if (m !== undefined) paging.remeasure();
     }
 
+    /** Whether the window holding source element `row` has landed in a block. */
+    function landedAt(p: PlanPagingSnapshot, row: number): boolean {
+        const windows = p.total !== undefined ? Math.max(1, Math.ceil(p.total / PLAN_PAGE_SIZE)) : undefined;
+        const w = Math.floor(Math.max(0, row) / PLAN_PAGE_SIZE);
+        // An answer past the end (a key after every element) is the last window.
+        const at = windows !== undefined ? Math.min(w, windows - 1) : w;
+        for (const o of p.origin.values()) if (o.w === at) return true;
+        return false;
+    }
+
     /** Rebuild the snapshot from the parts — the same object when none moved. */
     function refresh(): void {
         const p = paging.getSnapshot();
@@ -487,11 +507,17 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         // The key search's target: the first loaded row whose element sorts
         // at-or-after the sought key (a row's id starts with the key of the
         // element it came from, and the source serves its elements in key
-        // order — #822). A target that LANDS takes the viewport back from the
-        // skipped-row chip: the latest request wins.
-        const targetKey = s.sought !== null ? p.rows[firstAtOrAfter(p.rows, s.sought.key)]?.key : undefined;
-        if (targetKey !== scroll.targetKey) {
-            scroll = { ...scroll, targetKey, owner: targetKey !== undefined ? "search" : scroll.owner };
+        // order — #822), resolved once the matched element's window has
+        // landed. A search SERVED takes the viewport back from the
+        // skipped-row chip — the latest request wins — and is not served
+        // again: the rows around it may land and leave as the reader scrolls.
+        if (s.sought === null) {
+            searchRequest = undefined;
+            if (scroll.targetKey !== undefined) scroll = { ...scroll, targetKey: undefined };
+        } else if (searchRequest !== undefined && landedAt(p, searchRequest.row)) {
+            const targetKey = p.rows[firstAtOrAfter(p.rows, searchRequest.key)]?.key;
+            searchRequest = undefined;
+            if (targetKey !== undefined) scroll = { ...scroll, owner: "search", targetKey, searchSeq: scroll.searchSeq + 1 };
         }
         const quiet = store === quietStore;
         quietStore = undefined;
@@ -569,10 +595,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     }
 
     /** One interaction's transition and its effects — the core of `dispatch`,
-     *  for the canvas's own moves too (a focus request opening a section). */
+     *  for the canvas's own moves too (a focus request opening a section).
+     *
+     *  Bound, the write-back is queued BEFORE the effects queue the author's
+     *  callbacks (#824): a callback that reads the bound state reads the
+     *  interaction in it, and what it writes lands after the canvas's own
+     *  write — the host's word, taken — rather than under it. */
     function step(e: PlanEvent): void {
         const next = planStoreReducer(store, { t: "event", e });
         store = next.store;
+        writeBound();
         if (value !== undefined && next.effects.length > 0) runPlanEffects(next.effects, value);
     }
 
@@ -773,17 +805,37 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         }
     }
 
+    /** Ask for the row of the element `row` under the standing search. */
+    function requestSearch(row: number): void {
+        const sought = seek.getSnapshot().sought;
+        if (sought !== null) searchRequest = { key: sought.key, row };
+    }
+
     const search: Omit<PlanSearch, "resetKey"> = {
         keyType: CANVAS_KEY_TYPE,
         find: (q) => {
-            // A new search takes the viewport back from the skipped-row chip.
-            batch(() => { if (scroll.owner !== "search") scroll = { ...scroll, owner: "search" }; });
-            return seek.find(q);
+            // A new search takes the viewport back from the skipped-row chip,
+            // and the previous one's row, still waiting, is not served.
+            batch(() => {
+                searchRequest = undefined;
+                if (scroll.owner !== "search") scroll = { ...scroll, owner: "search" };
+            });
+            const found = seek.find(q);
+            // Its answer names the element the match run starts at (or would
+            // sit at): the canvas goes there once that element's window is on
+            // it — typed ahead over loaded rows, at once. A superseded search
+            // rejects, and asks for nothing.
+            found.then((range) => batch(() => requestSearch(range.row)), () => undefined);
+            return found;
         },
         listRange: (row, limit) => seek.listRange(row, limit),
         // Hand the driver the matched ELEMENT: residency rebases there and the
-        // windows in between are never fetched (#577).
-        jump: (row) => batch(() => paging.jumpToElement(row)),
+        // windows in between are never fetched (#577) — and the canvas goes to
+        // the search's row once that window lands.
+        jump: (row) => batch(() => {
+            paging.jumpToElement(row);
+            requestSearch(row);
+        }),
         clear: () => batch(() => seek.clear()),
     };
 
@@ -839,10 +891,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 // A resolution lives in the slice: what it was, to say what it became.
                 const resolutionBefore = e.t === "resolution.set" && value !== undefined
                     ? currentScale(value)?.resolution : undefined;
+                // Bound, what the user did is the host's to hold (#824) —
+                // written back by the step, ahead of the callbacks it fires.
                 step(e);
                 persistToggles();
-                // Bound, what the user did is the host's to hold (#824).
-                writeBound();
                 // A collapse, the grain, a chart or an expand focus redraws the
                 // paged windows' rows at other heights (#823).
                 syncHeights();

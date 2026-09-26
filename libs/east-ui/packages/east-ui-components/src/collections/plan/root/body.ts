@@ -10,7 +10,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import {
     bodyItemKey, elideForFocus, firstDiagnosticItem, placeFailures, rowHeight,
     type PlanBodyItem, type PlanDerived, type PlanFocusCtx, type PlanRowIndex, type VisibleRow,
@@ -144,8 +144,13 @@ export function usePlanBody(
  * scroll to), and only once it has loaded — the first skipped row the
  * diagnostics chip seeks (#811), or the item a keyboard move went to (#819).
  * The latest request wins: a new search takes the viewport back, and each
- * chip click or keyboard move carries a nonce, so it scrolls there again after
- * the user has moved away.
+ * search, chip click or keyboard move carries a nonce, so it scrolls there
+ * again after the user has moved away.
+ *
+ * Every request names its ROW, which the frame serves once per nonce — a row
+ * whose index moves as windows land above it is not a new request. So the
+ * chip's row is the first skipped row AT the click: a window that lands later
+ * with an earlier skipped row does not take the view there.
  *
  * @param items - The body items
  * @param index - The row index
@@ -174,14 +179,26 @@ export function usePlanScrollTarget(
     const firstSkipped = useMemo(
         () => firstDiagnosticItem(items, index, derived.diagnostics),
         [items, index, derived.diagnostics]);
+    // The chip's row, taken at the click (its nonce), and found by key after.
+    const skippedAt = useRef<{ seq: number; key: string | undefined }>({ seq: -1, key: undefined });
+    if (skippedAt.current.seq !== scroll.skippedSeq) {
+        const item = firstSkipped !== undefined ? items[firstSkipped] : undefined;
+        skippedAt.current = { seq: scroll.skippedSeq, key: item !== undefined ? bodyItemKey(item) : undefined };
+    }
+    const skippedKey = skippedAt.current.key;
+    const skippedIndex = useMemo(() => {
+        if (skippedKey === undefined) return undefined;
+        const i = items.findIndex((it) => bodyItemKey(it) === skippedKey);
+        return i >= 0 ? i : undefined;
+    }, [items, skippedKey]);
     switch (scroll.owner) {
         case "skipped":
-            return { toIndex: firstSkipped, align: "center", nonce: scroll.skippedSeq, firstSkipped };
+            return { toIndex: skippedIndex, align: "center", nonce: scroll.skippedSeq, firstSkipped };
         case "nav":
             // A pinned row is not in the body: it never scrolls away.
             return { toIndex: navIndex, align: scroll.nav?.align ?? "auto", nonce: scroll.nav?.seq, firstSkipped };
         case "search":
-            return { toIndex: searchIndex, align: "center", nonce: undefined, firstSkipped };
+            return { toIndex: searchIndex, align: "center", nonce: scroll.searchSeq, firstSkipped };
     }
 }
 

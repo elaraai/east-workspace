@@ -68,6 +68,8 @@ const ELEMENTS = 4_000;                        // 20 windows at PLAN_PAGE_SIZE
  *  would be unmistakable in the recorded offsets. */
 const TARGET = 3_000;
 const TARGET_KEY = `u${String(TARGET).padStart(4, "0")}`;
+/** A span row's height (the default density's geometry). */
+const ROW_PX = 32;
 
 /** The source, generated at MODULE scope: East bodies never call host helpers
  *  (east 990020). Fixed-width keys, so canonical String order is index order —
@@ -235,6 +237,50 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             for (const w of newly) expect(w).toBeGreaterThanOrEqual(target - 2);
             expect(asked).not.toContain(8);
             expect(asked).not.toContain(10);
+        } finally {
+            restore();
+        }
+    }, 30_000);
+
+    test("a search the canvas has shown leaves the page to the reader — a window landing above its target never scrolls back to it", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { root, asked } = withRecordedWindows(buildPagedPlan());
+            const { container } = renderPlan(root, "plan-search-leaves");
+            await waitFor(() => {
+                expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
+            });
+            const input = container.querySelector('[data-part="dataset-key-search"] input')! as HTMLElement;
+            await userEvent.type(input, TARGET_KEY);
+            await waitFor(() => {
+                expect(container.querySelector('[data-part="dataset-key-search"]')!.textContent).toMatch(/match/);
+            }, { timeout: 5_000 });
+            fireEvent.keyDown(input, { key: "Enter" });
+            // The jump landed and the page went to its row, with the window
+            // before it resident too (the demand ring).
+            const target = Math.floor(TARGET / PLAN_PAGE_SIZE);
+            await waitFor(() => {
+                expect(container.querySelector(unitRow(TARGET_KEY))).toBeTruthy();
+                expect(asked).toContain(target - 1);
+            }, { timeout: 10_000 });
+            const onTarget = window.scrollY;
+            expect(onTarget).toBeGreaterThan(0);
+            // The reader scrolls up 150 rows, the query still standing. Their
+            // scroll settles, the demand follows, and the window before those
+            // rows lands ABOVE the target, moving its index.
+            act(() => { window.scrollTo({ top: onTarget - 150 * ROW_PX }); });
+            const readerAt = window.scrollY;
+            await waitFor(() => {
+                expect(asked).toContain(target - 2);
+            }, { timeout: 5_000 });
+            await waitFor(() => {
+                expect(container.querySelector(unitRow("u2850"))).toBeTruthy();
+            }, { timeout: 5_000 });
+            // The page stays where the reader put it: the search was shown
+            // once, and a request is spent when it is served.
+            await act(() => new Promise((r) => setTimeout(r, 300)));
+            expect(window.scrollY).toBe(readerAt);
+            expect(container.querySelector(unitRow("u2850"))).toBeTruthy();
         } finally {
             restore();
         }
