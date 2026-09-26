@@ -264,14 +264,14 @@ describe('stopped executions', () => {
     const taskHash = 'a'.repeat(64);
     const inHash = 'b'.repeat(64);
 
-    async function writeRunning(runner: { pid: number; pidStartTime: number }, owner: ExecutionOwner | null): Promise<string> {
+    async function writeRunning(runner: ExecutionOwner, owner: ExecutionOwner | null): Promise<string> {
       const executionId = uuidv7();
       const status: ExecutionStatus = variant('running', {
         executionId,
         inputHashes: [],
         startedAt: new Date(),
-        pid: BigInt(runner.pid),
-        pidStartTime: BigInt(runner.pidStartTime),
+        pid: runner.pid,
+        pidStartTime: runner.pidStartTime,
         bootId: await getBootId(),
       });
       await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
@@ -281,8 +281,10 @@ describe('stopped executions', () => {
       return executionId;
     }
 
-    const liveProcess = async () => ({ pid: process.pid, pidStartTime: await getPidStartTime(process.pid), bootId: await getBootId() });
-    const deadProcess = async () => ({ pid: deadPid(), pidStartTime: 12345, bootId: await getBootId() });
+    const liveProcess = async (): Promise<ExecutionOwner> => ({
+      pid: BigInt(process.pid), pidStartTime: BigInt(await getPidStartTime(process.pid)), bootId: await getBootId(),
+    });
+    const deadProcess = async (): Promise<ExecutionOwner> => ({ pid: BigInt(deadPid()), pidStartTime: 12345n, bootId: await getBootId() });
 
     it('rewrites a running record whose runner and owner are both gone as interrupted', async () => {
       const runner = await deadProcess();
@@ -291,7 +293,7 @@ describe('stopped executions', () => {
       assert.equal(await probeExecutionCache(storage, repo, taskHash, inHash), null);
       const status = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
       assert.equal(status?.type, 'interrupted');
-      assert.equal(status?.type === 'interrupted' ? status.value.pid : null, BigInt(runner.pid));
+      assert.equal(status?.type === 'interrupted' ? status.value.pid : null, runner.pid);
     });
 
     it('leaves a running record alone while its owner lives, while its runner lives, or with no owner', async () => {
@@ -343,7 +345,7 @@ describe('stopped executions', () => {
     const result = await taskExecute(storage, repo, taskHash, inputHashes);
     assert.equal(result.state, 'success', result.error ?? '');
     const owner = await storage.refs.executionOwnerRead!(repo, taskHash, result.inputsHash, result.executionId);
-    assert.deepEqual(owner, { pid: process.pid, pidStartTime: await getPidStartTime(process.pid), bootId: await getBootId() });
+    assert.deepEqual(owner, { pid: BigInt(process.pid), pidStartTime: BigInt(await getPidStartTime(process.pid)), bootId: await getBootId() });
   });
 });
 

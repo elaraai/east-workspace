@@ -4,10 +4,10 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { none } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import { computeHash } from '../../objects.js';
 import { ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
-import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant } from '@elaraai/e3-types';
 import type {
   StorageBackend,
   ObjectStore,
@@ -220,6 +220,9 @@ class InMemoryRefStore implements RefStore {
 
   async workspaceRemove(repo: string, name: string): Promise<void> {
     this.getWorkspaces(repo).delete(name);
+    for (const runId of await this.dataflowRunList(repo, name)) {
+      await this.dataflowRunDelete(repo, name, runId);
+    }
   }
 
   // Execution operations (with executionId)
@@ -247,18 +250,6 @@ class InMemoryRefStore implements RefStore {
     if (ids.length === 0) return null;
     const latestId = ids[ids.length - 1]!;
     return this.executionGet(repo, taskHash, inputsHash, latestId);
-  }
-
-  async executionGetLatestOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
-    const ids = await this.executionListIds(repo, taskHash, inputsHash);
-    // Iterate from latest to oldest
-    for (let i = ids.length - 1; i >= 0; i--) {
-      const status = await this.executionGet(repo, taskHash, inputsHash, ids[i]!);
-      if (status && status.type === 'success') {
-        return status.value.outputHash;
-      }
-    }
-    return null;
   }
 
   async executionList(repo: string): Promise<{ taskHash: string; inputsHash: string }[]> {
@@ -303,9 +294,9 @@ class InMemoryRefStore implements RefStore {
     return this.owners.get(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`) ?? null;
   }
 
-  async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void> {
+  async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string | null): Promise<void> {
     const key = `${repo}/${this.makeInputsKey(taskHash, inputsHash)}`;
-    if (planHash === '') {
+    if (planHash === null) {
       this.plans.delete(key);
     } else {
       this.plans.set(key, planHash);
@@ -426,7 +417,7 @@ class InMemoryLockService implements LockService {
 
       const now = new Date();
       const state: LockState = {
-        holder: `.process (pid=${process.pid}, bootId="in-memory", startTime=0, command="test")`,
+        holder: variant('process', { pid: BigInt(process.pid), bootId: 'in-memory', startTime: 0n, command: 'test' }),
         operation,
         acquiredAt: now,
         expiresAt: none,
@@ -446,7 +437,7 @@ class InMemoryLockService implements LockService {
     return this.exclusiveLocks.get(this.makeLockKey(repo, resource)) ?? null;
   }
 
-  async isHolderAlive(_holder: string): Promise<boolean> {
+  async isHolderAlive(_holder: LockHolderVariant): Promise<boolean> {
     return true;
   }
 

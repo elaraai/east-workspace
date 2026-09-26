@@ -7,7 +7,8 @@
  * Execution status type definitions.
  *
  * An execution represents a single run of a task with specific inputs.
- * Executions are stored at: executions/<taskHash>/<inputsHash>/
+ * A local repository keeps each attempt at
+ * executions/<taskHash>/<inputsHash>/<executionId>/
  *
  * The status file tracks:
  * - For running: process identification for crash detection
@@ -93,7 +94,8 @@ const ErrorStatusType = StructType({
 });
 
 /**
- * Execution status stored in executions/<taskHash>/<inputsHash>/status.beast2
+ * Execution status, stored locally at
+ * executions/<taskHash>/<inputsHash>/<executionId>/status.beast2
  *
  * - `running`: Task has been launched but not yet completed
  * - `success`: Task ran and returned exit code 0
@@ -166,19 +168,23 @@ export function decodeExecutionStatus(data: Uint8Array): ExecutionStatus {
 }
 
 /**
- * The orchestrator process that launched an execution (issue #770).
+ * The orchestrator process that launched an execution.
  *
  * @remarks
- * Written beside the execution's `running` status as the `owner` sidecar. A
+ * Written beside the execution's `running` status as its owner record. A
  * `running` record whose runner is gone is repaired only when its owner is
  * gone too: a live owner may be between the runner's exit and the record's
  * write, hashing the output.
+ *
+ * Stored state: a record of another shape is read as none recorded.
  */
-export interface ExecutionOwner {
+export const ExecutionOwnerType = StructType({
   /** Process ID of the orchestrator */
-  pid: number;
+  pid: IntegerType,
   /** Orchestrator start time in jiffies since boot (from /proc/<pid>/stat field 22) */
-  pidStartTime: number;
+  pidStartTime: IntegerType,
   /** System boot ID (from /proc/sys/kernel/random/boot_id) */
-  bootId: string;
-}
+  bootId: StringType,
+});
+
+export type ExecutionOwner = ValueTypeOf<typeof ExecutionOwnerType>;

@@ -345,10 +345,10 @@ A local repository is a directory of records and objects (decided 2026-09-26, #9
 
 | Path | What it holds | East type |
 |---|---|---|
-| `repository.beast2` | the repository: its name, status, times and layout version | `RepoMetadataType` |
+| `repository.beast2` | the repository: the layout's version, and its name, status and times | `RepositoryRecordType`, `{ layout, metadata }` |
 | `objects/<ab>/<rest>.beast2` | content-addressed objects, an environment's files among them as Blobs | any |
 | `packages/<name>/<version>.beast2` | a package ref: the package object's hash | String |
-| `workspaces/<ws>.beast2` | a workspace's deployed state | `WorkspaceStateType` |
+| `workspaces/<ws>.beast2` | a workspace: `none` until a package is deployed, then its state | `WorkspaceRecordType`, an `Option` of `WorkspaceStateType` |
 | `workspaces/<ws>/data/<path>.beast2` | a dataset ref and its revision | `{ revision, ref }` |
 | `workspaces/<ws>/execution.beast2` | the workspace's latest dataflow execution | `DataflowExecutionStateType` |
 | `dataflows/<ws>/<runId>.beast2` | a run's record | `DataflowRunType` |
@@ -363,9 +363,9 @@ A local repository is a directory of records and objects (decided 2026-09-26, #9
 
 - **Every record is an East value in beast2**, except the logs, which stay the runners' own text: they are appended as output arrives and read by byte offset.
 - **The layout is checked.** The repository record carries the layout's version, and opening a repository refuses any other version, or none, naming the fix: re-create it.
-- **Names are checked** before they become paths: workspace names, and package names and versions. A path separator, or `.` or `..` as a whole segment, is refused.
+- **Names are checked** before they become paths: a repository's name where a server keeps several, workspace names, package names and versions, and lock resources. A path separator, a character a Windows file name refuses, or `.` or `..` as a whole segment, is refused. A hash — an object's, which a client names too, or an execution's task and inputs hashes — and an attempt's or a run's id, which an imported package names, must be of the form e3 writes.
 - **One record for one fact.** The `success` status holds the output hash, and a dataflow run has one id, its UUIDv7 `runId`.
-- **What goes with what it describes:** a workspace's execution state, runs and locks go with the workspace, and a built environment goes when gc no longer reaches its spec.
+- **What goes with what it describes:** a workspace's execution state and runs go with the workspace, and so do the locks its dataflows and dataset writes left when they exited; a lock a live process holds is left for it to release. A built environment goes when gc no longer reaches its spec.
 - **Staging files are `.partial`s**, which gc sweeps, and they sit inside the repository, never in the machine's temp directory.
 - **History is bounded.** gc keeps:
   - the last 10 runs of each workspace, and every run from the last 7 days;
@@ -700,6 +700,12 @@ Changes:
   - the state store's, the lock service's and the metadata's staging files, which were not `.partial`s;
   - `deleteRefsBatch`'s list of directories.
 - **Bounded history** (§3.13; decided 2026-09-26). The storage interfaces gain `executionDelete`, a run record names each task's inputs, and a split task's `success` record names its stages' plans.
+- **Found while building part 1:**
+  - An undeployed workspace was an empty file, which no East value is. It is `none` of an `Option` now (decided 2026-09-26).
+  - A multi-repository server joined a repository's name to its directory unchecked, so `..` reached outside it. Its name is checked with the rest.
+  - An import joined the task hash, inputs hash, execution id and run id its zip's entries named into paths unchecked. Each must be of the form e3 writes.
+  - An object's hash became a path unchecked, so a transfer's init, which names its delivery by hash, could point a dataset at another repository's object on a server that keeps several. It must be a SHA-256 in lowercase hex.
+  - Nothing swept the staging file a status change leaves beside the repository's record, at the repository's root. gc sweeps the root too, without walking it.
 - **Docs:** the storage interfaces, `repository.ts`, `lock.ts`, `e3-execution.md`'s storage layout, `WIRE_MIGRATION.md`, and e3-cloud#187.
 
 Built in four parts, in this order:
@@ -738,7 +744,7 @@ Acceptance:
   - the runner docs follow the protocol;
   - it is a plugin skill: coordinate the change and regenerate the example index (plugin-artifacts).
 - **Other docs:** `libs/e3/USAGE.md`, the Codex plugin's copy of the e3 skill, and the runner READMEs.
-- **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted.
+- **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted. `e3-reactive-dataflow.md`, `e3-api.md`, `e3-core.md` and `e3-mvp-core.md` describe a repository e3 no longer keeps — locks beside the workspaces, `.ref` files, an `output` ref — and are rewritten to the code or deleted (found while building the repository's records, part 1).
 
 ### Stage 8 — e3-cloud
 

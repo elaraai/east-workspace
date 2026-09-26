@@ -21,7 +21,7 @@ import {
   RecordObjectType,
   MutationObjectType,
   RecordCommitType,
-  WorkspaceStateType,
+  WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import { createWorkspaceRecordRoutes } from '../routes/records.js';
 import { effectiveBudgetMs } from './records.js';
@@ -89,9 +89,9 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
     sources: new Map(),
   }));
 
-  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({
+  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceRecordType)(some({
     packageName: 'counters', packageVersion: '1.0.0', packageHash: pkgHash, deployedAt: new Date(0), currentRunId: none,
-  }));
+  })));
   await storage.datasets.write(REPO, WS, 'records/counter',
     variant('value', { hash: stateHash, versions: new Map([['.records.counter', genesisHash]]) }));
 }

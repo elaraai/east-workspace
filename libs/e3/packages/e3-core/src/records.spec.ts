@@ -34,6 +34,7 @@ import { objectPath } from './storage/local/localHelpers.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { inputsHash } from './executions.js';
+import { uuidv7 } from './uuid.js';
 import type { MutationOutcome, StorageBackend, TaskExecuteOptions, TaskResult, TaskRunner } from './index.js';
 
 /** Whether a runtime's CLI answers on PATH — the multi-runtime suites skip
@@ -530,18 +531,20 @@ describe('records', () => {
   it('returns the tail of the program\'s stderr log when it fails or runs out of time', async () => {
     // A unit's stderr goes to its execution's log, and a failure returns the
     // last `maxLogBytes` of it, as a human debugging a body needs.
+    const failedRun = uuidv7();
     const failing = runnerReturning(async (taskHash, inputs) => {
-      await storage.logs.append(repo, taskHash, inputsHash(inputs), 'a-failed-run', 'stderr', `${'x'.repeat(100)}the tail`);
-      return { state: 'failed', cached: false, exitCode: 3, executionId: 'a-failed-run' };
+      await storage.logs.append(repo, taskHash, inputsHash(inputs), failedRun, 'stderr', `${'x'.repeat(100)}the tail`);
+      return { state: 'failed', cached: false, exitCode: 3, executionId: failedRun };
     });
     const failed = await recordMutate(storage, failing, repo, ws, 'counter', 'increment', [encodeInt(1n)],
       { actor: 'x', limits: { timeoutMs: 60_000, maxLogBytes: 8 } });
     assert.deepStrictEqual(failed, { kind: 'failed', exitCode: 3, stderr: 'the tail' });
 
+    const slowRun = uuidv7();
     const slow = runnerReturning((taskHash, inputs, options) => new Promise((resolve) => {
       options!.signal!.addEventListener('abort', () => {
-        void storage.logs.append(repo, taskHash, inputsHash(inputs), 'a-slow-run', 'stderr', 'slow reducer')
-          .then(() => resolve({ state: 'error', cached: false, cancelled: true, executionId: 'a-slow-run' }));
+        void storage.logs.append(repo, taskHash, inputsHash(inputs), slowRun, 'stderr', 'slow reducer')
+          .then(() => resolve({ state: 'error', cached: false, cancelled: true, executionId: slowRun }));
       }, { once: true });
     }));
     const timedOut = await recordMutate(storage, slow, repo, ws, 'counter', 'increment', [encodeInt(1n)],

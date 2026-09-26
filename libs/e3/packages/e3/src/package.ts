@@ -7,6 +7,7 @@
  * Package definitions for e3.
  */
 
+import { nameProblem } from '@elaraai/e3-types';
 import type {
   FunctionDef,
   MutationDef,
@@ -33,8 +34,10 @@ import type {
  * @param version - Package version
  * @param items - Items to include (datasets, tasks)
  * @returns A PackageDef with typed access to contents
- * @throws {Error} When a record is given two different mutations, or two
- *   different indexes, of one name
+ * @throws {Error} When the name or the version cannot be a file name — a
+ *   repository keeps the package at `packages/<name>/<version>` — or when a
+ *   record is given two different mutations, or two different indexes, of one
+ *   name
  *
  * @example
  * ```ts
@@ -62,6 +65,11 @@ export function package_(
   version: string,
   ...items: (PackageItem | FunctionDef | MutationDef | RecordIndexDef | PackageDef<any>)[]
 ): PackageDef<Record<string, unknown>> {
+  for (const [kind, value] of [['package', name], ['package version', version]] as const) {
+    const problem = nameProblem(kind, value);
+    if (problem !== null) throw new Error(`e3.package: the ${kind} name ${JSON.stringify(value)} ${problem}`);
+  }
+
   // Recursively collect all items and their transitive dependencies
   const all_items = new Set<PackageItem>();
   const visited = new Set<PackageItem>();

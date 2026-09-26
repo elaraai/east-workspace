@@ -21,7 +21,7 @@
  * caller, and the fallbacks were whole-object reads.
  */
 
-import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, DataflowRun, DatasetRef } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, DataflowRun, DatasetRef, RepoMetadata, RepoStatus } from '@elaraai/e3-types';
 import type { LockHolderInfo } from '../errors.js';
 
 // Re-export lock types for consumers of this module
@@ -31,29 +31,10 @@ export type { LockState, LockOperation, LockHolderInfo };
 // Repository Lifecycle Types
 // =============================================================================
 
-/**
- * Repository status for lifecycle tracking.
- *
- * - 'creating': Repository is being initialized
- * - 'active': Repository is ready for use
- * - 'gc': Garbage collection is in progress
- * - 'deleting': Repository is being deleted
- */
-export type RepoStatus = 'creating' | 'active' | 'gc' | 'deleting';
+export type { RepoMetadata, RepoStatus };
 
-/**
- * Repository metadata.
- */
-export interface RepoMetadata {
-  /** Repository name */
-  name: string;
-  /** Current status */
-  status: RepoStatus;
-  /** When the repository was created (ISO 8601) */
-  createdAt: string;
-  /** When the status last changed (ISO 8601) */
-  statusChangedAt: string;
-}
+/** The name of a repository status: `creating`, `active`, `gc` or `deleting`. */
+export type RepoStatusName = RepoStatus['type'];
 
 /**
  * Result from batch operations (resumable pattern).
@@ -304,23 +285,26 @@ export interface RefStore {
   workspaceList(repo: string): Promise<string[]>;
 
   /**
-   * Read workspace state.
+   * Read a workspace's record.
    * @param repo - Repository identifier
    * @param name - Workspace name
-   * @returns Encoded workspace state, or null if not found
+   * @returns The encoded `WorkspaceRecordType`, or null if there is no
+   *   workspace of this name
    */
   workspaceRead(repo: string, name: string): Promise<Uint8Array | null>;
 
   /**
-   * Write workspace state.
+   * Write a workspace's record.
    * @param repo - Repository identifier
    * @param name - Workspace name
-   * @param state - Encoded workspace state (empty = undeployed)
+   * @param state - The encoded `WorkspaceRecordType`: `none` until a package
+   *   is deployed, then its state
    */
   workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void>;
 
   /**
-   * Remove a workspace.
+   * Remove a workspace: its state, its dataflow execution state and its run
+   * records, so none of them passes to a workspace of the same name.
    * @param repo - Repository identifier
    * @param name - Workspace name
    */
@@ -369,16 +353,6 @@ export interface RefStore {
   executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null>;
 
   /**
-   * Get the latest successful output hash (for cache lookup).
-   * Iterates from latest executionId backwards, returns first success.outputHash found.
-   * @param repo - Repository identifier
-   * @param taskHash - Task object hash
-   * @param inputsHash - Combined input hashes
-   * @returns Output hash or null if no successful execution exists
-   */
-  executionGetLatestOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null>;
-
-  /**
    * List all executions in the repository.
    * @param repo - Repository identifier
    * @returns Array of {taskHash, inputsHash} pairs
@@ -411,9 +385,8 @@ export interface RefStore {
   executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>;
 
   /**
-   * Record the orchestrator that launched an execution — the `owner` sidecar
-   * beside its status (issue #770). A stale `running` record is repaired only
-   * where a dead owner is recorded.
+   * Record the orchestrator that launched an execution, beside its status. A
+   * stale `running` record is repaired only where a dead owner is recorded.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
@@ -436,27 +409,24 @@ export interface RefStore {
 
   /**
    * Point the execution of a task split into pieces at the `$plan` of the
-   * stage it is in — the `plan` sidecar. It roots the plan for garbage
-   * collection while the execution can resume, and a run of the task takes
-   * the stage it names up again. An empty `planHash` clears it, when the
-   * execution ends.
+   * stage it is in. It roots the plan for garbage collection while the
+   * execution can resume, and a run of the task takes the stage it names up
+   * again. `null` clears it, when the execution ends.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
-   * @param planHash - Hash of the `$plan` object, or `''` to clear the sidecar
+   * @param planHash - Hash of the `$plan` object, or `null` to clear it
    */
-  executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void>;
+  executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string | null): Promise<void>;
 
   /**
-   * Read the plan the execution of a task split into pieces last recorded:
-   * a `$plan`, or the partition plan a released e3 recorded.
+   * Read the `$plan` the execution of a task split into pieces is in.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
-   * @returns The plan object hash, or null when none is recorded or it was
-   *   cleared
+   * @returns The plan object hash, or null when none is recorded
    */
   executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null>;
 
@@ -562,9 +532,9 @@ export interface LockHandle {
  *   `exclusive` holder. Dataflow execution and record mutation take it, so they
  *   run concurrently with each other yet never overlap a deploy.
  *
- * The lock state is stored using the LockState type from e3-types, so cloud
- * implementations can extend the holder variants. All methods (except
- * isHolderAlive) take `repo` as the first parameter.
+ * The lock state is stored using the LockState type from e3-types, whose holder
+ * is a local process or a cloud function. All methods (except isHolderAlive)
+ * take `repo` as the first parameter.
  */
 export interface LockService {
   /**
@@ -603,10 +573,10 @@ export interface LockService {
    * For local process locks, checks if the PID is still running.
    * For cloud locks, checks expiry or queries the cloud service.
    *
-   * @param holder - East text-encoded holder string from LockState
+   * @param holder - The holder a lock's state names
    * @returns true if the holder is still active
    */
-  isHolderAlive(holder: string): Promise<boolean>;
+  isHolderAlive(holder: LockHolderVariant): Promise<boolean>;
 }
 
 // =============================================================================
@@ -732,7 +702,7 @@ export interface RepoStore {
    * @throws {RepoNotFoundError} If repository doesn't exist
    * @throws {RepoStatusConflictError} If expected status doesn't match
    */
-  setStatus(repo: string, status: RepoStatus, expected?: RepoStatus | RepoStatus[]): Promise<void>;
+  setStatus(repo: string, status: RepoStatusName, expected?: RepoStatusName | RepoStatusName[]): Promise<void>;
 
   /**
    * Remove repository metadata/tombstone.
@@ -818,8 +788,8 @@ export interface RepoStore {
  * value and version vector. This replaces the single rootHash approach,
  * enabling concurrent writes and reactive re-execution.
  *
- * Ref files are stored at: workspaces/<ws>/data/<path>.ref
- * where <path> uses directory separators (e.g., inputs/sales.ref).
+ * A local repository keeps a ref at `workspaces/<ws>/data/<path>.beast2`,
+ * where `<path>` uses directory separators (e.g. `inputs/sales.beast2`).
  */
 export interface DatasetRefStore {
   /**
@@ -848,11 +818,12 @@ export interface DatasetRefStore {
   /**
    * Read a dataset ref together with an opaque revision token.
    *
-   * The revision identifies the exact stored bytes; pass it back to
+   * The revision identifies one write of the ref; pass it back to
    * {@link writeIf} to make a conditional write that only succeeds if nothing
    * changed in between. The token is store-specific and meaningful only to the
-   * same store (a content etag locally, a counter in memory, a DynamoDB
-   * revision attribute in the cloud) — never compare tokens across stores.
+   * same store (a token minted per write locally, a counter in memory, a
+   * DynamoDB revision attribute in the cloud) — never compare tokens across
+   * stores.
    *
    * @param repo - Repository identifier
    * @param ws - Workspace name

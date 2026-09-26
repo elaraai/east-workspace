@@ -8,19 +8,16 @@ import { mkdir, open, writeFile, readFile, unlink } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { variant } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import {
   ObjectNotFoundError,
+  packageStagingPath,
   transferStagingDir,
   transferStagingPath,
   type StorageBackend,
   type TransferBackend,
 } from '@elaraai/e3-core';
-
-const STAGING_DIR = join(tmpdir(), 'e3-transfers');
 
 /**
  * Reject requests that carry an Authorization header.
@@ -101,9 +98,9 @@ export function createDataEndpoints(
         );
       }
 
-      const stagingPath = join(STAGING_DIR, `${id}.zip.partial`);
-      await mkdir(STAGING_DIR, { recursive: true });
-      await writeFile(stagingPath, body);
+      const repoPath = getRepoPath(pkgRecord.repo);
+      await mkdir(transferStagingDir(repoPath), { recursive: true });
+      await writeFile(packageStagingPath(repoPath, id), body);
       await transferBackend.packageImport.updateStatus(id, variant('uploaded', null));
 
       return new Response(null, { status: 200 });
@@ -209,7 +206,7 @@ export function createDataEndpoints(
     // Try package export
     const pkgRecord = await transferBackend.packageExport.get(id);
     if (pkgRecord && pkgRecord.status.type === 'completed') {
-      const stagingPath = join(STAGING_DIR, `${id}.zip`);
+      const stagingPath = packageStagingPath(getRepoPath(pkgRecord.repo), id);
       try {
         const fileData = await readFile(stagingPath);
         await unlink(stagingPath).catch(() => {});

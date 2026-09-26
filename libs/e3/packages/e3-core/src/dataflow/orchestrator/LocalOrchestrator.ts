@@ -15,9 +15,9 @@
  * inputs have conflicting provenance (diamond dependency protection).
  */
 
-import { decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import type { DataflowRun, TaskExecutionRecord, Structure, TaskObject, VersionVector } from '@elaraai/e3-types';
-import { WorkspaceStateType, decodeTaskObject } from '@elaraai/e3-types';
+import { WorkspaceRecordType, decodeTaskObject } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
 import { taskExecute, taskExecuteUnit, type ExecutionResult } from '../../execution/LocalTaskRunner.js';
@@ -598,8 +598,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     try {
       // Read workspace state for DataflowRun recording
       const wsData = await storage.refs.workspaceRead(repo, state.workspace);
-      const wsDecoder = decodeBeast2For(WorkspaceStateType);
-      const wsState = wsData && wsData.length > 0 ? wsDecoder(wsData) : null;
+      const wsRecord = wsData === null ? null : decodeBeast2For(WorkspaceRecordType)(wsData);
+      const wsState = wsRecord?.type === 'some' ? wsRecord.value : null;
 
       // Cache structure for the entire execution (immutable during execution)
       const structure = wsState ? await this.readStructure(storage, repo, wsState.packageHash) : null;
@@ -933,14 +933,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // Update workspace state with currentRunId on success
         if (result.success) {
           const currentWsData = await storage.refs.workspaceRead(repo, state.workspace);
-          if (currentWsData && currentWsData.length > 0) {
-            const currentWsState = wsDecoder(currentWsData);
-            const updatedWsState = {
-              ...currentWsState,
-              currentRunId: variant('some', execution.runId),
-            };
-            const encoder = encodeBeast2For(WorkspaceStateType);
-            await storage.refs.workspaceWrite(repo, state.workspace, encoder(updatedWsState));
+          const currentRecord = currentWsData === null ? null : decodeBeast2For(WorkspaceRecordType)(currentWsData);
+          if (currentRecord?.type === 'some') {
+            await storage.refs.workspaceWrite(repo, state.workspace, encodeBeast2For(WorkspaceRecordType)(some({
+              ...currentRecord.value,
+              currentRunId: some(execution.runId),
+            })));
           }
         }
       }

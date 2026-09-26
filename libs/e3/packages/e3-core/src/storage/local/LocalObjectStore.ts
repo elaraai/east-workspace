@@ -292,11 +292,7 @@ export async function objectRead(
   repoPath: string,
   hash: string
 ): Promise<Uint8Array> {
-  const extension = '.beast2';
-  const dirName = hash.slice(0, 2);
-  const fileName = hash.slice(2) + extension;
-
-  const filePath = path.join(repoPath, 'objects', dirName, fileName);
+  const filePath = objectPath(repoPath, hash);
 
   try {
     return await fs.readFile(filePath);

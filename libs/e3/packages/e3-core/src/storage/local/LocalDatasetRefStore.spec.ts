@@ -15,14 +15,14 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import * as fs from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { variant, encodeBeast2For, equalFor } from '@elaraai/east';
+import { StringType, StructType, variant, decodeBeast2For, equalFor } from '@elaraai/east';
 import { DatasetRefType } from '@elaraai/e3-types';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
 import { InMemoryStorage } from '../in-memory/InMemoryStorage.js';
-import { DatasetRefConflictError } from '../../errors.js';
+import { DatasetRefConflictError, InvalidNameError } from '../../errors.js';
 
 /**
  * DatasetRefs round-trip through beast2, so a decoded ref's `versions` Dict is
@@ -107,30 +107,36 @@ for (const [name, make] of Object.entries(backends)) {
       assert.ok(result.revision.length > 0);
     });
 
-    // A ref file an older e3 wrote is a bare DatasetRef, with no 0xFF magic and
-    // no revision: its repository is re-created, and every read says so, a
-    // conditional write's included. (Local-only: the in-memory backend has no
-    // on-disk format.)
+    // The on-disk form. (Local-only: the in-memory backend has none.)
     if (name === 'local') {
-      it('refuses a bare-DatasetRef file an older e3 wrote, naming the fix', async () => {
-        const refFile = join(fx.repo, 'workspaces', ws, 'data', `${path}.ref`);
-        await fs.mkdir(dirname(refFile), { recursive: true });
-        await fs.writeFile(refFile, encodeBeast2For(DatasetRefType)(variant('value', { hash: 'b'.padEnd(64, '0'), versions: new Map() })));
+      it('keeps a ref as a beast2 { revision, ref } at workspaces/<ws>/data/<path>.beast2', async () => {
+        const ref = variant('value', { hash: 'b'.padEnd(64, '0'), versions: new Map() });
+        const { revision } = await fx.store.writeIf(fx.repo, ws, path, ref, null);
+        const data = await fs.readFile(join(fx.repo, 'workspaces', ws, 'data', 'inputs', 'sales.beast2'));
+        const stored = decodeBeast2For(StructType({ revision: StringType, ref: DatasetRefType }))(data);
+        assert.strictEqual(stored.revision, revision);
+        assertRefEqual(stored.ref, ref);
+        assert.deepStrictEqual(await fx.store.list(fx.repo, ws), [path]);
+      });
 
-        const message = `the dataset ref ${refFile} was written by an older e3, without a revision — re-create the repository: deploy again and import its data again`;
-        await assert.rejects(fx.store.read(fx.repo, ws, path), { message });
-        await assert.rejects(fx.store.readVersioned(fx.repo, ws, path), { message });
-        await assert.rejects(
-          fx.store.writeIf(fx.repo, ws, path, variant('value', { hash: 'c'.padEnd(64, '0'), versions: new Map() }), null),
-          { message },
-        );
+      it('refuses a workspace whose name is no one path segment', async () => {
+        await assert.rejects(fx.store.read(fx.repo, '../main', path), InvalidNameError);
+        await assert.rejects(fx.store.list(fx.repo, 'a/b'), InvalidNameError);
+      });
+
+      it('locks a dataset whose path holds a character a lock\'s name cannot', {
+        skip: process.platform === 'win32' ? 'Windows refuses the character in the ref file\'s own name' : false,
+      }, async () => {
+        const odd = 'inputs/a:b*c';
+        await fx.store.writeIf(fx.repo, ws, odd, variant('value', { hash: 'd'.padEnd(64, '0'), versions: new Map() }), null);
+        assertRefEqual(await fx.store.read(fx.repo, ws, odd), variant('value', { hash: 'd'.padEnd(64, '0'), versions: new Map() }));
       });
 
       // The cross-process guarantee, exercised by REAL separate OS processes.
       // The same-process records.spec K=8 test now serializes through the
       // in-process keyed mutex, so it can no longer detect a regression in the
       // on-disk lock. This one can: two processes have disjoint mutex maps, so a
-      // lost update here means the exclusive `.lock` (the sole cross-process
+      // lost update here means the exclusive lock (the sole cross-process
       // serializer) is broken. Retries absorb transient contention, so a correct
       // lock makes the final count deterministic regardless of timing.
       it('cross-process: two OS processes CAS-increment one ref with no lost updates', async () => {

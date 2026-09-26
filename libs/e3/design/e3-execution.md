@@ -35,21 +35,22 @@ Executions are stored in `executions/<taskHash>/<inputsHash>/<executionId>/`, on
 executions/
 └── <taskHash>/
     └── <inputsHash>/
-        ├── plan                # A split task's execution: hash of the $plan of the stage it is in
+        ├── plan.beast2         # A split task's execution: the $plan of the stage it is in (a String)
         └── <executionId>/
-            ├── status.beast2   # Execution status
-            ├── output          # Ref file: hash of output dataset (on success)
-            ├── owner           # JSON: the orchestrator process that launched the runner
+            ├── status.beast2   # Execution status (ExecutionStatusType)
+            ├── owner.beast2    # The orchestrator that launched the runner (ExecutionOwnerType)
             ├── stdout.txt      # Captured stdout (streamed during execution)
             └── stderr.txt      # Captured stderr (streamed during execution)
 ```
+
+Every record is an East value in beast2; the logs are the runner's own text, appended as it arrives and read by byte offset. The output hash is the `success` status's `outputHash`, and nowhere else.
 
 This organization provides:
 - Easy lookup of all executions for a given task
 - Natural grouping for `e3 exec list --task <hash>`
 - Simpler GC - can delete all executions when a task is removed
 
-The `plan` sidecar names the `$plan` of the stage a split task's execution is in, from its first stage until the execution ends, when it is cleared (see Split Tasks).
+The `plan` record names the `$plan` of the stage a split task's execution is in, from its first stage until the execution ends, when it is removed (see Split Tasks).
 
 ### Status File Format
 
@@ -122,7 +123,7 @@ This handles: process crashes, machine restarts, and PID wraparound/reuse.
    - An `east` body on the `custom` runtime is the runner's command given `run`'s arguments: `-i` for each input, `-o` and the program's file. It runs only a program that returns its output.
    - A merge unit of a split task is a `merge` unit for `exec` (`stageMergeUnit`).
 8. **Environment.** A task that names an execution environment has it materialized (`materializeEnvironment`, a cache hit after first use), and its bin directory leads the runner's PATH.
-9. **Run.** The spawn takes a core of the process's budget, when the runner holds one (see The Budget). Once the runner has spawned, the `running` status and the `owner` sidecar are written. stdout and stderr stream to the attempt's log files (see Output Capture). A unit ends well only when its runner exits 0 and records an `ok` result. A set or dict output its runner left in several sorted runs is merged into one by a second `exec`, of the `merge` unit `stageOutputMerge` writes, on the same core.
+9. **Run.** The spawn takes a core of the process's budget, when the runner holds one (see The Budget). Once the runner has spawned, the `running` status and the `owner` record are written. stdout and stderr stream to the attempt's log files (see Output Capture). A unit ends well only when its runner exits 0 and records an `ok` result. A set or dict output its runner left in several sorted runs is merged into one by a second `exec`, of the `merge` unit `stageOutputMerge` writes, on the same core.
 10. **Outcome.**
     - On success the output goes into the store through its door. A unit's output (`storeUnitOutput`) is the manifest or file its runner wrote, taken in with each segment file linked as it stands: a value, an array, a fold, or a set's or a dict's one run — the empty collection when nothing was emitted, typed by the program's `emit` parameter. A `command` body's output goes through `storeDatasetFile`: a collection the command wrote is read a segment at a time and written again, and any other value is hashed by streaming and linked. A `success` status is then written.
     - A runner that exits 0 without recording an `ok` result is recorded `error`. Every other outcome is recorded as Stopped Executions describes.
@@ -161,7 +162,7 @@ An execution that e3 stops, or whose process dies, is recorded with a status tha
 
 **Stopping a runner tree.** On POSIX a stop signals the runner's process group; a process that leaves the group (`setsid`) escapes it, a known and accepted limitation. Windows has no process group a signal can address, so there e3 runs each runner through its job launcher, `e3-job.exe` (`libs/e3/native/e3-job`, shipped as e3-core's optional dependency `@elaraai/e3-job-win32-x64`): the launcher joins a new Job Object that allows no breakaway and ends every member when its last handle closes, then starts the runner in it, with the command line e3 would have given the runner, and exits with the runner's exit code. A stop ends the launcher, and with it every process the runner started — including a program Git Bash's exec leaves with an exited parent, which no walk of parent pids finds. The job ends the same way when e3 dies (Node ends its direct children with it) and when the runner exits, so on Windows nothing a runner starts outlives it. The `running` record's pid is the launcher's, which lives exactly as long as the runner. An install without the launcher (optional dependencies omitted) warns `E3_NO_JOB_LAUNCHER`, runs runners directly and stops them with `taskkill /T`, which misses such orphans. On every platform a stop finishes even when a process it could not reach holds the runner's output open: once the runner has exited, e3 reads its output for 5 s more and then closes the pipes itself.
 
-**The owner sidecar, and interrupted executions.** Once a runner has spawned, e3 writes the `running` status (the runner's pid, start time and boot id) and an `owner` sidecar naming itself (`{ pid, pidStartTime, bootId }`). A `running` record is stale only when both processes are gone: the cache probe (`probeExecutionCache`) rewrites it `interrupted` when the runner is dead **and** the owner exists and is dead. A live owner may be between its runner's exit and the record's write — hashing the output — so its record is never touched, and a record without an owner sidecar (written by an older e3) is never repaired. A split task's own execution is recorded `running` with the orchestrator as both its runner and its owner, so it is found interrupted once the orchestrator is gone.
+**The owner record, and interrupted executions.** Once a runner has spawned, e3 writes the `running` status (the runner's pid, start time and boot id) and an `owner` record naming itself (`ExecutionOwnerType`: `{ pid, pidStartTime, bootId }`). A `running` record is stale only when both processes are gone: the cache probe (`probeExecutionCache`) rewrites it `interrupted` when the runner is dead **and** the owner exists and is dead. A live owner may be between its runner's exit and the record's write — hashing the output — so its record is never touched, and a record with no owner, or one that does not decode, is never repaired. A split task's own execution is recorded `running` with the orchestrator as both its runner and its owner, so it is found interrupted once the orchestrator is gone.
 
 **Scratch directories.** An execution runs in `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<executionId>`, named after the attempt and the orchestrator that owns it, under `<repo>/tmp/scratch`, or under `E3_SCRATCH_DIR` when it is set. A runner writes its whole output there before e3 stores it, and writes nothing anywhere else: a set's or a dict's sorted runs, and the merge of them, are files of the same directory. Inside the repository the directory is on the object store's filesystem, so an output never waits in memory on a tmpfs temp directory, and one that is not a collection is stored by a link, never a copy. Two attempts at one execution that run at once, such as two mutations of a record over the same state with the same arguments, each have a directory of their own. The execution removes the directory when it finishes. `sweepScratchDirs` removes the directories whose owner has exited — its pid no longer has the start time in the name, or, where the platform reports no start time for the pid (Windows, a pid `/proc` cannot answer for), the pid no longer exists (signal 0) — and runs before every local `e3 dataflow run` and in `repoGc`.
 
@@ -183,7 +184,7 @@ Each piece of an input is stored through the door as the manifest the Writer wri
 
 ### Units
 
-Each piece is a unit: the task's program over the piece's inputs, an execution `(taskHash, inputsHash(pieceInputs))`. A re-run after an edit runs only the pieces the edit touched, and finds every other piece in the execution cache. A merge is a unit too, `(taskHash, inputsHash(['merge', range?, ...parts]))` — the leading `merge` keeps its identity apart from a piece's — and its runner `exec`s a `merge` unit naming the parts, the key range and the output kind. Every unit is spawned as any execution is (scratch directory, a core of the budget, stdin lifeline, owner sidecar, its own logs), and is probed in the execution cache first unless the run is forced. A piece whose set or dict output closed several sorted runs merges them in its own execution, so every unit's output is one manifest.
+Each piece is a unit: the task's program over the piece's inputs, an execution `(taskHash, inputsHash(pieceInputs))`. A re-run after an edit runs only the pieces the edit touched, and finds every other piece in the execution cache. A merge is a unit too, `(taskHash, inputsHash(['merge', range?, ...parts]))` — the leading `merge` keeps its identity apart from a piece's — and its runner `exec`s a `merge` unit naming the parts, the key range and the output kind. Every unit is spawned as any execution is (scratch directory, a core of the budget, stdin lifeline, owner record, its own logs), and is probed in the execution cache first unless the run is forced. A piece whose set or dict output closed several sorted runs merges them in its own execution, so every unit's output is one manifest.
 
 ### Assembly by output kind
 
@@ -197,7 +198,7 @@ Each group merges through a tree of units of fan-in 32 (`MERGE_TREE_FANIN`): a l
 
 ### Stages and the unit plan
 
-The units run a stage at a time: the pieces, then each level of the merges. Each stage is a `$plan` object (`UnitPlanType`, `e3-types/src/unit-plan.ts`) holding the task's hash, the task's inputs hash and the stage: each piece's inputs, or a merge level — its number, the number of levels, and its groups, each an optional range and its entries in fold order. It is written as the stage starts and named by the execution's `plan` sidecar, which roots it for GC until the execution ends.
+The units run a stage at a time: the pieces, then each level of the merges. Each stage is a `$plan` object (`UnitPlanType`, `e3-types/src/unit-plan.ts`) holding the task's hash, the task's inputs hash and the stage: each piece's inputs, or a merge level — its number, the number of levels, and its groups, each an optional range and its entries in fold order. It is written as the stage starts and named by the execution's `plan` record, which roots it for GC until the execution ends.
 
 While the stages run, the task's own execution, `(taskHash, inputsHash(inputHashes))`, is recorded `running` under the orchestrator, with the orchestrator as its runner and its owner. Its `stdout.txt` gets one line per unit once the unit's result is known (`combine` names a fold's merges):
 ```
@@ -205,15 +206,15 @@ piece <i>/<n> <completed|cached|failed|cancelled> task=<hash> inputs=<hash> exec
 merge level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 combine level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 ```
-The ids are in full, so `e3 task logs <repo> --execution <task>/<inputs>/<id>` opens any unit's own logs. `peak` is the runner's peak resident memory, as the unit's result reports it: the larger of the run's and, when a set or dict closed several runs, their merge's. A unit served from the cache has the peak its record holds, and one whose runner recorded no result has none. When the last stage yields the output, the task's execution records `success`, and its sidecar is cleared, as it is at every other end:
+The ids are in full, so `e3 task logs <repo> --execution <task>/<inputs>/<id>` opens any unit's own logs. `peak` is the runner's peak resident memory, as the unit's result reports it: the larger of the run's and, when a set or dict closed several runs, their merge's. A unit served from the cache has the peak its record holds, and one whose runner recorded no result has none. When the last stage yields the output, the task's execution records `success`, and its `plan` record is removed, as it is at every other end:
 - a unit's failure: `failed` with the unit's exit code, or `error`, naming the stage's lowest-index failing unit, so the cause is the same at every pool width;
 - a unit whose executor threw: `error`, naming the lowest-index one, whose error is then raised;
 - pieces that cannot be planned, or outputs that cannot be grouped or assembled: `error`, naming why;
 - an aborted run: `cancelled`, with `e3: cancelled: e3 stopped the task's units because the run was aborted` as the last line of its `stderr.txt`.
 
-A run that yields leaves the task mid-stage instead: its execution is recorded `interrupted`, and the sidecar keeps naming the stage's plan.
+A run that yields leaves the task mid-stage instead: its execution is recorded `interrupted`, and the `plan` record keeps naming the stage's plan.
 
-**Resuming.** A run of the task takes up the stage a plan names — the task's `plan` in the dataflow's execution state, or, for a task run on its own, the sidecar — when the plan is this task's over these inputs. It probes the stage's units in the execution cache, so the units that finished are not run again. A plan of the task over inputs it no longer has is cleared from its sidecar, and one that cannot be read, or is not a unit plan, is replaced: the pieces are planned again.
+**Resuming.** A run of the task takes up the stage a plan names — the task's `plan` in the dataflow's execution state, or, for a task run on its own, the `plan` record — when the plan is this task's over these inputs. It probes the stage's units in the execution cache, so the units that finished are not run again. A plan of the task over inputs it no longer has has its `plan` record removed, and one that cannot be read, or is not a unit plan, is replaced: the pieces are planned again.
 
 **Drivers.** `SplitTask` is the stages: it opens the task, reports each unit as it starts and settles, and, once every unit it started has settled, advances to the next stage or to the task's end. Each driver runs a stage's first unit alone and the rest once it has settled, each expecting to need the largest peak the stage has reached (see The Budget). The dataflow runs its units beside every other task's (see Running a Dataflow). `executeSplitTask`, which `taskExecute` calls for a task run on its own (`e3 run`), runs each stage's units in a pool of its own, as wide as the budget's cores (4 without one); the pool takes no unit after one fails or throws, or once the run is aborted, and waits for the units in flight. `TaskRunner.executeUnit` runs one unit wherever the runner runs executions: the local runner through `taskExecuteUnit`, and a remote backend on its own compute.
 
@@ -273,7 +274,9 @@ The execution state carries its version (`EXECUTION_STATE_VERSION`, 3: version 2
 
 ## Garbage Collection Integration
 
-A recorded execution's `output` ref is a GC root, so its output object is kept, a unit's among them. Status files, owner sidecars and logs are files beside it, not objects. The `plan` sidecar is a root while it names a plan. GC walks a `$plan`: the task as a node, each piece's inputs and each group's entries as dataset values (a manifest among them names its segments), and each range as a leaf.
+A recorded execution's `success` status is a GC root: the output hash it holds keeps its output object, a unit's among them. Status, owner and plan records and logs are files, not objects. The `plan` record is a root while it names a plan. GC walks a `$plan`: the task as a node, each piece's inputs and each group's entries as dataset values (a manifest among them names its segments), and each range as a leaf.
+
+gc also removes what a local repository keeps beside its objects: a built environment (`envs/<hash>/`) once the mark no longer reaches its spec, and the build directory of a builder that has exited (`envs/<hash>.building-<pid>-<pidStartTime>/`); scratch directories whose owner has exited; and staging files (`.partial`s) older than its `minAge`, in the record trees, beside the repository's record at its root, and in `tmp/transfers/`.
 
 GC dispatches a kind-tagged object — a manifest, a record state, a task object, a unit plan — on its tag, through one table that lists each kind's field names and the objects a value of it names. An object is walked as a kind when its fields begin with the kind's and it carries the kind's tag, so a later version, which appends fields, is walked for the fields this build knows. Every other object is recognised by its current shape exactly, each pinned by a test; an object of an earlier shape, which only an older e3's repository holds, is a leaf. So every object a split task's execution can resume from is kept until the execution ends. After that, a piece or range no plan names is swept, and a later run cuts the same pieces again, with the same hashes, and finds its units in the cache.
 

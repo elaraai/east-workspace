@@ -11,18 +11,18 @@
  * - Modifying data (inputs/outputs)
  * - Exporting changes back to a new package version
  *
- * State is stored in workspaces/<name>.beast2 as a single atomic file.
- * No state file means the workspace does not exist.
- *
- * Per-dataset refs are stored in workspaces/<ws>/data/<path>.ref files.
+ * A workspace's record is a `WorkspaceRecordType`: `none` from its creation
+ * until a package is deployed, then its state. No record means the workspace
+ * does not exist. A local repository keeps it at `workspaces/<name>.beast2`,
+ * and its dataset refs at `workspaces/<ws>/data/<path>.beast2`.
  */
 
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, some, EastTypeType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceStateType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeRecordObject, decodeTaskObject } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceRecordType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeRecordObject, decodeTaskObject } from '@elaraai/e3-types';
 import type { PackageObject, WorkspaceState, TaskObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
@@ -51,12 +51,10 @@ export async function workspaceList(storage: StorageBackend, repo: string): Prom
 }
 
 /**
- * Write workspace state via storage backend.
+ * Write a deployed workspace's state via storage backend.
  */
 async function writeState(storage: StorageBackend, repo: string, name: string, state: WorkspaceState): Promise<void> {
-  const encoder = encodeBeast2For(WorkspaceStateType);
-  const data = encoder(state);
-  await storage.refs.workspaceWrite(repo, name, data);
+  await storage.refs.workspaceWrite(repo, name, encodeBeast2For(WorkspaceRecordType)(some(state)));
 }
 
 /**
@@ -80,13 +78,11 @@ async function readState(
     return { exists: false };
   }
 
-  // Empty file means workspace exists but is not deployed
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  if (record.type === 'none') {
     return { exists: true, deployed: false };
   }
-
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return { exists: true, deployed: true, state: decoder(Buffer.from(data)) };
+  return { exists: true, deployed: true, state: record.value };
 }
 
 /**
@@ -109,7 +105,7 @@ async function readStateOrThrow(storage: StorageBackend, repo: string, name: str
 /**
  * Create an empty workspace.
  *
- * Creates an undeployed workspace (state file with null package info).
+ * Creates an undeployed workspace: its record is `none`.
  * Use workspaceDeploy to deploy a package.
  *
  * @param storage - Storage backend
@@ -128,8 +124,7 @@ export async function workspaceCreate(
     throw new WorkspaceExistsError(name);
   }
 
-  // Create empty state to mark workspace as existing but not deployed
-  await storage.refs.workspaceWrite(repo, name, new Uint8Array(0));
+  await storage.refs.workspaceWrite(repo, name, encodeBeast2For(WorkspaceRecordType)(none));
 }
 
 /**
@@ -541,11 +536,12 @@ async function capturePriorRecords(
   ws: string,
 ): Promise<PriorRecords | null> {
   const stateBytes = await storage.refs.workspaceRead(repo, ws);
-  if (!stateBytes || stateBytes.length === 0) return null; // not previously deployed
+  if (stateBytes === null) return null; // no workspace yet
   let priorPkg: PackageObject;
   try {
-    const state = decodeBeast2For(WorkspaceStateType)(stateBytes);
-    priorPkg = decodePackageObject(await storage.objects.read(repo, state.packageHash));
+    const record = decodeBeast2For(WorkspaceRecordType)(stateBytes);
+    if (record.type === 'none') return null; // not previously deployed
+    priorPkg = decodePackageObject(await storage.objects.read(repo, record.value.packageHash));
   } catch {
     return null; // unreadable prior deployment — treat as a fresh deploy
   }
@@ -815,12 +811,6 @@ export async function workspaceExport(
           );
           const statusPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/status.beast2`;
           zipfile.addBuffer(Buffer.from(statusEncoder(execStatus)), statusPath, { mtime: DETERMINISTIC_MTIME });
-
-          // Add output file if success
-          if (execStatus.type === 'success') {
-            const outputPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/output`;
-            zipfile.addBuffer(Buffer.from(execStatus.value.outputHash + '\n'), outputPath, { mtime: DETERMINISTIC_MTIME });
-          }
         }
 
         // Read and add logs (stdout/stderr)

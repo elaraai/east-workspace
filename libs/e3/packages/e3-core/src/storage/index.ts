@@ -31,6 +31,7 @@ export {
   // Repository lifecycle
   type RepoStore,
   type RepoStatus,
+  type RepoStatusName,
   type RepoMetadata,
   type BatchResult,
   // GC primitives

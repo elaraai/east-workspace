@@ -26,7 +26,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { getPidStartTime } from './processHelpers.js';
+import { getPidStartTime, processExited } from './processHelpers.js';
 
 /** The name prefix of every execution scratch directory. */
 const SCRATCH_PREFIX = 'e3-exec-';
@@ -84,23 +84,6 @@ export async function callScratchDir(repo: string, callId: string): Promise<stri
   return path.join(scratchRoot(repo), `${CALL_SCRATCH_PREFIX}${process.pid}-${pidStartTime}-${callId}`);
 }
 
-/** Whether a process with `pid` exists — signal 0 sends nothing.
- *
- *  EPERM is an existence answer, not a denial of one: the process is there,
- *  it just is not ours to signal (another user's orchestrator, or a reused
- *  pid). Reading it as "gone" would delete a live execution's staged inputs
- *  and its output. A pid below 1 is no process — and POSIX would read 0 and
- *  -1 as this process group and every process. */
-function processExists(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid < 1) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 /**
  * Removes the execution and call scratch directories whose owner has exited.
  *
@@ -138,15 +121,7 @@ export async function sweepScratchDirs(repo: string): Promise<number> {
     } else {
       continue;
     }
-    const pid = Number(owner[0]);
-    const startTime = await getPidStartTime(pid);
-    // Both start times must be known for the comparison to mean anything: the
-    // writer records 0 where its own platform could not answer, and comparing
-    // that against a start time this sweeper CAN resolve says "gone" about a
-    // live owner. With either unknown, existence decides.
-    const recorded = Number(owner[1]);
-    const ownerGone = startTime !== 0 && recorded !== 0 ? startTime !== recorded : !processExists(pid);
-    if (!ownerGone) continue;
+    if (!await processExited(Number(owner[0]), Number(owner[1]))) continue;
     try {
       await fs.rm(path.join(root, entry), { recursive: true, force: true });
       removed++;

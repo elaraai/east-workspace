@@ -9,19 +9,21 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { East, DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
+import { WorkspaceRecordType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { readDatasetWhole } from './dataset-open.js';
-import { transferStagingPath } from './storage/local/localHelpers.js';
+import { packageStagingPath, transferStagingPath } from './storage/local/localHelpers.js';
 import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
 import { packageImport, packageRemove, packageRead } from './packages.js';
+import { sweepEnvironments } from './execution/environment.js';
+import { getPidStartTime } from './execution/processHelpers.js';
 import { ObjectNotFoundError } from './errors.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, deadPid } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import type { GcObjectEntry } from './storage/interfaces.js';
@@ -272,6 +274,82 @@ describe('gc', () => {
       assert.strictEqual(result.skippedYoung, 1);
       assert.ok(existsSync(stagingPath));
     });
+
+    it('removes a package zip a transfer staged in the repository and never finished', async () => {
+      const stagingPath = packageStagingPath(testRepoPath, 'abc');
+      assert.strictEqual(stagingPath, join(testRepoPath, 'tmp', 'transfers', 'abc.zip.partial'), 'the server stages exactly here');
+      mkdirSync(dirname(stagingPath), { recursive: true });
+      writeFileSync(stagingPath, 'a zip nobody downloaded');
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+
+      assert.strictEqual(result.deletedPartials, 1);
+      assert.ok(!existsSync(stagingPath));
+    });
+
+    it('removes orphaned staging files from every record tree, and the repository record\'s at the root', async () => {
+      const partials = [
+        'repository.beast2.x1y2z3.partial',
+        join('adoptions', 'ab', `${'c'.repeat(62)}.beast2.x1y2z3.partial`),
+        join('locks', 'main', 'exclusive.beast2.4242.abcdef.partial'),
+        join('workspaces', 'main', 'data', 'inputs', 'sales.beast2.x1y2z3.partial'),
+        join('dataflows', 'main', '0190a0b0-5555-7000-8000-000000000000.beast2.x1y2z3.partial'),
+      ];
+      for (const partial of partials) {
+        mkdirSync(dirname(join(testRepoPath, partial)), { recursive: true });
+        writeFileSync(join(testRepoPath, partial), 'a crashed write');
+      }
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+
+      assert.strictEqual(result.deletedPartials, partials.length);
+      for (const partial of partials) assert.ok(!existsSync(join(testRepoPath, partial)), partial);
+    });
+  });
+
+  describe('built environments', () => {
+    it('keeps a built environment while a package names its spec, and removes it once none does', async () => {
+      const spec = await objectWrite(testRepoPath, encodeBeast2For(EnvironmentSpecType)(variant('tools', { files: [] })));
+      const task = await objectWrite(testRepoPath, encodeBeast2For(TaskObjectType)({
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'c'.repeat(64) }),
+        runner: variant('custom', { command: [] }),
+        inputs: [],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(spec),
+      } as TaskObject));
+      const pkg = await objectWrite(testRepoPath, encodeBeast2For(PackageObjectType)({
+        tasks: new Map([['t', task]]),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map(),
+        records: new Map(), sources: new Map(),
+      } as PackageObject));
+      await storage.refs.packageWrite(testRepoPath, 'env-test', '1.0.0', pkg);
+      const built = join(testRepoPath, 'envs', spec);
+      mkdirSync(join(built, 'bin'), { recursive: true });
+
+      await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.ok(existsSync(built), 'a package still names the spec');
+
+      await storage.refs.packageRemove(testRepoPath, 'env-test', '1.0.0');
+      await repoGc(storage, testRepoPath, { minAge: 0, dryRun: true });
+      assert.ok(existsSync(built), 'a dry run removes nothing');
+      await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.ok(!existsSync(built), 'nothing names the spec any more');
+    });
+
+    it('removes the build of a builder that has exited, and keeps a live one\'s', async () => {
+      const envs = join(testRepoPath, 'envs');
+      const reached = 'a'.repeat(64);
+      const unreached = 'b'.repeat(64);
+      const deadBuild = `${'c'.repeat(64)}.building-${deadPid()}-1`;
+      const liveBuild = `${'d'.repeat(64)}.building-${process.pid}-${await getPidStartTime(process.pid)}`;
+      for (const dir of [reached, unreached, deadBuild, liveBuild]) mkdirSync(join(envs, dir, 'bin'), { recursive: true });
+
+      assert.strictEqual(await sweepEnvironments(testRepoPath, new Set([reached])), 2);
+      assert.deepStrictEqual(readdirSync(envs).sort(), [reached, liveBuild].sort());
+    });
   });
 
   describe('minAge option', () => {
@@ -361,7 +439,7 @@ describe('gc', () => {
       // Create a package ref pointing to the package
       const refDir = join(testRepoPath, 'packages', 'transitive');
       mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0'), hashPkg + '\n');
+      writeFileSync(join(refDir, '1.0.0.beast2'), encodeBeast2For(StringType)(hashPkg));
 
       // Run gc
       const result = await repoGc(storage, testRepoPath, { minAge: 0 });
@@ -396,7 +474,7 @@ describe('gc', () => {
       // Only package is a root
       const refDir = join(testRepoPath, 'packages', 'graph-test');
       mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0'), hashPkg + '\n');
+      writeFileSync(join(refDir, '1.0.0.beast2'), encodeBeast2For(StringType)(hashPkg));
 
       // Run gc
       const result = await repoGc(storage, testRepoPath, { minAge: 0 });
@@ -469,7 +547,7 @@ describe('gc', () => {
       await objectRead(testRepoPath, plan);
       await objectRead(testRepoPath, piece);
 
-      await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, '');
+      await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, null);
       assert.strictEqual(await storage.refs.executionPlanRead(testRepoPath, taskHash, inputsHash), null);
       const swept = await repoGc(storage, testRepoPath, { minAge: 0 });
       assert.strictEqual(swept.deletedObjects, 2, 'the plan and its piece go once the execution has ended');
@@ -480,8 +558,8 @@ describe('gc', () => {
     it('refuses while a dataflow holds a workspace\'s dataflow lock, releasing the locks it took', async () => {
       const wsDir = join(testRepoPath, 'workspaces');
       mkdirSync(wsDir, { recursive: true });
-      writeFileSync(join(wsDir, 'first.beast2'), '');
-      writeFileSync(join(wsDir, 'second.beast2'), '');
+      writeFileSync(join(wsDir, 'first.beast2'), encodeBeast2For(WorkspaceRecordType)(none));
+      writeFileSync(join(wsDir, 'second.beast2'), encodeBeast2For(WorkspaceRecordType)(none));
 
       const run = await storage.locks.acquire(testRepoPath, 'second#dataflow', variant('dataflow', null));
       assert.ok(run, 'the run holds its dataflow lock');
@@ -512,13 +590,13 @@ describe('gc', () => {
       const pkgHash = await objectWrite(testRepoPath, new Uint8Array([77, 88, 99]));
       const wsDir = join(testRepoPath, 'workspaces');
       mkdirSync(join(wsDir, 'reader', 'data'), { recursive: true });
-      writeFileSync(join(wsDir, 'reader.beast2'), encodeBeast2For(WorkspaceStateType)({
+      writeFileSync(join(wsDir, 'reader.beast2'), encodeBeast2For(WorkspaceRecordType)(some({
         packageName: 'test-pkg',
         packageVersion: '1.0.0',
         packageHash: pkgHash,
         deployedAt: new Date(),
         currentRunId: none,
-      }));
+      })));
       await storage.datasets.write(testRepoPath, 'reader', 'big', variant('value', { hash: datasetHash, versions: new Map() }));
 
       const objects = storage.objects;
@@ -552,10 +630,9 @@ describe('gc', () => {
         packageVersion: '1.0.0',
         packageHash: pkgHash,
         deployedAt: new Date(),
-        currentRunId: variant('none', null),
+        currentRunId: none,
       };
-      const encoder = encodeBeast2For(WorkspaceStateType);
-      writeFileSync(join(wsDir, 'myworkspace.beast2'), encoder(state));
+      writeFileSync(join(wsDir, 'myworkspace.beast2'), encodeBeast2For(WorkspaceRecordType)(some(state)));
 
       // Create a per-dataset ref that references valueHash
       await storage.datasets.write(testRepoPath, 'myworkspace', 'some-dataset', variant('value', { hash: valueHash, versions: new Map() }));
@@ -576,10 +653,10 @@ describe('gc', () => {
       const data = new Uint8Array([11, 22, 33]);
       await objectWrite(testRepoPath, data);
 
-      // Create empty workspace file (undeployed)
+      // An undeployed workspace's record is none
       const wsDir = join(testRepoPath, 'workspaces');
       mkdirSync(wsDir, { recursive: true });
-      writeFileSync(join(wsDir, 'undeployed.beast2'), '');
+      writeFileSync(join(wsDir, 'undeployed.beast2'), encodeBeast2For(WorkspaceRecordType)(none));
 
       // Run gc - orphaned object should be deleted
       const result = await repoGc(storage, testRepoPath, { minAge: 0 });
@@ -605,7 +682,7 @@ describe('gc', () => {
       const hash = 'a'.repeat(64);
       const refDir = join(testRepoPath, 'packages', 'test-pkg');
       mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0'), hash + '\n');
+      writeFileSync(join(refDir, '1.0.0.beast2'), encodeBeast2For(StringType)(hash));
 
       const roots = await collectAllRoots(storage.repos, testRepoPath);
       assert.ok(roots.has(hash));

@@ -14,7 +14,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { variant, none, some, StringType, IntegerType, ArrayType, DictType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
@@ -132,10 +131,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       records: new Map(), sources: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
-
-    const pkgDir = join(repoPath, 'packages', 'test');
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, '1.0.0'), pkgHash + '\n');
+    await storage.refs.packageWrite(repoPath, 'test', '1.0.0', pkgHash);
 
     return tasksMap;
   }

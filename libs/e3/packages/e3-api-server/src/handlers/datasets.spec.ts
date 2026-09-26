@@ -30,7 +30,7 @@ import {
 import { computeHash, datasetWrite, InMemoryTransferBackend, writeRecordState } from '@elaraai/e3-core';
 import { InMemoryStorage, encodeInSegmentsOf, storeSegmentsOf } from '@elaraai/e3-core/test';
 import {
-  BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceStateType, decodeCollectionManifest, indexCollectionType, indexWindowType,
+  BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, decodeCollectionManifest, indexCollectionType, indexWindowType,
 } from '@elaraai/e3-types';
 import { ResponseType } from '../types.js';
 import { findDatasetKey, getDataset, getDatasetPage, setDataset } from './datasets.js';
@@ -307,9 +307,9 @@ async function seedDataset(
     functions: new Map(),
     records: new Map(), sources: new Map(),
   }));
-  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({
+  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceRecordType)(some({
     packageName: 'pages', packageVersion: '1.0.0', packageHash: pkgHash, deployedAt: new Date(0), currentRunId: none,
-  }));
+  })));
   await storage.datasets.write(REPO, WS, `inputs/${name}`, variant('value', { hash, versions: new Map() }));
   return hash;
 }
@@ -777,9 +777,9 @@ async function seedIndexedRecord(storage: InMemoryStorage, n: number): Promise<{
     functions: new Map(),
     records: new Map(), sources: new Map(),
   }));
-  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({
+  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceRecordType)(some({
     packageName: 'plans', packageVersion: '1.0.0', packageHash: pkgHash, deployedAt: new Date(0), currentRunId: none,
-  }));
+  })));
   await storage.datasets.write(REPO, WS, 'records/plans', variant('value', { hash: state, versions: new Map() }));
   const manifest = decodeCollectionManifest(await storage.objects.read(REPO, primary));
   return { rows, primarySegments: manifest.entries.map((entry) => entry.hash) };

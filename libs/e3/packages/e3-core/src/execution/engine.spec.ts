@@ -424,7 +424,7 @@ describe('a task split into pieces', () => {
       });
     }));
     const input = await datasetWrite(storage, repo, salesOf(8000), SalesType);
-    const plans: string[] = [];
+    const plans: (string | null)[] = [];
     const write = storage.refs.executionPlanWrite.bind(storage.refs);
     storage.refs.executionPlanWrite = (repoPath, task, inputs, plan) => {
       plans.push(plan);
@@ -434,7 +434,7 @@ describe('a task split into pieces', () => {
     const first = await taskExecute(storage, repo, taskHash, [input]);
     assert.equal(first.state, 'success', first.error ?? '');
     assert.equal(plans.length, 3, 'the pieces\' plan, the merge level\'s, and the clear');
-    assert.equal(plans[2], '');
+    assert.equal(plans[2], null);
     assert.equal(await storage.refs.executionPlanRead(repo, taskHash, first.inputsHash), null, 'an execution that ended roots no plan');
     const pieces = decodeUnitPlan(await storage.objects.read(repo, plans[0]!));
     const merges = decodeUnitPlan(await storage.objects.read(repo, plans[1]!));

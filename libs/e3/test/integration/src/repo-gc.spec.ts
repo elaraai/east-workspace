@@ -16,7 +16,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import e3 from '@elaraai/e3';
 import { East, StringType, encodeBeast2For, variant } from '@elaraai/east';
@@ -103,11 +103,11 @@ describe('e3 repo gc', () => {
     };
     await waitFor(() => run.getStdout().includes('Running gc@1.0.0/copy'), 30_000).catch(diagnose);
     // The run holds the lock shared once its execution starts, as a file of
-    // its own beside the repository's lock files. The test watches for that
-    // file without taking the lock: a probe that took it, even for a moment,
-    // would refuse the run it waits for, as if a gc were running.
-    const locks = join(repo, 'workspaces');
-    await waitFor(() => readdirSync(locks).some((name) => name.startsWith(`${TASKS_LOCK}.`) && name.endsWith('.slock')), 30_000)
+    // its own in the lock's directory. The test watches for that file without
+    // taking the lock: a probe that took it, even for a moment, would refuse
+    // the run it waits for, as if a gc were running.
+    const locks = join(repo, 'locks', TASKS_LOCK);
+    await waitFor(() => existsSync(locks) && readdirSync(locks).some((name) => name.startsWith('shared.') && name.endsWith('.beast2')), 30_000)
       .catch(diagnose);
 
     const refused = await runE3Command(['repo', 'gc', repo, '--min-age', '0'], dir);

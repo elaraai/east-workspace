@@ -9,6 +9,7 @@ import { cors } from 'hono/cors';
 import { serve, type ServerType } from '@hono/node-server';
 import {
   Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend, resolveBudget,
+  checkName,
 } from '@elaraai/e3-core';
 import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
@@ -132,6 +133,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       // Middleware ensures repoName === 'default' before we get here
       return singleRepoPath!;
     }
+    // A name from the URL becomes a directory under reposDir, never a path out
+    // of it.
+    checkName('repository', repoName);
     return path.join(reposDir!, repoName);
   };
 
@@ -278,7 +282,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       // If repo is in 'deleting' state, treat as not found for most operations
       // Exception: status endpoint shows 'deleting' state (but we still check repo exists above)
       const statusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/status$/);
-      if (metadata.status === 'deleting' && !statusMatch) {
+      if (metadata.status.type === 'deleting' && !statusMatch) {
         return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
       }
 
@@ -309,7 +313,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
         // Check if repo exists and is in 'deleting' state
         const existing = await storage.repos.getMetadata(repo);
         if (existing) {
-          if (existing.status === 'deleting') {
+          if (existing.status.type === 'deleting') {
             return sendError(StringType, variant('internal', { message: `Repository '${repo}' cleanup in progress, try later` }));
           }
           return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
@@ -343,7 +347,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
         }
 
         // If already deleting, return success (idempotent)
-        if (existing.status === 'deleting') {
+        if (existing.status.type === 'deleting') {
           return sendSuccess(NullType, null);
         }
 

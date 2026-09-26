@@ -18,7 +18,7 @@
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
   decodePackageObject,
-  WorkspaceStateType,
+  WorkspaceRecordType,
   pathToString,
   type TaskObject,
   type TreePath,
@@ -207,11 +207,11 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
   }
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return decoder(Buffer.from(data));
+  return record.value;
 }
 
 // =============================================================================

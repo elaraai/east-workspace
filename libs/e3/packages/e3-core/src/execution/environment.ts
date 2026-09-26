@@ -19,7 +19,8 @@
  * temp sibling and atomically renames into place, so a cache directory's
  * existence means it is complete; concurrent builders race benignly (the
  * loser discards its build) and in-process duplicates are deduped with a
- * keyed lock.
+ * keyed lock. gc removes an environment once nothing it keeps names the spec,
+ * and a build whose builder died ({@link sweepEnvironments}).
  */
 
 import * as path from 'node:path';
@@ -33,6 +34,7 @@ import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../storage/local/keyedMutex.js';
+import { getPidStartTime, processExited } from './processHelpers.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -365,6 +367,41 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 /**
+ * Removes from `<repo>/envs` each built environment whose spec object gc's
+ * mark no longer reached, and each build directory whose builder has exited.
+ *
+ * @param repo - Repository path
+ * @param reachable - The objects the mark reached
+ * @returns How many directories were removed
+ */
+export async function sweepEnvironments(repo: string, reachable: ReadonlySet<string>): Promise<number> {
+  const envsDir = path.join(repo, 'envs');
+  let entries: string[];
+  try {
+    entries = await fs.readdir(envsDir);
+  } catch {
+    return 0; // nothing built yet
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    // <envHash>, or <envHash>.building-<pid>-<pidStartTime>
+    const built = /^[0-9a-f]{64}$/.test(entry);
+    const building = /^[0-9a-f]{64}\.building-(\d+)-(\d+)$/.exec(entry);
+    const gone = built
+      ? !reachable.has(entry)
+      : building !== null && await processExited(Number(building[1]), Number(building[2]));
+    if (!gone) continue;
+    try {
+      await fs.rm(path.join(envsDir, entry), { recursive: true, force: true });
+      removed++;
+    } catch {
+      // Left for the next sweep
+    }
+  }
+  return removed;
+}
+
+/**
  * Materializes an environment into the repo-local cache and returns the
  * executable dirs to prepend to the runner's PATH.
  *
@@ -414,7 +451,8 @@ export async function materializeEnvironment(
       // still cold
     }
 
-    const buildDir = `${envDir}.building-${process.pid}`;
+    // Named after this process, so gc removes it once the process is gone.
+    const buildDir = `${envDir}.building-${process.pid}-${await getPidStartTime(process.pid)}`;
     await fs.rm(buildDir, { recursive: true, force: true });
     await fs.mkdir(buildDir, { recursive: true });
     try {

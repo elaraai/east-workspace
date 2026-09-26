@@ -6,23 +6,17 @@
 /**
  * Workspace state type definitions.
  *
- * A workspace is a mutable working copy of a package. The state tracks:
- * - Which package was deployed (immutable reference via hash)
- * - When the deployment occurred
- * - Current root data tree hash
- * - When the root was last updated
+ * A workspace is a mutable working copy of a package. Its record is `none`
+ * from its creation until a package is deployed to it, and then its state:
+ * which package was deployed, when, and the latest dataflow run.
  *
- * State file location: workspaces/<name>/state.beast2
- * No state file = workspace exists but not yet deployed.
+ * A local repository keeps the record at `workspaces/<name>.beast2`.
  */
 
 import { StructType, StringType, DateTimeType, OptionType, ValueTypeOf } from '@elaraai/east';
 
 /**
- * Workspace state stored in workspaces/<name>/state.beast2
- *
- * Contains both deployment info and current data root in a single
- * atomic unit to ensure consistency.
+ * A deployed workspace's state.
  *
  * Future audit trail support:
  * When we implement full audit trail, this state will move to the object
@@ -48,3 +42,11 @@ export const WorkspaceStateType = StructType({
 });
 
 export type WorkspaceState = ValueTypeOf<typeof WorkspaceStateType>;
+
+/**
+ * A workspace's record: `none` until a package is deployed to it, and then
+ * its state.
+ */
+export const WorkspaceRecordType = OptionType(WorkspaceStateType);
+
+export type WorkspaceRecord = ValueTypeOf<typeof WorkspaceRecordType>;

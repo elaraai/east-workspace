@@ -14,11 +14,10 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { variant } from '@elaraai/east';
 
 import type { StorageBackend } from '../storage/index.js';
+import { packageStagingPath, transferStagingDir } from '../storage/local/localHelpers.js';
 import type {
   TransferBackend,
   DatasetPartUpload,
@@ -29,8 +28,6 @@ import type {
 } from './interfaces.js';
 import type { DatasetUpload, PackageImport, PackageExport } from './types.js';
 import { handleProcessExport, handleProcessImport } from './process.js';
-
-const STAGING_DIR = join(tmpdir(), 'e3-transfers');
 
 /** The part size a protocol-2 dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
@@ -172,11 +169,13 @@ class InMemoryPackageImportStore implements PackageImportStore {
       return;
     }
 
-    const zipPath = join(STAGING_DIR, `${id}.zip.partial`);
-    await mkdir(STAGING_DIR, { recursive: true });
+    // The zip the upload staged, in the repository.
+    const repoPath = this.getRepoPath(repo);
+    const zipPath = packageStagingPath(repoPath, id);
+    await mkdir(transferStagingDir(repoPath), { recursive: true });
     void handleProcessImport(
       { storage: this.storage, importStore: this },
-      { id, repo: this.getRepoPath(repo), zipPath },
+      { id, repo: repoPath, zipPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessImport
     }).finally(() => {
@@ -239,11 +238,13 @@ class InMemoryPackageExportStore implements PackageExportStore {
       return;
     }
 
-    const zipPath = join(STAGING_DIR, `${id}.zip`);
-    await mkdir(STAGING_DIR, { recursive: true });
+    // Staged in the repository until the download takes it, or gc sweeps it.
+    const repoPath = this.getRepoPath(repo);
+    const zipPath = packageStagingPath(repoPath, id);
+    await mkdir(transferStagingDir(repoPath), { recursive: true });
     void handleProcessExport(
       { storage: this.storage, exportStore: this },
-      { id, repo: this.getRepoPath(repo), zipPath },
+      { id, repo: repoPath, zipPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessExport
     }).finally(() => {

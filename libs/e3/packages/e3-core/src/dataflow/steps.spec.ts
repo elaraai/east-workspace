@@ -38,8 +38,6 @@ import {
   TaskObjectType,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
-import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { East, ArrayType, IRType } from '@elaraai/east';
 
 /**
@@ -416,10 +414,7 @@ describe('stepDetectInputChanges', () => {
       records: new Map(), sources: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
-
-    const pkgDir = join(repoPath, 'packages', 'test');
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, '1.0.0'), pkgHash + '\n');
+    await storage.refs.packageWrite(repoPath, 'test', '1.0.0', pkgHash);
 
     return tasksMap;
   }

@@ -19,12 +19,12 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { tmpdir } from 'os';
 import { decodeBeast2, readBeast2Type, toEastTypeValue, variant, type EastType, type EastTypeValue } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
+import { sweepEnvironments } from '../../execution/environment.js';
 
 /**
  * Options for garbage collection
@@ -770,12 +770,17 @@ async function collectGarbage(
   }
 
   // Step 4b: Sweep orphaned .partial staging files left by atomicWriteFile in
-  // the ref trees (packages/, workspaces/ incl. nested dataset refs,
-  // executions/, dataflows/) — cleanupPartials above only covers objects/.
+  // the record trees — cleanupPartials above only covers objects/ and the
+  // staged transfers — and beside the repository's own record, at the root.
+  // The root holds the trees and what the other steps sweep, so it is swept
+  // without being walked.
   const partialNow = Date.now();
-  for (const refRoot of ['packages', 'workspaces', 'executions', 'dataflows']) {
+  for (const [refRoot, walk] of [
+    ['', false], ['packages', true], ['workspaces', true], ['executions', true],
+    ['dataflows', true], ['adoptions', true], ['locks', true],
+  ] as const) {
     try {
-      const result = await cleanupRefTreePartials(path.join(repo, refRoot), partialNow, minAge, dryRun);
+      const result = await cleanupRefTreePartials(path.join(repo, refRoot), partialNow, minAge, dryRun, walk);
       deletedPartials += result.deleted;
       partialSkippedYoung += result.skippedYoung;
     } catch {
@@ -783,20 +788,17 @@ async function collectGarbage(
     }
   }
 
-  // Step 5: Clean up orphaned transfer staging files
-  try {
-    const transferResult = await cleanupTransferStaging(minAge, dryRun);
-    deletedPartials += transferResult.deleted;
-    partialSkippedYoung += transferResult.skippedYoung;
-  } catch {
-    // Not a fatal error
-  }
-
-  // Step 6: Remove the scratch directories of executions whose orchestrator
-  // has exited (local-only concern)
+  // Step 5: Remove the scratch directories of executions whose orchestrator
+  // has exited, and the built environments the mark no longer reached
+  // (local-only concerns)
   if (!dryRun) {
     try {
       await sweepScratchDirs(repo);
+    } catch {
+      // Not a fatal error
+    }
+    try {
+      await sweepEnvironments(repo, reachable);
     } catch {
       // Not a fatal error
     }
@@ -816,8 +818,8 @@ async function collectGarbage(
  * the per-prefix stages of whole-object writes and the root-level
  * `stage.*.partial` files of streaming writes (which cannot stage under a
  * prefix: the content path is unknown until the digest names it) — and the
- * dataset uploads staged in {@link transferStagingDir}, which an upload that
- * was never committed leaves behind and nothing else removes.
+ * transfers staged in {@link transferStagingDir}, which a transfer that was
+ * never finished leaves behind and nothing else removes.
  * This is a local-only concern — cloud storage doesn't use .partial files.
  */
 async function cleanupPartials(
@@ -873,8 +875,8 @@ async function cleanupPartials(
     // Objects directory doesn't exist
   }
 
-  // Dataset uploads staged under the repository. An in-flight upload is
-  // young, so the same age gate keeps gc from racing it.
+  // Transfers staged under the repository. An in-flight upload is young, so
+  // the same age gate keeps gc from racing it.
   const stagingDir = transferStagingDir(repoPath);
   let staged: string[] = [];
   try {
@@ -892,26 +894,30 @@ async function cleanupPartials(
 }
 
 /**
- * Recursively unlink aged `.partial` staging files under a ref-tree root.
+ * Unlink aged `.partial` staging files in a directory, and in every directory
+ * beneath it when it is walked.
  *
  * `atomicWriteFile` stages bytes in a sibling `<dest>.<rand>.partial` file
  * before renaming it over the destination; that staging file survives only if a
  * writer crashed between the write and the rename. This sweeps those orphans
- * from the ref trees (packages/, workspaces/ — including nested dataset refs —,
- * executions/, dataflows/), which the objects-only {@link cleanupPartials} does
- * not cover. The age gate ensures a live, in-flight staging file is never raced.
+ * from the record trees (packages/, workspaces/ — including nested dataset
+ * refs —, executions/, dataflows/, adoptions/, locks/) and the repository's
+ * root, which {@link cleanupPartials} does not cover. The age gate ensures a
+ * live, in-flight staging file is never raced.
  *
- * @param rootDir - Ref-tree root directory to walk
+ * @param rootDir - The directory to sweep
  * @param now - Reference timestamp for the age gate
  * @param minAge - Minimum age (ms) before a staging file is eligible for removal
  * @param dryRun - When true, count but do not delete
+ * @param walk - Whether the directories beneath it are swept too
  * @returns Counts of deleted and too-young-to-delete staging files
  */
 async function cleanupRefTreePartials(
   rootDir: string,
   now: number,
   minAge: number,
-  dryRun: boolean
+  dryRun: boolean,
+  walk: boolean
 ): Promise<{ deleted: number; skippedYoung: number }> {
   let deleted = 0;
   let skippedYoung = 0;
@@ -922,7 +928,8 @@ async function cleanupRefTreePartials(
   for (const entry of entries) {
     const full = path.join(rootDir, entry.name);
     if (entry.isDirectory()) {
-      const sub = await cleanupRefTreePartials(full, now, minAge, dryRun);
+      if (!walk) continue;
+      const sub = await cleanupRefTreePartials(full, now, minAge, dryRun, walk);
       deleted += sub.deleted;
       skippedYoung += sub.skippedYoung;
     } else if (entry.name.endsWith('.partial')) {
@@ -940,47 +947,6 @@ async function cleanupRefTreePartials(
         // Skip files we can't stat or delete
       }
     }
-  }
-
-  return { deleted, skippedYoung };
-}
-
-/**
- * Clean up orphaned transfer staging files from the OS temp directory.
- * These are created by the transfer upload flow and should be cleaned up
- * after the transfer completes, but may be left behind on crashes.
- */
-async function cleanupTransferStaging(
-  minAge: number,
-  dryRun: boolean
-): Promise<{ deleted: number; skippedYoung: number }> {
-  const stagingDir = path.join(tmpdir(), 'e3-transfers');
-  const now = Date.now();
-  let deleted = 0;
-  let skippedYoung = 0;
-
-  try {
-    const files = await fs.readdir(stagingDir);
-    for (const file of files) {
-      if (!file.endsWith('.partial')) continue;
-      const filePath = path.join(stagingDir, file);
-      try {
-        const fileStat = await fs.stat(filePath);
-        const age = now - fileStat.mtimeMs;
-        if (minAge > 0 && age < minAge) {
-          skippedYoung++;
-          continue;
-        }
-        if (!dryRun) {
-          await fs.unlink(filePath);
-        }
-        deleted++;
-      } catch {
-        // Skip files we can't stat or delete
-      }
-    }
-  } catch {
-    // Staging directory doesn't exist — nothing to clean
   }
 
   return { deleted, skippedYoung };

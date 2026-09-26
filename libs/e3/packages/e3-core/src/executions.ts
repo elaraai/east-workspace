@@ -82,8 +82,8 @@ export async function executionGetLatest(
 }
 
 /**
- * Get the latest successful output hash for a completed execution.
- * This is the primary cache lookup function.
+ * Get the output hash of the latest successful execution, which its `success`
+ * record holds.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
@@ -97,7 +97,12 @@ export async function executionGetOutput(
   taskHash: string,
   inHash: string
 ): Promise<string | null> {
-  return storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
+  const ids = await storage.refs.executionListIds(repo, taskHash, inHash);
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const status = await storage.refs.executionGet(repo, taskHash, inHash, ids[i]!);
+    if (status?.type === 'success') return status.value.outputHash;
+  }
+  return null;
 }
 
 /**

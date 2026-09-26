@@ -79,6 +79,13 @@ export const DatasetTypeMismatchErrorType = StructType({
   path: StringType,
   message: StringType,
 });
+/** A name e3 would make a path of that cannot be one path segment: a
+ *  repository's, a workspace's, or a package's name or version. */
+export const InvalidNameErrorType = StructType({
+  kind: StringType,
+  name: StringType,
+  message: StringType,
+});
 
 export const ErrorType = VariantType({
   repository_not_found: RepositoryNotFoundErrorType,
@@ -100,6 +107,7 @@ export const ErrorType = VariantType({
   // Appended last: BEAST2 encodes a variant case by index, so a case added at
   // the end leaves every existing payload decodable.
   dataset_type_mismatch: DatasetTypeMismatchErrorType,
+  invalid_name: InvalidNameErrorType,
 });
 
 // =============================================================================

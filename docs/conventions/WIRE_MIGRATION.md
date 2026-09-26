@@ -12,7 +12,7 @@ container itself is governed by
 | Kind | Examples | At a change |
 |---|---|---|
 | **Package-borne** — written by the SDK at export and carried in a package | task objects, package objects, function objects, record, mutation and index objects, IR bundles | Packages are re-exported with the new SDK. A package from an older SDK fails with an error that says to re-export it. |
-| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans | A repository an older e3 wrote is re-created: deployed again, and its data imported again. A reader refuses a stored object of another form, naming the fix. |
+| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, and the repository's own records: its repository record, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | A repository an older e3 wrote is re-created: deployed again, and its data imported again. A reader refuses a stored object of another form, naming the fix. |
 
 No reader keeps a decoder for an earlier form. Readers read the current form,
 as writers write it, and every other form is an error that says what to do.
@@ -28,6 +28,11 @@ A PR that changes a wire says which kind it changes.
   state (`EXECUTION_STATE_VERSION`) holds its events, so a new event changes it
   too. The version goes up by one, and the reader refuses any other version,
   naming it.
+- **A local repository's records change** — one moves, is renamed, or takes
+  another type: the layout version its repository record carries
+  (`REPOSITORY_LAYOUT`) goes up by one. Opening a repository of any other
+  layout, or with no repository record, refuses it before anything in it is
+  read, naming the fix.
 - **A new object kind names other objects:** it carries a `kind` tag, and lands
   with a GC test. GC dispatches a tagged object on its tag, through a table
   listing the field names of each kind. An object whose fields begin with the

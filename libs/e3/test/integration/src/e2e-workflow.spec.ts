@@ -259,7 +259,7 @@ describe('end-to-end workflow', () => {
 
       // Change input value to 25
       // Note: e3 set requires a file, so we write the value to a .east file first
-      const inputRefPath = join(repoDir, 'workspaces', 'ws', 'data', 'inputs', 'x.ref');
+      const inputRefPath = join(repoDir, 'workspaces', 'ws', 'data', 'inputs', 'x.beast2');
       assert.ok(existsSync(inputRefPath), 'Input ref should exist');
       const refBefore = readFileSync(inputRefPath);
       const newValuePath = join(testDir, 'new_value.east');
@@ -411,7 +411,7 @@ describe('end-to-end workflow', () => {
       const dataDir = join(repoDir, 'workspaces', 'ws', 'data');
       const refFiles = findRefFiles(dataDir);
       assert.strictEqual(refFiles.length, 2, `Should have 2 ref files (input, output), found ${refFiles.length}: ${refFiles.join(', ')}`);
-      assert.ok(existsSync(join(dataDir, 'inputs', 'x.ref')), 'Input ref file should exist after deploy');
+      assert.ok(existsSync(join(dataDir, 'inputs', 'x.beast2')), 'Input ref file should exist after deploy');
 
       // Check input status — should show set with hash and size
       let statusResult = await runE3Command(['dataset', 'status', repoDir, 'ws.x'], testDir);
@@ -436,7 +436,7 @@ describe('end-to-end workflow', () => {
       assert.match(statusResult.stdout, /Status: set/, 'Task output should show Status: set after execution');
       assert.match(statusResult.stdout, /Hash:/, 'Task output should show Hash after execution');
       assert.match(statusResult.stdout, /Size:/, 'Task output should show Size after execution');
-      assert.ok(existsSync(join(dataDir, 'tasks', 'double', 'output.ref')), 'Output ref file should exist after execution');
+      assert.ok(existsSync(join(dataDir, 'tasks', 'double', 'output.beast2')), 'Output ref file should exist after execution');
 
       // `dataset list -l` tabular output against the same executed
       // workspace (merged from the former standalone list test so the CLI
@@ -479,7 +479,7 @@ describe('end-to-end workflow', () => {
 });
 
 /**
- * Recursively find all .ref files in a directory.
+ * Recursively find every dataset ref file, a `.beast2`, in a directory.
  */
 function findRefFiles(dir: string): string[] {
   const results: string[] = [];
@@ -488,7 +488,7 @@ function findRefFiles(dir: string): string[] {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...findRefFiles(fullPath));
-    } else if (entry.name.endsWith('.ref')) {
+    } else if (entry.name.endsWith('.beast2')) {
       results.push(fullPath);
     }
   }

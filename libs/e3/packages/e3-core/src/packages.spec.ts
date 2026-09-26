@@ -9,10 +9,12 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StringType, IntegerType, East, variant } from '@elaraai/east';
+import yazl from 'yazl';
+import { StringType, IntegerType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
+import { DataflowRunType, ExecutionStatusType } from '@elaraai/e3-types';
 import {
   packageImport,
   packageExport,
@@ -23,7 +25,7 @@ import {
 } from './packages.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageNotFoundError } from './errors.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, zipEqual } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, zipEqual } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -73,18 +75,16 @@ describe('packages', () => {
       assert.ok(result.objectCount >= 2, `Expected at least 2 objects, got ${result.objectCount}`);
     });
 
-    it('creates package ref file', async () => {
+    it('creates the package ref, a beast2 String of the package object\'s hash', async () => {
       const pkg = e3.package('ref-test', '1.2.3') as any;
       const zipPath = join(tempDir, 'ref-test.zip');
       await e3.export(pkg, zipPath);
 
       const result = await packageImport(storage, testRepo, zipPath);
 
-      const refPath = join(testRepo, 'packages', 'ref-test', '1.2.3');
+      const refPath = join(testRepo, 'packages', 'ref-test', '1.2.3.beast2');
       assert.ok(existsSync(refPath), 'Package ref file should exist');
-
-      const refContent = readFileSync(refPath, 'utf-8').trim();
-      assert.strictEqual(refContent, result.packageHash);
+      assert.strictEqual(decodeBeast2For(StringType)(readFileSync(refPath)), result.packageHash);
     });
 
     it('stores objects in correct location', async () => {
@@ -110,6 +110,37 @@ describe('packages', () => {
       assert.strictEqual(result1.packageHash, result2.packageHash);
       assert.strictEqual(result1.name, result2.name);
       assert.strictEqual(result1.version, result2.version);
+    });
+
+    it('refuses an execution or a run a zip names by a hash or an id not of the form e3 writes', async () => {
+      // Each becomes a path: an execution's by its entries' names, and a run's
+      // by the id its record holds.
+      const zipPath = join(tempDir, 'named.zip');
+      await e3.export(e3.package('named', '1.0.0') as any, zipPath);
+      const entries = await readZipEntries(zipPath);
+      const executionId = '0190a0b0-5555-7000-8000-000000000000';
+      const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
+        executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0),
+      }));
+      const run = encodeBeast2For(DataflowRunType)({
+        runId: 'not-a-run-id', workspaceName: 'main', packageRef: 'named@1.0.0', startedAt: new Date(0), completedAt: none,
+        status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
+        summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
+      });
+      for (const [entry, data, refusal] of [
+        [`executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`, status, /is not a task hash/],
+        ['dataflows/main/not-a-run-id.beast2', run, /is not a run id/],
+      ] as const) {
+        const crafted = join(tempDir, 'crafted.zip');
+        const zip = new yazl.ZipFile();
+        for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
+        zip.addBuffer(Buffer.from(data), entry);
+        await new Promise<void>((resolve, reject) => {
+          zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
+          zip.end();
+        });
+        await assert.rejects(packageImport(storage, testRepo, crafted), refusal);
+      }
     });
   });
 

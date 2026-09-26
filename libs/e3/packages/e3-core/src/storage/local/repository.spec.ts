@@ -9,14 +9,19 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { variant } from '@elaraai/east';
 import {
-  REPO_METADATA_FILENAME,
+  REPOSITORY_FILENAME,
+  REPOSITORY_LAYOUT,
+  encodeRepositoryRecord,
+  readRepositoryRecord,
   repoInit,
   repoFind,
   repoGet,
 } from './repository.js';
+import { RepoLayoutError } from '../../errors.js';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
 
 describe('repository', () => {
@@ -62,16 +67,18 @@ describe('repository', () => {
       assert.strictEqual(existsSync(join(repoDir, 'e3.beast2')), false);
     });
 
-    it('writes the metadata file, named after the directory', () => {
+    it('writes the repository record, named after the directory, in this e3\'s layout', () => {
       const repoDir = join(testDir, 'my-repo');
       const result = repoInit(repoDir);
 
       assert.strictEqual(result.success, true);
 
-      const metadata = JSON.parse(readFileSync(join(repoDir, REPO_METADATA_FILENAME), 'utf-8'));
+      assert.ok(readFileSync(join(repoDir, REPOSITORY_FILENAME)).length > 0);
+      const { layout, metadata } = readRepositoryRecord(repoDir);
+      assert.strictEqual(layout, REPOSITORY_LAYOUT);
       assert.strictEqual(metadata.name, 'my-repo');
-      assert.strictEqual(metadata.status, 'active');
-      assert.strictEqual(metadata.statusChangedAt, metadata.createdAt);
+      assert.strictEqual(metadata.status.type, 'active');
+      assert.strictEqual(metadata.statusChangedAt.getTime(), metadata.createdAt.getTime());
     });
 
     it('returns repoPath in result', () => {
@@ -236,6 +243,37 @@ describe('repository', () => {
       const found = repoFind(repoDir);
 
       assert.strictEqual(found, null);
+    });
+
+    it('refuses a repository with no record, naming the fix', () => {
+      const repoDir = join(testDir, 'my-repo');
+      repoInit(repoDir);
+      rmSync(join(repoDir, REPOSITORY_FILENAME));
+      // An older e3 kept its metadata as JSON.
+      writeFileSync(join(repoDir, '.e3-metadata.json'), '{"name":"my-repo","status":"active"}');
+
+      assert.throws(() => repoFind(repoDir), (err: unknown) =>
+        err instanceof RepoLayoutError && err.layout === null && /an older e3 wrote it — re-create it/.test(err.message));
+    });
+
+    it('refuses a repository of an older or a newer layout, naming the fix', () => {
+      const repoDir = join(testDir, 'my-repo');
+      repoInit(repoDir);
+      const now = new Date();
+
+      writeFileSync(join(repoDir, REPOSITORY_FILENAME), encodeRepositoryRecord({
+        layout: REPOSITORY_LAYOUT - 1n,
+        metadata: { name: 'my-repo', status: variant('active', null), createdAt: now, statusChangedAt: now },
+      }));
+      assert.throws(() => repoGet(repoDir), (err: unknown) =>
+        err instanceof RepoLayoutError && err.layout === REPOSITORY_LAYOUT - 1n && /an older e3 wrote it — re-create it/.test(err.message));
+
+      writeFileSync(join(repoDir, REPOSITORY_FILENAME), encodeRepositoryRecord({
+        layout: REPOSITORY_LAYOUT + 1n,
+        metadata: { name: 'my-repo', status: variant('active', null), createdAt: now, statusChangedAt: now },
+      }));
+      assert.throws(() => repoGet(repoDir), (err: unknown) =>
+        err instanceof RepoLayoutError && /a newer e3 wrote it — use that e3/.test(err.message));
     });
   });
 

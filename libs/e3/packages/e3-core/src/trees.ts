@@ -31,7 +31,7 @@ import {
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { DataRefType, WorkspaceStateType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { DataRefType, WorkspaceRecordType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
 import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
 import { storeCollection } from './store-collection.js';
 import { packageRead } from './packages.js';
@@ -512,7 +512,7 @@ async function readHeadType(
 // =============================================================================
 
 /**
- * Read workspace state from file.
+ * Read a deployed workspace's state.
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but not deployed
  */
@@ -521,11 +521,11 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
   }
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(data);
+  if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return decoder(data);
+  return record.value;
 }
 
 /**

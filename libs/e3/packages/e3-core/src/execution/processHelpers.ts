@@ -57,6 +57,41 @@ export async function getPidStartTime(pid: number): Promise<number> {
   return 0;
 }
 
+/** Whether a process with `pid` exists — signal 0 sends nothing.
+ *
+ *  EPERM is an existence answer, not a denial of one: the process is there,
+ *  it just is not ours to signal (another user's orchestrator, or a reused
+ *  pid). Reading it as "gone" would delete a live process's files. A pid
+ *  below 1 is no process — and POSIX would read 0 and -1 as this process
+ *  group and every process. */
+function processExists(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid < 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Whether the process a directory's name records — its pid, and its start
+ * time as {@link getPidStartTime} gave it — has exited.
+ *
+ * Both start times must be known for the comparison to mean anything: the
+ * writer records 0 where its own platform could not answer, and comparing that
+ * against a start time this process CAN resolve says "exited" about a live
+ * owner. With either unknown, the pid's existence decides.
+ *
+ * @param pid - The recorded pid
+ * @param recordedStartTime - The recorded start time, 0 when it was unknown
+ * @returns Whether that process has exited
+ */
+export async function processExited(pid: number, recordedStartTime: number): Promise<boolean> {
+  const startTime = await getPidStartTime(pid);
+  return startTime !== 0 && recordedStartTime !== 0 ? startTime !== recordedStartTime : !processExists(pid);
+}
+
 /**
  * Check if a process is still alive based on stored identification.
  * Falls back to process.kill(pid, 0) when /proc is unavailable (macOS, Windows).

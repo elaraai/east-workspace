@@ -9,12 +9,13 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalStorage } from './LocalBackend.js';
-import { repoInit } from './repository.js';
+import { REPOSITORY_FILENAME, REPOSITORY_LAYOUT, readRepositoryRecord, repoInit } from './repository.js';
 import {
+  InvalidNameError,
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
@@ -91,7 +92,7 @@ describe('LocalRepoStore', () => {
 
       assert.ok(metadata);
       assert.strictEqual(metadata.name, 'my-repo');
-      assert.strictEqual(metadata.status, 'active');
+      assert.strictEqual(metadata.status.type, 'active');
       assert.ok(metadata.createdAt);
       assert.ok(metadata.statusChangedAt);
     });
@@ -103,23 +104,33 @@ describe('LocalRepoStore', () => {
 
       assert.ok(metadata);
       assert.strictEqual(metadata.name, 'cli-repo');
-      assert.strictEqual(metadata.status, 'active');
-      assert.strictEqual(metadata.statusChangedAt, metadata.createdAt);
+      assert.strictEqual(metadata.status.type, 'active');
+      assert.strictEqual(metadata.statusChangedAt.getTime(), metadata.createdAt.getTime());
     });
 
-    it('refuses a repo without a metadata file, naming the fix', async () => {
-      // The repo an older e3's repoInit left: the directories, no metadata file
+    it('refuses a repo without a repository record, naming the fix', async () => {
+      // The repo an older e3 left: the directories, and its metadata as JSON
       const olderDir = join(testDir, 'older-repo');
       mkdirSync(olderDir);
       mkdirSync(join(olderDir, 'objects'));
       mkdirSync(join(olderDir, 'packages'));
       mkdirSync(join(olderDir, 'executions'));
       mkdirSync(join(olderDir, 'workspaces'));
+      writeFileSync(join(olderDir, '.e3-metadata.json'), '{"name":"older-repo","status":"active"}');
 
       await assert.rejects(store.getMetadata('older-repo'), {
-        message: "the repository 'older-repo' has no metadata file (.e3-metadata.json): an older e3 created it — " +
+        name: 'RepoLayoutError',
+        message: `the repository at ${olderDir} has no repository record: an older e3 wrote it — ` +
           're-create it: deploy again and import its data again',
       });
+    });
+
+    it('refuses a repository name that is no one path segment, before it becomes a path', async () => {
+      await assert.rejects(store.getMetadata('..'), InvalidNameError);
+      await assert.rejects(store.create('../elsewhere'), InvalidNameError);
+      await assert.rejects(store.remove('..'), InvalidNameError);
+      await assert.rejects(store.deleteRefsBatch('a/b'), InvalidNameError);
+      assert.strictEqual(existsSync(join(testDir, '..', 'elsewhere')), false);
     });
   });
 
@@ -129,7 +140,7 @@ describe('LocalRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'active');
+      assert.strictEqual(metadata.status.type, 'active');
     });
 
     it('creates all required directories', async () => {
@@ -142,15 +153,17 @@ describe('LocalRepoStore', () => {
       assert.strictEqual(existsSync(join(repoDir, 'workspaces')), true);
     });
 
-    it('creates metadata file', async () => {
+    it('creates the repository record, in this e3\'s layout', async () => {
       await store.create('my-repo');
 
-      const metadataPath = join(testDir, 'my-repo', '.e3-metadata.json');
-      assert.strictEqual(existsSync(metadataPath), true);
+      const repoDir = join(testDir, 'my-repo');
+      assert.strictEqual(existsSync(join(repoDir, REPOSITORY_FILENAME)), true);
+      assert.strictEqual(existsSync(join(repoDir, '.e3-metadata.json')), false);
 
-      const content = JSON.parse(readFileSync(metadataPath, 'utf-8'));
-      assert.strictEqual(content.name, 'my-repo');
-      assert.strictEqual(content.status, 'active');
+      const { layout, metadata } = readRepositoryRecord(repoDir);
+      assert.strictEqual(layout, REPOSITORY_LAYOUT);
+      assert.strictEqual(metadata.name, 'my-repo');
+      assert.strictEqual(metadata.status.type, 'active');
     });
 
     it('throws RepoAlreadyExistsError if repo exists', async () => {
@@ -170,7 +183,7 @@ describe('LocalRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'gc');
+      assert.strictEqual(metadata.status.type, 'gc');
     });
 
     it('updates statusChangedAt', async () => {
@@ -184,7 +197,7 @@ describe('LocalRepoStore', () => {
       const after = await store.getMetadata('my-repo');
 
       assert.ok(before && after);
-      assert.notStrictEqual(before.statusChangedAt, after.statusChangedAt);
+      assert.notStrictEqual(before.statusChangedAt.getTime(), after.statusChangedAt.getTime());
     });
 
     it('throws RepoNotFoundError for non-existent repo', async () => {
@@ -200,7 +213,7 @@ describe('LocalRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'gc');
+      assert.strictEqual(metadata.status.type, 'gc');
     });
 
     it('throws RepoStatusConflictError with wrong expected status', async () => {
@@ -218,7 +231,7 @@ describe('LocalRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'gc');
+      assert.strictEqual(metadata.status.type, 'gc');
     });
   });
 
@@ -241,22 +254,31 @@ describe('LocalRepoStore', () => {
   });
 
   describe('deleteRefsBatch', () => {
-    it('deletes packages, workspaces, executions, locks directories', async () => {
+    it('deletes every record directory\'s contents', async () => {
       await store.create('my-repo');
       const repoDir = join(testDir, 'my-repo');
 
-      // Create some refs
-      const packagesDir = join(repoDir, 'packages', 'test-pkg');
-      mkdirSync(packagesDir, { recursive: true });
-      writeFileSync(join(packagesDir, '1.0.0'), 'abc123');
+      // One record in each record directory
+      const records = [
+        join('packages', 'test-pkg', '1.0.0.beast2'),
+        join('workspaces', 'main.beast2'),
+        join('executions', 'a'.repeat(64), 'b'.repeat(64), 'plan.beast2'),
+        join('dataflows', 'main', '0190a0b0-4444-7000-8000-000000000000.beast2'),
+        join('adoptions', 'cc', `${'c'.repeat(62)}.beast2`),
+        join('locks', 'main', 'exclusive.beast2'),
+      ];
+      for (const record of records) {
+        mkdirSync(join(repoDir, record, '..'), { recursive: true });
+        writeFileSync(join(repoDir, record), 'record');
+      }
 
       const result = await store.deleteRefsBatch('my-repo');
 
       assert.strictEqual(result.status, 'done');
-      assert.ok(result.deleted >= 1);
-
-      // Packages dir should be empty now
-      assert.strictEqual(existsSync(join(packagesDir, '1.0.0')), false);
+      assert.strictEqual(result.deleted, records.length);
+      for (const record of records) {
+        assert.strictEqual(existsSync(join(repoDir, record)), false, record);
+      }
     });
   });
 

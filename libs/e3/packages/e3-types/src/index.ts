@@ -172,6 +172,8 @@ export {
 export {
   WorkspaceStateType,
   type WorkspaceState,
+  WorkspaceRecordType,
+  type WorkspaceRecord,
 } from './workspace.js';
 
 // Execution status
@@ -179,6 +181,7 @@ export {
   ExecutionStatusType,
   type ExecutionStatus,
   decodeExecutionStatus,
+  ExecutionOwnerType,
   type ExecutionOwner,
 } from './execution.js';
 
@@ -188,9 +191,24 @@ export {
   type LockOperation,
   ProcessHolderType,
   type ProcessHolder,
+  LambdaHolderType,
+  type LambdaHolder,
+  LockHolderVariantType,
+  type LockHolderVariant,
   LockStateType,
   type LockState,
 } from './lock.js';
+
+// The repository's own record
+export {
+  RepoStatusType,
+  type RepoStatus,
+  RepoMetadataType,
+  type RepoMetadata,
+} from './repository.js';
+
+// The names e3 makes paths of
+export { type NamedKind, nameProblem } from './names.js';
 
 // Dataset transfer types
 export {
@@ -265,6 +283,7 @@ export {
   InternalErrorType,
   RepositoryNotFoundErrorType,
   DatasetTypeMismatchErrorType,
+  InvalidNameErrorType,
   ErrorType,
   ResponseType,
   // Repository

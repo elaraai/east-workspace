@@ -10,7 +10,7 @@
  * with `if (err instanceof E3Error)` or specific errors with their class.
  */
 
-import type { DatasetTypeMismatch } from '@elaraai/e3-types';
+import { nameProblem, type DatasetTypeMismatch, type NamedKind } from '@elaraai/e3-types';
 import type { TaskExecutionResult } from './dataflow.js';
 
 // =============================================================================
@@ -45,6 +45,30 @@ export class RepoNotFoundError extends E3Error {
 export class RepoAlreadyExistsError extends E3Error {
   constructor(public readonly repo: string) {
     super(`Repository '${repo}' already exists`);
+  }
+}
+
+/**
+ * Thrown when a local repository is not in the layout this e3 reads: it has no
+ * repository record, or one of another layout version. Nothing in it is read.
+ */
+export class RepoLayoutError extends E3Error {
+  constructor(public readonly repo: string, public readonly layout: bigint | null, expected: bigint) {
+    super(layout === null
+      ? `the repository at ${repo} has no repository record: an older e3 wrote it — re-create it: deploy again and import its data again`
+      : layout < expected
+        ? `the repository at ${repo} is in layout ${layout}, and this e3 reads layout ${expected}: an older e3 wrote it — re-create it: deploy again and import its data again`
+        : `the repository at ${repo} is in layout ${layout}, and this e3 reads layout ${expected}: a newer e3 wrote it — use that e3`);
+  }
+}
+
+/**
+ * Thrown when a name e3 would make a path of — a repository's, a workspace's,
+ * a package's name or version, or a lock's — cannot be one path segment.
+ */
+export class InvalidNameError extends E3Error {
+  constructor(public readonly kind: NamedKind, public readonly value: string, reason: string) {
+    super(`the ${kind} name ${JSON.stringify(value)} ${reason}`);
   }
 }
 
@@ -328,6 +352,19 @@ export function isExistsError(err: unknown): boolean {
   return (
     err instanceof Error && (err as NodeJS.ErrnoException).code === 'EEXIST'
   );
+}
+
+/**
+ * Refuses a name that cannot be one path segment, before anything makes a
+ * path of it.
+ *
+ * @param kind - What the name names
+ * @param name - The name
+ * @throws {InvalidNameError} When the name cannot be a path segment
+ */
+export function checkName(kind: NamedKind, name: string): void {
+  const problem = nameProblem(kind, name);
+  if (problem !== null) throw new InvalidNameError(kind, name, problem);
 }
 
 /** Wrap unknown errors with context */

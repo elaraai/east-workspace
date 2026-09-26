@@ -143,6 +143,23 @@ describe('error handling', () => {
     });
   });
 
+  describe('names that cannot be paths', () => {
+    it('refuses a workspace named `..` or holding a separator, on a local repository and through the server', async () => {
+      // The store makes a path of a workspace's name, so the one rule refuses
+      // it wherever the name arrives: the CLI's own repository, or a server's.
+      for (const [repo, env] of [[repoDir, {}], [remoteUrl, authEnv()]] as const) {
+        for (const [name, refusal] of [['..', /the workspace name "\.\." is a path of its own/], ['a/b', /the workspace name "a\/b" holds "\/"/]] as const) {
+          const create = await runE3Command(['workspace', 'create', repo, name], tempDir, { env });
+          assert.notStrictEqual(create.exitCode, 0, `creating '${name}' in ${repo} is refused`);
+          assert.match(create.stderr + create.stdout, refusal);
+        }
+        const list = await runE3Command(['workspace', 'list', repo], tempDir, { env });
+        assert.strictEqual(list.exitCode, 0, list.stderr);
+        assert.match(list.stdout, /No workspaces/, `no workspace was made in ${repo}`);
+      }
+    });
+  });
+
   describe('auth errors', () => {
     it('returns 401 for missing token', async () => {
       // Use a credentials path that doesn't exist

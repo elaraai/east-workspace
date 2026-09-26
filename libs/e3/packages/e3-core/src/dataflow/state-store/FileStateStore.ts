@@ -15,7 +15,7 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { encodeBeast2For, some } from '@elaraai/east';
 import { decodeDataflowExecutionState } from '@elaraai/e3-types';
 import type {
@@ -30,9 +30,10 @@ import {
   type TaskState,
   type TaskStatus,
 } from '../types.js';
-// The single hardened temp→final rename (retries transient Windows sharing
-// violations); shared with the object/ref stores so the retry budget can't drift.
-import { renameWithRetry } from '../../storage/local/localHelpers.js';
+import { checkName } from '../../errors.js';
+// The one atomic write every local record goes through: staged as a `.partial`
+// gc sweeps, and renamed over the record with the shared Windows retry budget.
+import { atomicWriteFile } from '../../storage/local/localHelpers.js';
 
 // The state is written at this e3's version, and read at any version it
 // reads (decodeDataflowExecutionState).
@@ -63,6 +64,7 @@ export class FileStateStore implements ExecutionStateStore {
    * Get the path to a workspace's directory.
    */
   private workspacePath(workspace: string): string {
+    checkName('workspace', workspace);
     return join(this.workspacesDir, workspace);
   }
 
@@ -89,9 +91,7 @@ export class FileStateStore implements ExecutionStateStore {
       throw new Error(`Execution ${state.id} already exists in workspace '${state.workspace}'`);
     }
 
-    // Write state atomically using beast2 encoding
-    const data = encode(state);
-    await this.atomicWrite(path, data);
+    await atomicWriteFile(path, encode(state));
   }
 
   async read(repo: string, workspace: string, id: string): Promise<DataflowExecutionState | null> {
@@ -148,8 +148,7 @@ export class FileStateStore implements ExecutionStateStore {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
     }
-    const data = encode(state);
-    await this.atomicWrite(path, data);
+    await atomicWriteFile(path, encode(state));
   }
 
   async updateTaskStatus(
@@ -278,7 +277,7 @@ export class FileStateStore implements ExecutionStateStore {
     }
 
     const next = current + 1;
-    await this.atomicWriteText(path, String(next));
+    await atomicWriteFile(path, String(next));
     return String(next);
   }
 
@@ -314,50 +313,6 @@ export class FileStateStore implements ExecutionStateStore {
       return state;
     }
     return null;
-  }
-
-  /**
-   * Write a binary file atomically using temp file + rename.
-   */
-  private async atomicWrite(path: string, content: Uint8Array): Promise<void> {
-    const dir = dirname(path);
-    const tmpPath = join(dir, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-
-    try {
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(tmpPath, content);
-      await renameWithRetry(tmpPath, path);
-    } catch (err) {
-      // Clean up temp file on failure
-      try {
-        await fs.unlink(tmpPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw err;
-    }
-  }
-
-  /**
-   * Write a text file atomically using temp file + rename.
-   */
-  private async atomicWriteText(path: string, content: string): Promise<void> {
-    const dir = dirname(path);
-    const tmpPath = join(dir, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-
-    try {
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(tmpPath, content, 'utf-8');
-      await renameWithRetry(tmpPath, path);
-    } catch (err) {
-      // Clean up temp file on failure
-      try {
-        await fs.unlink(tmpPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw err;
-    }
   }
 }
 

@@ -266,7 +266,7 @@ export class SplitTask {
         } else if (named.task === taskHash && (await storage.refs.executionPlanRead(repo, taskHash, named.inputs)) === plan) {
           // A stage of the task over inputs it no longer has, which nothing
           // takes up again: it is no longer rooted.
-          await storage.refs.executionPlanWrite(repo, taskHash, named.inputs, '');
+          await storage.refs.executionPlanWrite(repo, taskHash, named.inputs, null);
         }
       } catch {
         // Gone, or not a unit plan: the pieces are planned again.
@@ -301,7 +301,11 @@ export class SplitTask {
       pidStartTime: BigInt(pidStartTime),
       bootId,
     }));
-    await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, { pid: process.pid, pidStartTime, bootId });
+    await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, {
+      pid: BigInt(process.pid),
+      pidStartTime: BigInt(pidStartTime),
+      bootId,
+    });
     split.running = true;
     return split;
   }
@@ -553,7 +557,7 @@ export class SplitTask {
     this.running = false;
     await this.storage.refs.executionWrite(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, status);
     if (this.rooted) {
-      await this.storage.refs.executionPlanWrite(this.repo, this.taskHash, this.ids.inHash, '');
+      await this.storage.refs.executionPlanWrite(this.repo, this.taskHash, this.ids.inHash, null);
       this.rooted = false;
     }
   }

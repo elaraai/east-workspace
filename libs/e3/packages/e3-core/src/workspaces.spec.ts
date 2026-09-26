@@ -9,12 +9,12 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StringType, variant, some, none, encodeBeast2For } from '@elaraai/east';
+import { StringType, variant, some, none, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceStateType,
+  EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import type { TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
@@ -75,11 +75,13 @@ describe('workspaces', () => {
       assert.ok(existsSync(wsFile));
     });
 
-    it('creates empty file (undeployed)', async () => {
+    it('creates an undeployed workspace, whose record is none', async () => {
       await workspaceCreate(storage, testRepo, 'empty');
 
       const state = await workspaceGetState(storage, testRepo, 'empty');
       assert.strictEqual(state, null);
+      const record = decodeBeast2For(WorkspaceRecordType)(readFileSync(join(testRepo, 'workspaces', 'empty.beast2')));
+      assert.strictEqual(record.type, 'none');
     });
   });
 
@@ -318,7 +320,7 @@ describe('workspaces', () => {
         packageName: 'envbundle', packageVersion: '1.0.0', packageHash: pkgHash,
         deployedAt: new Date(), currentRunId: none,
       };
-      writeFileSync(join(wsDir, 'envws.beast2'), encodeBeast2For(WorkspaceStateType)(state));
+      writeFileSync(join(wsDir, 'envws.beast2'), encodeBeast2For(WorkspaceRecordType)(some(state)));
 
       // export → import into a FRESH repo
       const exportZip = join(tempDir, 'envbundle.zip');

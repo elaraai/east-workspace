@@ -135,16 +135,29 @@ describe('executions', () => {
       assert.strictEqual(output, null);
     });
 
-    it('returns hash from output ref file', async () => {
+    it('returns the output hash the latest success record holds, past a later failure', async () => {
       const taskHash = 'a'.repeat(64);
       const inHash = 'b'.repeat(64);
-      const executionId = uuidv7();
+      const succeeded = uuidv7();
+      const failed = uuidv7();
       const outputHash = 'c'.repeat(64);
 
-      // Create execution directory with output ref (new structure includes executionId)
-      const execDir = join(testRepo, 'executions', taskHash, inHash, executionId);
-      mkdirSync(execDir, { recursive: true });
-      writeFileSync(join(execDir, 'output'), outputHash + '\n');
+      await storage.refs.executionWrite(testRepo, taskHash, inHash, succeeded, variant('success', {
+        executionId: succeeded,
+        inputHashes: [],
+        outputHash,
+        startedAt: new Date(0),
+        completedAt: new Date(1),
+        peakBytes: none,
+      }));
+      await storage.refs.executionWrite(testRepo, taskHash, inHash, failed, variant('failed', {
+        executionId: failed,
+        inputHashes: [],
+        startedAt: new Date(2),
+        completedAt: new Date(3),
+        exitCode: 1n,
+        peakBytes: none,
+      }));
 
       const output = await executionGetOutput(storage, testRepo, taskHash, inHash);
       assert.strictEqual(output, outputHash);

@@ -4,26 +4,29 @@
  */
 
 /**
- * Local filesystem implementation of workspace locking.
+ * Local filesystem implementation of locking.
  *
- * Provides exclusive and shared locks on workspaces using pure Node.js
- * primitives — no external commands required (works on Linux, macOS, Windows).
+ * Provides exclusive and shared locks on a resource — a workspace, a
+ * workspace's dataflow, the repository's tasks, or one dataset's ref — using
+ * pure Node.js primitives, no external commands (works on Linux, macOS,
+ * Windows).
  *
- * Lock mechanism:
- * - Exclusive: atomic O_CREAT|O_EXCL file creation (`fs.open('wx')`)
- * - Shared: per-holder slock files (`{workspace}.{pid}.{token}.slock`)
- * - Stale detection: process.kill(pid, 0) with /proc fallback for precise detection
- * - Release: unlink the lock file
+ * Each resource's locks are files in `locks/<resource>/`, each holding a
+ * beast2 {@link LockState}:
+ * - Exclusive: `exclusive.beast2`, created atomically with its content;
+ * - Shared: one `shared.<pid>.<token>.beast2` per holder;
+ * - Stale detection: the holder's process is gone (pid, start time and boot);
+ * - Release: unlink the file, and the directory once it is empty.
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { encodeBeast2For, decodeBeast2For, printFor, parseInferred, variant, none, VariantType } from '@elaraai/east';
-import { LockStateType, ProcessHolderType, type LockState, type LockOperation } from '@elaraai/e3-types';
-import { WorkspaceLockError, type LockHolderInfo } from '../../errors.js';
+import { encodeBeast2For, decodeBeast2For, variant, none } from '@elaraai/east';
+import { LockStateType, type LockHolderVariant, type LockState, type LockOperation } from '@elaraai/e3-types';
+import { InvalidNameError, WorkspaceLockError, checkName, type LockHolderInfo } from '../../errors.js';
 import { getBootId, getPidStartTime, isProcessAlive } from '../../execution/processHelpers.js';
-import { isTransientFsError } from './localHelpers.js';
+import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
 import type { LockHandle, LockService } from '../interfaces.js';
 
 /** Sleep helper for bounded filesystem-operation backoff. */
@@ -35,6 +38,16 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 const HARDLINK_UNSUPPORTED = new Set(['ENOSYS', 'EXDEV', 'EMLINK', 'EOPNOTSUPP']);
 const LINK_MAX_ATTEMPTS = 25;
 const UNLINK_MAX_ATTEMPTS = 10;
+
+/** How often a lock file is written again when a release removed its
+ *  resource's directory in between: the window is a few instructions wide. */
+const DIRECTORY_GONE_ATTEMPTS = 5;
+
+/** The exclusive lock's file in its resource's directory. */
+const EXCLUSIVE = 'exclusive.beast2';
+
+const encodeLockState = encodeBeast2For(LockStateType);
+const decodeLockState = decodeBeast2For(LockStateType);
 
 /**
  * Unlink a lock file, retrying transient Windows sharing violations.
@@ -60,22 +73,29 @@ async function unlinkWithRetry(targetPath: string): Promise<void> {
   }
 }
 
-// =============================================================================
-// Holder Encoding
-// =============================================================================
-
-const HolderVariantType = VariantType({
-  process: ProcessHolderType,
-});
-
-const printProcessHolder = printFor(HolderVariantType);
-
-function parseHolder(holderStr: string): { type: string; value: any } | null {
+/** Removes a resource's directory once its last lock has gone; one still in
+ *  use, or already gone, is left as it is. */
+async function removeIfEmpty(dir: string): Promise<void> {
   try {
-    const [_type, value] = parseInferred(holderStr);
-    return value as { type: string; value: any };
+    await fs.rmdir(dir);
   } catch {
-    return null;
+    // Not empty: another holder, or a lock being created.
+  }
+}
+
+/**
+ * Runs `write` into a resource's directory, making the directory first. A
+ * release removes a directory once its last lock has gone, which can land
+ * between the making and the write; the write is then made again.
+ */
+async function writeInto<T>(dir: string, write: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    await fs.mkdir(dir, { recursive: true });
+    try {
+      return await write();
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || attempt >= DIRECTORY_GONE_ATTEMPTS - 1) throw err;
+    }
   }
 }
 
@@ -84,7 +104,7 @@ function parseHolder(holderStr: string): { type: string; value: any } | null {
 // =============================================================================
 
 /**
- * Handle to a held workspace lock.
+ * Handle to a held lock.
  * Call release() when done to free the lock.
  */
 export interface WorkspaceLockHandle {
@@ -95,7 +115,7 @@ export interface WorkspaceLockHandle {
 }
 
 /**
- * Options for acquiring a workspace lock.
+ * Options for acquiring a lock.
  */
 export interface AcquireLockOptions {
   /** If true, wait for the lock to become available. Default: false */
@@ -110,24 +130,24 @@ export interface AcquireLockOptions {
 // Lock File Paths
 // =============================================================================
 
-/** Path to the exclusive lock file for a workspace. */
-export function workspaceLockPath(repoPath: string, workspace: string): string {
-  return path.join(repoPath, 'workspaces', `${workspace}.lock`);
+/**
+ * The directory a resource's locks are kept in: `locks/<resource>/`.
+ *
+ * @throws {InvalidNameError} When the resource cannot be one path segment
+ */
+function lockDir(repoPath: string, resource: string): string {
+  checkName('lock', resource);
+  return path.join(repoPath, 'locks', resource);
 }
 
-/** Directory containing lock files for a workspace. */
-function workspaceLockDir(repoPath: string, _workspace: string): string {
-  return path.join(repoPath, 'workspaces');
+/** Path to the exclusive lock file for a resource. */
+export function workspaceLockPath(repoPath: string, resource: string): string {
+  return path.join(lockDir(repoPath, resource), EXCLUSIVE);
 }
 
-/** Path to a shared lock file for a specific holder. */
-function sharedLockPath(repoPath: string, workspace: string, pid: number, token: string): string {
-  return path.join(repoPath, 'workspaces', `${workspace}.${pid}.${token}.slock`);
-}
-
-/** Glob prefix used to find all shared lock files for a workspace. */
-function sharedLockPrefix(workspace: string): string {
-  return `${workspace}.`;
+/** Whether a file of a resource's directory is a shared holder's. */
+function isSharedLock(name: string): boolean {
+  return name.startsWith('shared.') && name.endsWith('.beast2');
 }
 
 // =============================================================================
@@ -138,29 +158,28 @@ async function readLockState(lockPath: string): Promise<LockState | null> {
   try {
     const data = await fs.readFile(lockPath);
     if (data.length === 0) return null;
-    const decoder = decodeBeast2For(LockStateType);
-    return decoder(data);
+    return decodeLockState(data);
   } catch {
     return null;
   }
 }
 
-async function writeLockState(lockPath: string, state: LockState): Promise<void> {
-  const encoder = encodeBeast2For(LockStateType);
-  await fs.writeFile(lockPath, encoder(state));
-}
-
+/**
+ * A lock's holder as an error names it.
+ *
+ * @param state - The lock's state
+ * @returns The holder's details, flattened for a message
+ */
 export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
   const info: LockHolderInfo = {
     acquiredAt: state.acquiredAt.toISOString(),
     operation: state.operation.type,
   };
-  const holder = parseHolder(state.holder);
-  if (holder?.type === 'process') {
-    info.pid = Number(holder.value.pid);
-    info.bootId = holder.value.bootId;
-    info.startTime = Number(holder.value.startTime);
-    info.command = holder.value.command;
+  if (state.holder.type === 'process') {
+    info.pid = Number(state.holder.value.pid);
+    info.bootId = state.holder.value.bootId;
+    info.startTime = Number(state.holder.value.startTime);
+    info.command = state.holder.value.command;
   }
   return info;
 }
@@ -173,43 +192,40 @@ export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
  * Defense-in-depth grace before a present-but-empty/undecodable lock file is
  * reclaimed as stale.
  *
- * Exclusive locks are created *atomically with their content* (see
- * {@link atomicCreateLockFile}), so a held exclusive lock is never observed empty
- * and this branch does not fire for them. The grace still guards two residual
- * sources of a transiently-empty lock file: the O_EXCL+write *fallback* used on
- * filesystems without hardlink support, and shared `.slock` files (written
- * non-atomically). Reclaiming such a file mid-creation would admit a second holder
- * — a silent lost update under the record compare-and-swap in `writeIf`. The grace
- * covers a create→write window generously while staying far below the 30s
- * lock-wait timeout, so a genuinely crashed-mid-create remnant is still reclaimed
- * promptly. Exported so tests can pin the boundary without sleeping.
+ * Every lock file is created *atomically with its content* — an exclusive lock
+ * by a hard link, a shared one by a rename — so a held lock is never observed
+ * empty and this branch does not fire for them. The grace still guards the
+ * O_EXCL+write *fallback* used on filesystems without hardlink support, whose
+ * file is empty until its write lands. Reclaiming such a file mid-creation
+ * would admit a second holder — a silent lost update under the record
+ * compare-and-swap in `writeIf`. The grace covers a create→write window
+ * generously while staying far below the 30s lock-wait timeout, so a genuinely
+ * crashed-mid-create remnant is still reclaimed promptly. Exported so tests can
+ * pin the boundary without sleeping.
  */
 export const EMPTY_LOCK_GRACE_MS = 1_000;
 
-export async function isLockHolderAlive(holderStr: string): Promise<boolean> {
-  const holder = parseHolder(holderStr);
-  if (!holder) return true; // Can't parse — assume alive
-
+/**
+ * Whether a lock's holder is still alive: a process that still runs, or a
+ * cloud function, which its lease bounds instead.
+ *
+ * @param holder - The holder a lock's state names
+ * @returns Whether the holder still holds the lock
+ */
+export async function isLockHolderAlive(holder: LockHolderVariant): Promise<boolean> {
   if (holder.type === 'process') {
-    return isProcessAlive(
-      Number(holder.value.pid),
-      Number(holder.value.startTime),
-      holder.value.bootId
-    );
+    return isProcessAlive(Number(holder.value.pid), Number(holder.value.startTime), holder.value.bootId);
   }
-
-  return true; // Unknown type — assume alive
+  return true;
 }
 
 /** Delete a lock file if its holder process is no longer alive. */
 async function cleanIfStale(lockPath: string): Promise<void> {
   const state = await readLockState(lockPath);
   if (!state) {
-    // Present-but-empty/undecodable. Exclusive locks are created atomically with
-    // content (atomicCreateLockFile), so this is not a live exclusive holder; but
-    // the O_EXCL fallback path and non-atomic .slock writes can momentarily leave a
-    // file empty. Reclaiming one mid-creation would admit a second holder, so only
-    // treat it as a crashed remnant once it has sat unfilled past the grace.
+    // Present-but-empty/undecodable. Only the O_EXCL fallback leaves a lock
+    // file empty, until its write lands, so it is reclaimed as a crashed
+    // remnant only once it has sat unfilled past the grace.
     try {
       const st = await fs.stat(lockPath);
       if (Date.now() - st.mtimeMs < EMPTY_LOCK_GRACE_MS) return;
@@ -224,32 +240,56 @@ async function cleanIfStale(lockPath: string): Promise<void> {
   }
 }
 
-/** Find and clean all stale shared lock files for a workspace. */
-async function cleanStaleSharedLocks(repoPath: string, workspace: string): Promise<void> {
-  const dir = workspaceLockDir(repoPath, workspace);
-  const prefix = sharedLockPrefix(workspace);
+/** Return paths of all live shared lock files for a resource, cleaning the
+ *  stale ones. */
+async function liveSharedLocks(repoPath: string, resource: string): Promise<string[]> {
+  const dir = lockDir(repoPath, resource);
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
   } catch {
-    return;
+    return [];
   }
-  const slocks = entries.filter(e => e.startsWith(prefix) && e.endsWith('.slock'));
-  await Promise.all(slocks.map(e => cleanIfStale(path.join(dir, e))));
+  const shared = entries.filter(isSharedLock).map((name) => path.join(dir, name));
+  await Promise.all(shared.map((file) => cleanIfStale(file)));
+  const live: string[] = [];
+  for (const file of shared) {
+    try {
+      await fs.access(file);
+      live.push(file);
+    } catch {
+      // Cleaned as stale.
+    }
+  }
+  return live;
 }
 
-/** Return paths of all live shared lock files for a workspace. */
-async function liveSharedLocks(repoPath: string, workspace: string): Promise<string[]> {
-  await cleanStaleSharedLocks(repoPath, workspace);
-  const dir = workspaceLockDir(repoPath, workspace);
-  const prefix = sharedLockPrefix(workspace);
+/**
+ * Removes the locks their holders left when they exited, of every resource
+ * `owns` picks, and each resource's directory once it is empty. A lock a live
+ * process holds is left for it to release.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param owns - Whether a resource, by its name, is one to sweep
+ */
+export async function removeStaleLocks(repoPath: string, owns: (resource: string) => boolean): Promise<void> {
+  const locksDir = path.join(repoPath, 'locks');
+  let resources: string[];
   try {
-    const entries = await fs.readdir(dir);
-    return entries
-      .filter(e => e.startsWith(prefix) && e.endsWith('.slock'))
-      .map(e => path.join(dir, e));
+    resources = await fs.readdir(locksDir);
   } catch {
-    return [];
+    return; // No lock was ever taken
+  }
+  for (const resource of resources.filter(owns)) {
+    const dir = path.join(locksDir, resource);
+    let files: string[];
+    try {
+      files = await fs.readdir(dir);
+    } catch {
+      continue; // Released meanwhile
+    }
+    await Promise.all(files.filter((file) => file === EXCLUSIVE || isSharedLock(file)).map((file) => cleanIfStale(path.join(dir, file))));
+    await removeIfEmpty(dir);
   }
 }
 
@@ -257,24 +297,19 @@ async function liveSharedLocks(repoPath: string, workspace: string): Promise<str
 // Lock Acquisition
 // =============================================================================
 
-async function buildLockState(operation: LockOperation): Promise<{ state: LockState; holder: string }> {
+async function buildLockState(operation: LockOperation): Promise<LockState> {
   const pid = process.pid;
-  const bootId = await getBootId();
-  const startTime = await getPidStartTime(pid);
-  const holderVariant = variant('process', {
-    pid: BigInt(pid),
-    bootId,
-    startTime: BigInt(startTime),
-    command: process.argv.join(' '),
-  });
-  const holder = printProcessHolder(holderVariant);
-  const state: LockState = {
+  return {
     operation,
-    holder,
+    holder: variant('process', {
+      pid: BigInt(pid),
+      bootId: await getBootId(),
+      startTime: BigInt(await getPidStartTime(pid)),
+      command: process.argv.join(' '),
+    }),
     acquiredAt: new Date(),
     expiresAt: none,
   };
-  return { state, holder };
 }
 
 /**
@@ -284,9 +319,9 @@ async function buildLockState(operation: LockOperation): Promise<{ state: LockSt
  * a second `write` lands — a window in which a concurrent acquirer can observe the
  * lock empty and reclaim it (see {@link EMPTY_LOCK_GRACE_MS}), admitting two
  * holders and a lost update under the record CAS. Writing the bytes to a private
- * temp and hard-linking it into place removes the window entirely: the lock name,
- * the instant it exists, already holds the bytes. `link` fails with `EEXIST` if the
- * name is taken, giving the same mutual exclusion as O_EXCL.
+ * `.partial` and hard-linking it into place removes the window entirely: the lock
+ * name, the instant it exists, already holds the bytes. `link` fails with `EEXIST`
+ * if the name is taken, giving the same mutual exclusion as O_EXCL.
  *
  * Falls back to O_EXCL+write on filesystems without hardlink support (rare — some
  * network/FAT mounts); there {@link EMPTY_LOCK_GRACE_MS} is the safety net.
@@ -294,16 +329,16 @@ async function buildLockState(operation: LockOperation): Promise<{ state: LockSt
  * @returns true if we created the lock; false if another holder already has it.
  */
 async function atomicCreateLockFile(lockPath: string, data: Uint8Array): Promise<boolean> {
-  const tmp = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  const tmp = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.partial`;
   try {
-    await fs.writeFile(tmp, data);
+    await writeInto(path.dirname(lockPath), () => fs.writeFile(tmp, data));
     // Prefer the atomic create-with-content (hardlink). A transient Windows
     // EPERM/EACCES/EBUSY is RETRIED rather than demoted to the racy O_EXCL+write
-    // path (the empty-window #84 closed): demoting on transient contention was
-    // exactly how that fallback stayed reachable on NTFS. Only a genuine
-    // "no hardlinks" code — or an EPERM/EACCES that PERSISTS past the budget (a
-    // truly hardlink-less volume that reports EPERM) — falls back, and it falls
-    // back rather than throwing, so availability on such volumes is preserved.
+    // path: demoting on transient contention was exactly how that fallback
+    // stayed reachable on NTFS. Only a genuine "no hardlinks" code — or an
+    // EPERM/EACCES that PERSISTS past the budget (a truly hardlink-less volume
+    // that reports EPERM) — falls back, and it falls back rather than throwing,
+    // so availability on such volumes is preserved.
     for (let attempt = 0; ; attempt++) {
       try {
         await fs.link(tmp, lockPath);
@@ -337,26 +372,23 @@ async function atomicCreateLockFile(lockPath: string, data: Uint8Array): Promise
 }
 
 /** Try once to acquire an exclusive lock. Returns lock path or null. */
-async function tryExclusiveOnce(repoPath: string, workspace: string, operation: LockOperation): Promise<string | null> {
-  const lockPath = workspaceLockPath(repoPath, workspace);
+async function tryExclusiveOnce(repoPath: string, resource: string, operation: LockOperation): Promise<string | null> {
+  const lockPath = workspaceLockPath(repoPath, resource);
 
   // Clean stale exclusive lock
   await cleanIfStale(lockPath);
 
   // Fail if any live shared locks exist
-  const shared = await liveSharedLocks(repoPath, workspace);
-  if (shared.length > 0) return null;
+  if ((await liveSharedLocks(repoPath, resource)).length > 0) return null;
 
   // Atomic create-with-content — false (not us) if another holder beat us to it.
-  const { state } = await buildLockState(operation);
-  const encoder = encodeBeast2For(LockStateType);
-  if (!(await atomicCreateLockFile(lockPath, encoder(state)))) return null;
+  if (!(await atomicCreateLockFile(lockPath, encodeLockState(await buildLockState(operation))))) return null;
 
   // A shared acquirer may have written its file after the check above and
   // looked for ours before it existed, and so holds the lock. Each side
   // checks for the other only after its own file exists, so at most one of
   // them finds nothing, and one that finds the other backs out.
-  if ((await liveSharedLocks(repoPath, workspace)).length > 0) {
+  if ((await liveSharedLocks(repoPath, resource)).length > 0) {
     await unlinkWithRetry(lockPath);
     return null;
   }
@@ -364,8 +396,8 @@ async function tryExclusiveOnce(repoPath: string, workspace: string, operation: 
 }
 
 /** Try once to acquire a shared lock. Returns lock path or null. */
-async function trySharedOnce(repoPath: string, workspace: string, operation: LockOperation): Promise<string | null> {
-  const exclusivePath = workspaceLockPath(repoPath, workspace);
+async function trySharedOnce(repoPath: string, resource: string, operation: LockOperation): Promise<string | null> {
+  const exclusivePath = workspaceLockPath(repoPath, resource);
 
   // Clean stale exclusive lock
   await cleanIfStale(exclusivePath);
@@ -376,46 +408,45 @@ async function trySharedOnce(repoPath: string, workspace: string, operation: Loc
     return null;
   }
 
-  // Create our shared lock file
-  const token = randomBytes(4).toString('hex');
-  const sPath = sharedLockPath(repoPath, workspace, process.pid, token);
-  const { state } = await buildLockState(operation);
-  await writeLockState(sPath, state);
+  // Create our shared lock file, whole the moment it exists
+  const sharedPath = path.join(lockDir(repoPath, resource), `shared.${process.pid}.${randomBytes(4).toString('hex')}.beast2`);
+  const data = encodeLockState(await buildLockState(operation));
+  await writeInto(path.dirname(sharedPath), () => atomicWriteFile(sharedPath, data));
 
   // Re-check that no exclusive lock appeared between our check and our write
   const recheckState = await readLockState(exclusivePath);
   if (recheckState && (await isLockHolderAlive(recheckState.holder))) {
-    try { await fs.unlink(sPath); } catch {}
+    try { await fs.unlink(sharedPath); } catch {}
     return null;
   }
 
-  return sPath;
+  return sharedPath;
 }
 
 const POLL_INTERVAL_MS = 100;
 
 /**
- * Acquire an exclusive or shared lock on a workspace.
+ * Acquire an exclusive or shared lock on a resource.
  *
- * Uses atomic O_CREAT|O_EXCL file creation (exclusive) or per-holder slock
- * files (shared). Works on Linux, macOS, and Windows without external commands.
+ * Uses an atomic create-with-content (exclusive) or a per-holder file (shared),
+ * in the resource's directory. Works on Linux, macOS, and Windows without
+ * external commands.
  *
  * @throws {WorkspaceLockError} If the lock cannot be acquired
+ * @throws {InvalidNameError} If the resource cannot be one path segment
  */
 export async function acquireWorkspaceLock(
   repoPath: string,
-  workspace: string,
+  resource: string,
   operation: LockOperation,
   options: AcquireLockOptions = {}
 ): Promise<WorkspaceLockHandle> {
-  await fs.mkdir(path.join(repoPath, 'workspaces'), { recursive: true });
-
   const isShared = options.mode === 'shared';
   const deadline = Date.now() + (options.wait ? (options.timeout ?? 30000) : 0);
 
   const tryOnce = isShared
-    ? () => trySharedOnce(repoPath, workspace, operation)
-    : () => tryExclusiveOnce(repoPath, workspace, operation);
+    ? () => trySharedOnce(repoPath, resource, operation)
+    : () => tryExclusiveOnce(repoPath, resource, operation);
 
   let lockPath = await tryOnce();
 
@@ -427,21 +458,22 @@ export async function acquireWorkspaceLock(
   }
 
   if (lockPath === null) {
-    const exclusivePath = workspaceLockPath(repoPath, workspace);
-    const existingState = await readLockState(exclusivePath);
+    const existingState = await readLockState(workspaceLockPath(repoPath, resource));
     const holderInfo = existingState ? lockStateToHolderInfo(existingState) : undefined;
-    throw new WorkspaceLockError(workspace, holderInfo);
+    throw new WorkspaceLockError(resource, holderInfo);
   }
 
+  const held = lockPath;
   let released = false;
   return {
-    resource: workspace,
-    workspace,
-    lockPath,
+    resource,
+    workspace: resource,
+    lockPath: held,
     async release() {
       if (released) return;
       released = true;
-      await unlinkWithRetry(lockPath);
+      await unlinkWithRetry(held);
+      await removeIfEmpty(path.dirname(held));
     },
   };
 }
@@ -450,11 +482,15 @@ export async function acquireWorkspaceLock(
 // Status Queries
 // =============================================================================
 
+/**
+ * The state of a resource's exclusive lock, or `null` when none is held; a
+ * stale one is cleaned.
+ */
 export async function getWorkspaceLockState(
   repoPath: string,
-  workspace: string
+  resource: string
 ): Promise<LockState | null> {
-  const lockPath = workspaceLockPath(repoPath, workspace);
+  const lockPath = workspaceLockPath(repoPath, resource);
   const state = await readLockState(lockPath);
   if (!state) return null;
   if (!(await isLockHolderAlive(state.holder))) {
@@ -464,11 +500,12 @@ export async function getWorkspaceLockState(
   return state;
 }
 
+/** The holder of a resource's exclusive lock, or `null` when none is held. */
 export async function getWorkspaceLockHolder(
   repoPath: string,
-  workspace: string
+  resource: string
 ): Promise<LockHolderInfo | null> {
-  const state = await getWorkspaceLockState(repoPath, workspace);
+  const state = await getWorkspaceLockState(repoPath, resource);
   return state ? lockStateToHolderInfo(state) : null;
 }
 
@@ -490,7 +527,9 @@ export class LocalLockService implements LockService {
         mode: options?.mode ?? 'exclusive',
       });
       return { resource, release: () => handle.release() };
-    } catch {
+    } catch (err) {
+      // A name no path can hold is the caller's error, never a held lock.
+      if (err instanceof InvalidNameError) throw err;
       return null;
     }
   }
@@ -499,7 +538,7 @@ export class LocalLockService implements LockService {
     return getWorkspaceLockState(repo, resource);
   }
 
-  isHolderAlive(holder: string): Promise<boolean> {
+  isHolderAlive(holder: LockHolderVariant): Promise<boolean> {
     return isLockHolderAlive(holder);
   }
 }

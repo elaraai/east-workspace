@@ -9,8 +9,6 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { variant, none, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
 import {
   TASK_OBJECT_KIND,
@@ -130,10 +128,7 @@ describe('dataflow', () => {
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 
-    // Write package ref - the ref file is at packages/<name>/<version> (version is the file, not a directory)
-    const pkgDir = join(repoPath, 'packages', 'test');
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, '1.0.0'), pkgHash + '\n');
+    await storage.refs.packageWrite(repoPath, 'test', '1.0.0', pkgHash);
 
     return pkgHash;
   }

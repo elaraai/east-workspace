@@ -65,6 +65,7 @@ export {
   objectAbbrev,
   transferStagingDir,
   transferStagingPath,
+  packageStagingPath,
 } from './storage/local/localHelpers.js';
 
 // Package operations
@@ -356,6 +357,10 @@ export {
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
+  RepoLayoutError,
+  // Names
+  InvalidNameError,
+  checkName,
   // Workspace
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,

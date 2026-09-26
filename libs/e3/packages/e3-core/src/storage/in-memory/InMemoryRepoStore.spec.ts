@@ -64,7 +64,7 @@ describe('InMemoryRepoStore', () => {
 
       assert.ok(metadata);
       assert.strictEqual(metadata.name, 'my-repo');
-      assert.strictEqual(metadata.status, 'active');
+      assert.strictEqual(metadata.status.type, 'active');
       assert.ok(metadata.createdAt);
       assert.ok(metadata.statusChangedAt);
     });
@@ -76,7 +76,7 @@ describe('InMemoryRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'active');
+      assert.strictEqual(metadata.status.type, 'active');
     });
 
     it('throws RepoAlreadyExistsError if repo exists', async () => {
@@ -96,7 +96,7 @@ describe('InMemoryRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'gc');
+      assert.strictEqual(metadata.status.type, 'gc');
     });
 
     it('updates statusChangedAt', async () => {
@@ -110,7 +110,7 @@ describe('InMemoryRepoStore', () => {
       const after = await store.getMetadata('my-repo');
 
       assert.ok(before && after);
-      assert.notStrictEqual(before.statusChangedAt, after.statusChangedAt);
+      assert.notStrictEqual(before.statusChangedAt.getTime(), after.statusChangedAt.getTime());
     });
 
     it('throws RepoNotFoundError for non-existent repo', async () => {
@@ -126,7 +126,7 @@ describe('InMemoryRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'gc');
+      assert.strictEqual(metadata.status.type, 'gc');
     });
 
     it('throws RepoStatusConflictError with wrong expected status', async () => {
@@ -144,7 +144,7 @@ describe('InMemoryRepoStore', () => {
 
       const metadata = await store.getMetadata('my-repo');
       assert.ok(metadata);
-      assert.strictEqual(metadata.status, 'gc');
+      assert.strictEqual(metadata.status.type, 'gc');
     });
 
     it('throws RepoStatusConflictError with expected status array not matching', async () => {

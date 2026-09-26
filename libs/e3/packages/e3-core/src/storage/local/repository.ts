@@ -12,27 +12,78 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { IntegerType, StructType, decodeBeast2For, encodeBeast2For, variant, type ValueTypeOf } from '@elaraai/east';
+import { RepoMetadataType } from '@elaraai/e3-types';
+import { RepoLayoutError, isNotFoundError } from '../../errors.js';
 
-/** The file a repository's metadata is kept in, at its root. */
-export const REPO_METADATA_FILENAME = '.e3-metadata.json';
+/** The record a repository keeps at its root. */
+export const REPOSITORY_FILENAME = 'repository.beast2';
 
 /**
- * Writes a new repository's metadata: its name, `active`, and the time.
+ * The version of the local repository layout this e3 reads and writes: the
+ * paths its records are kept at, and their types. A repository of another
+ * version is refused, naming the fix.
+ */
+export const REPOSITORY_LAYOUT = 1n;
+
+/** The repository record: the layout it was written in, and its metadata. */
+export const RepositoryRecordType = StructType({
+  /** The layout version */
+  layout: IntegerType,
+  /** The repository's name, status and times */
+  metadata: RepoMetadataType,
+});
+
+export type RepositoryRecord = ValueTypeOf<typeof RepositoryRecordType>;
+
+/** Encodes a repository record. */
+export const encodeRepositoryRecord: (record: RepositoryRecord) => Uint8Array = encodeBeast2For(RepositoryRecordType);
+
+const decodeRepositoryRecord = decodeBeast2For(RepositoryRecordType);
+
+/**
+ * Writes a new repository's record: its name, `active`, the time, and this
+ * e3's layout.
  *
  * @remarks
  * Every way a local repository is created writes it — `repoInit` for the CLI
- * and the tests, and `LocalRepoStore.create` for the API server — and a
- * repository without it is one an older e3 created, which is refused.
+ * and the tests, and `LocalRepoStore.create` for the API server.
  *
  * @param repoPath - The repository's directory
  * @param name - The repository's name
  */
 export function writeNewRepoMetadata(repoPath: string, name: string): void {
-  const now = new Date().toISOString();
-  fs.writeFileSync(
-    path.join(repoPath, REPO_METADATA_FILENAME),
-    JSON.stringify({ name, status: 'active', createdAt: now, statusChangedAt: now }, null, 2),
-  );
+  const now = new Date();
+  fs.writeFileSync(path.join(repoPath, REPOSITORY_FILENAME), encodeRepositoryRecord({
+    layout: REPOSITORY_LAYOUT,
+    metadata: { name, status: variant('active', null), createdAt: now, statusChangedAt: now },
+  }));
+}
+
+/**
+ * Reads a repository's record, and refuses one of another layout.
+ *
+ * @param repoPath - The repository's directory
+ * @returns The record, whose layout is this e3's
+ * @throws {RepoLayoutError} When the repository has no record, or one that
+ *   does not decode or is of another layout
+ */
+export function readRepositoryRecord(repoPath: string): RepositoryRecord {
+  let data: Buffer;
+  try {
+    data = fs.readFileSync(path.join(repoPath, REPOSITORY_FILENAME));
+  } catch (err) {
+    if (isNotFoundError(err)) throw new RepoLayoutError(repoPath, null, REPOSITORY_LAYOUT);
+    throw err;
+  }
+  let record: RepositoryRecord;
+  try {
+    record = decodeRepositoryRecord(data);
+  } catch {
+    throw new RepoLayoutError(repoPath, null, REPOSITORY_LAYOUT);
+  }
+  if (record.layout !== REPOSITORY_LAYOUT) throw new RepoLayoutError(repoPath, record.layout, REPOSITORY_LAYOUT);
+  return record;
 }
 
 /**
@@ -54,7 +105,7 @@ export interface InitRepositoryResult {
  * - executions/
  * - workspaces/
  *
- * and its metadata file, named after the directory.
+ * and its record, named after the directory.
  *
  * The repository IS the specified directory - subdirectories are created directly within it.
  *
@@ -80,10 +131,10 @@ export function repoInit(repoPath: string): InitRepositoryResult {
     // Create objects directory (content-addressed storage)
     fs.mkdirSync(path.join(targetPath, 'objects'), { recursive: true });
 
-    // Create packages directory (package refs: packages/<name>/<version> -> hash)
+    // Create packages directory (package refs: packages/<name>/<version>.beast2)
     fs.mkdirSync(path.join(targetPath, 'packages'), { recursive: true });
 
-    // Create executions directory (execution cache: executions/<hash>/output -> hash)
+    // Create executions directory (execution records: executions/<task>/<inputs>/<id>/)
     fs.mkdirSync(path.join(targetPath, 'executions'), { recursive: true });
 
     // Create workspaces directory (workspace state)
@@ -121,13 +172,17 @@ function isValidRepository(repoPath: string): boolean {
  * 1. E3_REPO environment variable
  * 2. The provided startPath (if given)
  *
- * Returns null if no valid repository is found.
+ * A directory found is checked for this e3's layout.
+ *
+ * @returns The repository's path, or null if no repository is found
+ * @throws {RepoLayoutError} When the repository found is of another layout
  */
 export function repoFind(startPath?: string): string | null {
   // 1. Check E3_REPO environment variable
   if (process.env.E3_REPO) {
     const repoPath = path.resolve(process.env.E3_REPO);
     if (fs.existsSync(repoPath) && isValidRepository(repoPath)) {
+      readRepositoryRecord(repoPath);
       return repoPath;
     }
   }
@@ -136,6 +191,7 @@ export function repoFind(startPath?: string): string | null {
   if (startPath !== undefined) {
     const repoPath = path.resolve(startPath);
     if (fs.existsSync(repoPath) && isValidRepository(repoPath)) {
+      readRepositoryRecord(repoPath);
       return repoPath;
     }
   }
@@ -145,6 +201,8 @@ export function repoFind(startPath?: string): string | null {
 
 /**
  * Get the e3 repository, throw error if not found
+ *
+ * @throws {RepoLayoutError} When the repository is of another layout
  */
 export function repoGet(repoPath?: string): string {
   const repo = repoFind(repoPath);

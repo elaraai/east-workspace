@@ -12,15 +12,16 @@ import assert from 'node:assert';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { variant, encodeBeast2For, printFor, VariantType } from '@elaraai/east';
-import { LockStateType, ProcessHolderType, type LockState } from '@elaraai/e3-types';
+import { variant, encodeBeast2For, none } from '@elaraai/east';
+import { LockStateType, type LockState } from '@elaraai/e3-types';
 import {
   acquireWorkspaceLock,
   getWorkspaceLockHolder,
+  isLockHolderAlive,
   workspaceLockPath,
   EMPTY_LOCK_GRACE_MS,
 } from './LocalLockService.js';
-import { WorkspaceLockError } from '../../errors.js';
+import { InvalidNameError, WorkspaceLockError } from '../../errors.js';
 
 describe('LocalLockService', () => {
   let testDir: string;
@@ -37,11 +38,16 @@ describe('LocalLockService', () => {
   });
 
   describe('workspaceLockPath', () => {
-    it('returns correct path', () => {
+    it('keeps a resource\'s exclusive lock in its own directory under locks/', () => {
       const lockPath = workspaceLockPath('/repo', 'myws');
       // workspaceLockPath uses path.join (OS separator); normalize before
       // comparing so the assertion holds on Windows too.
-      assert.strictEqual(lockPath.replace(/\\/g, '/'), '/repo/workspaces/myws.lock');
+      assert.strictEqual(lockPath.replace(/\\/g, '/'), '/repo/locks/myws/exclusive.beast2');
+    });
+
+    it('refuses a resource that is no one path segment', () => {
+      assert.throws(() => workspaceLockPath('/repo', '../elsewhere'), InvalidNameError);
+      assert.throws(() => workspaceLockPath('/repo', '..'), InvalidNameError);
     });
   });
 
@@ -49,7 +55,7 @@ describe('LocalLockService', () => {
     it('acquires lock on unlocked workspace', async () => {
       const lock = await acquireWorkspaceLock(repoPath, 'test-ws', variant('dataflow', null));
       assert.strictEqual(lock.workspace, 'test-ws');
-      assert.ok(lock.lockPath.endsWith('test-ws.lock'));
+      assert.strictEqual(lock.lockPath, workspaceLockPath(repoPath, 'test-ws'));
       await lock.release();
     });
 
@@ -68,7 +74,7 @@ describe('LocalLockService', () => {
       await lock.release();
     });
 
-    it('removes lock file on release', async () => {
+    it('removes the lock file, and its resource\'s directory, on release', async () => {
       const lock = await acquireWorkspaceLock(repoPath, 'test-ws', variant('dataflow', null));
       const lockPath = workspaceLockPath(repoPath, 'test-ws');
 
@@ -77,8 +83,23 @@ describe('LocalLockService', () => {
 
       await lock.release();
 
-      // Lock file should be gone
+      // Lock file should be gone, and the directory with it
       await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
+      await assert.rejects(fs.access(path.dirname(lockPath)), { code: 'ENOENT' });
+    });
+
+    it('counts only its own resource\'s shared holders, not those of a resource its name begins', async () => {
+      const shared = await acquireWorkspaceLock(repoPath, 'a.b', variant('dataflow', null), { mode: 'shared' });
+      try {
+        const exclusive = await acquireWorkspaceLock(repoPath, 'a', variant('deployment', null));
+        await exclusive.release();
+      } finally {
+        await shared.release();
+      }
+    });
+
+    it('refuses a resource that is no one path segment', async () => {
+      await assert.rejects(acquireWorkspaceLock(repoPath, '../elsewhere', variant('dataflow', null)), InvalidNameError);
     });
 
     it('release is idempotent', async () => {
@@ -158,25 +179,20 @@ describe('LocalLockService', () => {
     it('cleans up stale lock with dead PID', async () => {
       // Write a fake lock file in beast2 format with a non-existent PID
       const lockPath = workspaceLockPath(repoPath, 'test-ws');
-
-      // Create holder as East text string
-      const HolderVariantType = VariantType({ process: ProcessHolderType });
-      const printHolder = printFor(HolderVariantType);
-      const holderString = printHolder(variant('process', {
-        pid: 99999999n, // Very unlikely to exist
-        bootId: 'fake-boot-id',
-        startTime: 0n,
-        command: 'fake command',
-      }));
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
 
       const fakeLockState: LockState = {
         operation: variant('dataflow', null),
-        holder: holderString,
+        holder: variant('process', {
+          pid: 99999999n, // Very unlikely to exist
+          bootId: 'fake-boot-id',
+          startTime: 0n,
+          command: 'fake command',
+        }),
         acquiredAt: new Date(),
-        expiresAt: variant('none', null),
+        expiresAt: none,
       };
-      const encoder = encodeBeast2For(LockStateType);
-      await fs.writeFile(lockPath, encoder(fakeLockState));
+      await fs.writeFile(lockPath, encodeBeast2For(LockStateType)(fakeLockState));
 
       // getWorkspaceLockHolder should detect this as stale and clean up
       const holder = await getWorkspaceLockHolder(repoPath, 'test-ws');
@@ -184,6 +200,10 @@ describe('LocalLockService', () => {
 
       // Lock file should be cleaned up
       await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
+    });
+
+    it('takes a cloud function\'s holder for alive, which its lease bounds instead', async () => {
+      assert.strictEqual(await isLockHolderAlive(variant('lambda', { requestId: 'r-1', functionName: 'e3-dataflow' })), true);
     });
   });
 
@@ -208,6 +228,7 @@ describe('LocalLockService', () => {
 
     it('does NOT reclaim a freshly-created empty lock (no mid-creation steal)', async () => {
       const lockPath = workspaceLockPath(repoPath, 'ws-fresh-empty');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
       await fs.writeFile(lockPath, '');               // empty, fresh mtime
       await assert.rejects(
         acquireWorkspaceLock(repoPath, 'ws-fresh-empty', variant('dataflow', null), { wait: false }),
@@ -218,11 +239,12 @@ describe('LocalLockService', () => {
 
     it('DOES reclaim an empty lock older than the grace (crashed-mid-create remnant)', async () => {
       const lockPath = workspaceLockPath(repoPath, 'ws-stale-empty');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
       await fs.writeFile(lockPath, '');
       const old = new Date(Date.now() - EMPTY_LOCK_GRACE_MS - 5_000);
       await fs.utimes(lockPath, old, old);             // backdate past the grace
       const lock = await acquireWorkspaceLock(repoPath, 'ws-stale-empty', variant('dataflow', null), { wait: false });
-      assert.ok(lock.lockPath.endsWith('ws-stale-empty.lock'));
+      assert.strictEqual(lock.lockPath, lockPath);
       await lock.release();
     });
 
