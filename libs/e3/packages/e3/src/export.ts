@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
+import { variant, some, none, BlobType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
 import { DatasetRefType, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
 import { buildMutationProgram, hasKeyedDelta, indexBuildProgram } from './record-programs.js';
@@ -27,6 +27,9 @@ import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
 import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from './environment-capture.js';
 import { importedFunctions, resolveFunctionManifests, type ImportReference, type ResolveEvent } from './functions-resolve.js';
 import type { EnvironmentDecl } from './environment.js';
+
+/** An environment's files ride the object store as beast2 Blobs of their bytes. */
+const encodeFile = encodeBeast2For(BlobType);
 
 /**
  * Exports a package to a .zip bundle.
@@ -156,7 +159,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const environmentHashFor = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): string | null => {
     // An explicit `environment` wins (and is the only path to tools/image).
     if (decl) {
-      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (blob) => addObject(zipfile, blob), onCapture));
+      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture));
     }
     // Otherwise derive it from the runner's `{ custom }` platform references, so
     // a project split into workspace packages gets per-package change-detection
@@ -167,7 +170,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       .map((p) => p.custom);
     if (customs.length === 0) return null;
     const key = `auto:${runner.runtime}:${[...customs].sort().join(',')}`;
-    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (blob) => addObject(zipfile, blob), onCapture));
+    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture));
   };
   const resolveEnvironment = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): variant<'some', string> | variant<'none', null> => {
     const hash = environmentHashFor(decl, runner, owner);

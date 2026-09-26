@@ -1,6 +1,7 @@
 # Wire migration rule
 
-Every value e3 persists or ships is a beast2 value of a declared East type. A
+Every value e3 persists or ships is a beast2 value of a declared East type, but
+a log, which is its runner's own text. A
 struct's fields encode by position, so changing a type changes its wire: bytes
 written under the old type do not decode under the new one. This document says
 how a change to one is made, so that no change picks its own. The beast2
@@ -11,7 +12,7 @@ container itself is governed by
 
 | Kind | Examples | At a change |
 |---|---|---|
-| **Package-borne** — written by the SDK at export and carried in a package | task objects, package objects, function objects, record, mutation and index objects, IR bundles | Packages are re-exported with the new SDK. A package from an older SDK fails with an error that says to re-export it. |
+| **Package-borne** — written by the SDK at export and carried in a package | task objects, package objects, function objects, record, mutation and index objects, IR bundles, environment specs and the files they name (each a Blob) | Packages are re-exported with the new SDK. A package from an older SDK fails with an error that says to re-export it. |
 | **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, and the repository's own records: its repository record, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | A repository an older e3 wrote is re-created: deployed again, and its data imported again. A reader refuses a stored object of another form, naming the fix. |
 
 No reader keeps a decoder for an earlier form. Readers read the current form,

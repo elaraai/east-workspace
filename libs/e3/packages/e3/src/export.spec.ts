@@ -10,7 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { East, DictType, FloatType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, none, openBeast2PagesFor, some, variant } from '@elaraai/east';
+import { BlobType, East, DictType, FloatType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, isTypeValueEqual, none, openBeast2PagesFor, readBeast2Type, some, toEastTypeValue, variant } from '@elaraai/east';
 import { PackageObjectType, DatasetRefType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
@@ -294,12 +294,17 @@ describe('environment capture on export', () => {
     const spec = decodeBeast2For(EnvironmentSpecType)(readObj(envHash));
     assert.strictEqual(spec.type, 'node');
     if (spec.type === 'node') {
-      // Every referenced blob rides the bundle: manifest, lockfile, tarball.
-      const manifest = JSON.parse(readObj(spec.value.packageJson).toString('utf-8'));
-      assert.strictEqual(manifest.name, 'e3-capture-fixture');
-      readObj(spec.value.lock);
+      // Every file rides the bundle, as a beast2 Blob of its bytes: the
+      // manifest, the lockfile and the tarball.
+      const file = (hash: string): Buffer => {
+        const data = readObj(hash);
+        assert.ok(isTypeValueEqual(readBeast2Type(data), toEastTypeValue(BlobType)), `object ${hash} is a Blob`);
+        return Buffer.from(decodeBeast2For(BlobType)(data));
+      };
+      assert.strictEqual(JSON.parse(file(spec.value.packageJson).toString('utf-8')).name, 'e3-capture-fixture');
+      assert.ok(file(spec.value.lock).equals(fs.readFileSync(path.join(projectDir, 'package-lock.json'))), 'the lockfile\'s own bytes');
       assert.strictEqual(spec.value.tarballs.length, 1);
-      readObj(spec.value.tarballs[0]!);
+      assert.deepStrictEqual([...file(spec.value.tarballs[0]!).subarray(0, 2)], [0x1f, 0x8b], 'a gzipped tarball');
     }
   });
 });

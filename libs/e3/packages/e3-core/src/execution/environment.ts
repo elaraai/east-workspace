@@ -30,7 +30,7 @@ import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
-import { decodeBeast2For } from '@elaraai/east';
+import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
 import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../storage/local/keyedMutex.js';
@@ -39,6 +39,10 @@ import { getPidStartTime, processExited } from './processHelpers.js';
 const execFileAsync = promisify(execFile);
 
 const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
+
+/** An environment's files are objects holding their bytes as beast2 Blobs. */
+const FILE_TYPE = toEastTypeValue(BlobType);
+const decodeFile = decodeBeast2For(BlobType);
 
 /** The executable dir a materialized environment contributes to PATH. */
 function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
@@ -71,9 +75,28 @@ async function run(command: string, args: string[], cwd: string, what: string): 
   }
 }
 
-async function writeBlob(storage: StorageBackend, repo: string, hash: string, dest: string): Promise<void> {
+/**
+ * Reads a file an environment names.
+ *
+ * @throws {Error} When the object is not a beast2 Blob: the raw file an older
+ *   e3 SDK exported, whose package is re-exported
+ */
+async function readFile(storage: StorageBackend, repo: string, hash: string): Promise<Buffer> {
   const data = await storage.objects.read(repo, hash);
-  await fs.writeFile(dest, Buffer.from(data));
+  let isFile = false;
+  try {
+    isFile = isTypeValueEqual(readBeast2Type(data), FILE_TYPE);
+  } catch {
+    // Not beast2 at all
+  }
+  if (!isFile) {
+    throw new Error(`the environment file ${hash} was exported by an older e3 SDK — re-export its package with the current one`);
+  }
+  return Buffer.from(decodeFile(data));
+}
+
+async function writeBlob(storage: StorageBackend, repo: string, hash: string, dest: string): Promise<void> {
+  await fs.writeFile(dest, await readFile(storage, repo, hash));
 }
 
 /** The two lockfile formats node captures can carry; content-sniffed because
@@ -131,7 +154,7 @@ async function buildNode(
   spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string,
 ): Promise<void> {
   await writeBlob(storage, repo, spec.value.packageJson, path.join(buildDir, 'package.json'));
-  const lockData = Buffer.from(await storage.objects.read(repo, spec.value.lock));
+  const lockData = await readFile(storage, repo, spec.value.lock);
   const lockName = nodeLockFilename(lockData);
   await fs.writeFile(path.join(buildDir, lockName), lockData);
   if (lockName === 'pnpm-lock.yaml') {
@@ -320,7 +343,7 @@ async function buildWorkspaceNode(
   spec: Extract<EnvironmentSpec, { type: 'workspace_node' }>, buildDir: string, envDir: string,
 ): Promise<void> {
   // v1 supports npm workspaces only; pnpm capture ships later.
-  const lockData = Buffer.from(await storage.objects.read(repo, spec.value.lock));
+  const lockData = await readFile(storage, repo, spec.value.lock);
   if (nodeLockFilename(lockData) !== 'package-lock.json') {
     throw new Error('workspace_node: only npm workspaces are supported by the local runner yet');
   }
@@ -328,7 +351,7 @@ async function buildWorkspaceNode(
   // Root package.json with `workspaces` pinned to exactly the closure members
   // (explicit paths, no globs) so npm ci links only them — non-closure
   // members and their third-party deps are pruned.
-  const rootPkg = JSON.parse(Buffer.from(await storage.objects.read(repo, spec.value.packageJson)).toString('utf-8'));
+  const rootPkg = JSON.parse((await readFile(storage, repo, spec.value.packageJson)).toString('utf-8'));
   rootPkg.workspaces = spec.value.members.map((m) => m.path);
   await fs.writeFile(path.join(buildDir, 'package.json'), JSON.stringify(rootPkg, null, 2));
   await fs.writeFile(path.join(buildDir, 'package-lock.json'), lockData);
@@ -337,7 +360,7 @@ async function buildWorkspaceNode(
   for (const member of spec.value.members) {
     const memberDir = resolveMemberDir(buildDir, member.path);
     await fs.mkdir(memberDir, { recursive: true });
-    await extractMemberTarball(Buffer.from(await storage.objects.read(repo, member.tarball)), memberDir);
+    await extractMemberTarball(await readFile(storage, repo, member.tarball), memberDir);
     const memberPkg = JSON.parse(await fs.readFile(path.join(memberDir, 'package.json'), 'utf-8'));
     if (memberPkg.name !== member.name) {
       throw new Error(`workspace member at '${member.path}' is '${memberPkg.name}', expected '${member.name}'`);
