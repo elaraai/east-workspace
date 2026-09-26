@@ -334,10 +334,47 @@ Every object this plan introduces or rewrites that names other objects carries a
 
 `docs/conventions/WIRE_MIGRATION.md` (Stage 0) states one rule:
 - **Package-borne wires** (task objects, package objects, IR bundles): hard cutover. Packages are re-exported, with no dual decoders.
-- **Stored state** (datasets, manifests, record states and commits, execution history and state): hard cutover too. A repository an older e3 wrote is re-created, deployed again and its data imported again, rather than read. Readers read the current form only, as writers write it, and refuse any other, naming the fix. Until stage 4c they kept a decoder for every released form; no repository needs carrying forward, so 4c deleted them (D1).
+- **Stored state** (datasets, manifests, record states and commits, execution history and state, and the repository's other records, §3.13): hard cutover too. A repository an older e3 wrote is re-created, deployed again and its data imported again, rather than read. Readers read the current form only, as writers write it, and refuse any other, naming the fix. Until stage 4c they kept a decoder for every released form; no repository needs carrying forward, so 4c deleted them (D1).
 - **Frozen wires** are listed with the reason each is frozen: the beast2 container, whose index readers refuse unknown flags (F30). The execution event wire was frozen too until stage 4 gave the execution state a version (F35, §3.7).
 
 For this cutover, a dataset stored under the `/1` rules or as one blob is not read: its repository is re-created, as is any other an older e3 wrote. The beast2 container keeps its own promise to read every released version (`docs/conventions/BEAST2_WIRE_VERSION.md`).
+
+### 3.13 The repository
+
+A local repository is a directory of records and objects (decided 2026-09-26, #945):
+
+| Path | What it holds | East type |
+|---|---|---|
+| `repository.beast2` | the repository: its name, status, times and layout version | `RepoMetadataType` |
+| `objects/<ab>/<rest>.beast2` | content-addressed objects, an environment's files among them as Blobs | any |
+| `packages/<name>/<version>.beast2` | a package ref: the package object's hash | String |
+| `workspaces/<ws>.beast2` | a workspace's deployed state | `WorkspaceStateType` |
+| `workspaces/<ws>/data/<path>.beast2` | a dataset ref and its revision | `{ revision, ref }` |
+| `workspaces/<ws>/execution.beast2` | the workspace's latest dataflow execution | `DataflowExecutionStateType` |
+| `dataflows/<ws>/<runId>.beast2` | a run's record | `DataflowRunType` |
+| `executions/<task>/<inputs>/<id>/status.beast2` | an execution attempt | `ExecutionStatusType` |
+| `executions/<task>/<inputs>/<id>/owner.beast2` | the orchestrator that launched it | `ExecutionOwnerType` |
+| `executions/<task>/<inputs>/<id>/stdout.txt`, `stderr.txt` | its logs, the runner's own text | — |
+| `executions/<task>/<inputs>/plan.beast2` | the `$plan` of the stage a split task is in | String |
+| `adoptions/<ab>/<rest>.beast2` | the manifest a delivery became | String |
+| `locks/<resource>/` | a lock and its holders | `LockStateType` |
+| `envs/<hash>/` | a built environment, a cache | — |
+| `tmp/scratch/`, `tmp/transfers/` | working space: executions, staged uploads and package zips | — |
+
+- **Every record is an East value in beast2**, except the logs, which stay the runners' own text: they are appended as output arrives and read by byte offset.
+- **The layout is checked.** The repository record carries the layout's version, and opening a repository refuses any other version, or none, naming the fix: re-create it.
+- **Names are checked** before they become paths: workspace names, and package names and versions. A path separator, or `.` or `..` as a whole segment, is refused.
+- **One record for one fact.** The `success` status holds the output hash, and a dataflow run has one id, its UUIDv7 `runId`.
+- **What goes with what it describes:** a workspace's execution state, runs and locks go with the workspace, and a built environment goes when gc no longer reaches its spec.
+- **Staging files are `.partial`s**, which gc sweeps, and they sit inside the repository, never in the machine's temp directory.
+- **History is bounded.** gc keeps:
+  - the last 10 runs of each workspace, and every run from the last 7 days;
+  - every execution those runs used, and every execution each workspace's current state is served from: a task's own, and a split task's units, which its `success` record names through its stages' `$plan`s;
+  - every execution from the last 7 days, and whatever is running.
+
+  It deletes every other execution record — status, owner and logs — and run record, and the outputs only they kept go in the same sweep. `e3 repo gc --keep-runs <n> --keep-days <d>` override the defaults.
+
+The cloud keeps the same records, as the same East types, in its own stores, so everything here but the paths applies there.
 
 ## 4. The plan
 
@@ -629,6 +666,8 @@ Built in five parts, in this order (decided 2026-09-26):
 1. **The frame pool** (#841): its memory bounded by workers × segment, the store door framing on it again, and a worker's failure no longer crashing its process.
 2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), one per e3 process and held by the local runner alone, admission with no reservation until part 3, a unit's grant of up to four threads, east-c's segment writer on its pool, e3's own frame pool sized from the budget, and the removal of `state.concurrency` and the API request's `concurrency` for the loop's `width`, with the TUI's `/run --jobs`. Its audit adds one-shot dataset arguments staged as task inputs, and `e3-ui`'s budget checked before its UI opens.
 3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`; a split task's unit reserves the largest peak its stage has reached in the run, and a stage runs its first unit alone, then fans out (decided 2026-09-26).
+
+   The repository's records (#945) land here, between parts 3 and 4.
 4. **The guard,** and per-unit cgroups where delegation exists.
 5. **The scheduler in e3-ui's TUI:** the budget in use, units waiting for room, each execution's peak and the guard's requeues, served by the API and shown by the TUI, once parts 2–4 have made them.
 
@@ -638,6 +677,43 @@ Acceptance:
 - A unit killed by the guard reruns to identical bytes.
 - With no memory pressure, throughput at the default `-j` is no worse than before.
 - The TUI shows a run's budget in use, a unit waiting for room and how much it needs, each execution's peak, and a unit the guard requeued.
+
+### The repository's records (#945)
+
+Found on 2026-09-26, when stage 5's reservations raised where e3 keeps what it records, and it lands on this PR between stage 5's parts 3 and 4 (decided 2026-09-26). The target is §3.13.
+
+Read first: the local stores (`storage/local/`), the storage interfaces, the state stores (`dataflow/state-store/`), `gc.ts`, `executions.ts`, `workspaces.ts` and `execution/environment.ts`; e3-types' `lock.ts` and `dataflow.ts`; e3-api-server's `server.ts`, `routes/data.ts` and its execution routes; the e3 SDK's `environment-capture.ts` and `export.ts`; the CLI's repository resolution; and the TUI's use of execution ids.
+
+Changes:
+- **Every record in beast2** (§3.13), except the logs (decided 2026-09-26):
+  - `repository.beast2` replaces `.e3-metadata.json`, with the layout's version;
+  - package refs, an execution's `owner`, a split task's `plan` pointer, which is deleted when cleared, and adoption memo entries become beast2;
+  - dataset refs lose their magic byte, which only told apart a form that is refused anyway;
+  - a lock's holder is a typed variant, `process` or `lambda`, rather than East text in a string;
+  - an environment's files are stored as beast2 Blob values. They are package-borne, so packages are re-exported.
+- **One record for one fact.** The `output` ref goes, since the `success` status holds the output hash, and with it `executionGetLatestOutput`. A dataflow run has one id (decided 2026-09-26): the execution state's id is its run's UUIDv7 `runId`, and the per-workspace counter goes, with `nextExecutionId` and `ResumeOptions.runId`.
+- **The layout checked** on open, **names checked** before they become paths, and **locks in `locks/`**, one directory per resource. A shared lock was found by its name's prefix, so workspace `a` counted the holders of workspace `a.b`.
+- **What was never cleaned up:**
+  - a removed workspace's execution state, run records and locks;
+  - built environments;
+  - package zips staged in the machine's temp directory, which one repository's gc swept;
+  - the state store's, the lock service's and the metadata's staging files, which were not `.partial`s;
+  - `deleteRefsBatch`'s list of directories.
+- **Bounded history** (§3.13; decided 2026-09-26). The storage interfaces gain `executionDelete`, a run record names each task's inputs, and a split task's `success` record names its stages' plans.
+- **Docs:** the storage interfaces, `repository.ts`, `lock.ts`, `e3-execution.md`'s storage layout, `WIRE_MIGRATION.md`, and e3-cloud#187.
+
+Built in four parts, in this order:
+1. **Records and layout:** every record in beast2 but the environment files, the `output` ref gone, the layout and names checked, locks in `locks/`, the cleanup, and the docs.
+2. **One run id.**
+3. **Environment files as beast2 Blobs.**
+4. **Bounded history.**
+
+Acceptance:
+- Every file a local repository holds, except a log, decodes as the East value its name says. A test walks a repository after a run, a deploy, a mutation, a transfer and a gc, and decodes every file.
+- A repository of another layout is refused when opened, naming the fix.
+- A name holding `..` or a separator is refused, by the CLI and by the API server.
+- After gc with `--keep-runs 1 --keep-days 0`, what remains is what each workspace's last run used and its current state is served from. A re-run is served from the cache, and an append to a split task's input re-runs only the pieces it touched.
+- Removing a workspace and creating one of the same name starts with no execution state, runs or locks.
 
 ### Stage 6 — Automatic parallelism (e3 SDK)
 
