@@ -255,13 +255,17 @@ Every task execution is a **unit graph**, built by one engine and persisted in t
 
 ### 3.8 Scheduling: cores and memory
 
-One budget replaces the dataflow's `concurrency`, the partition pool's width and `jobs` (F33).
+One budget, the one setting a person makes, replaces the dataflow's `concurrency`, the partition pool's width and `jobs` (F33).
 
 - **Capacity.**
   - Cores: `-j`, defaulting to the CPUs available (affinity and the cgroup's `cpu.max`, as today).
   - Memory: `--memory` or `E3_MEMORY`, defaulting to the cgroup's `memory.max` found the same way, else physical memory, less a reserve for e3 and the OS.
   - e3's own framing: the door frames on a worker pool in e3's process (§3.6), whose workers take cores too. The CLI and the API server cap the pool from the budget, at two workers by default: the door's writing thread is the bottleneck, and two give it all the speed-up measured on narrow rows.
   - One budget per e3 process. A server's is shared by every run and every unit it spawns — dataflow units, function calls, mutations and index builds — since the memory is the machine's; each CLI command that runs units holds its own (decided 2026-09-26).
+- **Layering.** The budget is the local runner's, never a shared layer's (decided 2026-09-26: e3-cloud's loop engine took its width of 16 from `state.concurrency`).
+  - The dataflow's loop, its step functions, its state, the `TaskRunner` interface and the API's types know no budget. The loop keeps `width` tasks and units in flight, four unless its caller sets it: the CLI and the API server set it to their budget's cores, and e3-cloud's loop engine sets its own.
+  - `LocalTaskRunner` holds the budget, so admission, the thread grant, the guard and cgroups all happen inside it. A remote backend's runners hold whatever capacity is theirs.
+  - Peaks are data, stored in execution records and read through the storage interfaces: a local runner reserves from them, and a cloud one sizes its functions from them. Running one unit before fanning out is the loop's, and serves both.
 - **Admission.** A unit takes one core plus a memory reservation, and starts when both fit.
   - Its `threads` grant is up to four, on that one core: a runner frames a large output on that many workers, in bursts, and every runner's writers frame a manifest output on their pool. Measured on a lone unit, one thread wrote a large output up to 2.6× slower than four, and past four nothing gained; each thread costs about 25 MiB, which the unit's measured peak includes (decided 2026-09-26).
   - A unit larger than the whole budget runs alone.
@@ -275,7 +279,7 @@ One budget replaces the dataflow's `concurrency`, the partition pool's width and
   - Past the budget, it kills the most recently started engine unit (a piece, merge or fold) and requeues it with its observed peak. Units are pure and content-addressed, so a killed unit leaves nothing behind and reruns to the same bytes.
   - A user task, which may touch outside systems, is killed only when the machine would otherwise run out.
 - **cgroups.** Where delegation is available, each unit runs in its own cgroup with `memory.max` a margin above its reservation, so a runaway unit dies alone and `memory.peak` is exact.
-- **Visibility.** The API serves what the budget is doing with a run's state: the cores and memory in use against its capacity, a unit waiting for room and how much it needs, and a unit the guard killed and requeued, with the peak it reached. A task's runs carry each execution's `peakBytes`. e3-ui's TUI shows them: the budget, the waits and the requeues in the execution panel, the peaks in the tasks table and the Runs tab, and the budget a run gets in `/run`'s confirmation.
+- **Visibility.** The API serves what the budget is doing with a run's state, where the server has one, so a backend without one serves none: the cores and memory in use against its capacity, a unit waiting for room and how much it needs, and a unit the guard killed and requeued, with the peak it reached. A task's runs carry each execution's `peakBytes`. e3-ui's TUI shows them: the budget, the waits and the requeues in the execution panel, the peaks in the tasks table and the Runs tab, and the budget a run gets in `/run`'s confirmation.
 
 ### 3.9 Automatic parallelism
 
@@ -608,6 +612,7 @@ Changes:
 - **One budget per e3 process** (§3.8): the API server makes one when it starts, from `-j` / `--memory` or `E3_JOBS` / `E3_MEMORY`, and every run and every unit it spawns takes from it — dataflow units, function calls, mutations and index builds, where today each run has a jobs budget of its own and the rest none. Each CLI command that runs units makes its own (decided 2026-09-26).
 - Reservations come from `peakBytes` history, with probe-then-fan-out, the guard, and per-unit cgroups where delegation exists. Until part 3 measures them, a unit reserves no memory: part 2 admits by cores at run time, and builds and tests its memory admission with given reservations, so no guessed number reaches a run (decided 2026-09-26).
 - Remove `state.concurrency` and the API request's `concurrency`, which the budget replaces (F33). `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases went in stage 4a.
+- **The loop's width is an option of the run,** `width`, and the budget moves off the shared options (`OrchestratorStartOptions`, `TaskExecuteOptions` and `DetachedRunOptions`) onto `LocalTaskRunner` alone (§3.8, Layering). The CLI and the API server hand the loop their budget's cores and a runner holding the budget; e3-cloud's loop engine hands it its own width (decided 2026-09-26).
 - **A unit's `threads` grant is up to four** (§3.8), on the one core it takes; `units.ts` granted every CPU. Measured on a lone unit writing a large output: 3M narrow rows took 6.6 s on one thread and 5.4 s on four, and 200K rows of 1 KiB 11.6 s and 4.5 s; past four nothing gained, and the 32 threads of every CPU cost 385–590 MiB (decided 2026-09-26).
 - **east-c's segment writer frames on its pool**, as its one-blob writer and east-node's writers do. It framed every manifest output, and so every unit's output, on one thread whatever the grant: the 1 KiB rows took 14 s on east-c at every grant. east-py gets it through the binding (decided 2026-09-26: found while measuring the grant).
 - **The frame pool** (#841):
@@ -619,7 +624,7 @@ Changes:
 
 Built in five parts, in this order (decided 2026-09-26):
 1. **The frame pool** (#841): its memory bounded by workers × segment, the store door framing on it again, and a worker's failure no longer crashing its process.
-2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), one per e3 process, admission with no reservation until part 3, a unit's grant of up to four threads, east-c's segment writer on its pool, e3's own frame pool sized from the budget, and the removal of `state.concurrency` and the API request's `concurrency`, with the TUI's `/run --jobs`.
+2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), one per e3 process and held by the local runner alone, admission with no reservation until part 3, a unit's grant of up to four threads, east-c's segment writer on its pool, e3's own frame pool sized from the budget, and the removal of `state.concurrency` and the API request's `concurrency` for the loop's `width`, with the TUI's `/run --jobs`.
 3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`, a unit reserves its kind's recent peak, and a task with no history runs one unit before it fans out.
 4. **The guard,** and per-unit cgroups where delegation exists.
 5. **The scheduler in e3-ui's TUI:** the budget in use, units waiting for room, each execution's peak and the guard's requeues, served by the API and shown by the TUI, once parts 2–4 have made them.
@@ -660,7 +665,7 @@ Acceptance:
 
 In `elaraai/e3-cloud`, on the stages above:
 - execution runs units with `exec` and streams segment objects instead of whole objects (F4);
-- the loop engine runs the persisted engine, so partitioned and streaming tasks deploy (e3-cloud#178, #185);
+- the loop engine runs the persisted engine, so partitioned and streaming tasks deploy (e3-cloud#178, #185), and hands the loop its own `width`, which it took from `state.concurrency` until stage 5;
 - records run on the engine (e3-cloud#186);
 - GC reads heads (F36);
 - Lambda sizes are chosen from measured peaks.
