@@ -105,12 +105,9 @@ export {
   type WorkspaceDeployOptions,
 } from './workspaces.js';
 
-// What a deploy does to a workspace's records: its plan, and the migrations
-// it runs
-export {
-  type SchemaPolicy,
-  type RecordPlan,
-} from './record-deploy.js';
+// What a deploy decides for each record and index, and its schema policy: the
+// wire types' values, which its callbacks and its job report alike
+export type { SchemaPolicy, RecordPlan, RecordIndexPlan } from '@elaraai/e3-types';
 
 // Record mutations and history (the write half of the CQRS pair)
 export {
@@ -125,7 +122,6 @@ export {
   recordIndexNames,
   appliedMigrations,
   type RecordRef,
-  type RecordIndexPlan,
   type RecordStateRefs,
   type ResolvedRecordIndex,
   type MutationOutcome,

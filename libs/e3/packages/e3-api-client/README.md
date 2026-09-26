@@ -60,8 +60,10 @@ import { workspaceList, workspaceCreate, workspaceGet, workspaceStatus, workspac
 const info = await workspaceCreate(url, 'production');
 // { name: 'production', deployed: false, packageName: null, packageVersion: null }
 
-// Deploy package to workspace
-await workspaceDeploy(url, 'production', 'my-pkg@1.0.0');
+// Deploy package to workspace: the server runs the deploy as a job, which
+// this polls, and answers what it decided for each record and index
+const deployed = await workspaceDeploy(url, 'production', 'my-pkg@1.0.0');
+// { records: [{ record: 'records/plans', action: <mint | keep | migrate | reset | drop | refused> }], indexes: [...], warnings: [] }
 
 // Get workspace status
 const status = await workspaceStatus(url, 'production');

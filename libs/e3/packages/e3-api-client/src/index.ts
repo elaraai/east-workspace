@@ -22,6 +22,12 @@ export type {
   PackageListItem,
   PackageImportResult,
   WorkspaceInfo,
+  SchemaPolicy,
+  RecordPlan,
+  RecordIndexPlan,
+  WorkspaceDeployResult,
+  WorkspaceDeployProgress,
+  WorkspaceDeployStatus,
   WorkspaceStatusResult,
   DatasetStatus,
   DatasetStatusInfo,
@@ -94,6 +100,7 @@ export {
   workspaceRemove,
   workspaceDeploy,
   workspaceExport,
+  type WorkspaceDeployOptions,
 } from './workspaces.js';
 
 // Datasets

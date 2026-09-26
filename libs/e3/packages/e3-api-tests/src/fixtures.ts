@@ -13,7 +13,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import e3 from '@elaraai/e3';
+import e3, { type PackageDef } from '@elaraai/e3';
 import { ArrayType, DictType, IntegerType, NullType, StringType, StructType, East, variant } from '@elaraai/east';
 import { Time } from '@elaraai/east-node-std';
 
@@ -235,6 +235,70 @@ export async function createKeyedRecordPackageZip(
     value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
   });
   const pkg = e3.package(name, version, plans, seed, retitle, e3.mutation.patch(plans), byStatus);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** A row of the migration fixture's record before its migration. */
+export const TaskRowV1Type = StructType({ title: StringType });
+/** A row after it, which gives each row an owner. */
+export const TaskRowV2Type = StructType({ title: StringType, owner: StringType });
+/** The migration fixture's record before its migration. */
+export const TasksV1Type = DictType(StringType, TaskRowV1Type);
+/** The migration fixture's record after it. */
+export const TasksV2Type = DictType(StringType, TaskRowV2Type);
+
+/** The versions of the migration fixture. */
+export type MigrationFixtureVersion = '1.0.0' | '2.0.0' | '2.1.0' | '3.0.0' | '4.0.0';
+
+/**
+ * Create a version of a package whose record a deploy migrates.
+ *
+ * Creates a package with, by version:
+ * - `1.0.0`: Record "tasks" (rows of a title, holding "a"), and Mutation
+ *   "add" (id, title) => the rows with that one added
+ * - `2.0.0`: "tasks" with an owner on each row, and the `rows` migration
+ *   "add_owner", which carries a row to it
+ * - `2.1.0`: 2.0.0 and Input "note": the package changed, its record did not
+ * - `3.0.0`: "tasks" with an owner on each row, and no migration to carry it
+ * - `4.0.0`: Input "note", and no record
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - The version to create
+ * @returns Path to the created zip file
+ */
+export async function createMigrationPackageZip(
+  tempDir: string,
+  name: string,
+  version: MigrationFixtureVersion
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const note = e3.input('note', StringType, variant('value', version));
+  let pkg: PackageDef<Record<string, unknown>>;
+  if (version === '1.0.0') {
+    const tasks = e3.record('tasks', TasksV1Type, new Map([['a', { title: 'A' }]]));
+    const add = e3.mutation.reduce('add', tasks,
+      East.function([TasksV1Type, StringType, StringType], TasksV1Type, ($, state, id, title) => {
+        const next = $.let(state.copy());
+        $(next.insert(id, { title }));
+        return next;
+      }));
+    pkg = e3.package(name, version, tasks, add);
+  } else if (version === '4.0.0') {
+    pkg = e3.package(name, version, note);
+  } else {
+    const tasks = e3.record('tasks', TasksV2Type, new Map());
+    const addOwner = e3.migration.rows('add_owner', tasks,
+      East.function([StringType, TaskRowV1Type], TaskRowV2Type, ($, _id, row) => ({ title: row.title, owner: 'nobody' })));
+    if (version === '3.0.0') pkg = e3.package(name, version, tasks);
+    else if (version === '2.1.0') pkg = e3.package(name, version, tasks, addOwner, note);
+    else pkg = e3.package(name, version, tasks, addOwner);
+  }
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

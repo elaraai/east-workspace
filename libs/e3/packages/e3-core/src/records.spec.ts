@@ -1004,7 +1004,7 @@ describe('record indexes', () => {
     // under this declaration, so nothing runs.
     const kept: string[] = [];
     await workspaceDeploy(storage, repo, ws, 'planrecords', '1.0.0',
-      { runner: realRunner, onRecordIndex: (plan) => kept.push(`${plan.index}:${plan.action}`) });
+      { runner: realRunner, onRecordIndex: (plan) => kept.push(`${plan.index}:${plan.action.type}`) });
     assert.deepStrictEqual(kept, ['by_status:keep']);
 
     // A package that drops the index and declares another: one `drop`, one
@@ -1019,7 +1019,7 @@ describe('record indexes', () => {
 
     const moved: string[] = [];
     await workspaceDeploy(storage, repo, ws, 'planrecords', '2.0.0',
-      { runner: realRunner, onRecordIndex: (plan) => moved.push(`${plan.index}:${plan.action}`) });
+      { runner: realRunner, onRecordIndex: (plan) => moved.push(`${plan.index}:${plan.action.type}`) });
     assert.deepStrictEqual(moved.sort(), ['by_due:build', 'by_status:drop']);
     assert.deepStrictEqual([...(await state()).indexes.keys()], ['by_due']);
   });

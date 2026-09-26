@@ -26,7 +26,7 @@ import {
 } from '@elaraai/east';
 import {
   TASK_OBJECT_KIND, TaskObjectType, decodeMigrationObject, decodeRecordObject,
-  type MigrationObject, type PackageObject, type Structure, type TaskOutputKind,
+  type MigrationObject, type PackageObject, type RecordPlan, type SchemaPolicy, type Structure, type TaskOutputKind,
 } from '@elaraai/e3-types';
 import { appliedMigrations, readRecordState, type DeployRecordCommit, type RecordRef } from './records.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -34,36 +34,6 @@ import type { TaskRunner } from './execution/interfaces.js';
 
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
 const typesEqual = equalFor(EastTypeType);
-
-/**
- * What a deploy does with a record it cannot keep as it is.
- *
- * - `migrate` runs the migrations the workspace has not applied, and refuses a
- *   record no migration carries to the package's type.
- * - `fail` runs none: a record with migrations to apply is refused, for a
- *   workspace whose migrations go through their own change control.
- * - `reset` resets a record it cannot keep or migrate to the package's
- *   initial value, under a `$reset` commit, so the reset is in its history.
- */
-export type SchemaPolicy = 'migrate' | 'fail' | 'reset';
-
-/** What a deploy decided for one record. */
-export type RecordPlan =
-  /** Not in the workspace: minted from the package's initial value. */
-  | { record: string; action: 'mint' }
-  /** Kept as the workspace holds it. `deploy` when the package under it
-   *  changed, which a `$deploy` commit records in its history. */
-  | { record: string; action: 'keep'; deploy: boolean }
-  /** Migrated by the steps the workspace has not applied, in order. */
-  | { record: string; action: 'migrate'; steps: string[] }
-  /** Reset to the package's initial value under the `reset` policy, and why
-   *  it could not be kept or migrated. */
-  | { record: string; action: 'reset'; reason: string }
-  /** Not in the package: dropped, with its state and history. Only a deploy
-   *  that allows it drops a record. */
-  | { record: string; action: 'drop' }
-  /** Refused, and why, with the fix: the deploy writes nothing. */
-  | { record: string; action: 'refused'; reason: string };
 
 /** A workspace's deployment, as a deploy over it finds it. */
 export interface PriorDeployment {
@@ -176,14 +146,17 @@ export async function planRecordDeployments(
 
     const held = prior?.records.get(path);
     if (held === undefined) {
-      deployments.push({ ...deployment, plan: { record: path, action: 'mint' } });
+      deployments.push({ ...deployment, plan: { record: path, action: variant('mint', null) } });
       continue;
     }
     const fix = policy === 'reset' ? '' : ' Deploy with --schema=reset to reset it to the package\'s initial value.';
     const refuse = (reason: string): RecordDeployment => ({
       ...deployment,
       prior: held.ref,
-      plan: policy === 'reset' ? { record: path, action: 'reset', reason } : { record: path, action: 'refused', reason: `${reason}${fix}` },
+      plan: {
+        record: path,
+        action: policy === 'reset' ? variant('reset', { reason }) : variant('refused', { reason: `${reason}${fix}` }),
+      },
     });
 
     const applied = appliedMigrations(held.ref.versions);
@@ -196,7 +169,7 @@ export async function planRecordDeployments(
     }
     if (applied.length === chain.length) {
       deployments.push(typesEqual(held.type, type)
-        ? { ...deployment, prior: held.ref, plan: { record: path, action: 'keep', deploy: prior!.packageHash !== packageHash } }
+        ? { ...deployment, prior: held.ref, plan: { record: path, action: variant('keep', { deploy: prior!.packageHash !== packageHash }) } }
         : refuse(
           `changed type with no migration:\n${typeChange(held.type, type).replace(/^/gm, '    ')}\n` +
           `  Declare a migration ${chain.length === 0 ? 'for it' : `after '${chain[chain.length - 1]}'`} to carry its state.`,
@@ -234,13 +207,19 @@ export async function planRecordDeployments(
         prior: held.ref,
         plan: {
           record: path,
-          action: 'refused',
-          reason: `has migrations ${named(steps.map((step) => step.name))} to run, and this deploy runs none. ` +
-            `Deploy with --schema=migrate to run them.`,
+          action: variant('refused', {
+            reason: `has migrations ${named(steps.map((step) => step.name))} to run, and this deploy runs none. ` +
+              `Deploy with --schema=migrate to run them.`,
+          }),
         },
       });
     } else {
-      deployments.push({ ...deployment, prior: held.ref, steps, plan: { record: path, action: 'migrate', steps: steps.map((step) => step.name) } });
+      deployments.push({
+        ...deployment,
+        prior: held.ref,
+        steps,
+        plan: { record: path, action: variant('migrate', { steps: steps.map((step) => step.name) }) },
+      });
     }
   }
 
@@ -251,13 +230,14 @@ export async function planRecordDeployments(
       prior: held.ref,
       chain: [],
       steps: [],
-      plan: allowDropRecords
-        ? { record: path, action: 'drop' }
-        : {
-          record: path,
-          action: 'refused',
-          reason: 'is not declared by the package, so deploying drops its state and history. Deploy with --allow-drop-records to drop it.',
-        },
+      plan: {
+        record: path,
+        action: allowDropRecords
+          ? variant('drop', null)
+          : variant('refused', {
+            reason: 'is not declared by the package, so deploying drops its state and history. Deploy with --allow-drop-records to drop it.',
+          }),
+      },
     });
   }
   return deployments;
@@ -306,10 +286,11 @@ export async function runRecordMigrations(
 ): Promise<Map<string, Array<{ name: string; state: string }>>> {
   const migrated = new Map<string, Array<{ name: string; state: string }>>();
   for (const deployment of deployments) {
-    if (deployment.plan.action !== 'migrate') continue;
+    const { action } = deployment.plan;
+    if (action.type !== 'migrate') continue;
     if (runner === undefined) {
       throw new Error(
-        `deploying record '${deployment.path}' must run migrations ${named(deployment.plan.steps)}, ` +
+        `deploying record '${deployment.path}' must run migrations ${named(action.value.steps)}, ` +
         `but this deploy was given no task runner.`,
       );
     }
@@ -353,10 +334,10 @@ export function recordDeployCommits(
   migrated: ReadonlyMap<string, ReadonlyArray<{ name: string; state: string }>>,
 ): DeployRecordCommit[] {
   const commits: DeployRecordCommit[] = [];
-  for (const { plan, path, initial, prior, chain } of deployments) {
-    switch (plan.action) {
+  for (const { plan: { action }, path, initial, prior, chain } of deployments) {
+    switch (action.type) {
       case 'mint': commits.push({ kind: 'mint', path, state: initial!, applied: chain }); break;
-      case 'keep': commits.push({ kind: 'keep', path, prior: prior!, deployed: plan.deploy }); break;
+      case 'keep': commits.push({ kind: 'keep', path, prior: prior!, deployed: action.value.deploy }); break;
       case 'migrate': commits.push({ kind: 'migrate', path, prior: prior!, steps: migrated.get(path)!, applied: chain }); break;
       case 'reset': commits.push({ kind: 'reset', path, prior: prior!, state: initial!, applied: chain }); break;
       case 'drop': case 'refused': break;

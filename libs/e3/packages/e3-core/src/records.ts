@@ -37,6 +37,7 @@ import {
   type MutationObject,
   type RecordCommit,
   type RecordIndexObject,
+  type RecordIndexPlan,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
 import { readManifest } from './dataset-open.js';
@@ -840,18 +841,6 @@ export async function recordReindex(
   });
 }
 
-/** What a deploy decided about one of a record's indexes. */
-export interface RecordIndexPlan {
-  /** The record's dataset ref path. */
-  record: string;
-  /** The index's name. */
-  index: string;
-  /** `build` — the state names no index under the package's declaration;
-   *  `drop` — the state names one the package does not declare; `keep` —
-   *  the two already agree and nothing runs. */
-  action: 'build' | 'drop' | 'keep';
-}
-
 /**
  * What a deploy built for one record's indexes before it wrote anything, for
  * {@link commitDeployIndexes} to commit once the new refs are in place.
@@ -923,9 +912,9 @@ export async function buildDeployIndexes(
     const dropped = [...state.indexes.keys()].filter((name) => !recObj.indexes.has(name));
     if (onPlan !== undefined) {
       for (const name of recObj.indexes.keys()) {
-        onPlan({ record: recObj.path, index: name, action: build.has(name) ? 'build' : 'keep' });
+        onPlan({ record: recObj.path, index: name, action: build.has(name) ? variant('build', null) : variant('keep', null) });
       }
-      for (const name of dropped) onPlan({ record: recObj.path, index: name, action: 'drop' });
+      for (const name of dropped) onPlan({ record: recObj.path, index: name, action: variant('drop', null) });
     }
     if (planOnly || (build.size === 0 && dropped.length === 0)) continue;
 

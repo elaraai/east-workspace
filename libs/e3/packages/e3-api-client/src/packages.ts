@@ -236,12 +236,12 @@ function createProgressStream(
 }
 
 /**
- * The first and the longest wait between polls of a package job still
- * `processing`: a job that finishes at once is seen at once, and a long one
- * is polled about once a second.
+ * The first and the longest wait between polls of a job still `processing`: a
+ * job that finishes at once is seen at once, and a long one is polled about
+ * once a second.
  */
-const JOB_POLL_MIN_MS = 100;
-const JOB_POLL_MAX_MS = 1000;
+export const JOB_POLL_MIN_MS = 100;
+export const JOB_POLL_MAX_MS = 1000;
 
 /**
  * Poll a package import job until it completes or fails.

@@ -171,9 +171,17 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | POST | `/api/repos/:repo/workspaces` | Create workspace |
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
 | GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary) |
-| POST | `/api/repos/:repo/workspaces/:ws/deploy` | Deploy package to workspace |
+| POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
+| GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing`, what the deploy did for each record and index, or why it failed |
 | DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace |
 | GET | `/api/repos/:repo/workspaces/:ws/export` | Export workspace as package zip |
+
+A deploy that migrates a record, or builds an index over one, takes as long as
+the record is large, so it runs as a job, on the runner the server runs every
+record operation on. Its request names the package, what the deploy does with a
+record it cannot keep as it is (`schema`: `migrate`, `fail` or `reset`),
+whether it may drop a record the package no longer declares
+(`allowDropRecords`), and whether it only says what it would do (`plan`).
 
 ### Datasets
 

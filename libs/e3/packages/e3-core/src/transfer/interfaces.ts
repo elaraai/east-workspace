@@ -13,7 +13,7 @@
  * - S3DynamoTransferBackend (AWS cloud, future)
  */
 
-import type { DatasetUpload, PackageImport, PackageExport } from './types.js';
+import type { DatasetUpload, PackageImport, PackageExport, WorkspaceDeployJob } from './types.js';
 
 // =============================================================================
 // Dataset Upload Store
@@ -155,11 +155,40 @@ export interface PackageExportStore {
 }
 
 // =============================================================================
+// Workspace Deploy Store
+// =============================================================================
+
+/**
+ * Manages workspace deploy jobs: trigger → process → poll.
+ *
+ * @remarks
+ * A deploy that migrates a record, or builds an index over one, takes as long
+ * as the record is large, which outlasts a request. So it runs as a job in the
+ * compute the store dispatches it to, and the client polls its status.
+ *
+ * Flow: create → execute → poll get → delete
+ */
+export interface WorkspaceDeployStore {
+  create(id: string, record: WorkspaceDeployJob): Promise<void>;
+  get(id: string): Promise<WorkspaceDeployJob | null>;
+  updateStatus(id: string, status: WorkspaceDeployJob['status']): Promise<void>;
+  delete(id: string): Promise<void>;
+
+  /**
+   * Dispatch processing.
+   * Local: runs `handleProcessDeploy` in the background, on the server's runner.
+   * Cloud: invokes its own compute, which runs `handleProcessDeploy` on its runner.
+   */
+  execute(id: string, repo: string): Promise<void>;
+}
+
+// =============================================================================
 // Transfer Backend
 // =============================================================================
 
 /**
- * Cloud-agnostic transfer backend for presigned URL object transfer.
+ * Cloud-agnostic transfer backend for presigned URL object transfer, and the
+ * jobs that outlast a request.
  *
  * Separate from StorageBackend — depends on it for actual object/ref operations
  * but has its own lifecycle (staging, jobs, URLs).
@@ -169,4 +198,5 @@ export interface TransferBackend {
   readonly datasetDownload: DatasetDownloadStore;
   readonly packageImport: PackageImportStore;
   readonly packageExport: PackageExportStore;
+  readonly workspaceDeploy: WorkspaceDeployStore;
 }

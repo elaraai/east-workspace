@@ -21,7 +21,7 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
-import type { TreePath } from '@elaraai/e3-types';
+import type { RecordIndexPlan, RecordPlan, TreePath } from '@elaraai/e3-types';
 import { appliedMigrations, readRecordState, recordCompact, recordHistory, recordMutate, recordReindex } from './records.js';
 import { readDatasetWhole } from './dataset-open.js';
 import { repoGc } from './storage/local/gc.js';
@@ -32,8 +32,6 @@ import { workspaceCreate, workspaceDeploy, workspaceGetPackage, type WorkspaceDe
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
-import type { RecordIndexPlan } from './records.js';
-import type { RecordPlan } from './record-deploy.js';
 import type { StorageBackend, TaskRunner } from './index.js';
 
 const RowV1Type = StructType({ title: StringType });
@@ -174,7 +172,7 @@ describe('a deploy\'s record migrations', () => {
     await seeded(600n);
     const plans: RecordPlan[] = [];
     await deploy(v2(), { onRecordPlan: (plan) => plans.push(plan) });
-    assert.deepEqual(plans, [{ record: 'records/plans', action: 'migrate', steps: ['add_owner'] }]);
+    assert.deepEqual(plans, [{ record: 'records/plans', action: variant('migrate', { steps: ['add_owner'] }) }]);
 
     const rows = await workspaceGetDataset(storage, repo, ws, plansPath) as Map<string, ValueTypeOf<typeof RowV2Type>>;
     assert.equal(rows.size, 600);
@@ -218,9 +216,9 @@ describe('a deploy\'s record migrations', () => {
       }
     }
     assert.deepEqual(plans, [
-      { record: 'records/plans', action: 'mint' },
-      { record: 'records/plans', action: 'keep', deploy: false },
-      { record: 'records/plans', action: 'keep', deploy: true },
+      { record: 'records/plans', action: variant('mint', null) },
+      { record: 'records/plans', action: variant('keep', { deploy: false }) },
+      { record: 'records/plans', action: variant('keep', { deploy: true }) },
     ]);
     assert.deepEqual(await history(), ['$deploy', ...before], 'another package over the record: its history says so');
   });
@@ -282,7 +280,7 @@ describe('a deploy\'s record migrations', () => {
     })();
     const plans: RecordPlan[] = [];
     await deploy(unmigrated, { schema: 'reset', onRecordPlan: (plan) => plans.push(plan) });
-    assert.equal(plans[0]!.action, 'reset');
+    assert.equal(plans[0]!.action.type, 'reset');
     assert.deepEqual(await history(), ['$reset'], 'a root commit: the reset is in the history, which starts over');
     const held = await ref();
     assert.equal(held.versions.get('$idem'), undefined, 'the keyed write went with the state');
@@ -299,7 +297,7 @@ describe('a deploy\'s record migrations', () => {
 
     const plans: RecordPlan[] = [];
     await deploy(without, { allowDropRecords: true, onRecordPlan: (plan) => plans.push(plan) });
-    assert.deepEqual(plans, [{ record: 'records/plans', action: 'drop' }]);
+    assert.deepEqual(plans, [{ record: 'records/plans', action: variant('drop', null) }]);
     assert.equal(await storage.datasets.read(repo, ws, 'records/plans'), null);
   });
 
@@ -309,13 +307,13 @@ describe('a deploy\'s record migrations', () => {
     const records: RecordPlan[] = [];
     const indexes: RecordIndexPlan[] = [];
     await deploy(v2(), { plan: true, onRecordPlan: (plan) => records.push(plan), onRecordIndex: (plan) => indexes.push(plan) });
-    assert.deepEqual(records, [{ record: 'records/plans', action: 'migrate', steps: ['add_owner'] }]);
-    assert.deepEqual(indexes, [{ record: 'records/plans', index: 'by_owner', action: 'build' }]);
+    assert.deepEqual(records, [{ record: 'records/plans', action: variant('migrate', { steps: ['add_owner'] }) }]);
+    assert.deepEqual(indexes, [{ record: 'records/plans', index: 'by_owner', action: variant('build', null) }]);
     assert.deepEqual({ ref: await ref(), version: (await workspaceGetPackage(storage, repo, ws)).version }, before);
 
     const refused: RecordPlan[] = [];
     await deploy(v2(), { plan: true, schema: 'fail', onRecordPlan: (plan) => refused.push(plan) });
-    assert.equal(refused[0]!.action, 'refused', 'a plan reports a refusal rather than throwing');
+    assert.equal(refused[0]!.action.type, 'refused', 'a plan reports a refusal rather than throwing');
   });
 
   it('leaves the workspace as it was when a step fails, and is served the steps that finished when run again', async () => {

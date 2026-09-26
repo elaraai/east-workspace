@@ -4,24 +4,33 @@
  */
 
 /**
- * Deploy route tests: a record's index builds run on the runner the server
- * injects — an embedder mounts these routes with a runner of its own — and
- * without one, a deploy that owes a build is refused before it writes anything.
+ * Deploy route tests: a deploy runs as a job the client polls, on the runner
+ * the job's store was given — an embedder mounts these routes with a store and
+ * a runner of its own — and without one, a deploy that owes an index build
+ * fails before it writes anything.
  */
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { DictType, NullType, StringType, StructType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant, none } from '@elaraai/east';
-import { MockTaskRunner, readRecordState, storeDatasetBytes, workspaceCreate, workspaceGetState } from '@elaraai/e3-core';
+import {
+  InMemoryTransferBackend, MockTaskRunner, readRecordState, storeDatasetBytes, workspaceCreate, workspaceGetState,
+  type TaskRunner,
+} from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { BEAST2_CONTENT_TYPE, PackageObjectType, RecordObjectType, RecordIndexObjectType, WorkspaceDeployRequestType } from '@elaraai/e3-types';
+import {
+  BEAST2_CONTENT_TYPE, PackageJobResponseType, PackageObjectType, RecordObjectType, RecordIndexObjectType,
+  WorkspaceDeployRequestType, WorkspaceDeployStatusType, type WorkspaceDeployStatus,
+} from '@elaraai/e3-types';
 import { createWorkspaceRoutes } from '../routes/workspaces.js';
 import { ResponseType } from '../types.js';
 
 const REPO = 'test-repo';
 const WS = 'main';
 const PlansType = DictType(StringType, StringType);
+const decodeStarted = decodeBeast2For(ResponseType(PackageJobResponseType));
+const decodeStatus = decodeBeast2For(ResponseType(WorkspaceDeployStatusType));
 
 /**
  * Seed `planrecords@1.0.0` — an empty `plans` record declaring one index — and
@@ -63,16 +72,44 @@ async function seedIndexedPackage(storage: InMemoryStorage): Promise<string> {
     encodeBeast2For(DictType(StructType({ ik: StringType, k: StringType }), NullType))(new Map()));
 }
 
-/** Deploy `planrecords@1.0.0` through the routes, mounted with `getRunner`. */
-async function deploy(storage: InMemoryStorage, getRunner?: () => MockTaskRunner): Promise<{ type: string; value: unknown }> {
+/** The workspace routes, whose deploy jobs run on `getRunner`'s runner. */
+function routes(storage: InMemoryStorage, getRunner?: () => TaskRunner): Hono {
   const app = new Hono();
-  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, () => REPO, undefined, getRunner));
+  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, () => REPO, new InMemoryTransferBackend({
+    storage,
+    getRepoPath: () => REPO,
+    ...(getRunner !== undefined && { getRunner }),
+  })));
+  return app;
+}
+
+/** Start a deploy of `packageRef`: the job's id, or why the server started none. */
+async function start(app: Hono, packageRef = 'planrecords@1.0.0'): Promise<ReturnType<typeof decodeStarted>> {
   const response = await app.request(`/api/repos/r/workspaces/${WS}/deploy`, {
     method: 'POST',
     headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
-    body: encodeBeast2For(WorkspaceDeployRequestType)({ packageRef: 'planrecords@1.0.0' }),
+    body: encodeBeast2For(WorkspaceDeployRequestType)({
+      packageRef, schema: variant('migrate', null), allowDropRecords: false, plan: false,
+    }),
   });
-  return decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer())) as { type: string; value: unknown };
+  return decodeStarted(new Uint8Array(await response.arrayBuffer()));
+}
+
+/** A deploy job's status. */
+async function poll(app: Hono, id: string): Promise<WorkspaceDeployStatus> {
+  const response = await app.request(`/api/repos/r/workspaces/${WS}/deploy/${id}`);
+  const answer = decodeStatus(new Uint8Array(await response.arrayBuffer()));
+  if (answer.type !== 'success') assert.fail(`the poll was refused: ${answer.value.type}`);
+  return answer.value;
+}
+
+/** A deploy job's status once it has finished. */
+async function finished(app: Hono, id: string): Promise<WorkspaceDeployStatus> {
+  for (;;) {
+    const status = await poll(app, id);
+    if (status.type !== 'processing') return status;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 describe('deploy route', () => {
@@ -84,25 +121,62 @@ describe('deploy route', () => {
     emptyIndex = await seedIndexedPackage(storage);
   });
 
-  it("builds a record's indexes on the runner the server injects", async () => {
+  it("runs a deploy as a job, which builds a record's indexes on the runner its store was given", async () => {
     const runner = new MockTaskRunner();
     runner.setDefaultResult({ state: 'success', cached: false, outputHash: emptyIndex });
+    const app = routes(storage, () => runner);
 
-    const response = await deploy(storage, () => runner);
-    assert.equal(response.type, 'success', JSON.stringify(response));
-    assert.ok(runner.getCalls().length > 0, 'the index was built on the injected runner');
+    const started = await start(app);
+    if (started.type !== 'success') assert.fail(`the deploy was refused: ${started.value.type}`);
+    const status = await finished(app, started.value.id);
+    if (status.type !== 'completed') assert.fail(`the deploy did not complete: ${status.type}`);
+    assert.deepEqual(status.value.records.map((plan) => [plan.record, plan.action.type]), [['records/plans', 'mint']]);
+    assert.deepEqual(status.value.indexes.map((plan) => [plan.record, plan.index, plan.action.type]),
+      [['records/plans', 'by_value', 'build']]);
+
+    assert.ok(runner.getCalls().length > 0, 'the index was built on the runner the store was given');
     const ref = await storage.datasets.read(REPO, WS, 'records/plans');
     assert.ok(ref && ref.type === 'value');
     assert.deepEqual([...(await readRecordState(storage, REPO, ref.value.hash)).indexes.keys()], ['by_value']);
   });
 
-  it('without a runner, refuses a deploy that owes an index build, and writes nothing', async () => {
-    const response = await deploy(storage);
-    assert.equal(response.type, 'error');
-    const error = response.value as { type: string; value: { message: string } };
-    assert.equal(error.type, 'internal');
-    assert.match(error.value.message, /given no task runner/);
+  it('answers before the deploy has finished, and the job reports it once it has', async () => {
+    // A build that holds until released: a deploy over a large record, which
+    // outlasts the request that starts it.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const runner = {
+      execute: async () => {
+        await released;
+        return { state: 'success', cached: false, executionId: 'held', outputHash: emptyIndex };
+      },
+    } as unknown as TaskRunner;
+    const app = routes(storage, () => runner);
+
+    const started = await start(app);
+    if (started.type !== 'success') assert.fail(`the deploy was refused: ${started.value.type}`);
+    assert.equal((await poll(app, started.value.id)).type, 'processing');
+    assert.equal(await workspaceGetState(storage, REPO, WS), null, 'nothing is deployed while the job runs');
+
+    release();
+    assert.equal((await finished(app, started.value.id)).type, 'completed');
+    assert.equal((await workspaceGetState(storage, REPO, WS))?.packageName, 'planrecords');
+  });
+
+  it('without a runner, fails a deploy that owes an index build, and writes nothing', async () => {
+    const app = routes(storage);
+    const started = await start(app);
+    if (started.type !== 'success') assert.fail(`the deploy was refused: ${started.value.type}`);
+    const status = await finished(app, started.value.id);
+    if (status.type !== 'failed') assert.fail(`the deploy did not fail: ${status.type}`);
+    assert.match(status.value.message, /given no task runner/);
     assert.equal(await workspaceGetState(storage, REPO, WS), null, 'the workspace is still undeployed');
     assert.deepEqual(await storage.datasets.list(REPO, WS), [], 'no ref was written');
+  });
+
+  it('refuses a package the repository does not hold at once, starting no job', async () => {
+    const started = await start(routes(storage), 'planrecords@9.9.9');
+    assert.equal(started.type, 'error');
+    assert.equal(started.value.type, 'package_not_found');
   });
 });

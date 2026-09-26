@@ -288,12 +288,117 @@ export const WorkspaceInfoType = StructType({
 });
 
 /**
+ * What a deploy does with a record it cannot keep as it is.
+ *
+ * - `migrate`: run the migrations the workspace has not applied, and refuse a
+ *   record no migration carries to the package's type
+ * - `fail`: run none, and refuse a record with migrations to run, for a
+ *   workspace whose migrations go through their own change control
+ * - `reset`: reset a record it can neither keep nor migrate to the package's
+ *   initial value, under a `$reset` commit, so the reset is in its history
+ */
+export const SchemaPolicyType = VariantType({
+  migrate: NullType,
+  fail: NullType,
+  reset: NullType,
+});
+
+/**
  * Request to deploy a package to a workspace.
  *
  * @property packageRef - Package reference in format "name" or "name@version"
+ * @property schema - What the deploy does with a record it cannot keep as it is
+ * @property allowDropRecords - Whether a record the package no longer declares
+ *   may be dropped, with its state and history
+ * @property plan - Say what the deploy would do, and write nothing
  */
 export const WorkspaceDeployRequestType = StructType({
   packageRef: StringType,
+  schema: SchemaPolicyType,
+  allowDropRecords: BooleanType,
+  plan: BooleanType,
+});
+
+/**
+ * What a deploy decided for one record.
+ *
+ * @property record - The record's dataset ref path
+ * @property action - What the deploy does to it:
+ *   - `mint`: the workspace does not hold it, so it is minted from the
+ *     package's initial value
+ *   - `keep`: kept as the workspace holds it; `deploy` when the package under
+ *     it changed, which a `$deploy` commit records in its history
+ *   - `migrate`: migrated by the steps the workspace has not applied, in order
+ *   - `reset`: reset to the package's initial value under the `reset` policy,
+ *     and why it could not be kept or migrated
+ *   - `drop`: the package does not declare it, so it is dropped, with its
+ *     state and history
+ *   - `refused`: refused, and why, with the fix: the deploy writes nothing
+ */
+export const RecordPlanType = StructType({
+  record: StringType,
+  action: VariantType({
+    mint: NullType,
+    keep: StructType({ deploy: BooleanType }),
+    migrate: StructType({ steps: ArrayType(StringType) }),
+    reset: StructType({ reason: StringType }),
+    drop: NullType,
+    refused: StructType({ reason: StringType }),
+  }),
+});
+
+/**
+ * What a deploy decided for one of a record's indexes.
+ *
+ * @property record - The record's dataset ref path
+ * @property index - The index's name
+ * @property action - `build` when the state names no index under the
+ *   package's declaration, `drop` when it names one the package does not
+ *   declare, and `keep` when the two agree and nothing runs
+ */
+export const RecordIndexPlanType = StructType({
+  record: StringType,
+  index: StringType,
+  action: VariantType({
+    build: NullType,
+    drop: NullType,
+    keep: NullType,
+  }),
+});
+
+/**
+ * What a deploy did, or under `plan` would do.
+ *
+ * @property records - What it decided for each record
+ * @property indexes - What it decided for each index of the records it keeps
+ * @property warnings - The inputs it left unassigned, and why: a server never
+ *   reads a `file` source, whose path is on the client's machine
+ */
+export const WorkspaceDeployResultType = StructType({
+  records: ArrayType(RecordPlanType),
+  indexes: ArrayType(RecordIndexPlanType),
+  warnings: ArrayType(StringType),
+});
+
+/**
+ * A deploy job's progress: `pending` until it starts, then `deploying`.
+ */
+export const WorkspaceDeployProgressType = VariantType({
+  pending: NullType,
+  deploying: NullType,
+});
+
+/**
+ * A deploy job's status.
+ *
+ * - `processing`: still running, and how far it has got
+ * - `completed`: what the deploy did
+ * - `failed`: why it did not
+ */
+export const WorkspaceDeployStatusType = VariantType({
+  processing: WorkspaceDeployProgressType,
+  completed: WorkspaceDeployResultType,
+  failed: StructType({ message: StringType }),
 });
 
 /**
@@ -941,6 +1046,13 @@ export type PackageDetails = ValueTypeOf<typeof PackageDetailsType>;
 export type WorkspaceInfo = ValueTypeOf<typeof WorkspaceInfoType>;
 export type WorkspaceCreateRequest = ValueTypeOf<typeof WorkspaceCreateRequestType>;
 export type WorkspaceDeployRequest = ValueTypeOf<typeof WorkspaceDeployRequestType>;
+/** A {@link SchemaPolicyType} by its name, as a deploy's options take it. */
+export type SchemaPolicy = ValueTypeOf<typeof SchemaPolicyType>['type'];
+export type RecordPlan = ValueTypeOf<typeof RecordPlanType>;
+export type RecordIndexPlan = ValueTypeOf<typeof RecordIndexPlanType>;
+export type WorkspaceDeployResult = ValueTypeOf<typeof WorkspaceDeployResultType>;
+export type WorkspaceDeployProgress = ValueTypeOf<typeof WorkspaceDeployProgressType>;
+export type WorkspaceDeployStatus = ValueTypeOf<typeof WorkspaceDeployStatusType>;
 export type DatasetStatus = ValueTypeOf<typeof DatasetStatusType>;
 export type TaskStatus = ValueTypeOf<typeof TaskStatusType>;
 export type DatasetStatusInfo = ValueTypeOf<typeof DatasetStatusInfoType>;

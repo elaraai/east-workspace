@@ -23,7 +23,9 @@ import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import { PackageObjectType, WorkspaceRecordType, DataflowRunType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
-import type { PackageObject, RecordObject, WorkspaceState, DatasetRef, Structure, TreePath } from '@elaraai/e3-types';
+import type {
+  PackageObject, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, Structure, TreePath,
+} from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
@@ -37,10 +39,9 @@ import {
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, type RecordIndexPlan } from './records.js';
+import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords } from './records.js';
 import {
-  planRecordDeployments, recordDeployCommits, recordLeafType, runRecordMigrations,
-  type PriorDeployment, type RecordPlan, type SchemaPolicy,
+  planRecordDeployments, recordDeployCommits, recordLeafType, runRecordMigrations, type PriorDeployment,
 } from './record-deploy.js';
 import { withRunningWork } from './storage/local/gc.js';
 
@@ -313,17 +314,19 @@ export interface WorkspaceDeployOptions {
    */
   resolveFileSources?: boolean;
   /**
-   * Task runner for the index builds a deploy owes.
+   * Task runner for the migrations and index builds a deploy owes.
    *
    * @remarks
    * A record that declares an index needs that index built before anything can
    * read through it, and an index is built by running its program on the
    * runner its author chose. Deploy is where that debt falls due: a record
    * minted here has no index yet, and a record whose declaration changed has
-   * one built under the wrong declaration.
+   * one built under the wrong declaration. A migration runs on its author's
+   * runner too.
    *
-   * Omit it only where no package can declare an index: a deploy that must
-   * build one without a runner is refused before it writes anything.
+   * Omit it only where no package can declare an index or a migration: a
+   * deploy that owes either without a runner is refused before it writes
+   * anything.
    */
   runner?: TaskRunner;
   /**
@@ -400,7 +403,7 @@ export async function workspaceDeploy(
     );
     for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
     const refusals = deployments.flatMap(({ plan }) =>
-      plan.action === 'refused' ? [{ record: plan.record, reason: plan.reason }] : []);
+      plan.action.type === 'refused' ? [{ record: plan.record, reason: plan.action.value.reason }] : []);
     if (refusals.length > 0 && options.plan !== true) throw new RecordDeployRefusedError(refusals);
 
     // The state each record holds once the refs are written, which its
@@ -413,7 +416,7 @@ export async function workspaceDeploy(
     const stateOf = (migrated: ReadonlyMap<string, ReadonlyArray<{ state: string }>>) => (path: string): string | undefined => {
       const deployment = deploymentAt.get(path);
       if (deployment === undefined) return undefined;
-      switch (deployment.plan.action) {
+      switch (deployment.plan.action.type) {
         case 'keep': return deployment.prior!.hash;
         case 'migrate': return migrated.get(path)?.at(-1)?.state ?? deployment.initial;
         case 'mint': case 'reset': return deployment.initial;
@@ -517,10 +520,10 @@ function treePathOfRefPath(refPath: string): TreePath {
  *
  * @remarks
  * Called BEFORE `datasets.removeAll`, as the records' plan is: a deploy that
- * cannot succeed must leave the workspace exactly as it found it. A path this process cannot read
- * is therefore a deploy error naming the input and the path — never a silently
- * unassigned input — unless the caller passes a `warn` sink, which turns it
- * into a warning and an unassigned input.
+ * cannot succeed must leave the workspace exactly as it found it. A path this
+ * process cannot read is therefore a deploy error naming the input and the
+ * path — never a silently unassigned input — unless the caller passes a `warn`
+ * sink, which turns it into a warning and an unassigned input.
  *
  * With `resolve` false no path is opened at all. That is the server-side half
  * of a remote deploy: a `file` source names a path on the machine that exported

@@ -162,10 +162,10 @@ export async function watchCommand(
         // save — the parts of a redeploy that can take minutes, so each is
         // said up front.
         onRecordPlan: (plan) => {
-          if (plan.action === 'migrate' || plan.action === 'reset') console.log(`[${timestamp()}] ${recordPlanLine(plan)}`);
+          if (plan.action.type === 'migrate' || plan.action.type === 'reset') console.log(`[${timestamp()}] ${recordPlanLine(plan)}`);
         },
         onRecordIndex: (plan) => {
-          if (plan.action !== 'keep') console.log(`[${timestamp()}] ${plan.action} index ${plan.record}.${plan.index}`);
+          if (plan.action.type !== 'keep') console.log(`[${timestamp()}] ${plan.action.type} index ${plan.record}.${plan.index}`);
         },
       });
       console.log(`[${timestamp()}] Deployed to workspace: ${workspace}`);

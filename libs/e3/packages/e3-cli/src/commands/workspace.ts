@@ -22,6 +22,7 @@ import {
   type WorkspaceStatusResult,
   LocalTaskRunner,
   type Budget,
+  type RecordIndexPlan,
   type RecordPlan,
   type SchemaPolicy,
 } from '@elaraai/e3-core';
@@ -87,10 +88,10 @@ export const workspaceCommand = {
    * workspace and uploads it after the deploy. `--skip-file-sources` leaves them
    * unset instead.
    *
-   * A local deploy says what it decides for each record and index before it
-   * writes: `--schema` says what it does with a record it cannot keep as it
-   * is, `--allow-drop-records` lets it drop one the package no longer
-   * declares, and `--plan` says it all and writes nothing.
+   * A deploy says what it decides for each record and index: `--schema` says
+   * what it does with a record it cannot keep as it is, `--allow-drop-records`
+   * lets it drop one the package no longer declares, and `--plan` says it all
+   * and writes nothing. A server runs the deploy as a job, which this polls.
    */
   async deploy(
     repoArg: string,
@@ -112,12 +113,7 @@ export const workspaceCommand = {
 
       const location = await parseRepoLocation(repoArg);
       const schema = schemaPolicy(options.schema);
-      if (location.type === 'remote') {
-        refuseRemoteBudget(options);
-        if (schema !== undefined || options.allowDropRecords === true || options.plan === true) {
-          exitError('--schema, --allow-drop-records and --plan are for a local repository');
-        }
-      }
+      if (location.type === 'remote') refuseRemoteBudget(options);
 
       const progress = createProgress({ quiet: options.quiet === true });
       const target: DeployTarget = {
@@ -421,12 +417,12 @@ interface DeployTarget {
   progress: Progress;
   /** Leave the package's `file` sources unset instead of reading them. */
   skipFileSources: boolean;
-  /** What a local deploy does with a record it cannot keep as it is; its
+  /** What the deploy does with a record it cannot keep as it is; its
    *  default, `migrate`, when absent. */
   schema?: SchemaPolicy;
-  /** Let a local deploy drop a record the package no longer declares. */
+  /** Let the deploy drop a record the package no longer declares. */
   allowDropRecords: boolean;
-  /** Say what a local deploy would do, and write nothing. */
+  /** Say what the deploy would do, and write nothing. */
   plan: boolean;
   /** The budget a local deploy's migrations and index builds take from. */
   budget?: Budget;
@@ -447,47 +443,71 @@ export function schemaPolicy(value: string | undefined): SchemaPolicy | undefine
 
 /** What a deploy decided for a record, as a line the CLI prints. */
 export function recordPlanLine(plan: RecordPlan): string {
-  switch (plan.action) {
+  const { action } = plan;
+  switch (action.type) {
     case 'mint': return `mint record ${plan.record}`;
-    case 'keep': return `keep record ${plan.record}${plan.deploy ? ', with a $deploy commit: the package under it changed' : ''}`;
-    case 'migrate': return `migrate record ${plan.record}: ${plan.steps.join(', ')}`;
-    case 'reset': return `reset record ${plan.record}: it ${plan.reason}`;
+    case 'keep': return `keep record ${plan.record}${action.value.deploy ? ', with a $deploy commit: the package under it changed' : ''}`;
+    case 'migrate': return `migrate record ${plan.record}: ${action.value.steps.join(', ')}`;
+    case 'reset': return `reset record ${plan.record}: it ${action.value.reason}`;
     case 'drop': return `drop record ${plan.record}, with its state and history`;
-    case 'refused': return `refuse record ${plan.record}: it ${plan.reason}`;
+    case 'refused': return `refuse record ${plan.record}: it ${action.value.reason}`;
   }
+}
+
+/**
+ * What a deploy says about each record and index it decides for: every
+ * decision under `--plan`, and otherwise the ones that change something.
+ *
+ * @remarks
+ * A local deploy says each as it decides it, before the migration or index
+ * build it names runs, since those are the parts of a deploy that take
+ * minutes. A server's job reports them all once it has finished.
+ *
+ * @param target - The deploy
+ * @returns Where the deploy's decisions go, and the end of a plan, which fails
+ *   when the deploy would be refused
+ */
+function deployReporter(target: DeployTarget): {
+  onRecordPlan: (plan: RecordPlan) => void;
+  onRecordIndex: (plan: RecordIndexPlan) => void;
+  endPlan: () => void;
+} {
+  let refused = 0;
+  return {
+    onRecordPlan: (plan) => {
+      const action = plan.action.type;
+      if (action === 'refused') refused++;
+      if (target.plan || action === 'migrate' || action === 'reset' || action === 'drop') {
+        console.log(`  ${recordPlanLine(plan)}`);
+      }
+    },
+    onRecordIndex: (plan) => {
+      if (target.plan || plan.action.type !== 'keep') console.log(`  ${plan.action.type} index ${plan.record}.${plan.index}`);
+    },
+    endPlan: () => {
+      if (refused > 0) exitError(`the deploy would be refused: ${refused === 1 ? 'a record' : `${refused} records`}, above`);
+      console.log('A plan: nothing was written.');
+    },
+  };
 }
 
 /**
  * Deploy an imported package to a LOCAL workspace, saying what the deploy
  * decides for each record and index; with `--plan`, only saying it.
- *
- * @remarks
- * A migration or an index build over a large record is the part of a deploy
- * that takes minutes, so each is said before it runs. A plan says every
- * decision, the ones that change nothing included, and fails when the deploy
- * would be refused.
  */
 async function deployLocal(target: DeployTarget, storage: LocalStorage, repoPath: string, name: string, version: string): Promise<void> {
-  let refused = 0;
+  const report = deployReporter(target);
   await workspaceDeploy(storage, repoPath, target.ws, name, version, {
     resolveFileSources: !target.skipFileSources,
     runner: new LocalTaskRunner(repoPath, target.budget),
     ...(target.schema !== undefined && { schema: target.schema }),
     allowDropRecords: target.allowDropRecords,
     plan: target.plan,
-    onRecordPlan: (plan) => {
-      if (plan.action === 'refused') refused++;
-      if (target.plan || plan.action === 'migrate' || plan.action === 'reset' || plan.action === 'drop') {
-        console.log(`  ${recordPlanLine(plan)}`);
-      }
-    },
-    onRecordIndex: (plan) => {
-      if (target.plan || plan.action !== 'keep') console.log(`  ${plan.action} index ${plan.record}.${plan.index}`);
-    },
+    onRecordPlan: report.onRecordPlan,
+    onRecordIndex: report.onRecordIndex,
   });
   if (target.plan) {
-    if (refused > 0) exitError(`the deploy would be refused: ${refused === 1 ? 'a record' : `${refused} records`}, above`);
-    console.log('A plan: nothing was written.');
+    report.endPlan();
     return;
   }
   if (target.skipFileSources) {
@@ -575,16 +595,19 @@ async function latestRemoteVersion(location: RepoLocation, name: string): Promis
 
 /**
  * Deploy an imported package to a REMOTE workspace, completing its `file`
- * sources from this machine.
+ * sources from this machine; with `--plan`, only saying what it would do.
  *
  * @remarks
+ * The server runs the deploy as a job, which this polls, and says what it
+ * decided for each record and index once it has finished.
+ *
  * A `file` source names a path on the machine that exported the package, and
  * the server never opens it: it leaves those inputs unassigned. So each source
  * is checked HERE before the remote workspace is touched, the server deploys,
  * and each delivery is then streamed over the dataset transfer protocol, whose
  * commit runs the same validation a local deploy's adopt does. The transfer
  * dedups on the hash, so a redeploy whose delivery has not changed costs one
- * round trip and no bytes.
+ * round trip and no bytes. A plan writes nothing, so it reads no source.
  */
 async function deployRemote(target: DeployTarget, name: string, version: string): Promise<void> {
   const { location, ws, progress } = target;
@@ -592,18 +615,35 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
   const auth = { token: location.token };
 
   const sources = fileSourcesOf(await packageGetRemote(location.baseUrl, location.repo, name, version, auth));
-  if (!target.skipFileSources) {
+  if (!target.skipFileSources && !target.plan) {
     for (const source of sources) checkFileSource(target, source);
   }
 
-  const deployStep = progress.step(`deploying ${name}@${version} to workspace ${ws}`);
+  const doing = target.plan ? 'planning' : 'deploying';
+  const deployStep = progress.step(`${doing} ${name}@${version} to workspace ${ws}`);
+  let result;
   try {
-    await workspaceDeployRemote(location.baseUrl, location.repo, ws, `${name}@${version}`, auth);
+    result = await workspaceDeployRemote(location.baseUrl, location.repo, ws, `${name}@${version}`, auth, {
+      ...(target.schema !== undefined && { schema: target.schema }),
+      allowDropRecords: target.allowDropRecords,
+      plan: target.plan,
+      onProgress: (p) => {
+        deployStep.update(`${doing}… ${p.type === 'pending' ? 'waiting for server' : 'running on the server'}`);
+      },
+    });
   } catch (err) {
     deployStep.fail();
     throw err;
   }
-  deployStep.done(`deployed ${name}@${version} to workspace ${ws}`);
+  deployStep.done(`${target.plan ? 'planned' : 'deployed'} ${name}@${version} to workspace ${ws}`);
+
+  const report = deployReporter(target);
+  for (const plan of result.records) report.onRecordPlan(plan);
+  for (const plan of result.indexes) report.onRecordIndex(plan);
+  if (target.plan) {
+    report.endPlan();
+    return;
+  }
 
   if (target.skipFileSources) {
     reportSkippedFileSources(target, sources);
@@ -692,10 +732,12 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     objectCount = Number(result.objectCount);
     step.done(`imported ${name}@${version} (${objectCount} objects)`);
 
-    try {
-      await workspaceCreateRemote(location.baseUrl, location.repo, ws, { token: location.token });
-    } catch (err) {
-      if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
+    if (!target.plan) {
+      try {
+        await workspaceCreateRemote(location.baseUrl, location.repo, ws, { token: location.token });
+      } catch (err) {
+        if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
+      }
     }
     await deployRemote(target, name, version);
   }
