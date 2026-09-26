@@ -13,6 +13,9 @@
  * Every body spins while a hold file exists, so the run parks with its two
  * runners up and everything else queued; the `running` execution records
  * (each naming its runner's pid) count the runners.
+ *
+ * Under `--memory` below every unit's peak, the same run completes: each piece
+ * after the first expects more memory than the whole budget, and runs alone.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -126,5 +129,17 @@ describe('the jobs budget', () => {
       for (const { status } of await storage.refs.executionListLatest(repo, taskHash)) if (status.type === 'success') successes++;
     }
     assert.equal(successes, 3 + pieces + 1);
+  });
+
+  it('completes a run whose memory is below every unit\'s peak, each piece that expects more running alone', async () => {
+    const result = await runE3Command(['dataflow', 'run', repo, 'ws', '--jobs', '4', '--memory', '1M'], dir, { env: { E3_TEST_PIECE_BYTES: '256' } });
+    assert.equal(result.exitCode, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /Budget: 4 cores, 1 MB/);
+    for (const name of [...PLAIN_TASKS, 'held_p']) assert.match(result.stdout, new RegExp(`\\[DONE\\] ${name} `));
+    const { hash: tableHash } = await workspaceGetDatasetHash(storage, repo, 'ws', [variant('field', 'inputs'), variant('field', 'table')]);
+    const pieces = (await DatasetSegments.open(storage, repo, tableHash!)).segmentCount;
+    assert.match(result.stdout, new RegExp(`\\[PART\\] held_p ${pieces}/${pieces} `), 'every piece ran');
+    const { hash: outputHash } = await workspaceGetDatasetHash(storage, repo, 'ws', [variant('field', 'tasks'), variant('field', 'held_p'), variant('field', 'output')]);
+    assert.equal(outputHash, tableHash, 'the pieces\' outputs join into the table they were cut from');
   });
 });

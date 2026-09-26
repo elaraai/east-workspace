@@ -14,14 +14,17 @@
  * - `kill -9` of e3 during a piece: the runner exits with it (the stdin
  *   lifeline), the next run sweeps the scratch directory the killed run left
  *   behind, and the stopped piece is recorded `interrupted`, naming its
- *   runner's pid — under one piece at a time, and under `--jobs 4` with every
- *   piece's runner running, on east-node and, when on PATH, on east-c.
+ *   runner's pid — under one piece at a time, and under `--jobs 4` with the
+ *   stage's three other pieces running once its first has finished, on
+ *   east-node and, when on PATH, on east-c.
  *
  * The task reads its input through `e3.partition`, split into four pieces by
  * the test's piece size, and runs on east-node, e3's default runner, unless a
  * case says otherwise. Its body marks that it runs and then spins while a hold
  * file exists, so each case stops a piece mid-computation, and a run with the
- * same inputs completes once the hold file is gone.
+ * same inputs completes once the hold file is gone. A stage runs its first
+ * piece alone, so where a case needs pieces running side by side, the first
+ * piece runs through.
  *
  * On Windows a runner's record names cmd.exe running the pnpm shim, which dies
  * with e3's job object whatever the runner does, so the kill cases wait for
@@ -35,7 +38,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import e3, { type Runner } from '@elaraai/e3';
-import { DictType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, variant } from '@elaraai/east';
+import { DictType, East, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
 import {
   Budget,
@@ -108,8 +111,10 @@ describe('stopped executions', () => {
 
   /** Deploys the held task on `runner`: 3,600 rows are stored in four
    *  segments, the cut rule's whatever the delivery's, which make four
-   *  pieces — one runs at a time under --jobs 1, all four under 4. */
-  async function deploy(runner: Runner): Promise<void> {
+   *  pieces — one runs at a time under --jobs 1, and under 4 the three after
+   *  the first run side by side. With `firstRunsThrough`, the piece holding
+   *  the first key, the stage's first unit, does not hold. */
+  async function deploy(runner: Runner, firstRunsThrough = false): Promise<void> {
     const tableInput = e3.input('table', TableType);
     const held = e3.streamTask('held', {
       inputs: [e3.partition(tableInput)],
@@ -118,8 +123,10 @@ describe('stopped executions', () => {
     }, ($, table, emit) => {
       const startedPath = $.const(started);
       const holdPath = $.const(hold);
-      $(FileSystem.writeFile(startedPath, 'running'));
-      $.while(FileSystem.exists(holdPath), (_$) => { });
+      $.if(East.value(firstRunsThrough).and(($) => table.has(0n)).not(), ($) => {
+        $(FileSystem.writeFile(startedPath, 'running'));
+        $.while(FileSystem.exists(holdPath), (_$) => { });
+      });
       $.for(table, ($, value, key) => {
         $(emit(key, value));
       });
@@ -223,12 +230,14 @@ describe('stopped executions', () => {
     await assertNextRunExecutes();
   });
 
-  /** kill -9 of e3 with `jobs` pieces running on `runner`: every running
-   *  piece's runner exits with e3, the next run sweeps every scratch
-   *  directory the killed run left behind, and every stopped piece is
-   *  recorded `interrupted`, naming its runner. */
-  async function assertKillMinusNine(runner: Runner, jobs: number): Promise<void> {
-    await deploy(runner);
+  /** kill -9 of e3 with `running` pieces running on `runner` under `--jobs
+   *  jobs`: every running piece's runner exits with e3, the next run sweeps
+   *  every scratch directory the killed run left behind, and every stopped
+   *  piece is recorded `interrupted`, naming its runner. With more than one
+   *  running, the stage's first piece runs through, so the rest run side by
+   *  side. */
+  async function assertKillMinusNine(runner: Runner, jobs: number, running: number): Promise<void> {
+    await deploy(runner, running > 1);
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
     const env = { ...PIECES, E3_SCRATCH_DIR: scratch };
@@ -245,11 +254,11 @@ describe('stopped executions', () => {
           units.set(inputsHash, { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) });
         }
       }
-      return units.size === jobs;
+      return units.size === running;
     }, 30_000);
-    await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === jobs, 30_000);
+    await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === running, 30_000);
     const leftBehind = readdirSync(scratch).filter((name) => name.startsWith('e3-exec-'));
-    assert.equal(leftBehind.length, jobs, `${jobs} piece(s) run: ${leftBehind.join(', ')}`);
+    assert.equal(leftBehind.length, running, `${running} piece(s) run: ${leftBehind.join(', ')}`);
 
     // Every process of each runner's tree: on Windows the shim and the runner.
     const trees = [...units.values()].map((unit) => processTree(unit.pid));
@@ -272,13 +281,13 @@ describe('stopped executions', () => {
   }
 
   it('kill -9 of e3 during a piece: its runner exits, and the next run sweeps the scratch directory and records the piece interrupted', async () => {
-    await assertKillMinusNine(EAST_NODE, 1);
+    await assertKillMinusNine(EAST_NODE, 1, 1);
   });
 
   for (const { name, runner, available } of KILL_RUNNERS) {
-    it(`kill -9 of e3 with four pieces running on ${name}: every runner exits, and the next run sweeps every scratch directory and records each piece interrupted`,
+    it(`kill -9 of e3 with three pieces running on ${name}: every runner exits, and the next run sweeps every scratch directory and records each piece interrupted`,
       { skip: available ? false : `${name} not on PATH` }, async () => {
-        await assertKillMinusNine(runner, 4);
+        await assertKillMinusNine(runner, 4, 3);
       });
   }
 

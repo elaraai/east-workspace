@@ -31,6 +31,12 @@
  * other task's, and {@link executeSplitTask} runs them in a pool of its own for
  * a task run on its own.
  *
+ * Both run a stage's first unit alone, to measure the stage's peak memory, and
+ * the rest once it has settled, each expecting to need the largest peak a unit
+ * of the stage has reached in the run, which a local runner reserves from its
+ * budget. A peak comes from the unit's runner, or from the execution record of
+ * a unit the cache serves; nothing is read from earlier runs.
+ *
  * A merge is a unit cached like a piece, on the task and its parts. Nothing
  * here decodes a part whole: grouping reads each part's manifest and its last
  * segment, and a range is a small object the merge units read. The pieces, the
@@ -104,9 +110,17 @@ export function isSplitTask(task: TaskObject): boolean {
  *   piece's inputs, or a merge's
  * @param ids - The execution's identity
  * @param merge - What a merge unit merges, or `null` for a piece
+ * @param expectedPeakBytes - The memory the unit is expected to need: the
+ *   largest peak a unit of its stage has reached in the run, or `undefined`
+ *   while none has
  * @returns The execution's result
  */
-export type UnitExecutor = (inputHashes: string[], ids: ExecutionIds, merge: MergeParts | null) => Promise<ExecutionResult>;
+export type UnitExecutor = (
+  inputHashes: string[],
+  ids: ExecutionIds,
+  merge: MergeParts | null,
+  expectedPeakBytes: number | undefined,
+) => Promise<ExecutionResult>;
 
 /** A unit whose executor or cache probe threw — not the unit's own failure —
  *  with its index in its stage. */
@@ -133,11 +147,13 @@ export interface SplitStage {
  *
  * @remarks
  * A driver opens the task and runs the stage's units, each probed in the
- * execution cache first unless the run is forced. It reports each unit as it
- * starts and as it settles, and advances the task once every unit it started
- * has settled: to the next stage, or to the task's end. The task's own
- * execution is recorded here: `running` when its first stage starts, and its
- * outcome when it ends. A task that is one piece runs that unit under its own
+ * execution cache first unless the run is forced: one alone while the stage is
+ * {@link measuring}, and then the rest, each expecting to need
+ * {@link stagePeak}. It reports each unit as it starts and as it settles, and
+ * advances the task once every unit it started has settled: to the next stage,
+ * or to the task's end. The task's own execution is recorded here: `running`
+ * when its first stage starts, and its outcome when it ends, with the largest
+ * peak of its units. A task that is one piece runs that unit under its own
  * identity, and records nothing more.
  */
 export class SplitTask {
@@ -165,6 +181,13 @@ export class SplitTask {
   /** Whether the task took up a stage a plan named, rather than planning its
    *  pieces. */
   private tookUp = false;
+  /** The units of the stage that settled, however they ended. */
+  private settled = 0;
+  /** The largest peak a unit of the stage has reached, in bytes. */
+  private stagePeakBytes: number | undefined;
+  /** The largest peak any unit of the task has reached, in bytes: the one its
+   *  own execution records. */
+  private peakBytes: number | undefined;
 
   private constructor(
     private readonly storage: StorageBackend,
@@ -185,6 +208,25 @@ export class SplitTask {
    *  its pieces. */
   get resumed(): boolean {
     return this.tookUp;
+  }
+
+  /**
+   * Whether the stage is measuring: none of its units has settled yet. A
+   * driver runs one unit of the stage while it measures, and the rest once
+   * that one has settled.
+   */
+  get measuring(): boolean {
+    return this.settled === 0;
+  }
+
+  /**
+   * The largest peak resident memory, in bytes, a unit of the stage has
+   * reached in this run — as its runner reported it, or as the execution
+   * record of one the cache served holds it — or `undefined` until one has.
+   * Each stage measures afresh: the pieces, and each level of their merges.
+   */
+  get stagePeak(): number | undefined {
+    return this.stagePeakBytes;
   }
 
   /**
@@ -274,14 +316,19 @@ export class SplitTask {
   }
 
   /**
-   * Reports a unit of the stage settled: its line in the task's log, naming
-   * its execution and, when its runner reported one, its peak memory; and its
-   * progress when it succeeded.
+   * Reports a unit of the stage settled: its peak, toward {@link stagePeak};
+   * its line in the task's log, naming its execution and its peak memory when
+   * it has one; and its progress when it succeeded.
    *
    * @param index - The unit's index in the stage
    * @param result - The unit's result
    */
   unitSettled(index: number, result: ExecutionResult): void {
+    this.settled++;
+    if (result.peakBytes !== undefined) {
+      this.stagePeakBytes = Math.max(this.stagePeakBytes ?? 0, result.peakBytes);
+      this.peakBytes = Math.max(this.peakBytes ?? 0, result.peakBytes);
+    }
     const total = this.current.units.length;
     if (this.current.plan !== null) {
       const merge = this.current.merge;
@@ -463,6 +510,8 @@ export class SplitTask {
     this.rooted = true;
     this.planned = stage;
     this.done = 0;
+    this.settled = 0;
+    this.stagePeakBytes = undefined;
     if (stage.type === 'pieces') {
       this.phase = 'partition';
       this.current = { plan, units: stage.value.map((inputs) => ({ inputs: [...inputs], merge: null })), merge: null };
@@ -531,8 +580,9 @@ export class SplitTask {
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
       exitCode: BigInt(exitCode ?? -1),
+      peakBytes: this.peakBytes === undefined ? none : some(BigInt(this.peakBytes)),
     }));
-    return this.ended('failed', error, exitCode, false);
+    return { ...this.ended('failed', error, exitCode, false), ...(this.peakBytes !== undefined && { peakBytes: this.peakBytes }) };
   }
 
   private async errorResult(error: string): Promise<ExecutionResult> {
@@ -553,6 +603,7 @@ export class SplitTask {
       outputHash,
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
+      peakBytes: this.peakBytes === undefined ? none : some(BigInt(this.peakBytes)),
     }));
     return {
       inputsHash: this.ids.inHash,
@@ -564,6 +615,7 @@ export class SplitTask {
       duration: Date.now() - this.ids.startTime,
       error: null,
       cancelled: false,
+      ...(this.peakBytes !== undefined && { peakBytes: this.peakBytes }),
     };
   }
 }
@@ -577,13 +629,16 @@ interface PoolOutcome {
 }
 
 /**
- * Runs `count` units, at most `width` at once. The pool takes no unit after one
- * fails or throws, or once `signal` aborts, and waits for the units in flight,
- * so none runs on after the task's execution has ended.
+ * Runs `count` units: one at a time until `measured` holds, and then the rest,
+ * at most `width` at once. The pool takes no unit after one fails or throws, or
+ * once `signal` aborts, and waits for the units in flight, so none runs on
+ * after the task's execution has ended.
  *
  * @param count - The number of units
  * @param width - The most units in flight at once
  * @param signal - The run's abort signal
+ * @param measured - Whether the stage has measured a unit, so the rest may run
+ *   at once
  * @param unit - Runs unit `index`
  * @returns How the pool ended
  */
@@ -591,14 +646,17 @@ async function runPool(
   count: number,
   width: number,
   signal: AbortSignal | undefined,
+  measured: () => boolean,
   unit: (index: number) => Promise<ExecutionResult>,
 ): Promise<PoolOutcome> {
   const results: (ExecutionResult | undefined)[] = Array.from({ length: count }, () => undefined);
   const thrown: ThrownUnit[] = [];
   let next = 0;
   let stopped = false;
-  await Promise.all(Array.from({ length: Math.min(width, count) }, async () => {
-    for (;;) {
+  /** Runs units until the pool takes no more, or while `probing`, until the
+   *  stage has measured a unit. */
+  const work = async (probing: boolean): Promise<void> => {
+    while (!(probing && measured())) {
       const index = next++;
       if (index >= count || stopped || signal?.aborted) return;
       try {
@@ -612,7 +670,9 @@ async function runPool(
         return;
       }
     }
-  }));
+  };
+  await work(true);
+  await Promise.all(Array.from({ length: Math.min(width, count) }, () => work(false)));
   return { results, thrown };
 }
 
@@ -625,7 +685,9 @@ async function runPool(
  * Called by `taskExecute` after its cache probe and task decode. The stage the
  * plan sidecar names is taken up again, so a run that stopped mid-task
  * resumes where it stopped. Every unit is probed in the execution cache here,
- * and run by `execute` only on a miss.
+ * and run by `execute` only on a miss. A stage's first unit runs alone, and the
+ * rest then as many at once as the pool is wide, each expecting to need the
+ * largest peak the stage has reached.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -662,12 +724,12 @@ export async function executeSplitTask(
   const width = Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH);
   for (;;) {
     const { units } = split.stage;
-    const outcome = await runPool(units.length, width, options.signal, async (index) => {
+    const outcome = await runPool(units.length, width, options.signal, () => !split.measuring, async (index) => {
       const unit = units[index]!;
       split.unitStarted(index);
       const unitHash = inputsHash(unit.inputs);
       const result = (options.force ? null : await probeExecutionCache(storage, repo, taskHash, unitHash))
-        ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge);
+        ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak);
       split.unitSettled(index, result);
       return result;
     });

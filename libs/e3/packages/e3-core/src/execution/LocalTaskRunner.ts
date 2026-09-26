@@ -16,7 +16,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { variant } from '@elaraai/east';
+import { none, some, variant } from '@elaraai/east';
 import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
@@ -56,6 +56,10 @@ export interface ExecuteOptions {
    *  own keeps as many units in flight as the budget has cores. Runtime-only,
    *  and never seen by a remote backend. Absent, spawns are not budgeted. */
   budget?: Budget;
+  /** The memory, in bytes, the execution reserves from the budget while its
+   *  runner runs: for a unit of a split task, the largest peak its stage has
+   *  reached in the run. Absent, it reserves none. */
+  expectedPeakBytes?: number;
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
@@ -84,10 +88,11 @@ export interface ExecutionResult {
   /** True when e3 stopped the execution because the run was aborted: it is
    *  recorded `cancelled`, and is not the task's own failure */
   cancelled: boolean;
-  /** The runner's peak resident memory in bytes, as its unit's result reports
-   *  it: the larger of the run's and, when it needed one, the merge of its
-   *  runs'. Absent when no unit ran here: a result served from the cache, a
-   *  command body, or a runner that recorded no result. */
+  /** The highest peak resident memory, in bytes, a runner process of the
+   *  execution reached, as its execution records it: a unit's, the larger of
+   *  its run's and its output merge's; a split task's, the largest of its
+   *  units'. Absent when no runner reported one: a command body, or a runner
+   *  that recorded no result. */
   peakBytes?: number;
 }
 
@@ -119,6 +124,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
       budget: this.budget,
+      expectedPeakBytes: options?.expectedPeakBytes,
       onPartitionProgress: options?.onPartitionProgress,
     }));
   }
@@ -136,6 +142,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
       budget: this.budget,
+      expectedPeakBytes: options?.expectedPeakBytes,
     }));
   }
 
@@ -232,7 +239,8 @@ export async function taskExecute(
 
   if (isSplitTask(task)) {
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
-      (unitInputs, unitIds, merge) => taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, options, merge));
+      (unitInputs, unitIds, merge, expectedPeakBytes) =>
+        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge));
   }
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
 }
@@ -350,6 +358,7 @@ export async function probeExecutionCache(
     duration: 0,
     error: null,
     cancelled: false,
+    ...(status.value.peakBytes.type === 'some' && { peakBytes: Number(status.value.peakBytes.value) }),
   };
 }
 
@@ -518,6 +527,9 @@ export async function taskExecuteBody(
       }
     }
 
+    /** The highest peak a unit's runner reported, over the run and its merge. */
+    let peakBytes: number | undefined;
+
     /** Records an execution e3 stopped (`cancelled`, or an `error` naming
      *  the cause) or a signal ended (`failed`, exit code -1), appending
      *  `e3: <cause>` to its stderr log. Returned awaited: a promise returned
@@ -534,7 +546,7 @@ export async function taskExecuteBody(
       const stopped = { executionId, inputHashes, startedAt: new Date(startTime), completedAt: new Date() };
       const status: ExecutionStatus = outcome === 'cancelled' ? variant('cancelled', stopped)
         : outcome === 'error' ? variant('error', { ...stopped, message: cause })
-        : variant('failed', { ...stopped, exitCode: -1n });
+        : variant('failed', { ...stopped, exitCode: -1n, peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)) });
       await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
       return {
         inputsHash: inHash,
@@ -551,9 +563,6 @@ export async function taskExecuteBody(
 
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
-
-    /** The highest peak a unit's runner reported, over the run and its merge. */
-    let peakBytes: number | undefined;
 
     /** Spawns the runner, and resolves with the execution's record when it
      *  did not end well — `null` when it did. A unit ends well only when
@@ -583,6 +592,7 @@ export async function taskExecuteBody(
         startedAt: new Date(startTime),
         completedAt: new Date(),
         exitCode: BigInt(result.exitCode ?? -1),
+        peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
       });
       await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
       return {
@@ -600,15 +610,14 @@ export async function taskExecuteBody(
     };
 
     // Step 7.5: the process's budget. The runner spawns only once this
-    // execution holds a core, beside every other runner the process spawns,
-    // and holds it until its last runner process has exited. An execution the
-    // run aborts while it waits never spawns: it is recorded cancelled, with
-    // no `running` record ever written. Until reservations are measured, an
-    // execution reserves no memory.
+    // execution holds a core and the memory it expects to need, beside every
+    // other runner the process spawns, and holds them until its last runner
+    // process has exited. An execution the run aborts while it waits never
+    // spawns: it is recorded cancelled, with no `running` record ever written.
     let releaseSlot: ReleaseSlot | undefined;
     if (options.budget !== undefined) {
       try {
-        releaseSlot = await options.budget.acquire({ signal: options.signal });
+        releaseSlot = await options.budget.acquire({ memory: options.expectedPeakBytes ?? 0, signal: options.signal });
       } catch (err) {
         if (options.signal?.aborted) {
           return await stoppedResult('cancelled', 'cancelled: e3 did not start the runner because the run was aborted');
@@ -650,6 +659,7 @@ export async function taskExecuteBody(
       outputHash,
       startedAt: new Date(startTime),
       completedAt: new Date(),
+      peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
     });
     await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
     return {

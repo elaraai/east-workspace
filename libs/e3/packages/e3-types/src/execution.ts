@@ -11,8 +11,8 @@
  *
  * The status file tracks:
  * - For running: process identification for crash detection
- * - For success: output hash and timing
- * - For failed: exit code and timing
+ * - For success: output hash, timing and peak memory
+ * - For failed: exit code, timing and peak memory
  * - For error: internal error message and timing
  * - For cancelled and interrupted: how e3, not the task, ended it
  */
@@ -21,6 +21,7 @@ import {
   VariantType,
   StructType,
   ArrayType,
+  OptionType,
   StringType,
   IntegerType,
   DateTimeType,
@@ -55,6 +56,10 @@ const SuccessStatusType = StructType({
   startedAt: DateTimeType,
   /** When execution completed */
   completedAt: DateTimeType,
+  /** The highest peak resident memory, in bytes, a runner process of the
+   *  execution reached — a split task's, the largest of its units' — when
+   *  its runners reported one */
+  peakBytes: OptionType(IntegerType),
 });
 
 const FailedStatusType = StructType({
@@ -68,6 +73,10 @@ const FailedStatusType = StructType({
   completedAt: DateTimeType,
   /** Process exit code */
   exitCode: IntegerType,
+  /** The highest peak resident memory, in bytes, a runner process of the
+   *  execution reached — a split task's, the largest of its units' — when
+   *  its runners reported one */
+  peakBytes: OptionType(IntegerType),
 });
 
 const ErrorStatusType = StructType({

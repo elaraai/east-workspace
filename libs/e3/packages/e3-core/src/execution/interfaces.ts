@@ -35,6 +35,11 @@ export interface TaskExecuteOptions {
   onStdout?: (data: string) => void;
   /** Callback for stderr data */
   onStderr?: (data: string) => void;
+  /** The memory, in bytes, the execution is expected to need: for a unit of a
+   *  split task, the largest peak a unit of its stage has reached in the run.
+   *  A local runner reserves it from its budget; a remote one may size the
+   *  unit's function by it. Absent while nothing has been measured. */
+  expectedPeakBytes?: number;
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
@@ -60,8 +65,9 @@ export interface TaskResult {
   /** True when e3 stopped the task because the run was aborted (state
    *  'error', message `cancelled: …`) — not the task's own failure */
   cancelled?: boolean;
-  /** The runner's peak resident memory in bytes, when a unit it ran reported
-   *  one. */
+  /** The highest peak resident memory, in bytes, a runner process of the
+   *  execution reached, as its execution records it — for a result served
+   *  from the cache too. Absent when no runner reported one. */
   peakBytes?: number;
 }
 

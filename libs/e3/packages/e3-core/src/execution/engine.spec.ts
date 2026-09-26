@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import {
   ArrayType, DictType, IntegerType, SetType, StringType, StructType,
-  East, SortedMap, SortedSet, compareFor,
+  East, SortedMap, SortedSet, compareFor, some,
   type EastType,
 } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
@@ -302,7 +302,15 @@ describe('a task split into pieces', () => {
     assert.equal(result.state, 'failed');
     assert.equal(result.exitCode, 1);
     assert.match(result.error ?? '', /^Piece \d+ of \d+ failed \(exit code 1\): .*bad row 1100/s);
-    assert.equal((await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash))?.type, 'failed');
+    const recorded = await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash);
+    assert.equal(recorded?.type, 'failed');
+    // A failed piece's record holds its runner's peak, as a success's does.
+    const failedLine = (await unitLines(taskHash, result)).find((line) => / failed task=/.test(line))!;
+    const [, inputs, peak] = / inputs=(\w+) .* peak=(\d+)$/.exec(failedLine)!;
+    const piece = await storage.refs.executionGetLatest(repo, taskHash, inputs!);
+    assert.deepEqual(piece?.type === 'failed' && piece.value.peakBytes, some(BigInt(peak!)));
+    assert.ok(recorded?.type === 'failed' && recorded.value.peakBytes.type === 'some' && recorded.value.peakBytes.value >= BigInt(peak!),
+      'the task\'s record holds the largest peak its units reached');
   });
 
   it('records the task cancelled when the run is aborted, and stops its units', async () => {
@@ -350,6 +358,60 @@ describe('a task split into pieces', () => {
     assert.equal(pieces.filter((event) => event.state === 'started').length, total);
     assert.deepEqual(pieces.filter((event) => event.state === 'completed').map((event) => event.completed), Array.from({ length: total }, (_, i) => i + 1));
     assert.deepEqual(events.filter((event) => event.phase === 'merge').map((event) => event.state), ['started', 'completed']);
+  });
+
+  it('runs each stage\'s first unit alone, reserves for the rest the largest peak the stage has reached, and records every peak', async () => {
+    const taskHash = await deploy(e3.streamTask('measured', {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, _amount, key) => {
+        $(emit(key.remainder(97n), 1n));
+      });
+    }));
+
+    // What each unit asked of the budget, in order, and each release.
+    const budget = new Budget({ cores: 4, memory: 1024 ** 3 });
+    const asked: (number | 'released')[] = [];
+    const acquire = budget.acquire.bind(budget);
+    budget.acquire = async (request = {}) => {
+      asked.push(request.memory ?? 0);
+      const release = await acquire(request);
+      return () => {
+        asked.push('released');
+        release();
+      };
+    };
+    const result = await run(taskHash, [[SalesType, salesOf(8000)]], { budget });
+    assert.equal(result.state, 'success', result.error ?? '');
+
+    const lines = await unitLines(taskHash, result);
+    const peakOf = (line: string) => Number(/ peak=(\d+)$/.exec(line)![1]);
+    const pieces = lines.filter((line) => line.startsWith('piece '));
+    const first = peakOf(pieces.find((line) => line.startsWith('piece 1/'))!);
+    const piecePeaks = pieces.map(peakOf);
+    const requests = asked.filter((entry): entry is number => entry !== 'released');
+    assert.ok(pieces.length > 4, 'the input ran as many pieces');
+    assert.deepEqual(asked.slice(0, 2), [0, 'released'], 'the first piece reserved nothing, and ran alone');
+    assert.equal(requests.length, pieces.length + 1, 'every piece, then the merge');
+    for (const memory of requests.slice(1, pieces.length)) {
+      assert.ok(memory >= first && piecePeaks.includes(memory), `a piece reserved ${memory}, not the largest peak of the pieces before it`);
+    }
+    assert.equal(requests[pieces.length], 0, 'the merge level measures afresh');
+
+    // Each unit's record holds its runner's peak, and the task's the largest.
+    for (const line of lines) {
+      const recorded = await storage.refs.executionGetLatest(repo, taskHash, / inputs=(\w+) /.exec(line)![1]!);
+      assert.deepEqual(recorded?.type === 'success' && recorded.value.peakBytes, some(BigInt(peakOf(line))));
+    }
+    const largest = Math.max(...lines.map(peakOf));
+    const own = await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash);
+    assert.deepEqual(own?.type === 'success' && own.value.peakBytes, some(BigInt(largest)));
+    assert.equal(result.peakBytes, largest);
+    // The cache serves the task with the peak its record holds.
+    const again = await taskExecute(storage, repo, taskHash, [await datasetWrite(storage, repo, salesOf(8000), SalesType)]);
+    assert.equal(again.cached, true);
+    assert.equal(again.peakBytes, largest);
   });
 
   it('roots each stage\'s plan through its sidecar until the task ends, and a later run takes up the stage it names', async () => {

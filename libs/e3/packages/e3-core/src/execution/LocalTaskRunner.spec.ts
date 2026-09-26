@@ -411,6 +411,28 @@ describe('the budget', () => {
     }
   });
 
+  it('reserves the memory a unit is expected to need, so units that do not fit together run one at a time', async () => {
+    const script = 'sleep 0.3; cp "$1" "$2"';
+    const runUnits = async (budget: Budget, expectedPeakBytes: number, salt: string) => {
+      const runner = new LocalTaskRunner(repo, budget);
+      const results = await Promise.all(['a', 'b'].map(async (name) => {
+        const { taskHash, inputHashes } = await bashTask(script, `${salt}-${name}`);
+        return runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null }, { expectedPeakBytes });
+      }));
+      for (const result of results) assert.equal(result.state, 'success', result.error ?? '');
+      assert.equal(budget.inFlight, 0);
+      assert.equal(budget.reserved, 0);
+    };
+
+    const apart = new Budget({ cores: 2, memory: 1024 ** 3 });
+    await runUnits(apart, 0.6 * 1024 ** 3, 'apart');
+    assert.equal(apart.peak, 1, 'two units expecting 60% of the memory each ran one at a time');
+
+    const together = new Budget({ cores: 2, memory: 1024 ** 3 });
+    await runUnits(together, 0.4 * 1024 ** 3, 'together');
+    assert.equal(together.peak, 2, 'two expecting 40% each ran at once');
+  });
+
   it('records an execution the run aborts while it waits for the budget as cancelled, without a runner', async () => {
     const budget = new Budget({ cores: 1, memory: 1024 ** 3 });
     const abort = new AbortController();

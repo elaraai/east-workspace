@@ -437,6 +437,7 @@ describe('gc', () => {
         outputHash: hash,
         startedAt: new Date(),
         completedAt: new Date(),
+        peakBytes: none,
       });
       writeFileSync(join(execDir, 'status.beast2'), encoder(status));
 

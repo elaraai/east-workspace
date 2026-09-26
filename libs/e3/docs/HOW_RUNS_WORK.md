@@ -55,7 +55,10 @@ segment at a time. Nothing reads a collection whole to store it.
    task's program over that piece.
    - e3 links the piece's manifest and segments into a scratch directory inside
      the repository. It starts the runner (`east-c`, `east-node` or `east-py`,
-     each with `exec`) once the budget gives it a core.
+     each with `exec`) once the budget gives it a core and the memory it is
+     expected to need.
+   - The first piece runs alone, and its peak memory tells e3 what the rest
+     need; the others then run as many at once as fit.
    - An input larger than 64 MiB opens lazily. A `$.for` loop reads it a
      segment at a time, and a key lookup reads only the segment the key is in.
    - What the body emits into a dict or set is sorted in a buffer of at most
@@ -117,17 +120,22 @@ The run's loop decides what is **ready**; the budget decides what **runs**.
   - A task that splits is planned once it is ready, and its units become ready
     a stage at a time: its pieces, then each level of its merges.
   - A stage waits only for its own task's previous stage.
+  - A stage's first unit runs alone, and the rest are ready once it has
+    finished (see [Memory](#memory)).
 - **In flight.** The loop keeps up to `-j` things in flight: a task, a task
   being planned, or one unit. When there is room, units of the tasks already
   running go first, in the order those tasks started.
-- **Cores.** Every runner process takes a core from the budget before it starts
-  and gives it back when it exits: a task, a piece, a merge, a function call, a
-  mutation or an index build. Requests are served first come, first served.
+- **Cores and memory.** Every runner process takes a core from the budget, and
+  the memory it is expected to need, before it starts, and gives them back when
+  it exits: a task, a piece, a merge, a function call, a mutation or an index
+  build. Requests are served first come, first served. One whose memory does
+  not fit lets smaller ones pass for ten seconds, then waits for the room.
 
 Work runs in parallel at three levels:
 
 - **Independent tasks:** `enrich` beside `score`.
-- **The units of one stage:** every piece at once, as cores allow.
+- **The units of one stage:** once the first has finished, every piece at
+  once, as cores and memory allow.
 - **Threads inside one unit:** up to four, for the runner's thread pools,
   chiefly for compressing its output. The program itself runs on one thread.
 
@@ -210,6 +218,14 @@ so on a busy server a call waits its turn.
   - an `e3.task` that returns one (an `e3.streamTask` emits it instead);
   - using a lazily opened input in any way but a loop or a key lookup, which
     reads it whole once.
-- **Admission is by cores alone.** `--memory` (or `E3_MEMORY`) sets the memory
-  side of the budget, but no unit reserves memory yet. Choose `-j` so that that
-  many units fit in memory at once.
+- **What a unit reserves is measured in the run.** `--memory` (or
+  `E3_MEMORY`) sets the memory side of the budget: by default what the machine
+  or its container allows, less a reserve for e3 and the OS.
+  - A unit of a split task reserves the largest peak a unit of its stage has
+    reached in this run. So a stage runs its first unit alone, then fans out,
+    as many units at once as fit, and a unit that needs more than the whole
+    budget runs alone.
+  - Nothing is carried over from earlier runs, so a program or input that has
+    changed is measured afresh.
+  - A task that runs as one unit, a mutation and a function call reserve
+    nothing, since nothing before them measured what they need.

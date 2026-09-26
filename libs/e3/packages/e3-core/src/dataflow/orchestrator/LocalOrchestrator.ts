@@ -657,14 +657,17 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
         // The units of split tasks in progress launch first, in the order the
         // tasks started, each counting against the width as a task does. A
-        // split task in progress finishes, as a running task does, even once
-        // another task has failed; nothing starts once the run is aborted.
+        // stage's first unit launches alone, to measure the stage's peak, and
+        // the rest once it has settled. A split task in progress finishes, as
+        // a running task does, even once another task has failed; nothing
+        // starts once the run is aborted.
         for (const [taskName, run] of execution.splits) {
           while (
             !checkAborted() &&
             execution.runningTasks.size < width &&
             !run.stopped &&
-            run.next < run.split.stage.units.length
+            run.next < run.split.stage.units.length &&
+            (run.inFlight === 0 || !run.split.measuring)
           ) {
             this.launchUnit(storage, repo, execution, taskName, run);
           }
@@ -1326,7 +1329,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Launches the next unit of a split task's stage. The unit that ends the
+   * Launches the next unit of a split task's stage, expecting to need the
+   * largest peak a unit of the stage has reached. The unit that ends the
    * stage — the last in flight, once no more will start — advances the task.
    */
   private launchUnit(
@@ -1338,12 +1342,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): void {
     const index = run.next++;
     const unit = run.split.stage.units[index]!;
+    const expectedPeakBytes = run.split.stagePeak;
     const key = `${taskName}\u0000${execution.unitSeq++}`;
     run.inFlight++;
     run.split.unitStarted(index);
     const launched = (async () => {
       try {
-        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit);
+        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes);
         run.results[index] = result;
         run.split.unitSettled(index, result);
         // A unit e3 stopped because the run was aborted is not a failure.
@@ -1430,7 +1435,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     execution: RunningExecution,
     taskName: string,
     taskHash: string,
-    unit: SplitUnit
+    unit: SplitUnit,
+    expectedPeakBytes: number | undefined
   ): Promise<ExecutionResult> {
     const { options } = execution;
     const execOptions: TaskExecuteOptions = {
@@ -1441,6 +1447,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       signal: execution.abortController.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
+      expectedPeakBytes,
     };
     if (!options.runner) {
       return taskExecuteUnit(storage, repo, taskHash, unit, execOptions);

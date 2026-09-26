@@ -15,7 +15,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, none, StringType, IntegerType, ArrayType, DictType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
+import { variant, none, some, StringType, IntegerType, ArrayType, DictType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
   TASK_OBJECT_KIND,
@@ -1861,6 +1861,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           outputHash: `output-${name}`,
           startedAt: now,
           completedAt: now,
+          peakBytes: none,
         }));
       }
 
@@ -2208,6 +2209,64 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual((await storage.refs.executionGetLatest(testRepo, totalHash, inHash))?.type, 'success');
     });
 
+    it('launches each stage\'s first unit alone, and the rest expecting the largest peak the stage has reached', async () => {
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const zip = join(tempDir, 'split.zip');
+      await e3.export(e3.package('split', '1.0.0', rows, total), zip);
+      await packageImport(storage, testRepo, zip);
+      await workspaceCreate(storage, testRepo, 'test-ws');
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'split', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, (await workspaceGetPackage(storage, testRepo, 'test-ws')).hash));
+      const totalHash = deployed.tasks.get('total')!;
+
+      // Each piece reports a peak of its own, and the merge a larger one. A
+      // unit notes, as it launches, what it expects and what had settled.
+      const launches: { merge: boolean; alone: boolean; expected: number | undefined; settled: number[] }[] = [];
+      const settled: number[] = [];
+      let inFlight = 0;
+      let pieces = 0;
+      mockRunner.setUnitResult(totalHash, async (unit) => {
+        const calls = mockRunner.getUnitCalls();
+        launches.push({ merge: unit.merge !== null, alone: inFlight === 0, expected: calls[calls.length - 1]!.options?.expectedPeakBytes, settled: [...settled] });
+        inFlight++;
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        inFlight--;
+        if (unit.merge !== null) return { state: 'success', cached: false, outputHash: 'sum', peakBytes: 5_000 };
+        const peakBytes = 1_000 + ((pieces * 7_919) % 97);
+        settled.push(peakBytes);
+        return { state: 'success', cached: false, outputHash: `piece-${pieces++}`, peakBytes };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner, width: 4 });
+      assert.strictEqual(result.success, true);
+
+      const [first, ...rest] = launches.filter((launch) => !launch.merge);
+      assert.ok(rest.length > 4, 'the input was cut into many pieces');
+      assert.deepStrictEqual(first, { merge: false, alone: true, expected: undefined, settled: [] }, 'the first piece launched alone, expecting nothing');
+      for (const launch of rest) {
+        assert.ok(launch.settled.length > 0, 'no piece launched before the first had settled');
+        assert.strictEqual(launch.expected, Math.max(...launch.settled));
+      }
+      assert.ok(rest.some((launch) => !launch.alone), 'the rest ran side by side');
+      assert.deepStrictEqual(launches.filter((launch) => launch.merge).map(({ alone, expected }) => ({ alone, expected })), [{ alone: true, expected: undefined }],
+        'the merge level measures afresh');
+
+      // The task's own record holds the largest peak of its units.
+      const rowsRef = await storage.datasets.read(testRepo, 'test-ws', 'inputs/rows');
+      assert.ok(rowsRef?.type === 'value');
+      const recorded = await storage.refs.executionGetLatest(testRepo, totalHash, inputsHash([rowsRef.value.hash]));
+      assert.deepStrictEqual(recorded?.type === 'success' && recorded.value.peakBytes, some(5_000n));
+    });
+
     it('yields mid-task and resumes at the stage it stopped in, running none of the finished units again', async () => {
       const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
         Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
@@ -2537,6 +2596,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           outputHash: `output-${name}`,
           startedAt: now,
           completedAt: now,
+          peakBytes: none,
         }));
       }
 

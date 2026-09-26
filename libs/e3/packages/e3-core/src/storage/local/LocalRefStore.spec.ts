@@ -54,6 +54,7 @@ describe('LocalRefStore execution status (concurrent read/write)', () => {
     outputHash: 'c'.repeat(64),
     startedAt: new Date(0),
     completedAt: new Date(1000),
+    peakBytes: some(64n * 1024n ** 2n),
   });
 
   it('executionGet never tears while executionWrite overwrites status in place', async () => {

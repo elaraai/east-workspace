@@ -79,6 +79,11 @@ alike (every runner takes one, first come first served, whatever launched it).
 CPUs of its affinity mask, capped by a cgroup quota, and the cgroup's
 `memory.max` or else physical memory, less a reserve for e3 and the OS.
 
+A unit of a partitioned task reserves the largest peak memory a unit of its
+stage (its partitions, or one level of its merges) has reached in the run, so
+each stage runs its first unit alone and then fans out. Anything else reserves
+nothing.
+
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository. Against a
 server they are refused: it runs the work under its own budget
