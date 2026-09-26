@@ -180,8 +180,22 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/workspaces/:ws/datasets` | List root datasets |
-| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Get dataset value (BEAST2) |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Get dataset value (BEAST2); a value over 1 MB that is not a collection answers JSON `{ url }` to download it from |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?segments=true` | A collection answers JSON `{ manifest }`, the manifest to download it by; any other value as above |
 | PUT | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Set dataset value (BEAST2) |
+
+A collection is streamed as the splice of its segments. A client whose host
+buffers responses downloads the manifest, the header it names and its segments
+through the objects route and splices them itself, as e3-api-client's
+`datasetGet` does; see
+[`design/e3-api.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-api.md#dataset-download).
+
+### Objects
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/repos/:repo/objects/:hash` | An object's bytes; one over 1 MB answers JSON `{ url }` to download it from |
+| GET | `/api/downloads/:id` | A download a `{ url }` answer names (no `Authorization`) |
 
 ### Dataset transfer
 

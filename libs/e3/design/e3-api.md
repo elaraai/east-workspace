@@ -467,6 +467,33 @@ job while the commit answers `processing`. A single `PUT` tops out at 5 GB, and
 S3 cannot checksum a multipart object with SHA-256, which is what the parts and
 the polled commit are for.
 
+### Dataset download
+
+`GET /api/repos/:repo/workspaces/:ws/datasets/<path>` answers the value's
+BEAST2 bytes. A collection is held as a segment manifest, many objects, so the
+route streams their splice a segment at a time. Any other value over 1 MB is
+answered, when the server has a transfer backend, with JSON `{ url }` (and
+`X-Content-Length`, `X-Content-SHA256`), which the client fetches without its
+`Authorization` header.
+
+A host that buffers its responses cannot stream a collection, and caps a
+response's size, so a client asks for the segments instead: `?segments=true`,
+which e3-api-client's `datasetGet` always sends. A collection is then answered
+with JSON `{ manifest }`, the manifest's hash — the primary's, for an indexed
+record — with the dataset's own hash in `X-Content-SHA256`; any other value as
+before. The client reads the manifest, the header it names and each segment
+through `GET /api/repos/:repo/objects/<hash>`, a few at a time, checks each
+against its hash, and splices them in order (east's `spliceBeast2Segments`)
+into the bytes the route would have streamed.
+
+The objects route answers an object over 1 MB as the dataset route does, with
+JSON `{ url }`, so a segment's bytes go from object storage to the client: an
+element larger than the cut rule's target is a segment of its own, so a
+segment can exceed a response cap.
+
+Pages (`?page=true`) are unchanged: each is decoded on the server from the
+segments it touches, and capped by `pageByteBudget`.
+
 ### Tasks
 
 | e3-core Function | Method | Path | Request | Response |

@@ -29,6 +29,7 @@ import {
   readBeast2Extents,
   readBeast2Type,
   segmentKeyTypeOf,
+  spliceBeast2Segments,
   spliceBeast2Tail,
   type EastTypeValue,
 } from '@elaraai/east';
@@ -284,7 +285,9 @@ export class DatasetSegments {
   }
 
   /**
-   * The whole value as one blob, streamed chunk by chunk.
+   * The whole value as one blob, streamed chunk by chunk
+   * ({@link spliceBeast2Segments}, as a client downloading the segments
+   * splices them).
    *
    * @remarks
    * What a download, an export, or a runner without a manifest-aware opener
@@ -293,21 +296,10 @@ export class DatasetSegments {
    * @returns the spliced blob's bytes, in order
    */
   async *splice(): AsyncIterable<Uint8Array> {
-    const head = await this.head();
-    yield head;
-    const segments: { offset: number; count: number }[] = [];
-    let pos = head.length;
-    for (const entry of this.manifest.entries) {
-      const bytes = await this.storage.objects.read(this.repo, entry.hash);
-      const extents = readBeast2Extents(bytes);
-      for (let s = 0; s < extents.offsets.length; s++) {
-        segments.push({ offset: extents.offsets[s]! - extents.prefixEnd + pos, count: extents.counts[s]! });
-      }
-      const frames = bytes.subarray(extents.prefixEnd, extents.segmentsEnd);
-      yield frames;
-      pos += frames.length;
-    }
-    yield spliceBeast2Tail(segments, pos);
+    const { storage, repo, manifest } = this;
+    yield* spliceBeast2Segments(await this.head(), (async function* () {
+      for (const entry of manifest.entries) yield await storage.objects.read(repo, entry.hash);
+    })());
   }
 }
 

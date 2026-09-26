@@ -124,7 +124,9 @@ export function createDatasetRoutes(
       });
     }
 
-    return getDataset(storage, repoPath, ws, treePath, repo, c.req.url, transferBackend);
+    // `segments=true`: a collection held as a segment manifest is answered
+    // with its manifest's hash, for a client that downloads the segments.
+    return getDataset(storage, repoPath, ws, treePath, repo, c.req.url, transferBackend, c.req.query('segments') === 'true');
   });
 
   // PUT /api/repos/:repo/workspaces/:ws/datasets/* - Set dataset value

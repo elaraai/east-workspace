@@ -95,6 +95,11 @@ const encoded = encodeBeast2For(StringType)('new value');
 await datasetSet(url, 'production', path, encoded);
 ```
 
+`datasetGet` downloads a collection as the segment objects its manifest names,
+a few at a time, checks each against its hash, and splices them into the value's
+bytes, so no response carries more than one segment and a server whose host
+caps its responses still serves a collection of any size.
+
 ### Tasks
 
 ```typescript

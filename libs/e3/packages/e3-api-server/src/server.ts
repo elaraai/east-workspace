@@ -438,8 +438,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
   app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, { getRunner, width: budget.cores }));
 
-  // Object routes: /api/repos/:repo/objects/:hash
-  app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath));
+  // Object routes: /api/repos/:repo/objects/:hash — a large object is answered
+  // by download URL, as a dataset is
+  app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath, transferBackend));
 
   let httpServer: ServerType | null = null;
   let actualPort = port;

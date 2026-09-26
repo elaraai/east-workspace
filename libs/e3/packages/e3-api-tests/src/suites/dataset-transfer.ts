@@ -6,10 +6,11 @@
 /**
  * Dataset transfer test suite.
  *
- * Tests: redirect-based GET for large objects, transfer upload flow for large SET,
- * dedup shortcut, and hash mismatch rejection — through the client, and at the
- * wire, where a server speaks the one protocol version and refuses a request
- * naming another, or none, in the same words.
+ * Tests: redirect-based GET for large objects, a collection downloaded as its
+ * segments, transfer upload flow for large SET, dedup shortcut, and hash
+ * mismatch rejection — through the client, and at the wire, where a server
+ * speaks the one protocol version and refuses a request naming another, or
+ * none, in the same words.
  */
 
 import { describe, it } from 'node:test';
@@ -239,6 +240,59 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       assert.strictEqual(response.headers.get('Content-Type'), 'application/json');
       const body = await response.json() as { error: { type: string; message: string } };
       assert.strictEqual(body.error.type, 'object_not_found');
+    });
+
+    it('answers an object over the inline limit with a URL to download it from', async (t) => {
+      const ctx = await withStringPackage(t);
+      const opts = await ctx.opts();
+      const path = [variant('field', 'inputs'), variant('field', 'config')];
+      const data = encodeBeast2For(StringType)(incompressibleString(1_100_007));
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, data, opts);
+      const hash = computeHash(data);
+
+      const response = await fetch(`${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/objects/${hash}`, {
+        headers: { 'Authorization': `Bearer ${opts.token}` },
+      });
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(response.headers.get('Content-Type'), 'application/json');
+      assert.strictEqual(response.headers.get('X-Content-SHA256'), hash);
+      assert.strictEqual(response.headers.get('X-Content-Length'), String(data.byteLength));
+
+      // The URL may be presigned, so it is fetched without the API's auth.
+      const { url } = await response.json() as { url: string };
+      const downloaded = await fetch(url);
+      assert.ok(downloaded.ok, `${downloaded.status} ${downloaded.statusText}`);
+      assert.strictEqual(computeHash(new Uint8Array(await downloaded.arrayBuffer())), hash);
+    });
+
+    it('downloads a collection as its segments, into the bytes the route streams', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const zipPath = await createTablePackageZip(ctx.tempDir, 'table-download', '1.0.0');
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'table-ws', opts);
+      await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'table-ws', 'table-download@1.0.0', opts);
+      const path = [variant('field', 'inputs'), variant('field', 'rows')];
+      const RowsType = ArrayType(StructType({ id: IntegerType, name: StringType }));
+      const text = incompressibleString(2_000_000);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'table-ws', path,
+        encodeBeast2For(RowsType)(Array.from({ length: 50_000 }, (_, i) => ({ id: BigInt(i), name: text.slice(i * 40, i * 40 + 40) }))), opts);
+      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, opts);
+      assert.ok(status.segments.type === 'some' && status.segments.value > 1n, 'the value spans segments');
+
+      const datasetUrl = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/table-ws/datasets/inputs/rows`;
+      const auth = { 'Authorization': `Bearer ${opts.token}` };
+      const named = await fetch(`${datasetUrl}?segments=true`, { headers: auth });
+      assert.strictEqual(named.headers.get('Content-Type'), 'application/json');
+      assert.deepStrictEqual(some((await named.json() as { manifest: string }).manifest), status.hash, 'the manifest is the dataset');
+
+      const { data, hash } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, opts);
+      assert.deepStrictEqual(some(hash), status.hash);
+      const streamed = new Uint8Array(await (await fetch(datasetUrl, { headers: auth })).arrayBuffer());
+      assert.deepStrictEqual(data, streamed, 'the splice the route streams');
+      const rows = decodeBeast2For(RowsType)(data);
+      assert.strictEqual(rows.length, 50_000);
+      assert.deepStrictEqual(rows[49_999], { id: 49_999n, name: text.slice(49_999 * 40, 50_000 * 40) });
     });
 
     it('refuses an inline PUT whose wire type is not the declared type', async (t) => {

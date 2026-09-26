@@ -230,6 +230,37 @@ describe('getDataset', () => {
     }
   });
 
+  it('answers a caller asking for segments with the manifest to download, and any other value as before', async () => {
+    const storage = new InMemoryStorage();
+    await storage.repos.create(REPO);
+    const type = DictType(StringType, IntegerType);
+    const hash = await datasetWrite(storage, REPO, new Map([['a', 1n], ['b', 2n]]), type);
+    await storage.datasets.write(REPO, WS, 'inputs/lookup', variant('value', { hash, versions: new Map() }));
+    const small = await storage.objects.write(REPO, encodeBeast2For(StringType)('small value'));
+    await storage.datasets.write(REPO, WS, 'inputs/small', variant('value', { hash: small, versions: new Map() }));
+
+    const response = await getDataset(storage, REPO, WS, [variant('field', 'inputs'), variant('field', 'lookup')], undefined, undefined, undefined, true);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('Content-Type'), 'application/json');
+    assert.equal(response.headers.get('X-Content-SHA256'), hash);
+    assert.deepEqual(await response.json(), { manifest: hash });
+
+    const inline = await getDataset(storage, REPO, WS, [variant('field', 'inputs'), variant('field', 'small')], undefined, undefined, undefined, true);
+    assert.equal(inline.headers.get('Content-Type'), BEAST2_CONTENT_TYPE);
+    assert.equal(computeHash(new Uint8Array(await inline.arrayBuffer())), small);
+  });
+
+  it('names an indexed record\'s primary as the manifest to download', async () => {
+    const storage = new InMemoryStorage();
+    const { rows } = await seedIndexedRecord(storage, 500);
+    const state = await storage.datasets.read(REPO, WS, 'records/plans');
+    assert.ok(state?.type === 'value');
+
+    const response = await getDataset(storage, REPO, WS, plansPath, undefined, undefined, undefined, true);
+    assert.equal(response.headers.get('X-Content-SHA256'), state.value.hash, 'the dataset is the record\'s state');
+    assert.deepEqual(await response.json(), { manifest: await datasetWrite(storage, REPO, rows, PlansType) });
+  });
+
   it('returns 404 JSON error for null dataset', async () => {
     const storage = new InMemoryStorage();
     await storage.repos.create(REPO);

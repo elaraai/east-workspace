@@ -336,6 +336,50 @@ export function spliceBeast2Tail(segments: readonly { offset: number; count: num
   return writer.toUint8Array();
 }
 
+/**
+ * The blob a collection's segment blobs splice into, streamed a chunk at a
+ * time: the header they share, each segment's frames in order, and the tail
+ * ({@link spliceBeast2Tail}).
+ *
+ * @remarks
+ * What a collection a manifest names is read whole as, from a store or over a
+ * network: a canonical writer's segment blobs share the header the manifest
+ * names, so their frames concatenate under it into the single-blob form, byte
+ * for byte, with no value decoded. Only the segment in hand is held, so a
+ * caller that fetches segments ahead of the splice bounds its memory by how far
+ * ahead it fetches.
+ *
+ * @param head - the header bytes every segment is written under: a segment
+ *   blob's bytes up to its first segment frame
+ * @param segments - the segment blobs, in order
+ * @returns the spliced blob's bytes, in order
+ * @throws {Error} When a segment blob is not a segmented, indexed v5
+ *   collection, or was written under another header.
+ */
+export async function* spliceBeast2Segments(
+  head: Uint8Array,
+  segments: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+): AsyncIterable<Uint8Array> {
+  yield head;
+  const table: { offset: number; count: number }[] = [];
+  let pos = head.length;
+  let i = 0;
+  for await (const bytes of segments) {
+    const extents = readBeast2Extents(bytes);
+    if (extents.prefixEnd !== head.length || !bytesEqual(bytes, head, head.length)) {
+      throw new Error(`beast2 v5: segment ${i} was written under another header — the segments of one collection share theirs`);
+    }
+    for (let s = 0; s < extents.offsets.length; s++) {
+      table.push({ offset: extents.offsets[s]! - extents.prefixEnd + pos, count: extents.counts[s]! });
+    }
+    const frames = bytes.subarray(extents.prefixEnd, extents.segmentsEnd);
+    yield frames;
+    pos += frames.length;
+    i++;
+  }
+  yield spliceBeast2Tail(table, pos);
+}
+
 /** Whether the first `length` bytes of `a` and `b` are identical. */
 function bytesEqual(a: Uint8Array, b: Uint8Array, length: number): boolean {
   if (a.length < length || b.length < length) return false;

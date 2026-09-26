@@ -34,7 +34,21 @@ import {
   segmentKeyTypeOf,
   segmentRuleFor,
   spliceBeast2,
+  spliceBeast2Segments,
 } from "../index.js";
+
+/** Every chunk a splice streams, as one array. */
+async function collect(chunks: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
+  const parts: Uint8Array[] = [];
+  for await (const chunk of chunks) parts.push(chunk);
+  const out = new Uint8Array(parts.reduce((n, part) => n + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
 
 /** A manifest directory held in memory, and the order its sink was called in. */
 function directory(): { sink: Beast2ManifestSink; objects: Map<string, Uint8Array>; calls: string[]; manifest: () => Uint8Array } {
@@ -80,7 +94,7 @@ const cases = [
 
 describe("beast2 v5 manifest writer", () => {
   for (const { name, type, value, elements } of cases) {
-    test(`writes ${name} as the Writer's blob taken apart, each object under its SHA-256`, () => {
+    test(`writes ${name} as the Writer's blob taken apart, each object under its SHA-256`, async () => {
       const dir = directory();
       const writer = new Beast2ManifestWriter(type, dir.sink);
       for (const element of elements()) writer.add(element as never);
@@ -111,6 +125,8 @@ describe("beast2 v5 manifest writer", () => {
         assert.deepEqual(new Uint8Array(entry.fence), keyType === null ? new Uint8Array(0) : encodeBeast2FenceFor(keyType)(pages.fence(i)));
       });
       assert.deepEqual(spliceBeast2(manifest.entries.map((entry) => dir.objects.get(entry.hash)!)), blob);
+      // Streamed under the header the manifest names, as a download splices.
+      assert.deepEqual(await collect(spliceBeast2Segments(header, manifest.entries.map((entry) => dir.objects.get(entry.hash)!))), blob);
     });
 
     test(`writes ${name} as a directory that reads back as the value`, () => {
@@ -131,6 +147,25 @@ describe("beast2 v5 manifest writer", () => {
       );
     });
   }
+
+  test("splices no segment written under another header", async () => {
+    const segmentsOf = (type: typeof DictSI | typeof SetS, elements: Iterable<unknown>) => {
+      const dir = directory();
+      const writer = new Beast2ManifestWriter(type, dir.sink);
+      for (const element of elements) writer.add(element as never);
+      writer.finish();
+      const manifest = decodeCollectionManifest(dir.manifest());
+      return { header: dir.objects.get(manifest.header)!, segments: manifest.entries.map((entry) => dir.objects.get(entry.hash)!) };
+    };
+    const dicts = segmentsOf(DictSI, dict.entries());
+    const sets = segmentsOf(SetS, set.keys());
+    await assert.rejects(collect(spliceBeast2Segments(dicts.header, [dicts.segments[0]!, sets.segments[1]!])), {
+      message: "beast2 v5: segment 1 was written under another header — the segments of one collection share theirs",
+    });
+    // An empty collection is its header and the tail.
+    const empty = encodeBeast2PagedFor(DictSI)(new SortedMap<string, bigint>(undefined, compareFor(StringType)));
+    assert.deepEqual(await collect(spliceBeast2Segments(dicts.header, [])), empty);
+  });
 
   test("hands the header over first and the manifest last", () => {
     const dir = directory();

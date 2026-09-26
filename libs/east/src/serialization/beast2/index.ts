@@ -76,6 +76,7 @@ export {
   isBeast2SyncRangeReader,
   carveBeast2Ranged,
   spliceBeast2Tail,
+  spliceBeast2Segments,
 } from "./v5/geometry.js";
 export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
 export {

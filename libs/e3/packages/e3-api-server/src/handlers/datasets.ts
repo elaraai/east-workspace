@@ -11,7 +11,7 @@ import {
   workspaceGetDatasetStatus,
   workspaceSetDatasetBytes,
   workspaceGetTree,
-  readManifest,
+  openDatasetObject,
   recordIndexNames,
   resolveRecordIndex,
   DatasetSegments,
@@ -39,16 +39,22 @@ export async function listDatasets(
   }
 }
 
-const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
+/** The size over which an object is answered with a URL to fetch it from
+ *  rather than inline, when a transfer backend is configured. */
+export const DOWNLOAD_REDIRECT_BYTES = 1 * 1024 * 1024;
 
 /**
  * Get dataset value as raw BEAST2 bytes.
  *
- * A collection held as a segment manifest is streamed as its splice. Any other
- * object over 1 MB, when a transfer backend is configured, is answered with a
- * JSON response carrying a download URL the client fetches directly. This
- * avoids browser issues with opaque redirect responses from
- * `redirect: 'manual'`.
+ * A collection held as a segment manifest is streamed as its splice, or, for a
+ * caller that asks for its segments, answered with JSON `{ manifest }`, the
+ * manifest's hash — the primary's, for an indexed record — for a client that
+ * downloads the manifest and its segment objects itself and splices them. A
+ * host that cannot stream a response answers a large collection no other way.
+ * Any other object over {@link DOWNLOAD_REDIRECT_BYTES}, when a transfer
+ * backend is configured, is answered with a JSON response carrying a download
+ * URL the client fetches directly. This avoids browser issues with opaque
+ * redirect responses from `redirect: 'manual'`.
  */
 export async function getDataset(
   storage: StorageBackend,
@@ -58,6 +64,7 @@ export async function getDataset(
   repo?: string,
   requestUrl?: string,
   transferBackend?: TransferBackend,
+  segments = false,
 ): Promise<Response> {
   try {
     if (treePath.length === 0) {
@@ -90,7 +97,17 @@ export async function getDataset(
     // response holds one segment at a time, and one that buffers it into a
     // single payload holds the value, as far as that payload's limit allows.
     // The download redirect stays for objects that are the value.
-    if (await readManifest(storage, repoPath, hash) !== null) {
+    const collection = await openDatasetObject(storage, repoPath, hash);
+    if (collection.manifest !== null) {
+      if (segments) {
+        return new Response(JSON.stringify({ manifest: collection.hash }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Content-SHA256': hash,
+          },
+        });
+      }
       const chunks = (await DatasetSegments.open(storage, repoPath, hash)).splice()[Symbol.asyncIterator]();
       const body = new ReadableStream<Uint8Array>({
         async pull(controller) {
@@ -114,7 +131,7 @@ export async function getDataset(
     // When serving via API with a transfer backend, check size to decide whether to redirect
     if (transferBackend && repo && requestUrl) {
       const { size } = await storage.objects.stat(repoPath, hash);
-      if (size > SIZE_THRESHOLD) {
+      if (size > DOWNLOAD_REDIRECT_BYTES) {
         let downloadUrl = await transferBackend.datasetDownload.getDownloadUrl(repo, hash);
         // Resolve relative URL against the request origin
         if (downloadUrl.startsWith('/')) {
