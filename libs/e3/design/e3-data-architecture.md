@@ -754,6 +754,98 @@ e3-cloud's audit, built against this branch, found five things it would otherwis
    - The objects route takes the transfer backend's download redirect, as the dataset route does for a large object, so the bytes go from object storage to the client. An element larger than the cut rule's target is a segment of its own, so a segment can exceed a response cap.
    - Pages are unchanged: each is decoded on the server from the segments it touches, and capped by `pageByteBudget`.
 
+Then five more, asked once the first five had landed (decided 2026-09-26). Each was checked against the code, and one is built in another form than asked.
+
+6. **Staging and adoption, concurrently.** A unit's inputs and their segments were materialized one at a time, and a runner's output segments adopted one at a time: a link each locally, but a request each on S3, so a unit with a 1 GiB input waited about 25 s on latency alone. One pool of 16 bounds a unit's staging — its inputs and their segments together, and a custom runner's splice, which reads ahead — and one bounds the adoption of a runner's directory. The manifest is written once every segment has settled, as before.
+7. **An environment for runners that is the caller's** (#340). `extraEnv` on `TaskExecuteOptions`, `ExecuteOptions` and `DetachedRunOptions` reaches every spawn: a task's, a unit's (its output merge included) and a function call's. It is merged after `process.env`, is never hashed and never logged, and may not name a variable e3 sets itself (`PATH`, `E3_RUNNER_SEARCH_DIRS`): one that does is refused. Until it lands, e3-cloud sets `process.env` around each call, which is safe only while a process runs one task at a time.
+8. **Deploy as a job,** with record migrations (below), which run at deploy as index builds do.
+9. **A primitive for a record's system commits,** with record migrations, in another form than asked. e3-cloud writes `$rollback` and `$restore` commits itself and drops every reserved slot doing so. It asked for a primitive that clears the idempotency slots as a compaction does, but that reopens the double-apply it described: a keyed retry arriving after a rollback would re-apply the write the operator just rolled back.
+10. **The environment-file reader, exported:** `decodeEnvironmentFile(bytes, hash)`, with the header check and the re-export refusal, and the lockfile-format check (`nodeLockFilename`). e3-cloud reads the same files in two places and would otherwise copy both.
+
+Items 6, 7 and 10 land after item 5; 8 and 9 land with record migrations. Asked back: e3-core records every execution it runs with the spawning process as its owner, so if e3-cloud's compute runs units through e3-core, a probe from another Lambda repairs a live unit as item 4 describes. If it does, the owner becomes the caller's to pass there too, with item 6.
+
+### Record migrations (decided 2026-09-26)
+
+A record's type is fixed for its life today. A redeploy whose record changed type is refused, and the only way out is removing the workspace, which deletes the state and its history. Three more gaps sit beside it:
+- a record the new package no longer declares is dropped, with its state and history, silently;
+- a prior deployment that does not read is taken as a fresh deploy, so every record is reset, silently;
+- a redeploy that keeps a record appends no commit, so nothing in its history says the package under it changed.
+
+`e3-records-schema.md` §5–§7 proposed the mechanism. Records now run on the engine, which settles its open questions about where a migration runs. Decided with the user: whole-value and streamed migrations, including a change of key; a `$deploy` commit only when the package changed; a dropped record refused unless flagged; `e3 watch` failing on a type change, naming `--schema=reset`; and a record deployed before this lands counted as having applied no migration.
+
+**Authoring.** The migration forms are a closed family, like the mutation forms (D13):
+
+```ts
+const m1 = e3.migration.value('add_shift', roster,
+  East.function([RosterV1Type], RosterV2Type, ($, old) => …));
+const m2 = e3.migration.rows('widen_row', plans,
+  East.function([PlanKeyType, RowV1Type], RowV2Type, ($, key, row) => …), { after: m1 });
+const m3 = e3.migration.rekey('by_site', plans,
+  East.function([PlanKeyType, RowV2Type], StructType({ key: SiteKeyType, value: RowV2Type }), ($, key, row) => …),
+  { after: m2 });
+const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
+```
+
+- `value`: `(Old) => New`, any record. It runs as one unit, whose runner opens the state lazily, so it costs what the body reads.
+- `rows`: a Dict record's rows, `(K, V1) => V2` with the keys unchanged, or an Array record's elements, `(T1) => T2` in order. It runs as a task split over the stored state, into a `dict` or `array` output, so a record of any size migrates a piece at a time, in parallel, each piece cached.
+- `rekey`: a Dict record's keys and rows, `(K1, V1) => { key: K2, value: V2 }`, or a Set record's elements, `(T1) => T2`. It is the same split task into a `dict` or `set` output: the pieces' outputs merge by key range, and two old rows landing on one new key fail the deploy, naming it.
+- The guards of a mutation: synchronous, and no platform call. The types are read off the function. `after` links the chain: exactly one migration of a record has none, and each `after` names a migration of the same record. Each step's input type is its predecessor's output type, and the last step's output type is the record's declared type. Each is an error at definition, naming both types.
+
+**Wire.** `MigrationObjectType`: `form`, `from` and `to` (the record's type before and after), `bodyIr`, `programIr` (the generated program a `rows` or `rekey` step runs, empty for `value`) and `runner`. `RecordObjectType` gains `migrations`, the declared chain in order: each step's name and object hash. Both are package-borne, so they change by hard cutover.
+
+**What a workspace has applied.** The record ref's reserved `$schema` slot holds a rolling hash of the applied steps' object hashes, `sha256(previous ‖ step)`. None applied is the slot's absence, which is exactly true of every record deployed before this lands, since no migration could exist. Only deploy writes it.
+
+**Deploy plans before it writes.** For each record, from the stored `$schema` and the stored state's type:
+
+| Prior | `$schema` against the package's chain | Plan |
+|---|---|---|
+| none | — | `mint`: `$init` from the package's initial value, the whole chain applied |
+| present | the whole chain, the type unchanged | `keep`, with a `$deploy` commit when the package changed |
+| present | the whole chain, the type changed | refused: the type changed with no migration. The message renders the type diff and names the fixes, a migration after the last or `--schema=reset` |
+| present | a proper prefix | `migrate`: the remaining steps, in order |
+| present | no prefix, or longer than the chain | refused: an applied migration was edited, reordered or removed, or the package is older than the workspace. The message names the steps the history shows |
+| present, not in the package | — | `drop`: refused unless `--allow-drop-records` |
+
+A prior deployment that does not read is refused, naming it, where it was a silent reset. The stored state's type must be the first remaining step's input type, so a chain that does not start where the workspace is fails before anything runs.
+
+**Policies.** `--schema=migrate` (the default), `fail` (refuse to run any migration: a workspace whose migrations go through their own change control) or `reset` (a record that cannot be kept or migrated is reset to the package's initial value, with a `$reset` root commit, so the reset is in its history). `--plan` answers the plan and writes nothing. `e3 watch` takes `--schema`, and on a type change fails, naming `e3 watch --schema=reset`.
+
+**Running.** The steps run before the deploy's wipe, as index builds do, through the deploy's task runner: a `value` step as one unit, a `rows` or `rekey` step as a split task over the state before it. They write objects and no ref, so a failure leaves the workspace as it was, with nothing to restore, and a deploy run again after a failure is served its finished steps from the execution cache. A migrated record's indexes are then built over its new state: a changed type rebuilds every one.
+
+**Deploy as a job** (item 8 above). A deploy that migrates or builds over a large record outlasts a request, and e3-cloud's gateway ends one at 30 s. `POST …/deploy` answers a job id, and the client polls it until the job answers what it did, or why it failed, as package export's job does. The job store is a seam the server is given, as package export's is: a local server runs the job in process, and e3-cloud in its own compute. The request gains `schema`, `allowDropRecords` and `plan`.
+
+**Commits and the reserved slots.** A `$migrate:<name>` commit per step, by `system:deploy`, the last one writing `$schema`; then the `$reindex` of the index builds, as now. A kept record gets one `$deploy` commit when the package's hash differs from the one deployed before. What each commit does to the idempotency slots decides whether a keyed retry is answered or applied again:
+
+| Commit | `$idem` and `$idem.commit` | `$schema` |
+|---|---|---|
+| a mutation | written when keyed, dropped when not | carried |
+| `$reindex`, `$deploy`, and a rollback or a restore | carried | carried |
+| `$compact`, `$migrate:<name>` | `$idem.commit` points at this commit, whose state holds the keyed write | carried; written by the last `$migrate` |
+| `$reset` | dropped: the keyed write is gone with the state | written, the whole chain |
+
+A compaction cleared the slots, so a keyed retry arriving just after one applied its mutation again. Pointing the slot at the compaction commit answers the retry without keeping the cut commit alive (found checking item 9).
+
+**System commits** (item 9 above). e3-core exports the primitive that commits a given state as a named system commit, such as e3-cloud's `$rollback` and `$restore`, rather than `nextVersions`: these rules are the commit protocol's, and a second copy of the protocol is how the slots were lost. It refuses a state whose type is not the record's declared type, since a rollback past a `$migrate` commit would restore a state of the old type. It rebuilds the indexes whose declarations differ from those the state was built under, and it carries every reserved slot, as the table says.
+
+**GC.** A record object's migrations are walked, and a migration object's `bodyIr` and `programIr` are leaves.
+
+**Surfaces.** e3-core's `workspaceDeploy` options (`schema`, `allowDropRecords`, `plan`, and an `onRecordPlan` callback beside `onRecordIndex`); the CLI's `workspace deploy` and `watch`; the API's deploy job and e3-api-client's `workspaceDeploy`; e3-ui's record history, which names the new commits.
+
+Built in four parts, in this order:
+1. **The migration forms:** the wire, the SDK's three forms and their chain checks, the programs `rows` and `rekey` run, export, and GC.
+2. **Deploy runs them:** the plan, `$schema`, the three policies and `--plan`, the refusals, the commits and slots of the table, the CLI and `e3 watch`.
+3. **Deploy as a job:** the API's job, its store, and the client.
+4. **System commits:** the primitive, with its tests and e3-cloud#187's note.
+
+Acceptance:
+- Each row of the plan table, through e3-core and through the API.
+- A migration that fails mid-chain leaves the workspace as it was, and the deploy run again is served its finished steps from the cache.
+- A `rows` or `rekey` step over many pieces (`E3_TEST_PIECE_BYTES`) writes the manifest the `value` step writes for the same change, and a `rekey` that lands two rows on one key is refused, naming it.
+- `$schema` survives a mutation, a compaction, a reindex and a system commit; a keyed retry is answered, not applied, after each of those, a rollback and a migration.
+- A `$deploy` commit only when the package changed; a dropped record refused, then allowed.
+- A deploy that takes minutes completes as a job through the API.
+- gc keeps a migrated record's history, and a state reads at an older commit under the type it was written with.
+
 ### Stage 6 — Automatic parallelism (e3 SDK)
 
 A PR of its own from main, once this PR has merged (D10), carrying its own docs (P10). It adds no field to the task object: what a body does after the recognised operations becomes a second task the SDK writes.
