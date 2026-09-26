@@ -44,7 +44,7 @@ export interface TuiOptions {
     /** Whether box-drawing is off (`--ascii` or `E3_UI_ASCII=1`). */
     ascii: boolean;
     /** The embedded server's budget as given (`-j`, `--memory`), resolved
-     *  when a local repository opens. */
+     *  as the terminal UI starts, before it opens a local repository. */
     budget: { jobs?: string; memory?: string };
 }
 

@@ -32,6 +32,7 @@ import { createPersister, loadState, repoEntry, statePath, type Persister } from
 import { createStore, StoreContext } from './state/store.js';
 import { openSession, SessionRefusal, type Session } from './session.js';
 import { startRepoServer } from '../e3-server.js';
+import { resolveBudget, type ServerConfig } from '@elaraai/e3-api-server';
 import { suspendTerminal } from './suspend.js';
 import type { RepoFacts } from './ui/views/about.js';
 import './ui/views/all.js';
@@ -54,6 +55,18 @@ export interface TuiHandle {
  * @returns The exit code
  */
 export async function runTui(options: TuiOptions): Promise<number> {
+    // A local repository's embedded server runs under this budget, resolved
+    // before anything opens: a bad -j, --memory, E3_JOBS or E3_MEMORY is
+    // refused in e3's words, not on a refusal screen once the server starts.
+    let budget: ServerConfig['budget'] = options.budget;
+    if (!/^https?:\/\//.test(options.repo)) {
+        try {
+            budget = resolveBudget(options.budget);
+        } catch (err) {
+            process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+            return 1;
+        }
+    }
     const env = process.env;
     const { log, file: debugFile } = createDebugLogger(env);
     const glyphs = selectGlyphs({ ascii: options.ascii, env });
@@ -188,7 +201,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
         try {
             const opened = await openSession(target, {
                 onStep: (step) => store.dispatch({ type: 'view/launchStep', step }),
-                startServer: (repoPath) => startRepoServer(repoPath, options.budget),
+                startServer: (repoPath) => startRepoServer(repoPath, budget),
             });
             if (exited) {
                 await opened.stop();

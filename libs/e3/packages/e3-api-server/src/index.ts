@@ -13,6 +13,10 @@
 export { createServer, type ServerConfig, type Server } from './server.js';
 export { ApiTypes } from './types.js';
 
+// How `ServerConfig.budget` settings resolve, for an embedder that checks them
+// before it starts a server
+export { resolveBudget, type BudgetSettings } from '@elaraai/e3-core';
+
 // Export handlers for Lambda reuse
 export * from './handlers/index.js';
 
