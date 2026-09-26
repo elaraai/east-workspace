@@ -5,7 +5,7 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
@@ -537,6 +537,10 @@ describe('the guard', () => {
   }
 
   const attempts = (): number => readFileSync(path.join(marks, 'attempts'), 'utf8').split('\n').filter((line) => line !== '').length;
+  // The samplers below report the pressure only once a runner has marked its
+  // attempt: bash can take longer to start on Windows than the guard takes to
+  // stop it, and a runner stopped before its mark would go uncounted.
+  const marked = (): boolean => existsSync(path.join(marks, 'attempts'));
 
   it('runs a unit it stopped past the budget again, reserving what the unit reached, under the same execution, to the same bytes', async () => {
     // The first runner measured is past the budget; any later one is small.
@@ -544,7 +548,7 @@ describe('the guard', () => {
     const sampler: MemorySampler = {
       sample: async (runners) => new Map(runners.map((runner) => {
         first ??= runner.pid;
-        return [runner.pid, runner.pid === first ? 150 * MiB : MiB];
+        return [runner.pid, runner.pid === first && marked() ? 150 * MiB : MiB];
       })),
       machine: async () => null,
     };
@@ -577,7 +581,7 @@ describe('the guard', () => {
   it('fails a task it stopped with the machine nearly out of memory, and a function call', async () => {
     const sampler: MemorySampler = {
       sample: async (runners) => new Map(runners.map((runner) => [runner.pid, 20 * MiB])),
-      machine: async () => ({ available: 1, total: 100 }),
+      machine: async () => (marked() ? { available: 1, total: 100 } : null),
     };
     const budget = new Budget({ cores: 2, memory: 100 * MiB }, { sampler, sampleMs: 10 });
     const runner = new LocalTaskRunner(repo, budget);
