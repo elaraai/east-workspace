@@ -335,6 +335,17 @@ export interface RefStore {
   executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void>;
 
   /**
+   * Delete an execution attempt's record: its status and its owner. gc, which
+   * bounds the history a repository keeps, removes the attempt's logs first,
+   * through the log store.
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   */
+  executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void>;
+
+  /**
    * List all execution IDs for a (taskHash, inputsHash) pair.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
@@ -644,6 +655,15 @@ export interface LogStore {
   // Note: The options.limit parameter corresponds to a maximum bytes to read.
   // The returned LogChunk.size indicates actual bytes read.
   // The returned LogChunk.complete indicates if end of file was reached.
+
+  /**
+   * Remove both streams of an execution attempt's logs.
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   */
+  remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void>;
 }
 
 // =============================================================================

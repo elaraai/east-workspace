@@ -4,8 +4,15 @@
  */
 
 import type { StorageBackend } from '../storage/interfaces.js';
+import { uuidv7 } from '../uuid.js';
 import type { SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
 import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
+
+/**
+ * A result a test configures. It may leave out the execution's id: the mock
+ * then reports a fresh one, as a runner reports the attempt it ran.
+ */
+export type MockTaskResult = Omit<TaskResult, 'executionId'> & { executionId?: string };
 
 /**
  * Record of a single task execution call.
@@ -31,28 +38,28 @@ export interface MockUnitCall {
  * Allows configuring responses per task and records all calls for assertions.
  */
 export class MockTaskRunner implements TaskRunner {
-  private results = new Map<string, TaskResult | ((inputHashes: string[]) => TaskResult | Promise<TaskResult>)>();
+  private results = new Map<string, MockTaskResult | ((inputHashes: string[]) => MockTaskResult | Promise<MockTaskResult>)>();
   private calls: MockTaskCall[] = [];
-  private defaultResult: TaskResult = { state: 'success', cached: false, outputHash: 'mock-hash' };
-  private unitResults = new Map<string, (unit: SplitUnit) => TaskResult | Promise<TaskResult>>();
+  private defaultResult: MockTaskResult = { state: 'success', cached: false, outputHash: 'mock-hash' };
+  private unitResults = new Map<string, (unit: SplitUnit) => MockTaskResult | Promise<MockTaskResult>>();
   private unitCalls: MockUnitCall[] = [];
 
   /**
    * Set result for a specific task hash.
    *
    * @param taskHash - The task hash to configure
-   * @param result - Either a static TaskResult or a function that computes result from inputHashes
+   * @param result - Either a static result or a function that computes result from inputHashes
    */
-  setResult(taskHash: string, result: TaskResult | ((inputHashes: string[]) => TaskResult | Promise<TaskResult>)): void {
+  setResult(taskHash: string, result: MockTaskResult | ((inputHashes: string[]) => MockTaskResult | Promise<MockTaskResult>)): void {
     this.results.set(taskHash, result);
   }
 
   /**
    * Set default result for tasks without specific results configured.
    *
-   * @param result - The default TaskResult to return
+   * @param result - The default result to return
    */
-  setDefaultResult(result: TaskResult): void {
+  setDefaultResult(result: MockTaskResult): void {
     this.defaultResult = result;
   }
 
@@ -82,10 +89,9 @@ export class MockTaskRunner implements TaskRunner {
     this.calls.push({ taskHash, inputHashes, options });
 
     const configured = this.results.get(taskHash);
-    if (configured) {
-      return typeof configured === 'function' ? await configured(inputHashes) : configured;
-    }
-    return this.defaultResult;
+    const result = configured === undefined ? this.defaultResult
+      : typeof configured === 'function' ? await configured(inputHashes) : configured;
+    return { ...result, executionId: result.executionId ?? uuidv7() };
   }
 
   /**
@@ -94,7 +100,7 @@ export class MockTaskRunner implements TaskRunner {
    * @param taskHash - The task hash to configure
    * @param result - Computes a unit's result from the unit
    */
-  setUnitResult(taskHash: string, result: (unit: SplitUnit) => TaskResult | Promise<TaskResult>): void {
+  setUnitResult(taskHash: string, result: (unit: SplitUnit) => MockTaskResult | Promise<MockTaskResult>): void {
     this.unitResults.set(taskHash, result);
   }
 
@@ -115,7 +121,8 @@ export class MockTaskRunner implements TaskRunner {
   ): Promise<TaskResult> {
     this.unitCalls.push({ taskHash, unit, options });
     const configured = this.unitResults.get(taskHash);
-    return configured ? await configured(unit) : this.defaultResult;
+    const result = configured ? await configured(unit) : this.defaultResult;
+    return { ...result, executionId: result.executionId ?? uuidv7() };
   }
 
   private detachedResult: DetachedResult = {

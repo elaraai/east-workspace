@@ -112,4 +112,14 @@ export class LocalLogStore implements LogStore {
       throw err;
     }
   }
+
+  async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    for (const stream of ['stdout', 'stderr'] as const) {
+      try {
+        await fs.unlink(this.logPath(repo, taskHash, inputsHash, executionId, stream));
+      } catch (err) {
+        if (!isNotFoundError(err)) throw err;
+      }
+    }
+  }
 }

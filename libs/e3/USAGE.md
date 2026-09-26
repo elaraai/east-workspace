@@ -489,10 +489,19 @@ await e3.export(pkg, '/tmp/myapp.zip');
 e3 repo create <repo>             # Create repository (local path or remote URL)
 e3 repo remove <repo> [-r]        # Remove repository (-r to remove workspaces first)
 e3 repo status <repo>             # Show repository status (packages, workspaces)
-e3 repo gc <repo> [--dry-run]     # Remove unreferenced objects
+e3 repo gc <repo> [--dry-run] [--keep-runs <n>] [--keep-days <d>]   # Remove old history and unreferenced objects
 ```
 
 The `repo remove` command will refuse to remove a repository that contains workspaces unless the `-r` (`--recursive`) flag is provided. With `-r`, all workspaces are removed before the repository is deleted.
+
+`repo gc` bounds the history a repository keeps before it removes the objects
+nothing names. It keeps each workspace's last 10 runs (`--keep-runs`), every
+run from the last 7 days (`--keep-days`) and the run its current state came
+from, with every execution those runs used; every execution a workspace's
+current state is served from, so a re-run stays cached; every execution from
+the last 7 days; and whatever is running. Every other execution — its record
+and its logs — and run record goes, and the outputs only they kept go with
+them. `--dry-run` reports what would go without deleting anything.
 
 ### Package Commands
 

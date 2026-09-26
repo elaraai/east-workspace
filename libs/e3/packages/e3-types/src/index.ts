@@ -181,6 +181,7 @@ export {
   ExecutionStatusType,
   type ExecutionStatus,
   decodeExecutionStatus,
+  executionStatusRoots,
   ExecutionOwnerType,
   type ExecutionOwner,
 } from './execution.js';

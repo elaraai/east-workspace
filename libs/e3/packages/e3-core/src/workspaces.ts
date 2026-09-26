@@ -22,8 +22,8 @@ import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, some, EastTypeType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceRecordType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeRecordObject, decodeTaskObject } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceRecordType, RecordCommitType, DataflowRunType, DatasetRefType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
@@ -778,47 +778,23 @@ export async function workspaceExport(
       const dataflowPath = `dataflows/${name}/${currentRunId}.beast2`;
       zipfile.addBuffer(Buffer.from(runEncoder(dataflowRun)), dataflowPath, { mtime: DETERMINISTIC_MTIME });
 
-      // Include execution files for each task
-      for (const [taskName, execRecord] of dataflowRun.taskExecutions) {
-        const taskHash = newPkgObject.tasks.get(taskName);
-        if (!taskHash) continue;
-
-        // Get the task to find its inputs
-        const task: TaskObject = decodeTaskObject(await storage.objects.read(repo, taskHash));
-
-        // Compute inputsHash from workspace refs
-        const inputHashes: string[] = [];
-        for (const { path: inputPath } of task.inputs) {
-          try {
-            const { workspaceGetDatasetHash } = await import('./trees.js');
-            const { hash } = await workspaceGetDatasetHash(storage, repo, name, inputPath);
-            if (hash) inputHashes.push(hash);
-          } catch {
-            // Skip if input not available
-          }
-        }
-
-        if (inputHashes.length !== task.inputs.length) continue;
-
-        const { inputsHash } = await import('./executions.js');
-        const inHash = inputsHash(inputHashes);
-
+      // Include the execution each task used, which the run's record names
+      // whole: its inputs may have changed in the workspace since.
+      const statusEncoder = encodeBeast2For(ExecutionStatusType);
+      for (const { taskHash, inputsHash: inHash, executionId } of dataflowRun.taskExecutions.values()) {
         // Read and add execution status
-        const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, execRecord.executionId);
+        const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
         if (execStatus) {
-          const statusEncoder = await import('@elaraai/e3-types').then(m =>
-            encodeBeast2For(m.ExecutionStatusType)
-          );
-          const statusPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/status.beast2`;
+          const statusPath = `executions/${taskHash}/${inHash}/${executionId}/status.beast2`;
           zipfile.addBuffer(Buffer.from(statusEncoder(execStatus)), statusPath, { mtime: DETERMINISTIC_MTIME });
         }
 
         // Read and add logs (stdout/stderr)
         for (const stream of ['stdout', 'stderr'] as const) {
           try {
-            const logChunk = await storage.logs.read(repo, taskHash, inHash, execRecord.executionId, stream, { limit: 100 * 1024 * 1024 });
+            const logChunk = await storage.logs.read(repo, taskHash, inHash, executionId, stream, { limit: 100 * 1024 * 1024 });
             if (logChunk.data && logChunk.data.length > 0) {
-              const logPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/${stream}.txt`;
+              const logPath = `executions/${taskHash}/${inHash}/${executionId}/${stream}.txt`;
               zipfile.addBuffer(Buffer.from(logChunk.data), logPath, { mtime: DETERMINISTIC_MTIME });
             }
           } catch {

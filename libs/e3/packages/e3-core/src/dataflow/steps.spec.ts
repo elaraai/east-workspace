@@ -96,6 +96,7 @@ function makeTaskState(name: string, status: TaskState['status']): TaskState {
     completedAt: none,
     duration: none,
     plan: none,
+    execution: none,
   } as TaskState;
 }
 
@@ -181,7 +182,7 @@ describe('split task stages', () => {
     assert.deepStrictEqual([completed.value.level, completed.value.levels], [1n, 2n]);
   });
 
-  it('keeps the plan across a yield, and clears it when the task ends', () => {
+  it('keeps the plan across a yield, and clears it when the task ends, recording the execution it completed with', () => {
     const tasks = new Map<string, TaskState>();
     tasks.set('task-a', makeTaskState('task-a', 'in_progress'));
     tasks.set('task-b', makeTaskState('task-b', 'in_progress'));
@@ -193,10 +194,12 @@ describe('split task stages', () => {
     assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
     assert.deepStrictEqual(state.tasks.get('task-a')!.plan, some('plan-a'));
 
-    stepTaskCompleted(state, 'task-a', 'output-a', false, 10);
+    stepTaskCompleted(state, 'task-a', 'output-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' });
     stepTaskFailed(state, 'task-b', 'Piece 1 of 4 failed', 1, 10);
     assert.deepStrictEqual(state.tasks.get('task-a')!.plan, none);
     assert.deepStrictEqual(state.tasks.get('task-b')!.plan, none);
+    assert.deepStrictEqual(state.tasks.get('task-a')!.execution, some({ inputsHash: 'inputs-a', executionId: 'execution-a' }));
+    assert.deepStrictEqual(state.tasks.get('task-b')!.execution, none);
   });
 });
 
@@ -219,7 +222,7 @@ describe('stepInvalidateTasks', () => {
     assert.strictEqual(state.tasks.get('task-a')!.status, 'failed');
   });
 
-  it('resets completed tasks to pending', () => {
+  it('resets completed tasks to pending, forgetting the execution each completed with', () => {
     const graph: DataflowGraph = {
       tasks: [
         { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
@@ -231,6 +234,7 @@ describe('stepInvalidateTasks', () => {
     // Mark as executed (not cached) so the counter decrement path is exercised
     (completedTask as Mutable<TaskState>).cached = some(false);
     (completedTask as Mutable<TaskState>).outputHash = some('old-output');
+    (completedTask as Mutable<TaskState>).execution = some({ inputsHash: 'old-inputs', executionId: 'old-execution' });
     tasks.set('task-a', completedTask);
 
     const state = makeState(graph, tasks, { executed: 1n });
@@ -239,6 +243,7 @@ describe('stepInvalidateTasks', () => {
 
     assert.deepStrictEqual(invalidated, ['task-a']);
     assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+    assert.deepStrictEqual(state.tasks.get('task-a')!.execution, none);
     assert.strictEqual(state.executed, 0n);
   });
 

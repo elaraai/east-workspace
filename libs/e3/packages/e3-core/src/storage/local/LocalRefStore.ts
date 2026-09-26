@@ -233,6 +233,23 @@ export class LocalRefStore implements RefStore {
     await atomicWriteFile(path.join(execDir, 'status.beast2'), encoder(status));
   }
 
+  /**
+   * Deletes an attempt's status and owner, and then each directory it leaves
+   * empty: the attempt's, its inputs', and its task's.
+   */
+  async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    const execDir = executionPath(repo, taskHash, inputsHash, executionId);
+    await unlinkIfPresent(path.join(execDir, 'status.beast2'));
+    await unlinkIfPresent(path.join(execDir, 'owner.beast2'));
+    for (const dir of [execDir, executionPath(repo, taskHash, inputsHash), path.join(repo, 'executions', taskHash)]) {
+      try {
+        await fs.rmdir(dir);
+      } catch {
+        return; // Not empty: an attempt, a log or a plan pointer is left in it
+      }
+    }
+  }
+
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
     const inputDir = executionPath(repo, taskHash, inputsHash);
 

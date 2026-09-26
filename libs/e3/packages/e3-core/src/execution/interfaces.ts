@@ -53,8 +53,9 @@ export interface TaskResult {
   state: 'success' | 'failed' | 'error';
   /** Whether the result was served from cache */
   cached: boolean;
-  /** Execution ID (UUIDv7) */
-  executionId?: string;
+  /** Execution ID (UUIDv7): the attempt that ran, or the one the cache served,
+   *  which the run's record names */
+  executionId: string;
   /** Output hash (if state is 'success') */
   outputHash?: string;
   /** Exit code (if state is 'failed') */

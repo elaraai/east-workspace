@@ -234,6 +234,12 @@ class InMemoryRefStore implements RefStore {
     this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), status);
   }
 
+  async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
+    this.getExecutions(repo).delete(key);
+    this.owners.delete(`${repo}/${key}`);
+  }
+
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
     const prefix = this.makeInputsKey(taskHash, inputsHash) + '/';
     const ids: string[] = [];
@@ -492,6 +498,12 @@ class InMemoryLogStore implements LogStore {
       totalSize: content.length,
       complete: offset + data.length >= content.length,
     };
+  }
+
+  async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    for (const stream of ['stdout', 'stderr']) {
+      this.logs.delete(this.makeLogKey(repo, taskHash, inputsHash, executionId, stream));
+    }
   }
 
   clear(): void {

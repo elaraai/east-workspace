@@ -79,6 +79,14 @@ export const TaskStateType = StructType({
    *  it runs, and across a yield, so a resumed run takes the stage up where
    *  it stopped. */
   plan: OptionType(StringType),
+  /** The execution the task completed with — run, or served from the cache —
+   *  by its inputs hash and id, which the run's record names. */
+  execution: OptionType(StructType({
+    /** The combined hash of the task's inputs */
+    inputsHash: StringType,
+    /** The execution's id (UUIDv7) */
+    executionId: StringType,
+  })),
 });
 export type TaskState = ValueTypeOf<typeof TaskStateType>;
 
@@ -350,8 +358,9 @@ export interface PartitionProgress {
  * - 2: a task's `plan`, and the events of a split task's stages.
  * - 3: no `concurrency`: the budget of the process that runs it decides what
  *   runs, and is never persisted.
+ * - 4: a task's `execution`: the one it completed with.
  */
-export const EXECUTION_STATE_VERSION = 3n;
+export const EXECUTION_STATE_VERSION = 4n;
 
 /**
  * Persistent state for a dataflow execution.
@@ -493,11 +502,18 @@ export const DataflowRunStatusType = VariantType({
 export type DataflowRunStatus = ValueTypeOf<typeof DataflowRunStatusType>;
 
 /**
- * Record of a task execution within a dataflow run.
+ * Record of a task execution within a dataflow run: the execution the run
+ * used, which a local repository keeps at
+ * executions/<taskHash>/<inputsHash>/<executionId>/, whatever the workspace
+ * has held since.
  */
 export const TaskExecutionRecordType = StructType({
-  /** Execution ID (UUIDv7) */
+  /** Execution ID (UUIDv7): the attempt that ran, or the one the cache served */
   executionId: StringType,
+  /** Hash of the task object */
+  taskHash: StringType,
+  /** Combined hash of the task's inputs */
+  inputsHash: StringType,
   /** Whether this was a cache hit */
   cached: BooleanType,
   /** Output version vector (which root input versions produced this output) */

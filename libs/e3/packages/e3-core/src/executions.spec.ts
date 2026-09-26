@@ -135,7 +135,7 @@ describe('executions', () => {
       assert.strictEqual(output, null);
     });
 
-    it('returns the output hash the latest success record holds, past a later failure', async () => {
+    it('returns the output hash the latest success record holds, and its id, past a later failure', async () => {
       const taskHash = 'a'.repeat(64);
       const inHash = 'b'.repeat(64);
       const succeeded = uuidv7();
@@ -149,6 +149,7 @@ describe('executions', () => {
         startedAt: new Date(0),
         completedAt: new Date(1),
         peakBytes: none,
+        plan: none,
       }));
       await storage.refs.executionWrite(testRepo, taskHash, inHash, failed, variant('failed', {
         executionId: failed,
@@ -160,7 +161,7 @@ describe('executions', () => {
       }));
 
       const output = await executionGetOutput(storage, testRepo, taskHash, inHash);
-      assert.strictEqual(output, outputHash);
+      assert.deepStrictEqual(output, { outputHash, executionId: succeeded });
     });
   });
 

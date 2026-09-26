@@ -107,7 +107,7 @@ describe('the repository\'s records', () => {
     const [execution] = await storage.refs.executionList(repo);
     assert.ok(execution !== undefined, 'the run recorded an execution');
     const plan = await storage.objects.write(repo, encodeUnitPlan({
-      kind: UNIT_PLAN_KIND, task: execution.taskHash, inputs: execution.inputsHash, stage: variant('pieces', []),
+      kind: UNIT_PLAN_KIND, task: execution.taskHash, inputs: execution.inputsHash, stage: variant('pieces', []), previous: none,
     }));
     await storage.refs.executionPlanWrite(repo, execution.taskHash, execution.inputsHash, plan);
     const exclusive = await storage.locks.acquire(repo, 'main', variant('export', null));

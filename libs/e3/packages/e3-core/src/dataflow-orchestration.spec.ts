@@ -1651,6 +1651,51 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(outputVersions.has('.input'), false, 'Input should not appear in outputVersions');
     });
 
+    it('names each task\'s execution whole: the attempt that ran, and the one a cached task was served from', async () => {
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['input', { type: 'value', value: { type: StringType, writable: true } }],
+          ['output', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+      const inputPath: TreePath = [variant('field', 'input')];
+      const outputPath: TreePath = [variant('field', 'output')];
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [{ name: 'task-a', command: ['echo'], inputs: [inputPath], output: outputPath }],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'test', StringType);
+      const taskHash = taskHashes.get('task-a')!;
+
+      const ran = '0190a0b0-6666-7000-8000-000000000001';
+      let seen: string[] = [];
+      mockRunner.setResult(taskHash, (inputHashes) => {
+        seen = [...inputHashes];
+        return { state: 'success', cached: false, outputHash: 'task-a-output', executionId: ran };
+      });
+      const first = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+      assert.strictEqual(first.executed, 1);
+      const executed = (await storage.refs.dataflowRunGet(testRepo, 'test-ws', first.runId))!.taskExecutions.get('task-a')!;
+      assert.deepStrictEqual([executed.taskHash, executed.inputsHash, executed.executionId, executed.cached],
+        [taskHash, inputsHash(seen), ran, false]);
+
+      // An execution the cache serves the task from, as the dataflow reads the
+      // cache: the latest success over the task's inputs.
+      const served = '0190a0b0-6666-7000-8000-000000000002';
+      await storage.refs.executionWrite(testRepo, taskHash, inputsHash(seen), served, variant('success', {
+        executionId: served, inputHashes: seen, outputHash: 'task-a-output',
+        startedAt: new Date(), completedAt: new Date(), peakBytes: none, plan: none,
+      }));
+      const second = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+      assert.strictEqual(second.cached, 1);
+      const cached = (await storage.refs.dataflowRunGet(testRepo, 'test-ws', second.runId))!.taskExecutions.get('task-a')!;
+      assert.deepStrictEqual([cached.taskHash, cached.inputsHash, cached.executionId, cached.cached],
+        [taskHash, inputsHash(seen), served, true], 'the run names the execution it was served from, not its own id');
+    });
+
     it('records outputVersions for all completed tasks in a chain', async () => {
       const structure: Structure = {
         type: 'struct',
@@ -1858,6 +1903,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           startedAt: now,
           completedAt: now,
           peakBytes: none,
+          plan: none,
         }));
       }
 
@@ -1979,14 +2025,16 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(aCalls.length, 1);
     });
 
-    it('keeps the run\'s one id across a resume: its execution state\'s, and its record\'s', async () => {
+    it('keeps the run\'s one id across a resume: its execution state\'s, and its record\'s, which names each task\'s execution', async () => {
       const taskHashes = await createChainFixture();
       const stateStore = new InMemoryStateStore();
       const orchestrator = new LocalOrchestrator(stateStore);
 
+      // Each task's attempt, by the id its runner reports.
+      const attempts = new Map([...taskHashes.keys()].map((name, i) => [name, `0190a0b0-7777-7000-8000-00000000000${i}`]));
       for (const [name, hash] of taskHashes) {
         mockRunner.setResult(hash, {
-          state: 'success', cached: false, outputHash: `output-${name}`,
+          state: 'success', cached: false, outputHash: `output-${name}`, executionId: attempts.get(name)!,
         });
       }
 
@@ -2017,6 +2065,9 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(run.status.type, 'completed');
       for (const name of ['task-a', 'task-b', 'task-c']) {
         assert.ok(run.taskExecutions.has(name), `run record should include ${name}`);
+        // task-a completed before the yield: its execution comes from the state.
+        assert.strictEqual(run.taskExecutions.get(name)!.executionId, attempts.get(name), `${name}'s execution`);
+        assert.strictEqual(run.taskExecutions.get(name)!.taskHash, taskHashes.get(name));
       }
     });
 
@@ -2594,6 +2645,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           startedAt: now,
           completedAt: now,
           peakBytes: none,
+          plan: none,
         }));
       }
 

@@ -59,13 +59,15 @@ The `plan` record names the `$plan` of the stage a split task's execution is in,
 | Case | Meaning | Adds |
 |---|---|---|
 | `running` | the runner has been launched | `pid`, `pidStartTime`, `bootId` (see Crash Detection) |
-| `success` | the runner exited 0 and its output was stored | `outputHash`, `completedAt`, `peakBytes` |
+| `success` | the runner exited 0 and its output was stored | `outputHash`, `completedAt`, `peakBytes`, `plan` |
 | `failed` | the runner exited non-zero, a signal ended it, or it could not be spawned | `completedAt`, `exitCode`, `peakBytes` |
 | `error` | e3 failed around the runner, or stopped it at its timeout | `completedAt`, `message` |
 | `cancelled` | e3 stopped the execution because the run was aborted, before its runner started or while it ran | `completedAt` |
 | `interrupted` | the orchestrator that owned the execution exited before it finished, and its runner is gone too | `completedAt`, `pid` (the runner's) |
 
 `peakBytes` is the highest peak resident memory a runner process of the execution reached, as the results of its units report it: a unit's, the larger of its run's and its output merge's; a split task's own, the largest of its units'. It is `none` when no runner reported one, as for a command body.
+
+`plan` is a split task's: the `$plan` of the last stage it ran, which names the stage before it, and so every unit its output was assembled from (see Split Tasks). It is `none` for any other execution.
 
 The status is stored state, read with `decodeExecutionStatus`, which refuses a record an older e3 wrote, saying to re-create the repository.
 
@@ -198,7 +200,7 @@ Each group merges through a tree of units of fan-in 32 (`MERGE_TREE_FANIN`): a l
 
 ### Stages and the unit plan
 
-The units run a stage at a time: the pieces, then each level of the merges. Each stage is a `$plan` object (`UnitPlanType`, `e3-types/src/unit-plan.ts`) holding the task's hash, the task's inputs hash and the stage: each piece's inputs, or a merge level — its number, the number of levels, and its groups, each an optional range and its entries in fold order. It is written as the stage starts and named by the execution's `plan` record, which roots it for GC until the execution ends.
+The units run a stage at a time: the pieces, then each level of the merges. Each stage is a `$plan` object (`UnitPlanType`, `e3-types/src/unit-plan.ts`) holding the task's hash, the task's inputs hash, the stage — each piece's inputs, or a merge level: its number, the number of levels, and its groups, each an optional range and its entries in fold order — and the plan of the stage before it (`previous`, `none` for the pieces). It is written as the stage starts and named by the execution's `plan` record, which roots it for GC until the execution ends. A task taken up mid-way still names every stage it ran, through the plans before the one it took up.
 
 While the stages run, the task's own execution, `(taskHash, inputsHash(inputHashes))`, is recorded `running` under the orchestrator, with the orchestrator as its runner and its owner. Its `stdout.txt` gets one line per unit once the unit's result is known (`combine` names a fold's merges):
 ```
@@ -206,7 +208,7 @@ piece <i>/<n> <completed|cached|failed|cancelled> task=<hash> inputs=<hash> exec
 merge level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 combine level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 ```
-The ids are in full, so `e3 task logs <repo> --execution <task>/<inputs>/<id>` opens any unit's own logs. `peak` is the runner's peak resident memory, as the unit's result reports it: the larger of the run's and, when a set or dict closed several runs, their merge's. A unit served from the cache has the peak its record holds, and one whose runner recorded no result has none. When the last stage yields the output, the task's execution records `success`, and its `plan` record is removed, as it is at every other end:
+The ids are in full, so `e3 task logs <repo> --execution <task>/<inputs>/<id>` opens any unit's own logs. `peak` is the runner's peak resident memory, as the unit's result reports it: the larger of the run's and, when a set or dict closed several runs, their merge's. A unit served from the cache has the peak its record holds, and one whose runner recorded no result has none. When the last stage yields the output, the task's execution records `success`, naming the last stage's plan, and its `plan` record is removed, as it is at every other end:
 - a unit's failure: `failed` with the unit's exit code, or `error`, naming the stage's lowest-index failing unit, so the cause is the same at every pool width;
 - a unit whose executor threw: `error`, naming the lowest-index one, whose error is then raised;
 - pieces that cannot be planned, or outputs that cannot be grouped or assembled: `error`, naming why;
@@ -264,17 +266,25 @@ Dependency: A → B → C (and A → C)
 - `stepYield` and `stepCancel`;
 - the reactive steps that detect input changes, invalidate tasks and check version consistency (see e3-reactive-dataflow.md).
 
-A run has one id, a UUIDv7 the orchestrator mints: the execution state's id, the run record's `runId` (`dataflows/<ws>/<runId>.beast2`), and the workspace's `currentRunId` once it succeeds. A resumed run keeps it. Each step is pure or idempotent over the persisted state, so a run can yield and resume. The loop keeps up to `width` things in flight — a task, a split task while its pieces are planned, and each unit of a split task — and the CLI and the API server set `width` to their budget's cores, of which every runner they spawn takes one. A split task's units launch first, in the order the tasks started, a stage's first unit alone. A split task in progress runs to its end even once another task has failed, as a running task does; nothing starts once the run is aborted.
+A run has one id, a UUIDv7 the orchestrator mints: the execution state's id, the run record's `runId` (`dataflows/<ws>/<runId>.beast2`), and the workspace's `currentRunId` once it succeeds. A resumed run keeps it. The run record names each task's execution whole — its task hash, inputs hash and id: the attempt that ran, or the one the cache served — which the execution state records as each task completes, so a resumed run's record names the executions its first incarnation used too. Each step is pure or idempotent over the persisted state, so a run can yield and resume. The loop keeps up to `width` things in flight — a task, a split task while its pieces are planned, and each unit of a split task — and the CLI and the API server set `width` to their budget's cores, of which every runner they spawn takes one. A split task's units launch first, in the order the tasks started, a stage's first unit alone. A split task in progress runs to its end even once another task has failed, as a running task does; nothing starts once the run is aborted.
 
 A split task is planned when it becomes ready and is not cached: its pieces are cut, the task's state names their `$plan`, a `task_split` event records how many there are, and its units join the loop's. When a stage's last unit settles the task advances: `task_merge_completed` records a level's end, and `task_merge_started` a level's start with its units and the number of levels, while the task's state names the level's `$plan`. Once the last stage yields the output, the task completes as any task does and its `plan` is cleared. The state records a split task's stages, never each unit, so it stays small however many pieces a task has; each unit's progress is the `onPartitionProgress` callback (the CLI's `[PART]`, `[MERGE]` and `[COMBINE]` lines). A unit runs through the run's `TaskRunner.executeUnit` when the run has a runner, and through `taskExecuteUnit` otherwise.
 
 A yield stops the loop launching, suspends each split task in progress — its execution recorded `interrupted` — and resets the in-progress tasks to `pending`, keeping a split task's `plan`. The resumed run takes each stage up again from its plan, and finds the units that finished in the execution cache. A run whose host died is resumed the same way. An aborted run ends a split task whose next units never started `cancelled`, as its units in flight end.
 
-The execution state carries its version (`EXECUTION_STATE_VERSION`, 3: version 2 brought a task's `plan` and a split task's events, and version 3 dropped `concurrency`, which the budget replaced). `decodeDataflowExecutionState` reads its own version and refuses any other, naming it: a newer one's, and an older one's, which is re-created with its repository (see `docs/conventions/WIRE_MIGRATION.md`). A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
+The execution state carries its version (`EXECUTION_STATE_VERSION`, 4: version 2 brought a task's `plan` and a split task's events, version 3 dropped `concurrency`, which the budget replaced, and version 4 records the execution each task completed with). `decodeDataflowExecutionState` reads its own version and refuses any other, naming it: a newer one's, and an older one's, which is re-created with its repository (see `docs/conventions/WIRE_MIGRATION.md`). A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
 
 ## Garbage Collection Integration
 
-A recorded execution's `success` status is a GC root: the output hash it holds keeps its output object, a unit's among them. Status, owner and plan records and logs are files, not objects. The `plan` record is a root while it names a plan. GC walks a `$plan`: the task as a node, each piece's inputs and each group's entries as dataset values (a manifest among them names its segments), and each range as a leaf.
+A recorded execution's `success` status is a GC root: the output hash it holds keeps its output object, a unit's among them, and a split task's last `$plan` is one too (`executionStatusRoots`). Status, owner and plan records and logs are files, not objects. The `plan` record is a root while it names a plan. GC walks a `$plan`: the task and the plan before it as nodes, each piece's inputs and each group's entries as dataset values (a manifest among them names its segments), and each range as a leaf.
+
+**History.** Before it marks, gc prunes the history a repository keeps (`storage/local/history.ts`). It keeps each workspace's last `keepRuns` runs (10 unless set), every run from the last `keepDays` days (7) and the run its current state came from; every execution those runs used, and every execution a workspace's current state is served from; every execution from the last `keepDays` days; and whatever is running.
+- A task over given inputs that keeps any execution keeps its latest attempt and its latest success, which are what the cache serves from: the dataflow is served the latest success, and a task run on its own the latest attempt when it succeeded. So gc never changes what either serves.
+- A split task's kept success keeps the units its output was assembled from, which its last `$plan` names through the plans before it, and a kept execution that can resume keeps its `plan` record and the units the plan names.
+- Every other execution goes, with its status, owner and logs (`RefStore.executionDelete`, `LogStore.remove`), and so do every other run record and the `plan` record of an execution nothing keeps. The mark then roots only what was kept, so the outputs only they kept go in the same sweep.
+- A dry run decides the same, deletes nothing, and sweeps as if it had. gc deletes nothing while it cannot read what a deployed workspace is served from.
+
+`e3 repo gc --keep-runs <n> --keep-days <d>`, `repoGc`'s `keepRuns` and `keepDays`, and the API's gc request set the bounds.
 
 gc also removes what a local repository keeps beside its objects: a built environment (`envs/<hash>/`) once the mark no longer reaches its spec, and the build directory of a builder that has exited (`envs/<hash>.building-<pid>-<pidStartTime>/`); scratch directories whose owner has exited; and staging files (`.partial`s) older than its `minAge`, in the record trees, beside the repository's record at its root, and in `tmp/transfers/`.
 

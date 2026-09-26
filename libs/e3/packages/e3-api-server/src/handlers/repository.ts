@@ -57,7 +57,7 @@ export async function getStatus(
 export function startGc(
   storage: StorageBackend,
   repoPath: string,
-  options: { dryRun: boolean; minAge?: number }
+  options: { dryRun: boolean; minAge?: number; keepRuns?: number; keepDays?: number }
 ): Response {
   // Create operation and get executionId
   const executionId = createGcOperation();
@@ -72,6 +72,8 @@ export function startGc(
         retainedObjects: BigInt(result.retainedObjects),
         skippedYoung: BigInt(result.skippedYoung),
         bytesFreed: BigInt(result.bytesFreed),
+        deletedRuns: BigInt(result.deletedRuns),
+        deletedExecutions: BigInt(result.deletedExecutions),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

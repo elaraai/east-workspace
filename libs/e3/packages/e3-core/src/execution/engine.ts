@@ -26,7 +26,9 @@
  * Each stage is a `$plan` object, written as the stage starts and named by the
  * plan sidecar of the task's execution, which roots it for GC until the
  * execution ends. A run that stops mid-task takes the stage up again from its
- * plan, and finds the units that finished in the execution cache.
+ * plan, and finds the units that finished in the execution cache. Each plan
+ * names the one before it, and the task's `success` record names the last, so
+ * gc finds every unit the output was assembled from ({@link stageUnits}).
  * {@link SplitTask} is the stages; the dataflow runs their units beside every
  * other task's, and {@link executeSplitTask} runs them in a pool of its own for
  * a task run on its own.
@@ -121,6 +123,28 @@ export type UnitExecutor = (
   merge: MergeParts | null,
   expectedPeakBytes: number | undefined,
 ) => Promise<ExecutionResult>;
+
+/**
+ * The units of a stage, in index order: a unit per piece, over its inputs; or,
+ * for a merge level, a unit per run of a group's entries that holds two or
+ * more, in group order. A run of one passes through to the next level.
+ *
+ * @remarks
+ * A unit's execution is cached on the task and `inputsHash(unit.inputs)`, so
+ * this is what a unit's identity is made from, for the drivers and for gc.
+ *
+ * @param stage - The stage, as its `$plan` holds it
+ * @returns The stage's units
+ */
+export function stageUnits(stage: UnitPlanStage): SplitUnit[] {
+  if (stage.type === 'pieces') return stage.value.map((inputs) => ({ inputs: [...inputs], merge: null }));
+  return stage.value.groups.flatMap((group) => {
+    const range = group.range.type === 'some' ? group.range.value : null;
+    return mergeTreeGroups(group.entries)
+      .filter((entries) => entries.length >= 2)
+      .map((entries) => ({ inputs: [MERGE_UNIT, ...(range === null ? [] : [range]), ...entries], merge: { parts: entries, range } }));
+  });
+}
 
 /** A unit whose executor or cache probe threw — not the unit's own failure —
  *  with its index in its stage. */
@@ -258,11 +282,14 @@ export class SplitTask {
   ): Promise<SplitTask | ExecutionResult> {
     const split = new SplitTask(storage, repo, taskHash, task, inputHashes, ids, options);
     let stage: UnitPlanStage | null = null;
+    // The plan of the stage before the one taken up, which its plan names.
+    let previous: string | null = null;
     if (plan !== null) {
       try {
         const named = decodeUnitPlan(await storage.objects.read(repo, plan));
         if (named.task === taskHash && named.inputs === ids.inHash) {
           stage = named.stage;
+          previous = named.previous.type === 'some' ? named.previous.value : null;
         } else if (named.task === taskHash && (await storage.refs.executionPlanRead(repo, taskHash, named.inputs)) === plan) {
           // A stage of the task over inputs it no longer has, which nothing
           // takes up again: it is no longer rooted.
@@ -286,7 +313,7 @@ export class SplitTask {
     } catch (err) {
       return split.errorResult(`Failed to plan the task's pieces: ${messageOf(err)}`);
     }
-    await split.begin(stage);
+    await split.begin(stage, previous);
 
     // The task's execution is this process's own work while its units run,
     // recorded `running` under this process with the owner sidecar naming it,
@@ -417,7 +444,7 @@ export class SplitTask {
       const groups: UnitPlanGroup[] = planned.value.groups.map((group, g) => ({ range: group.range, entries: next[g]! }));
       const { level, levels } = planned.value;
       if (level === levels) return this.assembled(groups, groups[0]!.entries[0]!);
-      await this.begin(variant('merge', { level: level + 1n, levels, groups }));
+      await this.begin(variant('merge', { level: level + 1n, levels, groups }), stage.plan);
       return null;
     }
 
@@ -458,7 +485,7 @@ export class SplitTask {
     }
     const levels = mergeTreeLevels(groups.map((group) => group.entries.length));
     if (levels === 0) return this.assembled(groups, outputs[0]!);
-    await this.begin(variant('merge', { level: 1n, levels: BigInt(levels), groups }));
+    await this.begin(variant('merge', { level: 1n, levels: BigInt(levels), groups }), stage.plan);
     return null;
   }
 
@@ -502,13 +529,15 @@ export class SplitTask {
     }));
   }
 
-  /** Starts a stage: writes its plan, roots it, and lists its units. */
-  private async begin(stage: UnitPlanStage): Promise<void> {
+  /** Starts a stage: writes its plan, naming the plan of the stage before it,
+   *  roots it, and lists its units. */
+  private async begin(stage: UnitPlanStage, previous: string | null): Promise<void> {
     const plan = await this.storage.objects.write(this.repo, encodeUnitPlan({
       kind: UNIT_PLAN_KIND,
       task: this.taskHash,
       inputs: this.ids.inHash,
       stage,
+      previous: previous === null ? none : some(previous),
     }));
     await this.storage.refs.executionPlanWrite(this.repo, this.taskHash, this.ids.inHash, plan);
     this.rooted = true;
@@ -518,21 +547,16 @@ export class SplitTask {
     this.stagePeakBytes = undefined;
     if (stage.type === 'pieces') {
       this.phase = 'partition';
-      this.current = { plan, units: stage.value.map((inputs) => ({ inputs: [...inputs], merge: null })), merge: null };
+      this.current = { plan, units: stageUnits(stage), merge: null };
       return;
     }
     const { level, levels, groups } = stage.value;
     this.phase = this.task.output.kind.type === 'fold' ? 'combine' : 'merge';
     this.levelRuns = groups.map((group) => mergeTreeGroups(group.entries));
-    this.runs = [];
-    const units: SplitUnit[] = [];
-    this.levelRuns.forEach((groupRuns, group) => groupRuns.forEach((entries, run) => {
-      if (entries.length < 2) return;
-      const range = groups[group]!.range.type === 'some' ? groups[group]!.range.value : null;
-      units.push({ inputs: [MERGE_UNIT, ...(range === null ? [] : [range]), ...entries], merge: { parts: entries, range } });
-      this.runs.push({ group, run });
-    }));
-    this.current = { plan, units, merge: { level: Number(level), levels: Number(levels) } };
+    // Each unit's group and run, in the order stageUnits lists the units.
+    this.runs = this.levelRuns.flatMap((groupRuns, group) =>
+      groupRuns.flatMap((entries, run) => (entries.length < 2 ? [] : [{ group, run }])));
+    this.current = { plan, units: stageUnits(stage), merge: { level: Number(level), levels: Number(levels) } };
   }
 
   /** The task's output once every group has one entry: a fold's one partial,
@@ -601,6 +625,8 @@ export class SplitTask {
   }
 
   private async successResult(outputHash: string): Promise<ExecutionResult> {
+    // The task ends in the stage it ran last, whose plan names those before.
+    const plan = this.current.plan;
     await this.finish(variant('success', {
       executionId: this.ids.executionId,
       inputHashes: this.inputHashes,
@@ -608,6 +634,7 @@ export class SplitTask {
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
       peakBytes: this.peakBytes === undefined ? none : some(BigInt(this.peakBytes)),
+      plan: plan === null ? none : some(plan),
     }));
     return {
       inputsHash: this.ids.inHash,

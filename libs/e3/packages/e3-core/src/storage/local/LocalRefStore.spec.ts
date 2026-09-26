@@ -56,6 +56,7 @@ describe('LocalRefStore execution status (concurrent read/write)', () => {
     startedAt: new Date(0),
     completedAt: new Date(1000),
     peakBytes: some(64n * 1024n ** 2n),
+    plan: none,
   });
 
   it('executionGet never tears while executionWrite overwrites status in place', async () => {
@@ -222,6 +223,40 @@ describe('LocalRefStore execution sidecars (#770)', () => {
     await store.executionPlanWrite(repo, taskHash, inputsHash, null);
     assert.strictEqual(await store.executionPlanRead(repo, taskHash, inputsHash), null);
     await assert.rejects(fs.access(plan), { code: 'ENOENT' });
+  });
+
+  it('deletes an attempt\'s status and owner, and each directory the deletion leaves empty', async () => {
+    const store = new LocalRefStore();
+    const later = '0190a0b0-2223-7000-8000-000000000000';
+    const running: ExecutionStatus = variant('running', {
+      executionId,
+      inputHashes: [],
+      startedAt: new Date(0),
+      pid: 1234n,
+      pidStartTime: 5678n,
+      bootId: 'boot-id',
+    });
+    for (const attempt of [executionId, later]) {
+      await store.executionWrite(repo, taskHash, inputsHash, attempt, running);
+      await store.executionOwnerWrite(repo, taskHash, inputsHash, attempt, { pid: 1n, pidStartTime: 2n, bootId: 'boot-id' });
+    }
+    await store.executionPlanWrite(repo, taskHash, inputsHash, 'c'.repeat(64));
+
+    await store.executionDelete(repo, taskHash, inputsHash, executionId);
+    assert.strictEqual(await store.executionGet(repo, taskHash, inputsHash, executionId), null);
+    assert.strictEqual(await store.executionOwnerRead(repo, taskHash, inputsHash, executionId), null);
+    await assert.rejects(fs.access(join(repo, 'executions', taskHash, inputsHash, executionId)), { code: 'ENOENT' });
+    assert.deepStrictEqual(await store.executionListIds(repo, taskHash, inputsHash), [later]);
+
+    // The plan pointer keeps the inputs' directory until it goes too; then the
+    // last attempt's deletion leaves nothing of the task.
+    await store.executionDelete(repo, taskHash, inputsHash, later);
+    assert.strictEqual(await store.executionPlanRead(repo, taskHash, inputsHash), 'c'.repeat(64));
+    await store.executionWrite(repo, taskHash, inputsHash, later, running);
+    await store.executionPlanWrite(repo, taskHash, inputsHash, null);
+    await store.executionDelete(repo, taskHash, inputsHash, later);
+    await assert.rejects(fs.access(join(repo, 'executions', taskHash)), { code: 'ENOENT' });
+    assert.deepStrictEqual(await store.executionList(repo), []);
   });
 
   it('reads a plan record that names no object as none', async () => {

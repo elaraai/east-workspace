@@ -146,6 +146,7 @@ export async function stepInitialize(
       completedAt: none,
       duration: none,
       plan: none,
+      execution: none,
     } as TaskState);
   }
 
@@ -479,6 +480,7 @@ export function stepInvalidateTasks(
       taskState.completedAt = none;
       taskState.duration = none;
       taskState.plan = none;
+      taskState.execution = none;
 
       // Decrement counters
       if (wasCached) {
@@ -588,9 +590,9 @@ export async function stepPrepareTask(
 
   // Check cache unless this task is force-re-executed. Under a filter, force
   // applies to the target only, so its dependencies still resolve from cache.
-  let cachedOutputHash: string | null = null;
+  let cached: PrepareTaskResult['cached'] = null;
   if (!stepTaskForced(state, taskName)) {
-    cachedOutputHash = await dataflowCheckCache(
+    cached = await dataflowCheckCache(
       storage,
       state.repo,
       task.hash,
@@ -598,7 +600,7 @@ export async function stepPrepareTask(
     );
 
     // Also verify the workspace output matches the cached output
-    if (cachedOutputHash !== null) {
+    if (cached !== null) {
       const { parsePathString } = await import('../dataflow.js');
       const outputPath = parsePathString(task.output);
       const { refType, hash: wsOutputHash } = await workspaceGetDatasetHash(
@@ -607,9 +609,9 @@ export async function stepPrepareTask(
         state.workspace,
         outputPath
       );
-      if (refType !== 'value' || wsOutputHash !== cachedOutputHash) {
+      if (refType !== 'value' || wsOutputHash !== cached.outputHash) {
         // Workspace output doesn't match cached output, need to re-execute
-        cachedOutputHash = null;
+        cached = null;
       }
     }
   }
@@ -619,7 +621,7 @@ export async function stepPrepareTask(
     taskHash: task.hash,
     inputHashes: validInputHashes,
     outputPath: task.output,
-    cachedOutputHash,
+    cached,
   };
 }
 
@@ -778,6 +780,8 @@ export function stepTaskMergeCompleted(
  * @param outputHash - Hash of the output dataset
  * @param cached - Whether the result was from cache
  * @param duration - Execution duration in milliseconds
+ * @param execution - The execution the task completed with, which ran or
+ *   which the cache served: its inputs hash and its id
  * @returns Result with newly ready tasks and event
  */
 export function stepTaskCompleted(
@@ -785,7 +789,8 @@ export function stepTaskCompleted(
   taskName: string,
   outputHash: string,
   cached: boolean,
-  duration: number
+  duration: number,
+  execution: { inputsHash: string; executionId: string }
 ): { result: TaskCompletedResult; event: ExecutionEvent } {
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
   if (!taskState) {
@@ -801,6 +806,7 @@ export function stepTaskCompleted(
   taskState.completedAt = some(now);
   taskState.duration = some(BigInt(duration));
   taskState.plan = none;
+  taskState.execution = some(execution);
 
   // Update counters
   if (cached) {

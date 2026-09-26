@@ -11,6 +11,9 @@
  * units are one of these objects, written when the stage starts and named by
  * the task's entry in the dataflow's execution state. So resuming a stage reads
  * this object back, and finds the units that finished in the execution cache.
+ * Each names the plan of the stage before it, and the task's `success` record
+ * names the last, so every stage the task ran is found from its record, and
+ * with them the units gc keeps beside it.
  *
  * It names other objects, so it carries a `kind` tag the garbage collector
  * dispatches on.
@@ -63,13 +66,14 @@ export type UnitPlanStage = ValueTypeOf<typeof UnitPlanStageType>;
  *
  * @example
  * ```ts
- * import { variant } from '@elaraai/east';
+ * import { none, variant } from '@elaraai/east';
  *
  * const plan: UnitPlan = {
  *   kind: UNIT_PLAN_KIND,
  *   task: '5e7a3b…',
  *   inputs: '9c01de…',
  *   stage: variant('pieces', [['a1b2…'], ['c3d4…']]),
+ *   previous: none,
  * };
  * ```
  */
@@ -82,6 +86,8 @@ export const UnitPlanType = StructType({
   inputs: StringType,
   /** The stage. */
   stage: UnitPlanStageType,
+  /** The plan of the stage before this one; `none` for the pieces. */
+  previous: OptionType(StringType),
 });
 export type UnitPlanType = typeof UnitPlanType;
 export type UnitPlan = ValueTypeOf<typeof UnitPlanType>;

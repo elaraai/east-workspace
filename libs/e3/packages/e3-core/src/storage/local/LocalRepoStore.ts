@@ -22,7 +22,7 @@ import {
   checkName,
 } from '../../errors.js';
 import { decodeBeast2For, variant } from '@elaraai/east';
-import { WorkspaceRecordType } from '@elaraai/e3-types';
+import { WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
 import { refPathToKeypath } from '../../dataset-refs.js';
 import { atomicWriteFile } from './localHelpers.js';
 import { REPOSITORY_FILENAME, REPOSITORY_LAYOUT, encodeRepositoryRecord, readRepositoryRecord, writeNewRepoMetadata } from './repository.js';
@@ -310,9 +310,7 @@ export class LocalRepoStore implements RepoStore {
       const ids = await this.refs.executionListIds(repo, taskHash, inputsHash);
       for (const executionId of ids) {
         const status = await this.refs.executionGet(repo, taskHash, inputsHash, executionId);
-        if (status?.type === 'success' && /^[a-f0-9]{64}$/.test(status.value.outputHash)) {
-          roots.push(status.value.outputHash);
-        }
+        if (status !== null) roots.push(...executionStatusRoots(status));
       }
     }
     return { roots };

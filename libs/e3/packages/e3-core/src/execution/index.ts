@@ -17,12 +17,13 @@ export {
 
 // TaskRunner implementations
 export { LocalTaskRunner } from './LocalTaskRunner.js';
-export { MockTaskRunner, type MockTaskCall, type MockUnitCall } from './MockTaskRunner.js';
+export { MockTaskRunner, type MockTaskCall, type MockTaskResult, type MockUnitCall } from './MockTaskRunner.js';
 
 // The engine: a task split into pieces, as the stages its units run in
 export {
   SplitTask,
   isSplitTask,
+  stageUnits,
   type SplitStage,
   type ThrownUnit,
 } from './engine.js';

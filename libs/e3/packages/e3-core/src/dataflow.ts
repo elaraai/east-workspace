@@ -589,14 +589,15 @@ export function dataflowGetDependencyClosure(
  * @param repo - Repository path
  * @param taskHash - Hash of the TaskObject
  * @param inputHashes - Array of input dataset hashes (in order)
- * @returns Output hash if cached, null if execution needed
+ * @returns The output and the id of the execution the cache serves, or null
+ *   if execution is needed
  */
 export async function dataflowCheckCache(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inputHashes: string[]
-): Promise<string | null> {
+): Promise<{ outputHash: string; executionId: string } | null> {
   const inHash = inputsHash(inputHashes);
   return executionGetOutput(storage, repo, taskHash, inHash);
 }

@@ -4,15 +4,16 @@
  */
 
 /**
- * Execution status wire: the typed outcomes with their peaks, and the refusal
- * of a record an older e3 wrote before `cancelled` and `interrupted` were
- * cases of it, or before a runner's peak was recorded.
+ * Execution status wire: the typed outcomes with their peaks and a split
+ * task's plan, what each keeps from gc, and the refusal of a record an older
+ * e3 wrote before `cancelled` and `interrupted` were cases of it, before a
+ * runner's peak was recorded, or before a split task's plan was.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ArrayType, DateTimeType, IntegerType, StringType, StructType, VariantType, encodeBeast2For, none, some, variant } from '@elaraai/east';
-import { ExecutionStatusType, decodeExecutionStatus, type ExecutionStatus } from './execution.js';
+import { ArrayType, DateTimeType, IntegerType, OptionType, StringType, StructType, VariantType, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { ExecutionStatusType, decodeExecutionStatus, executionStatusRoots, type ExecutionStatus } from './execution.js';
 
 /** The four-case wire every record had before the typed outcomes. */
 const PreOutcomeExecutionStatusType = VariantType({
@@ -45,8 +46,8 @@ describe('ExecutionStatusType', () => {
 
   it('round-trips the typed outcomes, with a runner\'s peak or without one', () => {
     const statuses: ExecutionStatus[] = [
-      variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: some(96n * 1024n ** 2n) }),
-      variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none }),
+      variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: some(96n * 1024n ** 2n), plan: none }),
+      variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none, plan: some('c'.repeat(64)) }),
       variant('failed', { ...stopped, exitCode: 1n, peakBytes: some(412n * 1024n ** 2n) }),
       variant('failed', { ...stopped, exitCode: -1n, peakBytes: none }),
       variant('cancelled', stopped),
@@ -55,6 +56,14 @@ describe('ExecutionStatusType', () => {
     ];
     const encode = encodeBeast2For(ExecutionStatusType);
     for (const status of statuses) assert.deepEqual(decodeExecutionStatus(encode(status)), status);
+  });
+
+  it('keeps from gc a success\'s output, and a split task\'s last plan beside it', () => {
+    const success = { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none };
+    assert.deepEqual(executionStatusRoots(variant('success', { ...success, plan: none })), ['b'.repeat(64)]);
+    assert.deepEqual(executionStatusRoots(variant('success', { ...success, plan: some('c'.repeat(64)) })), ['b'.repeat(64), 'c'.repeat(64)]);
+    assert.deepEqual(executionStatusRoots(variant('failed', { ...stopped, exitCode: 1n, peakBytes: none })), []);
+    assert.deepEqual(executionStatusRoots(variant('cancelled', stopped)), []);
   });
 
   it('refuses a record an older e3 wrote, naming the fix', () => {
@@ -75,6 +84,15 @@ describe('ExecutionStatusType', () => {
       }),
     });
     assert.throws(() => decodeExecutionStatus(encodeBeast2For(withoutPeaks)(variant('success', { ...stopped, outputHash: 'b'.repeat(64) }))), refusal);
+    // With peaks, before a split task's plan was recorded.
+    const withoutPlans = VariantType({
+      ...ExecutionStatusType.cases,
+      success: StructType({
+        executionId: StringType, inputHashes: ArrayType(StringType), outputHash: StringType,
+        startedAt: DateTimeType, completedAt: DateTimeType, peakBytes: OptionType(IntegerType),
+      }),
+    });
+    assert.throws(() => decodeExecutionStatus(encodeBeast2For(withoutPlans)(variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none }))), refusal);
   });
 
   it('throws for bytes of no status shape', () => {

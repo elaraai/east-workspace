@@ -49,6 +49,15 @@ export {
   type SweepBatchResult,
 } from './storage/local/gc.js';
 
+// The history gc keeps: which runs and executions, and the deletion of the rest
+export {
+  pruneHistory,
+  DEFAULT_KEEP_RUNS,
+  DEFAULT_KEEP_DAYS,
+  type HistoryOptions,
+  type HistoryResult,
+} from './storage/local/history.js';
+
 // Object storage
 export { computeHash } from './objects.js';
 

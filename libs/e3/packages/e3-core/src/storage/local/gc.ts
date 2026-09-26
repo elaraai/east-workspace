@@ -10,7 +10,8 @@
  * 1. collectAllRoots: Collect root hashes from all root scan methods
  * 2. markReachable: DFS through object graph via BEAST2 schema-aware traversal
  * 3. sweepBatch: Pure decision function — identify unreachable objects to delete
- * 4. repoGc: Driver that calls all phases in sequence
+ * 4. repoGc: Driver that calls all phases in sequence, after pruning the
+ *    history of runs and executions it does not keep (history.ts)
  *
  * These functions work with any StorageBackend — no instanceof checks.
  * Cloud-specific concerns (S3 reachable set persistence, orphaned version cleanup)
@@ -23,6 +24,7 @@ import { decodeBeast2, readBeast2Type, toEastTypeValue, variant, type EastType, 
 import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
+import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from './history.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
 import { sweepEnvironments } from '../../execution/environment.js';
 
@@ -42,6 +44,19 @@ export interface GcOptions {
    * Default: false
    */
   dryRun?: boolean;
+
+  /**
+   * The runs of each workspace kept however old, the latest first: with the
+   * executions they used (history.ts).
+   * Default: {@link DEFAULT_KEEP_RUNS}
+   */
+  keepRuns?: number;
+
+  /**
+   * The days of runs and executions kept however many.
+   * Default: {@link DEFAULT_KEEP_DAYS}
+   */
+  keepDays?: number;
 }
 
 /**
@@ -58,6 +73,10 @@ export interface GcResult {
   skippedYoung: number;
   /** Total bytes freed */
   bytesFreed: number;
+  /** Number of dataflow run records deleted */
+  deletedRuns: number;
+  /** Number of execution attempts deleted, each with its owner and logs */
+  deletedExecutions: number;
 }
 
 /**
@@ -83,8 +102,15 @@ export interface SweepBatchResult {
  *
  * Calls each gcScan*Roots method with pagination support.
  * Adding a new root scan method to RepoStore requires updating this function.
+ *
+ * @param store - The repository store to scan
+ * @param repo - Repository identifier
+ * @param executionRoots - The roots of the executions gc keeps, when it has
+ *   pruned the history itself, so a dry run marks as if it had deleted what it
+ *   prunes; absent, every recorded execution's, as the store's scan finds them
+ * @returns The root hashes
  */
-export async function collectAllRoots(store: RepoStore, repo: string): Promise<Set<string>> {
+export async function collectAllRoots(store: RepoStore, repo: string, executionRoots?: Iterable<string>): Promise<Set<string>> {
   const roots = new Set<string>();
 
   const scanAll = async (scan: (repo: string, cursor?: unknown) => Promise<GcRootScanResult>) => {
@@ -100,7 +126,11 @@ export async function collectAllRoots(store: RepoStore, repo: string): Promise<S
 
   await scanAll(store.gcScanPackageRoots.bind(store));
   await scanAll(store.gcScanWorkspaceRoots.bind(store));
-  await scanAll(store.gcScanExecutionRoots.bind(store));
+  if (executionRoots === undefined) {
+    await scanAll(store.gcScanExecutionRoots.bind(store));
+  } else {
+    for (const hash of executionRoots) roots.add(hash);
+  }
 
   return roots;
 }
@@ -378,8 +408,11 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
     children: (plan: UnitPlan) => {
       // The task, whose program the units run. A piece's inputs and a merge's
       // parts are dataset values, which may be manifests naming segment
-      // objects; a merge's key range is a small value that names nothing.
+      // objects; a merge's key range is a small value that names nothing. The
+      // plan of the stage before is walked too: a success names only its last,
+      // and gc finds the task's units through the plans it names.
       const children: { hash: string; kind: GcChildKind }[] = [{ hash: plan.task, kind: 'node' }];
+      if (plan.previous.type === 'some') children.push({ hash: plan.previous.value, kind: 'node' });
       if (plan.stage.type === 'pieces') {
         for (const inputs of plan.stage.value) {
           for (const input of inputs) children.push({ hash: input, kind: 'value' });
@@ -667,15 +700,20 @@ export async function withRunningWork<T>(storage: StorageBackend, repo: string, 
  * Works with any StorageBackend — no instanceof checks.
  *
  * gc holds the {@link TASKS_LOCK} exclusively and every workspace's dataflow
- * lock from before the mark until the sweep is done, so it never overlaps a
- * write holding the tasks lock or a dataflow run: the objects either writes
- * before it roots them need no rooting. Marking is header-first, so a dataset
- * is never read whole.
+ * lock from before the history's prune until the sweep is done, so it never
+ * overlaps a write holding the tasks lock or a dataflow run: the objects
+ * either writes before it roots them need no rooting, and no record is written
+ * while it decides which to keep. It prunes the history first (history.ts),
+ * and then marks from what it kept, so the outputs only the deleted records
+ * kept go in the same sweep. Marking is header-first, so a dataset is never
+ * read whole.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param options - GC options
  * @returns GC result with statistics
+ * @throws {RangeError} When `keepRuns` or `keepDays` is not a whole number of
+ *   zero or more.
  * @throws {Error} When a task is running in the repository, or a dataflow is
  *   running in one of its workspaces.
  */
@@ -684,6 +722,11 @@ export async function repoGc(
   repo: string,
   options: GcOptions = {}
 ): Promise<GcResult> {
+  for (const [name, value] of [['keepRuns', options.keepRuns], ['keepDays', options.keepDays]] as const) {
+    if (value !== undefined && !(Number.isInteger(value) && value >= 0)) {
+      throw new RangeError(`gc: ${name} must be a whole number of zero or more, got ${value}`);
+    }
+  }
   const locks: LockHandle[] = [];
   try {
     const tasks = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null));
@@ -715,8 +758,16 @@ async function collectGarbage(
   const minAge = options.minAge ?? 60000;
   const dryRun = options.dryRun ?? false;
 
-  // Step 1: Collect all root hashes
-  const roots = await collectAllRoots(storage.repos, repo);
+  // Step 0: Prune the history: the runs and executions gc does not keep go,
+  // or would in a dry run
+  const history = await pruneHistory(storage, repo, {
+    keepRuns: options.keepRuns ?? DEFAULT_KEEP_RUNS,
+    keepDays: options.keepDays ?? DEFAULT_KEEP_DAYS,
+    dryRun,
+  });
+
+  // Step 1: Collect all root hashes: the executions' from what the prune kept
+  const roots = await collectAllRoots(storage.repos, repo, history.roots);
 
   // Step 2: Mark all reachable objects, header-first
   const readObject = async (hash: string): Promise<Uint8Array | null> => {
@@ -810,6 +861,8 @@ async function collectGarbage(
     retainedObjects: totalRetained,
     skippedYoung: totalSkippedYoung + partialSkippedYoung,
     bytesFreed: totalBytesFreed,
+    deletedRuns: history.deletedRuns,
+    deletedExecutions: history.deletedExecutions,
   };
 }
 

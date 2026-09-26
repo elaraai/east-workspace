@@ -143,10 +143,16 @@ export const RepositoryStatusType = StructType({
  *
  * @property dryRun - If true, report what would be deleted without deleting
  * @property minAge - Minimum age in milliseconds for objects to be considered for deletion
+ * @property keepRuns - The runs of each workspace kept however old, the latest
+ *   first; the server's default when `none`
+ * @property keepDays - The days of runs and executions kept however many; the
+ *   server's default when `none`
  */
 export const GcRequestType = StructType({
   dryRun: BooleanType,
   minAge: OptionType(IntegerType),
+  keepRuns: OptionType(IntegerType),
+  keepDays: OptionType(IntegerType),
 });
 
 /**
@@ -157,6 +163,9 @@ export const GcRequestType = StructType({
  * @property retainedObjects - Number of objects still referenced
  * @property skippedYoung - Number of objects skipped due to minAge
  * @property bytesFreed - Total bytes freed by deletion
+ * @property deletedRuns - Number of dataflow run records deleted
+ * @property deletedExecutions - Number of execution attempts deleted, each with
+ *   its owner record and logs
  */
 export const GcResultType = StructType({
   deletedObjects: IntegerType,
@@ -164,6 +173,8 @@ export const GcResultType = StructType({
   retainedObjects: IntegerType,
   skippedYoung: IntegerType,
   bytesFreed: IntegerType,
+  deletedRuns: IntegerType,
+  deletedExecutions: IntegerType,
 });
 
 // =============================================================================

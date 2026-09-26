@@ -22,8 +22,10 @@ import { repoStatus, repoGc } from '@elaraai/e3-api-client';
 const status = await repoStatus('http://localhost:3000');
 // { path: '/path/to/repo', objectCount: 42n, packageCount: 3n, workspaceCount: 2n }
 
-const gcResult = await repoGc(url, { dryRun: true, minAge: variant('none', null) });
-// { deletedObjects: 0n, retainedObjects: 42n, bytesFreed: 0n, ... }
+// Keep each workspace's last 5 runs and 30 days of history; the server's
+// defaults when `none`
+const gcResult = await repoGc(url, { dryRun: true, minAge: none, keepRuns: some(5n), keepDays: some(30n) });
+// { deletedRuns: 2n, deletedExecutions: 14n, deletedObjects: 0n, retainedObjects: 42n, bytesFreed: 0n, ... }
 ```
 
 ### Packages

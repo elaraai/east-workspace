@@ -29,7 +29,7 @@
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { configureFramePool } from '@elaraai/east';
-import { DOOR_FRAME_WORKERS } from '@elaraai/e3-core';
+import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, DOOR_FRAME_WORKERS } from '@elaraai/e3-core';
 
 const require = createRequire(import.meta.url);
 const packageJson = require('../../package.json') as { version: string };
@@ -102,10 +102,12 @@ program
   )
   .addCommand(
     new Command('gc')
-      .description('Remove unreferenced objects')
+      .description('Remove the run and execution history the repository no longer keeps, and unreferenced objects')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .option('--dry-run', 'Report what would be deleted without deleting')
       .option('--min-age <ms>', 'Minimum file age in ms before deletion', '60000')
+      .option('--keep-runs <n>', `Runs of each workspace to keep however old, the latest first, with the executions they used (default: ${DEFAULT_KEEP_RUNS})`)
+      .option('--keep-days <d>', `Days of runs and executions to keep however many (default: ${DEFAULT_KEEP_DAYS})`)
       .action(withDefaultRepo(repoCommand.gc))
   )
   .addCommand(

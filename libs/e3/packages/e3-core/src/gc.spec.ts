@@ -24,6 +24,7 @@ import { sweepEnvironments } from './execution/environment.js';
 import { getPidStartTime } from './execution/processHelpers.js';
 import { ObjectNotFoundError } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, deadPid } from './test-helpers.js';
+import { uuidv7 } from './uuid.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import type { GcObjectEntry } from './storage/interfaces.js';
@@ -498,10 +499,11 @@ describe('gc', () => {
       const hash = await objectWrite(testRepoPath, data);
 
       // Create an execution ref using the new schema:
-      // executions/<taskHash>/<inputsHash>/<executionId>/status.beast2
+      // executions/<taskHash>/<inputsHash>/<executionId>/status.beast2 — a
+      // recent one, which the history keeps
       const taskHash = 'a'.repeat(64);
       const inputsHash = 'b'.repeat(64);
-      const executionId = '01900000-0000-7000-8000-000000000001';
+      const executionId = uuidv7();
       const execDir = join(testRepoPath, 'executions', taskHash, inputsHash, executionId);
       mkdirSync(execDir, { recursive: true });
 
@@ -516,6 +518,7 @@ describe('gc', () => {
         startedAt: new Date(),
         completedAt: new Date(),
         peakBytes: none,
+        plan: none,
       });
       writeFileSync(join(execDir, 'status.beast2'), encoder(status));
 
@@ -533,12 +536,18 @@ describe('gc', () => {
     it('roots a split task\'s plan through its sidecar until the execution clears it', async () => {
       const taskHash = 'a'.repeat(64);
       const inputsHash = 'b'.repeat(64);
+      // The execution was interrupted mid-task, and can resume.
+      const interrupted = uuidv7();
+      await storage.refs.executionWrite(testRepoPath, taskHash, inputsHash, interrupted, variant('interrupted', {
+        executionId: interrupted, inputHashes: [], startedAt: new Date(), completedAt: new Date(), pid: 1n,
+      }));
       const piece = await objectWrite(testRepoPath, encodeBeast2For(StringType)('a piece of the input'));
       const plan = await objectWrite(testRepoPath, encodeUnitPlan({
         kind: UNIT_PLAN_KIND,
         task: taskHash,
         inputs: inputsHash,
         stage: variant('pieces', [[piece]]),
+        previous: none,
       }));
       await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, plan);
 
@@ -587,7 +596,10 @@ describe('gc', () => {
   describe('workspace refs', () => {
     it('marks a workspace dataset header-first: retained, never read whole', async () => {
       const datasetHash = await objectWrite(testRepoPath, encodeBeast2For(StructType({ name: StringType }))({ name: 'y'.repeat(100_000) }));
-      const pkgHash = await objectWrite(testRepoPath, new Uint8Array([77, 88, 99]));
+      const pkgHash = await objectWrite(testRepoPath, encodeBeast2For(PackageObjectType)({
+        tasks: new Map(), data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map(), records: new Map(), sources: new Map(),
+      } as PackageObject));
       const wsDir = join(testRepoPath, 'workspaces');
       mkdirSync(join(wsDir, 'reader', 'data'), { recursive: true });
       writeFileSync(join(wsDir, 'reader.beast2'), encodeBeast2For(WorkspaceRecordType)(some({
@@ -618,8 +630,10 @@ describe('gc', () => {
       // Store objects for a dataset value and package
       const valueData = new Uint8Array([44, 55, 66]);
       const valueHash = await objectWrite(testRepoPath, valueData);
-      const pkgData = new Uint8Array([77, 88, 99]);
-      const pkgHash = await objectWrite(testRepoPath, pkgData);
+      const pkgHash = await objectWrite(testRepoPath, encodeBeast2For(PackageObjectType)({
+        tasks: new Map(), data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map(), records: new Map(), sources: new Map(),
+      } as PackageObject));
 
       // Create workspace state file at workspaces/<name>.beast2
       const wsDir = join(testRepoPath, 'workspaces');
@@ -646,6 +660,25 @@ describe('gc', () => {
       // Objects still exist
       await objectRead(testRepoPath, valueHash);
       await objectRead(testRepoPath, pkgHash);
+    });
+
+    it('deletes nothing while it cannot read what a deployed workspace is served from', async () => {
+      // A deployed workspace whose package does not read: what its state is
+      // served from cannot be known, so no history is pruned, and no object
+      // swept, rather than on a guess.
+      const junk = await objectWrite(testRepoPath, new Uint8Array([77, 88, 99]));
+      writeFileSync(join(testRepoPath, 'workspaces', 'broken.beast2'), encodeBeast2For(WorkspaceRecordType)(some({
+        packageName: 'test-pkg',
+        packageVersion: '1.0.0',
+        packageHash: junk,
+        deployedAt: new Date(),
+        currentRunId: none,
+      })));
+      const orphan = await objectWrite(testRepoPath, new Uint8Array([1, 2, 3]));
+
+      await assert.rejects(repoGc(storage, testRepoPath, { minAge: 0 }),
+        /^Error: gc deletes nothing while it cannot read what workspace 'broken' is served from: /);
+      await objectRead(testRepoPath, orphan);
     });
 
     it('ignores undeployed workspaces', async () => {
@@ -990,7 +1023,7 @@ describe('gc', () => {
         assert.ok(store.headReads.every((read) => read.length === 64 * 1024), 'every type fits the first head probe');
       });
 
-      it('keeps what a unit plan names reachable: its task, the pieces\' inputs, and the merges\' parts and ranges', async () => {
+      it('keeps what a unit plan names reachable: its task, the plan before it, the pieces\' inputs, and the merges\' parts and ranges', async () => {
         const taskHash = 'b'.repeat(64);
         const irHash = 'c'.repeat(64);
         const pieces = [['1'.repeat(64), '2'.repeat(64)], ['3'.repeat(64), '2'.repeat(64)]];
@@ -1000,12 +1033,13 @@ describe('gc', () => {
         const piecesPlan = 'd'.repeat(64);
         const mergePlan = 'e'.repeat(64);
         const objects = new Map<string, Uint8Array>([
-          [piecesPlan, encodeUnitPlan({ kind: UNIT_PLAN_KIND, task: taskHash, inputs: '9'.repeat(64), stage: variant('pieces', pieces) })],
+          [piecesPlan, encodeUnitPlan({ kind: UNIT_PLAN_KIND, task: taskHash, inputs: '9'.repeat(64), stage: variant('pieces', pieces), previous: none })],
           [mergePlan, encodeUnitPlan({
             kind: UNIT_PLAN_KIND,
             task: taskHash,
             inputs: '9'.repeat(64),
             stage: variant('merge', { level: 1n, levels: 2n, groups: [{ range: some(range), entries: parts }, { range: none, entries: [passing] }] }),
+            previous: some(piecesPlan),
           })],
           [taskHash, encodeBeast2For(TaskObjectType)({
             kind: TASK_OBJECT_KIND,
@@ -1019,7 +1053,8 @@ describe('gc', () => {
         ]);
         const store = tracedStore(objects);
 
-        const reachable = await markReachable(store.readObject, new Set([piecesPlan, mergePlan]), { readHead: store.readHead });
+        // The merge level's plan alone, as a success record names its last.
+        const reachable = await markReachable(store.readObject, new Set([mergePlan]), { readHead: store.readHead });
 
         assert.deepStrictEqual(
           [...reachable].sort(),
@@ -1032,7 +1067,7 @@ describe('gc', () => {
         const root = 'f'.repeat(64);
         const input = '1'.repeat(64);
         const store = tracedStore(new Map([[root, encodeUnitPlan({
-          kind: '$something-else', task: 'b'.repeat(64), inputs: '9'.repeat(64), stage: variant('pieces', [[input]]),
+          kind: '$something-else', task: 'b'.repeat(64), inputs: '9'.repeat(64), stage: variant('pieces', [[input]]), previous: none,
         })]]));
 
         const reachable = await markReachable(store.readObject, new Set([root]), { readHead: store.readHead });
@@ -1537,6 +1572,7 @@ describe('gc', () => {
         task: 'b'.repeat(64),
         inputs: '9'.repeat(64),
         stage: variant('pieces', [[piece]]),
+        previous: none,
         a_field_appended_later: 0n,
       } as never)]]);
 

@@ -12,7 +12,7 @@
  *
  * The status file tracks:
  * - For running: process identification for crash detection
- * - For success: output hash, timing and peak memory
+ * - For success: output hash, timing, peak memory and a split task's last plan
  * - For failed: exit code, timing and peak memory
  * - For error: internal error message and timing
  * - For cancelled and interrupted: how e3, not the task, ended it
@@ -61,6 +61,10 @@ const SuccessStatusType = StructType({
    *  execution reached — a split task's, the largest of its units' — when
    *  its runners reported one */
   peakBytes: OptionType(IntegerType),
+  /** A split task's: the `$plan` of the last stage it ran, which names the
+   *  stages before it, and so every unit its output was assembled from;
+   *  `none` for any other execution */
+  plan: OptionType(StringType),
 });
 
 const FailedStatusType = StructType({
@@ -141,6 +145,24 @@ export const ExecutionStatusType = VariantType({
 });
 
 export type ExecutionStatus = ValueTypeOf<typeof ExecutionStatusType>;
+
+/**
+ * The objects an execution's record keeps from garbage collection: a
+ * success's output, and a split task's last `$plan`, which names every stage
+ * before it and so the units gc keeps beside the task.
+ *
+ * @remarks
+ * Every backend's scan of execution roots applies it, as gc does to the
+ * executions it keeps.
+ *
+ * @param status - the execution's status
+ * @returns the hashes of the objects it keeps
+ */
+export function executionStatusRoots(status: ExecutionStatus): string[] {
+  if (status.type !== 'success') return [];
+  const { outputHash, plan } = status.value;
+  return plan.type === 'some' ? [outputHash, plan.value] : [outputHash];
+}
 
 const decodeCurrentStatus = decodeBeast2For(ExecutionStatusType);
 

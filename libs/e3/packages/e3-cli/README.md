@@ -18,9 +18,15 @@ Every command that takes `<repo>` accepts either a local path or an `http(s)://`
 e3 repo create <repo>                # Create a new repository
 e3 repo status <repo>                # Show repository status
 e3 repo remove <repo> [-r]           # Remove a repository (-r removes workspaces first)
-e3 repo gc <repo> [--dry-run]        # Remove unreferenced objects
+e3 repo gc <repo> [--dry-run] [--keep-runs <n>] [--keep-days <d>]   # Remove old history and unreferenced objects
 e3 repo list <server-url>            # List repositories on a server
 ```
+
+`repo gc` keeps each workspace's last 10 runs (`--keep-runs`), every run from
+the last 7 days (`--keep-days`) and the run its current state came from, with
+the executions they used; every execution a workspace's current state is served
+from, so a re-run stays cached; and every execution from the last 7 days. The
+rest of the history goes, with the outputs only it kept.
 
 ### Packages
 

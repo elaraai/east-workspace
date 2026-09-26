@@ -656,6 +656,7 @@ export async function taskExecuteBody(
       startedAt: new Date(startTime),
       completedAt: new Date(),
       peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
+      plan: none,
     });
     await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
     return {

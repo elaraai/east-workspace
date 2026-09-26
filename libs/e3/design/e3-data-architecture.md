@@ -368,11 +368,11 @@ A local repository is a directory of records and objects (decided 2026-09-26, #9
 - **What goes with what it describes:** a workspace's execution state and runs go with the workspace, and so do the locks its dataflows and dataset writes left when they exited; a lock a live process holds is left for it to release. A built environment goes when gc no longer reaches its spec.
 - **Staging files are `.partial`s**, which gc sweeps, and they sit inside the repository, never in the machine's temp directory.
 - **History is bounded.** gc keeps:
-  - the last 10 runs of each workspace, and every run from the last 7 days;
-  - every execution those runs used, and every execution each workspace's current state is served from: a task's own, and a split task's units, which its `success` record names through its stages' `$plan`s;
+  - the last 10 runs of each workspace, every run from the last 7 days, and the run its current state came from;
+  - every execution those runs used, and every execution each workspace's current state is served from: a task's own, and a split task's units, which its `success` record names through the `$plan` of its last stage, each plan naming the one before it;
   - every execution from the last 7 days, and whatever is running.
 
-  It deletes every other execution record — status, owner and logs — and run record, and the outputs only they kept go in the same sweep. `e3 repo gc --keep-runs <n> --keep-days <d>` override the defaults.
+  A task over given inputs that keeps any execution keeps its latest attempt and its latest success, which are what the cache serves from, so gc never changes what it serves. gc deletes every other execution record — status, owner and logs — and run record, and the outputs only they kept go in the same sweep. `e3 repo gc --keep-runs <n> --keep-days <d>` override the defaults.
 
 The cloud keeps the same records, as the same East types, in its own stores, so everything here but the paths applies there.
 
@@ -699,7 +699,18 @@ Changes:
   - package zips staged in the machine's temp directory, which one repository's gc swept;
   - the state store's, the lock service's and the metadata's staging files, which were not `.partial`s;
   - `deleteRefsBatch`'s list of directories.
-- **Bounded history** (§3.13; decided 2026-09-26). The storage interfaces gain `executionDelete`, a run record names each task's inputs, and a split task's `success` record names its stages' plans.
+- **Bounded history** (§3.13; decided 2026-09-26):
+  - the ref store gains `executionDelete`, and the log store `remove`;
+  - a run record names each task's execution whole — its task hash, inputs hash and id — so gc finds it whatever the workspace has held since;
+  - a split task's `success` record names the `$plan` of its last stage, and each plan names the one before it (`previous`), so a task taken up mid-way still names every stage it ran. gc roots a success's plan as it roots its output;
+  - gc prunes before it marks. A dry run deletes nothing and marks as if it had: the mark roots only the executions gc keeps;
+  - gc deletes nothing while a deployed workspace's graph cannot be built, since it cannot tell what that workspace's current state is served from;
+  - `repoGc`'s `keepRuns` and `keepDays`, the API's gc request's, and `e3 repo gc --keep-runs <n> --keep-days <d>`; the result counts the runs and executions deleted.
+- **Found while building part 4:**
+  - A run record named a task the cache served by the run's id, not by the execution it was served from, and a run resumed after a yield named every task completed before it the same way. The execution state records the execution each task completed with (version 4), and the run record takes it from there.
+  - A runner's result could leave out the execution it ran as, and the run record then named the run's id in its place. `TaskResult.executionId` is required: the attempt that ran, or the one the cache served.
+  - An export of a workspace found its current run's executions from the inputs the workspace holds now, which may have changed since the run. It reads them from the run record.
+  - The dataflow's cache serves a task's latest success, while a task run on its own is served its latest attempt when that succeeded. gc keeps both, so neither changes (§3.13).
 - **Found while building part 1:**
   - An undeployed workspace was an empty file, which no East value is. It is `none` of an `Option` now (decided 2026-09-26).
   - A multi-repository server joined a repository's name to its directory unchecked, so `..` reached outside it. Its name is checked with the rest.
@@ -742,9 +753,10 @@ Acceptance:
   - the decision tree becomes two questions: does the output fit in memory, and can the work be split over an input?
   - the `partitionTask` and `streamTask` sections, and the "Which task kind?" table, are rewritten;
   - the runner docs follow the protocol;
+  - `e3 repo gc` takes `--keep-runs` and `--keep-days`, and removes the history the repository no longer keeps (§3.13) as well as unreferenced objects (found while building the repository's records, part 4);
   - it is a plugin skill: coordinate the change and regenerate the example index (plugin-artifacts).
 - **Other docs:** `libs/e3/USAGE.md`, the Codex plugin's copy of the e3 skill, and the runner READMEs.
-- **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted. `e3-reactive-dataflow.md`, `e3-api.md`, `e3-core.md` and `e3-mvp-core.md` describe a repository e3 no longer keeps — locks beside the workspaces, `.ref` files, an `output` ref — and are rewritten to the code or deleted (found while building the repository's records, part 1).
+- **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted. `e3-reactive-dataflow.md`, `e3-api.md`, `e3-core.md`, `e3-mvp-core.md` and `e3-execution-history.md` describe a repository e3 no longer keeps — locks beside the workspaces, `.ref` files, an `output` ref, a workspace's runs deleted when the next starts and never gc'd — and are rewritten to the code or deleted (found while building the repository's records, parts 1 and 4).
 
 ### Stage 8 — e3-cloud
 

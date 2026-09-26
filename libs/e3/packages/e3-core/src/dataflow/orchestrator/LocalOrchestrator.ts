@@ -136,7 +136,7 @@ interface TaskOutcome {
   state: 'success' | 'failed' | 'error';
   cached: boolean;
   outputHash?: string;
-  executionId?: string;
+  executionId: string;
   exitCode?: number;
   error?: string;
   cancelled?: boolean;
@@ -385,15 +385,18 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
       // Re-seed DataflowRun task executions for already-completed tasks so
       // the final run record covers the whole execution, not just this
-      // incarnation. Output VVs come from the persisted version vectors.
+      // incarnation: each names the execution its task completed with. Output
+      // VVs come from the persisted version vectors.
       const taskExecutions = new Map<string, TaskExecutionRecord>();
       const graph = state.graph.type === 'some' ? state.graph.value : null;
       if (graph) {
         for (const task of graph.tasks) {
           const ts = state.tasks.get(task.name);
-          if (ts && ts.status === 'completed') {
+          if (ts && ts.status === 'completed' && ts.execution.type === 'some') {
             taskExecutions.set(task.name, {
-              executionId: state.id,
+              executionId: ts.execution.value.executionId,
+              taskHash: task.hash,
+              inputsHash: ts.execution.value.inputsHash,
               cached: ts.cached.type === 'some' ? ts.cached.value : false,
               outputVersions: new Map(state.versionVectors.get(task.output) ?? []),
               executionCount: 1n,
@@ -719,28 +722,33 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           const prepared = await stepPrepareTask(storage, state, taskName);
 
           // Check cache
-          if (prepared.cachedOutputHash !== null) {
+          const cached = prepared.cached;
+          if (cached !== null) {
             hadSyncCompletion = true;
+            // The execution the cache serves the task from.
+            const served = { inputsHash: inputsHash(prepared.inputHashes), executionId: cached.executionId };
             // Cache hit — wrap in mutex to serialize with concurrent .then() callbacks
             await execution.mutex.runExclusive(async () => {
               // Write ref with merged VV and update state
               await stepApplyTreeUpdate(
                 storage, repo, state.workspace,
-                prepared.outputPath, prepared.cachedOutputHash!, vvCheck.mergedVV
+                prepared.outputPath, cached.outputHash, vvCheck.mergedVV
               );
 
               stepTaskCompleted(
                 state,
                 taskName,
-                prepared.cachedOutputHash!,
+                cached.outputHash,
                 true,
-                0
+                0,
+                served
               );
 
               // Track task execution for DataflowRun
               const existingCached = execution.taskExecutions.get(taskName);
               execution.taskExecutions.set(taskName, {
-                executionId: state.id,
+                ...served,
+                taskHash: prepared.taskHash,
                 cached: true,
                 outputVersions: new Map(vvCheck.mergedVV),
                 executionCount: (existingCached?.executionCount ?? 0n) + 1n,
@@ -1114,18 +1122,21 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             );
           }
 
+          const completed = { inputsHash: inputsHash(prepared.inputHashes), executionId: result.executionId };
           stepTaskCompleted(
             state,
             taskName,
             result.outputHash ?? '',
             result.cached,
-            result.duration
+            result.duration,
+            completed
           );
 
           // Track task execution for DataflowRun
           const existing = execution.taskExecutions.get(taskName);
           execution.taskExecutions.set(taskName, {
-            executionId: result.executionId ?? state.id,
+            ...completed,
+            taskHash: prepared.taskHash,
             cached: result.cached,
             outputVersions: new Map(mergedVV),
             executionCount: (existing?.executionCount ?? 0n) + 1n,
@@ -1443,7 +1454,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     const result = await options.runner.executeUnit(storage, taskHash, unit, execOptions);
     return {
       inputsHash: inputsHash(unit.inputs),
-      executionId: result.executionId ?? '',
+      executionId: result.executionId,
       cached: result.cached,
       state: result.state,
       outputHash: result.outputHash ?? null,

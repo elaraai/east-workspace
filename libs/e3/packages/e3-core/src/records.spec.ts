@@ -32,7 +32,7 @@ import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
-import { MockTaskRunner } from './execution/MockTaskRunner.js';
+import { MockTaskRunner, type MockTaskResult } from './execution/MockTaskRunner.js';
 import { inputsHash } from './executions.js';
 import { uuidv7 } from './uuid.js';
 import type { MutationOutcome, StorageBackend, TaskExecuteOptions, TaskResult, TaskRunner } from './index.js';
@@ -61,12 +61,17 @@ const counterStructure: Structure = variant('struct', new Map([
 
 /** A runner whose units answer as `impl` says, with no process. A mutation's
  *  program runs as a unit: `impl` is given its task, its inputs — the state,
- *  then each argument — and the run's options, its abort signal among them. */
+ *  then each argument — and the run's options, its abort signal among them. A
+ *  result that names no execution is given a fresh one, as a runner reports
+ *  the attempt it ran. */
 function runnerReturning(
-  impl: (taskHash: string, inputs: string[], options?: TaskExecuteOptions) => Promise<TaskResult>,
+  impl: (taskHash: string, inputs: string[], options?: TaskExecuteOptions) => Promise<MockTaskResult>,
 ): TaskRunner {
   return {
-    execute: (_storage: StorageBackend, taskHash: string, inputs: string[], options?: TaskExecuteOptions) => impl(taskHash, inputs, options),
+    execute: async (_storage: StorageBackend, taskHash: string, inputs: string[], options?: TaskExecuteOptions): Promise<TaskResult> => {
+      const result = await impl(taskHash, inputs, options);
+      return { ...result, executionId: result.executionId ?? uuidv7() };
+    },
   } as unknown as TaskRunner;
 }
 
@@ -94,7 +99,7 @@ describe('records', () => {
   const ws = 'main';
 
   /** A unit's success: the new state `value`, stored as its output. */
-  const succeeded = async (value: Uint8Array): Promise<TaskResult> =>
+  const succeeded = async (value: Uint8Array): Promise<MockTaskResult> =>
     ({ state: 'success', cached: false, outputHash: await storage.objects.write(repo, value) });
   /** A runner whose every unit succeeds with the new state `value`. */
   const successRunner = (value: Uint8Array): TaskRunner => runnerReturning(() => succeeded(value));
