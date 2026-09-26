@@ -361,7 +361,8 @@ A local repository is a directory of records and objects (decided 2026-09-26, #9
 | `envs/<hash>/` | a built environment, a cache | — |
 | `tmp/scratch/`, `tmp/transfers/` | working space: executions, staged uploads and package zips | — |
 
-- **Every record is an East value in beast2**, except the logs, which stay the runners' own text: they are appended as output arrives and read by byte offset.
+- **Every record is an East value in beast2**, except the logs, which stay the runners' own text: they are appended as output arrives and read by byte offset. A record is read as the type its header names or refused: every runtime's typed decode checks the header against the type it is asked for.
+- **A package zip holds the repository's own forms:** the objects, the package ref at `packages/<name>/<version>.beast2`, and from a workspace the run its current state came from, with that run's executions. It holds nothing an import does not read.
 - **The layout is checked.** The repository record carries the layout's version, and opening a repository refuses any other version, or none, naming the fix: re-create it.
 - **Names are checked** before they become paths: a repository's name where a server keeps several, workspace names, package names and versions, and lock resources. A path separator, a character a Windows file name refuses, or `.` or `..` as a whole segment, is refused. A hash — an object's, which a client names too, or an execution's task and inputs hashes — and an attempt's or a run's id, which an imported package names, must be of the form e3 writes.
 - **One record for one fact.** The `success` status holds the output hash, and a dataflow run has one id, its UUIDv7 `runId`.
@@ -711,6 +712,10 @@ Changes:
   - A runner's result could leave out the execution it ran as, and the run record then named the run's id in its place. `TaskResult.executionId` is required: the attempt that ran, or the one the cache served.
   - An export of a workspace found its current run's executions from the inputs the workspace holds now, which may have changed since the run. It reads them from the run record.
   - The dataflow's cache serves a task's latest success, while a task run on its own is served its latest attempt when that succeeded. gc keeps both, so neither changes (§3.13).
+- **Found while building part 3** (decided 2026-09-26):
+  - A package zip's package ref was the hash as text, beside the repository's beast2 String, and every export wrote a `data/<path>.ref` file per dataset, which import skipped: the package object holds the refs. The ref is `packages/<name>/<version>.beast2`, a String, the exporters write no `data/` files, and an import refuses a zip an older e3 wrote, naming the export. Packages are re-exported for part 3 anyway.
+  - A typed decode read a blob as the type it was given, whatever type the blob's header named, so a blob of another type misread silently or failed in unrelated words; the environment files checked the header themselves. east's `decodeBeast2For` and `decodeBeast2ForAsync`, and east-c's `east_beast2_decode_full` and its frozen form, which east-py binds, refuse one in the words the in-expression opens use: `beast2: cannot decode a blob of type <header's> as <asked>`. A decode reads the body by the asked type, and a variant's tag is its case's position, so a header's type reads as the asked type when it is that type or a subtype, as East's subtyping has it, whose tags line up: each of its variants holds the first cases of the asked one's, and `Never`, which no value has, stands for any type. So `none` reads as any `Option`, and `some` alone, read as an `Option`, is refused rather than misread (decided 2026-09-26: equal types alone refused a `none` east-py typed by its value). A collection's element types must be the asked ones, as East's subtyping holds them, since a program can write to a collection, and a v4 blob's value table builds each one by the header's types; so must a function's signature. Types compare up to how recursive types are named, or repeated, as a table an earlier TypeScript wrote repeats a wrapper inside its own unfolding. Each pair of header and asked type is compared once. The lazy and paged openers are not changed here: the in-expression opens check the header before they open, a runner opens a task input by the type its own header or manifest names, and e3 opens stored collections, whose type the store's door checked.
+  - The dataset transfer protocol kept version 1 beside version 2, for clients built before this PR: one upload URL, and a commit that answered only when done. A new client read an older server's answers only because a decode ignored the header. It is one version now (decided 2026-09-26, D1): a server refuses a request naming no version or another, naming the fix, and plans every upload as parts. The `upload` answer goes, with the backends' `datasetUpload.getUploadUrl`. e3-cloud's routes, which speak version 1 alone, move to it on e3-cloud#187.
 - **Found while building part 1:**
   - An undeployed workspace was an empty file, which no East value is. It is `none` of an `Option` now (decided 2026-09-26).
   - A multi-repository server joined a repository's name to its directory unchecked, so `..` reached outside it. Its name is checked with the rest.
@@ -719,11 +724,12 @@ Changes:
   - Nothing swept the staging file a status change leaves beside the repository's record, at the repository's root. gc sweeps the root too, without walking it.
 - **Docs:** the storage interfaces, `repository.ts`, `lock.ts`, `e3-execution.md`'s storage layout, `WIRE_MIGRATION.md`, and e3-cloud#187.
 
-Built in four parts, in this order:
+Built in five parts, in this order:
 1. **Records and layout:** every record in beast2 but the environment files, the `output` ref gone, the layout and names checked, locks in `locks/`, the cleanup, and the docs.
 2. **One run id.**
 3. **Environment files as beast2 Blobs.**
 4. **Bounded history.**
+5. **The package zip, typed decodes that check their type, and one transfer protocol** (decided 2026-09-26: found while building part 3).
 
 Acceptance:
 - Every file a local repository holds, except a log, decodes as the East value its name says. A test walks a repository after a run, a deploy, a mutation, a transfer and a gc, and decodes every file.
@@ -731,6 +737,22 @@ Acceptance:
 - A name holding `..` or a separator is refused, by the CLI and by the API server.
 - After gc with `--keep-runs 1 --keep-days 0`, what remains is what each workspace's last run used and its current state is served from. A re-run is served from the cache, and an append to a split task's input re-runs only the pieces it touched.
 - Removing a workspace and creating one of the same name starts with no execution state, runs or locks.
+- A package zip holds its objects and its package ref, a String, and nothing else a package import does not read; a zip an older e3 wrote is refused, naming the export.
+- A typed decode of a blob whose header names another type is refused in TypeScript, C and Python, in the same words, and a blob of a subtype whose variant tags line up reads as the asked type.
+- A transfer request of another protocol version, or none, is refused, naming the fix.
+
+### What e3-cloud's stage 8 audit needs (decided 2026-09-26)
+
+e3-cloud's audit, built against this branch, found five things it would otherwise copy out of e3-core or lose in the release it migrates to. Each was checked against the code, and two are built in another form than asked. They land after #945's part 5.
+
+1. **The engine's driver, exported:** `executeSplitTask` with `UnitExecutor`, and `probeExecutionCache`, the cache contract every runner keeps. The driver takes its pool's width from its caller, where it took a local budget's cores or four, and the owner of the task's execution (item 4).
+2. **A split task driven a step at a time,** as e3-cloud's state machine drives it. A test opens a task, settles some units, and drops it. It then opens the task again from its plan, which replays the settled units from the execution cache with their peaks, settles the rest, and advances from both objects: exactly one next stage is written. A task's own `peakBytes` counted only the units settled in the process that ended it. Each `$plan` now carries the largest peak of the stages before it, which the execution records fix, so a second advance still writes the same plan.
+3. **The hash form, exported** beside `checkName`, `InvalidNameError` and `isUuidv7`. The API's objects route uses it in place of its own copy.
+4. **The owner a driver passes.** `SplitTask.open` recorded a split task's own execution with the process that opened it as owner, and the dataflow's loop opens one in its own process even when a remote runner runs the units. So a task a Lambda drove would be rewritten `interrupted` by a probe from another Lambda, whose boot id differs. The engine records the owner its driver passes: `taskExecute` passes its process, the loop the owner its caller gives (its process unless told), and e3-cloud none, which is never repaired.
+5. **Downloads by segment.** A host that buffers its responses, as e3-cloud's API Lambda does behind an HTTP API, cannot stream a collection's splice, and caps a response near 6 MB.
+   - e3-api-client's `datasetGet` downloads a manifest-backed dataset as its manifest and its segment objects, fetched in parallel through `GET /objects/:hash`, each checked against its hash, and spliced locally in order. Its callers get the same bytes.
+   - The objects route takes the transfer backend's download redirect, as the dataset route does for a large object, so the bytes go from object storage to the client. An element larger than the cut rule's target is a segment of its own, so a segment can exceed a response cap.
+   - Pages are unchanged: each is decoded on the server from the segments it touches, and capped by `pageByteBudget`.
 
 ### Stage 6 — Automatic parallelism (e3 SDK)
 
