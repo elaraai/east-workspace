@@ -266,15 +266,15 @@ One budget, the one setting a person makes, replaces the dataflow's `concurrency
 - **Layering.** The budget is the local runner's, never a shared layer's (decided 2026-09-26: e3-cloud's loop engine took its width of 16 from `state.concurrency`).
   - The dataflow's loop, its step functions, its state, the `TaskRunner` interface and the API's types know no budget. The loop keeps `width` tasks and units in flight, four unless its caller sets it: the CLI and the API server set it to their budget's cores, and e3-cloud's loop engine sets its own.
   - `LocalTaskRunner` holds the budget, so admission, the thread grant, the guard and cgroups all happen inside it. A remote backend's runners hold whatever capacity is theirs.
-  - Peaks are data, stored in execution records and read through the storage interfaces: a local runner reserves from them, and a cloud one sizes its functions from them. Running one unit before fanning out is the loop's, and serves both.
+  - Peaks are data. Execution records store them, and each unit of a split task goes to its runner with the largest peak its stage has reached in the run (`expectedPeakBytes`): a local runner reserves it, and a cloud one sizes the unit's function from it. Running one unit before fanning out is the drivers' — the loop's, and the pool of a task run on its own — and serves both.
 - **Admission.** A unit takes one core plus a memory reservation, and starts when both fit.
   - Its `threads` grant is up to four, on that one core: a runner frames a large output on that many workers, in bursts, and every runner's writers frame a manifest output on their pool. Measured on a lone unit, one thread wrote a large output up to 2.6× slower than four, and past four nothing gained; each thread costs about 25 MiB, which the unit's measured peak includes (decided 2026-09-26).
   - A unit larger than the whole budget runs alone.
   - A unit that does not fit lets smaller ones pass for a bounded time, then waits for the room it needs.
-- **Reservations are measured, not guessed.**
-  - Each execution record stores its unit's `peakBytes`.
-  - A unit reserves the recent peak of its task's units of the same kind.
-  - A task with no history runs one unit first, then fans out at the measured size.
+- **Reservations are measured in the run, not guessed** (decided 2026-09-26: the plan had a unit reserve the recent peak of its task's units from earlier runs).
+  - Each execution record stores its runner's `peakBytes` with its `success` or `failed` outcome, and a split task's own record the largest of its units'.
+  - A unit of a split task reserves the largest peak a unit of its stage — the task's pieces, or one level of their merges — has reached in the run. A unit the execution cache serves counts, since its record holds its peak. Nothing is looked up from earlier runs, so a peak that a changed program or input no longer reaches never sizes a unit.
+  - A stage runs its first unit alone, then fans out, while other work runs. A unit with no peak measured before it reserves nothing: a stage's first, a unit of a stage whose runners report no peak, a task run as one unit, a mutation, a function call.
 - **Guard.**
   - e3 samples usage and admits nothing more near the budget.
   - Past the budget, it kills the most recently started engine unit (a piece, merge or fold) and requeues it with its observed peak. Units are pure and content-addressed, so a killed unit leaves nothing behind and reruns to the same bytes.
@@ -611,7 +611,7 @@ Read first: `jobs.ts`, `LocalOrchestrator.ts`, `dataflow/steps.ts`, `processExec
 Changes:
 - `jobs.ts` becomes the budget (§3.8), with `--memory` / `E3_MEMORY` and a walk of the cgroup's `memory.max` beside `cgroupCpuQuota`.
 - **One budget per e3 process** (§3.8): the API server makes one when it starts, from `-j` / `--memory` or `E3_JOBS` / `E3_MEMORY`, and every run and every unit it spawns takes from it — dataflow units, function calls, mutations and index builds, where today each run has a jobs budget of its own and the rest none. Each CLI command that runs units makes its own, and every one takes `-j` and `--memory` for a local repository, refusing them against a server (decided 2026-09-26).
-- Reservations come from `peakBytes` history, with probe-then-fan-out, the guard, and per-unit cgroups where delegation exists. Until part 3 measures them, a unit reserves no memory: part 2 admits by cores at run time, and builds and tests its memory admission with given reservations, so no guessed number reaches a run (decided 2026-09-26).
+- Reservations come from the peaks measured in the run (§3.8), with probe-then-fan-out, the guard, and per-unit cgroups where delegation exists. Until part 3 measures them, a unit reserves no memory: part 2 admits by cores at run time, and builds and tests its memory admission with given reservations, so no guessed number reaches a run (decided 2026-09-26). Part 3 reserves only what the run itself has measured, never a peak from an earlier run (decided 2026-09-26).
 - Remove `state.concurrency` and the API request's `concurrency`, which the budget replaces (F33). `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases went in stage 4a.
 - **The loop's width is an option of the run,** `width`, and the budget moves off the shared options (`OrchestratorStartOptions`, `TaskExecuteOptions` and `DetachedRunOptions`) onto `LocalTaskRunner` alone (§3.8, Layering). The CLI and the API server hand the loop their budget's cores and a runner holding the budget; e3-cloud's loop engine hands it its own width (decided 2026-09-26).
 - **A unit's `threads` grant is up to four** (§3.8), on the one core it takes; `units.ts` granted every CPU. Measured on a lone unit writing a large output: 3M narrow rows took 6.6 s on one thread and 5.4 s on four, and 200K rows of 1 KiB 11.6 s and 4.5 s; past four nothing gained, and the 32 threads of every CPU cost 385–590 MiB (decided 2026-09-26).
@@ -628,7 +628,7 @@ Changes:
 Built in five parts, in this order (decided 2026-09-26):
 1. **The frame pool** (#841): its memory bounded by workers × segment, the store door framing on it again, and a worker's failure no longer crashing its process.
 2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), one per e3 process and held by the local runner alone, admission with no reservation until part 3, a unit's grant of up to four threads, east-c's segment writer on its pool, e3's own frame pool sized from the budget, and the removal of `state.concurrency` and the API request's `concurrency` for the loop's `width`, with the TUI's `/run --jobs`. Its audit adds one-shot dataset arguments staged as task inputs, and `e3-ui`'s budget checked before its UI opens.
-3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`, a unit reserves its kind's recent peak, and a task with no history runs one unit before it fans out.
+3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`; a split task's unit reserves the largest peak its stage has reached in the run, and a stage runs its first unit alone, then fans out (decided 2026-09-26).
 4. **The guard,** and per-unit cgroups where delegation exists.
 5. **The scheduler in e3-ui's TUI:** the budget in use, units waiting for room, each execution's peak and the guard's requeues, served by the API and shown by the TUI, once parts 2–4 have made them.
 
