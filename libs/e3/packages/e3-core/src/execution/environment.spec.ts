@@ -20,10 +20,27 @@ import { StructType, StringType, ArrayType, BlobType, OptionType, EastTypeType, 
 import { TreePathType, RunnerType } from '@elaraai/e3-types';
 import { LocalStorage } from '../storage/local/index.js';
 import { repoInit } from '../storage/local/repository.js';
-import { materializeEnvironment } from './environment.js';
+import { decodeEnvironmentFile, materializeEnvironment, nodeLockFilename } from './environment.js';
 
 /** An environment's file, as export stores it: a beast2 Blob of its bytes. */
 const encodeFile = encodeBeast2For(BlobType);
+
+describe('the files an environment names', () => {
+  it('decodes a file as its bytes, and refuses one an older SDK stored raw, in the materializer\'s words', () => {
+    const bytes = Buffer.from('#!/bin/sh\necho hi\n');
+    assert.deepStrictEqual(Buffer.from(decodeEnvironmentFile(encodeFile(bytes), 'a'.repeat(64))), bytes);
+    for (const raw of [bytes, encodeBeast2For(StringType)('not a file')]) {
+      assert.throws(() => decodeEnvironmentFile(raw, 'b'.repeat(64)), {
+        message: `the environment file ${'b'.repeat(64)} was exported by an older e3 SDK — re-export its package with the current one`,
+      });
+    }
+  });
+
+  it('tells a node lockfile\'s format from its bytes', () => {
+    assert.strictEqual(nodeLockFilename(Buffer.from('  {"lockfileVersion": 3}')), 'package-lock.json');
+    assert.strictEqual(nodeLockFilename(Buffer.from("lockfileVersion: '9.0'\n")), 'pnpm-lock.yaml');
+  });
+});
 
 describe('task and function object decoders', () => {
   it('refuses pre-environment task bytes, as every task object an older SDK exported, saying to re-export', () => {

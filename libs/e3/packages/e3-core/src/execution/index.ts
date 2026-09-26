@@ -50,7 +50,9 @@ export {
   type SpawnAndCaptureResult,
 } from './processExec.js';
 
-export { materializeEnvironment } from './environment.js';
+// An execution environment: its local build, and the reading of the files an
+// environment names, which a remote builder does too
+export { materializeEnvironment, decodeEnvironmentFile, nodeLockFilename } from './environment.js';
 
 // Scratch directories of local executions
 export { sweepScratchDirs } from './scratch.js';

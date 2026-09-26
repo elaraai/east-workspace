@@ -76,13 +76,20 @@ async function run(command: string, args: string[], cwd: string, what: string): 
 }
 
 /**
- * Reads a file an environment names.
+ * Decodes the object an environment names for one of its files: the file's
+ * bytes, which an export stores as a beast2 Blob.
  *
+ * @remarks
+ * Whatever reads an environment's files decodes them here, so a file an older
+ * SDK stored raw is refused in one set of words wherever it is read.
+ *
+ * @param data - The object's bytes
+ * @param hash - The object's hash, which a refusal names
+ * @returns The file's bytes
  * @throws {Error} When the object is not a beast2 Blob: the raw file an older
  *   e3 SDK exported, whose package is re-exported
  */
-async function readFile(storage: StorageBackend, repo: string, hash: string): Promise<Buffer> {
-  const data = await storage.objects.read(repo, hash);
+export function decodeEnvironmentFile(data: Uint8Array, hash: string): Uint8Array {
   let isFile = false;
   try {
     isFile = isTypeValueEqual(readBeast2Type(data), FILE_TYPE);
@@ -92,17 +99,31 @@ async function readFile(storage: StorageBackend, repo: string, hash: string): Pr
   if (!isFile) {
     throw new Error(`the environment file ${hash} was exported by an older e3 SDK — re-export its package with the current one`);
   }
-  return Buffer.from(decodeFile(data));
+  return decodeFile(data);
+}
+
+/** Reads a file an environment names (see {@link decodeEnvironmentFile}). */
+async function readFile(storage: StorageBackend, repo: string, hash: string): Promise<Buffer> {
+  return Buffer.from(decodeEnvironmentFile(await storage.objects.read(repo, hash), hash));
 }
 
 async function writeBlob(storage: StorageBackend, repo: string, hash: string, dest: string): Promise<void> {
   await fs.writeFile(dest, await readFile(storage, repo, hash));
 }
 
-/** The two lockfile formats node captures can carry; content-sniffed because
- *  the spec stores lock bytes, not a filename (JSON ⇒ npm, YAML ⇒ pnpm). */
-function nodeLockFilename(lock: Buffer): 'package-lock.json' | 'pnpm-lock.yaml' {
-  const head = lock.toString('utf-8', 0, Math.min(lock.length, 512)).trimStart();
+/**
+ * The file a node environment's lockfile is written as: npm's, which is JSON,
+ * or pnpm's, which is YAML.
+ *
+ * @remarks
+ * An environment spec stores a lockfile's bytes and not its name, so the name
+ * is told from the content.
+ *
+ * @param lock - The lockfile's bytes
+ * @returns Its file name
+ */
+export function nodeLockFilename(lock: Uint8Array): 'package-lock.json' | 'pnpm-lock.yaml' {
+  const head = new TextDecoder().decode(lock.subarray(0, 512)).trimStart();
   return head.startsWith('{') ? 'package-lock.json' : 'pnpm-lock.yaml';
 }
 
