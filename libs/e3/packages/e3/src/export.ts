@@ -17,9 +17,9 @@ import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
-import { buildMutationProgram, hasKeyedDelta, indexBuildProgram } from './record-programs.js';
+import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
+import { PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
@@ -82,7 +82,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const partialPath = `${outputPath}.partial`;
 
   // Cross-language imports (#628): every East.importFunction in a task's,
-  // function's or mutation's IR resolves against a manifest and embeds as
+  // function's, mutation's, index's or migration's IR resolves against a
+  // manifest and embeds as
   // pure IR — the deployed program needs no exporting language at run
   // time. The manifests are the ones given, plus one produced here for
   // every imported package that is a member of this uv or npm workspace
@@ -113,6 +114,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       refer(idef.keyFn.toIR() as EastIR<any, any>, owner, idef.runner);
       if (idef.valueFn !== undefined) refer(idef.valueFn.toIR() as EastIR<any, any>, owner, idef.runner);
     }
+    for (const step of rdef.migrations) refer(step.body, `migration "${rname}.${step.name}"`, step.runner);
   }
   const manifests = resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
     ? undefined
@@ -352,12 +354,14 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
 
   // Write record objects. The record's own dataset (initial state value + ref +
   // writable:false structure leaf) is written by the dataset branch above —
-  // records are datasets. Here we write the separate RecordObject + its
-  // MutationObjects, mirroring how functions are written. The genesis commit is
-  // minted at deploy (writeRecordGenesis) from the initial-state ref.
+  // records are datasets. Here we write the separate RecordObject and the
+  // mutation, index and migration objects it names, mirroring how functions
+  // are written. The genesis commit is minted at deploy (writeRecordGenesis)
+  // from the initial-state ref.
   const records = new SortedMap<string, string>(); // name -> RecordObject hash
   const mutationEncoder = encodeBeast2For(MutationObjectType);
   const indexEncoder = encodeBeast2For(RecordIndexObjectType);
+  const migrationEncoder = encodeBeast2For(MigrationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
     const recordRefPath = rdef.path.map(seg => {
@@ -416,7 +420,26 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       indexes.set(iname, addObject(zipfile, Buffer.from(indexEncoder(indexObject))));
     }
 
-    const recObject: RecordObject = { path: recordRefPath, mutations, indexes };
+    // A migration ships its function and, for a step split over the state, the
+    // program built from it, which is what runs a piece at a time. A `value`
+    // step runs its own function over the whole state, and names no program.
+    const migrations: RecordObject['migrations'] = [];
+    for (const step of rdef.migrations) {
+      const owner = `migration "${rname}.${step.name}"`;
+      const irObject = (bundle: EastIR<any, any>): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, step.runner))));
+      const migrationObject: MigrationObject = {
+        form: step.form,
+        from: toEastTypeValue(step.from),
+        to: toEastTypeValue(step.to),
+        bodyIr: irObject(step.body),
+        programIr: step.form === 'value' ? '' : irObject(migrationProgram(step)),
+        runner: runnerToVariant(step.runner),
+      };
+      migrations.push({ name: step.name, migration: addObject(zipfile, Buffer.from(migrationEncoder(migrationObject))) });
+    }
+
+    const recObject: RecordObject = { path: recordRefPath, mutations, indexes, migrations };
     const recHash = addObject(zipfile, Buffer.from(recordEncoder(recObject)));
     records.set(rname, recHash);
   }

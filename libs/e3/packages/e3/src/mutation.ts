@@ -28,19 +28,12 @@ import type {
   FunctionExpr,
   PatchTypeOf,
 } from '@elaraai/east';
-import {
-  AsyncEastIR, EastTypeType, Expr, NullType, PatchType, equalFor, printType, toEastTypeValue, walkIR,
-} from '@elaraai/east';
+import { Expr, NullType, PatchType, printType } from '@elaraai/east';
 import { editTypeOf } from '@elaraai/e3-types';
 import type { MutationDef, RecordDef } from './types.js';
 import { hasKeyedDelta } from './record-programs.js';
+import { checkPure, sameEastType } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
-
-// Structural East-type equality, the same primitive the redeploy type-change
-// guard uses (e3-core workspaces.ts): compare the encoded EastTypeValues.
-const typeValueEqual = equalFor(EastTypeType);
-const sameEastType = (a: EastType, b: EastType): boolean =>
-  typeValueEqual(toEastTypeValue(a), toEastTypeValue(b));
 
 /** The shared guards: a synchronous, platform-free body whose leading
  *  parameter is the record's state. Returns the body's signature. */
@@ -50,26 +43,9 @@ function checkBody(
   if (!name) {
     throw new Error(`e3.${surface} requires a non-empty name`);
   }
-  const ir = fn.toIR();
-  if (ir instanceof AsyncEastIR) {
-    throw new Error(
-      `e3.${surface} '${name}' body must be a synchronous East function — ` +
-      `an async body implies platform IO, which the compare-and-swap retry ` +
-      `loop cannot safely re-run against fresher state.`,
-    );
-  }
-  // A *sync* platform call is an ordinary FunctionIR, so the async check above
-  // doesn't catch it — walk the whole body (walkIR descends into nested
-  // closures, loop bodies and collection-op lambdas).
-  walkIR((ir as { ir: never }).ir, (node) => {
-    if (node.type === 'Platform') {
-      throw new Error(
-        `e3.${surface} '${name}' body must not call platform functions ` +
-        `(found '${node.value.name}') — the compare-and-swap retry loop re-runs ` +
-        `the mutation, so a platform call makes the committed record ` +
-        `non-deterministic across retries.`,
-      );
-    }
+  checkPure(`e3.${surface} '${name}' body`, fn, {
+    async: 'an async body implies platform IO, which the compare-and-swap retry loop cannot safely re-run against fresher state.',
+    platform: 'the compare-and-swap retry loop re-runs the mutation, so a platform call makes the committed record non-deterministic across retries.',
   });
   const signature = Expr.type(fn as unknown as Expr<any>) as { inputs: EastType[]; output: EastType };
   if (signature.inputs.length < 1 || !sameEastType(rec.type, signature.inputs[0]!)) {

@@ -15,7 +15,7 @@
  */
 
 import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
-import type { MutationForm, TaskRole, TreePath } from '@elaraai/e3-types';
+import type { MigrationForm, MutationForm, TaskRole, TreePath } from '@elaraai/e3-types';
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
 import type { EnvironmentDecl } from './environment.js';
@@ -268,6 +268,9 @@ export interface RecordDef<T extends EastType = EastType, Path extends TreePath 
   readonly mutations: Record<string, MutationDef>;
   /** Secondary indexes over this record, by name. */
   readonly indexes: Record<string, RecordIndexDef>;
+  /** Migrations of this record, in chain order: the steps a deploy runs over
+   *  a workspace's state that has not applied them. */
+  readonly migrations: readonly MigrationDef[];
 }
 
 /**
@@ -361,6 +364,50 @@ export interface MutationDef<
 }
 
 /**
+ * A migration definition — one step of a record's migration chain, which a
+ * deploy runs over a workspace's state that has not applied it.
+ *
+ * Passed to `e3.package` like a mutation; it is folded onto its record in
+ * chain order, with the steps its `after` names.
+ *
+ * @typeParam Name - The migration name (literal type)
+ * @typeParam T - The owning record's declared state type
+ * @typeParam From - The record's type before the step
+ * @typeParam To - The record's type after it
+ */
+export interface MigrationDef<
+  Name extends string = string,
+  T extends EastType = EastType,
+  From extends EastType = EastType,
+  To extends EastType = EastType,
+> {
+  readonly kind: 'migration';
+  /** Migration name: an identifier unique on the record, by which a
+   *  workspace records that it has applied the step. */
+  readonly name: Name;
+  /** The record this migration changes. */
+  readonly record: RecordDef<T>;
+  /** Which form this is: the whole state, a collection's rows, or its keys. */
+  readonly form: MigrationForm;
+  /** The record's type before the step. */
+  readonly from: From;
+  /** The record's type after it. */
+  readonly to: To;
+  // Typed loosely + cast like FunctionDef.body (TS2344 on a readonly first
+  // generic param of EastIR).
+  /** The author's function, as its IR bundle. */
+  readonly body: EastIR<any, any>;
+  /** The function as an expression, kept beside its IR so export can compose
+   *  it into the program a `rows` or `rekey` step runs, which reaches it
+   *  through its IR alone — so no call signature is claimed here. */
+  readonly fn: { toIR(): unknown };
+  /** The step before this one; absent for the chain's first. */
+  readonly after?: MigrationDef;
+  /** Runtime the step runs on; defaults to DEFAULT_RUNNER. */
+  readonly runner: Runner;
+}
+
+/**
  * An item that can be passed to e3.package().
  */
 export type PackageItem = DataTreeDef | DatasetDef | TaskDef;
@@ -432,8 +479,9 @@ export interface PackageDef<Datasets extends Record<string, any>> {
   /** Named functions, by name. Functions are not part of `contents` —
    *  they have no deps and never enter the data tree. */
   readonly functions: Record<string, FunctionDef>;
-  /** Records, by name, each carrying its assembled mutations. A record's
-   *  dataset is also in `contents` (records are datasets); this map is the
-   *  separate channel for emitting the RecordObject + MutationObjects. */
+  /** Records, by name, each carrying its assembled mutations, indexes and
+   *  migrations. A record's dataset is also in `contents` (records are
+   *  datasets); this map is the separate channel for emitting the
+   *  RecordObject and the objects it names. */
   readonly records: Record<string, RecordDef>;
 }

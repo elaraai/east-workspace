@@ -9,14 +9,20 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import yauzl from 'yauzl';
-import { East, IntegerType, StringType, FloatType, ArrayType, decodeBeast2For } from '@elaraai/east';
+import {
+  East, IntegerType, StringType, FloatType, ArrayType, DictType, SortedMap, StructType,
+  compareFor, decodeBeast2For, decodeEastIR, isTypeValueEqual, toEastTypeValue,
+} from '@elaraai/east';
 import {
   RecordObjectType,
   MutationObjectType,
+  decodeMigrationObject,
   decodePackageObject,
+  decodeRecordObject,
 } from '@elaraai/e3-types';
 import { record, recordsTree } from './record.js';
 import { mutation } from './mutation.js';
+import { migration } from './migration.js';
 import { package_ } from './package.js';
 import { export_ } from './export.js';
 
@@ -224,6 +230,44 @@ describe('e3.record / e3.mutation.reduce', () => {
 
       // the record's initial state ref is present
       assert.ok(pkgObject.data.refs.get('records/counter'), 'record initial-state ref present');
+    });
+
+    it('writes a record\'s migrations in chain order, a step split over the state with the program it runs', async () => {
+      const RowV1Type = StructType({ title: StringType });
+      const RowV2Type = StructType({ title: StringType, owner: StringType });
+      const plans = record('plans', DictType(StringType, RowV2Type), new Map());
+      const normalize = migration.value('normalize', plans,
+        East.function([DictType(StringType, RowV1Type)], DictType(StringType, RowV1Type), ($, old) => old));
+      const addOwner = migration.rows('add_owner', plans,
+        East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' })),
+        { after: normalize });
+      const zip = path.join(tmp, 'plans.zip');
+      await export_(package_('planning', '2.0.0', addOwner), zip);
+
+      const entries = await readZip(zip);
+      const pkgHash = decodeBeast2For(StringType)(entries.get('packages/planning/2.0.0.beast2')!);
+      const recObject = decodeRecordObject(objectAt(entries, decodePackageObject(objectAt(entries, pkgHash)).records.get('plans')!));
+      assert.deepStrictEqual(recObject.migrations.map((step) => step.name), ['normalize', 'add_owner']);
+      const [whole, split] = recObject.migrations.map((step) => decodeMigrationObject(objectAt(entries, step.migration)));
+
+      assert.strictEqual(whole!.form, 'value');
+      assert.strictEqual(whole!.programIr, '', 'a value step runs its own function, and names no program');
+      objectAt(entries, whole!.bodyIr);
+
+      assert.strictEqual(split!.form, 'rows');
+      assert.ok(isTypeValueEqual(split!.from, toEastTypeValue(DictType(StringType, RowV1Type))));
+      assert.ok(isTypeValueEqual(split!.to, toEastTypeValue(DictType(StringType, RowV2Type))));
+      objectAt(entries, split!.bodyIr);
+      // The program in the bundle is the one that runs: each row out under
+      // its key, as the function rewrites it.
+      const run = decodeEastIR(objectAt(entries, split!.programIr)).compile([]) as
+        (piece: unknown, emit: (key: unknown, row: unknown) => null) => unknown;
+      const out: unknown[][] = [];
+      run(new SortedMap([['p1', { title: 'One' }]], compareFor(StringType)), (key, row) => {
+        out.push([key, row]);
+        return null;
+      });
+      assert.deepStrictEqual(out, [['p1', { title: 'One', owner: 'unassigned' }]]);
     });
   });
 });

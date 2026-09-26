@@ -189,9 +189,81 @@ export type RecordIndexObjectType = typeof RecordIndexObjectType;
 export type RecordIndexObject = ValueTypeOf<typeof RecordIndexObjectType>;
 
 /**
+ * A migration: one step of a record's declared chain, which a deploy runs over
+ * a workspace's state that has not applied it.
+ *
+ * @remarks
+ * A step changes the record's type, or keeps the type and changes its values.
+ * The chain is the record object's `migrations`, in order, and a workspace's
+ * record ref names the steps it has applied by name, never by this object's
+ * hash: the hash covers the step's IR, which carries source locations and
+ * changes with the SDK that exported it, so an unchanged step would read as
+ * edited.
+ */
+export const MigrationObjectType = StructType({
+  /** Which form this is — see {@link MigrationForm}. */
+  form: StringType,
+  /** The record's type before the step. */
+  from: EastTypeType,
+  /** The record's type after it. */
+  to: EastTypeType,
+  /** Hash of the author's function's IR bundle, which a `value` step runs. */
+  bodyIr: StringType,
+  /** Hash of the generated program's IR bundle, `(piece, emit) => Null`,
+   *  which a `rows` or `rekey` step runs over each piece of the state; empty
+   *  for a `value` step. */
+  programIr: StringType,
+  /** Author-chosen runtime the step runs on. */
+  runner: RunnerType,
+});
+export type MigrationObjectType = typeof MigrationObjectType;
+export type MigrationObject = ValueTypeOf<typeof MigrationObjectType>;
+
+/**
+ * How a migration says what it changes.
+ *
+ * - `value` — `(Old) => New`, the whole state: one unit, whose runner opens the
+ *   state lazily, so it costs what the body reads.
+ * - `rows` — a Dict's rows, `(K, V1) => V2` with the keys unchanged, or an
+ *   Array's elements, `(T1) => T2` in order: a task split over the state, a
+ *   piece at a time.
+ * - `rekey` — a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a
+ *   Set's elements, `(T1) => T2`: the same split task, whose pieces' outputs
+ *   merge by key. Two rows landing on one key fail, naming it; two elements
+ *   landing on one are one element.
+ */
+export type MigrationForm = 'value' | 'rows' | 'rekey';
+
+const decodeCurrentMigration = decodeBeast2For(MigrationObjectType);
+
+/**
+ * Decode a `MigrationObject`.
+ *
+ * @remarks
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported with the current one, and this says so.
+ *
+ * @param data - the stored bytes
+ * @returns the migration object
+ * @throws {Error} When the bytes are not a current migration object — a
+ *   package exported by an older SDK, which is re-exported with the current
+ *   one.
+ */
+export function decodeMigrationObject(data: Uint8Array): MigrationObject {
+  try {
+    return decodeCurrentMigration(data);
+  } catch (err) {
+    throw new Error(
+      `the migration object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+}
+
+/**
  * Record object stored in the object store, referenced by name from
- * `PackageObject.records`. Carries the record's dataset path, its mutations
- * and its secondary indexes.
+ * `PackageObject.records`. Carries the record's dataset path, its mutations,
+ * its secondary indexes and its migration chain.
  */
 export const RecordObjectType = StructType({
   /** refPath of the record's dataset, e.g. `records/orders`. */
@@ -200,6 +272,10 @@ export const RecordObjectType = StructType({
   mutations: DictType(StringType, StringType),
   /** Secondary indexes by name -> RecordIndexObject hash. */
   indexes: DictType(StringType, StringType),
+  /** The declared migration chain, in order: each step's name, an identifier
+   *  unique on the record, and its MigrationObject hash. Empty when the
+   *  record declares none. */
+  migrations: ArrayType(StructType({ name: StringType, migration: StringType })),
 });
 export type RecordObjectType = typeof RecordObjectType;
 export type RecordObject = ValueTypeOf<typeof RecordObjectType>;

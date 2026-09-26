@@ -13,7 +13,7 @@ import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { East, DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceRecordType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
+import { WorkspaceRecordType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, decodeMigrationObject, decodeRecordObject, encodeUnitPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -199,6 +199,27 @@ describe('gc', () => {
       await packageRemove(storage, testRepoPath, 'fn-gc-rm', '1.0.0');
       const result = await repoGc(storage, testRepoPath, { minAge: 0 });
       assert.strictEqual(result.deletedObjects, importResult.objectCount);
+    });
+  });
+
+  describe('with record migrations', () => {
+    it('keeps a record\'s migrations, their functions and a split step\'s program (PackageObject → RecordObject → MigrationObject → IR)', async () => {
+      const RowType = StructType({ title: StringType });
+      const plans = e3.record('plans', DictType(StringType, RowType), new Map());
+      const retitle = e3.migration.rows('retitle', plans,
+        East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title })));
+      const zipPath = join(tempDir, 'migration-gc.zip');
+      await e3.export(e3.package('migration-gc', '1.0.0', retitle), zipPath);
+      await packageImport(storage, testRepoPath, zipPath);
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.strictEqual(result.deletedObjects, 0);
+
+      const pkgObject = await packageRead(storage, testRepoPath, 'migration-gc', '1.0.0');
+      const record = decodeRecordObject(await objectRead(testRepoPath, pkgObject.records.get('plans')!));
+      const step = decodeMigrationObject(await objectRead(testRepoPath, record.migrations[0]!.migration));
+      assert.ok((await objectRead(testRepoPath, step.bodyIr)).length > 0, 'the function survives');
+      assert.ok((await objectRead(testRepoPath, step.programIr)).length > 0, 'the program a split step runs survives');
     });
   });
 
@@ -1224,6 +1245,31 @@ describe('gc', () => {
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');
       assert.ok(reachable.has(PROGRAM), 'a real mutation must keep its program reachable');
+    });
+
+    it('a genuine RecordObject IS traversed: each migration, its function and a split step\'s program stay reachable', async () => {
+      const VALUE_STEP = 'a-value-step'.padEnd(64, '0');
+      const ROWS_STEP = 'a-rows-step'.padEnd(64, '0');
+      const VALUE_BODY = '5'.repeat(64);
+      const ROWS_BODY = '6'.repeat(64);
+      const ROWS_PROGRAM = '7'.repeat(64);
+      const runner = variant('east_node', { platforms: ['@elaraai/east-node-std'] });
+      const counts = toEastTypeValue(DictType(StringType, IntegerType));
+      const root = 'real-record'.padEnd(64, '0');
+      const objects = new Map([
+        [root, encodeBeast2For(RecordObjectType)({
+          path: 'records/counts', mutations: new Map(), indexes: new Map(),
+          migrations: [{ name: 'repair', migration: VALUE_STEP }, { name: 'relabel', migration: ROWS_STEP }],
+        })],
+        [VALUE_STEP, encodeBeast2For(MigrationObjectType)({ form: 'value', from: counts, to: counts, bodyIr: VALUE_BODY, programIr: '', runner })],
+        [ROWS_STEP, encodeBeast2For(MigrationObjectType)({
+          form: 'rows', from: counts, to: toEastTypeValue(DictType(StringType, StringType)), bodyIr: ROWS_BODY, programIr: ROWS_PROGRAM, runner,
+        })],
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      // A value step runs its own function, and names no program.
+      assert.deepStrictEqual([...reachable].sort(), [root, VALUE_STEP, ROWS_STEP, VALUE_BODY, ROWS_BODY, ROWS_PROGRAM].sort());
     });
   });
 

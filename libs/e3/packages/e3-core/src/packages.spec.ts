@@ -12,7 +12,7 @@ import assert from 'node:assert';
 import { createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import yazl from 'yazl';
-import { StringType, IntegerType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
+import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowRunType, ExecutionStatusType } from '@elaraai/e3-types';
 import {
@@ -327,6 +327,26 @@ describe('packages', () => {
       await packageExport(storage, testRepo, 'roundtrip', '1.0.0', exportedZip);
 
       // Compare zip contents (not raw bytes, as order may differ)
+      const result = await zipEqual(originalZip, exportedZip);
+      assert.ok(result.equal, `Zips should have equal content: ${result.diff}`);
+    });
+
+    it('carries a record\'s migration chain: each step, its function and a split step\'s program', async () => {
+      const RowType = StructType({ title: StringType });
+      const PlansType = DictType(StringType, RowType);
+      const plans = e3.record('plans', PlansType, new Map());
+      const repair = e3.migration.value('repair', plans, East.function([PlansType], PlansType, ($, old) => old));
+      const retitle = e3.migration.rows('retitle', plans,
+        East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title })), { after: repair });
+      const originalZip = join(tempDir, 'migrations-original.zip');
+      await e3.export(e3.package('migrations', '1.0.0', retitle), originalZip);
+      await packageImport(storage, testRepo, originalZip);
+
+      const exportedZip = join(tempDir, 'migrations-exported.zip');
+      await packageExport(storage, testRepo, 'migrations', '1.0.0', exportedZip);
+
+      // Every object the SDK wrote travels: a step left behind could not run
+      // in the repository the export is imported into.
       const result = await zipEqual(originalZip, exportedZip);
       assert.ok(result.equal, `Zips should have equal content: ${result.diff}`);
     });

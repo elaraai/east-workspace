@@ -74,6 +74,7 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
     path: 'records/counter',
     mutations: new Map([['increment', mutHash]]),
     indexes: new Map(),
+    migrations: [],
   }));
 
   const structure = variant('struct', new Map([

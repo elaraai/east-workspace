@@ -6,10 +6,11 @@
 /**
  * The East programs a record's declarations generate.
  *
- * An author declares what an index keys on and how a mutation writes; what
- * actually runs is a program built from those declarations — an ordinary East
- * function assembled at export time from the author's own expressions, as a
- * stream task's output kind builds its merge function. It is linked and
+ * An author declares what an index keys on, how a mutation writes and how a
+ * migration changes a row; what actually runs is a program built from those
+ * declarations — an ordinary East function assembled at export time from the
+ * author's own expressions, as a stream task's output kind builds its merge
+ * function. It is linked and
  * encoded like any other body, runs on the runner the author chose, and is
  * what keeps e3 out of the business of evaluating user East: the engine runs a
  * program and applies what it emits.
@@ -36,7 +37,7 @@ import {
 import {
   DELTA_CONFLICT, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
 } from '@elaraai/e3-types';
-import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
+import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
  * The entry key an index collection sorts under: `{ik, k}`.
@@ -91,6 +92,56 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
         $(emit({ ik: indexKey(key, row), k: key }, value));
       }
     });
+    return null;
+  }).toIR() as EastIR<any, any>;
+}
+
+/**
+ * The program a `rows` or `rekey` migration runs over each piece of a record's
+ * state: `(piece, emit) => Null`.
+ *
+ * @remarks
+ * It calls the author's function on each row, or element, as it reads it, and
+ * emits what the function returns: a `rows` step under the row's own key, or
+ * in order over an Array; a `rekey` step under the key the function returns,
+ * or, over a Set, as the element it returns. The runner writes a `dict` or
+ * `set` output through its RunSorter, which sorts what it is given, and an
+ * `array` output in the order emitted, so the program holds no more than the
+ * row in hand.
+ *
+ * The author's function is bound as a function value and CALLED, never
+ * spliced: a spliced expression tree would be re-evaluated per reference and
+ * could capture the wrong bindings.
+ *
+ * @param def - the migration, a `rows` or `rekey` step
+ * @returns the program's IR bundle
+ * @throws {Error} When the step is a `value` step, whose own function runs.
+ */
+export function migrationProgram(def: MigrationDef): EastIR<any, any> {
+  if (def.form === 'value') {
+    throw new Error(`e3.migration.value '${def.name}' runs its own function, and has no program`);
+  }
+  const to = def.to as unknown as { type: string; key: EastType; value: EastType };
+  const emitType = to.type === 'Dict'
+    ? FunctionType([to.key as never, to.value as never], NullType)
+    : FunctionType([(to.type === 'Array' ? to.value : to.key) as never], NullType);
+
+  return East.function([def.from as never, emitType], NullType, ($: any, piece: any, emit: any) => {
+    const step = $.const(def.fn);
+    if (to.type !== 'Dict') {
+      $.for(piece, ($: any, element: any) => {
+        $(emit(step(element)));
+      });
+    } else if (def.form === 'rows') {
+      $.for(piece, ($: any, row: any, key: any) => {
+        $(emit(key, step(key, row)));
+      });
+    } else {
+      $.for(piece, ($: any, row: any, key: any) => {
+        const entry = $.let(step(key, row));
+        $(emit(entry.key, entry.value));
+      });
+    }
     return null;
   }).toIR() as EastIR<any, any>;
 }

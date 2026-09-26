@@ -7,9 +7,11 @@
  * Package definitions for e3.
  */
 
+import { printType } from '@elaraai/east';
 import { nameProblem } from '@elaraai/e3-types';
 import type {
   FunctionDef,
+  MigrationDef,
   MutationDef,
   RecordIndexDef,
   PackageDef,
@@ -17,6 +19,7 @@ import type {
   RecordDef,
   TaskDef,
 } from './types.js';
+import { sameEastType } from './record-guards.js';
 
 /**
  * Creates a package definition from items.
@@ -35,9 +38,10 @@ import type {
  * @param items - Items to include (datasets, tasks)
  * @returns A PackageDef with typed access to contents
  * @throws {Error} When the name or the version cannot be a file name — a
- *   repository keeps the package at `packages/<name>/<version>` — or when a
- *   record is given two different mutations, or two different indexes, of one
- *   name
+ *   repository keeps the package at `packages/<name>/<version>` — when a
+ *   record is given two different mutations, indexes or migrations of one
+ *   name, or when a record's migrations are not one chain that leaves it as
+ *   its declared type
  *
  * @example
  * ```ts
@@ -63,7 +67,7 @@ import type {
 export function package_(
   name: string,
   version: string,
-  ...items: (PackageItem | FunctionDef | MutationDef | RecordIndexDef | PackageDef<any>)[]
+  ...items: (PackageItem | FunctionDef | MutationDef | RecordIndexDef | MigrationDef | PackageDef<any>)[]
 ): PackageDef<Record<string, unknown>> {
   for (const [kind, value] of [['package', name], ['package version', version]] as const) {
     const problem = nameProblem(kind, value);
@@ -83,6 +87,9 @@ export function package_(
   // Indexes are collected onto their record the same way, and for the same
   // reason: an index is declared beside the record and belongs to it.
   const indexesByRecord = new Map<string, RecordIndexDef[]>();
+  // Migrations are collected onto their record too, each with the steps before
+  // it, which its `after` names: passing a chain's last step passes the chain.
+  const migrationsByRecord = new Map<string, MigrationDef[]>();
   const importedRecords: Record<string, RecordDef> = {};
 
   function collect(item: PackageItem): void {
@@ -114,6 +121,11 @@ export function package_(
     } else if (item.kind === "recordIndex") {
       collect(item.record);
       indexesByRecord.set(item.record.name, [...(indexesByRecord.get(item.record.name) ?? []), item]);
+    } else if (item.kind === "migration") {
+      collect(item.record);
+      const steps = migrationsByRecord.get(item.record.name) ?? [];
+      for (let step: MigrationDef | undefined = item; step !== undefined; step = step.after) steps.push(step);
+      migrationsByRecord.set(item.record.name, steps);
     } else {
       collect(item);
     }
@@ -176,6 +188,45 @@ export function package_(
     return named;
   };
 
+  // A record's migrations in the order they run. They are one chain: exactly
+  // one step has no `after`, no two name the same one, and the last leaves the
+  // record as it is declared, since a deploy leaves a migrated record at the
+  // package's type.
+  const chainOf = (rec: RecordDef, steps: MigrationDef[]): MigrationDef[] => {
+    const all = Object.values(byName(rec.name, 'migrations', steps));
+    if (all.length === 0) return [];
+    const where = `e3.package '${name}': record '${rec.name}'`;
+    const firsts = all.filter((step) => step.after === undefined);
+    if (firsts.length !== 1) {
+      throw new Error(
+        `${where} has ${firsts.length} migrations with no 'after' (${firsts.map((step) => `'${step.name}'`).join(', ')}) — ` +
+        `its migrations are one chain, and only the first step names none`,
+      );
+    }
+    const next = new Map<string, MigrationDef>();
+    for (const step of all) {
+      if (step.after === undefined) continue;
+      const taken = next.get(step.after.name);
+      if (taken !== undefined) {
+        throw new Error(
+          `${where} has two migrations after '${step.after.name}', '${taken.name}' and '${step.name}' — ` +
+          `its migrations are one chain`,
+        );
+      }
+      next.set(step.after.name, step);
+    }
+    const chain = [firsts[0]!];
+    for (let step = next.get(firsts[0]!.name); step !== undefined; step = next.get(step.name)) chain.push(step);
+    const last = chain[chain.length - 1]!;
+    if (!sameEastType(last.to, rec.type)) {
+      throw new Error(
+        `${where} is declared as ${printType(rec.type)}, but its last migration, '${last.name}', ` +
+        `leaves it as ${printType(last.to)}`,
+      );
+    }
+    return chain;
+  };
+
   // Assemble records: a record's dataset rides `all_items`; fold in any
   // mutations collected for it. A record imported via a package arrives twice —
   // its bare dataset (mutations `{}`) in `all_items` and its already-assembled
@@ -197,6 +248,11 @@ export function package_(
           ...Object.values(records[rec.name]?.indexes ?? {}),
           ...Object.values(rec.indexes),
           ...(indexesByRecord.get(rec.name) ?? []),
+        ]),
+        migrations: chainOf(rec, [
+          ...(records[rec.name]?.migrations ?? []),
+          ...rec.migrations,
+          ...(migrationsByRecord.get(rec.name) ?? []),
         ]),
       };
     }

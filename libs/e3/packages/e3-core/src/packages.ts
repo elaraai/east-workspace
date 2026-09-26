@@ -21,6 +21,7 @@ import {
   RecordIndexObjectType,
   environmentSpecObjectHashes,
   decodeFunctionObject,
+  decodeMigrationObject,
   decodeMutationObject,
   decodePackageObject,
   decodeExecutionStatus,
@@ -352,7 +353,8 @@ const DETERMINISTIC_MTIME = new Date(0);
  * The package object, then what it names: each task with its program or
  * command, the functions and value its output folds with, and its
  * environment; each function with its IR and environment; each record with its
- * mutations and index declarations; and the stored value of each dataset ref.
+ * mutations, index declarations and migrations; and the stored value of each
+ * dataset ref.
  * A value is more than the object its ref names. A collection held as a
  * segment manifest is the manifest, its
  * header and every segment, and an indexed record's ref names a `$record`
@@ -455,6 +457,14 @@ export async function walkPackageObjects(
       if (mutation.programIr !== '') await add(mutation.programIr);
     }
     for (const indexHash of record.indexes.values()) await addRecordIndex(indexHash);
+    // A deploy of the import runs the steps a workspace has not applied: a
+    // value step its function, a step split over the state its program.
+    for (const step of record.migrations) {
+      await add(step.migration);
+      const migration = decodeMigrationObject(await storage.objects.read(repo, step.migration));
+      await add(migration.bodyIr);
+      if (migration.programIr !== '') await add(migration.programIr);
+    }
   }
 
   for (const [refPath, ref] of pkg.data.refs) {

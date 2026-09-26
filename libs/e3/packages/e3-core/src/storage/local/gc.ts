@@ -21,7 +21,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { decodeBeast2, readBeast2Type, toEastTypeValue, variant, type EastType, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from './history.js';
@@ -325,6 +325,7 @@ const FUNCTION_OBJECT_FIELDS = namesOf(FunctionObjectType);
 const RECORD_OBJECT_FIELDS = namesOf(RecordObjectType);
 const RECORD_INDEX_OBJECT_FIELDS = namesOf(RecordIndexObjectType);
 const MUTATION_OBJECT_FIELDS = namesOf(MutationObjectType);
+const MIGRATION_OBJECT_FIELDS = namesOf(MigrationObjectType);
 const RECORD_COMMIT_FIELDS = namesOf(RecordCommitType);
 const ENVIRONMENT_SPEC_CASES = namesOf(EnvironmentSpecType);
 
@@ -473,7 +474,8 @@ function isStructuralShape(type: EastTypeValue): boolean {
   const t = type as any;
   return taggedKindOf(t) !== null || isStructOf(t, PACKAGE_OBJECT_FIELDS) || isStructOf(t, FUNCTION_OBJECT_FIELDS)
     || isStructOf(t, RECORD_OBJECT_FIELDS) || isStructOf(t, MUTATION_OBJECT_FIELDS) || isEnvironmentSpecShape(t)
-    || isStructOf(t, RECORD_COMMIT_FIELDS) || isTreeObjectShape(t) || isStructOf(t, RECORD_INDEX_OBJECT_FIELDS);
+    || isStructOf(t, RECORD_COMMIT_FIELDS) || isTreeObjectShape(t) || isStructOf(t, RECORD_INDEX_OBJECT_FIELDS)
+    || isStructOf(t, MIGRATION_OBJECT_FIELDS);
 }
 
 /**
@@ -533,6 +535,9 @@ function extractChildren(
     for (const indexHash of rec.indexes.values()) {
       children.push({ hash: indexHash, kind: 'node' });
     }
+    for (const step of rec.migrations) {
+      children.push({ hash: step.migration, kind: 'node' });
+    }
     return children;
   }
 
@@ -549,6 +554,14 @@ function extractChildren(
   if (isStructOf(t, MUTATION_OBJECT_FIELDS)) {
     const mut = value as MutationObject;
     children.push({ hash: mut.bodyIr, kind: 'leaf' }, { hash: mut.programIr, kind: 'leaf' }); // IR is a leaf
+    return children;
+  }
+
+  if (isStructOf(t, MIGRATION_OBJECT_FIELDS)) {
+    const step = value as MigrationObject;
+    children.push({ hash: step.bodyIr, kind: 'leaf' }); // IR is a leaf
+    // A value step runs its own function, and names no program.
+    if (step.programIr !== '') children.push({ hash: step.programIr, kind: 'leaf' });
     return children;
   }
 

@@ -21,17 +21,10 @@
  */
 
 import type { EastType, FunctionExpr, SetType } from '@elaraai/east';
-import {
-  AsyncEastIR, EastTypeType, Expr, NullType, equalFor, printType, toEastTypeValue, walkIR,
-} from '@elaraai/east';
+import { Expr, NullType, printType } from '@elaraai/east';
 import type { RecordDef, RecordIndexDef } from './types.js';
+import { checkPure, sameEastType } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
-
-// Structural East-type equality, the same primitive the redeploy type-change
-// guard uses (e3-core workspaces.ts): compare the encoded EastTypeValues.
-const typeValueEqual = equalFor(EastTypeType);
-const sameEastType = (a: EastType, b: EastType): boolean =>
-  typeValueEqual(toEastTypeValue(a), toEastTypeValue(b));
 
 /** The index name reserved for the record's own collection wherever an index
  *  is selected — a page, a key search, an arm of the mutation delta. */
@@ -102,28 +95,14 @@ function signatureOf(fn: IndexFunction): { inputs: EastType[]; output: EastType 
   return Expr.type(fn as unknown as Expr<any>) as { inputs: EastType[]; output: EastType };
 }
 
-/** Refuses an index function that is async or reaches a platform function.
- *  Both make the index non-deterministic, and an index that does not equal its
- *  rebuild is worse than no index: the view it serves is quietly wrong. */
-function checkPure(name: string, role: string, fn: IndexFunction): void {
-  const ir = fn.toIR();
-  if (ir instanceof AsyncEastIR) {
-    throw new Error(
-      `e3.recordIndex '${name}' ${role} must be a synchronous East function — ` +
-      `an async function implies platform IO, and an index is rebuilt from the ` +
-      `record whenever it is dropped or its declaration changes.`,
-    );
-  }
-  walkIR((ir as { ir: never }).ir, (node) => {
-    if (node.type === 'Platform') {
-      throw new Error(
-        `e3.recordIndex '${name}' ${role} must not call platform functions ` +
-        `(found '${node.value.name}') — the index is maintained on every commit ` +
-        `and rebuilt on demand, so a platform call makes the two disagree.`,
-      );
-    }
-  });
-}
+/** Why an index function may be neither async nor reach a platform function:
+ *  either makes the index non-deterministic, and an index that does not equal
+ *  its rebuild is worse than no index, since the view it serves is quietly
+ *  wrong. */
+const INDEX_PURITY = {
+  async: 'an async function implies platform IO, and an index is rebuilt from the record whenever it is dropped or its declaration changes.',
+  platform: 'the index is maintained on every commit and rebuilt on demand, so a platform call makes the two disagree.',
+};
 
 /** Refuses an index function whose parameters are not the record's entry. */
 function checkEntryParams(name: string, role: string, keyType: EastType, valueType: EastType, inputs: EastType[]): void {
@@ -232,7 +211,7 @@ export function recordIndex<Name extends string, T extends EastType, S extends R
   // Validate eagerly so a bad runner fails at definition time, not export time.
   runnerToVariant(runner);
 
-  checkPure(name, multi ? "'keys' function" : "'key' function", keyFn);
+  checkPure(`e3.recordIndex '${name}' ${multi ? "'keys' function" : "'key' function"}`, keyFn, INDEX_PURITY);
   const keySig = signatureOf(keyFn);
   checkEntryParams(name, multi ? "'keys' function" : "'key' function", keyType, valueType, keySig.inputs);
 
@@ -251,7 +230,7 @@ export function recordIndex<Name extends string, T extends EastType, S extends R
 
   let projectionType: EastType = NullType;
   if (spec.value !== undefined) {
-    checkPure(name, "'value' projection", spec.value);
+    checkPure(`e3.recordIndex '${name}' 'value' projection`, spec.value, INDEX_PURITY);
     const valueSig = signatureOf(spec.value);
     checkEntryParams(name, "'value' projection", keyType, valueType, valueSig.inputs);
     projectionType = valueSig.output;

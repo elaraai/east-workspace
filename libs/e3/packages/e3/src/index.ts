@@ -55,6 +55,7 @@ import type {
   FoldOutputDef,
   FunctionDef,
   MergeDatasets,
+  MigrationDef,
   MutationDef,
   OutputDef,
   PackageDef,
@@ -68,6 +69,7 @@ import type {
 import { input } from './input.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
+import { migration } from './migration.js';
 import { recordIndex } from './record-index.js';
 import { task, customTask, streamTask, partition } from './task.js';
 import { output } from './output.js';
@@ -83,6 +85,7 @@ export type {
   DictOutputDef,
   FoldOutputDef,
   FunctionDef,
+  MigrationDef,
   MutationDef,
   OutputDef,
   PartitionDef,
@@ -115,6 +118,7 @@ const e3 = {
   input,
   record,
   mutation,
+  migration,
   recordIndex,
   task,
   customTask,
@@ -129,8 +133,9 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, recordIndex, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
+export { input, record, mutation, migration, recordIndex, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
 export type { StreamTaskSpec } from './task.js';
+export type { MigrationConfig } from './migration.js';
 
 // Singleton tree definitions
 export { inputsTree } from './input.js';
@@ -149,5 +154,5 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
-export { indexBuildProgram, buildMutationProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
+export { indexBuildProgram, buildMutationProgram, migrationProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
 export type { RecordIndexSpec, IndexFunction, IndexKeyOf, ProjectionOf } from './record-index.js';
