@@ -771,7 +771,7 @@ A record's type is fixed for its life today. A redeploy whose record changed typ
 - a prior deployment that does not read is taken as a fresh deploy, so every record is reset, silently;
 - a redeploy that keeps a record appends no commit, so nothing in its history says the package under it changed.
 
-`e3-records-schema.md` §5–§7 proposed the mechanism. Records now run on the engine, which settles its open questions about where a migration runs. Decided with the user: whole-value and streamed migrations, including a change of key; a `$deploy` commit only when the package changed; a dropped record refused unless flagged; `e3 watch` failing on a type change, naming `--schema=reset`; and a record deployed before this lands counted as having applied no migration.
+`e3-records-schema.md` §5–§7 proposed the mechanism. Records now run on the engine, which settles its open questions about where a migration runs. Decided with the user: whole-value and streamed migrations, including a change of key; a `$deploy` commit only when the package changed; a dropped record refused unless flagged; `e3 watch` failing on a type change, naming `--schema=reset`; a record deployed before this lands counted as having applied no migration; and a Set's `rekey` that maps two elements to one keeping one, as a Set does.
 
 **Authoring.** The migration forms are a closed family, like the mutation forms (D13):
 
@@ -788,7 +788,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 
 - `value`: `(Old) => New`, any record. It runs as one unit, whose runner opens the state lazily, so it costs what the body reads.
 - `rows`: a Dict record's rows, `(K, V1) => V2` with the keys unchanged, or an Array record's elements, `(T1) => T2` in order. It runs as a task split over the stored state, into a `dict` or `array` output, so a record of any size migrates a piece at a time, in parallel, each piece cached.
-- `rekey`: a Dict record's keys and rows, `(K1, V1) => { key: K2, value: V2 }`, or a Set record's elements, `(T1) => T2`. It is the same split task into a `dict` or `set` output: the pieces' outputs merge by key range, and two old rows landing on one new key fail the deploy, naming it.
+- `rekey`: a Dict record's keys and rows, `(K1, V1) => { key: K2, value: V2 }`, or a Set record's elements, `(T1) => T2`. It is the same split task into a `dict` or `set` output, whose pieces' outputs merge by key range. Two old rows landing on one new key fail the deploy, naming it, since their values may differ and neither can be chosen. Two old elements landing on one new element are one element, as in any Set: nothing is lost.
 - The guards of a mutation: synchronous, and no platform call. The types are read off the function. `after` links the chain: exactly one migration of a record has none, and each `after` names a migration of the same record. Each step's input type is its predecessor's output type, and the last step's output type is the record's declared type. Each is an error at definition, naming both types.
 
 **Wire.** `MigrationObjectType`: `form`, `from` and `to` (the record's type before and after), `bodyIr`, `programIr` (the generated program a `rows` or `rekey` step runs, empty for `value`) and `runner`. `RecordObjectType` gains `migrations`, the declared chain in order: each step's name and object hash. Both are package-borne, so they change by hard cutover.
@@ -840,7 +840,7 @@ Built in four parts, in this order:
 Acceptance:
 - Each row of the plan table, through e3-core and through the API.
 - A migration that fails mid-chain leaves the workspace as it was, and the deploy run again is served its finished steps from the cache.
-- A `rows` or `rekey` step over many pieces (`E3_TEST_PIECE_BYTES`) writes the manifest the `value` step writes for the same change, and a `rekey` that lands two rows on one key is refused, naming it.
+- A `rows` or `rekey` step over many pieces (`E3_TEST_PIECE_BYTES`) writes the manifest the `value` step writes for the same change, and a `rekey` that lands two rows on one key is refused, naming it, while one that lands two elements of a Set on one keeps one.
 - `$schema` survives a mutation, a compaction, a reindex and a system commit; a keyed retry is answered, not applied, after each of those, a rollback and a migration.
 - A `$deploy` commit only when the package changed; a dropped record refused, then allowed.
 - A deploy that takes minutes completes as a job through the API.
