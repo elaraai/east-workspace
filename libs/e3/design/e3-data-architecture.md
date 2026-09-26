@@ -828,7 +828,12 @@ A prior deployment that does not read is refused, naming it, where it was a sile
 
 A compaction cleared the slots, so a keyed retry arriving just after one applied its mutation again. Pointing the slot at the compaction commit answers the retry without keeping the cut commit alive (found checking item 9).
 
-**System commits** (item 9 above). e3-core exports the primitive that commits a given state as a named system commit, such as e3-cloud's `$rollback` and `$restore`, rather than `nextVersions`: these rules are the commit protocol's, and a second copy of the protocol is how the slots were lost. It refuses a state whose type is not the record's declared type, since a rollback past a `$migrate` commit would restore a state of the old type. It rebuilds the indexes whose declarations differ from those the state was built under, and it carries every reserved slot, as the table says.
+**System commits** (item 9 above). e3-core exports the primitive that commits a given state as a named system commit, such as e3-cloud's `$rollback` and `$restore`, rather than `nextVersions`: these rules are the commit protocol's, and a second copy of the protocol is how the slots were lost.
+- A rollback names the commit it goes back to. Migrations run forward only, so one past a `$migrate` or `$reset` commit is refused, walking back from the head, and so is one whose commit a compaction has cut from the chain, since what that commit had applied is unknown (decided 2026-09-27: a `rekey`, or a `rows` step, can keep the record's type, so the plan's type check alone let a rollback past one keep the step counted applied, and no deploy would run it again).
+- A restore of a state from outside the history, such as a backup's, names the migrations that state had applied, which must be the record's.
+- Either is refused a state whose type is not the record's, as a backstop.
+- It rebuilds the indexes whose declarations differ from those the state was built under, and drops those the package does not declare.
+- It carries every reserved slot, as the table says, so a keyed retry after a rollback is answered by the keyed commit, which stays in the chain under it.
 
 **GC.** A record object's migrations are walked, and a migration object's `bodyIr` and `programIr` are leaves.
 
@@ -845,6 +850,11 @@ A compaction cleared the slots, so a keyed retry arriving just after one applied
 - The job's store is the transfer backend's `workspaceDeploy`, beside package export's. The workspace routes take the backend, no longer optional, and no runner: the runner is the store's, which a local server gives `InMemoryTransferBackend` (`getRunner`), and a cloud's compute holds, running the job through `handleProcessDeploy`.
 - Against a server, the CLI says what the deploy decided once the job has finished, where a local deploy says each decision before the migration or build it names runs. A `--plan` against a server creates no workspace and reads no file source, as a local one does neither.
 
+**Found while building part 4:**
+- A deploy compared types by their exact value, which counts the ids a recursive type's wrappers carry, and those are the ids of the process that exported the package. So a record of a recursive type, deployed again from a package another process exported, read as having changed type, and its migration chain as broken. Types compare up to how recursive wrappers are named (`isTypeValueEqual`), as the store's door compares them.
+- A system commit is named `$` and an identifier, such as `$rollback`, and never one of e3's own commits' names, whose meaning the commit protocol fixes.
+- It records the caller's arguments as a mutation's are, where e3-cloud names a rollback's target commit, and it refuses a head the caller did not expect, as e3-cloud's rollback does.
+
 **Surfaces.** e3-core's `workspaceDeploy` options (`schema`, `allowDropRecords`, `plan`, and an `onRecordPlan` callback beside `onRecordIndex`); the CLI's `workspace deploy` and `watch`; the API's deploy job and e3-api-client's `workspaceDeploy`; e3-ui's record history, which names the new commits.
 
 Built in four parts, in this order:
@@ -858,6 +868,7 @@ Acceptance:
 - A migration that fails mid-chain leaves the workspace as it was, and the deploy run again is served its finished steps from the cache when their code has not moved.
 - A `rows` or `rekey` step over many pieces (`E3_TEST_PIECE_BYTES`) writes the manifest the `value` step writes for the same change, and a `rekey` that lands two rows on one key is refused, naming it, while one that lands two elements of a Set on one keeps one.
 - `$schema` survives a mutation, a compaction, a reindex and a system commit; a keyed retry is answered, not applied, after each of those, a rollback and a migration.
+- A rollback past a `$migrate` or `$reset` commit is refused, whether or not the step changed the record's type, and so is a restore whose migrations are not the record's.
 - A `$deploy` commit only when the package changed; a dropped record refused, then allowed.
 - An applied step whose object changed under the same name, its code moved or its package re-exported, is kept, not run again.
 - A deploy that takes minutes completes as a job through the API.
