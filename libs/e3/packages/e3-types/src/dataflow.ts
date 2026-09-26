@@ -370,7 +370,7 @@ export const DataflowExecutionStateType = StructType({
   version: IntegerType,
 
   // Identity
-  /** Unique execution ID (local: auto-increment, cloud: UUID) */
+  /** The run's id, a UUIDv7, which its `DataflowRun` record carries as `runId` */
   id: StringType,
   /** Repository identifier */
   repo: StringType,

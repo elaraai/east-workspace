@@ -132,8 +132,6 @@ describe('the repository\'s records', () => {
           continue;
         }
         if (/^executions\/[0-9a-f]{64}\/[0-9a-f]{64}\/[0-9a-f-]{36}\/std(out|err)\.txt$/.test(file)) continue;
-        // A text counter, which goes when an execution state's id is its run's.
-        if (/^workspaces\/[^/]+\/execution-counter$/.test(file)) continue;
 
         const record = RECORDS.find(([, path]) => path.test(file));
         assert.ok(record !== undefined, `${file} is no record the layout names`);

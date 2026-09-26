@@ -1979,7 +1979,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(aCalls.length, 1);
     });
 
-    it('continues the DataflowRun record across resume via runId', async () => {
+    it('keeps the run\'s one id across a resume: its execution state\'s, and its record\'s', async () => {
       const taskHashes = await createChainFixture();
       const stateStore = new InMemoryStateStore();
       const orchestrator = new LocalOrchestrator(stateStore);
@@ -1999,19 +1999,20 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       });
       const result1 = await orchestrator.wait(handle);
       assert.strictEqual(result1.yielded, true);
+      assert.strictEqual(result1.runId, handle.id, 'the run is named by its execution state\'s id');
+      assert.match(handle.id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, 'a UUIDv7');
 
-      // Resume under the original runId
       const handle2 = await orchestrator.resume(storage, testRepo, 'test-ws', handle.id, {
         runner: mockRunner,
-        runId: result1.runId,
       });
       const result2 = await orchestrator.wait(handle2);
       assert.strictEqual(result2.success, true);
-      assert.strictEqual(result2.runId, result1.runId);
+      assert.strictEqual(result2.runId, handle.id);
 
-      // The final run record is written under the original runId and covers
-      // tasks completed before the yield, not just this incarnation.
-      const run = await storage.refs.dataflowRunGet(testRepo, 'test-ws', result1.runId);
+      // The final run record is written under the run's id and covers tasks
+      // completed before the yield, not just this incarnation.
+      assert.deepStrictEqual(await storage.refs.dataflowRunList(testRepo, 'test-ws'), [handle.id], 'one run, one record');
+      const run = await storage.refs.dataflowRunGet(testRepo, 'test-ws', handle.id);
       assert.ok(run);
       assert.strictEqual(run.status.type, 'completed');
       for (const name of ['task-a', 'task-b', 'task-c']) {

@@ -39,9 +39,6 @@ export class InMemoryStateStore implements ExecutionStateStore {
   /** Map of "repo::workspace" -> execution ID -> state */
   private states = new Map<string, Map<string, DataflowExecutionState>>();
 
-  /** Map of "repo::workspace" -> next execution ID counter */
-  private counters = new Map<string, number>();
-
   private makeKey(repo: string, workspace: string): string {
     return `${repo}::${workspace}`;
   }
@@ -80,21 +77,8 @@ export class InMemoryStateStore implements ExecutionStateStore {
     const wsStates = this.states.get(key);
     if (!wsStates || wsStates.size === 0) return null;
 
-    // Find the highest execution ID (assuming numeric string IDs)
-    let latestId: string | null = null;
-    let latestNum = -1;
-    for (const id of wsStates.keys()) {
-      const num = parseInt(id, 10);
-      if (!isNaN(num) && num > latestNum) {
-        latestNum = num;
-        latestId = id;
-      } else if (latestId === null) {
-        // Fallback for non-numeric IDs: just take the first one
-        latestId = id;
-      }
-    }
-
-    if (latestId === null) return null;
+    // An execution's id is its run's UUIDv7, so the latest sorts last.
+    const latestId = [...wsStates.keys()].sort().at(-1)!;
     return this.cloneState(wsStates.get(latestId)!);
   }
 
@@ -216,15 +200,6 @@ export class InMemoryStateStore implements ExecutionStateStore {
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async nextExecutionId(repo: string, workspace: string): Promise<string> {
-    const key = this.makeKey(repo, workspace);
-    const current = this.counters.get(key) ?? 0;
-    const next = current + 1;
-    this.counters.set(key, next);
-    return String(next);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/require-await
   async delete(repo: string, workspace: string, executionId: string): Promise<void> {
     const key = this.makeKey(repo, workspace);
     const wsStates = this.states.get(key);
@@ -238,7 +213,6 @@ export class InMemoryStateStore implements ExecutionStateStore {
    */
   clear(): void {
     this.states.clear();
-    this.counters.clear();
   }
 
   /**

@@ -219,8 +219,6 @@ interface RunningExecution {
   structure: Structure | null;
   /** Mutex to serialize state mutations from concurrent task completions */
   mutex: AsyncMutex;
-  /** Dataflow run ID (UUIDv7) for DataflowRun recording */
-  runId: string;
   /** Task execution records for DataflowRun */
   taskExecutions: Map<string, TaskExecutionRecord>;
   /** Cleanup function to remove abort listener on normal completion */
@@ -293,17 +291,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     }
 
     try {
-      // Get next execution ID from state store if available
-      const executionId = this.stateStore
-        ? await this.stateStore.nextExecutionId(repo, workspace)
-        : String(Date.now()); // Fallback to timestamp if no state store
-
-      // Initialize execution state
+      // The run's one id: its execution state's, and its run record's.
       const { state, readyTasks: _ } = await stepInitialize(
         storage,
         repo,
         workspace,
-        executionId,
+        uuidv7(),
         {
           force: options.force,
           filter: options.filter,
@@ -320,7 +313,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         sharedLock,
         externalLock,
         options,
-        runId: uuidv7(),
         taskExecutions: new Map(),
       });
     } catch (err) {
@@ -415,7 +407,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         sharedLock,
         externalLock,
         options,
-        runId: options.runId ?? uuidv7(),
         taskExecutions,
       });
     } catch (err) {
@@ -440,7 +431,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       sharedLock: LockHandle | null;
       externalLock: boolean;
       options: OrchestratorStartOptions;
-      runId: string;
       taskExecutions: Map<string, TaskExecutionRecord>;
     }
   ): ExecutionHandle {
@@ -472,7 +462,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       hasFailure: false,
       structure: null,
       mutex: new AsyncMutex(),
-      runId: init.runId,
       taskExecutions: init.taskExecutions,
       completionPromise,
       resolveCompletion,
@@ -608,7 +597,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Write initial DataflowRun record
       if (wsState) {
         const initialRun: DataflowRun = {
-          runId: execution.runId,
+          runId: state.id,
           workspaceName: state.workspace,
           packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
           startedAt: state.startedAt,
@@ -858,7 +847,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // Write cancelled DataflowRun record
         if (wsState) {
           const cancelledRun: DataflowRun = {
-            runId: execution.runId,
+            runId: state.id,
             workspaceName: state.workspace,
             packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
             startedAt: state.startedAt,
@@ -885,7 +874,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
 
       // Finalize (event added by step function)
-      const { result } = stepFinalize(state, execution.runId);
+      const { result } = stepFinalize(state);
       if (this.stateStore) {
         await this.stateStore.update(state);
       }
@@ -910,7 +899,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         }
 
         const finalRun: DataflowRun = {
-          runId: execution.runId,
+          runId: state.id,
           workspaceName: state.workspace,
           packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
           startedAt: state.startedAt,
@@ -937,7 +926,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           if (currentRecord?.type === 'some') {
             await storage.refs.workspaceWrite(repo, state.workspace, encodeBeast2For(WorkspaceRecordType)(some({
               ...currentRecord.value,
-              currentRunId: some(execution.runId),
+              currentRunId: some(state.id),
             })));
           }
         }
@@ -1013,7 +1002,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     });
     execution.yieldResult = {
       success: false,
-      runId: execution.runId,
+      runId: state.id,
       executed: Number(state.executed),
       cached: Number(state.cached),
       failed: Number(state.failed),

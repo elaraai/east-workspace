@@ -80,7 +80,7 @@ export interface StepInitializeOptions {
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param workspace - Workspace name
- * @param executionId - Unique execution ID
+ * @param executionId - The run's id, a UUIDv7
  * @param options - Execution options
  * @returns Initial state and ready tasks
  *
@@ -966,11 +966,10 @@ export function stepTasksSkipped(
  *
  * Mutates the execution state to mark it as completed or failed.
  *
- * @param state - Execution state to mutate
- * @param runId - Dataflow run ID (UUIDv7) from the orchestrator
+ * @param state - Execution state to mutate, whose id is its run's
  * @returns Final result
  */
-export function stepFinalize(state: DataflowExecutionState, runId: string): {
+export function stepFinalize(state: DataflowExecutionState): {
   result: FinalizeResult;
   event: ExecutionEvent;
 } {
@@ -1001,7 +1000,7 @@ export function stepFinalize(state: DataflowExecutionState, runId: string): {
 
   const result: FinalizeResult = {
     success,
-    runId,
+    runId: state.id,
     executed: Number(state.executed),
     cached: Number(state.cached),
     failed: Number(state.failed),

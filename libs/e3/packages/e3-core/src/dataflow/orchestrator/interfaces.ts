@@ -20,7 +20,7 @@ import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../
  * Handle to a running dataflow execution.
  */
 export interface ExecutionHandle {
-  /** Unique execution ID (string for UUID support) */
+  /** The run's id, a UUIDv7: its execution state's, and its run record's */
   readonly id: string;
   /** Repository identifier */
   readonly repo: string;
@@ -32,7 +32,7 @@ export interface ExecutionHandle {
  * Status of a dataflow execution (summary view).
  */
 export interface ExecutionStatus {
-  /** Execution ID (string for UUID support) */
+  /** The run's id, a UUIDv7 */
   id: string;
   /** Current state */
   state: 'running' | 'completed' | 'failed' | 'cancelled';
@@ -117,16 +117,10 @@ export interface OrchestratorStartOptions {
  *
  * Execution config (force, filter) comes from the persisted state and cannot
  * be changed; runtime collaborators (runner, width, callbacks, signal,
- * shouldYield) are provided fresh by the resuming host.
+ * shouldYield) are provided fresh by the resuming host. The run keeps its
+ * one id, the execution state's, so its record continues across a yield.
  */
-export interface ResumeOptions extends OrchestratorStartOptions {
-  /**
-   * Dataflow run ID to continue recording under. Pass the runId returned
-   * by the original start()'s FinalizeResult/DataflowRun so the run record
-   * stays continuous across yields; a fresh UUID is generated if omitted.
-   */
-  runId?: string;
-}
+export type ResumeOptions = OrchestratorStartOptions;
 
 /**
  * Callback data for task completion.
@@ -189,8 +183,8 @@ export interface DataflowOrchestrator {
    * @param storage - Storage backend
    * @param repo - Repository identifier
    * @param workspace - Workspace name
-   * @param executionId - ID of the persisted execution to resume
-   * @param options - Runtime options (runner, callbacks, runId continuity)
+   * @param executionId - The run's id, which its persisted execution carries
+   * @param options - Runtime options (runner, callbacks)
    * @returns Execution handle (same id as the original execution)
    *
    * @throws {DataflowError} If there is no state store, the execution is

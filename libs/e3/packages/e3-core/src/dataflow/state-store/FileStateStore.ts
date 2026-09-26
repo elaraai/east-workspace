@@ -6,9 +6,8 @@
 /**
  * File-based implementation of ExecutionStateStore.
  *
- * Persists execution state to the workspace directory structure:
- * - workspaces/{ws}/execution.beast2 - Current/last execution state (binary format)
- * - workspaces/{ws}/execution-counter - Auto-increment counter
+ * Persists a workspace's latest execution state, whose id is its run's, to
+ * `workspaces/{ws}/execution.beast2`.
  *
  * Events are stored inline in the execution state (not as a separate file).
  * This enables crash recovery and external monitoring of execution progress.
@@ -73,13 +72,6 @@ export class FileStateStore implements ExecutionStateStore {
    */
   private statePath(workspace: string): string {
     return join(this.workspacePath(workspace), 'execution.beast2');
-  }
-
-  /**
-   * Get the path to a workspace's execution counter file.
-   */
-  private counterPath(workspace: string): string {
-    return join(this.workspacePath(workspace), 'execution-counter');
   }
 
   async create(state: DataflowExecutionState): Promise<void> {
@@ -261,24 +253,6 @@ export class FileStateStore implements ExecutionStateStore {
       const seq = e.value.seq;
       return seq > sinceSeqBigInt;
     });
-  }
-
-  async nextExecutionId(_repo: string, workspace: string): Promise<string> {
-    const path = this.counterPath(workspace);
-
-    let current = 0;
-    try {
-      const data = await fs.readFile(path, 'utf-8');
-      current = parseInt(data.trim(), 10) || 0;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw err;
-      }
-    }
-
-    const next = current + 1;
-    await atomicWriteFile(path, String(next));
-    return String(next);
   }
 
   async delete(_repo: string, workspace: string, executionId: string): Promise<void> {
