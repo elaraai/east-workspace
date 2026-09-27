@@ -13,6 +13,7 @@ What it does:
 - **Dataflow** — `/run [--force] [--filter]`, `/stop`, live progress in the header pill and the execution panel. (cloud; the extension had it written but never wired)
 - **Task view** — Output as a lazily-paged **value tree** with a real scrollbar, key search and go-to-row; Stdout and Stderr with tail-follow and search; Runs (execution history); Reads (a `ui()` task's manifest). (extension `DataTaskPreview` / cloud `TaskViewPage`)
 - **Editable inputs** — leaf edit / add / remove / variant tag with a dirty commit bar; conflict detection. (extension `InputPreview editable`)
+- **Records** — a RECORDS table on the dashboard, and a record view: its state as the same paged value tree, through its rows or any of its indexes, and its commits newest first.
 - **Repositories / workspaces** views, `e3-ui auth …` (the same device flow and credential store as `e3 auth`).
 
 A `ui` task's output is a dataset like any other and is shown as a value tree (its embedded closures print as opaque `[function]` leaves). No component renderer — the pixel path stays `e3-ui shot`.
@@ -124,7 +125,7 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
 
 ### Command box
 
-- `/` starts a command; anything else is a fuzzy jump across workspaces, tasks, inputs and dataset paths of the open repo.
+- `/` starts a command; anything else is a fuzzy jump across workspaces, tasks, inputs, records and dataset paths of the open repo.
 - Completion rises above the box (≤ 8 rows), `↑↓` pick, `Tab` complete, `⏎` run, `Esc` clear. Every candidate row carries its status, type and size so the box doubles as a status line.
 - Confirmations live here: `r` prefills `/run` and the box explains the consequence, with the cores and memory the server's budget gives the run (`run 6 tasks in main · 8 cores, 14 GB · ⏎ run · esc`); nothing runs until `⏎`.
 - Pickers live here too: `t` on a variant leaf prefills `/tag ` with the tags as completion rows — no popup.
@@ -132,7 +133,8 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
 
 | Command | Effect | Completion source |
 |---|---|---|
-| `/task <name>` · `/input <name>` · `/dataset <path>` | open the item | `workspaceStatus().tasks` / `.datasets` |
+| `/task <name>` · `/input <name>` · `/record <name>` · `/dataset <path>` | open the item | `workspaceStatus().tasks` / `.datasets` |
+| `/index <name\|primary>` | page a record through one of its indexes, or its rows again | the record's indexes |
 | `/workspace <name>` · `/workspaces` · `/repos` · `/repo <path\|url>` | switch / list / open | `workspaceList()`, `repoList()` |
 | `/login <url>` | runs the device flow in the terminal (suspends Ink, prints the code/URL, resumes) | saved credentials |
 | `/run [--force] [--filter <glob>]` · `/stop` | dataflow | flags |
@@ -391,7 +393,7 @@ Launch shows the wordmark in block letters while the embedded server starts (loc
 
 ### 7.3 Dashboard (the workspace view)
 
-Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExecutePoll` every 1 s with an event cursor. The body is one scrollable column: counts, execution, tasks table, inputs table. `⏎` on a task row opens the task; on an input row opens the input; on the failed execution row opens that task's logs. Status detail is inline (`✗ failed · exit 2`, `◐ waiting`, `◔ in-progress`), the cloud UI's hover-card text made visible.
+Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExecutePoll` every 1 s with an event cursor. The body is one scrollable column: counts, execution, tasks table, inputs table and, when the workspace holds records, the records table — each record's rows, stored size, indexes and newest commit (`set_status · alice · 1m ago`), read after the dataset list when the record's state moved. `⏎` on a task row opens the task; on an input row opens the input; on a record row opens the record (§7.6); on the failed execution row opens that task's logs. Status detail is inline (`✗ failed · exit 2`, `◐ waiting`, `◔ in-progress`), the cloud UI's hover-card text made visible.
 
 While a run is live, the execution panel shows the scheduler: its header what the server's budget holds (`cores 4 of 8 · memory 12.6 of 14 GB`), and its feed each task's latest event (a finished task's with its peak memory), a split task's start naming how far its stage has got (`forecast · 3 of 8 pieces`), each unit the guard stopped and requeued (`⟲ requeued`, why and the most it reached), and each task or unit waiting for room (`◐ waiting`, what it needs and what the budget has free), whose wait stands in place of the start of a task that waits whole. The tasks table's PEAK is the peak memory of the execution each task's status comes from.
 
@@ -423,9 +425,9 @@ While a run is live, the execution panel shows the scheduler: its header what th
   params        ◐ stale         Struct                    1.2 KB    0a44e1b7c9d2                                        
   overrides     ○ unset         Dict<String, Float>       —         —                                                   
                                                                                                                         
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
+ RECORDS                                                                                                                
+  NAME      ROWS        SIZE      INDEXES                   LAST COMMIT                                                 
+  plans     48,200      6.1 MB    by_store, by_status       set_status · alice · 1m ago                                 
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -516,7 +518,7 @@ While a run is live, the execution panel shows the scheduler: its header what th
 
 Tabs `1 Output · 2 Stdout · 3 Stderr · 4 Runs` (+ `5 Reads` for a `ui` task). Title line: role, status word with detail, duration, inputs hash (a `ui` task: `3 reads · 1 function`). Second line: output path, type, entry count, size, content hash.
 
-**Output** — the value tree (§8). **Stdout / Stderr** — one tab per stream: `taskLogs` in 64 KB chunks (`offset += size`, 10 MB cap), 1 s poll for the shown stream (stderr every 5 s on every task tab, so the Stderr tab carries its line count — `3 Stderr (12)` — before it is visited), follow-tail with a `↑ pauses follow` rule, `/find` with n/N, `s` save, `c` copy (OSC 52, with a fallback note); each tab keeps its own scroll, follow and match. **Runs** — `taskExecutionList` with `all=true` (every attempt, not only the latest per inputs hash), with each attempt's peak memory; `⏎` expands the inputs hashes. **Reads** — the manifest's `paths` (each `⏎`-openable as a dataset), `functions`, `records`.
+**Output** — the value tree (§8). **Stdout / Stderr** — one tab per stream: `taskLogs` in 64 KB chunks (`offset += size`, 10 MB cap), 1 s poll for the shown stream (stderr every 5 s on every task tab, so the Stderr tab carries its line count — `3 Stderr (12)` — before it is visited), follow-tail with a `↑ pauses follow` rule, `/find` with n/N, `s` save, `c` copy (OSC 52, with a fallback note); each tab keeps its own scroll, follow and match. **Runs** — `taskExecutionList` with `all=true` (every attempt, not only the latest per inputs hash), with each attempt's peak memory; `⏎` expands the inputs hashes. **Reads** — the manifest's `paths` (each `⏎`-openable as a dataset), `functions`, `records` (each `⏎` opens the record view).
 
 ```text
  e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED
@@ -834,7 +836,92 @@ The same tree, editable (§9), with the commit bar above the command box while d
                                                                                                                   dirty
 ```
 
-### 7.6 Help · about · narrow · reconnecting
+### 7.6 Record view
+
+`⏎` on a RECORDS row, `/record <name>`, `/dataset .records.<name>`, a fuzzy jump, or a record row of a `ui` task's Reads tab opens it. The title line reads `RECORD · 48,200 rows · 3 mutations · 2 indexes`: `recordDescribe` and the status geometry, read again when the record's state moves or the workspace's package changes. Two tabs:
+
+- **1 State** — the record's rows as the value tree a task's output is (§8), read-only. `/index <name>` pages through one of its indexes instead: an entry per index key a row sorts under (a `multi` index lists a row under each of its keys), labelled by that key, opening to the row's key and — for an index that projects nothing — the row it names, which the read joins, else what the index projects. The line under the tabs names the index, its key type, whether it joins, and its entries and bytes; `/find` searches the index's key, `/goto` counts its entries, `/index primary` returns to the rows. Entries start collapsed. `s` saves the record's rows from either.
+- **2 History** — `recordHistory` newest first, 100 commits a page: WHEN · MUTATION · ACTOR · COMMIT, the newest marked `← head`, e3's own commits (`$deploy`, `$compact`, …) muted. The newest page is read every 5 s while the tab shows and joined to the pages read before; the next page is read as the selection comes within five commits of the last one read (`100+ commits` until the chain's root). A chain rewritten under the view — compacted, rolled back — starts again from its head.
+
+```text
+ e3-ui  demo-repo › main › plans                                                                           ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ plans   ▌1 State▐  2 History                                            RECORD · 48,200 rows · 3 mutations · 2 indexes 
+ .records.plans · index by_store · String key · joins each row · 48,200 entries · 1.9 MB                                
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+▌▾ Bakery                                    sku-00017                                                                 ▲
+   · Key                                     "sku-00017"                                                               █
+   ▸ Row                                     Bakery · 2025-09-01 00:00:00 · 1204 · open                                │
+ ▸ Bakery                                    sku-00032                                                                 │
+ ▸ Bakery                                    sku-00041                                                                 │
+ ▸ Bakery                                    sku-00058                                                                 │
+ ▸ Bakery                                    sku-00063                                                                 │
+ ▸ Bakery                                    sku-00077                                                                 │
+ ▸ Bakery                                    sku-00084                                                                 │
+ ▸ Bakery                                    sku-00096                                                                 │
+ ▸ Bakery                                    sku-00105                                                                 │
+ ▸ Bakery                                    sku-00119                                                                 │
+ ▸ Bakery                                    sku-00124                                                                 │
+ ▸ Bakery                                    sku-00138                                                                 │
+ ▸ Bakery                                    sku-00142                                                                 │
+ ▸ Bakery                                    sku-00157                                                                 │
+ ▸ Bakery                                    sku-00161                                                                 │
+ ▸ Bakery                                    sku-00170                                                                 │
+ ▸ Bakery                                    sku-00186                                                                 │
+ ▸ Bakery                                    sku-00193                                                                 │
+ ▸ Bakery                                    sku-00204                                                                 │
+ ▸ Bakery                                    sku-00219                                                                 │
+ ▸ Bakery                                    sku-00225                                                                 │
+ ▸ Bakery                                    sku-00231                                                                 │
+ ▸ Bakery                                    sku-00248                                                                 │
+ ▸ Bakery                                    sku-00250                                                                 ▼
+ rows 1–26 of 48,202 · 0.00%                                               ▾ expand all  ▸ collapse all  s save .beast2 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   → expand   ← collapse   /find <key>   /goto <row|%>   /index <name>   s save   2 history                     
+```
+
+```text
+ e3-ui  demo-repo › main › plans                                                                           ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ plans    1 State  ▌2 History▐                                           RECORD · 48,200 rows · 3 mutations · 2 indexes 
+ .records.plans · Dict<String, Struct> · 48,200 entries · 6.1 MB · 3e91c2a0b1f2                                         
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  WHEN                  MUTATION      ACTOR         COMMIT                                                              
+ ▌2026-09-08 11:59:12   set_status    alice         9e37…b1   ← head                                                   ▲
+  2026-09-08 11:42:03   restock       cli:ops       3c6e…62                                                            █
+  2026-09-08 10:18:47   set_status    bob           daa6…13                                                            █
+  2026-09-08 09:10:44   set_status    alice         78dd…c4                                                            █
+  2026-09-05 08:00:00   $deploy       e3            1715…75                                                            █
+  2026-09-04 17:31:09   restock       cli:ops       b54c…26                                                            █
+  2026-09-04 14:44:00   set_status    bob           5384…d7                                                            █
+  2026-09-04 14:43:00   set_status    alice         f1bb…88                                                            │
+  2026-09-04 14:42:00   restock       bob           8ff3…39                                                            │
+  2026-09-04 13:41:00   set_status    alice         2e2a…ea                                                            │
+  2026-09-04 13:40:00   set_status    bob           cc62…9b                                                            │
+  2026-09-04 13:39:00   set_status    alice         6a99…4c                                                            │
+  2026-09-04 12:38:00   restock       bob           08d1…fd                                                            │
+  2026-09-04 12:37:00   set_status    alice         a708…ae                                                            │
+  2026-09-04 12:36:00   set_status    bob           4540…5f                                                            │
+  2026-09-04 11:35:00   set_status    alice         e377…10                                                            │
+  2026-09-04 11:34:00   restock       bob           81af…c1                                                            │
+  2026-09-04 11:33:00   set_status    alice         1fe6…72                                                            │
+  2026-09-04 10:32:00   set_status    bob           be1e…23                                                            │
+  2026-09-04 10:31:00   set_status    alice         5c55…d4                                                            │
+  2026-09-04 10:30:00   restock       bob           fa8c…85                                                            │
+  2026-09-04 09:29:00   set_status    alice         98c4…36                                                            │
+  2026-09-04 09:28:00   set_status    bob           36fb…e7                                                            │
+  2026-09-04 09:27:00   set_status    alice         d533…98                                                            │
+  2026-09-04 08:26:00   restock       bob           736a…49                                                            │
+  2026-09-04 08:25:00   set_status    alice         11a2…fa                                                            ▼
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   1 state   esc back                                                                              100+ commits 
+```
+
+### 7.7 Help · about · narrow · reconnecting
 
 ```text
  e3-ui  demo-repo › main                                                                                   ● CONNECTED  
@@ -981,6 +1068,7 @@ Rows come from the row model extracted from `east-ui-components` into `@elaraai/
 - **Keys**: `↑↓ j k`, `→ l` expand-or-next, `← h` collapse-or-parent, `⏎`/space toggle, `⇧←` deep collapse, `PgUp PgDn ^u ^d`, `gg G`, `/find`, `/goto`, `s`. Expand-set and top row persist per `${ws}:${path}` (the web's `storageKey` discipline).
 - **Opened by default**: a collection's rows open a level, as on the web, unless they are wide — structs of more than 12 fields, or collections, whose elements have no bound — which start collapsed, so a screen of 150-field rows shows a screen of rows rather than the first row's fields. `▾ expand all`, `▸ collapse all` and the remembered expand-set override it.
 - **Search**: `datasetFindKey` (paged Set/Dict; exact `"key"`, prefix, struct-key `fields` separated by `|`) or in-memory predicates for inline values; the match is held highlighted until `Esc`; `n`/`N` step.
+- **A record's index** is a source of its own, `.records.<name>#<index>`: its pages are `datasetGetPage` windows naming the index (and `join` when it projects nothing), decoded by `indexWindowType` over the record's key and row types and the index's key and projection types from the signature. Its totals are the index's own, which the record's geometry does not give, so its page size comes from one probe window (the rows a join reads counted in); a key search names the index too, so its rows are the index's; `/save` streams the record's rows.
 
 ## 9. Editing (inputs)
 
@@ -1119,7 +1207,7 @@ Deferred (follow-ups, not children): `/render` (PNG via the shot pipeline, inlin
 
 Where the implementation differs from the mocks above (each was a deliberate call while building; the frame specs pin the as-built shape):
 
-- **Help has a tab per page** — Everywhere · Repos · Workspaces · Dashboard · Task · Input; `?` opens the tab of the page it was pressed on, so only the commands and keys that work there are listed (S13 showed one page).
+- **Help has a tab per page** — Everywhere · Repos · Workspaces · Dashboard · Task · Input · Record; `?` opens the tab of the page it was pressed on, so only the commands and keys that work there are listed (S13 showed one page).
 - **Selection** is `▌` plus bold, never a tinted background row.
 - **Dashboard** — the tasks table's STATUS cell keeps the glyph and word only (a failure's exit code / message stays inline; `cached`, a pid or a waiting reason move to `SIZE · LAST RUN`); the accounted bar is defined: one cell per task, lowest first (`✗` failed, `▁` ready, `▃` waiting, `▅` in progress, `▇` up-to-date), sampled past 40, `N of M accounted` = tasks the dataflow has touched; the count grids gain in-progress / stale-running rows when non-zero and stack below 90 columns; `gg` / `G` show the column's ends.
 - **Value tree** — leaf strings are quoted; labels and summaries are exactly the web row model's (no thousands grouping, datetimes as `YYYY-MM-DD HH:MM:SS`); the selection is anchored to a root row + offset so it stays put while pages arrive and leave; `G` and a thumb dragged to the bottom wait for the last page; the footer appears in the input view too; `/find` reports its result as a toast after `⏎` (no type-ahead count in the box); a `ui()` task's reads are the Reads tab (no line under its tree); a collection of wide rows starts with its rows collapsed where the web opens them (§8 — a row of 150 fields filled the screen, 2026-09-27).
@@ -1128,6 +1216,7 @@ Where the implementation differs from the mocks above (each was a deliberate cal
 - **Tabs by keyboard** — `tab` / `⇧tab` cycle a task's tabs and the help tabs (the "next / prev pane" the design reserved them for had no second pane); `←` / `→` cycle too, but only where no content claims the arrows — the help view and the Stdout / Stderr tabs — since the Output tab expands and collapses on them and Runs / Reads open on `→` (a user question while testing, 2026-09-09).
 - **Runs** — every attempt is a row (the executions endpoint gained `?all=true`; its default stays the latest attempt per inputs hash, which hid retries and forced re-runs — a user report while testing, 2026-09-09); no per-run note text beyond `← current` (the newest run of an up-to-date task); durations are the API's milliseconds.
 - **The scheduler** (e3's budget, 2026-09-27) — as the approved mock, with these calls: the running header keeps `started 12s ago` and, short of room, drops it for the budget, then the budget for it; the memory in use names its unit once when both share it (`12.6 of 14 GB`); a split task's start reads `forecast · 3 of 8 pieces` (the mock: `piece 3 of 8`); a unit's requeue and wait are rows of their own, the latest requeue per unit, and a task waiting whole shows its wait in place of its start; `/run`'s confirmation reads `· 8 cores, 14 GB` (no `budget`, so `--force` keeps 120 columns). PEAK is the wide tasks table's last column, dropped below 100 columns, and a task in progress shows `—` there (its execution has no peak until it ends; the mock showed the last run's); the Runs tab's PEAK follows DURATION. To fit PEAK at 120 columns the tasks table starts NAME at 10 cells (it grows to the longest name), STATUS at 18, DEPENDS ON 19, INPUTS 16, OUTPUT 24 (a `Dict<String, Integer>` whole) and SIZE · LAST RUN 18, so a waiting reason ends sooner.
+- **Records** (2026-09-27) — drawn as built (S05's RECORDS table, S19, S19b). The records table starts NAME at 10 cells (it grows to the longest name) with ROWS 12, SIZE 10 and INDEXES 26, and at 80–99 columns ROWS 10 and INDEXES 20, so the newest commit's mutation, actor and age still fit; below 80 INDEXES is dropped. An index entry's summary is the row's key (the joined row is a branch, which a summary leaves out). `G` on the History tab goes to the oldest commit read, and the page it reads goes further. A record's view is remembered as `record:<name>`, and its trees by `${ws}:.records.<name>` or `${ws}:.records.<name>#<index>`.
 - **Inputs** — `⏎` with nothing pending toggles a branch or edits a leaf; `esc` with pending edits confirms a discard; commands that leave the view confirm through `/discard --then "<command>"`; the conflict banner's `esc` keeps editing on the old base (an apply then overwrites).
 - **Layout** — the medium (80–99) and narrow (60–79) column plans are tighter than the 120-column design, and `fitPlan` narrows the widest fixed columns until the last column keeps 12 cells (untouched at 120); a table's NAME column grows to its longest name (up to 24 cells) so real task names such as `forecast_count` are never clipped, and a fixed cell that still overflows ends in `…` with one cell of gap before the next column. The completion list follows the same rules — its name column grows to the longest name shown (up to 30 cells), and a row's last cell, a command's effect or a flag's hint, takes the rest of the line — so `--filter <glob>` never runs into its hint.
 - **Durations** — event, summary and run durations are the API's milliseconds; an execution summary without a duration (the server only times the runs it launched itself) shows `completedAt − startedAt`.

@@ -25,9 +25,9 @@
   params        ◐ stale         Struct                    1.2 KB    0a44e1b7c9d2                                        
   overrides     ○ unset         Dict<String, Float>       —         —                                                   
                                                                                                                         
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
+ RECORDS                                                                                                                
+  NAME      ROWS        SIZE      INDEXES                   LAST COMMIT                                                 
+  plans     48,200      6.1 MB    by_store, by_status       set_status · alice · 1m ago                                 
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

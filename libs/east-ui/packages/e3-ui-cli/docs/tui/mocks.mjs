@@ -161,7 +161,7 @@ function withScrollbar(lines, { total, top }) {
 // ---------------------------------------------------------------------------
 // S05 — dashboard (the workspace view)
 // ---------------------------------------------------------------------------
-function dashboard({ running = false, commit = [], completion = [], command = CMD_IDLE, footer } = {}) {
+function dashboard({ running = false, records = false, commit = [], completion = [], command = CMD_IDLE, footer } = {}) {
   const colL = 58;
   const two = (l, r) => ' ' + pad(l, colL) + r;
   const strip = [
@@ -207,7 +207,14 @@ function dashboard({ running = false, commit = [], completion = [], command = CM
     d('params', '◐ stale', 'Struct', '1.2 KB', '0a44e1b7c9d2'),
     d('overrides', '○ unset', 'Dict<String, Float>', '—', '—'),
   ];
-  const body = [lr('main', '● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none'), ...strip, '', ...exec, '', ...tasks, '', ...inputs];
+  // A workspace that holds records lists them last: the rows, the size, the indexes and the newest commit.
+  const recs = records ? [
+    '',
+    lr('RECORDS', ''),
+    ' ' + pad(' NAME', 11) + pad('ROWS', 12) + pad('SIZE', 10) + pad('INDEXES', 26) + 'LAST COMMIT',
+    '  ' + pad('plans', 10) + pad('48,200', 12) + pad('6.1 MB', 10) + pad('by_store, by_status', 26) + 'set_status · alice · 1m ago',
+  ] : [];
+  const body = [lr('main', '● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none'), ...strip, '', ...exec, '', ...tasks, '', ...inputs, ...recs];
   const pills = running ? '◔ RUNNING 2/6  ● CONNECTED  ' : PILLS_OK;
   const context = 'main · demand@1.4.2 · deployed 3d ago · lock: none';
   return shell({
@@ -215,7 +222,7 @@ function dashboard({ running = false, commit = [], completion = [], command = CM
     footer: footer ?? FOOTER('↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands', 'polled just now'),
   });
 }
-write('S05-dashboard', dashboard({}));
+write('S05-dashboard', dashboard({ records: true }));
 write('S06-dashboard-running', dashboard({ running: true, footer: FOOTER('↑↓ move   ⏎ open   x stop   / commands', 'polled just now') }));
 
 // S06b — run confirmation lives IN the command bar (no dialog), with the budget the server gives the run
@@ -614,6 +621,74 @@ Commands:
   const lines = d.split('\n');
   lines[0] = ' ' + pad('e3-ui  demo-repo › main', W - '◐ RECONNECTING 3/4  '.length - 1) + '◐ RECONNECTING 3/4  ';
   write('S18-toast-reconnect', lines.join('\n'));
+}
+
+// ---------------------------------------------------------------------------
+// S19 — record view · State through an index · History
+// ---------------------------------------------------------------------------
+function recordShell({ tab = 'State', line2, body, footer }) {
+  const tabs = ['State', 'History'].map((t, i) => (t === tab ? `▌${i + 1} ${t}▐` : ` ${i + 1} ${t} `)).join(' ');
+  const head = [
+    lr('plans   ' + tabs, 'RECORD · 48,200 rows · 3 mutations · 2 indexes'),
+    lr(line2, ''),
+    rule(W, '┄'),
+  ];
+  return shell({
+    crumb: 'demo-repo › main › plans', pills: PILLS_OK, context: '',
+    body: (h) => [...head, ...body(h - head.length)], command: CMD_IDLE, footer,
+  });
+}
+{
+  // `/index by_store`: an entry a row, labelled by its store, each joining the row it names.
+  const LW = 44;
+  const row = (depth, twist, label, value, sel = false) => (sel ? '▌' : ' ') + pad('  '.repeat(depth) + twist + ' ' + label, LW) + pad(value, W - LW - 2);
+  const skus = [17, 32, 41, 58, 63, 77, 84, 96, 105, 119, 124, 138, 142, 157, 161, 170, 186, 193, 204, 219, 225, 231, 248, 250];
+  const body = (h) => {
+    const n = h - 1;
+    const rows = [
+      row(0, '▾', 'Bakery', 'sku-00017', true),
+      row(1, '·', 'Key', '"sku-00017"'),
+      row(1, '▸', 'Row', 'Bakery · 2025-09-01 00:00:00 · 1204 · open'),
+      ...skus.slice(1).map(k => row(0, '▸', 'Bakery', `sku-${String(k).padStart(5, '0')}`)),
+    ].slice(0, n);
+    return [
+      ...withScrollbar(rows, { total: 48_202, top: 0 }),
+      lr(`rows 1–${n} of 48,202 · 0.00%`, '▾ expand all  ▸ collapse all  s save .beast2'),
+    ];
+  };
+  write('S19-record-index', recordShell({
+    line2: '.records.plans · index by_store · String key · joins each row · 48,200 entries · 1.9 MB',
+    body,
+    footer: FOOTER('↑↓ move   → expand   ← collapse   /find <key>   /goto <row|%>   /index <name>   s save   2 history', ''),
+  }));
+}
+{
+  // The commits newest first, a page at a time; e3's own commits (`$deploy`, `$compact`, …) are muted.
+  const hex = (i) => ((Math.imul(i + 1, 2654435761) >>> 0).toString(16).padStart(8, '0'));
+  const mid = (i) => `${hex(i).slice(0, 4)}…${hex(i).slice(-2)}`;
+  const commits = [
+    ['2026-09-08 11:59:12', 'set_status', 'alice'],
+    ['2026-09-08 11:42:03', 'restock', 'cli:ops'],
+    ['2026-09-08 10:18:47', 'set_status', 'bob'],
+    ['2026-09-08 09:10:44', 'set_status', 'alice'],
+    ['2026-09-05 08:00:00', '$deploy', 'e3'],
+    ['2026-09-04 17:31:09', 'restock', 'cli:ops'],
+  ];
+  while (commits.length < 26) commits.push([`2026-09-04 ${String(16 - Math.floor(commits.length / 3)).padStart(2, '0')}:${String(50 - commits.length).padStart(2, '0')}:00`, commits.length % 4 === 0 ? 'restock' : 'set_status', commits.length % 2 === 0 ? 'bob' : 'alice']);
+  const body = (h) => {
+    const n = h - 1;
+    const rows = commits.slice(0, n).map(([when, mutation, actor], i) => ' ' + (i === 0 ? '▌' : ' ') + pad(when, 22) + pad(mutation, 14) + pad(actor, 14) + mid(i) + (i === 0 ? '   ← head' : ''));
+    return [
+      ' ' + pad(' WHEN', 23) + pad('MUTATION', 14) + pad('ACTOR', 14) + 'COMMIT',
+      ...withScrollbar(rows, { total: 100, top: 0 }),
+    ];
+  };
+  write('S19b-record-history', recordShell({
+    tab: 'History',
+    line2: '.records.plans · Dict<String, Struct> · 48,200 entries · 6.1 MB · 3e91c2a0b1f2',
+    body,
+    footer: FOOTER('↑↓ move   1 state   esc back', '100+ commits'),
+  }));
 }
 
 console.log('mocks written to docs/tui/mocks/');

@@ -909,6 +909,13 @@ Changes:
 - A listing a client polls would read each collection's manifest on every poll. What a collection weighs is fixed by its object's content, so the listing keeps it by hash, the oldest going first past 4,096.
 - The completion list's name column was 14 cells, so a flag, and a command's usage, ran into the next column with no gap. It grows to the longest name shown, as a table's does, and a row's last cell, a flag's hint or a command's effect, takes the rest of the line.
 
+**Found while building part 2:**
+- An index's entries are not the record's rows, so the record's status geometry does not count them. An index's page size comes from one probe window, with the rows a join reads counted in, and its totals are the index's own.
+- A joined entry carries its row as the window type's `Option`, which the tree showed one level down. It is shown as the record's own rows show it.
+- A redeploy can change a record's mutations without a commit that moves its state, and the dataset list names the state's hash, so the TUI reads a record's signature again when the workspace's package changes.
+- The History tab may read before the dataset list has named the record, so its first page does not wait on the records the list names.
+- At 80 columns the RECORDS table clipped the newest commit's age. NAME starts at 10 cells, as the tasks table's does, and grows to the longest name.
+
 Built in two parts, in this order:
 1. **The fixes:** units marked in execution records, the dataset list's size, `/save` streaming, pages of at least 16 rows, wide records collapsed, and the layout.
 2. **Records in the TUI:** `RecordSignature`'s indexes, the RECORDS table, the record view, its history and its index pages.
@@ -942,6 +949,7 @@ Acceptance:
   - records carry migrations (`e3.migration.*`), and a deploy's plan, `--schema`, `--allow-drop-records` and `--plan`; the record section's "a type change is rejected" and its `e3.mutation(` call go (found while building record migrations, part 2);
   - it is a plugin skill: coordinate the change and regenerate the example index (plugin-artifacts).
 - **Other docs:** `libs/e3/USAGE.md`, with `workspace deploy`'s `--schema`, `--allow-drop-records` and `--plan` and `watch --schema`, the Codex plugin's copy of the e3 skill, and the runner READMEs.
+- **`libs/east-ui/packages/e3-ui-cli/SKILL.md` and the plugin's static index** (`e3-ui-cli:static:tui-*`): the scheduler in the TUI (stage 5) and records in it (`/record`, `/index`, the RECORDS table, the record view), and what they still name that is gone — `/run --jobs`, the `o` / `e` keys and a `2 Logs` tab. A plugin skill: coordinate the change and regenerate the example index (found while building #953's part 2).
 - **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted. `e3-reactive-dataflow.md`, `e3-api.md`, `e3-core.md`, `e3-mvp-core.md` and `e3-execution-history.md` describe a repository e3 no longer keeps — locks beside the workspaces, `.ref` files, an `output` ref, a workspace's runs deleted when the next starts and never gc'd — and are rewritten to the code or deleted (found while building the repository's records, parts 1 and 4).
 
 ### Stage 8 — e3-cloud
