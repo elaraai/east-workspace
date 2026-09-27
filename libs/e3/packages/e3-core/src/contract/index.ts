@@ -19,6 +19,7 @@ export { repoStoreTests, type RepositoriesContext, type RepositoriesSetup } from
 export {
   executionStateStoreTests, type ExecutionStateStoreContext, type ExecutionStateStoreSetup,
 } from './execution-state-store.js';
+export { dataflowTests } from './dataflow.js';
 export { gcTests } from './gc.js';
 export { repositoryRecordTests } from './repository-record.js';
 export { workspaceStatusTests } from './workspace-status.js';
