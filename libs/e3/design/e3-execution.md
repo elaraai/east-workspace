@@ -113,7 +113,7 @@ This handles: process crashes, machine restarts, and PID wraparound/reuse.
 `taskExecute(storage, repo, taskHash, inputHashes, options)` (`execution/LocalTaskRunner.ts`) runs one execution:
 
 1. **Inputs hash.** `inHash = inputsHash(inputHashes)`.
-2. **Cache.** Unless `force`, `probeExecutionCache` returns a recorded `success` for `(taskHash, inHash)`. Only `success` is ever served from the cache. A stale `running` record is repaired `interrupted` on the way (see Stopped Executions).
+2. **Cache.** Unless `force`, `probeExecutionCache` serves the latest attempt for `(taskHash, inHash)` when that attempt is a `success`. A success followed by an attempt that failed or was cancelled is not served, so the task runs again. Only `success` is ever served from the cache. A stale `running` record is repaired `interrupted` on the way (see Stopped Executions).
 3. **Attempt.** A new `executionId` (UUIDv7) names this attempt's directory.
 4. **Task.** The task object is read and decoded (`decodeTaskObject`). One an older SDK exported does not decode, and the execution is recorded `error`, saying to re-export the package. A task whose work is split over its inputs runs on the engine instead (see Split Tasks), each of its units through the steps below.
 5. **Scratch.** A scratch directory `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<executionId>`, the id's dashes dropped, is created under `<repo>/tmp/scratch`, or under `E3_SCRATCH_DIR` when it is set.

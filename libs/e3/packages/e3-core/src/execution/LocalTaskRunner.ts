@@ -351,9 +351,10 @@ async function readTaskObject(
 }
 
 /**
- * Probes the execution cache for a successful prior execution: the cache every
- * runner serves a task or a unit from, its latest `success`, with the peak its
- * record holds.
+ * Probes the execution cache, which every runner serves a task or a unit from:
+ * the latest attempt, when that attempt succeeded, with the peak its record
+ * holds. A success followed by an attempt that failed or was cancelled is not
+ * served, so the task runs again.
  *
  * A latest record still `running` whose runner and owner have both exited is
  * first rewritten as `interrupted` (see {@link repairInterruptedExecution}), so
@@ -363,7 +364,8 @@ async function readTaskObject(
  * @param repo - Repository identifier
  * @param taskHash - Hash of the task object
  * @param inHash - Combined inputs hash
- * @returns The cached result, or `null` when no successful execution exists
+ * @returns The cached result, or `null` when the latest attempt is not a
+ *   `success`
  */
 export async function probeExecutionCache(
   storage: StorageBackend,

@@ -315,6 +315,26 @@ describe('stopped executions', () => {
     });
   });
 
+  it('serves the latest attempt only when it succeeded: a success behind a failed attempt is not served', async () => {
+    const taskHash = 'c'.repeat(64);
+    const inHash = 'd'.repeat(64);
+    const now = new Date();
+    const succeeded = uuidv7();
+    await storage.refs.executionWrite(repo, taskHash, inHash, succeeded, variant('success', {
+      executionId: succeeded, inputHashes: [], outputHash: 'e'.repeat(64), startedAt: now, completedAt: now,
+      peakBytes: none, plan: none, unit: false,
+    }));
+    assert.equal((await probeExecutionCache(storage, repo, taskHash, inHash))?.executionId, succeeded, 'the latest attempt, a success, is served');
+
+    // A later millisecond, so the failed attempt's id sorts after the success's.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const failed = uuidv7();
+    await storage.refs.executionWrite(repo, taskHash, inHash, failed, variant('failed', {
+      executionId: failed, inputHashes: [], startedAt: now, completedAt: now, exitCode: 1n, peakBytes: none, unit: false,
+    }));
+    assert.equal(await probeExecutionCache(storage, repo, taskHash, inHash), null, 'the success behind a failed attempt is not');
+  });
+
   it('runs in a scratch directory under E3_SCRATCH_DIR named after the execution attempt and this process, removed after', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'e3-scratch-root-'));
     const previous = process.env.E3_SCRATCH_DIR;
