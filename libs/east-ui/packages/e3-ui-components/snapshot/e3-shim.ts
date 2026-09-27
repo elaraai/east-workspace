@@ -26,20 +26,24 @@ import { task } from '../../../../e3/packages/e3/src/task.ts';
 import { function_ } from '../../../../e3/packages/e3/src/function.ts';
 import { record } from '../../../../e3/packages/e3/src/record.ts';
 import { mutation } from '../../../../e3/packages/e3/src/mutation.ts';
+import { recordIndex } from '../../../../e3/packages/e3/src/record-index.ts';
 
-export { input, task, record, mutation };
+export { input, task, record, mutation, recordIndex };
 export { function_ };
-export type { DatasetDef, FunctionDef, RecordDef, MutationDef } from '../../../../e3/packages/e3/src/types.ts';
+export type { DatasetDef, FunctionDef, RecordDef, MutationDef, RecordIndexDef } from '../../../../e3/packages/e3/src/types.ts';
 
 /** Default-export surface, matching `@elaraai/e3`'s `e3` object for the
- *  members the browser harness can support. `record` / `mutation` are pure
- *  (they only touch `@elaraai/east`), so the `Record.bind` examples bundle. */
+ *  members the browser harness can support. `record` / `mutation` /
+ *  `recordIndex` are pure (they reach `@elaraai/east` and `@elaraai/e3-types`,
+ *  never a Node built-in), so the `Record.bind` examples and the example that
+ *  pages a record through its index bundle. */
 const e3 = {
     input,
     task,
     function: function_,
     record,
     mutation,
+    recordIndex,
 } as const;
 
 export default e3;
