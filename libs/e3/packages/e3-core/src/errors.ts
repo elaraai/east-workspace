@@ -10,7 +10,7 @@
  * with `if (err instanceof E3Error)` or specific errors with their class.
  */
 
-import { nameProblem, type DatasetTypeMismatch, type NamedKind } from '@elaraai/e3-types';
+import { E3_RELEASE, nameProblem, type DatasetTypeMismatch, type NamedKind } from '@elaraai/e3-types';
 import type { TaskExecutionResult } from './dataflow.js';
 
 // =============================================================================
@@ -49,16 +49,21 @@ export class RepoAlreadyExistsError extends E3Error {
 }
 
 /**
- * Thrown when a local repository is not in the layout this e3 reads: it has no
- * repository record, or one of another layout version. Nothing in it is read.
+ * Thrown when this e3 cannot open a local repository: it has no repository
+ * record this e3 reads, which an older e3 wrote, or it has had a store upgrade
+ * this e3 does not know, which a newer e3 applied. Nothing in it is read.
  */
 export class RepoLayoutError extends E3Error {
-  constructor(public readonly repo: string, public readonly layout: bigint | null, expected: bigint) {
-    super(layout === null
+  constructor(
+    public readonly repo: string,
+    /** The upgrade this e3 does not know, with the release of e3 that applied
+     *  it; `null` when the repository has no record this e3 reads */
+    public readonly upgrade: { readonly name: string; readonly release: string } | null,
+  ) {
+    super(upgrade === null
       ? `the repository at ${repo} has no repository record: an older e3 wrote it — re-create it: deploy again and import its data again`
-      : layout < expected
-        ? `the repository at ${repo} is in layout ${layout}, and this e3 reads layout ${expected}: an older e3 wrote it — re-create it: deploy again and import its data again`
-        : `the repository at ${repo} is in layout ${layout}, and this e3 reads layout ${expected}: a newer e3 wrote it — use that e3`);
+      : `the repository at ${repo} has had the upgrade ${JSON.stringify(upgrade.name)}, which e3 ${upgrade.release} applied and this e3, ` +
+        `${E3_RELEASE}, does not know — open it with e3 ${upgrade.release} or a newer one`);
   }
 }
 

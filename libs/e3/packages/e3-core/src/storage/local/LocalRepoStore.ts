@@ -22,10 +22,10 @@ import {
   checkName,
 } from '../../errors.js';
 import { decodeBeast2For, variant } from '@elaraai/east';
-import { WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
+import { E3_RELEASE, WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
 import { refPathToKeypath } from '../../dataset-refs.js';
 import { atomicWriteFile } from './localHelpers.js';
-import { REPOSITORY_FILENAME, REPOSITORY_LAYOUT, encodeRepositoryRecord, readRepositoryRecord, writeNewRepoMetadata } from './repository.js';
+import { REPOSITORY_FILENAME, encodeRepositoryRecord, repoOpen, writeNewRepoMetadata } from './repository.js';
 
 /**
  * Local filesystem implementation of RepoStore.
@@ -109,8 +109,12 @@ export class LocalRepoStore implements RepoStore {
   /**
    * The repository's metadata, or `null` when there is no repository.
    *
-   * @throws {RepoLayoutError} When the repository has no record, or one of
-   *   another layout: it is re-created.
+   * @remarks
+   * The repository is opened: a repository an older release wrote is
+   * upgraded in place first.
+   *
+   * @throws {RepoLayoutError} When the repository has no record this e3 reads,
+   *   or has had an upgrade this e3 does not know
    */
   async getMetadata(repo: string): Promise<RepoMetadata | null> {
     const repoPath = this.getRepoPath(repo);
@@ -120,7 +124,7 @@ export class LocalRepoStore implements RepoStore {
       return null;
     }
 
-    return readRepositoryRecord(repoPath).metadata;
+    return repoOpen(repoPath).metadata;
   }
 
   // ===========================================================================
@@ -150,22 +154,24 @@ export class LocalRepoStore implements RepoStore {
     status: RepoStatusName,
     expected?: RepoStatusName | RepoStatusName[]
   ): Promise<void> {
-    const current = await this.getMetadata(repo);
-    if (!current) {
+    const repoPath = this.getRepoPath(repo);
+    if (!(await this.isValidRepository(repoPath))) {
       throw new RepoNotFoundError(repo);
     }
+    const record = repoOpen(repoPath);
 
     // Check expected status (CAS)
     if (expected !== undefined) {
       const expectedArray = Array.isArray(expected) ? expected : [expected];
-      if (!expectedArray.includes(current.status.type)) {
-        throw new RepoStatusConflictError(repo, expected, current.status.type);
+      if (!expectedArray.includes(record.metadata.status.type)) {
+        throw new RepoStatusConflictError(repo, expected, record.metadata.status.type);
       }
     }
 
     await atomicWriteFile(this.getRecordPath(repo), encodeRepositoryRecord({
-      layout: REPOSITORY_LAYOUT,
-      metadata: { ...current, status: variant(status, null), statusChangedAt: new Date() },
+      ...record,
+      release: E3_RELEASE,
+      metadata: { ...record.metadata, status: variant(status, null), statusChangedAt: new Date() },
     }));
   }
 

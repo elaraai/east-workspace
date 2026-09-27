@@ -9,7 +9,7 @@
  * `datasetSetStream` (and `datasetSet` above the inline threshold) must speak
  * the transfer protocol to a server that plans parts and polls commits. These
  * tests stand a fake server in for `fetch` and pin what reaches the wire: the
- * version on the init and the
+ * version and the client's release on the init and the
  * commit, each part's exact byte range with the headers the server named and
  * no credentials, a transient part failure retried from a fresh read of its
  * range, the commit polled until it finishes, and every refusal surfaced.
@@ -20,6 +20,7 @@ import assert from 'node:assert/strict';
 import { encodeBeast2For, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
 import {
   BEAST2_CONTENT_TYPE,
+  E3_RELEASE,
   ResponseType,
   TransferDoneResponseType,
   TransferPartResponseType,
@@ -124,8 +125,10 @@ describe('datasetSetStream: the transfer protocol', () => {
     const init = calls[0]!;
     assert.equal(init.url.pathname, '/api/repos/my%20repo/workspaces/ws/datasets/inputs/table/upload');
     assert.equal(init.url.searchParams.get('protocol'), '2');
+    assert.equal(init.url.searchParams.get('release'), E3_RELEASE);
     const commit = calls.find(c => c.method === 'POST' && c.url.pathname.endsWith(`/upload/${ID}`))!;
     assert.equal(commit.url.searchParams.get('protocol'), '2');
+    assert.equal(commit.url.searchParams.get('release'), E3_RELEASE);
     assert.equal(polls, 2, 'polled until the commit completed');
 
     for (const call of calls) {

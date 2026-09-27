@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { StringType, variant, some, none, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceRecordType,
+  E3_RELEASE, EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import type { TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
@@ -435,7 +435,7 @@ describe('workspaces', () => {
       }
     });
 
-    it('carries the executions its current run used, and no record of the run', async () => {
+    it('carries the release that exported it, first, the executions its current run used, and no record of the run', async () => {
       const pkg = e3.package('run-export', '1.0.0', e3.input('value', StringType, variant('value', 'initial')));
       const importZip = join(tempDir, 'run-export.zip');
       await e3.export(pkg, importZip);
@@ -464,7 +464,10 @@ describe('workspaces', () => {
 
       const exportZip = join(tempDir, 'run-exported.zip');
       await workspaceExport(storage, testRepo, 'ws', exportZip, 'run-exported', '1.0.0');
-      const names = [...(await readZipEntries(exportZip)).keys()];
+      const entries = await readZipEntries(exportZip);
+      const names = [...entries.keys()];
+      assert.strictEqual(names[0], 'release.beast2');
+      assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE);
       assert.deepStrictEqual(names.filter((name) => name.startsWith('dataflows/')), [], 'no run record');
       assert.ok(names.includes(`executions/${taskHash}/${inputsHash}/${executionId}/status.beast2`), 'the execution travels');
 

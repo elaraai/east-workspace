@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
 import { BlobType, East, DictType, FloatType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, isTypeValueEqual, none, openBeast2PagesFor, readBeast2Type, some, toEastTypeValue, variant } from '@elaraai/east';
-import { PackageObjectType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
+import { E3_RELEASE, PackageObjectType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
 import { customTask, partition, streamTask, task } from './task.js';
@@ -188,10 +188,13 @@ describe('export_', () => {
     assert.strictEqual(greeting.value.writable, true);
 
     // The package object holds the input's ref, and the bundle holds nothing
-    // beside the objects but the package ref
+    // beside the objects but the release that exported it, first, and the
+    // package ref
     const datasetRef = packageObject.data.refs.get('inputs/greeting');
     assert.strictEqual(datasetRef?.type, 'value');
-    assert.deepStrictEqual([...entries.keys()].filter((key) => !key.startsWith('objects/')), ['packages/input-pkg/1.0.0.beast2']);
+    assert.deepStrictEqual([...entries.keys()].filter((key) => !key.startsWith('objects/')), ['release.beast2', 'packages/input-pkg/1.0.0.beast2']);
+    assert.strictEqual([...entries.keys()][0], 'release.beast2');
+    assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE);
   });
 
   it('produces identical output for same package', async () => {

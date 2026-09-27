@@ -11,9 +11,10 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { E3_RELEASE } from '@elaraai/e3-types';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalStorage } from './LocalBackend.js';
-import { REPOSITORY_FILENAME, REPOSITORY_LAYOUT, readRepositoryRecord, repoInit } from './repository.js';
+import { REPOSITORY_FILENAME, encodeRepositoryRecord, repoInit, repoOpen } from './repository.js';
 import {
   InvalidNameError,
   RepoNotFoundError,
@@ -125,6 +126,21 @@ describe('LocalRepoStore', () => {
       });
     });
 
+    it('refuses a repo that has had an upgrade this e3 does not know, naming the release that applied it', async () => {
+      await store.create('newer-repo');
+      const repoDir = join(testDir, 'newer-repo');
+      const record = repoOpen(repoDir);
+      writeFileSync(join(repoDir, REPOSITORY_FILENAME), encodeRepositoryRecord({
+        ...record, upgrades: [...record.upgrades, { name: 'from-a-newer-e3', release: '999.0.0' }],
+      }));
+
+      await assert.rejects(store.getMetadata('newer-repo'), {
+        name: 'RepoLayoutError',
+        message: `the repository at ${repoDir} has had the upgrade "from-a-newer-e3", which e3 999.0.0 applied and this e3, ` +
+          `${E3_RELEASE}, does not know — open it with e3 999.0.0 or a newer one`,
+      });
+    });
+
     it('refuses a repository name that is no one path segment, before it becomes a path', async () => {
       await assert.rejects(store.getMetadata('..'), InvalidNameError);
       await assert.rejects(store.create('../elsewhere'), InvalidNameError);
@@ -153,15 +169,15 @@ describe('LocalRepoStore', () => {
       assert.strictEqual(existsSync(join(repoDir, 'workspaces')), true);
     });
 
-    it('creates the repository record, in this e3\'s layout', async () => {
+    it('creates the repository record, naming this release', async () => {
       await store.create('my-repo');
 
       const repoDir = join(testDir, 'my-repo');
       assert.strictEqual(existsSync(join(repoDir, REPOSITORY_FILENAME)), true);
       assert.strictEqual(existsSync(join(repoDir, '.e3-metadata.json')), false);
 
-      const { layout, metadata } = readRepositoryRecord(repoDir);
-      assert.strictEqual(layout, REPOSITORY_LAYOUT);
+      const { release, metadata } = repoOpen(repoDir);
+      assert.strictEqual(release, E3_RELEASE);
       assert.strictEqual(metadata.name, 'my-repo');
       assert.strictEqual(metadata.status.type, 'active');
     });
@@ -223,6 +239,20 @@ describe('LocalRepoStore', () => {
         () => store.setStatus('my-repo', 'gc', 'deleting'),
         RepoStatusConflictError
       );
+    });
+
+    it('writes the record as this release, keeping the upgrades the repository has had', async () => {
+      await store.create('my-repo');
+      const repoDir = join(testDir, 'my-repo');
+      const record = repoOpen(repoDir);
+      writeFileSync(join(repoDir, REPOSITORY_FILENAME), encodeRepositoryRecord({ ...record, release: '0.0.1' }));
+
+      await store.setStatus('my-repo', 'gc');
+
+      const written = repoOpen(repoDir);
+      assert.strictEqual(written.release, E3_RELEASE);
+      assert.deepStrictEqual(written.upgrades, record.upgrades);
+      assert.strictEqual(written.metadata.status.type, 'gc');
     });
 
     it('succeeds with expected status array', async () => {

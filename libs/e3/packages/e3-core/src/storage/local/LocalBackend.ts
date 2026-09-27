@@ -12,7 +12,7 @@ import { LocalLockService } from './LocalLockService.js';
 import { LocalLogStore } from './LocalLogStore.js';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
-import { readRepositoryRecord } from './repository.js';
+import { repoOpen } from './repository.js';
 import { RepoNotFoundError } from '../../errors.js';
 
 /**
@@ -86,10 +86,11 @@ export class LocalStorage implements StorageBackend {
   }
 
   /**
-   * Validate that a repository exists and is properly structured.
+   * Validate that a repository exists and is properly structured, and open
+   * it: a repository an older release wrote is upgraded in place.
    * @param repo - Path to the e3 repository directory
    * @throws {RepoNotFoundError} If repository doesn't exist or is invalid
-   * @throws {RepoLayoutError} If it is of another layout
+   * @throws {RepoLayoutError} If this e3 cannot open it
    */
   async validateRepository(repo: string): Promise<void> {
     const requiredDirs = ['objects', 'packages', 'workspaces', 'executions'];
@@ -100,7 +101,7 @@ export class LocalStorage implements StorageBackend {
         throw new RepoDirNotFoundError(repo);
       }
     }
-    readRepositoryRecord(repo);
+    repoOpen(repo);
   }
 }
 

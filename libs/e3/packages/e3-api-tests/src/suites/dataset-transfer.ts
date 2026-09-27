@@ -10,7 +10,7 @@
  * segments, transfer upload flow for large SET, dedup shortcut, and hash
  * mismatch rejection — through the client, and at the wire, where a server
  * speaks the one protocol version and refuses a request naming another, or
- * none, in the same words.
+ * none, in the same words, naming its release and the request's.
  */
 
 import { describe, it } from 'node:test';
@@ -46,6 +46,7 @@ import { some, variant } from '@elaraai/east';
 import { computeHash } from '@elaraai/e3-core';
 import {
   BEAST2_CONTENT_TYPE,
+  E3_RELEASE,
   ResponseType,
   TRANSFER_PROTOCOL_VERSION,
   TransferDoneResponseType,
@@ -364,25 +365,28 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       assert.deepStrictEqual(status.hash, some(hash));
     });
 
-    it('refuses an init or a commit naming another protocol version, or none, naming the fix', async (t) => {
+    it('refuses an init or a commit naming another protocol version, or none, naming both releases and the fix', async (t) => {
       const ctx = await withStringPackage(t);
       const opts = await ctx.opts();
       const uploadUrl = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/transfer-ws/datasets/inputs/config/upload`;
 
       const data = encodeBeast2For(StringType)(incompressibleString(1_100_003));
       const request = encodeBeast2For(TransferUploadRequestType)({ hash: computeHash(data), size: BigInt(data.byteLength) });
-      const speaks = `this server speaks transfer protocol ${TRANSFER_PROTOCOL_VERSION}, and the request`;
-      const older = `${speaks} names none: an older e3 sent it — upgrade it`;
+      const speaks = `this server, e3 ${E3_RELEASE}, speaks transfer protocol ${TRANSFER_PROTOCOL_VERSION}, and the request,`;
+      const older = `${speaks} which names no release, names no protocol: an older e3 sent it — upgrade it`;
       for (const [query, message] of [
         ['', older],
-        [`?protocol=${TRANSFER_PROTOCOL_VERSION - 1}`, `${speaks} speaks ${TRANSFER_PROTOCOL_VERSION - 1}: an older e3 sent it — upgrade it`],
-        [`?protocol=${TRANSFER_PROTOCOL_VERSION + 1}`, `${speaks} speaks ${TRANSFER_PROTOCOL_VERSION + 1}: a newer e3 sent it — upgrade the server`],
+        [`?protocol=${TRANSFER_PROTOCOL_VERSION - 1}`, `${speaks} which names no release, speaks ${TRANSFER_PROTOCOL_VERSION - 1}: an older e3 sent it — upgrade it`],
+        [`?protocol=${TRANSFER_PROTOCOL_VERSION - 1}&release=0.0.1`, `${speaks} from e3 0.0.1, speaks ${TRANSFER_PROTOCOL_VERSION - 1}: an older e3 sent it — upgrade it`],
+        [`?protocol=${TRANSFER_PROTOCOL_VERSION + 1}&release=999.0.0`, `${speaks} from e3 999.0.0, speaks ${TRANSFER_PROTOCOL_VERSION + 1}: a newer e3 sent it — upgrade the server`],
       ]) {
         const refused = await transferCall(`${uploadUrl}${query}`, 'POST', TransferUploadResponseType, opts, request);
         assert.deepStrictEqual(refused, variant('error', variant('internal', { message })), query || 'no version');
       }
 
-      const init = success(await transferCall(`${uploadUrl}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferUploadResponseType, opts, request));
+      // The release decides nothing: a request of this protocol from another
+      // release is taken.
+      const init = success(await transferCall(`${uploadUrl}?protocol=${TRANSFER_PROTOCOL_VERSION}&release=999.0.0`, 'POST', TransferUploadResponseType, opts, request));
       assert.strictEqual(init.type, 'upload_parts');
       if (init.type !== 'upload_parts') return;
       const commit = await transferCall(`${uploadUrl}/${init.value.id}`, 'POST', TransferDoneResponseType, opts);

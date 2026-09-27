@@ -214,6 +214,9 @@ export {
   type RepoMetadata,
 } from './repository.js';
 
+// The release of e3 this build is, which what it keeps and ships records
+export { E3_RELEASE, compareReleases } from './release.js';
+
 // The names e3 makes paths of
 export { type NamedKind, nameProblem } from './names.js';
 
@@ -438,7 +441,6 @@ export {
   ExecutionEventType,
   type ExecutionEvent,
   type PartitionProgress,
-  EXECUTION_STATE_VERSION,
   DataflowExecutionStateType,
   type DataflowExecutionState,
   decodeDataflowExecutionState,

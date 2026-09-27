@@ -16,8 +16,10 @@ import yauzl from 'yauzl';
 import yazl from 'yazl';
 import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import {
+  E3_RELEASE,
   EnvironmentSpecType,
   RecordIndexObjectType,
+  compareReleases,
   environmentSpecObjectHashes,
   decodeFunctionObject,
   decodeMigrationObject,
@@ -56,6 +58,12 @@ export interface PackageImportOptions {
 }
 
 /**
+ * The entry a package zip names the release of e3 that exported it in: a
+ * String, first in the zip.
+ */
+export const ZIP_RELEASE_ENTRY = 'release.beast2';
+
+/**
  * Import a package from a .zip file into the repository.
  *
  * Writes the zip's objects to the store and its package ref,
@@ -64,13 +72,18 @@ export interface PackageImportOptions {
  * run's record in the zip is not filed: it belongs to the repository the run
  * ran in.
  *
+ * @remarks
+ * The zip's directory is read before anything is written, so a zip a newer
+ * release of e3 exported is refused with nothing of it imported. A zip an
+ * older release exported is read as it is, object by object.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param zipPath - Path to the .zip package file
  * @param options - Optional import options (e.g. progress callback)
  * @returns Import result with package name, version, and stats
  * @throws {PackageInvalidError} When the zip holds no package ref, or an older
- *   e3 exported it
+ *   e3 exported it in a form no longer read, or a newer release exported it
  */
 export async function packageImport(
   storage: StorageBackend,
@@ -78,7 +91,6 @@ export async function packageImport(
   zipPath: string,
   options?: PackageImportOptions,
 ): Promise<PackageImportResult> {
-  // Open the zip file
   const zipfile = await openZip(zipPath);
 
   let packageName: string | undefined;
@@ -122,10 +134,11 @@ export async function packageImport(
   };
 
   try {
-    // Iterate through all entries
-    for await (const entry of iterateZipEntries(zipfile)) {
-      const { fileName, getData } = entry;
+    const entries: ZipEntry[] = [];
+    for await (const entry of iterateZipEntries(zipfile)) entries.push(entry);
+    await checkZipRelease(entries.find(({ fileName }) => fileName === ZIP_RELEASE_ENTRY));
 
+    for (const { fileName, getData } of entries) {
       // Skip directory entries
       if (fileName.endsWith('/')) {
         continue;
@@ -253,14 +266,19 @@ export interface PackageZip {
  * @param zipPath - Path to the .zip package file
  * @returns The zip, open; the caller closes it
  * @throws {PackageInvalidError} When the zip holds no package ref, or an older
- *   e3 exported it, as {@link packageImport} refuses it
+ *   e3 exported it in a form no longer read, or a newer release exported it,
+ *   as {@link packageImport} refuses it
  */
 export async function packageZipOpen(zipPath: string): Promise<PackageZip> {
-  const zipfile = await openZip(zipPath, false);
+  const zipfile = await openZip(zipPath);
   const entries = new Map<string, ZipEntry>();
   let ref: { name: string; version: string; hash: string } | undefined;
   try {
     for await (const entry of iterateZipEntries(zipfile)) {
+      if (entry.fileName === ZIP_RELEASE_ENTRY) {
+        await checkZipRelease(entry);
+        continue;
+      }
       const named = packageRefOf(entry.fileName);
       if (named !== null) {
         ref = { ...named, hash: decodeBeast2For(StringType)(await entry.getData()) };
@@ -679,6 +697,8 @@ export async function packageExport(
   const packageObject = decodePackageObject(await storage.objects.read(repo, packageHash));
 
   const zipfile = new yazl.ZipFile();
+  // The release exporting it, first, so an import meets it before anything
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(E3_RELEASE)), ZIP_RELEASE_ENTRY, { mtime: DETERMINISTIC_MTIME });
   let objectCount = 0;
   await walkPackageObjects(storage, repo, packageHash, packageObject, async (hash) => {
     const data = await storage.objects.read(repo, hash);
@@ -721,6 +741,29 @@ interface ZipEntry {
 }
 
 /**
+ * Refuses a zip a newer release of e3 exported, by the release its
+ * {@link ZIP_RELEASE_ENTRY} names. A zip without one was exported before zips
+ * named their release, and is read as an older release's is.
+ *
+ * @param entry - The zip's release entry, if it has one
+ * @throws {PackageInvalidError} When a newer release exported the zip, or the
+ *   entry names what is no release
+ */
+async function checkZipRelease(entry: ZipEntry | undefined): Promise<void> {
+  if (entry === undefined) return;
+  const release = decodeBeast2For(StringType)(await entry.getData());
+  let order: number;
+  try {
+    order = compareReleases(release, E3_RELEASE);
+  } catch (err) {
+    throw new PackageInvalidError(err instanceof Error ? err.message : String(err));
+  }
+  if (order > 0) {
+    throw new PackageInvalidError(`e3 ${release} exported it, and this e3 is ${E3_RELEASE} — import it with e3 ${release} or a newer one`);
+  }
+}
+
+/**
  * The package a zip entry is the ref of: `packages/<name>/<version>.beast2`,
  * as a repository keeps one.
  *
@@ -739,16 +782,14 @@ function packageRefOf(fileName: string): { name: string; version: string } | nul
 }
 
 /**
- * Open a zip file for reading
+ * Open a zip file for reading. It stays open once its entries have been
+ * iterated, so they can be read after; its caller closes it.
  *
  * @param zipPath - The zip's path
- * @param autoClose - Whether the zip closes once its entries have been
- *   iterated; one whose entries are read later is kept open, and its caller
- *   closes it
  */
-function openZip(zipPath: string, autoClose = true): Promise<yauzl.ZipFile> {
+function openZip(zipPath: string): Promise<yauzl.ZipFile> {
   return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true, autoClose }, (err, zipfile) => {
+    yauzl.open(zipPath, { lazyEntries: true, autoClose: false }, (err, zipfile) => {
       if (err) return reject(err);
       if (!zipfile) return reject(new Error('No zipfile'));
       resolve(zipfile);

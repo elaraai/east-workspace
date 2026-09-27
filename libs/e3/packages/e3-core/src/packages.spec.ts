@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import yazl from 'yazl';
 import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { DataflowRunType, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
+import { DataflowRunType, E3_RELEASE, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
 import {
   packageImport,
   packageZipOpen,
@@ -31,6 +31,23 @@ import { PackageInvalidError, PackageNotFoundError } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, zipEqual } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
+
+/** Writes a zip of the given entries, in the given order. */
+async function writeZip(zipPath: string, entries: Iterable<readonly [string, Buffer]>): Promise<string> {
+  const zip = new yazl.ZipFile();
+  for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
+  await new Promise<void>((resolve, reject) => {
+    zip.outputStream.pipe(createWriteStream(zipPath)).on('close', resolve).on('error', reject);
+    zip.end();
+  });
+  return zipPath;
+}
+
+/** A zip's entries with its release entry naming `release`, placed last; none when `release` is null. */
+function withRelease(entries: Map<string, Buffer>, release: string | null): Array<readonly [string, Buffer]> {
+  const rest = [...entries].filter(([name]) => name !== 'release.beast2');
+  return release === null ? rest : [...rest, ['release.beast2', Buffer.from(encodeBeast2For(StringType)(release))]];
+}
 
 /** Every file under a directory, by its path, with a hash of its bytes. */
 function filesUnder(dir: string): Map<string, string> {
@@ -193,6 +210,45 @@ describe('packages', () => {
         err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
       assert.deepStrictEqual(await packageList(storage, testRepo), []);
     });
+
+    it('refuses a zip a newer release exported, naming it, before anything of it is written', async () => {
+      const zipPath = join(tempDir, 'current.zip');
+      await e3.export(e3.package('newer', '1.0.0', e3.input('note', StringType, variant('value', 'kept'))), zipPath);
+      // The release last, as a newer e3 might place it: the import reads the
+      // zip's directory before it writes anything.
+      const newer = await writeZip(join(tempDir, 'newer.zip'), withRelease(await readZipEntries(zipPath), '999.0.0'));
+
+      await assert.rejects(packageImport(storage, testRepo, newer), (err: unknown) =>
+        err instanceof PackageInvalidError &&
+        err.message === `Invalid package: e3 999.0.0 exported it, and this e3 is ${E3_RELEASE} — import it with e3 999.0.0 or a newer one`);
+      assert.deepStrictEqual(await packageList(storage, testRepo), []);
+      assert.deepStrictEqual(await storage.objects.list(testRepo), [], 'no object is written');
+    });
+
+    it('reads a zip an older release exported, and one from before zips named their release', async () => {
+      const zipPath = join(tempDir, 'current.zip');
+      await e3.export(e3.package('older', '1.0.0'), zipPath);
+      const entries = await readZipEntries(zipPath);
+      assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE, 'the SDK names its release');
+
+      for (const release of ['0.0.1', null]) {
+        const repo = createTestRepo();
+        try {
+          const result = await packageImport(storage, repo, await writeZip(join(tempDir, `older-${release}.zip`), withRelease(entries, release)));
+          assert.strictEqual(result.name, 'older', `${release}`);
+        } finally {
+          removeTestRepo(repo);
+        }
+      }
+    });
+
+    it('refuses a zip whose release entry names no release', async () => {
+      const zipPath = join(tempDir, 'current.zip');
+      await e3.export(e3.package('unnamed', '1.0.0'), zipPath);
+      const unnamed = await writeZip(join(tempDir, 'unnamed.zip'), withRelease(await readZipEntries(zipPath), 'latest'));
+      await assert.rejects(packageImport(storage, testRepo, unnamed), (err: unknown) =>
+        err instanceof PackageInvalidError && /^Invalid package: "latest" is not a release/.test(err.message));
+    });
   });
 
   describe('packageZipOpen', () => {
@@ -268,6 +324,11 @@ describe('packages', () => {
       const older = await rewritten('older.zip', (name, bytes) => name === ref ? ['packages/refused/1.0.0', Buffer.from(`${packageHash}\n`)] : [name, bytes]);
       await assert.rejects(packageZipOpen(older), (err: unknown) =>
         err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
+
+      const newer = await writeZip(join(tempDir, 'newer.zip'), withRelease(entries, '999.0.0'));
+      await assert.rejects(packageZipOpen(newer), (err: unknown) =>
+        err instanceof PackageInvalidError &&
+        err.message === `Invalid package: e3 999.0.0 exported it, and this e3 is ${E3_RELEASE} — import it with e3 999.0.0 or a newer one`);
 
       // Opening reads no object, so the zip opens; the object is refused when
       // it is read.
@@ -431,9 +492,12 @@ describe('packages', () => {
       const result = await packageExport(storage, testRepo, 'export-input', '1.0.0', exportZip);
 
       assert.ok(result.objectCount >= 2, `Expected at least 2 objects, got ${result.objectCount}`);
-      // Beside the objects, only the package ref, as the repository keeps it
+      // Beside the objects, only the release that exported it, first, and the
+      // package ref, as the repository keeps it
       const entries = await readZipEntries(exportZip);
-      assert.deepStrictEqual([...entries.keys()].filter((name) => !name.startsWith('objects/')), ['packages/export-input/1.0.0.beast2']);
+      assert.deepStrictEqual([...entries.keys()].filter((name) => !name.startsWith('objects/')), ['release.beast2', 'packages/export-input/1.0.0.beast2']);
+      assert.strictEqual([...entries.keys()][0], 'release.beast2');
+      assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE);
       assert.strictEqual(decodeBeast2For(StringType)(entries.get('packages/export-input/1.0.0.beast2')!), result.packageHash);
     });
 

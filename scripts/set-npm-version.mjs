@@ -22,6 +22,28 @@ const TEXT_VERSION_FILES = [
   'libs/east-c/VERSION',  // CMake reads this to bake EAST_CLI_VERSION / EAST_RUNTIME_VERSION into the east-c binary
 ];
 
+// TypeScript sources that name the release in one `export const <NAME> = '…';`
+// line, which this rewrites in place. e3 records the release in what it keeps
+// and ships (a repository's record, an execution state, a package zip) and in
+// every transfer request.
+const SOURCE_VERSION_FILES = [
+  { path: 'libs/e3/packages/e3-types/src/release.ts', constant: 'E3_RELEASE' },
+];
+
+// Each source's line is found before anything is written, so a source that
+// lost its line leaves every package as it was.
+const sourceRewrites = SOURCE_VERSION_FILES.map(({ path: rel, constant }) => {
+  const p = path.join(repoRoot, rel);
+  const raw = fs.readFileSync(p, 'utf8');
+  const line = new RegExp(`^export const ${constant} = '([^']*)';$`, 'gm');
+  const found = [...raw.matchAll(line)];
+  if (found.length !== 1) {
+    console.error(`${rel}: expected one \`export const ${constant} = '…';\` line, found ${found.length}`);
+    process.exit(1);
+  }
+  return { rel, p, constant, old: found[0][1], text: raw.replace(line, `export const ${constant} = '${NEW_VERSION}';`) };
+});
+
 const PKGS = [
   'package.json',
   'libs/east/package.json',
@@ -59,6 +81,11 @@ for (const rel of PKGS) {
   const indent = raw.startsWith('{\n    ') ? 4 : 2;
   fs.writeFileSync(p, JSON.stringify(pkg, null, indent) + trailingNewline);
   console.log(`${pkg.name}: ${old} → ${NEW_VERSION}`);
+}
+
+for (const { rel, p, constant, old, text } of sourceRewrites) {
+  fs.writeFileSync(p, text);
+  console.log(`${rel} (${constant}): ${old} → ${NEW_VERSION}`);
 }
 
 // Plain-text VERSION files (CMake input, etc.). Preserve trailing newline.

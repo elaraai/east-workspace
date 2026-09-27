@@ -22,12 +22,12 @@ import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
+import { E3_RELEASE, PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
 import type {
   PackageObject, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, TreePath,
 } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
-import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
+import { ZIP_RELEASE_ENTRY, packageResolve, packageRead, walkPackageObjects } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import { workspaceSetDatasetByHash } from './trees.js';
 import {
@@ -653,9 +653,9 @@ const DETERMINISTIC_MTIME = new Date(0);
  * 2. Read deployed package structure using stored packageHash
  * 3. Create new PackageObject with current structure
  * 4. Collect all referenced objects from dataset refs
- * 5. Write the objects, the package ref and the executions the current run
- *    used to the .zip — not the run's record, which names this repository's
- *    workspace
+ * 5. Write the release exporting it, the objects, the package ref and the
+ *    executions the current run used to the .zip — not the run's record,
+ *    which names this repository's workspace
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -738,6 +738,8 @@ export async function workspaceExport(
   const packageHash = await storage.objects.write(repo, pkgData);
 
   const zipfile = new yazl.ZipFile();
+  // The release exporting it, first, so an import meets it before anything
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(E3_RELEASE)), ZIP_RELEASE_ENTRY, { mtime: DETERMINISTIC_MTIME });
   let objectCount = 0;
   await walkPackageObjects(storage, repo, packageHash, newPkgObject, async (hash) => {
     const data = await storage.objects.read(repo, hash);
