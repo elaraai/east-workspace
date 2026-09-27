@@ -61,6 +61,7 @@ describe('logsCommand --execution', () => {
       completedAt: new Date(0),
       peakBytes: none,
       plan: none,
+      unit: true,
     }));
     await storage.logs.append(repo, taskHash, inputsHash, executionId, 'stdout', 'unit says hello\n');
     await storage.logs.append(repo, taskHash, inputsHash, executionId, 'stderr', 'e3: cancelled: e3 stopped the runner because the run was aborted\n');

@@ -540,6 +540,7 @@ describe('gc', () => {
         completedAt: new Date(),
         peakBytes: none,
         plan: none,
+        unit: false,
       });
       writeFileSync(join(execDir, 'status.beast2'), encoder(status));
 
@@ -560,7 +561,7 @@ describe('gc', () => {
       // The execution was interrupted mid-task, and can resume.
       const interrupted = uuidv7();
       await storage.refs.executionWrite(testRepoPath, taskHash, inputsHash, interrupted, variant('interrupted', {
-        executionId: interrupted, inputHashes: [], startedAt: new Date(), completedAt: new Date(), pid: 1n,
+        executionId: interrupted, inputHashes: [], startedAt: new Date(), completedAt: new Date(), pid: 1n, unit: false,
       }));
       const piece = await objectWrite(testRepoPath, encodeBeast2For(StringType)('a piece of the input'));
       const plan = await objectWrite(testRepoPath, encodeUnitPlan({

@@ -48,6 +48,7 @@ describe('LocalRefStore execution status (concurrent read/write)', () => {
     pid: 1234n,
     pidStartTime: 5678n,
     bootId: 'boot-id',
+    unit: false,
   });
   const success: ExecutionStatus = variant('success', {
     executionId,
@@ -57,6 +58,7 @@ describe('LocalRefStore execution status (concurrent read/write)', () => {
     completedAt: new Date(1000),
     peakBytes: some(64n * 1024n ** 2n),
     plan: none,
+    unit: false,
   });
 
   it('executionGet never tears while executionWrite overwrites status in place', async () => {
@@ -204,6 +206,7 @@ describe('LocalRefStore execution sidecars (#770)', () => {
       pid: 1234n,
       pidStartTime: 5678n,
       bootId: 'boot-id',
+      unit: false,
     });
     await store.executionWrite(repo, taskHash, inputsHash, executionId, running);
     await store.executionOwnerWrite(repo, taskHash, inputsHash, executionId, { pid: 1n, pidStartTime: 2n, bootId: 'boot-id' });
@@ -235,6 +238,7 @@ describe('LocalRefStore execution sidecars (#770)', () => {
       pid: 1234n,
       pidStartTime: 5678n,
       bootId: 'boot-id',
+      unit: false,
     });
     for (const attempt of [executionId, later]) {
       await store.executionWrite(repo, taskHash, inputsHash, attempt, running);

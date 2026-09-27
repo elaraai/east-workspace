@@ -264,7 +264,7 @@ export async function taskExecute(
 
   // Step 2: Generate a new execution ID, and read the task object
   const ids = { inHash, executionId: uuidv7(), startTime };
-  const task = await readTaskObject(storage, repo, taskHash, inputHashes, ids);
+  const task = await readTaskObject(storage, repo, taskHash, inputHashes, ids, false);
   if (!('body' in task)) return task;
 
   if (isSplitTask(task)) {
@@ -272,8 +272,8 @@ export async function taskExecute(
     // pool, bounds the runner processes. This process drives the stages, so it
     // owns the task's execution.
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
-      (unitInputs, unitIds, merge, expectedPeakBytes) =>
-        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge, 'unit'),
+      (unitInputs, unitIds, merge, expectedPeakBytes, own) =>
+        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge, 'unit', !own),
       { width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH), owner: await processOwner() });
   }
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
@@ -308,19 +308,21 @@ export async function taskExecuteUnit(
     if (cached !== null) return cached;
   }
   const ids = { inHash, executionId: uuidv7(), startTime: Date.now() };
-  const task = await readTaskObject(storage, repo, taskHash, unit.inputs, ids);
+  const task = await readTaskObject(storage, repo, taskHash, unit.inputs, ids, !unit.own);
   if (!('body' in task)) return task;
-  return taskExecuteBody(storage, repo, taskHash, task, unit.inputs, ids, options, unit.merge, 'unit');
+  return taskExecuteBody(storage, repo, taskHash, task, unit.inputs, ids, options, unit.merge, 'unit', !unit.own);
 }
 
 /** Reads and decodes a task object; or, when it does not read, records the
- *  execution `error`, naming why, and returns its result. */
+ *  execution `error`, naming why, and whether it is a unit, and returns its
+ *  result. */
 async function readTaskObject(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inputHashes: string[],
   ids: ExecutionIds,
+  unit: boolean,
 ): Promise<TaskObject | ExecutionResult> {
   try {
     return decodeTaskObject(Buffer.from(await storage.objects.read(repo, taskHash)));
@@ -332,6 +334,7 @@ async function readTaskObject(
       startedAt: new Date(ids.startTime),
       completedAt: new Date(),
       message,
+      unit,
     }));
     return {
       inputsHash: ids.inHash,
@@ -417,6 +420,7 @@ async function repairInterruptedExecution(
     startedAt: running.startedAt,
     completedAt: new Date(),
     pid: running.pid,
+    unit: running.unit,
   });
   await storage.refs.executionWrite(repo, taskHash, inHash, running.executionId, status);
 }
@@ -469,6 +473,8 @@ interface Requeue {
  *  `kind` says what the execution is to the budget's guard: a split task's
  *  piece or merge (`unit`), which it stops past the budget, and which then
  *  runs again once the most it reached fits, or anything else (`task`).
+ *  `isUnit` is what the execution's record says: every unit but the one a
+ *  task whose input closes no piece runs as its own execution.
  *  @internal */
 export async function taskExecuteBody(
   storage: StorageBackend,
@@ -480,6 +486,7 @@ export async function taskExecuteBody(
   options: ExecuteOptions = {},
   merge: MergeParts | null = null,
   kind: GrantKind = 'task',
+  isUnit: boolean = kind === 'unit',
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
   // What spawns: a stock runner's `exec`, for an East body on a stock runtime;
@@ -494,6 +501,7 @@ export async function taskExecuteBody(
       startedAt: new Date(startTime),
       completedAt: new Date(),
       message,
+      unit: isUnit,
     });
     await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
     return {
@@ -595,7 +603,7 @@ export async function taskExecuteBody(
       } catch (err) {
         console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
       }
-      const stopped = { executionId, inputHashes, startedAt: new Date(startTime), completedAt: new Date() };
+      const stopped = { executionId, inputHashes, startedAt: new Date(startTime), completedAt: new Date(), unit: isUnit };
       const status: ExecutionStatus = outcome === 'cancelled' ? variant('cancelled', stopped)
         : outcome === 'error' ? variant('error', { ...stopped, message: cause })
         : variant('failed', { ...stopped, exitCode: -1n, peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)) });
@@ -628,7 +636,7 @@ export async function taskExecuteBody(
     const spawnRunner = async (argv: string[], staged: StagedUnit | null, attempt: Attempt): Promise<ExecutionResult | Requeue | null> => {
       const { grant, cgroup, cap, reservation } = attempt;
       const result = await runCommand(storage, repo, taskHash, inHash, executionId, cgroup === null ? argv : cgroups!.enter(cgroup, argv),
-        inputHashes, bootId, scratchDir, options, envBins, stock,
+        inputHashes, isUnit, bootId, scratchDir, options, envBins, stock,
         (pid, stop) => grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) }));
       grant?.unwatch();
       const recorded = staged === null ? null : await readUnitResult(staged);
@@ -681,6 +689,7 @@ export async function taskExecuteBody(
         completedAt: new Date(),
         exitCode: BigInt(result.exitCode ?? -1),
         peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
+        unit: isUnit,
       });
       await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
       return {
@@ -788,6 +797,7 @@ export async function taskExecuteBody(
       completedAt: new Date(),
       peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
       plan: none,
+      unit: isUnit,
     });
     await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
     return {
@@ -866,7 +876,8 @@ function createLogAppender(append: (data: string) => Promise<void>, stream: 'std
  * runner that writes faster than the log is appended blocks on its pipe.
  *
  * `onRunner` is given the runner's pid and the stop an abort makes as soon as
- * it has spawned, for the budget's guard to watch it by.
+ * it has spawned, for the budget's guard to watch it by. `unit` is what the
+ * execution's records say it is.
  */
 async function runCommand(
   storage: StorageBackend,
@@ -876,6 +887,7 @@ async function runCommand(
   executionId: string,
   args: string[],
   inputHashes: string[],
+  unit: boolean,
   bootId: string,
   scratchDir: string,
   options: ExecuteOptions,
@@ -930,6 +942,7 @@ async function runCommand(
           pid: BigInt(pid ?? -1),
           pidStartTime: BigInt(pidStartTime ?? -1),
           bootId,
+          unit,
         });
         await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
         // The owner sidecar: this process, which alone writes the outcome.
@@ -944,6 +957,7 @@ async function runCommand(
             startedAt,
             completedAt: new Date(),
             message: `Failed to record the execution's owner: ${err instanceof Error ? err.message : String(err)}`,
+            unit,
           }));
           throw err;
         }

@@ -116,6 +116,7 @@ export {
   datasetListRecursivePaths,
   datasetListWithStatus,
   datasetGet,
+  datasetGetStream,
   datasetGetPage,
   datasetGetStatus,
   datasetFindKey,

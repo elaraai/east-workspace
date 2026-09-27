@@ -4,10 +4,11 @@
  */
 
 /**
- * Execution status wire: the typed outcomes with their peaks and a split
- * task's plan, what each keeps from gc, and the refusal of a record an older
- * e3 wrote before `cancelled` and `interrupted` were cases of it, before a
- * runner's peak was recorded, or before a split task's plan was.
+ * Execution status wire: the typed outcomes with their peaks, a split task's
+ * plan and whether the execution is a unit, what each keeps from gc, and the
+ * refusal of a record an older e3 wrote before `cancelled` and `interrupted`
+ * were cases of it, before a runner's peak was recorded, before a split task's
+ * plan was, or before a record said whether it is a unit.
  */
 
 import { describe, it } from 'node:test';
@@ -44,26 +45,29 @@ describe('ExecutionStatusType', () => {
   };
   const encodeOlder = encodeBeast2For(PreOutcomeExecutionStatusType);
 
-  it('round-trips the typed outcomes, with a runner\'s peak or without one', () => {
+  it('round-trips the typed outcomes, with a runner\'s peak or without one, a task\'s own or a unit\'s', () => {
+    const own = { ...stopped, unit: false };
     const statuses: ExecutionStatus[] = [
-      variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: some(96n * 1024n ** 2n), plan: none }),
-      variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none, plan: some('c'.repeat(64)) }),
-      variant('failed', { ...stopped, exitCode: 1n, peakBytes: some(412n * 1024n ** 2n) }),
-      variant('failed', { ...stopped, exitCode: -1n, peakBytes: none }),
-      variant('cancelled', stopped),
-      variant('interrupted', { ...stopped, pid: 4242n }),
-      variant('error', { ...stopped, message: 'Failed to read output: no such file' }),
+      variant('success', { ...own, outputHash: 'b'.repeat(64), peakBytes: some(96n * 1024n ** 2n), plan: none }),
+      variant('success', { ...own, outputHash: 'b'.repeat(64), peakBytes: none, plan: some('c'.repeat(64)) }),
+      variant('success', { ...own, outputHash: 'b'.repeat(64), peakBytes: some(64n * 1024n ** 2n), plan: none, unit: true }),
+      variant('running', { executionId: '0199-b', inputHashes: ['a'.repeat(64)], startedAt: new Date(1000), pid: 4242n, pidStartTime: 7n, bootId: 'boot', unit: true }),
+      variant('failed', { ...own, exitCode: 1n, peakBytes: some(412n * 1024n ** 2n) }),
+      variant('failed', { ...own, exitCode: -1n, peakBytes: none }),
+      variant('cancelled', own),
+      variant('interrupted', { ...own, pid: 4242n }),
+      variant('error', { ...own, message: 'Failed to read output: no such file' }),
     ];
     const encode = encodeBeast2For(ExecutionStatusType);
     for (const status of statuses) assert.deepEqual(decodeExecutionStatus(encode(status)), status);
   });
 
   it('keeps from gc a success\'s output, and a split task\'s last plan beside it', () => {
-    const success = { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none };
+    const success = { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none, unit: false };
     assert.deepEqual(executionStatusRoots(variant('success', { ...success, plan: none })), ['b'.repeat(64)]);
     assert.deepEqual(executionStatusRoots(variant('success', { ...success, plan: some('c'.repeat(64)) })), ['b'.repeat(64), 'c'.repeat(64)]);
-    assert.deepEqual(executionStatusRoots(variant('failed', { ...stopped, exitCode: 1n, peakBytes: none })), []);
-    assert.deepEqual(executionStatusRoots(variant('cancelled', stopped)), []);
+    assert.deepEqual(executionStatusRoots(variant('failed', { ...stopped, exitCode: 1n, peakBytes: none, unit: false })), []);
+    assert.deepEqual(executionStatusRoots(variant('cancelled', { ...stopped, unit: false })), []);
   });
 
   it('refuses a record an older e3 wrote, naming the fix', () => {
@@ -93,6 +97,15 @@ describe('ExecutionStatusType', () => {
       }),
     });
     assert.throws(() => decodeExecutionStatus(encodeBeast2For(withoutPlans)(variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none }))), refusal);
+    // With plans, before a record said whether it is a unit of a split task.
+    const withoutUnits = VariantType({
+      ...ExecutionStatusType.cases,
+      success: StructType({
+        executionId: StringType, inputHashes: ArrayType(StringType), outputHash: StringType,
+        startedAt: DateTimeType, completedAt: DateTimeType, peakBytes: OptionType(IntegerType), plan: OptionType(StringType),
+      }),
+    });
+    assert.throws(() => decodeExecutionStatus(encodeBeast2For(withoutUnits)(variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none, plan: none }))), refusal);
   });
 
   it('throws for bytes of no status shape', () => {

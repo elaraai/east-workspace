@@ -110,6 +110,11 @@ export interface SplitUnit {
   readonly inputs: string[];
   /** What a merge unit merges, or `null` for a piece. */
   readonly merge: MergeParts | null;
+  /** Whether the unit is the task's own execution: the one unit of a task
+   *  whose input closes no piece, which runs under the task's own identity.
+   *  Every other unit's execution record says it is a unit, and a task's
+   *  history leaves it out. */
+  readonly own: boolean;
 }
 
 /**

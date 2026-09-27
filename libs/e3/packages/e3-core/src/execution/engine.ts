@@ -112,6 +112,8 @@ export function isSplitTask(task: TaskObject): boolean {
  * @param expectedPeakBytes - The memory the unit is expected to need: the
  *   largest peak a unit of its stage has reached in the run, or `undefined`
  *   while none has
+ * @param own - Whether the unit is the task's own execution (see
+ *   {@link SplitUnit.own}), which its record then does not call a unit
  * @returns The execution's result
  */
 export type UnitExecutor = (
@@ -119,6 +121,7 @@ export type UnitExecutor = (
   ids: ExecutionIds,
   merge: MergeParts | null,
   expectedPeakBytes: number | undefined,
+  own: boolean,
 ) => Promise<ExecutionResult>;
 
 /**
@@ -134,12 +137,12 @@ export type UnitExecutor = (
  * @returns The stage's units
  */
 export function stageUnits(stage: UnitPlanStage): SplitUnit[] {
-  if (stage.type === 'pieces') return stage.value.map((inputs) => ({ inputs: [...inputs], merge: null }));
+  if (stage.type === 'pieces') return stage.value.map((inputs) => ({ inputs: [...inputs], merge: null, own: false }));
   return stage.value.groups.flatMap((group) => {
     const range = group.range.type === 'some' ? group.range.value : null;
     return mergeTreeGroups(group.entries)
       .filter((entries) => entries.length >= 2)
-      .map((entries) => ({ inputs: [MERGE_UNIT, ...(range === null ? [] : [range]), ...entries], merge: { parts: entries, range } }));
+      .map((entries) => ({ inputs: [MERGE_UNIT, ...(range === null ? [] : [range]), ...entries], merge: { parts: entries, range }, own: false }));
   });
 }
 
@@ -310,7 +313,7 @@ export class SplitTask {
       if (stage === null) {
         const pieces = await planPieces(storage, repo, task.inputs, inputHashes, split.sizes);
         if (pieces.length === 1) {
-          split.current = { plan: null, units: [{ inputs: [...inputHashes], merge: null }], merge: null };
+          split.current = { plan: null, units: [{ inputs: [...inputHashes], merge: null, own: true }], merge: null };
           return split;
         }
         stage = variant('pieces', pieces);
@@ -330,6 +333,7 @@ export class SplitTask {
       pid: BigInt(process.pid),
       pidStartTime: BigInt(await getPidStartTime(process.pid)),
       bootId: await getBootId(),
+      unit: false,
     }));
     if (owner !== null) {
       await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, owner);
@@ -509,6 +513,7 @@ export class SplitTask {
       inputHashes: this.inputHashes,
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
+      unit: false,
     }));
     return this.ended('error', cause, null, true);
   }
@@ -527,6 +532,7 @@ export class SplitTask {
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
       pid: BigInt(process.pid),
+      unit: false,
     }));
   }
 
@@ -614,6 +620,7 @@ export class SplitTask {
       completedAt: new Date(),
       exitCode: BigInt(exitCode ?? -1),
       peakBytes: this.peakBytes === undefined ? none : some(BigInt(this.peakBytes)),
+      unit: false,
     }));
     return { ...this.ended('failed', error, exitCode, false), ...(this.peakBytes !== undefined && { peakBytes: this.peakBytes }) };
   }
@@ -625,6 +632,7 @@ export class SplitTask {
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
       message: error,
+      unit: false,
     }));
     return this.ended('error', error, null, false);
   }
@@ -640,6 +648,7 @@ export class SplitTask {
       completedAt: new Date(),
       peakBytes: this.peakBytes === undefined ? none : some(BigInt(this.peakBytes)),
       plan: plan === null ? none : some(plan),
+      unit: false,
     }));
     return {
       inputsHash: this.ids.inHash,
@@ -783,7 +792,7 @@ export async function executeSplitTask(
       split.unitStarted(index);
       const unitHash = inputsHash(unit.inputs);
       const result = (options.force ? null : await probeExecutionCache(storage, repo, taskHash, unitHash))
-        ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak);
+        ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak, unit.own);
       split.unitSettled(index, result);
       return result;
     });

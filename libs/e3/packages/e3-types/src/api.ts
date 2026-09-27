@@ -911,7 +911,9 @@ export const TreeKindType = VariantType({ struct: NullType });
  * A list entry -- either a dataset leaf or a tree branch.
  *
  * Used by the `?list=true&status=true` endpoints to return both
- * tree structure entries and dataset leaves in a single flat list.
+ * tree structure entries and dataset leaves in a single flat list. A dataset's
+ * `size` is what its value weighs in the store, as its status reports it: for
+ * a collection, its segments and its manifest.
  */
 export const ListEntryType = VariantType({
   dataset: StructType({
@@ -937,7 +939,8 @@ export const ListEntryType = VariantType({
  * @property type - East type of the dataset
  * @property refType - Ref type: "unassigned", "null", or "value"
  * @property hash - Object hash (None if unassigned/null)
- * @property size - Size in bytes (None if unassigned)
+ * @property size - Bytes the value weighs in the store: for a collection, its
+ *   segments and its manifest (None if unassigned)
  */
 export const DatasetStatusDetailType = StructType({
   path: StringType,
@@ -945,9 +948,9 @@ export const DatasetStatusDetailType = StructType({
   refType: StringType,
   hash: OptionType(StringType),
   size: OptionType(IntegerType),
-  /** Segment and element counts of a stored collection, read from the blob's
-   *  trailing index — so a re-pointed input is inspectable without decoding
-   *  it. `none` for a non-collection or an unset dataset. */
+  /** Segment and element counts of a stored collection, read from its
+   *  manifest — so a re-pointed input is inspectable without decoding it.
+   *  `none` for a non-collection or an unset dataset. */
   segments: OptionType(IntegerType),
   rows: OptionType(IntegerType),
 });

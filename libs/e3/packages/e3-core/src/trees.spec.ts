@@ -10,10 +10,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
-import { variant, StringType, IntegerType, StructType, ArrayType, East } from '@elaraai/east';
+import { variant, StringType, IntegerType, StructType, ArrayType, DictType, East } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { DataRef, Structure } from '@elaraai/e3-types';
-import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
+import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetStatus, workspaceGetTree, workspaceSetDataset } from './trees.js';
 import { packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import { WorkspaceNotFoundError, WorkspaceNotDeployedError } from './errors.js';
@@ -678,6 +678,30 @@ describe('trees', () => {
         ], 'value', StringType),
         WorkspaceNotDeployedError
       );
+    });
+  });
+
+  describe('workspaceGetTree', () => {
+    it('lists each dataset by what its value weighs in the store: for a collection, its segments and its manifest', async () => {
+      const TableType = DictType(StringType, IntegerType);
+      const pkg = e3.package('tree-sizes', '1.0.0',
+        e3.input('table', TableType), e3.input('count', IntegerType, variant('value', 42n)));
+      const zipPath = join(tempDir, 'tree-sizes.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'myws', 'tree-sizes', '1.0.0');
+      const table = [variant('field', 'inputs'), variant('field', 'table')];
+      await workspaceSetDataset(storage, testRepo, 'myws', table,
+        new Map(Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint])), TableType);
+
+      const listed = new Map((await workspaceGetTree(storage, testRepo, 'myws', [variant('field', 'inputs')], { includeStatus: true }))
+        .map((node) => [node.name, node.kind === 'dataset' ? node.size : undefined]));
+      const status = await workspaceGetDatasetStatus(storage, testRepo, 'myws', table, { geometry: true });
+      assert.ok(status.segments! > 1, 'the table is held in several segments');
+      assert.strictEqual(listed.get('table'), status.storedBytes);
+      assert.ok(status.storedBytes! > 10 * status.size!, 'the manifest alone weighs far less than the value');
+      const count = await workspaceGetDatasetStatus(storage, testRepo, 'myws', [variant('field', 'inputs'), variant('field', 'count')]);
+      assert.strictEqual(listed.get('count'), count.size, 'any other value weighs its object');
     });
   });
 

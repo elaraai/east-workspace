@@ -169,7 +169,8 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
 /**
  * List execution history for a task: the latest attempt per distinct
  * inputs hash, or — with `all` — every attempt (a forced re-run or a retry
- * after a failure adds one under the same inputs hash).
+ * after a failure adds one under the same inputs hash). A split task's units
+ * are recorded under its hash too, and are left out: they are not its runs.
  */
 export async function listExecutions(
   storage: StorageBackend,
@@ -190,7 +191,7 @@ export async function listExecutions(
           .map(executionId => executionGet(storage, repoPath, taskHash, inputsHash, executionId)))
         : [await executionGetLatest(storage, repoPath, taskHash, inputsHash)];
       for (const status of statuses) {
-        if (status) result.push(toExecutionListItem(inputsHash, status));
+        if (status && !status.value.unit) result.push(toExecutionListItem(inputsHash, status));
       }
     }
 

@@ -417,6 +417,27 @@ describe('a task split into pieces', () => {
     assert.equal(again.peakBytes, largest);
   });
 
+  it('marks each unit\'s record as a unit\'s, and the task\'s own as the task\'s', async () => {
+    const taskHash = await deploy(e3.streamTask('marked', {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, _amount, key) => {
+        $(emit(key.remainder(97n), 1n));
+      });
+    }));
+
+    const result = await run(taskHash, [[SalesType, salesOf(8000)]]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    const lines = await unitLines(taskHash, result);
+    assert.ok(lines.some((line) => line.startsWith('piece ')) && lines.some((line) => line.startsWith('merge ')), `pieces and a merge ran:\n${lines.join('\n')}`);
+    for (const line of lines) {
+      const recorded = await storage.refs.executionGetLatest(repo, taskHash, / inputs=(\w+) /.exec(line)![1]!);
+      assert.equal(recorded?.value.unit, true, line);
+    }
+    assert.equal((await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash))?.value.unit, false);
+  });
+
   it('roots each stage\'s plan through its sidecar until the task ends, and a later run takes up the stage it names', async () => {
     const taskHash = await deploy(e3.streamTask('staged', {
       inputs: [e3.partition(sales)],
@@ -457,9 +478,9 @@ describe('a task split into pieces', () => {
     const resumed = await executeSplitTask(storage, repo, taskHash, task, [input],
       { inHash: first.inputsHash, executionId: uuidv7(), startTime: Date.now() },
       { onPartitionProgress: (progress) => events.push(progress) },
-      (unitInputs, ids, merge) => {
+      (unitInputs, ids, merge, _expectedPeakBytes, own) => {
         ran.push(unitInputs);
-        return taskExecuteBody(storage, repo, taskHash, task, unitInputs, ids, {}, merge);
+        return taskExecuteBody(storage, repo, taskHash, task, unitInputs, ids, {}, merge, 'unit', !own);
       },
       { width: 4, owner: null });
     assert.equal(resumed.state, 'success', resumed.error ?? '');
@@ -494,7 +515,7 @@ describe('a task split into pieces', () => {
         const unit = split.stage.units[i]!;
         const unitHash = inputsHash(unit.inputs);
         const result = await probeExecutionCache(storage, repo, taskHash, unitHash)
-          ?? await taskExecuteBody(storage, repo, taskHash, task, unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, {}, unit.merge);
+          ?? await taskExecuteBody(storage, repo, taskHash, task, unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, {}, unit.merge, 'unit', !unit.own);
         split.unitSettled(i, result);
         results.push(result);
       }
@@ -558,5 +579,6 @@ describe('a task split into pieces', () => {
     assert.equal(result.inputsHash, inputsHash([input]));
     assert.equal(result.outputHash, input, 'the one unit wrote the input back as it was');
     assert.deepEqual(await unitLines(taskHash, result), []);
+    assert.equal((await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash))?.value.unit, false, 'its record is the task\'s own');
   });
 });

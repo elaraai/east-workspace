@@ -85,10 +85,10 @@ export async function datasetListAt(
  * The returned bytes are raw BEAST2 encoded data from the object store.
  * Use decodeBeast2 or decodeBeast2For to decode with the appropriate type.
  *
- * A collection is downloaded as the segment objects its manifest names, a few
- * at a time, each checked against its hash, and spliced here into the one blob
- * the value is: no response carries more than one segment, so a server that
- * cannot stream a response still serves a collection of any size.
+ * The value is read through {@link datasetGetStream} and joined here, so a
+ * collection arrives as the segment objects its manifest names: no response
+ * carries more than one segment, so a server that cannot stream a response
+ * still serves a collection of any size.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -96,6 +96,8 @@ export async function datasetListAt(
  * @param path - Path to the dataset (e.g., ['inputs', 'config'])
  * @param options - Request options including auth token
  * @returns Raw BEAST2 bytes
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
  */
 export async function datasetGet(
   url: string,
@@ -104,6 +106,51 @@ export async function datasetGet(
   path: TreePath,
   options: RequestOptions
 ): Promise<{ data: Uint8Array; hash: string; size: number }> {
+  const { hash, chunks } = await datasetGetStream(url, repo, workspace, path, options);
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of chunks) {
+    parts.push(chunk);
+    size += chunk.length;
+  }
+  if (parts.length === 1) return { data: parts[0]!, hash, size };
+  const data = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) {
+    data.set(part, at);
+    at += part.length;
+  }
+  return { data, hash, size };
+}
+
+/**
+ * Get a dataset value as raw BEAST2 bytes, a chunk at a time.
+ *
+ * @remarks
+ * For a caller that writes the value somewhere rather than holding it. A
+ * collection arrives as the segment objects its manifest names, fetched a few
+ * at a time ahead of the splice that takes them in order, each checked against
+ * its hash: the caller holds the segments in flight, never the value. Any
+ * other value arrives as the body the server sends. The dataset is asked for,
+ * and a collection's manifest read, before this returns, so a refusal throws
+ * here rather than from the chunks.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset (e.g., ['inputs', 'config'])
+ * @param options - Request options including auth token
+ * @returns The value's content hash, as the server names it, and its bytes in order
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetGetStream(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  options: RequestOptions
+): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }> {
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
   const response = await fetchWithAuth(
     `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?segments=true`,
@@ -125,12 +172,12 @@ export async function datasetGet(
 
   // A JSON answer names a collection's manifest, or the URL a large value is
   // downloaded from.
+  const hash = response.headers.get('X-Content-SHA256') ?? '';
   const contentType = response.headers.get('Content-Type') ?? '';
   if (contentType.includes('application/json')) {
     const body = await response.json() as { manifest: string } | { url: string };
     if ('manifest' in body) {
-      const data = await collectionGet(url, repo, body.manifest, options);
-      return { data, hash: response.headers.get('X-Content-SHA256') ?? '', size: data.byteLength };
+      return { hash, chunks: await collectionChunks(url, repo, body.manifest, options) };
     }
     const redirectResponse = await fetch(body.url, {
       method: 'GET',
@@ -139,61 +186,66 @@ export async function datasetGet(
     if (!redirectResponse.ok) {
       throw new Error(`Failed to get dataset (download): ${redirectResponse.status} ${redirectResponse.statusText}`);
     }
-    const buffer = await redirectResponse.arrayBuffer();
-    const data = new Uint8Array(buffer);
-    const hash = redirectResponse.headers.get('X-Content-SHA256') ?? response.headers.get('X-Content-SHA256') ?? '';
-    const size = parseInt(redirectResponse.headers.get('Content-Length') ?? response.headers.get('X-Content-Length') ?? '0', 10);
-    return { data, hash, size };
+    return { hash: redirectResponse.headers.get('X-Content-SHA256') ?? hash, chunks: bodyChunks(redirectResponse) };
   }
+  return { hash, chunks: bodyChunks(response) };
+}
 
-  const buffer = await response.arrayBuffer();
-  const data = new Uint8Array(buffer);
-  const hash = response.headers.get('X-Content-SHA256') ?? '';
-  return { data, hash, size: data.byteLength };
+/** A response's body as it arrives; the rest is cancelled when the reader stops early. */
+async function* bodyChunks(response: globalThis.Response): AsyncGenerator<Uint8Array> {
+  if (response.body === null) {
+    yield new Uint8Array(await response.arrayBuffer());
+    return;
+  }
+  const reader = response.body.getReader();
+  let ended = false;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) {
+        ended = true;
+        return;
+      }
+      yield next.value;
+    }
+  } finally {
+    if (!ended) await reader.cancel();
+  }
 }
 
 /** How many of a collection's objects are fetched at a time. */
 const SEGMENT_CONCURRENCY = 8;
 
 /**
- * A collection's value: the objects its manifest names, fetched a few at a
- * time ahead of a splice that takes them in order, into the blob the dataset
- * route would stream.
+ * A collection's value, a chunk at a time: the objects its manifest names,
+ * fetched a few at a time ahead of a splice that takes them in order, into the
+ * blob the dataset route would stream. The manifest is read before this
+ * returns; the segments as the chunks are taken.
  */
-async function collectionGet(url: string, repo: string, manifestHash: string, options: RequestOptions): Promise<Uint8Array> {
+async function collectionChunks(url: string, repo: string, manifestHash: string, options: RequestOptions): Promise<AsyncIterable<Uint8Array>> {
   const manifest = decodeCollectionManifest(await objectGet(url, repo, manifestHash, options));
-  const pending: Promise<Uint8Array>[] = [];
-  let next = 0;
-  const fill = (): void => {
-    for (; next < manifest.entries.length && pending.length < SEGMENT_CONCURRENCY; next++) {
-      const fetched = objectGet(url, repo, manifest.entries[next]!.hash, options);
-      // A failure is raised when the splice reaches it, and must not be
-      // reported unhandled before then.
-      fetched.catch(() => { /* raised in order */ });
-      pending.push(fetched);
-    }
-  };
-  fill();
-  const head = await objectGet(url, repo, manifest.header, options);
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for await (const chunk of spliceBeast2Segments(head, (async function* () {
-    while (pending.length > 0) {
-      const segment = pending.shift()!;
-      fill();
-      yield await segment;
-    }
-  })())) {
-    chunks.push(chunk);
-    total += chunk.length;
-  }
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, at);
-    at += chunk.length;
-  }
-  return out;
+  return (async function* () {
+    const pending: Promise<Uint8Array>[] = [];
+    let next = 0;
+    const fill = (): void => {
+      for (; next < manifest.entries.length && pending.length < SEGMENT_CONCURRENCY; next++) {
+        const fetched = objectGet(url, repo, manifest.entries[next]!.hash, options);
+        // A failure is raised when the splice reaches it, and must not be
+        // reported unhandled before then.
+        fetched.catch(() => { /* raised in order */ });
+        pending.push(fetched);
+      }
+    };
+    fill();
+    const head = await objectGet(url, repo, manifest.header, options);
+    yield* spliceBeast2Segments(head, (async function* () {
+      while (pending.length > 0) {
+        const segment = pending.shift()!;
+        fill();
+        yield await segment;
+      }
+    })());
+  })();
 }
 
 /**

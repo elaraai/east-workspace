@@ -150,6 +150,7 @@ describe('executions', () => {
         completedAt: new Date(1),
         peakBytes: none,
         plan: none,
+        unit: false,
       }));
       await storage.refs.executionWrite(testRepo, taskHash, inHash, failed, variant('failed', {
         executionId: failed,
@@ -158,6 +159,7 @@ describe('executions', () => {
         completedAt: new Date(3),
         exitCode: 1n,
         peakBytes: none,
+        unit: false,
       }));
 
       const output = await executionGetOutput(storage, testRepo, taskHash, inHash);
@@ -485,10 +487,11 @@ describe('executions', () => {
       assert.strictEqual(result.exitCode, 42);
       assert.strictEqual(result.outputHash, null);
 
-      // Check status was written
+      // Check status was written: a task run on its own is its own execution, not a unit
       const status = await executionGet(storage, testRepo, taskHash, result.inputsHash, result.executionId);
       assert.ok(status);
       assert.strictEqual(status.type, 'failed');
+      assert.strictEqual(status.value.unit, false);
     });
   });
 });

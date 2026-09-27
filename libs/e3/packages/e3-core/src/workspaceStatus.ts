@@ -540,7 +540,9 @@ async function checkInProgress(
   const latest = await storage.refs.executionListLatest(repo, taskHash);
 
   for (const { status } of latest) {
-    if (status.type === 'running') {
+    // A split task's units are recorded under its hash too; while they run,
+    // the task's own execution is recorded running, from when it started.
+    if (status.type === 'running' && !status.value.unit) {
       // Found a running execution - verify process is actually alive
       const pid = Number(status.value.pid);
       const pidStartTime = Number(status.value.pidStartTime);

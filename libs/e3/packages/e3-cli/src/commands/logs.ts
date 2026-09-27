@@ -19,9 +19,7 @@
 import {
   workspaceListTasks,
   workspaceGetTaskHash,
-  executionListForTask,
   executionReadLog,
-  executionGetLatest,
   executionFindCurrent,
   isProcessAlive,
   LocalStorage,
@@ -111,7 +109,8 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
 
   for (const taskName of tasks) {
     const taskHash = await workspaceGetTaskHash(storage, repoPath, ws, taskName);
-    const executions = await executionListForTask(storage, repoPath, taskHash);
+    // A split task's units are recorded under its hash too, and are not its runs.
+    const executions = (await storage.refs.executionListLatest(repoPath, taskHash)).filter(({ status }) => !status.value.unit);
 
     // Surface a ui task's role next to the name.
     let roleLabel = '';
@@ -126,12 +125,11 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
       console.log(`  ${taskName}${roleLabel}  (no executions)`);
     } else {
       // Get status of the most recent execution
-      const latestInHash = executions[0]!;
-      const status = await executionGetLatest(storage, repoPath, taskHash, latestInHash);
-      let state = status?.type ?? 'unknown';
+      const status = executions[0]!.status;
+      let state: string = status.type;
 
       // Check if running process is actually alive
-      if (status?.type === 'running') {
+      if (status.type === 'running') {
         const pid = Number(status.value.pid);
         const pidStartTime = Number(status.value.pidStartTime);
         const bootId = status.value.bootId;

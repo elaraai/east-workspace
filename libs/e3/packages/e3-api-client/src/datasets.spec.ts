@@ -15,7 +15,8 @@
  * `datasetGet` downloads a collection as the objects its manifest names and
  * splices them: these tests pin that the splice is the value's blob, that an
  * object answered by URL is fetched without the API's auth, and that an object
- * which does not hash to its name is refused.
+ * which does not hash to its name is refused. `datasetGetStream`, which it is
+ * built on, hands the splice over as it goes, a few segments ahead.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -24,7 +25,7 @@ import {
   Beast2ManifestWriter, DictType, IntegerType, SortedMap, StringType, compareFor, decodeCollectionManifest, encodeBeast2PagedFor, sha256Hex, variant,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { datasetFindKey, datasetGet } from './datasets.js';
+import { datasetFindKey, datasetGet, datasetGetStream } from './datasets.js';
 import { ApiError, AuthError } from './http.js';
 
 const realFetch = globalThis.fetch;
@@ -188,6 +189,37 @@ describe('datasetGet', () => {
     assert.deepEqual(presigned, [{ url: `https://bucket.test/${segments[1]}`, auth: false }], 'a URL is fetched without the API\'s auth');
     assert.equal(api.length, segments.length + 3, 'the dataset, the manifest, the header and each segment');
     assert.ok(api.every((request) => request.auth));
+  });
+
+  it('streams a collection a few segments ahead of the reader, never the value', async () => {
+    const { objects, manifest, segments, blob } = storedCollection();
+    assert.ok(segments.length > 12, `the value spans many segments, got ${segments.length}`);
+    const m = mockServer(manifest, objects, new Set());
+
+    const { hash, chunks } = await datasetGetStream(BASE, 'r', 'ws', lookupPath, { token: null });
+    assert.equal(hash, HASH);
+    assert.equal(m.requests.length, 2, 'the dataset and its manifest are read before the chunks are taken');
+    const parts: Uint8Array[] = [];
+    let fetchedByFirst = 0;
+    for await (const chunk of chunks) {
+      if (parts.length === 0) fetchedByFirst = m.requests.length;
+      parts.push(chunk);
+    }
+    assert.ok(fetchedByFirst <= 2 + 1 + 8, `the first chunk came after ${fetchedByFirst} requests: the header and at most 8 segments ahead`);
+    assert.deepEqual(new Uint8Array(Buffer.concat(parts)), blob);
+  });
+
+  it('streams any other value as the body the server sends', async () => {
+    const body = new Uint8Array(300_000).map((_, i) => i % 251);
+    mockFetch(() => new Response(new Blob([body]).stream(), {
+      status: 200,
+      headers: { 'Content-Type': BEAST2_CONTENT_TYPE, 'X-Content-SHA256': HASH },
+    }));
+    const { hash, chunks } = await datasetGetStream(BASE, 'r', 'ws', lookupPath, { token: null });
+    const parts: Uint8Array[] = [];
+    for await (const chunk of chunks) parts.push(chunk);
+    assert.equal(hash, HASH);
+    assert.deepEqual(new Uint8Array(Buffer.concat(parts)), body);
   });
 
   it('refuses an object that does not hash to its name', async () => {

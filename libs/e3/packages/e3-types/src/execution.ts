@@ -16,6 +16,10 @@
  * - For failed: exit code, timing and peak memory
  * - For error: internal error message and timing
  * - For cancelled and interrupted: how e3, not the task, ended it
+ *
+ * Every case says whether the execution is a unit of a split task — a piece,
+ * or a merge of the pieces' outputs — which is recorded under its task's hash
+ * as the task's own executions are, but is not a run of the task.
  */
 
 import {
@@ -25,6 +29,7 @@ import {
   OptionType,
   StringType,
   IntegerType,
+  BooleanType,
   DateTimeType,
   ValueTypeOf,
   decodeBeast2For,
@@ -44,6 +49,10 @@ const RunningStatusType = StructType({
   pidStartTime: IntegerType,
   /** System boot ID (from /proc/sys/kernel/random/boot_id) */
   bootId: StringType,
+  /** Whether the execution is a unit of a split task — a piece, or a merge of
+   *  the pieces' outputs — rather than a task's own execution, which the one
+   *  unit of a task whose input closes no piece is */
+  unit: BooleanType,
 });
 
 const SuccessStatusType = StructType({
@@ -65,6 +74,10 @@ const SuccessStatusType = StructType({
    *  stages before it, and so every unit its output was assembled from;
    *  `none` for any other execution */
   plan: OptionType(StringType),
+  /** Whether the execution is a unit of a split task — a piece, or a merge of
+   *  the pieces' outputs — rather than a task's own execution, which the one
+   *  unit of a task whose input closes no piece is */
+  unit: BooleanType,
 });
 
 const FailedStatusType = StructType({
@@ -82,6 +95,10 @@ const FailedStatusType = StructType({
    *  execution reached — a split task's, the largest of its units' — when
    *  its runners reported one */
   peakBytes: OptionType(IntegerType),
+  /** Whether the execution is a unit of a split task — a piece, or a merge of
+   *  the pieces' outputs — rather than a task's own execution, which the one
+   *  unit of a task whose input closes no piece is */
+  unit: BooleanType,
 });
 
 const ErrorStatusType = StructType({
@@ -95,6 +112,10 @@ const ErrorStatusType = StructType({
   completedAt: DateTimeType,
   /** Error message describing what went wrong */
   message: StringType,
+  /** Whether the execution is a unit of a split task — a piece, or a merge of
+   *  the pieces' outputs — rather than a task's own execution, which the one
+   *  unit of a task whose input closes no piece is */
+  unit: BooleanType,
 });
 
 /**
@@ -129,6 +150,10 @@ export const ExecutionStatusType = VariantType({
     startedAt: DateTimeType,
     /** When e3 stopped it */
     completedAt: DateTimeType,
+    /** Whether the execution is a unit of a split task — a piece, or a merge of
+     *  the pieces' outputs — rather than a task's own execution, which the one
+     *  unit of a task whose input closes no piece is */
+    unit: BooleanType,
   }),
   interrupted: StructType({
     /** Unique execution ID (UUIDv7) */
@@ -141,6 +166,10 @@ export const ExecutionStatusType = VariantType({
     completedAt: DateTimeType,
     /** Process ID the runner had */
     pid: IntegerType,
+    /** Whether the execution is a unit of a split task — a piece, or a merge of
+     *  the pieces' outputs — rather than a task's own execution, which the one
+     *  unit of a task whose input closes no piece is */
+    unit: BooleanType,
   }),
 });
 

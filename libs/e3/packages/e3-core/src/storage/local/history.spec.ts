@@ -79,23 +79,23 @@ describe('the history gc keeps', () => {
     const [kept, dropped, recently, stillRunning] = ['1', '2', '3', '4'].map((c) => c.repeat(64));
     // A success a kept run used, and a failure after it, the latest.
     await storage.refs.executionWrite(repo, task, kept, ran, variant('success', {
-      executionId: ran, inputHashes: [], outputHash: 'e'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none,
+      executionId: ran, inputHashes: [], outputHash: 'e'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none, unit: false,
     }));
     await storage.refs.executionWrite(repo, task, kept, failedSince, variant('failed', {
-      executionId: failedSince, inputHashes: [], startedAt: new Date(old), completedAt: new Date(old), exitCode: 1n, peakBytes: none,
+      executionId: failedSince, inputHashes: [], startedAt: new Date(old), completedAt: new Date(old), exitCode: 1n, peakBytes: none, unit: false,
     }));
     // A success only a deleted run used, with its owner and logs.
     await storage.refs.executionWrite(repo, task, dropped, gone, variant('success', {
-      executionId: gone, inputHashes: [], outputHash: 'f'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none,
+      executionId: gone, inputHashes: [], outputHash: 'f'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none, unit: false,
     }));
     await storage.refs.executionOwnerWrite(repo, task, dropped, gone, { pid: 1n, pidStartTime: 1n, bootId: 'boot-id' });
     await storage.logs.append(repo, task, dropped, gone, 'stdout', 'what it printed\n');
     // A recent failure, and an old record still running.
     await storage.refs.executionWrite(repo, task, recently, recent, variant('failed', {
-      executionId: recent, inputHashes: [], startedAt: new Date(now), completedAt: new Date(now), exitCode: 1n, peakBytes: none,
+      executionId: recent, inputHashes: [], startedAt: new Date(now), completedAt: new Date(now), exitCode: 1n, peakBytes: none, unit: false,
     }));
     await storage.refs.executionWrite(repo, task, stillRunning, running, variant('running', {
-      executionId: running, inputHashes: [], startedAt: new Date(old), pid: 1n, pidStartTime: 1n, bootId: 'boot-id',
+      executionId: running, inputHashes: [], startedAt: new Date(old), pid: 1n, pidStartTime: 1n, bootId: 'boot-id', unit: false,
     }));
     // The kept run, the workspace's latest, used the first; an older one the second.
     await storage.refs.workspaceWrite(repo, 'main', encodeBeast2For(WorkspaceRecordType)(none));
@@ -137,7 +137,7 @@ describe('the history gc keeps', () => {
     const succeeded = idAt(old, 1);
     await storage.refs.executionWrite(repo, split, inputs, succeeded, variant('success', {
       executionId: succeeded, inputHashes: [], outputHash: 'e'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none,
-      plan: some(merge),
+      plan: some(merge), unit: false,
     }));
     await storage.refs.dataflowRunWrite(repo, 'main', {
       runId: idAt(old, 2), workspaceName: 'main', packageRef: 'history@1.0.0', startedAt: new Date(old), completedAt: none,
@@ -148,7 +148,7 @@ describe('the history gc keeps', () => {
     // Two executions interrupted mid-task: one recent, one long ago.
     for (const [over, interrupted, plan] of [[resumable, idAt(now - 60_000, 3), resumes], [abandoned, idAt(old, 4), abandons]] as const) {
       await storage.refs.executionWrite(repo, split, over, interrupted, variant('interrupted', {
-        executionId: interrupted, inputHashes: [], startedAt: new Date(old), completedAt: new Date(old), pid: 1n,
+        executionId: interrupted, inputHashes: [], startedAt: new Date(old), completedAt: new Date(old), pid: 1n, unit: false,
       }));
       await storage.refs.executionPlanWrite(repo, split, over, plan);
     }
@@ -158,7 +158,7 @@ describe('the history gc keeps', () => {
     for (const [n, unit] of [...units, unkept].entries()) {
       const id = idAt(old, 10 + n);
       await storage.refs.executionWrite(repo, split, unit, id, variant('success', {
-        executionId: id, inputHashes: [], outputHash: 'f'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none,
+        executionId: id, inputHashes: [], outputHash: 'f'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none, unit: true,
       }));
     }
 
@@ -179,7 +179,7 @@ describe('the history gc keeps', () => {
     // The output only the execution keeps, as an object.
     const output = await objectWrite(repo, encodeBeast2For(IntegerType)(42n));
     await storage.refs.executionWrite(repo, task, inputs, gone, variant('success', {
-      executionId: gone, inputHashes: [], outputHash: output, startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none,
+      executionId: gone, inputHashes: [], outputHash: output, startedAt: new Date(old), completedAt: new Date(old), peakBytes: none, plan: none, unit: false,
     }));
 
     const dry = await repoGc(storage, repo, { minAge: 0, keepDays: 7, dryRun: true });

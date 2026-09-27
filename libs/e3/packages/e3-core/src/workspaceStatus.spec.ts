@@ -52,6 +52,7 @@ describe('workspaceStatus crash detection', () => {
       pid: BigInt(pid),
       pidStartTime: BigInt(pidStartTime),
       bootId,
+      unit: false,
     });
     await storage.refs.executionWrite(repoPath, taskHash, inHash, executionId, status);
     return executionId;
@@ -153,6 +154,7 @@ describe('workspaceStatus crash detection', () => {
         completedAt: new Date(),
         exitCode: 1n,
         peakBytes: none,
+        unit: false,
       });
       await storage.refs.executionWrite(repoPath, taskHash, `${'0'.repeat(60)}${String(i).padStart(4, '0')}`, executionId, status);
     }
@@ -191,10 +193,27 @@ describe('workspaceStatus crash detection', () => {
       completedAt: new Date(),
       exitCode: 1n,
       peakBytes: some(48n * 1024n ** 2n),
+      unit: false,
     }));
     const result = await workspaceStatus(storage, repoPath, WS);
     const task = result.tasks.find((t) => t.name === 'double')!;
     assert.equal(task.status.type, 'failed');
     assert.equal(task.peakBytes, 48 * 1024 ** 2);
+  });
+
+  it('reads a unit of a split task running as no run of the task', async () => {
+    // A unit is recorded under its task's hash, over its piece's inputs; this
+    // one's runner is alive.
+    const executionId = uuidv7();
+    await storage.refs.executionWrite(repoPath, taskHash, 'e'.repeat(64), executionId, variant('running', {
+      executionId,
+      inputHashes: [],
+      startedAt: new Date(),
+      pid: BigInt(process.pid),
+      pidStartTime: BigInt(await getPidStartTime(process.pid) ?? 0),
+      bootId: await getBootId(),
+      unit: true,
+    }));
+    assert.equal((await taskStatus()).type, 'failed');
   });
 });

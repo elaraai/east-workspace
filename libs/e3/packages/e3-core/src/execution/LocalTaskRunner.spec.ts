@@ -276,6 +276,7 @@ describe('stopped executions', () => {
         pid: runner.pid,
         pidStartTime: runner.pidStartTime,
         bootId: await getBootId(),
+        unit: false,
       });
       await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
       if (owner !== null) {
@@ -422,7 +423,7 @@ describe('the budget', () => {
       const runner = new LocalTaskRunner(repo, budget);
       const results = await Promise.all(['a', 'b'].map(async (name) => {
         const { taskHash, inputHashes } = await bashTask(script, `${salt}-${name}`);
-        return runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null }, { expectedPeakBytes });
+        return runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null, own: false }, { expectedPeakBytes });
       }));
       for (const result of results) assert.equal(result.state, 'success', result.error ?? '');
       assert.equal(budget.inFlight, 0);
@@ -443,7 +444,7 @@ describe('the budget', () => {
     const held = await budget.acquire();
     const { taskHash, inputHashes } = await bashTask('cp "$1" "$2"', 'waiting');
     const waits: (number | null)[] = [];
-    const run = new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null },
+    const run = new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null, own: false },
       { expectedPeakBytes: 64 * 1024 ** 2, onWaiting: (needs) => waits.push(needs) });
     await new Promise<void>((resolve) => {
       const poll = setInterval(() => { if (budget.queued === 1) { clearInterval(poll); resolve(); } }, 10);
@@ -573,7 +574,7 @@ describe('the guard', () => {
     const budget = new Budget({ cores: 2, memory: 100 * MiB }, { sampler, sampleMs: 10 });
     const { taskHash, inputHashes } = await markingTask(0.5, 'past the budget');
     const requeues: UnitRequeue[] = [];
-    const result = await new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null },
+    const result = await new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null, own: false },
       { expectedPeakBytes: 10 * MiB, onRequeued: (requeue) => requeues.push(requeue) });
 
     assert.equal(result.state, 'success', result.error ?? '');
@@ -680,7 +681,7 @@ describe('the caller\'s environment', () => {
     assert.equal(task.state, 'success', task.error ?? '');
     assert.equal(await printed(task.executionId), 'the task\'s');
 
-    const unit = await runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null },
+    const unit = await runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null, own: false },
       { force: true, extraEnv: { E3_TEST_SECRET: 'the unit\'s' } });
     assert.equal(unit.state, 'success', unit.error ?? '');
     assert.equal(await printed(unit.executionId), 'the unit\'s');

@@ -850,6 +850,36 @@ async function datasetGeometry(
   }
 }
 
+/** Stored bytes of the collections the listings have weighed, by the dataset
+ *  object's hash: an object's content fixes what its value weighs, so an entry
+ *  never goes stale, and a listing a client polls reads each manifest once.
+ *  The oldest entry goes first past {@link STORED_SIZES_KEPT}. */
+const storedSizes = new Map<string, number>();
+const STORED_SIZES_KEPT = 4096;
+
+/**
+ * What a dataset's value weighs in the store: for a collection, its segments
+ * and its manifest, as {@link datasetGeometry} counts them; for any other
+ * value, or a collection whose manifest cannot be read, its object's bytes.
+ */
+async function storedSize(
+  storage: StorageBackend,
+  repo: string,
+  hash: string,
+  datasetType: EastTypeValue | undefined
+): Promise<number> {
+  const collection = datasetType !== undefined && isCollectionRoot(datasetType);
+  const known = collection ? storedSizes.get(hash) : undefined;
+  if (known !== undefined) return known;
+  const { size } = await storage.objects.stat(repo, hash);
+  if (!collection) return size;
+  const { storedBytes } = await datasetGeometry(storage, repo, hash, datasetType, size);
+  if (storedBytes === null) return size;
+  if (storedSizes.size >= STORED_SIZES_KEPT) storedSizes.delete(storedSizes.keys().next().value!);
+  storedSizes.set(hash, storedBytes);
+  return storedBytes;
+}
+
 // =============================================================================
 // Tree Traversal
 // =============================================================================
@@ -880,7 +910,10 @@ export interface TreeLeafNode {
   hash?: string;
   /** Ref type: 'unassigned' | 'null' | 'value' (only present if includeStatus option was true) */
   refType?: string;
-  /** Size in bytes (only present if includeStatus option was true and ref is 'null' or 'value') */
+  /** Bytes the value weighs in the store, as {@link workspaceGetDatasetStatus}'s
+   *  `storedBytes` counts them: for a collection, its segments and its
+   *  manifest (only present if includeStatus option was true and ref is 'null'
+   *  or 'value') */
   size?: number;
 }
 
@@ -1008,8 +1041,7 @@ async function walkStructure(
         } else {
           node.refType = 'value';
           node.hash = ref.value.hash;
-          const { size } = await storage.objects.stat(repo, ref.value.hash);
-          node.size = size;
+          node.size = await storedSize(storage, repo, ref.value.hash, childStructure.value.type as EastTypeValue);
         }
       }
 
@@ -1038,8 +1070,7 @@ async function walkStructure(
         } else {
           node.refType = 'value';
           node.hash = outputRef.value.hash;
-          const { size } = await storage.objects.stat(repo, outputRef.value.hash);
-          node.size = size;
+          node.size = await storedSize(storage, repo, outputRef.value.hash, getTaskOutputTypeFromStructure(childStructure));
         }
       }
 

@@ -1688,7 +1688,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       const served = '0190a0b0-6666-7000-8000-000000000002';
       await storage.refs.executionWrite(testRepo, taskHash, inputsHash(seen), served, variant('success', {
         executionId: served, inputHashes: seen, outputHash: 'task-a-output',
-        startedAt: new Date(), completedAt: new Date(), peakBytes: none, plan: none,
+        startedAt: new Date(), completedAt: new Date(), peakBytes: none, plan: none, unit: false,
       }));
       const second = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
       assert.strictEqual(second.cached, 1);
@@ -1905,6 +1905,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           completedAt: now,
           peakBytes: none,
           plan: none,
+          unit: false,
         }));
       }
 
@@ -2724,6 +2725,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           completedAt: now,
           peakBytes: none,
           plan: none,
+          unit: false,
         }));
       }
 

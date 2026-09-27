@@ -173,7 +173,7 @@ export interface CurrentExecutionRef {
  *
  * This looks up the task's current input hashes from the workspace state
  * and finds the matching execution. If no execution exists for the current
- * inputs, falls back to the most recent execution.
+ * inputs, falls back to another of the task's own, never a unit of it.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
@@ -222,11 +222,11 @@ export async function executionFindCurrent(
     }
   }
 
-  // Fall back to most recent execution
-  if (executions.length > 0) {
-    const inHash = executions[0]!;
+  // Fall back to the task's first execution listed; a split task's units are
+  // recorded under its hash too, and are not its runs.
+  for (const inHash of executions) {
     const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-    if (status) {
+    if (status && !status.value.unit) {
       const executionId = status.value.executionId;
       return { taskHash, inputsHash: inHash, executionId, isCurrent: false };
     }

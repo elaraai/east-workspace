@@ -120,7 +120,7 @@ describe('packages', () => {
       const entries = await readZipEntries(zipPath);
       const executionId = '0190a0b0-5555-7000-8000-000000000000';
       const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
-        executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0),
+        executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
       }));
       const run = encodeBeast2For(DataflowRunType)({
         runId: 'not-a-run-id', workspaceName: 'main', packageRef: 'named@1.0.0', startedAt: new Date(0), completedAt: none,
