@@ -4,10 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { BlobType, NullType, some, none, variant } from '@elaraai/east';
+import { NullType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
 import {
   PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type WorkspaceDeployRequest,
@@ -17,7 +14,6 @@ import {
   workspaceCreate,
   workspaceRemove,
   workspaceGetState,
-  workspaceExport,
   workspaceStatus,
   packageGetLatestVersion,
   packageResolve,
@@ -316,29 +312,5 @@ export async function getWorkspaceDeployStatus(
     return sendSuccess(WorkspaceDeployStatusType, job.status);
   } catch (err) {
     return sendError(WorkspaceDeployStatusType, errorToVariant(err));
-  }
-}
-
-/**
- * Export a workspace as a zip archive.
- */
-export async function exportWorkspace(
-  storage: StorageBackend,
-  repoPath: string,
-  workspace: string
-): Promise<Response> {
-  try {
-    // Export to temp file
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'e3-ws-export-'));
-    const tempPath = path.join(tempDir, 'workspace.zip');
-    try {
-      await workspaceExport(storage, repoPath, workspace, tempPath);
-      const archive = await fs.readFile(tempPath);
-      return sendSuccess(BlobType, new Uint8Array(archive));
-    } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
-  } catch (err) {
-    return sendError(BlobType, errorToVariant(err));
   }
 }

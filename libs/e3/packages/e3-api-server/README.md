@@ -189,8 +189,11 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/packages` | List all packages |
 | GET | `/api/repos/:repo/packages/:name/:version` | Get package details |
-| POST | `/api/repos/:repo/packages` | Import package (zip body) |
-| GET | `/api/repos/:repo/packages/:name/:version/export` | Export package as zip |
+| POST | `/api/repos/:repo/import` | Start importing a package zip, as a job: answers the job's id and where to upload the zip |
+| POST | `/api/repos/:repo/import/:id` | Import the uploaded zip |
+| GET | `/api/repos/:repo/import/:id` | Poll an import job |
+| POST | `/api/repos/:repo/packages/:name/:version/export` | Start exporting a package as a zip, as a job: answers the job's id |
+| GET | `/api/repos/:repo/export/:id` | Poll an export job: once it completes, where to download the zip |
 | DELETE | `/api/repos/:repo/packages/:name/:version` | Remove package |
 
 ### Workspaces
@@ -204,7 +207,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
 | GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing`, what the deploy did for each record and index, or why it failed |
 | DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace |
-| GET | `/api/repos/:repo/workspaces/:ws/export` | Export workspace as package zip |
+| POST | `/api/repos/:repo/workspaces/:ws/export` | Start exporting the workspace as a package zip, as a job polled at `/api/repos/:repo/export/:id` |
 
 A deploy that migrates a record, or builds an index over one, takes as long as
 the record is large, so it runs as a job, on the runner the server runs every

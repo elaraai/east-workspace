@@ -17,6 +17,7 @@ import {
   packageList,
   packageImport,
   packageExport,
+  workspaceExport,
   ApiError,
   ApiTypes,
   fetchWithAuth,
@@ -96,6 +97,26 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
         assert.ok(err.code === 'package_exists' || err.message.includes('already exists'),
           `Unexpected error: ${err.message}`);
       }
+    });
+
+    it('exports a workspace as a job, into a zip that imports as its package', async (t) => {
+      const ctx = await withPackageZip(t);
+      const opts = await ctx.opts();
+      await packageImport(ctx.config.baseUrl, ctx.repoName, ctx.packageZip, opts);
+      await ctx.createWorkspace('export-ws');
+      await ctx.deployPackage('export-ws', 'transfer-pkg@1.0.0');
+
+      const exported = await workspaceExport(ctx.config.baseUrl, ctx.repoName, 'export-ws', opts, { version: '2.0.0' });
+      const imported = await packageImport(ctx.config.baseUrl, ctx.repoName, exported, opts);
+      assert.deepStrictEqual([imported.name, imported.version], ['transfer-pkg', '2.0.0']);
+
+      // The export is a job only: nothing answers a request that waits for the zip.
+      const waited = await fetchWithAuth(
+        `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/export-ws/export`,
+        { method: 'GET' },
+        opts
+      );
+      assert.strictEqual(waited.status, 404);
     });
 
     // =========================================================================

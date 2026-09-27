@@ -27,7 +27,6 @@ export {
   deleteWorkspace,
   startWorkspaceDeploy,
   getWorkspaceDeployStatus,
-  exportWorkspace,
 } from './workspaces.js';
 
 export {
