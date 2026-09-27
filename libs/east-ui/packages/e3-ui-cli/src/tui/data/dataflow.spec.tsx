@@ -5,7 +5,7 @@
 
 /**
  * `/run` and `/stop` through the command box (mocks S06b, S18): the flag
- * hint row and the consequence line with the server's budget, the launch
+ * hint row, the flags' completion, and the consequence line with the server's budget, the launch
  * call with its options, the started toast, the settling / running /
  * stopping pills, the double-⏎ guard, the locked-workspace and
  * remote-caveat toasts.
@@ -49,6 +49,9 @@ describe('/run and /stop', () => {
         let lines = mounted.lines();
         assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main\s+⏎ run · esc/);
         assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks$/);
+        // The flags complete above the box, each whole, its hint after a gap.
+        assert.match(lines[30]!, /^ ▌ \/run\s+--force\s+re-run everything$/);
+        assert.match(lines[31]!, /^   \/run\s+--filter <glob> only matching tasks$/);
         await mounted.type('--force');
         assert.match(mounted.lines()[33]!, /^ › \/run --force_\s+run 6 tasks in main, ignoring the cache\s+⏎ run · esc/);
         await mounted.press(KEY.enter);

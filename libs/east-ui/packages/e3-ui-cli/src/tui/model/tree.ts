@@ -13,7 +13,8 @@
  * global root row plus an offset into its subtree and re-applied after
  * every page change. The model is memoized on what the flatten reads, so
  * a keypress that only moves the selection never re-flattens the value
- * ({@link treeModel}).
+ * ({@link treeModel}). A collection of wide rows starts with its rows
+ * collapsed ({@link defaultOpenDepth}).
  *
  * @packageDocumentation
  */
@@ -61,6 +62,29 @@ export function collectionKeys(type: EastTypeValue, decoded: unknown): unknown[]
     if (type.type === 'Dict') return [...(decoded as Map<unknown, unknown>).keys()];
     if (type.type === 'Set') return [...(decoded as Set<unknown>).values()];
     return null;
+}
+
+/** Fields a collection's rows may have and still open by default: a wider
+ *  row is one line until it is opened, so a screen of 150-field rows shows
+ *  a screen of rows, not the first row's fields. */
+export const WIDE_ROW_FIELDS = 12;
+
+/**
+ * The depth a tree opens to before anything is expanded or collapsed: the
+ * row model's default, except for a collection of wide rows, which starts
+ * collapsed — rows that are structs of more than {@link WIDE_ROW_FIELDS}
+ * fields, or collections, whose elements have no bound.
+ *
+ * @param type - The dataset's root type
+ * @returns The open depth
+ */
+export function defaultOpenDepth(type: EastTypeValue): number {
+    const row = type.type === 'Array' || type.type === 'Set' ? type.value as EastTypeValue
+        : type.type === 'Dict' ? (type.value as { value: EastTypeValue }).value
+        : null;
+    if (row === null) return DEFAULT_OPEN_DEPTH;
+    if (row.type === 'Struct') return (row.value as unknown[]).length > WIDE_ROW_FIELDS ? 0 : DEFAULT_OPEN_DEPTH;
+    return isCollectionType(row) ? 0 : DEFAULT_OPEN_DEPTH;
 }
 
 /** The dataset a view shows, if any. */
@@ -132,7 +156,7 @@ export function treeModelBuilds(): number {
 
 /** Flattens the content into a model (the memo's miss path). */
 function buildTreeModel(type: EastTypeValue, mode: TreeContent, tree: TreeUi, editable: boolean): TreeModel {
-    const openDepth = tree.baseDepth ?? DEFAULT_OPEN_DEPTH;
+    const openDepth = tree.baseDepth ?? defaultOpenDepth(type);
     const keyType = keyTypeOf(type);
     if (mode.kind === 'inline') {
         const rows = flattenRows(mode.root, tree.open, openDepth, editable, editable);

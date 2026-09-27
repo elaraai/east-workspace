@@ -20,6 +20,8 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { EastTypeValue } from '@elaraai/east';
 import {
     fmtLeaf,
@@ -564,10 +566,19 @@ export async function treeCommand(command: ParsedCommand, state: TuiState, contr
                 controller.toast('nothing to save — the dataset has no value', 'warn');
                 return true;
             }
-            const bytes = await controller.deps.feeds.datasets.bytes(ctx.ws, ctx.path);
+            // The value streams to the file a few segments at a time, into a
+            // partial file that takes the target's name once it is whole.
+            const chunks = await controller.deps.feeds.datasets.bytes(ctx.ws, ctx.path);
             fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, bytes);
-            controller.toast(`saved ${formatSize(bytes.length)} to ${target}`, 'pos');
+            const partial = `${target}.partial`;
+            try {
+                await pipeline(Readable.from(chunks), fs.createWriteStream(partial));
+                fs.renameSync(partial, target);
+            } catch (err) {
+                fs.rmSync(partial, { force: true });
+                throw err;
+            }
+            controller.toast(`saved ${formatSize(fs.statSync(target).size)} to ${target}`, 'pos');
             return true;
         }
         default:

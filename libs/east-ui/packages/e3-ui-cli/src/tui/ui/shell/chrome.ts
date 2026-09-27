@@ -12,7 +12,7 @@
  */
 
 import { columnPlan, breakpoint } from '../../render/layout.js';
-import { displayWidth, padEnd, lr } from '../../render/text.js';
+import { displayWidth, padEnd, lr, truncate } from '../../render/text.js';
 import type { TuiState, View } from '../../state/actions.js';
 import { dirtyCount } from '../../state/reducer.js';
 import { changedNames } from '../../data/edit-buffer.js';
@@ -21,6 +21,7 @@ import { connectionCell } from '../../model/status.js';
 import { blank, fitLine, fitRows, lineWidth, lrLine, rule, t, b, d, type Line, type RenderCtx } from '../lines.js';
 import type { Hit } from '../frame.js';
 import { launchStep } from '../views/launch.js';
+import { tablePlan } from './widgets.js';
 
 /** The breadcrumb of a view. */
 export function breadcrumb(state: TuiState, ctx: RenderCtx): string {
@@ -188,29 +189,30 @@ export function renderCommandBox(state: TuiState, ctx: RenderCtx): Line[] {
     return [rule(width, g.rule), fitLine(middle, width), rule(width, g.rule)];
 }
 
-/** The completion rows above the command box. */
+/**
+ * The completion rows above the command box. The name column grows to the
+ * longest name shown, as a table's does; a row's last cell takes the rest of
+ * the line (a command's effect, a flag's hint), and a fixed cell that still
+ * overflows ends in `…` with a cell of gap.
+ */
 export function renderCompletion(state: TuiState, ctx: RenderCtx): Line[] {
     const completion = state.command.completion;
     if (completion === null || ctx.layout.completionRows === 0) return [];
     const width = ctx.layout.columns;
     const g = ctx.g;
     const isJump = !state.command.text.startsWith('/');
-    const plan = columnPlan(isJump ? 'jump' : 'completion', breakpoint(state.size));
     const items = completion.items.slice(0, ctx.layout.completionRows);
+    const plan = tablePlan(columnPlan(isJump ? 'jump' : 'completion', breakpoint(state.size)),
+        items.map(item => ({ cells: { name: item.cells[1] ?? '' } })), width);
     return items.map((item, i) => {
         const selected = i === completion.index;
         const line: Line = [t(' '), b(selected ? g.sel : ' ', 'brand'), t(' ')];
-        let used = 3;
-        plan.forEach((col, ci) => {
-            const cell = item.cells[ci] ?? '';
-            if (col.width === 0) {
-                line.push(selected ? b(cell) : t(cell));
-                return;
-            }
-            line.push(selected ? b(padEnd(cell, col.width)) : t(padEnd(cell, col.width)));
-            used += col.width;
-        });
-        void used;
+        for (let ci = 0; ci < plan.length && ci < item.cells.length; ci++) {
+            const col = plan[ci]!;
+            const cell = item.cells[ci]!;
+            const text = col.width === 0 || ci === item.cells.length - 1 ? cell : padEnd(truncate(cell, Math.max(1, col.width - 1)), col.width);
+            line.push(selected ? b(text) : t(text));
+        }
         return fitLine(line, width);
     });
 }

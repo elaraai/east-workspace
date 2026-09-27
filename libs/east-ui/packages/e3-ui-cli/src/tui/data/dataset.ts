@@ -25,8 +25,9 @@
  * where it stops, not of everywhere it passed. A page's size in rows is
  * chosen per dataset from the blob's stored bytes per row
  * ({@link pageSizeFor}): a page of wide rows holds as many rows as
- * {@link PAGE_BYTES_TARGET} covers, a page of narrow rows
- * {@link PAGE_SIZE_MAX}; a server that cuts a window short by its own byte
+ * {@link PAGE_BYTES_TARGET} covers, but never fewer than
+ * {@link PAGE_SIZE_MIN}, and a page of narrow rows {@link PAGE_SIZE_MAX}; a
+ * server that cuts a window short by its own byte
  * budget is asked for the rest until the page is whole. Loaded pages are
  * pruned to {@link MAX_RETAINED_PAGES} around the window whenever the set
  * changes — as a page lands as much as when the window moves — and raw
@@ -52,6 +53,9 @@ export const INLINE_LIMIT = 200 * 1024;
 export const WHOLE_LIMIT = 64 * 1024 * 1024;
 /** Root rows per page at most — the page size of narrow rows. */
 export const PAGE_SIZE_MAX = 500;
+/** Root rows per page at least: rows wider than {@link PAGE_BYTES_TARGET}
+ *  over this still fill a screen in a few requests, not one a row or two. */
+export const PAGE_SIZE_MIN = 16;
 /** Stored bytes a page aims to hold: wide rows make shorter pages, so what one page materializes stays bounded. */
 export const PAGE_BYTES_TARGET = 128 * 1024;
 /** Loaded (materialized) pages retained around the window. */
@@ -73,7 +77,7 @@ type PagedMode = Extract<DatasetMode, { kind: 'paged' }>;
 /**
  * The rows per page of a collection: as many as {@link PAGE_BYTES_TARGET}
  * covers at the blob's average stored bytes per row, at most
- * {@link PAGE_SIZE_MAX}, at least one.
+ * {@link PAGE_SIZE_MAX}, at least {@link PAGE_SIZE_MIN}.
  *
  * @param totalBytes - The stored blob's size
  * @param totalRows - Its root rows
@@ -81,7 +85,7 @@ type PagedMode = Extract<DatasetMode, { kind: 'paged' }>;
  */
 export function pageSizeFor(totalBytes: number, totalRows: number): number {
     if (totalRows <= 0 || totalBytes <= 0) return PAGE_SIZE_MAX;
-    return Math.max(1, Math.min(PAGE_SIZE_MAX, Math.floor(PAGE_BYTES_TARGET / (totalBytes / totalRows))));
+    return Math.max(PAGE_SIZE_MIN, Math.min(PAGE_SIZE_MAX, Math.floor(PAGE_BYTES_TARGET / (totalBytes / totalRows))));
 }
 
 /** The elements of a decoded page in row order (a Dict's entries as pairs). */
@@ -148,8 +152,8 @@ export interface DatasetLoader {
     loadWhole(ws: string, path: string): Promise<void>;
     /** Locates a key query: server-side for a paged value, in memory for an inline one. */
     findKey(ws: string, path: string, query: DatasetKeyQuery): Promise<DatasetKeyMatchRange>;
-    /** The stored bytes (`/save`). */
-    bytes(ws: string, path: string): Promise<Uint8Array>;
+    /** The stored bytes, a chunk at a time (`/save`). */
+    bytes(ws: string, path: string): Promise<AsyncIterable<Uint8Array>>;
     /** Drops the caches, the windows and the in-flight bookkeeping. */
     reset(): void;
 }
@@ -496,7 +500,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
         async bytes(ws, path) {
             const api = deps.api();
             if (api === null) throw new Error('no session is open');
-            return (await api.datasetGet(ws, treePathOf(path))).data;
+            return (await api.datasetGetStream(ws, treePathOf(path))).chunks;
         },
         reset() {
             wholeInflight.clear();

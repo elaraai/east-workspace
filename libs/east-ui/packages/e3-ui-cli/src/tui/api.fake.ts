@@ -434,6 +434,24 @@ export class FakeApi implements Api {
         });
     }
 
+    /** The stored bytes in chunks of this many, as a stream arrives in several. */
+    streamChunkBytes = 64 * 1024;
+
+    async datasetGetStream(ws: string, path: TreePath): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }> {
+        return this.call(`datasetGetStream ${ws}${dottedPath(path)}`, () => {
+            const stored = this.stored(ws, dottedPath(path));
+            if (stored === undefined) throw new ApiError('dataset_not_found', { workspace: ws, path: dottedPath(path) });
+            const { bytes } = stored;
+            const size = this.streamChunkBytes;
+            return {
+                hash: stored.hash,
+                chunks: (async function* () {
+                    for (let at = 0; at < bytes.length; at += size) yield bytes.subarray(at, at + size);
+                })(),
+            };
+        });
+    }
+
     async datasetGetPage(ws: string, path: TreePath, window: { offset: number; limit: number; hash?: string } | { segment: number; hash?: string }) {
         return this.call(`datasetGetPage ${ws}${dottedPath(path)} ${'offset' in window ? `${window.offset}+${window.limit}` : `seg${window.segment}`}`, () => {
             const w = this.ws(ws);

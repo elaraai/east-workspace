@@ -164,7 +164,7 @@ describe('the dashboard', () => {
         assert.match(lines[13]!, /^  ingest\s+● up-to-date\s+—\s+sales, calendar\s+Array<Struct>\s+12\.1 MB · 3\.1s\s+310 MB$/);
         assert.match(lines[14]!, /^  features\s+● up-to-date\s+ingest\s+params\s+Struct\s+412\.6 MB · 12\.0s\s+1\.8 GB$/);
         assert.match(lines[15]!, /^  forecast\s+● up-to-date\s+features\s+—\s+Dict<String, Struct>\s+84\.2 MB · cached\s+2\.9 GB$/);
-        assert.match(lines[16]!, /^  optimise\s+◐ waiting\s+forecast\s+overrides\s+Array<Struct>\s+— · waiting for t…\s+—$/);
+        assert.match(lines[16]!, /^  optimise\s+◐ waiting\s+forecast\s+overrides\s+Array<Struct>\s+— · waiting for …\s+—$/);
         assert.match(lines[17]!, /^  report\s+✗ failed · exit 2\s+forecast, optimise\s+—\s+String\s+— · 0\.8s\s+96 MB$/);
         assert.match(lines[18]!, /^  dashboard\s+○ ready\s+—\s+sales\s+UIComponentType\s+41 KB · never\s+—$/);
         assert.equal(lines[19], '');

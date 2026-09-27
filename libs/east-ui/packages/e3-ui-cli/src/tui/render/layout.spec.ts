@@ -43,6 +43,7 @@ describe('layout', () => {
 
     test('column plans drop secondary columns as the terminal narrows', () => {
         assert.deepEqual(columnPlan('tasks', 'wide').map(c => c.key), ['name', 'status', 'dependsOn', 'inputs', 'output', 'size', 'peak']);
+        assert.ok(columnPlan('tasks', 'wide').find(c => c.key === 'output')!.width > 'Dict<String, Integer>'.length + 1, 'a wide OUTPUT holds a Dict<String, Integer> and its gap');
         assert.deepEqual(columnPlan('tasks', 'medium').map(c => c.key), ['name', 'status', 'dependsOn', 'output', 'size']);
         assert.deepEqual(columnPlan('tasks', 'narrow').map(c => c.key), ['name', 'status', 'output', 'size']);
         assert.deepEqual(columnPlan('inputs', 'narrow').map(c => c.key), ['name', 'status', 'type', 'size']);

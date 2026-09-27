@@ -21,6 +21,7 @@ import {
     datasetFindKey,
     datasetGet,
     datasetGetPage,
+    datasetGetStream,
     datasetGetStatus,
     datasetListRecursive,
     datasetSet,
@@ -97,6 +98,8 @@ export interface Api {
     datasetList(ws: string): Promise<ListEntry[]>;
     datasetGetStatus(ws: string, path: TreePath): Promise<DatasetStatusDetail>;
     datasetGet(ws: string, path: TreePath): Promise<{ data: Uint8Array; hash: string; size: number }>;
+    /** The value's bytes a chunk at a time — a collection a few segments ahead of the reader (`/save`). */
+    datasetGetStream(ws: string, path: TreePath): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }>;
     datasetGetPage(ws: string, path: TreePath, window: DatasetPageWindow): Promise<DatasetPage>;
     datasetFindKey(ws: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
     datasetSet(ws: string, path: TreePath, data: Uint8Array): Promise<void>;
@@ -153,6 +156,7 @@ export function createHttpApi(config: HttpApiConfig): Api {
         datasetList: async (ws) => datasetListRecursive(apiUrl, repo(), ws, [], await options()),
         datasetGetStatus: async (ws, path) => datasetGetStatus(apiUrl, repo(), ws, path, await options()),
         datasetGet: async (ws, path) => datasetGet(apiUrl, repo(), ws, path, await options()),
+        datasetGetStream: async (ws, path) => datasetGetStream(apiUrl, repo(), ws, path, await options()),
         datasetGetPage: async (ws, path, window) => datasetGetPage(apiUrl, repo(), ws, path, window, await options()),
         datasetFindKey: async (ws, path, query) => datasetFindKey(apiUrl, repo(), ws, path, query, await options()),
         datasetSet: async (ws, path, data) => datasetSet(apiUrl, repo(), ws, path, data, await options()),

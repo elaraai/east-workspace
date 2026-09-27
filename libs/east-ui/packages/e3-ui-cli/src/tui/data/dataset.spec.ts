@@ -21,7 +21,7 @@ import { ApiError } from '@elaraai/e3-api-client';
 import { dictOf, fakeRepo, wideDictOf, type FakeApi } from '../api.fake.js';
 import { initialState, type DatasetData } from '../state/actions.js';
 import { createStore, type Store } from '../state/store.js';
-import { createDatasetLoader, INLINE_LIMIT, MAX_INFLIGHT, MAX_RETAINED_PAGES, PAGE_BYTES_TARGET, PAGE_SIZE_MAX, pageSizeFor, type DatasetLoader } from './dataset.js';
+import { createDatasetLoader, INLINE_LIMIT, MAX_INFLIGHT, MAX_RETAINED_PAGES, PAGE_BYTES_TARGET, PAGE_SIZE_MAX, PAGE_SIZE_MIN, pageSizeFor, type DatasetLoader } from './dataset.js';
 
 const session = { kind: 'local' as const, label: 'demo-repo', repo: 'default', apiUrl: 'http://x', path: '/x', origin: null, identity: null, stateKey: '/x', target: '/x' };
 
@@ -168,6 +168,24 @@ describe('dataset loader', () => {
             assert.equal(calls[0], `datasetGetPage main${FORECAST} 0+${geometry ? expected : PAGE_SIZE_MAX}`);
             assert.equal(calls.filter(c => c.endsWith(' 0+' + String(expected)) || c.endsWith(' 0+' + String(PAGE_SIZE_MAX))).length, 1, 'page 0 is requested once');
         }
+    });
+
+    test('rows wider than the byte target covers sixteen of still page sixteen at a time', async () => {
+        const { api, store, loader } = setup();
+        api.geometry = true;
+        const { type, value } = wideDictOf(200, 32_000);
+        api.task('main', { name: 'forecast', status: ready, inputs: [], dependsOn: [], output: { type, value } });
+        const bytes = api.stored('main', FORECAST)!.bytes.length;
+        assert.ok(Math.floor(PAGE_BYTES_TARGET / (bytes / 200)) < PAGE_SIZE_MIN, 'the byte target alone would page fewer');
+        assert.equal(pageSizeFor(bytes, 200), PAGE_SIZE_MIN);
+        await loader.tick('main', FORECAST);
+        await quiet(store, 'main', FORECAST);
+        const d = paged(store.getState().data.dataset['main']![FORECAST]);
+        assert.equal(d.pageSize, PAGE_SIZE_MIN);
+        assert.equal(d.pages.get(0)?.length, PAGE_SIZE_MIN);
+        // The first window, sixty rows and a page of margin, in five requests.
+        assert.deepEqual(pageCalls(api).map(c => c.split(' ').at(-1)!).sort((a, b) => parseInt(a) - parseInt(b)),
+            ['0+16', '16+16', '32+16', '48+16', '64+16']);
     });
 
     test('a server that cuts pages short by its byte budget: each page fills with follow-up windows', async () => {
