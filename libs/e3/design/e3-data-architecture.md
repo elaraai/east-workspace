@@ -887,6 +887,36 @@ Acceptance:
 - A deploy that takes minutes completes as a job through the API.
 - gc keeps a migrated record's history, and a state reads at an older commit under the type it was written with.
 
+### The TUI over this PR's data (#953)
+
+Found on 2026-09-27, driving e3-ui's TUI over a repository of this PR's data (`e3-ui-cli/contrib/tui-check-seed.mjs` and `tui-check-probe.mjs`): a 589 MiB Dict of wide rows, 423 MiB of 150-column rows, 611 MiB of 32 KB rows, two tasks split over the first, one splicing its pieces and one merging them, and a record with an index. Paging and scrolling held on every shape, under the production build the bin runs: the heap stayed at 59–116 MB with at most two page requests in flight, a thumb drag showed its destination 32–114 ms after it ended, `/goto 50%` took 0.26–0.42 s, `G` 0.09–0.21 s and `/find` 0.3–0.7 s, and a held key cost 17–32 ms. Seven things did not hold. They land on this PR after stage 5.
+
+Changes:
+- **A split task's units are not its runs** (decided 2026-09-27). A unit is an execution of its task's hash, so a task's history listed every piece and merge: `enrich` ran once and its Runs tab listed 34 rows, the newest piece marked `← current`, and the title named that piece's inputs hash. Every execution record says whether it is a unit (`ExecutionStatusType` gains `unit`, which every runner writes, e3-cloud's too; stored state, so a hard cutover, §3.12). A task's history, the workspace status and `executionFindCurrent` skip units.
+- **Records in the TUI** (decided 2026-09-27). The TUI refused them: no table named one, and `/dataset .records.<name>` said it was not an input or a task output.
+  - A RECORDS table on the workspace view: the name, the rows, the size, the indexes and the last commit (mutation · actor · when).
+  - A record view, from the table, `/record <name>`, `/dataset .records.<name>`, fuzzy jump and a ui task's Reads tab: `1 State`, the state as a read-only paged tree, with `/index <name>` paging through an index and `/index primary` back; and `2 History`, the commits newest first.
+  - An index window is decoded by its index's key and projection types (`indexWindowType`), which nothing served: `RecordSignature` names each index, with its key type, its projection type and whether it is `multi`.
+- **Wide records start collapsed** in the TUI (decided 2026-09-27): a collection's rows open a level by default only when a row has 12 fields or fewer, so a row of 150 columns is one line until it is opened. The web keeps its default.
+  - A row that is itself a collection starts collapsed too: its elements have no bound, and a row of 4,000 floats opened to 4,000 lines (found while building part 1).
+- **A page holds at least 16 rows** (decided 2026-09-27): 128 KiB of stored bytes or 16 rows, whichever is more, and at most 500. Rows of 32 KB made pages of 4 rows, and 16 requests before the first screen.
+- **The dataset list reports what a collection weighs,** as the dataset status does: its segments and its manifest, not the manifest alone. The tables named a 589 MiB input 41.8 KB.
+- **`/save` streams** a collection to its file a few segments at a time, through e3-api-client's `datasetGetStream`, on which `datasetGet` is built. It held the value whole, and twice while it joined the splice: saving 589 MiB grew the process by 964 MB.
+- **The tasks table's OUTPUT** gets its 24 cells back from stage 5's PEAK column, and `/run`'s completion no longer runs a flag into its hint.
+
+**Found while building part 1:**
+- The one unit of a task whose input closes no piece runs under the task's own identity, so its record is the task's own execution, not a unit's. The engine says which each unit is (`SplitUnit.own`), and the executor it drives is told.
+- A listing a client polls would read each collection's manifest on every poll. What a collection weighs is fixed by its object's content, so the listing keeps it by hash, the oldest going first past 4,096.
+- The completion list's name column was 14 cells, so a flag, and a command's usage, ran into the next column with no gap. It grows to the longest name shown, as a table's does, and a row's last cell, a flag's hint or a command's effect, takes the rest of the line.
+
+Built in two parts, in this order:
+1. **The fixes:** units marked in execution records, the dataset list's size, `/save` streaming, pages of at least 16 rows, wide records collapsed, and the layout.
+2. **Records in the TUI:** `RecordSignature`'s indexes, the RECORDS table, the record view, its history and its index pages.
+
+Acceptance:
+- A split task's history lists its own executions only, through e3-core and the API, and its Runs tab marks the task's own run current.
+- The probe over the same repository: the tables name each input's stored size; `/save` of the 589 MiB input grows the process by a few segments, not by the value; the first window of 32 KB rows, sixty rows and a page, takes five requests; a 150-column row is one line; and a record's table row, state, history and index pages show.
+
 ### Stage 6 — Automatic parallelism (e3 SDK)
 
 A PR of its own from main, once this PR has merged (D10), carrying its own docs (P10). It adds no field to the task object: what a body does after the recognised operations becomes a second task the SDK writes.

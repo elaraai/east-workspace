@@ -10,13 +10,13 @@
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ● up-to-date      features           —               Dict<String, Struct>    84.2 MB · 38.4s   2.9 GB       
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -27,9 +27,9 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
- ▌ task      forecast        main      ● up-to-date · Dict<String, Struct> · 84.2 MB
-   task      forecast_v2     staging   ○ ready
-   dataset   .tasks.forecast.main      ● up-to-date · 84.2 MB
+ ▌ task      forecast               main      ● up-to-date · Dict<String, Struct> · 84.2 MB
+   task      forecast_v2            staging   ○ ready
+   dataset   .tasks.forecast.output main      ● up-to-date · 84.2 MB
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › forc_                                                        3 matches · ↑↓ pick · ⏎ open · esc                      
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

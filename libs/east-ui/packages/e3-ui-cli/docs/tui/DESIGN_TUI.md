@@ -154,13 +154,13 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ● up-to-date      features           —               Dict<String, Struct>    84.2 MB · 38.4s   2.9 GB       
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -193,13 +193,13 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ● up-to-date      features           —               Dict<String, Struct>    84.2 MB · 38.4s   2.9 GB       
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -210,9 +210,9 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
                                                                                                                         
                                                                                                                         
                                                                                                                         
- ▌ task      forecast        main      ● up-to-date · Dict<String, Struct> · 84.2 MB
-   task      forecast_v2     staging   ○ ready
-   dataset   .tasks.forecast.main      ● up-to-date · 84.2 MB
+ ▌ task      forecast               main      ● up-to-date · Dict<String, Struct> · 84.2 MB
+   task      forecast_v2            staging   ○ ready
+   dataset   .tasks.forecast.output main      ● up-to-date · 84.2 MB
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › forc_                                                        3 matches · ↑↓ pick · ⏎ open · esc                      
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -408,13 +408,13 @@ While a run is live, the execution panel shows the scheduler: its header what th
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ● up-to-date      features           —               Dict<String, Struct>    84.2 MB · 38.4s   2.9 GB       
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -451,13 +451,13 @@ While a run is live, the execution panel shows the scheduler: its header what th
     2s  ◐ waiting     forecast · piece 5 of 8                                             needs 3.2 GB · 1.4 GB free    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ◔ in-progress      features           —                Dict<String, Struct> ⠸ 9s               —            
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ◔ in-progress     features           —               Dict<String, Struct>    ⠸ 9s              —            
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -486,13 +486,13 @@ While a run is live, the execution panel shows the scheduler: its header what th
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ● up-to-date      features           —               Dict<String, Struct>    84.2 MB · 38.4s   2.9 GB       
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -945,13 +945,13 @@ The same tree, editable (§9), with the commit bar above the command box while d
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ● up-to-date      features           —               Dict<String, Struct>    84.2 MB · 38.4s   2.9 GB       
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -976,9 +976,10 @@ The same tree, editable (§9), with the commit bar above the command box while d
 Rows come from the row model extracted from `east-ui-components` into `@elaraai/east-ui` (#719): `flattenRows` (inline) and `flattenPaged` (paged) produce the same `RowModel[]` the web renderer uses — same labels (`humanize`), summaries (`Press · 2.5 · Running`, `3 items`, `Not set`), `pathKey` identities and expand semantics — so a value reads identically in the terminal and the browser.
 
 - **Inline vs paged**: `datasetGetStatus` gives type, `refType`, hash, size. Collection roots (Array/Set/Dict) are always paged and read-only; non-collections ≤ 200 KB are fetched whole and materialised (500 000-node budget); larger non-collections show the *too large* state with `/save`. Editable inputs keep the inline path up to 200 KB (as the web does).
-- **Paging**: one *window* per shown dataset — the pages the view wants now, set by every scroll (`needRows(start, end)` with one page of margin) — served by at most two fetches in flight, nearest the window's centre first; a request is only ever issued for a page of the current window, so a thumb drag across a million rows costs the pages of where it stops, and a page that lands for a position the view has left is cached, not materialised. Pages are keyed `(ws, path, hash, page)`; the loaded ones are pruned to 6 around the window whenever the set changes (as a page lands as much as when the window moves); raw bytes stay in a 32-page cache so a return re-materialises without a request; a failed page waits out a 2 s hold before it is asked for again. The page size is chosen per dataset from the blob's stored bytes per row — 128 KiB of stored bytes per page, at most 500 rows — from the status geometry (`rows`) when the server reports it, else from one probe window of the head; a server that cuts a window short by its own byte budget is asked for the rest until the page is whole. Placeholder rows (`░`) stand for unloaded windows; materialisation yields to the renderer every 100 rows. `dataset_hash_mismatch` → refetch status; `dataset_not_indexed` → the *not indexed* state (with a `⏎ load whole value` fallback capped at 64 MB); `dataset_too_large` → the *too large* state.
+- **Paging**: one *window* per shown dataset — the pages the view wants now, set by every scroll (`needRows(start, end)` with one page of margin) — served by at most two fetches in flight, nearest the window's centre first; a request is only ever issued for a page of the current window, so a thumb drag across a million rows costs the pages of where it stops, and a page that lands for a position the view has left is cached, not materialised. Pages are keyed `(ws, path, hash, page)`; the loaded ones are pruned to 6 around the window whenever the set changes (as a page lands as much as when the window moves); raw bytes stay in a 32-page cache so a return re-materialises without a request; a failed page waits out a 2 s hold before it is asked for again. The page size is chosen per dataset from the blob's stored bytes per row — 128 KiB of stored bytes per page or 16 rows, whichever is more, and at most 500 rows — from the status geometry (`rows`) when the server reports it, else from one probe window of the head; a server that cuts a window short by its own byte budget is asked for the rest until the page is whole. Placeholder rows (`░`) stand for unloaded windows; materialisation yields to the renderer every 100 rows. `dataset_hash_mismatch` → refetch status; `dataset_not_indexed` → the *not indexed* state (with a `⏎ load whole value` fallback capped at 64 MB); `dataset_too_large` → the *too large* state.
 - **Scrollbar**: right column, `▲ … ▼`, thumb size `max(1, round(track·visible/total))`, position `round((track−thumb)·top/(total−visible))`; the same component serves logs, tables and lists.
 - **Keys**: `↑↓ j k`, `→ l` expand-or-next, `← h` collapse-or-parent, `⏎`/space toggle, `⇧←` deep collapse, `PgUp PgDn ^u ^d`, `gg G`, `/find`, `/goto`, `s`. Expand-set and top row persist per `${ws}:${path}` (the web's `storageKey` discipline).
+- **Opened by default**: a collection's rows open a level, as on the web, unless they are wide — structs of more than 12 fields, or collections, whose elements have no bound — which start collapsed, so a screen of 150-field rows shows a screen of rows rather than the first row's fields. `▾ expand all`, `▸ collapse all` and the remembered expand-set override it.
 - **Search**: `datasetFindKey` (paged Set/Dict; exact `"key"`, prefix, struct-key `fields` separated by `|`) or in-memory predicates for inline values; the match is held highlighted until `Esc`; `n`/`N` step.
 
 ## 9. Editing (inputs)
@@ -1027,7 +1028,7 @@ An SGR mouse hook on Ink's `useInput` (verified: Ink 7 delivers an unknown CSI s
 
 ## 17. Performance budgets
 
-Frame render ≤ 16 ms at 120×40; beast2 decode and materialise off the render path (`setImmediate` slices, ≤ 8 ms each); ≤ 6 retained pages of ≤ 128 KiB stored bytes (≤ 500 rows) each, at most two page fetches in flight; polls paused for unmounted views; a 1,000,000-row dataset scrolls end to end with < 50 MB heap growth.
+Frame render ≤ 16 ms at 120×40; beast2 decode and materialise off the render path (`setImmediate` slices, ≤ 8 ms each); ≤ 6 retained pages of 128 KiB of stored bytes or 16 rows, whichever is more (≤ 500 rows), each, at most two page fetches in flight; polls paused for unmounted views; a 1,000,000-row dataset scrolls end to end with < 50 MB heap growth.
 
 Measured on a 700,000-row Dict of wide structs (572 MB stored, 858 bytes a row) through the embedded server, a 30-report thumb drag from the top to the middle of the collection (10 ms between reports, as a terminal sends them): before, the loader issued a page request for every position the drag passed and kept every page that landed — 90 requests, 78 pages retained against a cap of 8, a 1.8 GB heap, the destination window shown 6.5 s after the drag ended (or the process dead first); after, 31 requests bounded two at a time, 5 pages retained, an 81 MB heap after collection, the destination shown 138 ms after the drag ended.
 
@@ -1121,14 +1122,14 @@ Where the implementation differs from the mocks above (each was a deliberate cal
 - **Help has a tab per page** — Everywhere · Repos · Workspaces · Dashboard · Task · Input; `?` opens the tab of the page it was pressed on, so only the commands and keys that work there are listed (S13 showed one page).
 - **Selection** is `▌` plus bold, never a tinted background row.
 - **Dashboard** — the tasks table's STATUS cell keeps the glyph and word only (a failure's exit code / message stays inline; `cached`, a pid or a waiting reason move to `SIZE · LAST RUN`); the accounted bar is defined: one cell per task, lowest first (`✗` failed, `▁` ready, `▃` waiting, `▅` in progress, `▇` up-to-date), sampled past 40, `N of M accounted` = tasks the dataflow has touched; the count grids gain in-progress / stale-running rows when non-zero and stack below 90 columns; `gg` / `G` show the column's ends.
-- **Value tree** — leaf strings are quoted; labels and summaries are exactly the web row model's (no thousands grouping, datetimes as `YYYY-MM-DD HH:MM:SS`); the selection is anchored to a root row + offset so it stays put while pages arrive and leave; `G` and a thumb dragged to the bottom wait for the last page; the footer appears in the input view too; `/find` reports its result as a toast after `⏎` (no type-ahead count in the box); a `ui()` task's reads are the Reads tab (no line under its tree).
+- **Value tree** — leaf strings are quoted; labels and summaries are exactly the web row model's (no thousands grouping, datetimes as `YYYY-MM-DD HH:MM:SS`); the selection is anchored to a root row + offset so it stays put while pages arrive and leave; `G` and a thumb dragged to the bottom wait for the last page; the footer appears in the input view too; `/find` reports its result as a toast after `⏎` (no type-ahead count in the box); a `ui()` task's reads are the Reads tab (no line under its tree); a collection of wide rows starts with its rows collapsed where the web opens them (§8 — a row of 150 fields filled the screen, 2026-09-27).
 - **Paging** — pages are not a fixed 500 rows: the size follows the blob's bytes per row (§8), the loader serves one window with two fetches in flight and prunes as pages land, and a collection shows its placeholders (with `loading p0`) as soon as the status gives the geometry rather than a LOADING screen until the first page (a user report of a seek into a large collection taking ages and running out of memory, 2026-09-18).
 - **Task tabs** — the Logs tab became two, `2 Stdout` and `3 Stderr` (Runs and Reads move to `4` and `5`); the Stderr tab carries its line count once the stream has any, each stream tab keeps its own scroll / follow / match, and the status line under the rule shows the shown stream's totals; `o` / `e` are retired (the digits switch), `/logs <task> [stderr]` opens the tab. To keep 120 columns: a `ui` task's title reads `3 reads · 1 function` (no `manifest:`), the hint bar's tab list is two-spaced and the Output tab's hints drop `pgup pgdn`, and the mouse hint yields when the line is full (a user request while testing, 2026-09-09).
 - **Tabs by keyboard** — `tab` / `⇧tab` cycle a task's tabs and the help tabs (the "next / prev pane" the design reserved them for had no second pane); `←` / `→` cycle too, but only where no content claims the arrows — the help view and the Stdout / Stderr tabs — since the Output tab expands and collapses on them and Runs / Reads open on `→` (a user question while testing, 2026-09-09).
 - **Runs** — every attempt is a row (the executions endpoint gained `?all=true`; its default stays the latest attempt per inputs hash, which hid retries and forced re-runs — a user report while testing, 2026-09-09); no per-run note text beyond `← current` (the newest run of an up-to-date task); durations are the API's milliseconds.
-- **The scheduler** (e3's budget, 2026-09-27) — as the approved mock, with these calls: the running header keeps `started 12s ago` and, short of room, drops it for the budget, then the budget for it; the memory in use names its unit once when both share it (`12.6 of 14 GB`); a split task's start reads `forecast · 3 of 8 pieces` (the mock: `piece 3 of 8`); a unit's requeue and wait are rows of their own, the latest requeue per unit, and a task waiting whole shows its wait in place of its start; `/run`'s confirmation reads `· 8 cores, 14 GB` (no `budget`, so `--force` keeps 120 columns). PEAK is the wide tasks table's last column, dropped below 100 columns, and a task in progress shows `—` there (its execution has no peak until it ends; the mock showed the last run's); the Runs tab's PEAK follows DURATION. To fit PEAK at 120 columns the tasks table starts NAME at 10 cells (it grows to the longest name), STATUS and DEPENDS ON at 19, INPUTS 17, OUTPUT 21 and SIZE · LAST RUN 19, so a waiting reason ends sooner.
+- **The scheduler** (e3's budget, 2026-09-27) — as the approved mock, with these calls: the running header keeps `started 12s ago` and, short of room, drops it for the budget, then the budget for it; the memory in use names its unit once when both share it (`12.6 of 14 GB`); a split task's start reads `forecast · 3 of 8 pieces` (the mock: `piece 3 of 8`); a unit's requeue and wait are rows of their own, the latest requeue per unit, and a task waiting whole shows its wait in place of its start; `/run`'s confirmation reads `· 8 cores, 14 GB` (no `budget`, so `--force` keeps 120 columns). PEAK is the wide tasks table's last column, dropped below 100 columns, and a task in progress shows `—` there (its execution has no peak until it ends; the mock showed the last run's); the Runs tab's PEAK follows DURATION. To fit PEAK at 120 columns the tasks table starts NAME at 10 cells (it grows to the longest name), STATUS at 18, DEPENDS ON 19, INPUTS 16, OUTPUT 24 (a `Dict<String, Integer>` whole) and SIZE · LAST RUN 18, so a waiting reason ends sooner.
 - **Inputs** — `⏎` with nothing pending toggles a branch or edits a leaf; `esc` with pending edits confirms a discard; commands that leave the view confirm through `/discard --then "<command>"`; the conflict banner's `esc` keeps editing on the old base (an apply then overwrites).
-- **Layout** — the medium (80–99) and narrow (60–79) column plans are tighter than the 120-column design, and `fitPlan` narrows the widest fixed columns until the last column keeps 12 cells (untouched at 120); a table's NAME column grows to its longest name (up to 24 cells) so real task names such as `forecast_count` are never clipped, and a fixed cell that still overflows ends in `…` with one cell of gap before the next column.
+- **Layout** — the medium (80–99) and narrow (60–79) column plans are tighter than the 120-column design, and `fitPlan` narrows the widest fixed columns until the last column keeps 12 cells (untouched at 120); a table's NAME column grows to its longest name (up to 24 cells) so real task names such as `forecast_count` are never clipped, and a fixed cell that still overflows ends in `…` with one cell of gap before the next column. The completion list follows the same rules — its name column grows to the longest name shown (up to 30 cells), and a row's last cell, a command's effect or a flag's hint, takes the rest of the line — so `--filter <glob>` never runs into its hint.
 - **Durations** — event, summary and run durations are the API's milliseconds; an execution summary without a duration (the server only times the runs it launched itself) shows `completedAt − startedAt`.
 - **Dataset list** — the recursive listing shows a task's subtree as one leaf at `.tasks.<name>` (the output's type / hash / size), while the status names the output `.tasks.<name>.output`; the OUTPUT / SIZE columns resolve either spelling.
 - **Repositories** — LAST DEPLOY is fetched lazily per repository (its workspace list + deployed state), not from a single endpoint.

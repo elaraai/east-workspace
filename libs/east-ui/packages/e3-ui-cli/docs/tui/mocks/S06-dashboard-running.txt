@@ -14,13 +14,13 @@
     2s  ◐ waiting     forecast · piece 5 of 8                                             needs 3.2 GB · 1.4 GB free    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
-  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
-  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
- ▌forecast  ◔ in-progress      features           —                Dict<String, Struct> ⠸ 9s               —            
-  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
-  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
-  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ◔ in-progress     features           —               Dict<String, Struct>    ⠸ 9s              —            
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                

@@ -54,7 +54,7 @@ The `plan` record names the `$plan` of the stage a split task's execution is in,
 
 ### Status File Format
 
-`status.beast2` holds an `ExecutionStatusType` value (`e3-types/src/execution.ts`), a variant with one case per state. Every case carries the attempt's `executionId` (a UUIDv7), the `inputHashes` and `startedAt`:
+`status.beast2` holds an `ExecutionStatusType` value (`e3-types/src/execution.ts`), a variant with one case per state. Every case carries the attempt's `executionId` (a UUIDv7), the `inputHashes`, `startedAt` and `unit`:
 
 | Case | Meaning | Adds |
 |---|---|---|
@@ -68,6 +68,8 @@ The `plan` record names the `$plan` of the stage a split task's execution is in,
 `peakBytes` is the highest peak resident memory a runner process of the execution reached, as the results of its units report it: a unit's, the larger of its run's and its output merge's; a split task's own, the largest of its units'. It is `none` when no runner reported one, as for a command body. The API serves it with each task's status, the peak of the execution the status comes from, and with each attempt a task's execution list names.
 
 `plan` is a split task's: the `$plan` of the last stage it ran, which names the stage before it, and so every unit its output was assembled from (see Split Tasks). It is `none` for any other execution.
+
+`unit` says whether the execution is a unit of a split task — a piece, or a merge of the pieces' outputs — rather than a task's own execution. The one unit of a task whose input closes no piece runs under the task's own identity, and is the task's own execution. A unit is an execution of its task's hash, so what lists a task's runs skips units: a task's history (`GET …/tasks/:task/executions`, `e3 task logs`), the workspace status, and `executionFindCurrent`. A unit's own logs open by its reference (`e3 task logs <repo> --execution <task>/<inputs>/<id>`).
 
 The status is stored state, read with `decodeExecutionStatus`, which refuses a record an older e3 wrote, saying to re-create the repository.
 

@@ -187,10 +187,10 @@ function dashboard({ running = false, commit = [], completion = [], command = CM
   ];
   // A cell that overflows ends in `…` with a cell of gap, as the table fits it.
   const fit = (s, n) => pad(s.length >= n ? s.slice(0, n - 2) + '…' : s, n);
-  const t = (sel, name, status, deps, inputs, out, size, peak) => ' ' + (sel ? '▌' : ' ') + pad(name, 10) + fit(status, 19) + fit(deps, 19) + fit(inputs, 17) + fit(out, 21) + fit(size, 19) + peak;
+  const t = (sel, name, status, deps, inputs, out, size, peak) => ' ' + (sel ? '▌' : ' ') + pad(name, 10) + fit(status, 18) + fit(deps, 19) + fit(inputs, 16) + fit(out, 24) + fit(size, 18) + peak;
   const tasks = [
     lr('TASKS', ''),
-    ' ' + pad(' NAME', 11) + pad('STATUS', 19) + pad('DEPENDS ON', 19) + pad('INPUTS', 17) + pad('OUTPUT', 21) + pad('SIZE · LAST RUN', 19) + 'PEAK',
+    ' ' + pad(' NAME', 11) + pad('STATUS', 18) + pad('DEPENDS ON', 19) + pad('INPUTS', 16) + pad('OUTPUT', 24) + pad('SIZE · LAST RUN', 18) + 'PEAK',
     t(false, 'ingest', '● up-to-date', '—', 'sales, calendar', 'Array<Struct>', '12.1 MB · 3.1s', '310 MB'),
     t(false, 'features', '● up-to-date', 'ingest', 'params', 'Struct', '412.6 MB · 12.0s', '1.8 GB'),
     t(true, 'forecast', running ? '◔ in-progress' : '● up-to-date', 'features', '—', 'Dict<String, Struct>', running ? '⠸ 9s' : '84.2 MB · 38.4s', running ? '—' : '2.9 GB'),
@@ -241,10 +241,12 @@ write('S06b-run-confirm', dashboard({
 
 // S07b — plain typing = fuzzy jump across everything
 {
+  // The name column grows to the longest name shown, and a cell of gap.
+  const nw = Math.max(16, ...['forecast', 'forecast_v2', '.tasks.forecast.output'].map(s => s.length + 1));
   const completion = [
-    ' ' + pad('▌ task', 12) + pad('forecast', 16) + pad('main', 10) + '● up-to-date · Dict<String, Struct> · 84.2 MB',
-    ' ' + pad('  task', 12) + pad('forecast_v2', 16) + pad('staging', 10) + '○ ready',
-    ' ' + pad('  dataset', 12) + pad('.tasks.forecast.output', 16) + pad('main', 10) + '● up-to-date · 84.2 MB',
+    ' ' + pad('▌ task', 12) + pad('forecast', nw) + pad('main', 10) + '● up-to-date · Dict<String, Struct> · 84.2 MB',
+    ' ' + pad('  task', 12) + pad('forecast_v2', nw) + pad('staging', 10) + '○ ready',
+    ' ' + pad('  dataset', 12) + pad('.tasks.forecast.output', nw) + pad('main', 10) + '● up-to-date · 84.2 MB',
   ];
   write('S07b-fuzzy-jump', dashboard({
     completion,
