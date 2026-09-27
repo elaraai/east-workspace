@@ -16,6 +16,11 @@ Supports two modes:
 - **Single-repo mode**: Serve one repository, accessed via `/repos/default`
 - **Multi-repo mode**: Serve multiple repositories from a directory, accessed via `/repos/:name`
 
+The server opens a repository before it serves it, as the CLI does: the one
+repository when it starts, and each of several at its first request. A
+repository an older release wrote is upgraded in place first, and one this e3
+cannot open is refused, naming why and the fix.
+
 ## CLI Usage
 
 ```bash
@@ -208,8 +213,10 @@ through the objects route and splices them itself, as e3-api-client's
 ### Dataset transfer
 
 Values too large to `PUT` inline are staged in parts and committed. The init
-and the commit name the protocol version with `?protocol=2`, and a request of
-another version, or none, is refused, naming the fix. The full protocol is in
+and the commit name the protocol version with `?protocol=2`, and the client's
+release with `&release=`, which decides nothing. A request of another version,
+or none, is refused, naming the server's release, the request's, and the fix.
+The full protocol is in
 [`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-transfer).
 
 | Method | Endpoint | Description |

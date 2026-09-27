@@ -47,7 +47,7 @@ e3 dataset get . dev.my-task
 
 ```
 my-repo/                      # e3 repository directory
-├── repository.beast2         # The layout's version, and the repository's name and status
+├── repository.beast2         # The release that last wrote it, its upgrades, and its name and status
 ├── objects/                  # Content-addressable storage
 │   └── ab/cd1234...beast2    # IR, values, segments, manifests, commits
 ├── packages/                 # Package refs
@@ -62,7 +62,9 @@ my-repo/                      # e3 repository directory
 
 Every file but a log is an East value in beast2. gc keeps each workspace's
 recent runs and the executions its current state is served from, and removes
-the rest of the history with the objects only it kept.
+the rest of the history with the objects only it kept. A newer e3 upgrades a
+repository an older one wrote in place when it first opens it, so its records
+keep their states and histories.
 
 ## Documentation
 

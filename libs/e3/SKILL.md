@@ -829,6 +829,10 @@ e3 package list <repo>                   # List packages
 e3 package remove <repo> <pkg>           # Remove package
 ```
 
+A zip names the release of e3 that exported it, and an import refuses a zip a
+newer release exported, naming that release: import it with an e3 at least as
+new as the SDK that exported it.
+
 ### Workspace
 
 ```bash
@@ -1032,7 +1036,7 @@ my-project/
 ├── src/
 │   └── index.ts        # Package definition
 └── repo/               # Repository (created by e3 repo create)
-    ├── repository.beast2  # The repository record; its layout's version is checked on open
+    ├── repository.beast2  # The repository record: the release that last wrote it, and the upgrades a newer e3 applies on open
     ├── objects/        # Content-addressed objects: values, segments, manifests, programs
     ├── packages/       # Package refs
     ├── workspaces/     # Each workspace's state and dataset refs

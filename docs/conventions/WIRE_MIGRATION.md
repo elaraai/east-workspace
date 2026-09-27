@@ -8,15 +8,23 @@ how a change to one is made, so that no change picks its own. The beast2
 container itself is governed by
 [`BEAST2_WIRE_VERSION.md`](./BEAST2_WIRE_VERSION.md).
 
-## One rule: hard cutover
+What e3 keeps and ships names the release that wrote it — a repository's
+record, an execution state, a package zip — and so does a transfer request,
+beside the protocol number that decides whether a server takes it. The release
+is the version the release scripts write into every package, and into
+e3-types' `E3_RELEASE` with them (`scripts/set-npm-version.mjs`, guarded by
+`scripts/check-version-drift.mjs`).
+
+## One rule per kind
 
 | Kind | Examples | At a change |
 |---|---|---|
-| **Package-borne** — written by the SDK at export and carried in a package | task objects, package objects, function objects, record, mutation and index objects, IR bundles, environment specs and the files they name (each a Blob), and the package zip's package ref (a String) | Packages are re-exported with the new SDK. A package from an older SDK fails with an error that says to re-export it. |
-| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, and the repository's own records: its repository record, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | A repository an older e3 wrote is re-created: deployed again, and its data imported again. A reader refuses a stored object of another form, naming the fix. |
+| **Package-borne** — written by the SDK at export and carried in a package | task objects, package objects, function objects, record, mutation and index objects, IR bundles, environment specs and the files they name (each a Blob), and the package zip's package ref and release (each a String) | Packages are re-exported with the new SDK. A package from an older SDK fails with an error that says to re-export it. An import refuses a zip a newer release exported, naming that release. |
+| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, and the repository's own records: its repository record, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | The release that changes a stored form ships a repository upgrade step, and a repository an older release wrote is upgraded in place when that release first opens it: its records keep their states and histories. A reader refuses a stored form no step carried forward, naming the release that wrote it. A repository from before repositories recorded their upgrades is re-created: deployed again, and its data imported again. |
 
 No reader keeps a decoder for an earlier form. Readers read the current form,
-as writers write it, and every other form is an error that says what to do.
+as writers write it; an upgrade step carries a repository's records into it,
+and every other form is an error that says what to do.
 
 A PR that changes a wire says which kind it changes.
 
@@ -25,15 +33,18 @@ A PR that changes a wire says which kind it changes.
 - **A struct gains or loses a field, or a variant a case:** change the type.
   Where the old bytes could decode as something else, the reader refuses them
   by what it can see, rather than misreading them.
-- **A stored type that carries a version changes:** the dataflow's execution
-  state (`EXECUTION_STATE_VERSION`) holds its events, so a new event changes it
-  too. The version goes up by one, and the reader refuses any other version,
-  naming it.
-- **A local repository's records change** — one moves, is renamed, or takes
-  another type: the layout version its repository record carries
-  (`REPOSITORY_LAYOUT`) goes up by one. Opening a repository of any other
-  layout, or with no repository record, refuses it before anything in it is
-  read, naming the fix.
+- **A stored form changes** — a record moves, is renamed or takes another
+  type, or the dataflow's execution state gains an event: the release ships a
+  named upgrade step (`REPOSITORY_UPGRADES` in e3-core's
+  `storage/local/repository.ts`) that rewrites a repository's records into the
+  new form. A step is synchronous and idempotent — it leaves a record already
+  in the new form as it is — and once released it is never edited, reordered
+  or removed. The repository record lists the steps a repository has had, each
+  with the release that applied it. An e3 opening a repository applies the
+  steps it has not had, in order and before anything reads it, and refuses a
+  repository that has had a step it does not know, naming the release that
+  applied it. One with no repository record is refused before anything in it
+  is read, naming the fix.
 - **A new object kind names other objects:** it carries a `kind` tag, and lands
   with a GC test. GC dispatches a tagged object on its tag, through a table
   listing the field names of each kind. An object whose fields begin with the
