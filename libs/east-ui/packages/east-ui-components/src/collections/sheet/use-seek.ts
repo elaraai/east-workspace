@@ -28,7 +28,7 @@ import { StringType, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery } from "../key-search/index.js";
 import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
-import { soughtKeyOf, toSeekQuery } from "../plan/use-seek.js";
+import { toSeekQuery } from "../plan/use-seek.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 /** A sheet's keys are Strings — the search input parses against that. */
@@ -119,7 +119,6 @@ export function useSheetSeek(
     const find = useCallback((q: DatasetKeyQuery) => new Promise<DatasetKeyMatchRange>((resolve, reject) => {
         pending.current?.reject(new Error("superseded by a newer query"));
         pending.current = { resolve, reject };
-        void soughtKeyOf(q);
         setQuery(toSeekQuery(q));
     }), []);
 

@@ -11,17 +11,16 @@
  * - StepFunctionsOrchestrator: AWS Step Functions state machine (in e3-aws)
  */
 
-import type { PartitionProgress } from '@elaraai/e3-types';
+import type { ExecutionOwner, PartitionProgress, SplitProgress, StageUnit, UnitWait } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
-import type { TaskRunner } from '../../execution/interfaces.js';
-import type { JobSlots } from '../../execution/jobs.js';
+import type { TaskRunner, UnitRequeue } from '../../execution/interfaces.js';
 import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../types.js';
 
 /**
  * Handle to a running dataflow execution.
  */
 export interface ExecutionHandle {
-  /** Unique execution ID (string for UUID support) */
+  /** The run's id, a UUIDv7: its execution state's, and its run record's */
   readonly id: string;
   /** Repository identifier */
   readonly repo: string;
@@ -33,7 +32,7 @@ export interface ExecutionHandle {
  * Status of a dataflow execution (summary view).
  */
 export interface ExecutionStatus {
-  /** Execution ID (string for UUID support) */
+  /** The run's id, a UUIDv7 */
   id: string;
   /** Current state */
   state: 'running' | 'completed' | 'failed' | 'cancelled';
@@ -53,14 +52,19 @@ export interface ExecutionStatus {
   startedAt: Date;
   /** Completion time */
   completedAt?: Date;
+  /** The tasks and units waiting for room in the runner's budget, as the
+   *  runner reports them, while the run is in flight: nothing stores a wait,
+   *  so a run read back from its state has none */
+  waiting: UnitWait[];
+  /** Each split task's progress through its stage, while the run is in
+   *  flight; nothing stores it */
+  splits: SplitProgress[];
 }
 
 /**
  * Options for starting a dataflow execution.
  */
 export interface OrchestratorStartOptions {
-  /** Maximum concurrent task executions (default: 4) */
-  concurrency?: number;
   /** Force re-execution even if cached (default: false) */
   force?: boolean;
   /** Filter to run only specific task(s) by exact name */
@@ -78,27 +82,35 @@ export interface OrchestratorStartOptions {
   lock?: LockHandle;
   /** Task runner for executing individual tasks */
   runner?: TaskRunner;
-  /** The most units of a partitioned task in flight at once — its pool
-   *  width. Defaults to the jobs budget's capacity, else 4. Runtime-only:
-   *  never affects hashes or caching. */
-  partitionConcurrency?: number;
   /**
-   * The run's jobs budget: the runner processes the local runner keeps in
-   * flight at once, across every task of the run and the units of its
-   * partitioned tasks. The local CLI sets `concurrency` to the same number
-   * and lets the budget bound what actually spawns. A runtime collaborator
-   * like {@link signal}: never persisted, and ignored by a remote runner.
+   * The tasks and units the loop keeps in flight (default four): what is
+   * ready, of which the runner decides what runs. A caller whose runner holds
+   * a budget of cores sets it to them; a remote backend sets its own. A
+   * runtime setting like {@link signal}: never persisted, and a positive
+   * integer.
    */
-  jobs?: JobSlots;
+  width?: number;
+  /**
+   * The owner a split task's own execution is recorded under while the loop
+   * drives its stages, which run in this process whatever runs the units: this
+   * process unless given. `null` records none, whose execution is never
+   * repaired as interrupted — what a host passes when no other process can
+   * check its liveness, as a cloud function's. A runtime setting like
+   * {@link signal}: never persisted.
+   */
+  owner?: ExecutionOwner | null;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */
   onTaskComplete?: (result: TaskCompletedCallback) => void;
-  /** Called as each unit of a partitioned task (slice execution or combine
-   *  step) starts and completes. Callback-only progress — deliberately not
-   *  persisted as execution events (the persisted event wire is frozen; see
-   *  `ExecutionEventType`'s wire warning). */
+  /** Called as each unit of a split task (a piece, or a merge of their
+   *  outputs) starts, and as it succeeds. Callback-only progress: the
+   *  execution state records a split task's stages, not each unit. */
   onPartitionProgress?: (taskName: string, progress: PartitionProgress) => void;
+  /** Called when a unit of a split task was stopped — by the budget's guard,
+   *  or its cgroup's cap — and runs again, as the loop records it in the
+   *  run's events. */
+  onUnitRequeued?: (taskName: string, unit: StageUnit, requeue: UnitRequeue) => void;
   /** Callback for task stdout */
   onStdout?: (taskName: string, data: string) => void;
   /** Callback for task stderr */
@@ -123,18 +135,12 @@ export interface OrchestratorStartOptions {
 /**
  * Options for resuming a yielded (or crashed) execution.
  *
- * Execution config (concurrency, force, filter) comes from the persisted
- * state and cannot be changed; runtime collaborators (runner, callbacks,
- * signal, shouldYield) are provided fresh by the resuming host.
+ * Execution config (force, filter) comes from the persisted state and cannot
+ * be changed; runtime collaborators (runner, width, callbacks, signal,
+ * shouldYield) are provided fresh by the resuming host. The run keeps its
+ * one id, the execution state's, so its record continues across a yield.
  */
-export interface ResumeOptions extends OrchestratorStartOptions {
-  /**
-   * Dataflow run ID to continue recording under. Pass the runId returned
-   * by the original start()'s FinalizeResult/DataflowRun so the run record
-   * stays continuous across yields; a fresh UUID is generated if omitted.
-   */
-  runId?: string;
-}
+export type ResumeOptions = OrchestratorStartOptions;
 
 /**
  * Callback data for task completion.
@@ -177,6 +183,7 @@ export interface DataflowOrchestrator {
    * @throws {WorkspaceNotFoundError} If workspace doesn't exist
    * @throws {WorkspaceNotDeployedError} If workspace has no package deployed
    * @throws {WorkspaceLockError} If workspace is locked by another process
+   * @throws {RangeError} If `options.width` is not a positive integer
    */
   start(
     storage: StorageBackend,
@@ -196,13 +203,14 @@ export interface DataflowOrchestrator {
    * @param storage - Storage backend
    * @param repo - Repository identifier
    * @param workspace - Workspace name
-   * @param executionId - ID of the persisted execution to resume
-   * @param options - Runtime options (runner, callbacks, runId continuity)
+   * @param executionId - The run's id, which its persisted execution carries
+   * @param options - Runtime options (runner, callbacks)
    * @returns Execution handle (same id as the original execution)
    *
    * @throws {DataflowError} If there is no state store, the execution is
    *   unknown, or its status is not 'running'
    * @throws {WorkspaceLockError} If workspace is locked by another process
+   * @throws {RangeError} If `options.width` is not a positive integer
    */
   resume?(
     storage: StorageBackend,
@@ -301,5 +309,7 @@ export function stateToStatus(state: DataflowExecutionState): ExecutionStatus {
     error: errorValue,
     startedAt: state.startedAt,
     completedAt: completedAtValue,
+    waiting: [],
+    splits: [],
   };
 }

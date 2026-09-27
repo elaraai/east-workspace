@@ -26,16 +26,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { none } from '@elaraai/east';
+import { EXECUTION_STATE_VERSION } from '@elaraai/e3-types';
 import type { DataflowExecutionState } from '../types.js';
 import { FileStateStore } from './FileStateStore.js';
 
 function makeState(repo: string, workspace: string): DataflowExecutionState {
   return {
+    version: EXECUTION_STATE_VERSION,
     id: 'test-1',
     repo,
     workspace,
     startedAt: new Date(),
-    concurrency: 4n,
     force: false,
     filter: none,
     graph: none,

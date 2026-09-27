@@ -36,6 +36,7 @@ from east.serialization.beast2 import (
     splice_beast2_files,
     write_beast2_file,
 )
+from tests.segments import write_in_segments
 
 ROW = StructType([("id", IntegerType), ("name", StringType)])
 AT = ArrayType(ROW)
@@ -46,8 +47,8 @@ def _rows(start, n):
     return [{"id": i, "name": f"n{i:05d}"} for i in range(start, start + n)]
 
 
-def _write_shard(path, start, n, segment_rows=4096):
-    write_beast2_file(path, AT, EastArray(ROW, _rows(start, n)), segment_rows=segment_rows)
+def _write_shard(path, start, n, size=4096):
+    write_in_segments(path, AT, EastArray(ROW, _rows(start, n)), size)
     return path
 
 
@@ -76,9 +77,10 @@ def test_spliced_file_is_indistinguishable_from_one_writer(tmp_path):
     splice_beast2_files(dest, AT, shards)
 
     sequential = tmp_path / "sequential.beast2"
-    with open_beast2_file(sequential, AT, mode="w", segment_rows=4096) as w:
-        w.write(EastArray(ROW, _rows(0, 5_000)))
-        w.write(EastArray(ROW, _rows(5_000, 5_000)))
+    with open(sequential, "wb") as stream, Beast2Writer(AT, stream) as w:
+        for start in (0, 5_000):
+            w.write(EastArray(ROW, _rows(start, 4_096)))
+            w.write(EastArray(ROW, _rows(start + 4_096, 904)))
 
     a, b = dest.read_bytes(), sequential.read_bytes()
     assert a == b, "splice must be byte-identical to one writer writing the same batches"
@@ -214,7 +216,7 @@ def test_random_shapes_sweep(tmp_path):
     for k in range(5):
         n = rng.choice([0, 1, 17, 400, 5000])
         shards.append(_write_shard(tmp_path / f"r{k}.beast2", start, n,
-                                   segment_rows=rng.choice([64, 1000, 8192])))
+                                   size=rng.choice([64, 1000, 8192])))
         expected.extend(range(start, start + n))
         start += n
     dest = tmp_path / "sweep.beast2"

@@ -27,6 +27,7 @@ export const HELP_TABS: readonly { tab: HelpTab; label: string }[] = [
     { tab: 'dashboard', label: 'Dashboard' },
     { tab: 'task', label: 'Task' },
     { tab: 'input', label: 'Input' },
+    { tab: 'record', label: 'Record' },
 ];
 
 /**
@@ -42,6 +43,7 @@ export function helpTabFor(from: ViewKind): HelpTab {
         case 'dashboard': return 'dashboard';
         case 'task': return 'task';
         case 'input': return 'input';
+        case 'record': return 'record';
         default: return 'everywhere';
     }
 }
@@ -61,6 +63,7 @@ export function helpColumns(tab: HelpTab): HelpColumn[] {
                     rows: [
                         ['/task <name>', 'open a task'],
                         ['/input <name>', 'open an input'],
+                        ['/record <name>', 'open a record'],
                         ['/dataset <path>', 'open a dataset'],
                         ['/workspace <name>', 'switch workspace'],
                         ['/workspaces  /repos', 'the lists'],
@@ -119,9 +122,8 @@ export function helpColumns(tab: HelpTab): HelpColumn[] {
                     rows: [
                         ['/run [--force]', 'run the dataflow'],
                         ['/run --filter <glob>', 'only matching tasks'],
-                        ['/run --concurrency <n>', ''],
                         ['/stop', 'cancel the dataflow'],
-                        ['/task  /input', 'open a row'],
+                        ['/task  /input  /record', 'open a row'],
                         ['/logs <task> [stderr]', 'a task\'s logs'],
                         ['/runs <task>', 'a task\'s runs'],
                         ['/workspace <name>', 'switch workspace'],
@@ -131,14 +133,14 @@ export function helpColumns(tab: HelpTab): HelpColumn[] {
                     title: 'KEYS',
                     rows: [
                         ['↑↓  j k', 'move'],
-                        ['⏎  →', 'open the task / input'],
+                        ['⏎  →', 'open the row'],
                         ['r', 'prefill /run'],
                         ['x', 'prefill /stop'],
                         ['w', 'workspaces'],
                         ['R', 'refresh now'],
                     ],
                 },
-                { title: 'ROWS', rows: [['tasks', '● up-to-date ◐ waiting ◔ running'], ['', '○ ready ✗ failed'], ['inputs', '● up-to-date ◐ stale ○ unset'], ['execution', '⏎ on a failed row → logs']] },
+                { title: 'ROWS', rows: [['tasks', '● up-to-date ◐ waiting ◔ running'], ['', '○ ready ✗ failed'], ['inputs', '● up-to-date ◐ stale ○ unset'], ['records', 'rows · indexes · last commit'], ['execution', '⏎ on a failed row → logs']] },
             ];
         case 'task':
             return [
@@ -221,6 +223,44 @@ export function helpColumns(tab: HelpTab): HelpColumn[] {
                         ['┆', 'a changed row'],
                         ['conflict', 'the server changed:'],
                         ['', '⏎ reload · esc keep'],
+                    ],
+                },
+            ];
+        case 'record':
+            return [
+                {
+                    title: 'COMMANDS',
+                    rows: [
+                        ['/index <name>', 'page by an index'],
+                        ['/index primary', 'back to the rows'],
+                        ['/find <key>', 'a key — an index\'s own'],
+                        ['/goto <row>  /goto N%', 'jump'],
+                        ['/save [file]', 'write the rows .beast2'],
+                    ],
+                },
+                {
+                    title: 'KEYS · STATE',
+                    rows: [
+                        ['↑↓  j k', 'move'],
+                        ['→  l', 'expand'],
+                        ['←  h', 'collapse'],
+                        ['⏎  space', 'toggle'],
+                        ['gg  G', 'top / bottom'],
+                        ['n  N', 'next / prev match'],
+                        ['s', 'save .beast2'],
+                        ['1 2', 'State History'],
+                        ['tab  ⇧tab', 'next / prev tab'],
+                    ],
+                },
+                {
+                    title: 'KEYS · HISTORY',
+                    rows: [
+                        ['↑↓  pgup pgdn', 'move'],
+                        ['gg  G', 'newest / oldest read'],
+                        ['', ''],
+                        ['head', 'the newest commit'],
+                        ['$deploy $compact …', 'e3\'s own commits'],
+                        ['', 'older pages read as you go'],
                     ],
                 },
             ];

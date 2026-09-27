@@ -55,10 +55,6 @@ import { useE3Config } from "./e3-config.js";
 
 const ReactiveDatasetCacheContext = createContext<ReactiveDatasetCacheInterface | null>(null);
 
-/** How often a bound paged source's dataset hash is polled (#821) — the
- *  workspace status poll `UITaskPreview`'s bound datasets share by default. */
-const PAGED_REVISION_POLL_MS = 1000;
-
 /**
  * Props for {@link ReactiveDatasetProvider}.
  *
@@ -68,14 +64,30 @@ export interface ReactiveDatasetProviderProps {
     children: ReactNode;
 }
 
+/** The cache a provider installed, and the server identity it was built for. */
+interface InstalledCache {
+    readonly apiUrl: string;
+    readonly repo: string;
+    readonly workspace: string | undefined;
+    readonly cache: ReactiveDatasetCache;
+}
+
 /**
  * Provide a {@link ReactiveDatasetCache} to the component tree.
  *
  * @remarks
  * Reads server identity from the surrounding `<E3Provider>` to build a
- * default {@link DatasetApi} adapter, then constructs a workspace-scoped
- * cache. Configures the cache's scheduler to use `queueMicrotask` so
- * cache notifications never fire during a React render pass.
+ * default {@link DatasetApi} adapter and a workspace-scoped cache, and installs
+ * them — with the `Func.bind`, `Data.bindPaged` and `Record.bind` adapters — in
+ * the process-global runtimes the East-side bindings resolve through. The
+ * cache's scheduler uses `queueMicrotask`, so cache notifications never fire
+ * during a React render pass.
+ *
+ * The children render once the provider's cache is installed, so a
+ * `Data.bind`'s first read finds it; they render again from nothing when the
+ * server identity changes. A provider tears down only what it installed, so
+ * one replacing another — re-keyed to a new workspace — or StrictMode's
+ * mount → unmount → mount never leaves the runtimes empty.
  *
  * Must be mounted inside an `<E3Provider>` (which also owns the
  * `<QueryClientProvider>` wrap that this package's TanStack hooks
@@ -94,106 +106,79 @@ export function ReactiveDatasetProvider({
     children,
 }: ReactiveDatasetProviderProps) {
     const e3 = useE3Config();
+    const { apiUrl, workspace } = e3;
+    const repo = e3.repo ?? "default";
 
-    // Build the network adapter from E3 context. `getToken` is a getter
-    // (not a snapshot) so token rotation in the surrounding context
-    // propagates without rebuilding the cache.
+    // `getToken` is a getter (not a snapshot) so token rotation in the
+    // surrounding context propagates without rebuilding the cache.
     const tokenRef = useRef<string | null>(e3.token ?? null);
     tokenRef.current = e3.token ?? null;
-    const api = useMemo(
-        () => createDefaultDatasetApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
-        [e3.apiUrl, e3.repo],
-    );
 
-    const cache = useMemo(() => {
-        const cfg: { workspace?: string } = {};
-        if (e3.workspace !== undefined) cfg.workspace = e3.workspace;
-        return new ReactiveDatasetCache(cfg, api);
-    }, [api, e3.workspace]);
+    const [installed, setInstalled] = useState<InstalledCache | null>(null);
 
-    // Render-time wiring: install the singleton cache + scheduler BEFORE
-    // children render so the East-side `Data.bind` impl finds the cache
-    // on its first read. The Data-tracker + platform implementation are
-    // registered once at module-load time inside bind-runtime.ts; there
-    // is nothing per-cache to register here.
-    useMemo(() => {
-        initializeReactiveDatasetCache(cache);
-        cache.setScheduler((notify) => queueMicrotask(notify));
-    }, [cache]);
-
-    // Same wiring for `Func.bind` — the function runtime shares the
-    // workspace scope and server identity with the dataset cache.
-    useMemo(() => {
-        if (e3.workspace !== undefined) {
-            initializeFunctionApi(
-                createDefaultFunctionApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
-                e3.workspace,
-            );
-        }
-    }, [e3.apiUrl, e3.repo, e3.workspace]);
-
-    // Same wiring for `Data.bindPaged` — the paged runtime shares the workspace
-    // scope and server identity, but reads windows through its own endpoint
-    // rather than the whole-value dataset cache. It follows each bound
-    // dataset's content hash through this cache's status poll, which fetches
-    // no content for it (#821).
-    useMemo(() => {
-        if (e3.workspace !== undefined) {
-            initializePagedApi({
-                ...createDefaultPagedApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
-                watchRevision: (workspace, path, onRevision) =>
-                    cache.watchHash(workspace, path, PAGED_REVISION_POLL_MS, onRevision),
-            }, e3.workspace);
-        }
-    }, [e3.apiUrl, e3.repo, e3.workspace, cache]);
-
-    // Same wiring for `Record.bind` — the record runtime reads current values
-    // through the SAME dataset cache (a record is a dataset), and writes via the
-    // record endpoints.
-    useMemo(() => {
-        if (e3.workspace !== undefined) {
-            initializeRecordApi(
-                createDefaultRecordApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
-                cache,
-                e3.workspace,
-            );
-        }
-    }, [e3.apiUrl, e3.repo, e3.workspace, cache]);
-
-    // Cleanup on cache change or unmount.
+    // One effect owns everything the provider installs. The runtimes behind
+    // Data.bind, Data.bindPaged, Func.bind and Record.bind are process-global,
+    // so the effect builds the cache and each adapter, installs them, and on
+    // cleanup removes only what IT installed. Built here rather than during
+    // render, StrictMode's setup → cleanup → setup builds a second cache
+    // instead of reviving the destroyed one, and a provider that replaces
+    // another installs after the old one has torn down, not before.
     useEffect(() => {
+        const getToken = (): string | null => tokenRef.current;
+        const cache = new ReactiveDatasetCache(
+            workspace !== undefined ? { workspace } : {},
+            createDefaultDatasetApi(apiUrl, repo, getToken),
+        );
+        cache.setScheduler((notify) => queueMicrotask(notify));
+        initializeReactiveDatasetCache(cache);
+        // The function and record runtimes share the cache's workspace and
+        // server identity; a record IS a dataset, so its current value is read
+        // through the same cache. A paged source reads windows through its own
+        // endpoints and follows its dataset through the cache's status poll.
+        const functionApi = createDefaultFunctionApi(apiUrl, repo, getToken);
+        const pagedApi = createDefaultPagedApi(apiUrl, repo, getToken, cache);
+        const recordApi = createDefaultRecordApi(apiUrl, repo, getToken);
+        if (workspace !== undefined) {
+            initializeFunctionApi(functionApi, workspace);
+            initializePagedApi(pagedApi, workspace);
+            initializeRecordApi(recordApi, cache, workspace);
+        }
+        setInstalled({ apiUrl, repo, workspace, cache });
         return () => {
-            const ws = cache.getConfig().workspace;
-            // Order matters: drop the queued writes BEFORE destroying
-            // the cache. Otherwise a write that's already been dequeued
-            // and is mid-await would fire `cache.write` against a
-            // destroyed instance, leaking a network call against a
+            // Order matters: drop the queued writes BEFORE destroying the
+            // cache, so a write already dequeued and mid-await never reaches a
             // workspace the user has navigated away from.
-            clearReactiveDatasetCache();
-            clearFunctionApi();
-            clearPagedApi();
-            clearRecordApi();
+            clearReactiveDatasetCache(cache);
+            clearFunctionApi(functionApi);
+            clearPagedApi(pagedApi);
+            clearRecordApi(recordApi);
             cache.destroy();
             // Drop binding-registry entries for this workspace so a long
             // session navigating across workspaces doesn't leak metadata
             // for paths it no longer consults.
-            if (ws) clearBindingRegistry(ws);
+            if (workspace) clearBindingRegistry(workspace);
             else clearBindingRegistry();
         };
-    }, [cache]);
+    }, [apiUrl, repo, workspace]);
+
+    // The installed cache, while it is the one for the current identity: a
+    // render between an identity change and the new install shows nothing
+    // rather than the old workspace's data.
+    const cache = installed !== null
+        && installed.apiUrl === apiUrl && installed.repo === repo && installed.workspace === workspace
+        ? installed.cache
+        : null;
 
     // Expose cache for debugging
     useEffect(() => {
-        if (typeof window !== "undefined") {
-            (window as unknown as Record<string, unknown>).__EAST_REACTIVE_DATASET_CACHE__ = cache;
-        }
+        if (cache === null || typeof window === "undefined") return;
+        (window as unknown as Record<string, unknown>).__EAST_REACTIVE_DATASET_CACHE__ = cache;
         return () => {
-            if (typeof window !== "undefined") {
-                delete (window as unknown as Record<string, unknown>).__EAST_REACTIVE_DATASET_CACHE__;
-            }
+            delete (window as unknown as Record<string, unknown>).__EAST_REACTIVE_DATASET_CACHE__;
         };
     }, [cache]);
 
+    if (cache === null) return null;
     return (
         <ReactiveDatasetCacheContext.Provider value={cache}>
             {children}

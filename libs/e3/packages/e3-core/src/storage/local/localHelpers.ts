@@ -17,15 +17,49 @@
 // renameWithRetry. (Behaviourally identical to `fs/promises`.)
 import { promises as fs } from 'node:fs';
 import * as path from 'path';
+import { isUuidv7 } from '../../uuid.js';
+import { isObjectHash } from '../../objects.js';
+
+/**
+ * The directory of an execution's attempts, `executions/<taskHash>/<inputsHash>`,
+ * or of one attempt, `…/<executionId>`.
+ *
+ * @remarks
+ * A package being imported, or a client, names these, so each is checked for
+ * the form e3 writes before it becomes a path: a hash is a SHA-256 in
+ * lowercase hex, and an attempt's id is a UUIDv7.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param taskHash - Hash of the task object
+ * @param inputsHash - Combined hash of the inputs
+ * @param executionId - The attempt's id, for one attempt's directory
+ * @returns The directory's path
+ * @throws {Error} When a hash or the id is not of its form
+ */
+export function executionPath(repoPath: string, taskHash: string, inputsHash: string, executionId?: string): string {
+  if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
+  if (!isObjectHash(inputsHash)) throw new Error(`'${inputsHash}' is not an inputs hash`);
+  const inputsDir = path.join(repoPath, 'executions', taskHash, inputsHash);
+  if (executionId === undefined) return inputsDir;
+  if (!isUuidv7(executionId)) throw new Error(`'${executionId}' is not an execution id`);
+  return path.join(inputsDir, executionId);
+}
 
 /**
  * Get the filesystem path for an object.
  *
+ * @remarks
+ * A client names objects by hash — a transfer's delivery, say — and so does a
+ * package being imported, so the hash is checked for the form e3 writes before
+ * it becomes a path.
+ *
  * @param repoPath - Path to e3 repository
  * @param hash - SHA256 hash of the object
  * @returns Filesystem path: objects/<hash[0..2]>/<hash[2..]>.beast2
+ * @throws {Error} When the hash is not a SHA-256 in lowercase hex
  */
 export function objectPath(repoPath: string, hash: string): string {
+  if (!isObjectHash(hash)) throw new Error(`'${hash}' is not an object hash`);
   const dirName = hash.slice(0, 2);
   const fileName = hash.slice(2) + '.beast2';
   return path.join(repoPath, 'objects', dirName, fileName);
@@ -89,7 +123,9 @@ export async function objectAbbrev(
 }
 
 /**
- * The directory dataset uploads are staged in before they become objects.
+ * The directory transfers are staged in: dataset uploads before they become
+ * objects, and package zips — an import's upload until it is imported, an
+ * export's zip until it is downloaded.
  *
  * @remarks
  * Under the REPOSITORY, not `os.tmpdir()`. A staged dataset becomes an object
@@ -99,9 +135,9 @@ export async function objectAbbrev(
  * the cost the transfer exists to avoid.
  *
  * Nothing clears this directory the way the OS clears its temp directory, so
- * `repoGc` sweeps it: a `.partial` file older than gc's `minAge` is an upload
- * that was never committed — a client that disconnected mid-upload, or a
- * server that crashed before the commit.
+ * `repoGc` sweeps it: a `.partial` file older than gc's `minAge` is a transfer
+ * that was never finished — a client that disconnected mid-upload or never
+ * downloaded its export, or a server that crashed.
  *
  * @param repoPath - Path to the e3 repository
  * @returns The absolute staging directory: `<repo>/tmp/transfers`
@@ -119,6 +155,18 @@ export function transferStagingDir(repoPath: string): string {
  */
 export function transferStagingPath(repoPath: string, id: string): string {
   return path.join(transferStagingDir(repoPath), `${id}.beast2.partial`);
+}
+
+/**
+ * The staging path for one package zip, imported or exported, in
+ * {@link transferStagingDir}.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param id - The transfer's id
+ * @returns The absolute staging path: `<repo>/tmp/transfers/<id>.zip.partial`
+ */
+export function packageStagingPath(repoPath: string, id: string): string {
+  return path.join(transferStagingDir(repoPath), `${id}.zip.partial`);
 }
 
 /**

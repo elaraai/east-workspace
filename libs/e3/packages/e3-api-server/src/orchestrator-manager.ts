@@ -61,10 +61,23 @@ function getOrCreateOrchestrator(repoPath: string): LocalOrchestrator {
 const activeExecutions = new Map<string, ExecutionHandle>();
 
 /**
+ * Map of execution start times for duration tracking.
+ * Key format: `${repoPath}::${workspace}:${executionId}`
+ */
+const executionStartTimes = new Map<string, number>();
+
+/**
  * Generate a key for workspace-level lookups.
  */
 function makeWorkspaceKey(repoPath: string, workspace: string): string {
   return `${repoPath}::${workspace}`;
+}
+
+/**
+ * Generate a key for execution-level lookups.
+ */
+function makeExecutionKey(repoPath: string, workspace: string, executionId: string): string {
+  return `${repoPath}::${workspace}:${executionId}`;
 }
 
 /**
@@ -86,7 +99,12 @@ export function getStateStore(repoPath: string): ExecutionStateStore {
  * Replaces any previous execution.
  */
 export function setActiveExecution(repoPath: string, workspace: string, handle: ExecutionHandle): void {
-  activeExecutions.set(makeWorkspaceKey(repoPath, workspace), handle);
+  const key = makeWorkspaceKey(repoPath, workspace);
+  activeExecutions.set(key, handle);
+
+  // Record start time for duration tracking
+  const execKey = makeExecutionKey(repoPath, workspace, handle.id);
+  executionStartTimes.set(execKey, Date.now());
 }
 
 /**
@@ -98,17 +116,16 @@ export function getActiveExecution(repoPath: string, workspace: string): Executi
 }
 
 /**
- * Clear a run's active execution for a workspace — once the run has let go of
- * the workspace (the orchestrator's `wait()` has settled). A run started after
- * it may be the workspace's active execution by then, and stays.
- *
- * @param repoPath - The repository
- * @param workspace - The workspace
- * @param executionId - The run that has let go
+ * Clear the active execution for a workspace.
  */
-export function clearActiveExecution(repoPath: string, workspace: string, executionId: string): void {
+export function clearActiveExecution(repoPath: string, workspace: string): void {
   const key = makeWorkspaceKey(repoPath, workspace);
-  if (activeExecutions.get(key)?.id === executionId) activeExecutions.delete(key);
+  const handle = activeExecutions.get(key);
+  if (handle) {
+    const execKey = makeExecutionKey(repoPath, workspace, handle.id);
+    executionStartTimes.delete(execKey);
+  }
+  activeExecutions.delete(key);
 }
 
 /**
@@ -116,6 +133,14 @@ export function clearActiveExecution(repoPath: string, workspace: string, execut
  */
 export function hasActiveExecution(repoPath: string, workspace: string): boolean {
   return activeExecutions.has(makeWorkspaceKey(repoPath, workspace));
+}
+
+/**
+ * Get the start time for an execution (for duration calculation).
+ */
+export function getExecutionStartTime(repoPath: string, workspace: string, executionId: string): number | null {
+  const key = makeExecutionKey(repoPath, workspace, executionId);
+  return executionStartTimes.get(key) ?? null;
 }
 
 /**
@@ -145,6 +170,7 @@ export async function getLatestExecution(repoPath: string, workspace: string): P
  */
 export function clearAll(): void {
   activeExecutions.clear();
+  executionStartTimes.clear();
   stateStores.clear();
   orchestrators.clear();
 }

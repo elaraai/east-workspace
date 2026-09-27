@@ -908,6 +908,15 @@ await describe("String", (test) => {
         $(assert.less(East.value("café"), "zebra"));
         // Note: Unicode ordering is by code point, not alphabetical in human languages
 
+        // By code point, not by UTF-16 code unit: a character above U+FFFF
+        // sorts after U+E000–U+FFFF, though its surrogates are below them
+        $(assert.less(East.value("～"), "\u{1F600}"));
+        $(assert.less(East.value("a￿"), "a\u{10000}"));
+        $(assert.greater(East.value("\u{1F600}"), ""));
+        $(assert.equal(East.value("\u{1F600}").lessThan("～"), false));
+        $(assert.equal(East.value(["\u{1F600}", "a", "～"], ArrayType(StringType)).sort(), ["a", "～", "\u{1F600}"]));
+        $(assert.equal(East.value(new Set(["\u{1F600}", "a", "～"]), SetType(StringType)).toArray(), ["a", "～", "\u{1F600}"]));
+
         // East.is, East.equal, East.less methods
         $(assert.equal(East.is(East.value("hello"), "hello"), true));
         $(assert.equal(East.is(East.value("hello"), "world"), false));

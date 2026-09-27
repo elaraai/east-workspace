@@ -68,11 +68,11 @@ for (let i = 0; i < NROWS; i++) {
   }
   rows.push({ id: BigInt(i), k1: `k${i % NK1}`, k2: `g${i % NK2}`, scale: 1.0 + rnd(), inner });
 }
-writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(RowT), { batchSize: 500 })(rows));
+writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(RowT))(rows));
 
 const table = new SortedMap([], compareFor(KeyT));
 for (let i = 0; i < NKEYS; i++) {
   table.set({ k1: `k${i % NK1}`, k2: `g${Math.floor(i / NK1) % NK2}` }, rnd());
 }
-writeFileSync(join(out, 'table.beast2'), encodeBeast2PagedFor(TableT, { batchSize: 1000 })(table));
+writeFileSync(join(out, 'table.beast2'), encodeBeast2PagedFor(TableT)(table));
 console.log(`wrote ${out}: ${NROWS} rows x ${NINNER} inner, ${table.size} keys`);

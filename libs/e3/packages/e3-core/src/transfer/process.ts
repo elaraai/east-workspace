@@ -4,21 +4,23 @@
  */
 
 /**
- * Shared processing handlers for package import/export.
+ * Shared processing handlers for package import/export and workspace deploy.
  *
- * These are cloud-agnostic handlers that perform the actual import/export work.
+ * These are cloud-agnostic handlers that perform the actual work of each job.
  * Used by both the local InMemoryTransferBackend and cloud backends
  * (e.g. AWS Lambda/Step Functions).
  */
 
 import { stat, unlink } from 'node:fs/promises';
 import { variant } from '@elaraai/east';
+import type { RecordIndexPlan, RecordPlan } from '@elaraai/e3-types';
 
 import { packageExport } from '../packages.js';
-import { workspaceExport } from '../workspaces.js';
+import { workspaceDeploy, workspaceExport } from '../workspaces.js';
 import { packageImport } from '../packages.js';
-import type { StorageBackend } from '../storage/index.js';
-import type { PackageExportStore, PackageImportStore } from './interfaces.js';
+import type { LockHandle, StorageBackend } from '../storage/index.js';
+import type { TaskRunner } from '../execution/interfaces.js';
+import type { PackageExportStore, PackageImportStore, WorkspaceDeployStore } from './interfaces.js';
 
 // =============================================================================
 // Throttled progress callback
@@ -197,5 +199,95 @@ export async function handleProcessImport(
     throw err;
   } finally {
     await unlink(zipPath).catch(() => {});
+  }
+}
+
+// =============================================================================
+// Process Deploy
+// =============================================================================
+
+/** Dependencies for handleProcessDeploy. */
+export interface ProcessDeployDeps {
+  storage: StorageBackend;
+  deployStore: WorkspaceDeployStore;
+  /** Runs the deploy's migrations and index builds. Without one, a deploy
+   *  that owes either is refused before it writes anything. */
+  runner?: TaskRunner;
+  /**
+   * The workspace lock, when the caller holds it. The deploy takes none of
+   * its own and leaves this one held, so a caller that runs one job over
+   * several calls holds the workspace from the first to the last: no dataflow
+   * or other deploy takes it in between.
+   */
+  lock?: LockHandle;
+  /**
+   * Aborted when the caller stops this call to run the job again, as compute
+   * with a time limit does before a long deploy has finished. A deploy that
+   * throws once it has aborted leaves the job `processing` rather than
+   * `failed`: its steps run before it writes a ref, and the call that runs it
+   * again is served the ones that finished from the execution cache.
+   */
+  signal?: AbortSignal;
+}
+
+/** Input for handleProcessDeploy. */
+export interface ProcessDeployInput {
+  id: string;
+  repo: string;
+}
+
+/**
+ * Processes a workspace deploy job.
+ *
+ * Gets the job, deploys its package to its workspace, and updates the status
+ * to what the deploy decided for each record and index, or to why it failed.
+ *
+ * @remarks
+ * The deploy runs for a client, on a machine that is not the client's, so it
+ * never reads a `file` source, whose path is on the client's machine: each is
+ * left unassigned, with a warning in the result, and the client completes it
+ * over the dataset transfer protocol.
+ *
+ * @param deps - Storage backend, deploy store, the runner the deploy's
+ *   migrations and index builds run on, and the caller's workspace lock and
+ *   signal
+ * @param input - Job ID and repository path
+ *
+ * @throws Re-throws the deploy's error once the job is recorded `failed`, or,
+ *   when `deps.signal` has aborted, with the job left `processing`
+ */
+export async function handleProcessDeploy(
+  deps: ProcessDeployDeps,
+  input: ProcessDeployInput,
+): Promise<void> {
+  const { storage, deployStore, runner, lock, signal } = deps;
+  const { id, repo } = input;
+
+  const record = await deployStore.get(id);
+  if (!record) throw new Error(`Deploy record ${id} not found`);
+
+  await deployStore.updateStatus(id, variant('processing', variant('deploying', null)));
+  const records: RecordPlan[] = [];
+  const indexes: RecordIndexPlan[] = [];
+  const warnings: string[] = [];
+  try {
+    await workspaceDeploy(storage, repo, record.workspace, record.packageName, record.packageVersion, {
+      schema: record.schema.type,
+      allowDropRecords: record.allowDropRecords,
+      plan: record.plan,
+      resolveFileSources: false,
+      sourceWarning: (message) => { warnings.push(message); },
+      ...(runner !== undefined && { runner }),
+      ...(lock !== undefined && { lock }),
+      onRecordPlan: (plan) => { records.push(plan); },
+      onRecordIndex: (plan) => { indexes.push(plan); },
+    });
+    await deployStore.updateStatus(id, variant('completed', { records, indexes, warnings }));
+  } catch (err) {
+    // A call its caller stopped is handed over, not failed.
+    if (signal?.aborted === true) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    await deployStore.updateStatus(id, variant('failed', { message }));
+    throw err;
   }
 }

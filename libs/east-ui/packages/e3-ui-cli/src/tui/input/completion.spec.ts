@@ -16,10 +16,15 @@ const catalogue: Catalogue = {
         { kind: 'input', name: 'overrides', workspace: 'main', status: '○ unset', type: 'Dict<String, Float>', detail: '—' },
         { kind: 'input', name: 'params', workspace: 'main', status: '◐ stale', type: 'Struct', detail: '1.2 KB' },
         { kind: 'dataset', name: '.tasks.forecast.output', workspace: 'main', status: '● up-to-date', type: '', detail: '84.2 MB' },
+        { kind: 'record', name: 'ledger', workspace: 'main', status: '300 rows', type: 'Dict<String, Struct>', detail: '2.8 KB' },
         { kind: 'workspace', name: 'main', workspace: null, status: '● DEPLOYED', type: 'demand@1.4.2', detail: '' },
         { kind: 'workspace', name: 'staging', workspace: null, status: '● DEPLOYED', type: 'demand@1.5.0-rc.1', detail: '' },
     ],
     tags: ['Weekly', 'Monthly', 'none'],
+    indexes: [
+        { name: 'primary', key: 'String key', detail: 'the rows' },
+        { name: 'by_store', key: 'String key', detail: 'joins each row' },
+    ],
 };
 
 describe('fuzzyScore', () => {
@@ -62,10 +67,20 @@ describe('complete', () => {
     });
 
     test('/run completes its flags, skipping the ones already given', () => {
-        assert.deepEqual(complete('/run ', catalogue).map(x => x.cells[1]), ['--force', '--filter <glob>', '--concurrency <n>']);
-        assert.deepEqual(complete('/run --force ', catalogue).map(x => x.cells[1]), ['--filter <glob>', '--concurrency <n>']);
+        assert.deepEqual(complete('/run ', catalogue).map(x => x.cells[1]), ['--force', '--filter <glob>']);
+        assert.deepEqual(complete('/run --force ', catalogue).map(x => x.cells[1]), ['--filter <glob>']);
         assert.deepEqual(complete('/run --f', catalogue).map(x => x.insert), ['/run --force ', '/run --filter ']);
         assert.deepEqual(complete('/run fore', catalogue), []);
+    });
+
+    test('/record completes records, /index the shown record\'s indexes', () => {
+        assert.deepEqual(complete('/record le', catalogue).map(x => x.insert), ['/record ledger']);
+        assert.deepEqual(complete('/record le', catalogue)[0]!.cells, ['/record', 'ledger', '300 rows', 'Dict<String, Struct>', '2.8 KB']);
+        assert.deepEqual(complete('/index ', catalogue).map(x => x.insert), ['/index primary', '/index by_store']);
+        assert.deepEqual(complete('/index by', catalogue)[0]!.cells, ['/index', 'by_store', 'String key', 'joins each row']);
+        assert.deepEqual(complete('/index ', { items: catalogue.items }), [], 'outside a record view, no index');
+        assert.deepEqual(jump('ledg', catalogue)[0]!.cells, ['record', 'ledger', 'main', '300 rows · Dict<String, Struct> · 2.8 KB']);
+        assert.equal(jump('ledg', catalogue)[0]!.insert, '/record ledger');
     });
 
     test('/tag completes the row\'s tags', () => {

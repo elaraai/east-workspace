@@ -6,9 +6,9 @@
 /**
  * Per-dataset reference types for reactive dataflow.
  *
- * Each dataset in a workspace has its own `.ref` file instead of being
- * part of a single root tree. This enables concurrent writes and
- * reactive re-execution.
+ * Each dataset in a workspace has its own ref instead of being part of a
+ * single root tree. This enables concurrent writes and reactive
+ * re-execution.
  *
  * A DatasetRef tracks:
  * - The current value hash (or unassigned/null state)
@@ -48,7 +48,8 @@ export type VersionVector = ValueTypeOf<typeof VersionVectorType>;
 /**
  * Per-dataset reference stored in workspace data files.
  *
- * Each dataset has a `.ref` file at `workspaces/<ws>/data/<path>.ref`.
+ * A local repository keeps each dataset's ref at
+ * `workspaces/<ws>/data/<path>.beast2`, beside the revision its write minted.
  * The ref tracks the dataset's current state and version provenance.
  *
  * Variants:

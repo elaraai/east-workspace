@@ -25,7 +25,7 @@
  */
 
 import { BufferWriter, BufferReader } from "../../binary-utils.js";
-import { deterministicDeflateRaw } from "./deflate.js";
+import { type DeflateScratch, deterministicDeflateRaw } from "./deflate.js";
 import { inflateRawPure } from "./inflate.js";
 
 /** Codec id: store logical bytes uncompressed. */
@@ -45,6 +45,12 @@ export const COMPRESSION_THRESHOLD = 64;
  *  against decompression bombs and absurd allocations on corrupt input. */
 export const MAX_FRAME_UNCOMPRESSED = 1 << 30;
 
+/** An upper bound on a frame's header: varint(codec) + varint(uncompressed
+ *  length) + varint(payload length). A frame's payload never exceeds its
+ *  logical bytes ({@link writeFrame} stores codec `none` when deflate does not
+ *  shrink), so logical + this bounds a frame not yet written. */
+export const FRAME_HEADER_MAX = 21;
+
 /** Resolves a codec name to its wire id. */
 export function codecId(codec: Beast2Codec): number {
   return codec === "deflate" ? CODEC_DEFLATE : CODEC_NONE;
@@ -56,7 +62,6 @@ export function codecId(codec: Beast2Codec): number {
 
 type ZlibModule = {
   constants: { Z_SYNC_FLUSH: number };
-  deflateRawSync(data: Uint8Array): Uint8Array;
   inflateRawSync(data: Uint8Array, options?: { maxOutputLength?: number; finishFlush?: number }): Uint8Array;
 };
 
@@ -64,21 +69,6 @@ type ZlibModule = {
  *  `process.getBuiltinModule` so bundlers never see a `node:zlib` import. */
 const zlib: ZlibModule | null =
   (globalThis as any).process?.getBuiltinModule?.("node:zlib") ?? null;
-
-/**
- * Compresses logical bytes with raw DEFLATE.
- *
- * Uses beast2's own specified encoder rather than the platform's zlib, so the
- * bytes are identical in every runtime — see `./deflate.ts` for why that
- * matters (content-addressing) and how the algorithm is pinned. It needs no
- * platform support at all, so browsers can compress too.
- *
- * @param data - the logical bytes to compress
- * @returns the raw DEFLATE stream
- */
-export function deflateRawSync(data: Uint8Array): Uint8Array {
-  return deterministicDeflateRaw(data);
-}
 
 /**
  * Decompresses a raw DEFLATE frame payload synchronously.
@@ -151,6 +141,16 @@ export async function inflateRawAsync(payload: Uint8Array, uncompressedLen: numb
 // Frame write
 // =============================================================================
 
+/** A frame's codec id and payload: deflate from {@link COMPRESSION_THRESHOLD}
+ *  bytes, and only when it shrinks them. */
+function framePayload(logical: Uint8Array, codec: Beast2Codec, scratch?: DeflateScratch): { id: number; payload: Uint8Array } {
+  if (codec === "deflate" && logical.length >= COMPRESSION_THRESHOLD) {
+    const compressed = deterministicDeflateRaw(logical, scratch);
+    if (compressed.length < logical.length) return { id: CODEC_DEFLATE, payload: compressed };
+  }
+  return { id: CODEC_NONE, payload: logical };
+}
+
 /**
  * Writes one frame carrying the given logical bytes.
  *
@@ -163,20 +163,46 @@ export async function inflateRawAsync(payload: Uint8Array, uncompressedLen: numb
  * @param codec - the requested codec for this frame
  */
 export function writeFrame(out: BufferWriter, logical: Uint8Array, codec: Beast2Codec): void {
-  if (codec === "deflate" && logical.length >= COMPRESSION_THRESHOLD) {
-    const compressed = deflateRawSync(logical);
-    if (compressed.length < logical.length) {
-      out.writeVarint(CODEC_DEFLATE);
-      out.writeVarint(logical.length);
-      out.writeVarint(compressed.length);
-      out.writeBytes(compressed);
-      return;
-    }
+  const { id, payload } = framePayload(logical, codec);
+  out.writeVarint(id);
+  out.writeVarint(logical.length);
+  out.writeVarint(payload.length);
+  out.writeBytes(payload);
+}
+
+/**
+ * Writes one frame into `target` from its first byte, the bytes
+ * {@link writeFrame} writes.
+ *
+ * @remarks
+ * A frame worker's path: the deflate works in `scratch`, and the frame lands in
+ * a buffer the caller keeps, so a frame allocates no buffer.
+ *
+ * @param target - where the frame goes: at least the logical length plus
+ *   {@link FRAME_HEADER_MAX} bytes
+ * @param logical - the logical bytes this frame carries
+ * @param codec - the requested codec for this frame
+ * @param scratch - the deflate's buffers
+ * @returns the frame's length
+ */
+export function writeFrameInto(target: Uint8Array, logical: Uint8Array, codec: Beast2Codec, scratch: DeflateScratch): number {
+  const { id, payload } = framePayload(logical, codec, scratch);
+  let at = putVarint(target, 0, id);
+  at = putVarint(target, at, logical.length);
+  at = putVarint(target, at, payload.length);
+  target.set(payload, at);
+  return at + payload.length;
+}
+
+/** Writes `value` at `at` as an unsigned LEB128 varint, as
+ *  `BufferWriter.writeVarint` does, and returns the offset after it. */
+function putVarint(target: Uint8Array, at: number, value: number): number {
+  while (value >= 0x80) {
+    target[at++] = (value % 0x80) | 0x80;
+    value = Math.floor(value / 0x80);
   }
-  out.writeVarint(CODEC_NONE);
-  out.writeVarint(logical.length);
-  out.writeVarint(logical.length);
-  out.writeBytes(logical);
+  target[at++] = value;
+  return at;
 }
 
 // =============================================================================

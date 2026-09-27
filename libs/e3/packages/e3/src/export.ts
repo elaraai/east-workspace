@@ -7,19 +7,19 @@
  * Export functionality for e3 packages.
  *
  * Exports a package definition to a .zip bundle that can be imported
- * into an e3 repository. The bundle is a valid subset of an e3 repository:
- * - `packages/<name>/<version>` - ref to package object hash
+ * into an e3 repository. The bundle holds a repository's own forms:
+ * - `packages/<name>/<version>.beast2` - the package ref: the package object's hash, a String
  * - `objects/<ab>/<cdef...>.beast2` - content-addressed objects
- * - `data/<path>.ref` - per-dataset reference files (beast2 encoded DatasetRef)
  */
 
 import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordObject } from '@elaraai/e3-types';
-import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
+import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
+import { PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
@@ -27,13 +27,15 @@ import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from '.
 import { importedFunctions, resolveFunctionManifests, type ImportReference, type ResolveEvent } from './functions-resolve.js';
 import type { EnvironmentDecl } from './environment.js';
 
+/** An environment's files ride the object store as beast2 Blobs of their bytes. */
+const encodeFile = encodeBeast2For(BlobType);
+
 /**
  * Exports a package to a .zip bundle.
  *
  * The bundle can be imported into an e3 repository using `e3 package import`.
- * It contains all objects needed for the package, plus a ref at
- * `packages/<name>/<version>` pointing to the package object, and per-dataset
- * reference files in `data/`.
+ * It contains all objects needed for the package, plus the package ref at
+ * `packages/<name>/<version>.beast2`, as a repository keeps one.
  *
  * @param pkg - The package to export
  * @param outputPath - Path to write the .zip file
@@ -79,20 +81,9 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     : (e: CaptureEvent) => options.onEvent!({ kind: 'capture', ...e });
   const partialPath = `${outputPath}.partial`;
 
-  // The task a function_ir (or a stream task's merge_ir) dataset belongs to
-  // (e3.task lists them first among the task's inputs), so the dataset's IR
-  // links against that task's runner.
-  const taskOfFunctionIR = new Map<PackageItem, { name: string; runner: Runner | undefined }>();
-  for (const item of pkg.contents) {
-    if (item.kind === 'task') {
-      for (const input of item.inputs) {
-        if (input.name === 'function_ir' || input.name === 'merge_ir') taskOfFunctionIR.set(input, { name: item.name, runner: item.runner });
-      }
-    }
-  }
-
   // Cross-language imports (#628): every East.importFunction in a task's,
-  // function's or mutation's IR resolves against a manifest and embeds as
+  // function's, mutation's, index's or migration's IR resolves against a
+  // manifest and embeds as
   // pure IR — the deployed program needs no exporting language at run
   // time. The manifests are the ones given, plus one produced here for
   // every imported package that is a member of this uv or npm workspace
@@ -107,14 +98,23 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     for (const [name, functions] of importedFunctions(bundle.ir)) references.push({ package: name, functions: [...functions], owner, runner });
   };
   for (const item of pkg.contents) {
-    if (item.kind === 'dataset' && (item.default instanceof EastIR || item.default instanceof AsyncEastIR)) {
-      const owner = taskOfFunctionIR.get(item);
-      refer(item.default, owner ? `task "${owner.name}"` : `dataset "${item.name}"`, owner?.runner);
-    }
+    if (item.kind !== 'task' || item.body.kind !== 'east') continue;
+    const owner = `task "${item.name}"`;
+    refer(item.body.program, owner, item.runner);
+    if (item.outputKind?.kind === 'dict' && item.outputKind.merge !== undefined) refer(item.outputKind.merge, owner, item.runner);
+    if (item.outputKind?.kind === 'fold') refer(item.outputKind.combine, owner, item.runner);
   }
   for (const [fname, fdef] of Object.entries(pkg.functions)) refer(fdef.body, `function "${fname}"`, fdef.runner);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
-    for (const [mname, mdef] of Object.entries(rdef.mutations)) refer(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner);
+    for (const [mname, mdef] of Object.entries(rdef.mutations)) {
+      if (mdef.body !== undefined) refer(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner);
+    }
+    for (const [iname, idef] of Object.entries(rdef.indexes)) {
+      const owner = `index "${rname}.${iname}"`;
+      refer(idef.keyFn.toIR() as EastIR<any, any>, owner, idef.runner);
+      if (idef.valueFn !== undefined) refer(idef.valueFn.toIR() as EastIR<any, any>, owner, idef.runner);
+    }
+    for (const step of rdef.migrations) refer(step.body, `migration "${rname}.${step.name}"`, step.runner);
   }
   const manifests = resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
     ? undefined
@@ -159,7 +159,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const environmentHashFor = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): string | null => {
     // An explicit `environment` wins (and is the only path to tools/image).
     if (decl) {
-      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (blob) => addObject(zipfile, blob), onCapture));
+      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture));
     }
     // Otherwise derive it from the runner's `{ custom }` platform references, so
     // a project split into workspace packages gets per-package change-detection
@@ -170,7 +170,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       .map((p) => p.custom);
     if (customs.length === 0) return null;
     const key = `auto:${runner.runtime}:${[...customs].sort().join(',')}`;
-    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (blob) => addObject(zipfile, blob), onCapture));
+    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture));
   };
   const resolveEnvironment = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): variant<'some', string> | variant<'none', null> => {
     const hash = environmentHashFor(decl, runner, owner);
@@ -211,7 +211,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       structures.set(path, childStructure);
 
     } else if (item.kind === "dataset") {
-      // Datasets: serialize value to object store, write DatasetRef to data/ dir
+      // Datasets: the value goes to the object store, and its ref into the
+      // package object
 
       // Get parent structure
       const parentPath = item.path.slice(0, -1).map(segment => {
@@ -241,14 +242,13 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       }).join('/');
 
       // An input's initial value comes from its SOURCE variant; `default` is
-      // the internal inline-value channel (a task's function_ir bundle,
-      // record()'s initial state), which is never path-initialised.
+      // the internal inline-value channel (record()'s initial state), which
+      // is never path-initialised.
       //
-      // - `value` and `default` are serialized into the bundle as before —
-      //   an EastIR / AsyncEastIR bundle through encodeEastIR so its source
-      //   map survives, everything else through the store path's own encoder
-      //   (a collection root ships segmented + indexed, so a deployed input is
-      //   pageable without anyone having to write it first, #584).
+      // - `value` and `default` are serialized into the bundle through the
+      //   store path's own encoder (a collection root ships segmented +
+      //   indexed, so a deployed input is pageable without anyone having to
+      //   write it first, #584).
       // - `file` records a DESCRIPTOR and leaves the ref unassigned: the
       //   bytes never travel in the package. The file is validated here,
       //   from its header, so a schema drift is a build error at the
@@ -265,13 +265,11 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         sources.set(refPath, variant('file', { path: resolved }));
         datasetRef = variant('unassigned', null);
       } else if (inline !== undefined) {
-        let valueData: Uint8Array;
-        if (inline instanceof EastIR || inline instanceof AsyncEastIR) {
-          const owner = taskOfFunctionIR.get(item);
-          valueData = encodeEastIR(link(inline, owner ? `task "${owner.name}"` : `dataset "${refPath}"`, owner?.runner));
-        } else {
-          valueData = encodeDatasetBlob(item.type, inline);
-        }
+        // A collection root ships as segment objects plus the manifest naming
+        // them, exactly as the store's own door writes one, so a deployed
+        // input is in the layout before anything writes it.
+        const valueData = await encodeDatasetBlob(item.type, inline,
+          (bytes) => Promise.resolve(addObject(zipfile, Buffer.from(bytes))));
         const valueHash = addObject(zipfile, Buffer.from(valueData));
         datasetRef = variant('value', { hash: valueHash, versions: new Map() });
       } else {
@@ -281,48 +279,51 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       // Store ref in the package-level refs map
       refs.set(refPath, datasetRef);
 
-      // Also write DatasetRef to zip as data/<refPath>.ref (for readability/debugging)
-      const refEncoder = encodeBeast2For(DatasetRefType);
-      const refData = refEncoder(datasetRef);
-      zipfile.addBuffer(Buffer.from(refData), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
-
       // Update structure: add value type with writable flag to parent
       const typeValue = toEastTypeValue(item.type);
       parentStructure.value.set(name, variant('value', { type: typeValue, writable: item.writable }));
 
     } else if (item.kind === "task") {
-      // Tasks are serialized and written immediately
+      // Tasks are serialized and written immediately: the program and the
+      // functions the output kind folds with are objects of their own, each
+      // linked against the task's runner, and the task object names them.
+      const owner = `task "${item.name}"`;
+      const irObject = (bundle: EastIR<any, any> | AsyncEastIR<any, any>): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, item.runner))));
 
-      // Build input paths from the task definition
-      // Note: e3.task() includes function_ir in inputs, e3.customTask() does not
-      const inputPaths = item.inputs.map(input => input.path);
+      let outputKind: TaskOutputKind;
+      const kind = item.outputKind;
+      switch (kind?.kind) {
+        case undefined: outputKind = variant('value', null); break;
+        case 'array': outputKind = variant('array', null); break;
+        case 'set': outputKind = variant('set', null); break;
+        case 'dict': outputKind = variant('dict', { merge: kind.merge === undefined ? none : some(irObject(kind.merge)) }); break;
+        case 'fold':
+          outputKind = variant('fold', {
+            zero: addObject(zipfile, Buffer.from(encodeBeast2For(kind.type)(kind.zero))),
+            combine: irObject(kind.combine),
+          });
+          break;
+      }
 
-      // Serialize command IR — item.command is an EastIR bundle so this
-      // preserves the source map.
-      const commandIrData = encodeEastIR(item.command);
-      const commandIrHash = addObject(zipfile, Buffer.from(commandIrData));
-
-      // Build TaskObject
-      const taskObject = {
-        commandIr: commandIrHash,
-        inputs: inputPaths,
-        output: item.output.path,
-        kind: item.taskKind ? variant('some', item.taskKind) : variant('none', null),
-        metadata: item.metadata ? variant('some', item.metadata) : variant('none', null),
-        // Routing metadata (commandIr stays authoritative for execution).
-        // customTask leaves TaskDef.runner undefined -> opaque custom
-        // (empty command: the wire field is informational for custom tasks).
+      const taskObject: TaskObject = {
+        kind: TASK_OBJECT_KIND,
+        // A custom task's command builds an argv and calls no function, so it
+        // is encoded unlinked.
+        body: item.body.kind === 'east'
+          ? variant('east', { program: irObject(item.body.program) })
+          : variant('command', { commandIr: addObject(zipfile, Buffer.from(encodeEastIR(item.body.command))) }),
+        // customTask leaves TaskDef.runner undefined: its command is what
+        // runs, so the runner is the custom runtime with an empty command.
         runner: item.runner ? runnerToVariant(item.runner) : variant('custom', { command: [] as string[] }),
+        inputs: item.inputs.map((input) => input.kind === 'partition'
+          ? { path: input.dataset.path, partition: some({ by: [...input.by] }) }
+          : { path: input.path, partition: none }),
+        output: { path: item.output.path, kind: outputKind },
+        role: item.role,
         environment: resolveEnvironment(item.environment, item.runner, item.name),
       };
-
-      // Serialize and add to zip
-      const taskEncoder = encodeBeast2For(TaskObjectType);
-      const taskData = taskEncoder(taskObject);
-      const taskHash = addObject(zipfile, Buffer.from(taskData));
-
-      // Add to package tasks map
-      tasks.set(item.name, taskHash);
+      tasks.set(item.name, addObject(zipfile, Buffer.from(encodeBeast2For(TaskObjectType)(taskObject))));
 
     } else {
       throw new Error(`Unknown package item kind: ${(item satisfies never as PackageItem).kind}`);
@@ -353,11 +354,14 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
 
   // Write record objects. The record's own dataset (initial state value + ref +
   // writable:false structure leaf) is written by the dataset branch above —
-  // records are datasets. Here we write the separate RecordObject + its
-  // MutationObjects, mirroring how functions are written. The genesis commit is
-  // minted at deploy (writeRecordGenesis) from the initial-state ref.
+  // records are datasets. Here we write the separate RecordObject and the
+  // mutation, index and migration objects it names, mirroring how functions
+  // are written. Deploy mints the record's `$init` commit from the
+  // initial-state ref.
   const records = new SortedMap<string, string>(); // name -> RecordObject hash
   const mutationEncoder = encodeBeast2For(MutationObjectType);
+  const indexEncoder = encodeBeast2For(RecordIndexObjectType);
+  const migrationEncoder = encodeBeast2For(MigrationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
     const recordRefPath = rdef.path.map(seg => {
@@ -367,20 +371,75 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       return seg.value;
     }).join('/');
 
+    // A mutation ships its author body AND the program built from it: the
+    // program is what runs, and it emits the delta the engine applies. A
+    // record whose collection has no delta addressed by key keeps the original
+    // protocol — the reducer runs and its whole result is the new state — and
+    // says so by naming no program.
     const mutations = new SortedMap<string, string>(); // name -> MutationObject hash
     for (const [mname, mdef] of Object.entries(rdef.mutations)) {
-      const bodyIrData = encodeEastIR(link(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner));
-      const bodyIrHash = addObject(zipfile, Buffer.from(bodyIrData));
+      const owner = `mutation "${rname}.${mname}"`;
+      const programIr = hasKeyedDelta(rdef.type)
+        ? addObject(zipfile, Buffer.from(
+          encodeEastIR(link(buildMutationProgram(rdef, mdef), owner, mdef.runner))))
+        : '';
+      if (mdef.body === undefined && programIr === '') {
+        throw new Error(`${owner} has neither a body nor a program to run`);
+      }
+      const bodyIr = mdef.body === undefined
+        ? programIr
+        : addObject(zipfile, Buffer.from(encodeEastIR(link(mdef.body, owner, mdef.runner))));
       const mutObject: MutationObject = {
-        bodyIr: bodyIrHash,
+        bodyIr,
         argTypes: mdef.argTypes.map((t) => toEastTypeValue(t)),
         runner: runnerToVariant(mdef.runner),
+        form: mdef.form,
+        programIr,
       };
       const mutHash = addObject(zipfile, Buffer.from(mutationEncoder(mutObject)));
       mutations.set(mname, mutHash);
     }
 
-    const recObject: RecordObject = { path: recordRefPath, mutations };
+    // An index ships its declared functions AND the program built from them:
+    // what runs is the program, and it is linked and encoded like any body.
+    const indexes = new SortedMap<string, string>(); // name -> RecordIndexObject hash
+    for (const [iname, idef] of Object.entries(rdef.indexes)) {
+      const owner = `index "${rname}.${iname}"`;
+      const irHash = (expr: { toIR(): unknown }): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(expr.toIR() as EastIR<any, any> | AsyncEastIR<any, any>, owner, idef.runner))));
+      const indexObject: RecordIndexObject = {
+        keyIr: irHash(idef.keyFn),
+        multi: idef.multi,
+        valueIr: idef.valueFn === undefined ? none : some(irHash(idef.valueFn)),
+        keyType: toEastTypeValue(idef.keyType),
+        valueType: toEastTypeValue(idef.valueType),
+        buildIr: addObject(zipfile, Buffer.from(
+          encodeEastIR(link(indexBuildProgram(idef.record.type, idef), owner, idef.runner)))),
+        runner: runnerToVariant(idef.runner),
+      };
+      indexes.set(iname, addObject(zipfile, Buffer.from(indexEncoder(indexObject))));
+    }
+
+    // A migration ships its function and, for a step split over the state, the
+    // program built from it, which is what runs a piece at a time. A `value`
+    // step runs its own function over the whole state, and names no program.
+    const migrations: RecordObject['migrations'] = [];
+    for (const step of rdef.migrations) {
+      const owner = `migration "${rname}.${step.name}"`;
+      const irObject = (bundle: EastIR<any, any>): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, step.runner))));
+      const migrationObject: MigrationObject = {
+        form: step.form,
+        from: toEastTypeValue(step.from),
+        to: toEastTypeValue(step.to),
+        bodyIr: irObject(step.body),
+        programIr: step.form === 'value' ? '' : irObject(migrationProgram(step)),
+        runner: runnerToVariant(step.runner),
+      };
+      migrations.push({ name: step.name, migration: addObject(zipfile, Buffer.from(migrationEncoder(migrationObject))) });
+    }
+
+    const recObject: RecordObject = { path: recordRefPath, mutations, indexes, migrations };
     const recHash = addObject(zipfile, Buffer.from(recordEncoder(recObject)));
     records.set(rname, recHash);
   }
@@ -406,9 +465,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const packageObjectData = packageObjectEncoder(packageObject);
   const packageHash = addObject(zipfile, Buffer.from(packageObjectData));
 
-  // Write the package ref at packages/<name>/<version>
-  const refPath = `packages/${pkg.name}/${pkg.version}`;
-  zipfile.addBuffer(Buffer.from(packageHash + '\n'), refPath, { mtime: DETERMINISTIC_MTIME });
+  // The package ref, as a repository keeps one
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(packageHash)), `packages/${pkg.name}/${pkg.version}.beast2`, { mtime: DETERMINISTIC_MTIME });
 
   // Finalize and write zip to disk
   await new Promise<void>((resolve, reject) => {

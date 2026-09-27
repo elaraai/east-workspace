@@ -12,6 +12,7 @@ import { LocalLockService } from './LocalLockService.js';
 import { LocalLogStore } from './LocalLogStore.js';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
+import { readRepositoryRecord } from './repository.js';
 import { RepoNotFoundError } from '../../errors.js';
 
 /**
@@ -88,6 +89,7 @@ export class LocalStorage implements StorageBackend {
    * Validate that a repository exists and is properly structured.
    * @param repo - Path to the e3 repository directory
    * @throws {RepoNotFoundError} If repository doesn't exist or is invalid
+   * @throws {RepoLayoutError} If it is of another layout
    */
   async validateRepository(repo: string): Promise<void> {
     const requiredDirs = ['objects', 'packages', 'workspaces', 'executions'];
@@ -98,11 +100,9 @@ export class LocalStorage implements StorageBackend {
         throw new RepoDirNotFoundError(repo);
       }
     }
+    readRepositoryRecord(repo);
   }
 }
-
-// Re-export as LocalBackend for backwards compatibility during migration
-export { LocalStorage as LocalBackend };
 
 /**
  * No-op implementation of RepoStore that throws on all operations.
@@ -131,8 +131,8 @@ class NoOpRepoStore implements RepoStore {
 
   setStatus(
     _repo: string,
-    _status: import('../interfaces.js').RepoStatus,
-    _expected?: import('../interfaces.js').RepoStatus | import('../interfaces.js').RepoStatus[]
+    _status: import('../interfaces.js').RepoStatusName,
+    _expected?: import('../interfaces.js').RepoStatusName | import('../interfaces.js').RepoStatusName[]
   ): Promise<void> {
     return this.error();
   }

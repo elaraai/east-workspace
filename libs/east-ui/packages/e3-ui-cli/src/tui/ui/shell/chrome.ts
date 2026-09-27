@@ -12,7 +12,7 @@
  */
 
 import { columnPlan, breakpoint } from '../../render/layout.js';
-import { displayWidth, padEnd, lr } from '../../render/text.js';
+import { displayWidth, padEnd, lr, truncate } from '../../render/text.js';
 import type { TuiState, View } from '../../state/actions.js';
 import { dirtyCount } from '../../state/reducer.js';
 import { changedNames } from '../../data/edit-buffer.js';
@@ -21,6 +21,7 @@ import { connectionCell } from '../../model/status.js';
 import { blank, fitLine, fitRows, lineWidth, lrLine, rule, t, b, d, type Line, type RenderCtx } from '../lines.js';
 import type { Hit } from '../frame.js';
 import { launchStep } from '../views/launch.js';
+import { tablePlan } from './widgets.js';
 
 /** The breadcrumb of a view. */
 export function breadcrumb(state: TuiState, ctx: RenderCtx): string {
@@ -28,16 +29,16 @@ export function breadcrumb(state: TuiState, ctx: RenderCtx): string {
     const session = state.session;
     if (session !== null) parts.push(session.label);
     const v: View = state.view;
-    if (v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input') parts.push(v.ws);
+    if (v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input' || v.kind === 'record') parts.push(v.ws);
     if (v.kind === 'task') parts.push(v.task);
-    if (v.kind === 'input') parts.push(v.name);
+    if (v.kind === 'input' || v.kind === 'record') parts.push(v.name);
     if (v.kind === 'help' || v.kind === 'about') {
         // Help and about keep the breadcrumb of the page underneath.
         const under = state.history[state.history.length - 1];
         if (under !== undefined) {
-            if (under.kind === 'dashboard' || under.kind === 'task' || under.kind === 'input') parts.push(under.ws);
+            if (under.kind === 'dashboard' || under.kind === 'task' || under.kind === 'input' || under.kind === 'record') parts.push(under.ws);
             if (under.kind === 'task') parts.push(under.task);
-            if (under.kind === 'input') parts.push(under.name);
+            if (under.kind === 'input' || under.kind === 'record') parts.push(under.name);
         }
     }
     return parts.join(` ${ctx.g.crumb} `);
@@ -49,11 +50,12 @@ export function pills(state: TuiState, ctx: RenderCtx): Line {
     const out: Line = [];
     const dirty = dirtyCount(state);
     if (dirty > 0) out.push(b(`${g.diamond} ${dirty} DIRTY`, 'warn'), t('  '));
-    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' ? state.view.ws : null;
+    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' || state.view.kind === 'record' ? state.view.ws : null;
     const execution = ws !== null ? state.data.execution[ws] : undefined;
     if (execution?.state?.status.type === 'running' || execution?.settling === true || execution?.stopping === true) {
         const total = ws !== null ? state.data.status[ws]?.result.tasks.length ?? 0 : 0;
-        const done = execution.events.filter(e => e.type !== 'start').length;
+        // A requeue is a unit's, and ends no task.
+        const done = execution.events.filter(e => e.type !== 'start' && e.type !== 'requeued').length;
         const spin = g.spinner[ctx.spinner % g.spinner.length]!;
         if (execution.stopping) out.push(b(`${g.square} STOPPING ${spin}`, 'warn'), t('  '));
         else out.push(b(`${g.quarter} RUNNING ${done}/${total} ${spin}`, 'info'), t('  '));
@@ -136,17 +138,18 @@ export function commandStatus(state: TuiState): { text: string; keys: string; er
         if (completion !== null) return { text: `${completion.items.length} match${completion.items.length === 1 ? '' : 'es'} · ↑↓ pick · ⏎ open · tab complete`, keys: '', error: false };
         return { text: parsed.error, keys: 'esc', error: true };
     }
-    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' ? state.view.ws : null;
+    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' || state.view.kind === 'record' ? state.view.ws : null;
     const status = ws !== null ? state.data.status[ws]?.result : undefined;
     const execution = ws !== null ? state.data.execution[ws] : undefined;
+    const budget = ws !== null ? state.data.budget[ws] : undefined;
     const described = describe(parsed.command, {
         workspace: ws,
         taskCount: status?.tasks.length ?? 0,
         running: execution?.state?.status.type === 'running' || execution?.settling === true,
-        concurrency: 4,
         dirty: dirtyCount(state),
+        budget: budget === undefined || budget === null ? null : { cores: Number(budget.cores), memory: Number(budget.memory) },
     });
-    if (completion !== null && (parsed.command.name === 'task' || parsed.command.name === 'input' || parsed.command.name === 'workspace' || parsed.command.name === 'dataset' || parsed.command.name === 'repo' || parsed.command.name === 'logs' || parsed.command.name === 'runs' || parsed.command.name === 'tag')) {
+    if (completion !== null && (parsed.command.name === 'task' || parsed.command.name === 'input' || parsed.command.name === 'record' || parsed.command.name === 'index' || parsed.command.name === 'workspace' || parsed.command.name === 'dataset' || parsed.command.name === 'repo' || parsed.command.name === 'logs' || parsed.command.name === 'runs' || parsed.command.name === 'tag')) {
         return { text: `${completion.items.length} match${completion.items.length === 1 ? '' : 'es'} · ↑↓ pick · ⏎ open · tab complete`, keys: '', error: false };
     }
     return { text: described.text, keys: described.keys, error: false };
@@ -186,29 +189,30 @@ export function renderCommandBox(state: TuiState, ctx: RenderCtx): Line[] {
     return [rule(width, g.rule), fitLine(middle, width), rule(width, g.rule)];
 }
 
-/** The completion rows above the command box. */
+/**
+ * The completion rows above the command box. The name column grows to the
+ * longest name shown, as a table's does; a row's last cell takes the rest of
+ * the line (a command's effect, a flag's hint), and a fixed cell that still
+ * overflows ends in `…` with a cell of gap.
+ */
 export function renderCompletion(state: TuiState, ctx: RenderCtx): Line[] {
     const completion = state.command.completion;
     if (completion === null || ctx.layout.completionRows === 0) return [];
     const width = ctx.layout.columns;
     const g = ctx.g;
     const isJump = !state.command.text.startsWith('/');
-    const plan = columnPlan(isJump ? 'jump' : 'completion', breakpoint(state.size));
     const items = completion.items.slice(0, ctx.layout.completionRows);
+    const plan = tablePlan(columnPlan(isJump ? 'jump' : 'completion', breakpoint(state.size)),
+        items.map(item => ({ cells: { name: item.cells[1] ?? '' } })), width);
     return items.map((item, i) => {
         const selected = i === completion.index;
         const line: Line = [t(' '), b(selected ? g.sel : ' ', 'brand'), t(' ')];
-        let used = 3;
-        plan.forEach((col, ci) => {
-            const cell = item.cells[ci] ?? '';
-            if (col.width === 0) {
-                line.push(selected ? b(cell) : t(cell));
-                return;
-            }
-            line.push(selected ? b(padEnd(cell, col.width)) : t(padEnd(cell, col.width)));
-            used += col.width;
-        });
-        void used;
+        for (let ci = 0; ci < plan.length && ci < item.cells.length; ci++) {
+            const col = plan[ci]!;
+            const cell = item.cells[ci]!;
+            const text = col.width === 0 || ci === item.cells.length - 1 ? cell : padEnd(truncate(cell, Math.max(1, col.width - 1)), col.width);
+            line.push(selected ? b(text) : t(text));
+        }
         return fitLine(line, width);
     });
 }

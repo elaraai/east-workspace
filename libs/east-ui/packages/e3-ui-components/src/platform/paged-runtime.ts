@@ -4,7 +4,7 @@
  */
 
 /**
- * Runtime implementation for the `Data.bindPaged` platform function — reading
+ * Runtime implementation for the `Data.bindPaged` platform functions — reading
  * a collection dataset one WINDOW at a time, for sources too large to hold
  * whole.
  *
@@ -12,33 +12,27 @@
  * it has landed, and otherwise starts the fetch and returns `none`. The caller
  * re-reads on the next reactive frame (the window's channel notifies when it
  * settles), which is why the East-side contract is `Option` rather than a
- * promise — the same shape `Func.bind`'s `read()` has.
+ * promise — the same shape `Func.bind`'s `read()` has. A fetch that failed
+ * throws its reason when read, so `none` means only "in flight".
  *
- * One tracked channel per window `(workspace, path, offset, limit)`, plus one
- * per source for the element total (any landed window teaches it). Windows are
- * immutable within a content revision. Refresh invalidates windows, totals
- * and key search together, preserving resident demand for the next snapshot:
- * the windows the cache holds, and the key searches something still reads.
+ * Every bind of one dataset shares a SNAPSHOT: the content hash its reads are
+ * pinned to, its revision. Windows, totals and searches are fetched pinned, so
+ * the server answers from that content or refuses; what one snapshot delivered
+ * is never served beside another's. The snapshot follows its dataset — the
+ * dataset store's status poll reporting a new hash, a refused pin, or
+ * `refresh` moves it — and a move drops what the old snapshot delivered, so the
+ * windows and searches still being read are fetched again, pinned to the new
+ * one.
  *
- * A bound source follows its dataset (#821): the API's `watchRevision`
- * reports each new content hash, and a hash that is not the served revision
- * refreshes the source to it. A pinned read the server refuses because the
- * dataset has moved past the pin (409 `dataset_hash_mismatch`) rediscovers the
- * current revision rather than failing its window.
+ * One tracked channel per window, per total and per search, each keyed by the
+ * revision it belongs to, plus one per dataset for its revision, which every
+ * read tracks.
  *
- * A window whose fetch FAILED is not in flight, so it does not read `none`:
- * the read throws the reason (#811). `none` there made every consumer spin
- * "Loading…" forever over a dataset that was never going to arrive. A later
- * read relaunches a transient failure once the retry gap has passed — which
- * is what a component's Retry is — and a permanent one (an authoring error)
- * keeps throwing its reason without refetching. Key searches follow the same
- * rule.
- *
- * Deliberately NOT routed through {@link ReactiveDatasetCache}: that cache is
- * for whole dataset values (synchronous reads of everything ever loaded, a
- * write pipeline, a status poll). A paged source is precisely the thing you
- * cannot hold whole, so it gets its own narrow API seam — the same shape
- * `FuncRuntime` / `RecordRuntime` use.
+ * The dataset store's CONTENT is deliberately not used: it holds whole values,
+ * and a paged source is precisely the thing you cannot hold whole. A source
+ * rides the store's status poll for hashes alone, through
+ * {@link PagedApi.watchRevision}, and reads windows through its own API seam —
+ * the same shape `FuncRuntime` / `RecordRuntime` use.
  *
  * @packageDocumentation
  */
@@ -49,27 +43,36 @@ import {
     compareFor,
     fromEastTypeValue,
     type EastType,
+    BooleanType,
     IntegerType,
-    StringType,
     NullType,
     OptionType,
+    StringType,
     decodeBeast2For,
     none,
     some,
-    type ValueTypeOf,
     type EastTypeValue,
+    type option,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { bindPagedPlatformFn, DataPagedPrimitives } from "@elaraai/e3-ui/internal";
+import { bindPagedPinnedPlatformFn, bindPagedPlatformFn, DataPagedPrimitives } from "@elaraai/e3-ui/internal";
 import {
     registerReactiveTracker,
     registerPlatformImplementation,
 } from "@elaraai/east-ui-components/platform";
-import { datasetGetStatus, datasetGetPage, datasetFindKey, type DatasetPage, type DatasetFindQuery, type DatasetFindResult } from "@elaraai/e3-api-client";
+import {
+    datasetGetPage,
+    datasetFindKey,
+    datasetGetStatus,
+    DatasetHashMismatchError,
+    type DatasetPage,
+    type DatasetFindQuery,
+    type DatasetFindResult,
+} from "@elaraai/e3-api-client";
 import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
-import { datasetPathToString } from "./dataset-store.js";
+import { datasetPathToString, type ReactiveDatasetCacheInterface } from "./dataset-store.js";
 import { TrackedChannelStore } from "./tracked-channel.js";
 
 // =============================================================================
@@ -85,30 +88,64 @@ export interface PagedWindow {
     offset: number;
     /** Maximum elements to return (the server may clamp it). */
     limit: number;
-    /** Content snapshot to read; the server must refuse a different snapshot. */
+    /** Read through one of a record's secondary indexes instead of the record
+     *  itself — the window is then the INDEX's row space, in its own order. */
+    index?: string;
+    /** With {@link index}: read each entry's row from the record too. */
+    join?: boolean;
+    /** The content hash the window is pinned to. The server answers from that
+     *  content or refuses, naming the content the dataset holds now; it never
+     *  answers from other content. */
     hash?: string;
 }
 
+/** Which rows a bind serves: the dataset's own, or one of a record's indexes.
+ *  Every channel key, every fetch and the handle cache carry it, because two
+ *  binds that differ here serve different row spaces from one path. */
+export interface PagedSelector {
+    /** The index's name, or `null` for the dataset itself. */
+    index: string | null;
+    /** Whether an index read joins each entry to its row. */
+    join: boolean;
+}
+
+/** The selector a bind with no index has. */
+const NO_INDEX: PagedSelector = { index: null, join: false };
+
+/** A selector's contribution to a channel key and a cache key. */
+function selectorKey(selector: PagedSelector): string {
+    return selector.index === null ? "" : `@${selector.index}${selector.join ? "+join" : ""}`;
+}
+
 /**
- * Adapter for the dataset paging endpoint. The default wraps
- * `@elaraai/e3-api-client`'s `datasetGetPage`.
+ * Adapter for the dataset paging endpoints. The default wraps
+ * `@elaraai/e3-api-client`'s `datasetGetPage`, `datasetFindKey` and
+ * `datasetGetStatus`, and follows datasets through the dataset store.
  */
 export interface PagedApi {
-    /** Resolve current content without fetching the whole dataset. */
-    getRevision(workspace: string, path: TreePath): Promise<string>;
-    /** Fetch one element window of a collection dataset. */
+    /** Fetch one element window of a collection dataset — or of one of a
+     *  record's indexes, when the window names one. */
     getPage(workspace: string, path: TreePath, window: PagedWindow): Promise<DatasetPage>;
     /** Locate a key query in a Set/Dict dataset's canonical key order. The
      *  `row` it answers with indexes the SAME row space {@link getPage}'s
      *  element windows serve, which is what makes a hit addressable. */
     findKey(workspace: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
     /**
-     * Follow the dataset's content (#821): `onRevision` hears its content hash
-     * once known and on every change after (`null` while it holds no value).
-     * Returns a disposer. Without it, a source moves to another revision only
-     * when its `refresh` is called.
+     * The dataset's current content hash, or `null` while it has no value. For
+     * a record it is the record's state hash, which reads through its indexes
+     * are pinned to as well.
      */
-    watchRevision?(workspace: string, path: TreePath, onRevision: (hash: string | null) => void): () => void;
+    getRevision(workspace: string, path: TreePath): Promise<string | null>;
+    /**
+     * Follow a dataset's content hash.
+     *
+     * @param workspace - The workspace
+     * @param path - The dataset's path
+     * @param onChange - Hears each hash the dataset moves to, the first report
+     *   included; `null` while it has no value
+     * @returns A function that stops following
+     */
+    watchRevision(workspace: string, path: TreePath, onChange: (hash: string | null) => void): () => void;
 }
 
 /**
@@ -116,26 +153,36 @@ export interface PagedApi {
  * `@elaraai/e3-api-client`.
  *
  * @remarks
- * Resolve the current content hash once, then pin every page and key search
- * to that snapshot. Refresh starts a new generation shared by all consumers.
+ * A dataset is followed through the dataset store's workspace-status poll,
+ * which reports every dataset's hash: a followed dataset joins that poll, adds
+ * no request of its own, and never has its content fetched.
+ *
+ * @param apiUrl - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param getToken - Reads the current token, so a rotated one is used at once
+ * @param datasets - The dataset store whose status poll reports the hashes
+ * @returns The adapter
  */
 export function createDefaultPagedApi(
     apiUrl: string,
     repo: string,
     getToken: () => string | null,
+    datasets: Pick<ReactiveDatasetCacheInterface, "watchHash">,
 ): PagedApi {
     const opts = (): { token: string | null } => ({ token: getToken() });
     return {
-        async getRevision(workspace, path) {
-            const status = await datasetGetStatus(apiUrl, repo, workspace, path, opts());
-            if (status.hash.type !== "some") throw new Error("Data.bindPaged: dataset has no content snapshot");
-            return status.hash.value;
-        },
         async getPage(workspace, path, window) {
             return datasetGetPage(apiUrl, repo, workspace, path, window, opts());
         },
         async findKey(workspace, path, query) {
             return datasetFindKey(apiUrl, repo, workspace, path, query, opts());
+        },
+        async getRevision(workspace, path) {
+            const status = await datasetGetStatus(apiUrl, repo, workspace, path, opts());
+            return status.hash.type === "some" ? status.hash.value : null;
+        },
+        watchRevision(workspace, path, onChange) {
+            return datasets.watchHash(workspace, path, onChange);
         },
     };
 }
@@ -144,19 +191,12 @@ export function createDefaultPagedApi(
 // Runtime
 // =============================================================================
 
-/** One tracked channel per window (and one per source, for the total). */
-interface SourceSnapshot {
-    generation: number;
-    revision: string | undefined;
-    resolving: boolean;
-    error: unknown;
-    failedAtMs: number | undefined;
-    windows: Map<string, { type: EastTypeValue; offset: number; limit: number }>;
-    seeks: Map<string, DatasetFindQuery>;
-}
-
+/** One tracked channel per window, per total and per search. */
 interface PageEntry {
     status: "idle" | "running" | "loaded" | "failed";
+    /** The fetch the channel waits on; a settling fetch that is no longer it
+     *  is discarded. Unique across the runtime, so a channel dropped by a move
+     *  and made again never mistakes an old fetch for its own. */
     launchSeq: number;
     /** The decoded window — a value of the dataset's own type. */
     window?: unknown;
@@ -164,37 +204,50 @@ interface PageEntry {
     total?: number;
     /** Where a key query landed — the answer on a seek channel. */
     range?: DatasetFindResult;
+    /** Why the last attempt failed — what a read of the channel throws. */
+    error?: string;
     /** When the last attempt failed, so a retry can be rate-limited. */
     failedAtMs?: number;
-    /** The failure is an authoring error, so retrying can never help. */
+    /** No retry can help while the source holds the same content. */
     permanent?: boolean;
-    /** Why the last attempt failed — what a read of the failed entry throws. */
-    error?: string;
 }
 
-/** One line naming why an attempt failed. */
-function failureOf(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
+/** What every bind of one dataset shares: the content its reads are pinned to. */
+interface Snapshot {
+    /** The dataset, as snapshots are keyed. */
+    readonly key: string;
+    /** The content hash reads are pinned to: `undefined` until found, `null`
+     *  while the dataset has no value. */
+    revision: string | null | undefined;
+    /** Moves so far. A lookup that began before a move answers for content no
+     *  newer than the move's, so its answer is dropped. */
+    moves: number;
+    /** The latest lookup of the revision; only it settles. */
+    findSeq: number;
+    /** Whether a lookup is in flight. */
+    finding: boolean;
+    /** Why the last lookup failed, while the revision is unknown. */
+    findError?: string;
+    /** When the last lookup failed, so a retry can be rate-limited. */
+    findFailedAtMs?: number;
+    /** The channels of the current revision, dropped when it moves. */
+    readonly channels: Set<string>;
+    /** Stops following the dataset. */
+    unwatch: () => void;
 }
 
-/** A failed entry's read: throw its reason — never `none`, which reads as
- *  "still in flight" and spins a consumer's loading state forever (#811). */
-function throwFailure(entry: PageEntry, what: string): never {
-    throw new Error(entry.error ?? `Data.bindPaged: ${what} could not be read`);
-}
-
-/** Minimum gap between retries of a window whose fetch failed. */
+/** Minimum gap between retries of a read whose fetch failed. */
 const RETRY_AFTER_MS = 2000;
 
 /**
  * Decoded windows retained across ALL paged sources (#567 D6).
  *
  * A decoded window is the heavy object here — a window of wide rows runs to
- * megabytes — and windows are immutable once loaded, so nothing ever evicts
- * them on its own: scrolling a GB-scale dataset end to end would pin every
- * window it passed. Retention is bounded least-recently-READ, and an evicted
- * window drops back to `idle` so the next read simply refetches it (the raw
- * bytes may still be in an HTTP cache, so a return is usually cheap).
+ * megabytes — and nothing else evicts one while its revision stands: scrolling
+ * a GB-scale dataset end to end would pin every window it passed. Retention is
+ * bounded least-recently-READ, and an evicted window drops back to `idle` so
+ * the next read simply refetches it (the raw bytes may still be in an HTTP
+ * cache, so a return is usually cheap).
  *
  * `<PagedDatasetPreview>` caps its own materialized rows the same way
  * (`MAX_RETAINED_PAGES`); this is the cap for the *bound* path, where the
@@ -203,23 +256,69 @@ const RETRY_AFTER_MS = 2000;
 const MAX_RETAINED_WINDOWS = 24;
 
 /**
- * Server error codes that no amount of retrying will fix — the bind itself is
- * wrong, not the moment. Everything else (a dataset the dataflow has not
- * produced yet, a hash race, a transport blip) is worth another attempt.
+ * Server error codes that no retry can fix while the dataset holds the same
+ * content: the request, or the stored value, is wrong rather than the moment.
+ * A read that failed with one keeps throwing without fetching again until the
+ * source moves. Anything else — a transport blip, a cold server — is fetched
+ * again after {@link RETRY_AFTER_MS}.
  */
-const PERMANENT_PAGE_ERRORS = new Set(["dataset_not_pageable"]);
+const PERMANENT_PAGE_ERRORS = new Set([
+    "bad_request",
+    "dataset_not_canonical",
+    "dataset_not_indexed",
+    "dataset_not_pageable",
+    "dataset_not_searchable",
+    "dataset_not_segmented",
+    "index_not_found",
+    "key_parse_error",
+]);
 
-/** Whether a caught fetch error is an authoring error rather than a hiccup. */
-function isPermanentPageError(err: unknown): boolean {
-    const code = (err as { code?: unknown } | null)?.code;
-    return typeof code === "string" && PERMANENT_PAGE_ERRORS.has(code);
+/** Server error codes that say the dataset has no value, so the source has no
+ *  snapshot until one lands. */
+const NO_VALUE_ERRORS = new Set(["dataset_unassigned", "dataset_null"]);
+
+/** The decoded descriptor arguments as a selector. */
+function toSelector(indexArg: unknown, joinArg: unknown): PagedSelector {
+    const index = indexArg as { type: string; value: unknown } | undefined;
+    return {
+        index: index !== undefined && index.type === "some" ? index.value as string : null,
+        join: joinArg === true,
+    };
 }
 
-/** Whether a pinned read was refused because the dataset moved past the
- *  pinned snapshot (409 `dataset_hash_mismatch`) — the source's news, not
- *  the window's failure (#821). */
-function isRevisionMoved(err: unknown): boolean {
-    return (err as { code?: unknown } | null)?.code === "dataset_hash_mismatch";
+/** Refuses a paged bind of a path the task's manifest never declared — so a
+ *  `ui()` task windows only the datasets derivation recorded. */
+function checkDeclared(allowed: ReadonlySet<string> | null, path: TreePath): void {
+    if (allowed === null) return;
+    const pathStr = datasetPathToString(path);
+    if (!allowed.has(pathStr)) {
+        throw new Error(
+            `Data.bindPaged: source path "${pathStr}" not declared in manifest — ` +
+            `bind it in the task body so derivation records it`,
+        );
+    }
+}
+
+/** A caught error's server code, when it carries one. */
+function errorCode(err: unknown): string | undefined {
+    const code = (err as { code?: unknown } | null)?.code;
+    return typeof code === "string" ? code : undefined;
+}
+
+/** Whether a caught fetch error is one no retry can fix. */
+function isPermanentPageError(err: unknown): boolean {
+    const code = errorCode(err);
+    return code !== undefined && PERMANENT_PAGE_ERRORS.has(code);
+}
+
+/** What a failed read throws: the server's code and message, or the error's own. */
+function failureOf(path: TreePath, err: unknown): string {
+    const code = errorCode(err);
+    const details = (err as { details?: unknown } | null)?.details;
+    const reason = code === undefined
+        ? (err instanceof Error ? err.message : String(err))
+        : typeof details === "string" && details !== "" ? `${code}: ${details}` : code;
+    return `Data.bindPaged: ${datasetPathToString(path)}: ${reason}`;
 }
 
 /** The Dict key / Set element type of a keyed collection, else null — the
@@ -247,55 +346,88 @@ function buildSeek(
     sourceType: EastTypeValue,
     T: EastType,
     pathExpr: unknown,
+    indexExpr: unknown,
+    joinExpr: unknown,
+    selector: PagedSelector,
     platform: PlatformFunction[],
 ): unknown {
-    if (keyTypeOf(sourceType) === null) return none;
+    // An INDEX window is an Array — it has to be, or a Dict would re-sort it
+    // out of index order — but the collection behind it is keyed by `{ik, k}`,
+    // so it is searchable even though its window type is not.
+    if (selector.index === null && keyTypeOf(sourceType) === null) return none;
     const { seek } = DataPagedPrimitives;
     return some(East.compile(
         East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
-            $.return(seek([T], pathExpr as never, query));
+            $.return(seek([T], pathExpr as never, indexExpr as never, joinExpr as never, query));
         }),
         platform,
     ));
 }
 
-/** Tracked-channel key for one window. */
-export function pagedWindowKey(workspace: string, path: TreePath, offset: number, limit: number): string {
-    return `paged:${workspace}:${datasetPathToString(path)}#${offset}+${limit}`;
+/** Tracked-channel key for a dataset's revision. Every read of the dataset
+ *  tracks it, so every read re-fires when the source moves. */
+export function pagedRevisionKey(workspace: string, path: TreePath): string {
+    return `paged:${workspace}:${datasetPathToString(path)}#revision`;
 }
 
-/** Tracked-channel key for a source's element total. */
-export function pagedTotalKey(workspace: string, path: TreePath): string {
-    return `paged:${workspace}:${datasetPathToString(path)}#total`;
+/** Tracked-channel key for one window of one revision. */
+export function pagedWindowKey(
+    workspace: string, path: TreePath, revision: string, offset: number, limit: number, selector: PagedSelector = NO_INDEX,
+): string {
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}#${offset}+${limit}`;
 }
 
-/** Tracked-channel key for ONE key query against a source. Every distinct
- *  query gets its own channel: a search result is as immutable as a window. */
-export function pagedSeekKey(workspace: string, path: TreePath, query: DatasetFindQuery): string {
+/** Tracked-channel key for one revision's element total. */
+export function pagedTotalKey(workspace: string, path: TreePath, revision: string, selector: PagedSelector = NO_INDEX): string {
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}#total`;
+}
+
+/** Tracked-channel key for ONE key query against one revision. Every distinct
+ *  query gets its own channel: a search result is as fixed as a window. */
+export function pagedSeekKey(
+    workspace: string, path: TreePath, revision: string, query: DatasetFindQuery, selector: PagedSelector = NO_INDEX,
+): string {
     const q = "key" in query
         ? `k=${query.key}`
         : "fields" in query
             ? `f=${query.fields.join("\u0000")}|p=${query.prefix ?? ""}`
-            : `p=${query.prefix}`;
-    return `paged:${workspace}:${datasetPathToString(path)}#seek:${q}`;
+            : "prefix" in query
+                ? `p=${query.prefix}`
+                : `r=${(query.from ?? []).join("\u0000")}|${(query.to ?? []).join("\u0000")}`;
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}#seek:${q}`;
 }
 
 /**
  * The decoded East {@link SeekQueryType} value as e3's wire query.
  *
- * The two are deliberately the same three shapes, so this is a re-tagging
- * rather than a translation: `.east` literals stay text, and the East option on
- * the `fields` arm becomes an absent property (`exactOptionalPropertyTypes`).
+ * The two are deliberately the same shapes, so this is a re-tagging rather
+ * than a translation: `.east` literals stay text, and the East option on the
+ * `fields` arm, like an open end of a `range`, becomes an absent property
+ * (`exactOptionalPropertyTypes`).
  */
-export function toFindQuery(query: unknown): DatasetFindQuery {
+export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX): DatasetFindQuery {
     const q = query as { type: string; value: unknown };
-    if (q.type === "key") return { key: q.value as string };
-    if (q.type === "prefix") return { prefix: q.value as string };
+    const scope = selector.index === null ? {} : { index: selector.index };
+    if (q.type === "key") return { key: q.value as string, ...scope };
+    if (q.type === "prefix") return { prefix: q.value as string, ...scope };
+    if (q.type === "range") {
+        // A half-open bound on a leading prefix of the FLATTENED key — an
+        // empty side is an open end, which the wire says by omitting it. Open
+        // at both ends it names no run, and a server refuses it with an error
+        // the retry gate would keep re-asking, so it is refused here instead.
+        const r = q.value as { from: string[]; to: string[] };
+        const from = [...r.from];
+        const to = [...r.to];
+        if (from.length === 0 && to.length === 0) {
+            throw new Error("Data.bindPaged: a range seek names no end — give it a `from`, a `to`, or both");
+        }
+        return from.length === 0 ? { to, ...scope } : to.length === 0 ? { from, ...scope } : { from, to, ...scope };
+    }
     const f = q.value as { values: string[]; prefix: { type: string; value: unknown } };
     const fields = [...f.values];
     return f.prefix.type === "some"
-        ? { fields, prefix: f.prefix.value as string }
-        : { fields };
+        ? { fields, prefix: f.prefix.value as string, ...scope }
+        : { fields, ...scope };
 }
 
 /**
@@ -306,15 +438,12 @@ export function toFindQuery(query: unknown): DatasetFindQuery {
 export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     private api: PagedApi | null = null;
     private workspace: string | null = null;
-    private generation = 0;
-    private readonly snapshots = new Map<string, SourceSnapshot>();
-    /** Per source (its total key): the disposer of its dataset watch (#821). */
-    private readonly watches = new Map<string, () => void>();
 
-    // Compiled-handle cache (issue #106 perf): buildHandle compiles 2
+    // Compiled-handle cache (issue #106 perf): buildHandle compiles several
     // East.functions per bind, and binds re-run every reactive frame. The
-    // method IR is a pure function of (sourceType, sourcePath), and the methods
-    // resolve api/workspace LIVE, so a cached handle still re-binds.
+    // method IR is a pure function of (sourceType, path, selector, shape), and
+    // the methods resolve api/workspace LIVE, so a cached handle still
+    // re-binds.
     //
     // Keyed by TYPE first, then path — never by path alone. The window decoder
     // is baked from `sourceType`, so a path re-bound at a different type (a
@@ -331,6 +460,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      *  insertion order; a read re-inserts). Bounds the decoded-window cache. */
     private readonly loadedWindows = new Map<string, true>();
 
+    /** Each dataset's snapshot, by workspace and path. */
+    private readonly snapshots = new Map<string, Snapshot>();
+
+    /** Fetches launched so far — the source of every channel's `launchSeq`. */
+    private launches = 0;
+
     /** Monotonic clock seam so tests can drive the retry gate. */
     protected now(): number {
         return Date.now();
@@ -343,24 +478,36 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     // ----- wiring ----------------------------------------------------------
 
     /** Install the API adapter + workspace — called by the React provider
-     *  (or a test/showcase harness) before any handle is used. */
+     *  (or a test/showcase harness) before any handle is used. Another adapter
+     *  or workspace starts from nothing: no snapshot of the old one's carries
+     *  over. */
     initialize(api: PagedApi, workspace: string): void {
-        if (this.workspace !== null && (this.workspace !== workspace || this.api !== api)) this.clear();
+        if (this.api !== api || this.workspace !== workspace) this.reset();
         this.api = api;
         this.workspace = workspace;
     }
 
-    /** Tear down the adapter and all window state. */
-    clear(): void {
+    /**
+     * Tear down the adapter and all window state.
+     *
+     * @param api - Clear only while this is the installed adapter, so a
+     *   provider tearing down after another installed its own leaves that one
+     *   in place
+     */
+    clear(api?: PagedApi): void {
+        if (api !== undefined && this.api !== api) return;
         this.api = null;
         this.workspace = null;
-        this.clearChannels();
+        this.reset();
         this.handleCache.clear();
-        this.loadedWindows.clear();
+    }
+
+    /** Stop following every dataset, and drop what every snapshot delivered. */
+    private reset(): void {
+        for (const snapshot of this.snapshots.values()) snapshot.unwatch();
         this.snapshots.clear();
-        for (const stop of this.watches.values()) stop();
-        this.watches.clear();
-        this.generation += 1;
+        this.clearChannels();
+        this.loadedWindows.clear();
     }
 
     private resolveWorkspace(): string {
@@ -374,112 +521,193 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         return this.workspace;
     }
 
-    private snapshot(workspace: string, path: TreePath): SourceSnapshot {
-        const key = pagedTotalKey(workspace, path);
-        let snapshot = this.snapshots.get(key);
-        if (!snapshot) {
-            snapshot = {
-                generation: ++this.generation, revision: undefined, resolving: false,
-                error: undefined, failedAtMs: undefined, windows: new Map(), seeks: new Map(),
-            };
-            this.snapshots.set(key, snapshot);
-            this.watch(workspace, path, key);
+    // ----- snapshots -------------------------------------------------------
+
+    /** A dataset's snapshot, followed from its first read until the runtime
+     *  is cleared. */
+    private snapshotOf(workspace: string, path: TreePath): Snapshot {
+        const key = `${workspace}:${datasetPathToString(path)}`;
+        const existing = this.snapshots.get(key);
+        if (existing !== undefined) return existing;
+        const snapshot: Snapshot = {
+            key,
+            revision: undefined,
+            moves: 0,
+            findSeq: 0,
+            finding: false,
+            channels: new Set(),
+            unwatch: () => {},
+        };
+        this.snapshots.set(key, snapshot);
+        if (this.api !== null) {
+            snapshot.unwatch = this.api.watchRevision(workspace, path, (hash) => this.moveTo(workspace, path, snapshot, hash));
         }
         return snapshot;
     }
 
-    /** Follow the source's dataset: a content hash the watch reports that
-     *  is not the served revision moves the source to it (#821). */
-    private watch(workspace: string, path: TreePath, key: string): void {
-        const api = this.api;
-        if (api?.watchRevision === undefined || this.watches.has(key)) return;
-        this.watches.set(key, api.watchRevision(workspace, path, (hash) => this.follow(workspace, path, hash)));
+    /** Whether a snapshot is still the runtime's, rather than one a clear or a
+     *  re-initialization dropped. */
+    private isLive(snapshot: Snapshot): boolean {
+        return this.snapshots.get(snapshot.key) === snapshot;
     }
 
-    /** The dataset's content is now `hash`. A source still discovering its
-     *  revision, or moving to a target, lands on what is current anyway; a
-     *  dataset with no value leaves the served snapshot standing. */
-    private follow(workspace: string, path: TreePath, hash: string | null): void {
-        const snapshot = this.snapshots.get(pagedTotalKey(workspace, path));
-        if (snapshot === undefined || hash === null || snapshot.revision === undefined || snapshot.revision === hash) return;
-        this.refresh(workspace, path, some(hash));
+    /** Whether a live snapshot is still pinned to `revision`. */
+    private pinnedTo(snapshot: Snapshot, revision: string): boolean {
+        return this.isLive(snapshot) && snapshot.revision === revision;
     }
 
-    private isCurrent(workspace: string, path: TreePath, snapshot: SourceSnapshot): boolean {
-        return this.snapshots.get(pagedTotalKey(workspace, path)) === snapshot;
-    }
-
-    private demand(workspace: string, path: TreePath, snapshot: SourceSnapshot): void {
-        for (const window of snapshot.windows.values()) {
-            this.ensureWindow(window.type, workspace, path, window.offset, window.limit);
+    /**
+     * The revision a read of `path` is pinned to — a hash, `null` while the
+     * dataset has no value, or `undefined` while it is being found — tracked so
+     * the read re-fires when the source moves.
+     *
+     * @throws The failed lookup's reason, until a read after the retry gap
+     *   looks again
+     */
+    private revisionFor(workspace: string, path: TreePath): string | null | undefined {
+        this.track(pagedRevisionKey(workspace, path));
+        const snapshot = this.snapshotOf(workspace, path);
+        if (snapshot.revision !== undefined || snapshot.finding) return snapshot.revision;
+        if (snapshot.findError !== undefined && this.now() - (snapshot.findFailedAtMs ?? 0) < RETRY_AFTER_MS) {
+            throw new Error(snapshot.findError);
         }
-        for (const [key, query] of snapshot.seeks) this.ensureSeek(workspace, path, query, key);
+        this.find(workspace, path, snapshot);
+        return undefined;
     }
 
-    private discover(workspace: string, path: TreePath, snapshot: SourceSnapshot): void {
-        if (snapshot.revision !== undefined || snapshot.resolving) return;
-        if (snapshot.failedAtMs !== undefined && this.now() - snapshot.failedAtMs < RETRY_AFTER_MS) return;
+    /**
+     * Ask the server which content the dataset holds, and move there — unless
+     * a move lands first, which came from something no older than the answer.
+     */
+    private find(workspace: string, path: TreePath, snapshot: Snapshot): void {
+        const seq = ++snapshot.findSeq;
+        const moves = snapshot.moves;
+        snapshot.finding = true;
         const api = this.api;
-        if (!api) return;
-        snapshot.resolving = true;
-        void api.getRevision(workspace, path).then(hash => {
-            if (!this.isCurrent(workspace, path, snapshot)) return;
-            if (!hash) throw new Error("Data.bindPaged: paging service returned no content revision");
-            snapshot.revision = hash;
-            snapshot.resolving = false;
-            snapshot.error = undefined;
-            snapshot.failedAtMs = undefined;
-            this.demand(workspace, path, snapshot);
-            this.notify(pagedTotalKey(workspace, path));
-        }).catch((error: unknown) => {
-            if (!this.isCurrent(workspace, path, snapshot)) return;
-            snapshot.resolving = false;
-            snapshot.error = error;
-            snapshot.failedAtMs = this.now();
-            this.notify(pagedTotalKey(workspace, path));
-        });
+        void (async () => {
+            let revision: string | null;
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                revision = await api.getRevision(workspace, path);
+            } catch (err) {
+                if (!this.isLive(snapshot) || snapshot.findSeq !== seq) return;
+                snapshot.finding = false;
+                if (snapshot.revision !== undefined) return;
+                snapshot.findError = failureOf(path, err);
+                snapshot.findFailedAtMs = this.now();
+                console.error(`Data.bindPaged: could not find which content ${datasetPathToString(path)} holds:`, err);
+                this.notify(pagedRevisionKey(workspace, path));
+                return;
+            }
+            if (!this.isLive(snapshot) || snapshot.findSeq !== seq) return;
+            snapshot.finding = false;
+            if (snapshot.moves !== moves) return;
+            this.moveTo(workspace, path, snapshot, revision);
+        })();
     }
 
-    /** Invalidate one logical source, retaining its resident window demand
-     *  and the key searches something still reads. */
-    private refresh(workspace: string, path: TreePath, target: ValueTypeOf<OptionType<StringType>>): void {
-        const previous = this.snapshot(workspace, path);
-        // A key search nothing reads any more is not asked again: a search
-        // session types one query per keystroke, and a source that follows
-        // its dataset refreshes on every change. Every previous search's
-        // answer is invalidated all the same, so one read again is asked afresh.
-        const seeks = new Map([...previous.seeks].filter(([key]) => this.isSubscribed(key)));
-        const snapshot: SourceSnapshot = {
-            ...previous, generation: ++this.generation, revision: undefined,
-            resolving: target.type === "some", error: undefined, failedAtMs: undefined,
-            windows: new Map(previous.windows), seeks,
-        };
-        const totalKey = pagedTotalKey(workspace, path);
-        this.snapshots.set(totalKey, snapshot);
-        const keys = [totalKey, ...snapshot.windows.keys(), ...previous.seeks.keys()];
-        for (const key of keys) {
+    /**
+     * Move a dataset's source to `revision`: drop what the old snapshot
+     * delivered and re-fire every read of the dataset, so the windows and
+     * searches still in use are fetched again, pinned to the new one. A move to
+     * the revision the source already has changes nothing.
+     */
+    private moveTo(workspace: string, path: TreePath, snapshot: Snapshot, revision: string | null): void {
+        if (!this.isLive(snapshot) || snapshot.revision === revision) return;
+        snapshot.revision = revision;
+        snapshot.moves += 1;
+        delete snapshot.findError;
+        delete snapshot.findFailedAtMs;
+        for (const key of snapshot.channels) {
             this.entries.delete(key);
             this.loadedWindows.delete(key);
         }
-        // Notify the unknown revision first, including when the target hash is
-        // unchanged. A refresh invalidates every consumer's read-once cache.
-        for (const key of keys) this.notify(key);
-        queueMicrotask(() => {
-            if (!this.isCurrent(workspace, path, snapshot)) return;
-            if (target.type === "some") {
-                snapshot.resolving = false;
-                if (!target.value) {
-                    snapshot.error = new Error("Data.bindPaged: refresh requires a nonempty content revision");
-                } else {
-                    snapshot.revision = target.value;
-                    this.demand(workspace, path, snapshot);
-                }
-                this.notify(totalKey);
-            } else this.discover(workspace, path, snapshot);
+        snapshot.channels.clear();
+        this.notify(pagedRevisionKey(workspace, path));
+    }
+
+    /**
+     * Handle what a pinned fetch threw when it is not the read's failure: a
+     * refusal naming other content moves the source there, and "no value"
+     * moves it to no snapshot. Returns whether the error was one of those, or
+     * arrived after the source had already moved on.
+     */
+    private followed(workspace: string, path: TreePath, snapshot: Snapshot, revision: string, err: unknown): boolean {
+        if (!this.pinnedTo(snapshot, revision)) return true;
+        if (err instanceof DatasetHashMismatchError) {
+            if (err.currentHash !== null && err.currentHash !== revision) {
+                this.moveTo(workspace, path, snapshot, err.currentHash);
+                return true;
+            }
+            // A refusal that names no other content: look it up, and let this
+            // read fail until the lookup moves the source.
+            this.find(workspace, path, snapshot);
+            return false;
+        }
+        const code = errorCode(err);
+        if (code !== undefined && NO_VALUE_ERRORS.has(code)) {
+            this.moveTo(workspace, path, snapshot, null);
+            return true;
+        }
+        return false;
+    }
+
+    // ----- channels ----------------------------------------------------------
+
+    /** A channel of the snapshot's current revision, dropped when it moves. */
+    private channel(snapshot: Snapshot, key: string): PageEntry {
+        snapshot.channels.add(key);
+        return this.entry(key);
+    }
+
+    /** Whether a channel is due a fetch: never fetched, evicted, or failed
+     *  for a reason a retry can fix, longer ago than the retry gap. */
+    private due(entry: PageEntry): boolean {
+        if (entry.status === "idle") return true;
+        if (entry.status !== "failed" || entry.permanent === true) return false;
+        return this.now() - (entry.failedAtMs ?? 0) >= RETRY_AFTER_MS;
+    }
+
+    /**
+     * Mark a channel's fetch as started, returning the fetch's sequence number.
+     *
+     * Deliberately does NOT notify — the read that triggers it runs inside a
+     * render pass, and notifying there would re-enter the renderer. Only the
+     * settle notifies.
+     */
+    private launch(entry: PageEntry): number {
+        entry.status = "running";
+        entry.launchSeq = ++this.launches;
+        return entry.launchSeq;
+    }
+
+    /** Apply a fetch's outcome if the channel still waits on it, re-firing the
+     *  channel's reads. Returns whether it applied. */
+    private settle(key: string, seq: number, mutate: (entry: PageEntry) => void): boolean {
+        const entry = this.entries.get(key);
+        if (entry === undefined || entry.launchSeq !== seq) return false;
+        mutate(entry);
+        this.notify(key);
+        return true;
+    }
+
+    /** Settle a fetch as failed, with the reason a read will throw. */
+    private fail(key: string, seq: number, reason: string, permanent: boolean): void {
+        this.settle(key, seq, (e) => {
+            e.status = "failed";
+            e.error = reason;
+            e.failedAtMs = this.now();
+            e.permanent = permanent;
         });
     }
 
-    // ----- window loading --------------------------------------------------
+    /** What a read of a channel answers: its value once loaded, `none` while
+     *  in flight, or its failure, thrown. */
+    private answer<T>(entry: PageEntry, value: T | undefined): option<T> {
+        if (entry.status === "loaded" && value !== undefined) return some(value);
+        if (entry.status === "failed") throw new Error(entry.error ?? "Data.bindPaged: the read failed");
+        return none;
+    }
 
     /** Note a window as most-recently-read, and drop the coldest decoded
      *  windows once the cache exceeds its cap. An evicted window returns to
@@ -509,182 +737,109 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.loadedWindows.delete(candidate);
             entry.status = "idle";
             delete entry.window;
-            for (const snapshot of this.snapshots.values()) snapshot.windows.delete(candidate);
         }
     }
 
-    /**
-     * Start the fetch for a window if it isn't loaded or already in flight.
-     *
-     * Deliberately does NOT notify on launch — the read that triggers it runs
-     * inside a render pass, and notifying there would re-enter the renderer.
-     * Only the settle notifies.
-     */
+    // ----- window loading --------------------------------------------------
+
+    /** Start the pinned fetch for a window if it is due one, returning its
+     *  channel. */
     private ensureWindow(
         sourceType: EastTypeValue,
         workspace: string,
         path: TreePath,
+        snapshot: Snapshot,
+        revision: string,
         offset: number,
         limit: number,
-    ): void {
-        const key = pagedWindowKey(workspace, path, offset, limit);
-        const snapshot = this.snapshot(workspace, path);
-        snapshot.windows.set(key, { type: sourceType, offset, limit });
-        this.track(pagedTotalKey(workspace, path));
-        this.discover(workspace, path, snapshot);
-        if (snapshot.error !== undefined) throw snapshot.error;
-        const revision = snapshot.revision;
-        if (revision === undefined) return;
-        const entry = this.entry(key);
-        if (entry.status === "running" || entry.status === "loaded") return;
-        if (entry.status === "failed") {
-            // An authoring error never resolves itself — stay failed rather
-            // than re-asking (and re-logging) forever.
-            if (entry.permanent) return;
-            // Rate-limit retries: a caller that polls a still-missing window
-            // (the canvas readers do) must not hammer a failing server.
-            const since = this.now() - (entry.failedAtMs ?? 0);
-            if (since < RETRY_AFTER_MS) return;
-        }
-
-        entry.status = "running";
-        entry.launchSeq += 1;
-        const mySeq = entry.launchSeq;
+        selector: PagedSelector,
+        key: string,
+    ): PageEntry {
+        const entry = this.channel(snapshot, key);
+        if (!this.due(entry)) return entry;
+        const seq = this.launch(entry);
         const api = this.api;
 
         void (async () => {
-            const settle = (mutate: (e: PageEntry) => void): void => {
-                const current = this.entries.get(key);
-                if (current !== entry || current.launchSeq !== mySeq || !this.isCurrent(workspace, path, snapshot) || snapshot.revision !== revision) return; // superseded
-                mutate(current);
-                this.notify(key);
-            };
-            if (!api) {
-                settle(e => {
-                    e.status = "failed"; e.failedAtMs = this.now();
-                    e.error = "Data.bindPaged: no PagedApi installed";
-                });
-                console.error("Data.bindPaged: no PagedApi installed");
-                return;
-            }
             let page: DatasetPage;
             try {
-                page = await api.getPage(workspace, path, { offset, limit, hash: revision });
-                if (!this.isCurrent(workspace, path, snapshot)) return;
-                if (page.hash !== revision) throw new Error("Data.bindPaged: page does not match the requested content revision");
-            } catch (err) {
-                if (!this.isCurrent(workspace, path, snapshot)) return;
-                // The dataset moved past the pinned snapshot: the source
-                // rediscovers and reads again — never this window's failure.
-                if (isRevisionMoved(err)) {
-                    this.refresh(workspace, path, none);
-                    return;
-                }
-                const permanent = isPermanentPageError(err);
-                const reason = permanent
-                    ? `Data.bindPaged: ${datasetPathToString(path)} is not a pageable dataset — ` +
-                      `bind a collection (Array / Set / Dict), or use Data.bind for a whole value`
-                    : `Data.bindPaged: fetch failed for ${datasetPathToString(path)} ` +
-                      `elements ${offset}–${offset + limit - 1}: ${failureOf(err)}`;
-                settle(e => {
-                    e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent;
-                    e.error = reason;
+                if (api === null) throw new Error("no PagedApi installed");
+                page = await api.getPage(workspace, path, {
+                    offset, limit, hash: revision,
+                    ...(selector.index !== null && { index: selector.index, join: selector.join }),
                 });
-                console.error(`${reason}:`, err);
+            } catch (err) {
+                if (this.followed(workspace, path, snapshot, revision, err)) return;
+                this.fail(key, seq, failureOf(path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: fetch failed for ${key}:`, err);
                 return;
             }
-            if (!this.isCurrent(workspace, path, snapshot)) return;
+            if (!this.pinnedTo(snapshot, revision)) return;
             let decoded: unknown;
             try {
                 decoded = decodeBeast2For(sourceType)(page.data);
             } catch (err) {
-                const reason = `Data.bindPaged: could not decode ${datasetPathToString(path)} ` +
-                    `elements ${offset}–${offset + limit - 1}: ${failureOf(err)}`;
-                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); e.error = reason; });
-                console.error(`${reason}:`, err);
+                // A window of this content that does not decode as the
+                // source's type never will.
+                this.fail(key, seq, `${failureOf(path, err)} (the window does not decode as the source's type)`, true);
+                console.error(`Data.bindPaged: decode failed for ${key}:`, err);
                 return;
             }
-            settle(e => { e.status = "loaded"; e.window = decoded; e.total = page.totalElements; });
-            if (!this.isCurrent(workspace, path, snapshot)) return;
+            const landed = this.settle(key, seq, (e) => {
+                e.status = "loaded";
+                e.window = decoded;
+                e.total = page.totalElements;
+                delete e.error;
+            });
+            if (!landed) return;
             this.touchWindow(key);
-            // Any landed window teaches the source's total — publish it on the
-            // source-level channel so a reader watching `total()` re-fires.
-            const totalKey = pagedTotalKey(workspace, path);
-            const totalEntry = this.entry(totalKey);
+            // Any landed window teaches the revision's total — publish it on
+            // the total's channel so a reader watching `total()` re-fires.
+            const totalKey = pagedTotalKey(workspace, path, revision, selector);
+            const totalEntry = this.channel(snapshot, totalKey);
             if (totalEntry.total !== page.totalElements) {
                 totalEntry.total = page.totalElements;
                 totalEntry.status = "loaded";
                 this.notify(totalKey);
             }
         })();
+        return entry;
     }
 
-    /**
-     * Start the fence search for one key query if it isn't answered or already
-     * in flight — the seek sibling of {@link ensureWindow}, with the same
-     * launch-does-not-notify rule (the read runs inside a render pass).
-     */
+    /** Start the pinned fence search for one key query if it is due one,
+     *  returning its channel — the seek sibling of {@link ensureWindow}. */
     private ensureSeek(
         workspace: string,
         path: TreePath,
+        snapshot: Snapshot,
+        revision: string,
         query: DatasetFindQuery,
         key: string,
-    ): void {
-        const snapshot = this.snapshot(workspace, path);
-        snapshot.seeks.set(key, query);
-        this.track(pagedTotalKey(workspace, path));
-        this.discover(workspace, path, snapshot);
-        if (snapshot.error !== undefined) throw snapshot.error;
-        const revision = snapshot.revision;
-        if (revision === undefined) return;
-        const entry = this.entry(key);
-        if (entry.status === "running" || entry.status === "loaded") return;
-        if (entry.status === "failed") {
-            if (entry.permanent) return;
-            const since = this.now() - (entry.failedAtMs ?? 0);
-            if (since < RETRY_AFTER_MS) return;
-        }
-
-        entry.status = "running";
-        entry.launchSeq += 1;
-        const mySeq = entry.launchSeq;
+    ): PageEntry {
+        const entry = this.channel(snapshot, key);
+        if (!this.due(entry)) return entry;
+        const seq = this.launch(entry);
         const api = this.api;
 
         void (async () => {
-            const settle = (mutate: (e: PageEntry) => void): void => {
-                const current = this.entries.get(key);
-                if (current !== entry || current.launchSeq !== mySeq || !this.isCurrent(workspace, path, snapshot) || snapshot.revision !== revision) return; // superseded
-                mutate(current);
-                this.notify(key);
-            };
-            if (!api) {
-                settle(e => {
-                    e.status = "failed"; e.failedAtMs = this.now();
-                    e.error = "Data.bindPaged: no PagedApi installed";
-                });
-                console.error("Data.bindPaged: no PagedApi installed");
+            let range: DatasetFindResult;
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                range = await api.findKey(workspace, path, { ...query, hash: revision });
+            } catch (err) {
+                if (this.followed(workspace, path, snapshot, revision, err)) return;
+                this.fail(key, seq, failureOf(path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: key search failed for ${key}:`, err);
                 return;
             }
-            try {
-                const range = await api.findKey(workspace, path, { ...query, hash: revision });
-                if (!this.isCurrent(workspace, path, snapshot)) return;
-                if (range.hash !== revision) throw new Error("Data.bindPaged: key search does not match the requested content revision");
-                settle(e => { e.status = "loaded"; e.range = range; });
-            } catch (err) {
-                if (!this.isCurrent(workspace, path, snapshot)) return;
-                if (isRevisionMoved(err)) {
-                    this.refresh(workspace, path, none);
-                    return;
-                }
-                const permanent = isPermanentPageError(err);
-                const reason = `Data.bindPaged: key search failed for ${datasetPathToString(path)}: ${failureOf(err)}`;
-                settle(e => {
-                    e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent;
-                    e.error = reason;
-                });
-                console.error(`${reason}:`, err);
-            }
+            if (!this.pinnedTo(snapshot, revision)) return;
+            this.settle(key, seq, (e) => {
+                e.status = "loaded";
+                e.range = range;
+                delete e.error;
+            });
         })();
+        return entry;
     }
 
     /**
@@ -695,83 +850,99 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      */
     buildPrimitives(): PlatformFunction[] {
         return [
-            DataPagedPrimitives.revision.implement((_sourceType: EastTypeValue) =>
-                (pathArg: unknown) => {
-                    const workspace = this.resolveWorkspace();
-                    const path = pathArg as TreePath;
-                    this.track(pagedTotalKey(workspace, path));
-                    const snapshot = this.snapshot(workspace, path);
-                    this.discover(workspace, path, snapshot);
-                    if (snapshot.error !== undefined) throw snapshot.error;
-                    return snapshot.revision === undefined ? none : some(snapshot.revision);
-                }),
-            DataPagedPrimitives.refresh.implement((_sourceType: EastTypeValue) =>
-                (pathArg: unknown, target: unknown) => {
-                    this.refresh(this.resolveWorkspace(), pathArg as TreePath, target as ValueTypeOf<OptionType<StringType>>);
-                    return null;
-                }),
             DataPagedPrimitives.page.implement((sourceType: EastTypeValue) =>
-                (pathArg: unknown, offsetArg: unknown, limitArg: unknown) => {
+                (pathArg: unknown, indexArg: unknown, joinArg: unknown, offsetArg: unknown, limitArg: unknown) => {
                     const workspace = this.resolveWorkspace();
                     const path = pathArg as TreePath;
+                    const revision = this.revisionFor(workspace, path);
+                    if (typeof revision !== "string") return none;
+                    const selector = toSelector(indexArg, joinArg);
                     const offset = Number(offsetArg as bigint);
                     const limit = Number(limitArg as bigint);
-                    const key = pagedWindowKey(workspace, path, offset, limit);
+                    const key = pagedWindowKey(workspace, path, revision, offset, limit, selector);
                     this.track(key);
-                    this.ensureWindow(sourceType, workspace, path, offset, limit);
-                    const entry = this.entry(key);
-                    if (entry.status === "loaded" && entry.window !== undefined) {
-                        this.touchWindow(key);
-                        return some(entry.window);
-                    }
-                    // Failed (and not relaunched by this read): not in flight,
-                    // so not `none` — the reason (#811).
-                    if (entry.status === "failed") throwFailure(entry, `elements ${offset}–${offset + limit - 1}`);
-                    return none;
+                    const entry = this.ensureWindow(
+                        sourceType, workspace, path, this.snapshotOf(workspace, path), revision, offset, limit, selector, key,
+                    );
+                    if (entry.status === "loaded" && entry.window !== undefined) this.touchWindow(key);
+                    return this.answer(entry, entry.window);
                 }),
             DataPagedPrimitives.total.implement((_sourceType: EastTypeValue) =>
-                (pathArg: unknown) => {
-                    const workspace = this.resolveWorkspace();
-                    const key = pagedTotalKey(workspace, pathArg as TreePath);
-                    this.track(key);
-                    const entry = this.entry(key);
-                    return entry.total !== undefined
-                        ? some(BigInt(entry.total))
-                        : none;
-                }),
-            DataPagedPrimitives.seek.implement((_sourceType: EastTypeValue) =>
-                (pathArg: unknown, queryArg: unknown) => {
+                (pathArg: unknown, indexArg: unknown, joinArg: unknown) => {
                     const workspace = this.resolveWorkspace();
                     const path = pathArg as TreePath;
-                    const query = toFindQuery(queryArg);
-                    const key = pagedSeekKey(workspace, path, query);
+                    const revision = this.revisionFor(workspace, path);
+                    if (typeof revision !== "string") return none;
+                    const key = pagedTotalKey(workspace, path, revision, toSelector(indexArg, joinArg));
                     this.track(key);
-                    this.ensureSeek(workspace, path, query, key);
-                    const entry = this.entry(key);
-                    // A failed search throws its reason (#811) — the same rule
-                    // `page` follows; `none` would read as still searching.
-                    if (entry.status === "failed") throwFailure(entry, "the key search");
-                    // `none` is "still searching" — the same in-flight
-                    // convention `page` uses, so the chrome shows nothing
-                    // rather than a wrong answer while the fences are walked.
-                    if (entry.status !== "loaded" || entry.range === undefined) return none;
-                    const r = entry.range;
-                    return some({ found: r.found, row: BigInt(r.row), count: BigInt(r.count) });
+                    const entry = this.channel(this.snapshotOf(workspace, path), key);
+                    return entry.total !== undefined ? some(BigInt(entry.total)) : none;
+                }),
+            DataPagedPrimitives.seek.implement((_sourceType: EastTypeValue) =>
+                (pathArg: unknown, indexArg: unknown, joinArg: unknown, queryArg: unknown) => {
+                    const workspace = this.resolveWorkspace();
+                    const path = pathArg as TreePath;
+                    const revision = this.revisionFor(workspace, path);
+                    if (typeof revision !== "string") return none;
+                    const selector = toSelector(indexArg, joinArg);
+                    const query = toFindQuery(queryArg, selector);
+                    const key = pagedSeekKey(workspace, path, revision, query, selector);
+                    this.track(key);
+                    const entry = this.ensureSeek(workspace, path, this.snapshotOf(workspace, path), revision, query, key);
+                    const range = entry.range;
+                    return this.answer(entry, range === undefined
+                        ? undefined
+                        : { found: range.found, row: BigInt(range.row), count: BigInt(range.count) });
+                }),
+            DataPagedPrimitives.revision.implement((_sourceType: EastTypeValue) =>
+                (pathArg: unknown, _indexArg: unknown, _joinArg: unknown) => {
+                    const revision = this.revisionFor(this.resolveWorkspace(), pathArg as TreePath);
+                    return typeof revision === "string" ? some(revision) : none;
+                }),
+            DataPagedPrimitives.refresh.implement((_sourceType: EastTypeValue) =>
+                (pathArg: unknown, _indexArg: unknown, _joinArg: unknown, targetArg: unknown) => {
+                    const workspace = this.resolveWorkspace();
+                    const path = pathArg as TreePath;
+                    const target = targetArg as option<string>;
+                    // Deferred: a refresh called while a view renders must not
+                    // re-fire that render from inside it.
+                    queueMicrotask(() => {
+                        if (this.workspace !== workspace) return;
+                        const snapshot = this.snapshotOf(workspace, path);
+                        if (target.type === "some") this.moveTo(workspace, path, snapshot, target.value);
+                        else this.find(workspace, path, snapshot);
+                    });
+                    return null;
                 }),
         ];
     }
 
     /**
-     * Build the handle value for one `Data.bindPaged` evaluation. Both methods
-     * are thin IR-bearing `East.function`s over {@link buildPrimitives},
-     * capturing only the plain-data source path (the value type rides as a
-     * type-arg) — so the handle is ordinary serializable East data (issue #106).
+     * Build the handle value for one paged bind. Every method is a thin
+     * IR-bearing `East.function` over {@link buildPrimitives}, capturing only
+     * the plain-data source path and selector (the value type rides as a
+     * type-arg) — so the handle is ordinary serializable East data (issue
+     * #106).
+     *
+     * @param sourceType - The dataset's type, or an index's window type
+     * @param path - The dataset's path
+     * @param selector - The rows the bind serves
+     * @param shape - `released`: the handle `data_bind_paged` returns, without
+     *   `revision` or `refresh`; `pinned`: the handle `data_bind_paged_pinned`
+     *   returns. Both read through the same snapshot.
+     * @returns The handle
      */
-    buildHandle(sourceType: EastTypeValue, path: TreePath): Record<string, unknown> {
-        const pathKey = datasetPathToString(path);
+    buildHandle(
+        sourceType: EastTypeValue,
+        path: TreePath,
+        selector: PagedSelector,
+        shape: "released" | "pinned",
+    ): Record<string, unknown> {
+        const id = `${datasetPathToString(path)}${selectorKey(selector)}`;
+        const cacheKey = `${id}#${shape}`;
         let byPath = this.handleCache.get(sourceType);
         if (byPath) {
-            const hit = byPath.get(pathKey);
+            const hit = byPath.get(cacheKey);
             if (hit) return hit;
         } else {
             byPath = new Map<string, Record<string, unknown>>();
@@ -782,6 +953,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         // A single literal `Value` IR node for the captured path (the
         // `Data.bind` convention — manifest derivation reads it back).
         const pathExpr = East.value(path, TreePathType);
+        // The selector rides the call as plain data, exactly as the path does,
+        // so a decoded handle re-binds to the same rows.
+        const indexExpr = East.value(selector.index === null ? none : some(selector.index), OptionType(StringType));
+        const joinExpr = East.value(selector.join, BooleanType);
         const platform = this.buildPrimitives();
         const { page, total, revision, refresh } = DataPagedPrimitives;
 
@@ -790,17 +965,18 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             // East compares every function as EQUAL, so a struct of nothing but
             // closures is indistinguishable from any other and a memoized
             // component would never re-render on a source swap (#567 D4). The
-            // dataset path is the natural identity — same path, same rows.
-            id: pathKey,
+            // dataset path and selector are the natural identity — same path,
+            // same rows. The snapshot they serve is `revision`'s, not the id's.
+            id,
             page: East.compile(
                 East.function([IntegerType, IntegerType], OptionType(T), ($, offset, limit) => {
-                    $.return(page([T], pathExpr, offset, limit));
+                    $.return(page([T], pathExpr, indexExpr, joinExpr, offset, limit));
                 }),
                 platform,
             ),
             total: East.compile(
                 East.function([], OptionType(IntegerType), ($) => {
-                    $.return(total([T], pathExpr));
+                    $.return(total([T], pathExpr, indexExpr, joinExpr));
                 }),
                 platform,
             ),
@@ -809,37 +985,53 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             // segments) against the stored fences; an Array's stream order has
             // nothing to search. Resolved at bind time from the dataset's own
             // type, so a component renders the affordance only when it works.
-            seek: buildSeek(sourceType, T, pathExpr, platform),
-            revision: East.compile(
-                East.function([], OptionType(StringType), ($) => $.return(revision([T], pathExpr))), platform,
-            ),
-            refresh: East.compile(
-                East.function([OptionType(StringType)], NullType, ($, target) => $.return(refresh([T], pathExpr, target))), platform,
-            ),
+            seek: buildSeek(sourceType, T, pathExpr, indexExpr, joinExpr, selector, platform),
         };
-        byPath.set(pathKey, handle);
+        if (shape === "pinned") {
+            handle.revision = East.compile(
+                East.function([], OptionType(StringType), ($) => {
+                    $.return(revision([T], pathExpr, indexExpr, joinExpr));
+                }),
+                platform,
+            );
+            handle.refresh = East.compile(
+                East.function([OptionType(StringType)], NullType, ($, target) => {
+                    $.return(refresh([T], pathExpr, indexExpr, joinExpr, target));
+                }),
+                platform,
+            );
+        }
+        byPath.set(cacheKey, handle);
         return handle;
     }
 
     // ----- platform building -------------------------------------------------
 
-    /** Build a `Data.bindPaged` PlatformFunction bound to this runtime. Pass
-     *  `allowed=null` for an unscoped impl; pass a Set of path strings for
-     *  manifest scoping. */
+    /** Build the PlatformFunction behind `data_bind_paged` — the bind a UI
+     *  exported before pinned reads calls — bound to this runtime. Its handle
+     *  has no `revision` or `refresh`, but its reads are pinned, follow the
+     *  dataset and fail visibly all the same. Pass `allowed=null` for an
+     *  unscoped impl, or a Set of path strings for manifest scoping. */
     buildPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
         return bindPagedPlatformFn.implement((sourceType: EastTypeValue) =>
             (pathArg: unknown) => {
                 const path = pathArg as TreePath;
-                if (allowed) {
-                    const pathStr = datasetPathToString(path);
-                    if (!allowed.has(pathStr)) {
-                        throw new Error(
-                            `Data.bindPaged: source path "${pathStr}" not declared in manifest — ` +
-                            `bind it in the task body so derivation records it`,
-                        );
-                    }
-                }
-                return this.buildHandle(sourceType, path);
+                checkDeclared(allowed, path);
+                return this.buildHandle(sourceType, path, NO_INDEX, "released");
+            },
+        );
+    }
+
+    /** Build the PlatformFunction behind `data_bind_paged_pinned` — what
+     *  `Data.bindPaged` emits, for a dataset's own rows or a record's index —
+     *  bound to this runtime and scoped by `allowed` exactly as
+     *  {@link buildPlatform} is: an index read is a read of the record's path. */
+    buildPinnedPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
+        return bindPagedPinnedPlatformFn.implement((sourceType: EastTypeValue) =>
+            (pathArg: unknown, indexArg: unknown, joinArg: unknown) => {
+                const path = pathArg as TreePath;
+                checkDeclared(allowed, path);
+                return this.buildHandle(sourceType, path, toSelector(indexArg, joinArg), "pinned");
             },
         );
     }
@@ -858,20 +1050,25 @@ export function initializePagedApi(api: PagedApi, workspace: string): void {
     defaultPagedRuntime.initialize(api, workspace);
 }
 
-/** Tear down the paging API adapter and all window state. */
-export function clearPagedApi(): void {
-    defaultPagedRuntime.clear();
+/**
+ * Tear down the paging API adapter and all window state.
+ *
+ * @param api - Clear only while this is the installed adapter
+ */
+export function clearPagedApi(api?: PagedApi): void {
+    defaultPagedRuntime.clear(api);
 }
 
-/** Global, manifest-unscoped `Data.bindPaged` impl + its backing primitives.
+/** Global, manifest-unscoped paged binds + their backing primitives.
  *  Registered on module load (powers the extension registry decode path). */
 export const PagedPlatform: PlatformFunction[] = [
     defaultPagedRuntime.buildPlatform(null),
+    defaultPagedRuntime.buildPinnedPlatform(null),
     ...defaultPagedRuntime.buildPrimitives(),
 ];
 
-/** Build a manifest-scoped `Data.bindPaged` implementation + its backing
- *  primitives, from the manifest's `pages` list.
+/** Build manifest-scoped paged binds + their backing primitives, from the
+ *  manifest's `pages` list.
  *
  *  The `data_page*` primitives MUST ship with the scoped platform: e3 `ui()`
  *  tasks render through `createScoped*()` arrays (UITaskPreview), NOT the
@@ -881,6 +1078,7 @@ export function createScopedPagedPlatform(pages: readonly TreePath[]): PlatformF
     const allowed = new Set(pages.map(p => datasetPathToString(p)));
     return [
         defaultPagedRuntime.buildPlatform(allowed),
+        defaultPagedRuntime.buildPinnedPlatform(allowed),
         ...defaultPagedRuntime.buildPrimitives(),
     ];
 }

@@ -30,7 +30,7 @@ from east import (
 from east.expression.errors import ExpressionError
 from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
-from east.serialization.beast2 import write_beast2_file
+from tests.segments import write_in_segments
 
 ROW = StructType([("id", IntegerType), ("name", StringType)])
 TABLE = DictType(IntegerType, ROW)
@@ -39,10 +39,10 @@ N = 300
 
 def _table_blob(tmp_path) -> bytes:
     path = tmp_path / "table.beast2"
-    write_beast2_file(
+    write_in_segments(
         path, TABLE,
         EastDict(IntegerType, ROW, {i: {"id": i, "name": f"row-{i}"} for i in range(N)}),
-        segment_rows=50)
+        50)
     return Path(path).read_bytes()
 
 

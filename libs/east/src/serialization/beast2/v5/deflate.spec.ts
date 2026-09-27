@@ -17,7 +17,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { deterministicDeflateRaw } from "./deflate.js";
+import { DeflateScratch, deterministicDeflateRaw } from "./deflate.js";
 import { inflateRawPure } from "./inflate.js";
 
 // ===================================================================
@@ -241,6 +241,20 @@ describe("beast2 v5 deterministic deflate", () => {
     // at most 9 bits each. The frame writer is what falls back to codec `none`.
     const noise = randomBytes(64 * 1024, 0x99);
     assert.ok(deterministicDeflateRaw(noise).length <= Math.ceil((noise.length * 9) / 8) + 16);
+  });
+
+  test("writes the same bytes working in one scratch, whatever it compressed before", () => {
+    // Largest first, then smallest first: every call finds the chain links the
+    // one before it left, and an output grown by one input is reused by every
+    // smaller one after it.
+    const scratch = new DeflateScratch();
+    const all = cases();
+    for (const { name, bytes } of [...all].reverse().concat(all)) {
+      assert.equal(Buffer.compare(deterministicDeflateRaw(bytes, scratch), deterministicDeflateRaw(bytes)), 0, name);
+    }
+    const { out } = scratch;
+    for (const { bytes } of all) deterministicDeflateRaw(bytes, scratch);
+    assert.equal(scratch.out, out, "no input needed a larger output");
   });
 
   test("respects a subarray's bounds", () => {

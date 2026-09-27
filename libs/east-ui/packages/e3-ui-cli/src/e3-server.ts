@@ -12,7 +12,7 @@
  */
 
 import * as path from 'node:path';
-import { createServer, type Server } from '@elaraai/e3-api-server';
+import { createServer, type Server, type ServerConfig } from '@elaraai/e3-api-server';
 
 /** A running single-repo e3 server. */
 export interface RepoServerHandle {
@@ -28,14 +28,19 @@ export interface RepoServerHandle {
  * Start a single-repo e3 API server (CORS enabled) over a local repo path.
  *
  * @param repoPath - Local e3 repository directory
+ * @param budget - The server's budget of cores and memory, or `-j` and
+ *   `--memory` as given (default: `E3_JOBS` and `E3_MEMORY`, else what the
+ *   process may use)
  * @returns A handle with the API URL, repo id, and a `stop()`
+ * @throws {RangeError} When the budget's settings do not resolve
  */
-export async function startRepoServer(repoPath: string): Promise<RepoServerHandle> {
+export async function startRepoServer(repoPath: string, budget?: ServerConfig['budget']): Promise<RepoServerHandle> {
     const server: Server = await createServer({
         singleRepoPath: path.resolve(repoPath),
         port: 0,
         host: '127.0.0.1',
         cors: true,
+        ...(budget !== undefined && { budget }),
     });
     await server.start();
     return {

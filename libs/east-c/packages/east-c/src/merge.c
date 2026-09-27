@@ -1,5 +1,6 @@
 /*
- * The blob merge behind `merge` — see include/east/merge.h for the contract.
+ * The blob merge behind an `exec` merge unit — see include/east/merge.h for the
+ * contract.
  */
 
 #include <east/compat.h>
@@ -88,10 +89,39 @@ static void merge_not_blob_error(const char *who, const uint8_t *data, size_t le
     }
 }
 
+/* The collection type an input holds: a blob's own, or the one its manifest
+ * names, the input then being a manifest directory whose decoded manifest
+ * goes to *manifest_out (retained). Retained; NULL with the message posted
+ * while `data` is still mapped. */
+static EastType *input_type(const char *who, const uint8_t *data, size_t len,
+                            EastValue **manifest_out)
+{
+    *manifest_out = NULL;
+    EastValue *manifest = NULL;
+    int found = east_beast2_read_manifest(data, len, &manifest);
+    if (found == -1) {
+        merge_posted_error(who, "cannot be read");
+        return NULL;
+    }
+    if (found == 1) {
+        EastType *type = east_type_from_value(east_struct_get_field_idx(manifest, 2));
+        if (!type) {
+            east_value_release(manifest);
+            merge_posted_error(who, "its manifest names no type");
+            return NULL;
+        }
+        *manifest_out = manifest;
+        return type;
+    }
+    EastType *type = east_beast2_extract_type(data, len);
+    if (!type) merge_not_blob_error(who, data, len);
+    return type;
+}
+
 /* One input and its current entry. A whole input is read through the
- * sequential reader; a ranged input through the pager, from the segment
- * owning the lower bound, with the strict-ascent state threaded across the
- * segments it decodes. */
+ * sequential reader; a ranged input, or a manifest directory, through the
+ * pager, from the segment owning the lower bound, with the strict-ascent
+ * state threaded across the segments it decodes. */
 typedef struct {
     const char *path;
     uint8_t *data; /* the mapping */
@@ -117,9 +147,7 @@ typedef struct {
     EastCompiledFn *merge_fn;
     bool union_mode;
     EastValue *from, *to; /* owned; the key range's bounds, NULL when open */
-    EmitWriter out;
-    EastValue *batch; /* owned accumulator of the collection kind — the sink's */
-    size_t batch_count;
+    EmitWriter out;       /* the output's writer; it holds the last entry merged */
     EastMergeStats stats;
 } Merge;
 
@@ -208,12 +236,12 @@ static bool cursor_load_segment(Merge *m, MergeCursor *c, size_t index)
 }
 
 /* Advances a cursor to its next entry within the merge's key range, holding
- * the decoded key and value — the merge writes VALUES through the emit
- * sink's own writer, so the output is what the sink writes for the same
- * entries, aliasing and all. Returns false with the message posted. The
- * reader holds each input to the canonical order: a key that does not ascend
- * is its error, prefixed with the input, in the same words on every
- * runtime. */
+ * the decoded key and value — the merge writes VALUES through the canonical
+ * element writer, so the output is the paged encode of the merged entries,
+ * whatever aliasing scope the input's writer used. Returns false
+ * with the message posted. The reader holds each input to the canonical
+ * order: a key that does not ascend is its error, prefixed with the input,
+ * in the same words on every runtime. */
 static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
 {
     cursor_drop_entry(c);
@@ -310,11 +338,9 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
         merge_map_error(who, path);
         return false;
     }
-    EastType *type = east_beast2_extract_type(c->data, c->len);
-    if (!type) {
-        merge_not_blob_error(who, c->data, c->len);
-        return false;
-    }
+    EastValue *manifest = NULL;
+    EastType *type = input_type(who, c->data, c->len, &manifest);
+    if (!type) return false;
     bool same = east_type_equal(type, m->type);
     if (!same) {
         char *got = east_print_type(type);
@@ -324,9 +350,22 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
         free(got);
         free(expected);
         east_type_release(type);
+        if (manifest) east_value_release(manifest);
         return false;
     }
     east_type_release(type);
+    if (manifest) {
+        /* A manifest directory reads through its pager, whole or ranged: its
+         * fences seek, and it opens only the segments the merge reaches. */
+        c->pages = east_beast2_pages_new_manifest_dir(path, manifest, m->type);
+        east_value_release(manifest);
+        if (!c->pages) {
+            merge_input_error(index, path);
+            return false;
+        }
+        if (m->from && !cursor_seek(m, c, index)) return false;
+        return cursor_advance(m, c, index);
+    }
     /* Every input carries the paging index — what the runners write, and
      * what a seek needs — so a blob without one is refused in the reader's
      * words, east-node's sentence for the same bytes. */
@@ -363,14 +402,14 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
 
 /* Reads the merge's key range: `Struct{from: Option<K>, to: Option<K>}`
  * over the inputs' key type — the shape east-node checks (merge.ts) and
- * e3-core writes (partitionExec.ts) — self-describing, checked against that
+ * e3-core writes (execution/steps.ts) — self-describing, checked against that
  * type. Returns false with the message posted. */
 static bool merge_read_range(Merge *m, const char *path)
 {
     size_t len = 0;
     void *ctx = NULL;
     char who[4200];
-    snprintf(who, sizeof(who), "--range (%s)", path);
+    snprintf(who, sizeof(who), "range (%s)", path);
     uint8_t *data = map_input_file(path, &len, &ctx);
     if (!data) {
         merge_map_error(who, path);
@@ -390,9 +429,8 @@ static bool merge_read_range(Merge *m, const char *path)
     } else if (!east_type_equal(type, expected)) {
         char *got = east_print_type(type);
         char *want = east_print_type(expected);
-        merge_error(
-            "merge: --range (%s) has type %s, expected %s (bounds over the inputs' key type)", path,
-            got ? got : "?", want ? want : "?");
+        merge_error("merge: range (%s) has type %s, expected %s (bounds over the inputs' key type)",
+                    path, got ? got : "?", want ? want : "?");
         free(got);
         free(want);
     } else if (!(bounds = east_beast2_decode_full(data, len, expected))) {
@@ -438,46 +476,6 @@ static void heap_sift_down(size_t *heap, size_t n, size_t i, const MergeCursor *
     }
 }
 
-/* An empty batch of the inputs' collection kind. */
-static EastValue *merge_new_batch(Merge *m)
-{
-    return m->kind == EAST_TYPE_DICT ? east_dict_new(m->key_type, m->value_type)
-                                     : east_set_new(m->key_type);
-}
-
-/* Writes the open batch as one output segment, through the writer the emit
- * sink writes through. */
-static bool merge_flush(Merge *m)
-{
-    if (m->batch_count == 0) return true;
-    if (!emit_writer_write(&m->out, m->batch, m->batch_count)) return false;
-    east_value_release(m->batch);
-    m->batch = merge_new_batch(m);
-    m->batch_count = 0;
-    if (!m->batch) {
-        east_builtin_error("merge: out of memory");
-        return false;
-    }
-    return true;
-}
-
-/* Appends one merged entry to the open batch, under the sink's flush rule:
- * a full batch goes out only now that an entry which will not fold into it
- * has arrived, so the batch's last entry is always still open for a fold. */
-static bool merge_append(Merge *m, EastValue *key, EastValue *value)
-{
-    if (m->batch_count >= m->out.next_batch && !merge_flush(m)) return false;
-    if (m->kind == EAST_TYPE_DICT)
-        east_dict_set(m->batch, key, value);
-    else
-        east_set_insert(m->batch, key);
-    m->batch_count++;
-    m->stats.entries++;
-    /* The opening probe sizes the first segment from what these entries
-     * weigh, as the paged encoder and the sink do. */
-    return emit_writer_probe(&m->out, &m->batch, &m->batch_count);
-}
-
 /* acc = merge(key, acc, value). Consumes `acc` and `value`; returns the result
  * (owned), or NULL with the merge function's message posted. */
 static EastValue *merge_fold(Merge *m, EastValue *key, EastValue *acc, EastValue *value)
@@ -498,15 +496,14 @@ static EastValue *merge_fold(Merge *m, EastValue *key, EastValue *acc, EastValue
 }
 
 /* Merges the open cursors: a binary min-heap ordered by (key, input index),
- * so equal keys leave in input order. Entries are decoded values, appended to
- * the open batch and encoded by the emit sink's own writer — one aliasing
- * scope per output segment, so a container two entries of one segment share
- * is written once and referenced, exactly as `run --emit` writes it.
+ * so equal keys leave in input order. Entries are decoded values, encoded by
+ * the canonical element writer — one aliasing scope per entry, so a container
+ * two entries share is written out in each, as every writer writes it.
  *
- * Equal keys fold in place: the flush rule keeps the previous entry in the
- * open batch, so `acc = merge(key, acc, value)` replaces it there, as the
- * sink's fold does. Union keeps the first; without a fold an equal key is
- * the duplicate error. */
+ * Equal keys fold in place: the writer holds the previous entry until the
+ * next one arrives, so `acc = merge(key, acc, value)` replaces its value
+ * there. Union keeps the first; without a fold an equal key is the duplicate
+ * error. */
 static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
 {
     size_t *heap = malloc((n > 0 ? n : 1) * sizeof(size_t));
@@ -517,13 +514,12 @@ static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
     for (size_t i = live / 2; i-- > 0;)
         heap_sift_down(heap, live, i, cur);
 
-    EastValue *prev_key = NULL; /* owned */
     bool ok = true;
     while (ok && live > 0) {
         size_t index = heap[0];
         MergeCursor *c = &cur[index];
         EastValue *key = c->key;
-        if (prev_key && east_value_compare(prev_key, key) == 0) {
+        if (m->out.key && east_value_compare(m->out.key, key) == 0) {
             if (!m->merge_fn && !m->union_mode) {
                 const char *noun = m->kind == EAST_TYPE_DICT ? "Dict" : "Set";
                 const char *part = m->kind == EAST_TYPE_DICT ? "key" : "element";
@@ -536,36 +532,24 @@ static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
             }
             m->stats.folds++;
             if (m->merge_fn) {
-                /* The previous entry is still in the open batch — the flush
-                 * rule guarantees it — so the fold lands in place. */
-                EastValue *acc = east_dict_get(m->batch, key); /* borrowed */
-                if (!acc) {
-                    east_builtin_error("merge: the folded key is missing from the batch");
-                    ok = false;
-                    break;
-                }
-                east_value_retain(acc);
+                /* The held value's reference passes to the fold, and the
+                 * folded value's comes back to the writer. */
                 east_value_retain(c->value);
-                EastValue *folded = merge_fold(m, key, acc, c->value);
-                if (!folded) {
+                m->out.value = merge_fold(m, key, m->out.value, c->value);
+                if (!m->out.value) {
                     ok = false;
                     break;
                 }
-                east_dict_set(m->batch, key, folded);
-                east_value_release(folded);
             }
             /* Union: the first element stands; the equal one is dropped. */
         } else {
-            east_value_retain(key);
-            if (prev_key) east_value_release(prev_key);
-            prev_key = key;
-            ok = merge_append(m, key, c->value);
+            ok = emit_writer_push(&m->out, key, c->value);
+            if (ok) m->stats.entries++;
         }
         if (ok) ok = cursor_advance(m, c, index);
         if (ok && !c->key) heap[0] = heap[--live];
         if (ok && live > 0) heap_sift_down(heap, live, 0, cur);
     }
-    if (prev_key) east_value_release(prev_key);
     free(heap);
     return ok;
 }
@@ -589,7 +573,7 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         return false;
     }
     if (cfg->merge_fn && cfg->union_mode) {
-        east_builtin_error("merge: --merge and --union are two folds — give one");
+        east_builtin_error("merge: a merge function and union are two folds — give one");
         return false;
     }
 
@@ -603,13 +587,11 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         merge_map_error(who0, cfg->input_paths[0]);
         return false;
     }
-    EastType *type = east_beast2_extract_type(data0, len0);
-    if (!type) {
-        merge_not_blob_error(who0, data0, len0);
-        input_release_mapping(ctx0, data0, len0);
-        return false;
-    }
+    EastValue *manifest0 = NULL;
+    EastType *type = input_type(who0, data0, len0, &manifest0);
+    if (manifest0) east_value_release(manifest0);
     input_release_mapping(ctx0, data0, len0);
+    if (!type) return false;
     if (type->kind != EAST_TYPE_SET && type->kind != EAST_TYPE_DICT) {
         merge_error("merge: inputs must be Set or Dict blobs, got %s",
                     east_type_kind_name(type->kind));
@@ -617,12 +599,12 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         return false;
     }
     if (cfg->merge_fn && type->kind != EAST_TYPE_DICT) {
-        east_builtin_error("--merge applies to Dict inputs only");
+        east_builtin_error("merge: a merge function applies to Dict inputs only");
         east_type_release(type);
         return false;
     }
     if (cfg->union_mode && type->kind != EAST_TYPE_SET) {
-        east_builtin_error("--union applies to Set inputs only");
+        east_builtin_error("merge: union applies to Set inputs only");
         east_type_release(type);
         return false;
     }
@@ -639,8 +621,8 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         char *ks = east_print_type(m.key_type);
         char *vs = east_print_type(m.value_type);
         char *ts = m.merge_fn->fn_type ? east_print_type(m.merge_fn->fn_type) : NULL;
-        merge_error("--merge: expected a function (K, V, V) -> V matching the inputs (K = %s, "
-                    "V = %s), got %s",
+        merge_error("merge function: expected a function (K, V, V) -> V matching the inputs "
+                    "(K = %s, V = %s), got %s",
                     ks ? ks : "?", vs ? vs : "?", ts ? ts : "?");
         free(ks);
         free(vs);
@@ -649,9 +631,8 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         return false;
     }
 
-    m.batch = merge_new_batch(&m);
     MergeCursor *cur = calloc(cfg->num_inputs, sizeof(MergeCursor));
-    bool ok = m.batch && cur;
+    bool ok = cur != NULL;
     if (!ok) east_builtin_error("merge: out of memory");
     if (ok && cfg->range_path) ok = merge_read_range(&m, cfg->range_path);
     size_t opened = 0;
@@ -661,17 +642,16 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
     }
     bool writer_open = false;
     if (ok) {
-        ok = emit_writer_open(&m.out, m.type, cfg->output_path);
+        ok = cfg->output_manifest ? emit_writer_open_manifest(&m.out, m.type, cfg->output_path)
+                                  : emit_writer_open(&m.out, m.type, cfg->output_path);
         writer_open = ok;
     }
     if (ok) ok = merge_sources(&m, cur, cfg->num_inputs);
-    if (ok) ok = merge_flush(&m);
     if (ok) ok = emit_writer_finish(&m.out);
     if (writer_open) emit_writer_close(&m.out);
     for (size_t i = 0; i < opened; i++)
         cursor_close(&cur[i]);
     free(cur);
-    if (m.batch) east_value_release(m.batch);
     if (m.from) east_value_release(m.from);
     if (m.to) east_value_release(m.to);
     east_type_release(type);

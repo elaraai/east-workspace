@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirtyCount, reduce } from './reducer.js';
-import { initialState, taskView, type TuiState, type View } from './actions.js';
+import { initialState, recordView, taskView, type TuiState, type View } from './actions.js';
 
 const size = { columns: 120, rows: 36 };
 const start = (): TuiState => initialState(size, './demo');
@@ -123,6 +123,20 @@ describe('reducer: trees and tabs', () => {
         assert.equal(reduce(output, { type: 'logs/scroll', top: 9 }), output, 'no stream tab, no logs state to move');
     });
 
+    test('the record view: the tree on its State tab, the commits on its History tab, an index from the top', () => {
+        let s = reduce(start(), { type: 'view/set', view: recordView('main', 'ledger') });
+        s = reduce(s, { type: 'list/move', op: 'down', count: 10, visible: 5 });
+        s = reduce(s, { type: 'tree/toggle', id: '{k0}', expanded: false });
+        assert.deepEqual(s.view.kind === 'record' && [s.view.tree.sel, s.view.tree.open], [1, { '{k0}': false }]);
+        s = reduce(s, { type: 'record/index', index: 'by_store' });
+        assert.deepEqual(s.view.kind === 'record' && [s.view.index, s.view.tree.sel, s.view.tree.open], ['by_store', 0, {}], 'an index is its own tree');
+        s = reduce(s, { type: 'record/tab', tab: 'history' });
+        s = reduce(s, { type: 'list/move', op: 'down', count: 10, visible: 5 });
+        assert.equal(s.view.kind === 'record' && s.view.history.sel, 1);
+        assert.equal(s.view.kind === 'record' && s.view.tree.sel, 0, 'the history moves, the tree stays');
+        assert.equal(reduce(s, { type: 'tree/toggle', id: 'x', expanded: true }), s, 'no tree on the History tab');
+    });
+
     test('help tabs', () => {
         let s = reduce(start(), { type: 'view/set', view: { kind: 'help', tab: 'everywhere' } });
         s = reduce(s, { type: 'help/tab', tab: 'task' });
@@ -204,6 +218,14 @@ describe('reducer: data', () => {
         const aborted = { ...(running as object), status: { type: 'aborted', value: null } } as never;
         s = reduce(s, { type: 'data/execution', ws: 'main', state: aborted, events: [], startedAt: 't1' });
         assert.equal(s.data.execution['main']?.stopping, false);
+    });
+
+    test('a record\'s facts are kept per workspace and cleared with the rest', () => {
+        const facts = { hash: 'h', signature: null, rows: 3, head: null, history: null, complete: false };
+        let s = reduce(start(), { type: 'data/record', ws: 'main', name: 'ledger', data: facts });
+        assert.equal(s.data.records['main']?.['ledger'], facts);
+        s = reduce(s, { type: 'data/reset' });
+        assert.deepEqual(s.data.records, {});
     });
 
     test('dirtyCount counts the draft ops', () => {

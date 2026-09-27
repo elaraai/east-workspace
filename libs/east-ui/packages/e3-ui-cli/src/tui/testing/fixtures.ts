@@ -47,6 +47,8 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
         inputs: [`.inputs.in_${i % Math.max(1, inputs)}`, ...(i > 0 ? [`.tasks.task_${i - 1}.output`] : [])],
         output: `.tasks.task_${i}.output`,
         dependsOn: i > 0 ? [`task_${i - 1}`] : [],
+        // The peak of the execution an up-to-date or failed task's status comes from.
+        peakBytes: i % 5 === 0 || i % 5 === 2 ? some(BigInt(64 * 1024 ** 2 + i * 4_096)) : none,
     }));
     const ds = (path: string, status: string, hash: string | null, producedBy: string | null) =>
         ({ path, status: variant(status, null), hash: hash !== null ? some(hash) : none, isTaskOutput: producedBy !== null, producedBy: producedBy !== null ? some(producedBy) : none });
@@ -76,7 +78,7 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
     taskList.forEach((t, i) => {
         events.push(variant('start', { task: t.name, timestamp: iso(120_000 - i * 10) }));
         if ((t.status as { type: string }).type === 'failed') events.push(variant('failed', { task: t.name, timestamp: iso(119_000 - i * 10), duration: 800, exitCode: 2n }));
-        else events.push(variant('complete', { task: t.name, timestamp: iso(119_000 - i * 10), duration: 3_100 }));
+        else events.push(variant('complete', { task: t.name, timestamp: iso(119_000 - i * 10), duration: 3_100, peakBytes: t.peakBytes }));
     });
     const execution = {
         status: variant('failed', null),
@@ -85,13 +87,16 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
         summary: some({ executed: BigInt(tasks), cached: 1n, failed: count('failed'), skipped: 0n, duration: 38_400 }),
         events: [],
         totalEvents: BigInt(events.length),
+        budget: some({ cores: 8n, memory: BigInt(14 * 1024 ** 3), coresInUse: 0n, memoryInUse: 0n }),
+        waiting: [],
+        splits: [],
     };
     return [
         { type: 'data/workspaces', workspaces: [{ name: 'main', deployed: true, packageName: some('demand'), packageVersion: some('1.4.2') }] as never },
         { type: 'data/workspaceState', ws: 'main', state: { packageName: 'demand', packageVersion: '1.4.2', packageHash: 'p', deployedAt: new Date(now - 3 * 86_400_000), currentRunId: none } as never },
         { type: 'data/status', ws: 'main', result: status as never, at: now - 400 },
         { type: 'data/datasets', ws: 'main', entries: entries as never },
-        { type: 'data/taskList', ws: 'main', tasks: taskList.map(t => ({ name: t.name, hash: t.hash, kind: none })) as never },
+        { type: 'data/taskList', ws: 'main', tasks: taskList.map(t => ({ name: t.name, hash: t.hash, role: variant('data', null) })) as never },
         { type: 'data/execution', ws: 'main', state: execution as never, events: events as never, startedAt: execution.startedAt },
     ];
 }

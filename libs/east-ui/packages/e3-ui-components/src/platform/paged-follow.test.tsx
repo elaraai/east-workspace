@@ -26,9 +26,9 @@ import {
     EastChakraPlan, EastChakraSheet, getRegisteredPlatformImplementations, system,
     type PlanRootValue, type SheetRootValue,
 } from "@elaraai/east-ui-components";
-import type { DatasetPage } from "@elaraai/e3-api-client";
+import { DatasetHashMismatchError, type DatasetPage } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
-import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi } from "./paged-runtime.js";
+import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi, type PagedSelector } from "./paged-runtime.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -49,6 +49,8 @@ const encodeMachines = encodeBeast2For(Machines);
 /** The dataset's key order — what its element windows are served in. */
 const compareKeys = compareFor(StringType);
 const MACHINES_PATH: TreePath = [variant("field", "inputs"), variant("field", "machines")];
+/** The bind reads the dataset's own rows, through no index. */
+const OWN_ROWS: PagedSelector = { index: null, join: false };
 
 /** What the stand-in server holds, and which revisions it answers yet. */
 interface Content { hash: string; labels: Record<string, string> }
@@ -70,7 +72,7 @@ function standInServer(initial: Content) {
             const gate = state.held.get(window.hash ?? "");
             if (gate !== undefined) await gate.promise;
             if (window.hash !== undefined && window.hash !== state.content.hash) {
-                throw Object.assign(new Error("stale pin"), { code: "dataset_hash_mismatch" });
+                throw new DatasetHashMismatchError("stale pin", state.content.hash);
             }
             const all = Object.entries(state.content.labels).sort(([a], [b]) => compareKeys(a, b));
             const slice = all.slice(window.offset, window.offset + window.limit);
@@ -167,7 +169,7 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
     test("writing the dataset swaps each row's content in place — no remount, no empty frame", async () => {
         const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
         initializePagedApi(server.api, "ws");
-        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH);
+        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraPlan value={planOver(handle)} storageKey="e3-821-plan" />
@@ -212,7 +214,7 @@ describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
     test("writing the dataset swaps each row's content in place — no remount, no empty frame", async () => {
         const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
         initializePagedApi(server.api, "ws");
-        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH);
+        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraSheet value={sheetOver(handle)} storageKey="e3-851-sheet" />

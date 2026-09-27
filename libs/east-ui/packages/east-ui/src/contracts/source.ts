@@ -81,19 +81,20 @@ export type SeekRangeType = typeof SeekRangeType;
  * A key query, in the one form every key-ordered source understands.
  *
  * @remarks
- * Three shapes, because a key is not always one string: an exact whole-key
- * literal, a String prefix, or — for STRUCT keys — exact leading fields with an
- * optional prefix continuing into the next String field. Every shape addresses
- * ONE CONTIGUOUS RANGE in the canonical key order, which is what makes a hit a
- * `row` + `count` rather than a set of scattered matches.
+ * Four shapes, because a key is not always one string: an exact whole-key
+ * literal; a String prefix; for STRUCT keys, exact leading fields with an
+ * optional prefix continuing into the next String field; and a range over the
+ * key's flattened fields. Every shape addresses ONE CONTIGUOUS RANGE in the
+ * canonical key order, which is what makes a hit a `row` + `count` rather than
+ * a set of scattered matches.
  *
  * Literals are canonical `.east` text of already-validated values, so the query
  * is plain serializable data at any key type — no type-specific wire format,
  * and the search chrome parses the user's text against the key type it was
  * handed ({@link SeekType.keyType}) before it ever gets here.
  *
- * Deliberately the same three shapes as e3's `DatasetFindQuery`, so a bound
- * source forwards a query rather than translating one.
+ * Deliberately the same shapes as e3's `DatasetFindQuery`, so a bound source
+ * forwards a query rather than translating one.
  *
  * @property key - A whole-key `.east` literal — an exact lookup, any key type.
  * @property prefix - A String prefix (String keys, or a Struct key's first
@@ -101,11 +102,19 @@ export type SeekRangeType = typeof SeekRangeType;
  * @property fields - Struct keys: `.east` literals of exact leading fields in
  *   declaration order (`values`), optionally continuing into the next String
  *   field (`prefix`).
+ * @property range - A half-open bound on a leading prefix of the key's
+ *   FLATTENED field path — `.east` literals, nested structs recursed in
+ *   declaration order — so `{ik: {status, due}, k}` bounds on `status`, then
+ *   `due`. An empty array is an open end, and a range names at least one end:
+ *   open at both it bounds nothing, and a server-backed source refuses it.
+ *   What a time window or a status band asks for, and the one shape the other
+ *   three cannot express.
  */
 export const SeekQueryType = VariantType({
     key:    StringType,
     prefix: StringType,
     fields: StructType({ values: ArrayType(StringType), prefix: OptionType(StringType) }),
+    range:  StructType({ from: ArrayType(StringType), to: ArrayType(StringType) }),
 });
 /** Type alias for {@link SeekQueryType}. */
 export type SeekQueryType = typeof SeekQueryType;
@@ -290,7 +299,43 @@ export type RowSourceInput<C extends EastType> =
  */
 export type ResolvedRowSource =
     | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; live?: ExprType<StructType> }
-    | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined };
+    | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined }
+    | {
+        kind: "ordered";
+        source: ExprType<StructType>;
+        collectionType: EastType;
+        elementType: EastType;
+        /** The PRIMARY key each row carries, off the element's `key` field. */
+        keyType: EastType;
+        /** The order key the window is sorted by, off the element's `ik`. */
+        orderKeyType: EastType;
+    };
+
+/** A resolved WINDOWED source — `paged`, or an `ordered` index window. */
+export type ResolvedWindowedSource = Extract<ResolvedRowSource, { kind: "paged" | "ordered" }>;
+
+/**
+ * The element shape an ORDERED window carries: an index entry.
+ *
+ * @remarks
+ * `ik` is the key the window is SORTED by, `key` the row's own identity,
+ * `value` whatever the index covers, and `row` the row itself when the read
+ * joined. A window of these is an `Array` because a `Dict` would re-sort by
+ * its own key and throw the index order away — which is exactly why the rows
+ * need somewhere to carry their identity, and why this is a shape rather than
+ * a flag.
+ */
+const ORDERED_ENTRY_FIELDS = ["ik", "key", "value", "row"] as const;
+
+/** Whether an element type is an ordered window's entry. */
+function orderedEntry(elementType: EastType | undefined): { ik: EastType; key: EastType } | null {
+    const fields = structFields(elementType);
+    if (fields === undefined) return null;
+    const names = Object.keys(fields);
+    if (names.length !== ORDERED_ENTRY_FIELDS.length) return null;
+    if (!ORDERED_ENTRY_FIELDS.every((name, i) => names[i] === name)) return null;
+    return { ik: fields["ik"]!, key: fields["key"]! };
+}
 
 /** A struct expression's field types, or undefined when it isn't a struct. */
 function structFields(t: unknown): Record<string, EastType> | undefined {
@@ -361,6 +406,16 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
                 `${label}: the paged source's \`page\` must return \`Option<Collection>\` ` +
                 `(an Array, Dict or Set) — got ${JSON.stringify(page)}`,
             );
+        }
+        // An ORDERED window: positional, but every row carries its own key.
+        // Recognised by the element's shape rather than announced by a flag,
+        // so a source that serves index entries needs no second vocabulary.
+        const entry = (collectionType as { type?: string }).type === "Array" ? orderedEntry(elementType) : null;
+        if (entry !== null) {
+            return {
+                kind: "ordered", source: expr as unknown as ExprType<StructType>,
+                collectionType, elementType, keyType: entry.key, orderKeyType: entry.ik,
+            };
         }
         return {
             kind: "paged", source: expr as unknown as ExprType<StructType>,
@@ -436,6 +491,11 @@ export function buildRowSource<Out extends EastType>(
             sourceType,
         ) as RowSource<Out>;
     }
+    // `ordered` and `paged` build the same value: by the time `make` has run,
+    // the rows are the component's own shape, and whatever the entry carried —
+    // its key, its order key — is in there because the component's `make` put
+    // it there. The distinction is a BUILD-time one, which is why there is no
+    // third arm here for a renderer to match on.
     const handle = pagedHandleOf(resolved);
     // Erased locally: the window type is `Out`, but TS cannot see through the
     // generic to unify `Option<Out>`'s arms — the East type is what types it.
@@ -478,7 +538,7 @@ export function buildRowSource<Out extends EastType>(
 }
 
 /** A resolved paged source's handle, at the contract's shape. */
-function pagedHandleOf(resolved: Extract<ResolvedRowSource, { kind: "paged" }>) {
+function pagedHandleOf(resolved: ResolvedWindowedSource) {
     return resolved.source as unknown as ExprType<StructType<{
         id: StringType;
         page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
@@ -502,7 +562,7 @@ function pagedHandleOf(resolved: Extract<ResolvedRowSource, { kind: "paged" }>) 
  * @returns `(offset, limit)` → the window, `none` while a piece is in flight
  */
 export function buildPagedWindow(
-    resolved: Extract<ResolvedRowSource, { kind: "paged" }>,
+    resolved: ResolvedWindowedSource,
 ): ExprType<FunctionType<[IntegerType, IntegerType], OptionType<EastType>>> {
     const handle = pagedHandleOf(resolved);
     // The source's own collection — every piece of a window is a value of it.
@@ -759,15 +819,37 @@ function keyedPagedOf(
         const count = $.let(matched.length(), IntegerType);
         return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
     });
+    // A half-open bound. These keys are Strings, which flatten to ONE leaf, so
+    // only the first literal of each side applies; an empty side is open.
+    const boundedRange = East.function([entriesType, ArrayType(StringType), ArrayType(StringType)], SeekRangeType,
+        ($, entries, from, to) => {
+            const by = $.const(keyOfEntry);
+            const n = $.let(entries.length(), IntegerType);
+            const first = $.let(0n, IntegerType);
+            $.if(from.length().greater(0n), ($2) => {
+                $2.assign(first, entries.findSortedFirst(from.get(0n).parse(StringType), by));
+            });
+            const last = $.let(n, IntegerType);
+            $.if(to.length().greater(0n), ($2) => {
+                $2.assign(last, entries.findSortedFirst(to.get(0n).parse(StringType), by));
+            });
+            const count = $.let(0n, IntegerType);
+            $.if(last.greater(first), ($2) => {
+                $2.assign(count, last.subtract(first));
+            });
+            return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
+        });
     const find = East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
         const src = $.const(all, dictType);
         const entries = $.let(src.toArray(($2, v, k) => $2.const({ key: k, value: v }, entryType)), entriesType);
         const prefixOf = $.const(prefixRange);
         const exactOf = $.const(exactRange);
+        const boundedOf = $.const(boundedRange);
         // In-memory sources are never in flight, so every arm resolves to
         // `some` immediately — `none` is reserved for a fetch in progress.
         return query.match({
             prefix: ($2, p) => $2.const(some(prefixOf(entries, p)), OptionType(SeekRangeType)),
+            range: ($2, r) => $2.const(some(boundedOf(entries, r.from, r.to)), OptionType(SeekRangeType)),
             // The whole-key `.east` literal of a String key is its quoted text.
             key: ($2, literal) => $2.const(some(exactOf(entries, literal.parse(StringType))), OptionType(SeekRangeType)),
             // Leading FIELDS address a struct key; these keys are Strings, so a
@@ -856,14 +938,37 @@ function arrayPagedOf(
             const count = $.let(matched.length(), IntegerType);
             return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
         });
-    const seek = prefixRange === undefined || exactRange === undefined
+    // A half-open bound; the key accessor yields a String, which flattens to
+    // ONE leaf, so only the first literal of each side applies.
+    const boundedRange = byFn === undefined ? undefined
+        : East.function([rowsType, ArrayType(StringType), ArrayType(StringType)], SeekRangeType,
+            ($, rows, from, to) => {
+                const by = $.const(byFn);
+                const n = $.let(rows.length(), IntegerType);
+                const first = $.let(0n, IntegerType);
+                $.if(from.length().greater(0n), ($2) => {
+                    $2.assign(first, rows.findSortedFirst(from.get(0n).parse(StringType), by));
+                });
+                const last = $.let(n, IntegerType);
+                $.if(to.length().greater(0n), ($2) => {
+                    $2.assign(last, rows.findSortedFirst(to.get(0n).parse(StringType), by));
+                });
+                const count = $.let(0n, IntegerType);
+                $.if(last.greater(first), ($2) => {
+                    $2.assign(count, last.subtract(first));
+                });
+                return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
+            });
+    const seek = prefixRange === undefined || exactRange === undefined || boundedRange === undefined
         ? East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))))
         : some(East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
                 const src = $.const(all, rowsType);
                 const prefixOf = $.const(prefixRange);
                 const exactOf = $.const(exactRange);
+                const boundedOf = $.const(boundedRange);
                 return query.match({
                     prefix: ($2, p) => $2.const(some(prefixOf(src, p)), OptionType(SeekRangeType)),
+                    range: ($2, r) => $2.const(some(boundedOf(src, r.from, r.to)), OptionType(SeekRangeType)),
                     key: ($2, literal) => $2.const(some(exactOf(src, literal.parse(StringType))), OptionType(SeekRangeType)),
                     fields: ($2, f) => {
                         const empty = $2.const({ found: false, row: 0n, count: 0n }, SeekRangeType);
@@ -914,7 +1019,7 @@ export const Paged = {
         Source: PagedSourceType,
         /** Where a key query landed in a source's row order. */
         SeekRange: SeekRangeType,
-        /** A key query — exact literal, String prefix, or leading struct fields. */
+        /** A key query — exact literal, String prefix, leading struct fields, or a range. */
         SeekQuery: SeekQueryType,
         /** How a component's rows arrive (inline / paged), at a collection type. */
         RowSource: RowSourceType,

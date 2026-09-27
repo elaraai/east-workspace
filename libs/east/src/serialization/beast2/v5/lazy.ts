@@ -24,6 +24,12 @@
  * across hydration, so host-side iteration locks and freezes keyed on the
  * value keep working.
  *
+ * Compiled East code meets a lazy value where east-c meets a paged one: a
+ * loop walks a Set or Dict as east-c's paged loop does ({@link loopWalk}), and
+ * a container a lazy value goes into reads it whole
+ * ({@link readLazyWhole}), so a corrupt input fails at the same node in every
+ * runtime.
+ *
  * This is what lets a task runner open a huge collection input lazily: a
  * body that only iterates it once, or reads a few keys, never pays the whole
  * decode — while a body that does anything else gets the eager value's exact
@@ -33,6 +39,7 @@
 import { type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../../types.js";
 import { compareFor } from "../../../comparison.js";
+import { LazyReadError } from "../../../error.js";
 import { markFrozen } from "../../../frozen.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
 import { SortedSet } from "../../../containers/sortedset.js";
@@ -41,11 +48,23 @@ import { asTypeValue } from "./type-section.js";
 import { isSegmentedRoot } from "./codec.js";
 import { Beast2Pages } from "./stream.js";
 import { type Beast2SyncRangeReader } from "./range.js";
+import { type Beast2ManifestSource } from "./manifest.js";
 
 /** The canonical-order violation error, in the eager decoders' words —
  *  the same sentence on every runtime for the same blob. */
-function orderError(kind: "Set" | "Dict"): Error {
-  return new Error(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+function orderError(kind: "Set" | "Dict"): LazyReadError {
+  return new LazyReadError(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+}
+
+/** Makes one read from the pager, raising its failure — corrupt bytes, or a
+ *  segment that could not be fetched — as a {@link LazyReadError}, which
+ *  compiled East code raises at the operation that made the read. */
+function served<R>(read: () => R): R {
+  try {
+    return read();
+  } catch (err) {
+    throw new LazyReadError((err as Error)?.message ?? String(err), { cause: err });
+  }
 }
 
 /** Streams a Dict blob's entries segment by segment in canonical order,
@@ -57,9 +76,9 @@ function orderError(kind: "Set" | "Dict"): Error {
 function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<[K, V]> {
   let prev: K | undefined;
   let has = false;
-  const start = from === undefined ? 0 : pages.segmentFor(from as never);
+  const start = from === undefined ? 0 : served(() => pages.segmentFor(from as never));
   for (let i = start; i < pages.segmentCount; i++) {
-    const segment = pages.segment(i) as Map<K, V>;
+    const segment = served(() => pages.segment(i)) as Map<K, V>;
     for (const [k, v] of segment) {
       if (has && cmp(prev as K, k) >= 0) throw orderError("Dict");
       prev = k;
@@ -76,9 +95,9 @@ function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number,
 function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<K> {
   let prev: K | undefined;
   let has = false;
-  const start = from === undefined ? 0 : pages.segmentFor(from as never);
+  const start = from === undefined ? 0 : served(() => pages.segmentFor(from as never));
   for (let i = start; i < pages.segmentCount; i++) {
-    const segment = pages.segment(i) as Set<K>;
+    const segment = served(() => pages.segment(i)) as Set<K>;
     for (const k of segment) {
       if (has && cmp(prev as K, k) >= 0) throw orderError("Set");
       prev = k;
@@ -86,6 +105,20 @@ function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?:
       if (from !== undefined && cmp(k, from) < 0) continue;
       yield k;
     }
+  }
+}
+
+/** The key of a lazy value's method that reads it whole — one property
+ *  lookup, cheap on the eager values a constructor is given far more
+ *  often. */
+const READ_WHOLE = Symbol("east.lazy.readWhole");
+
+/** Streams a Set or Dict blob's elements — pairs, for a Dict — as east-c's
+ *  paged loop walks them: every segment fence verified before the first
+ *  element, and each segment checked against the next fence as it is read. */
+function* walkDisjoint<E>(pages: Beast2Pages): Generator<E> {
+  for (let i = 0; i < pages.segmentCount; i++) {
+    yield* served(() => pages.segmentDisjoint(i)) as Iterable<E>;
   }
 }
 
@@ -106,13 +139,30 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     super(undefined, cmp);
   }
 
-  /** Decodes every segment into the underlying B-tree once. */
+  /** Decodes every segment into the underlying B-tree once. A read that fails
+   *  leaves the map unread rather than half-filled, so the next access reads
+   *  again. */
   private hydrate(): void {
     if (this.hydrated) return;
-    this.hydrated = true;
-    for (const [k, v] of lazyDictEntries<K, V>(this.pages, this.cmp)) {
-      super.set(k, v);
+    try {
+      for (const [k, v] of lazyDictEntries<K, V>(this.pages, this.cmp)) {
+        super.set(k, v);
+      }
+    } catch (err) {
+      super.clear();
+      throw err;
     }
+    this.hydrated = true;
+  }
+
+  /** What {@link readLazyWhole} runs. */
+  [READ_WHOLE](): void {
+    this.hydrate();
+  }
+
+  /** The entries a compiled loop walks ({@link loopWalk}). */
+  loopWalk(): Iterable<[K, V]> {
+    return this.hydrated ? super.entries() : walkDisjoint<[K, V]>(this.pages);
   }
 
   override get size(): number {
@@ -122,7 +172,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   override get(key: K): V | undefined {
     if (this.hydrated) return super.get(key);
     if (this.pages.elementCount === 0) return undefined;
-    return this.pages.get(key as never) as V | undefined;
+    return served(() => this.pages.get(key as never)) as V | undefined;
   }
 
   override has(key: K): boolean {
@@ -169,7 +219,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   override minKey(): K | undefined {
     if (this.hydrated) return super.minKey();
     if (this.pages.elementCount === 0) return undefined;
-    return this.pages.fence(0) as K;
+    return served(() => this.pages.fence(0)) as K;
   }
 
   override maxKey(): K | undefined {
@@ -177,7 +227,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     const n = this.pages.segmentCount;
     if (n === 0) return undefined;
     let last: K | undefined;
-    for (const k of (this.pages.segment(n - 1) as Map<K, V>).keys()) last = k;
+    for (const k of (served(() => this.pages.segment(n - 1)) as Map<K, V>).keys()) last = k;
     return last;
   }
 
@@ -233,13 +283,30 @@ class LazySortedSet<K> extends SortedSet<K> {
     super(undefined, cmp);
   }
 
-  /** Decodes every segment into the underlying B-tree once. */
+  /** Decodes every segment into the underlying B-tree once. A read that fails
+   *  leaves the set unread rather than half-filled, so the next access reads
+   *  again. */
   private hydrate(): void {
     if (this.hydrated) return;
-    this.hydrated = true;
-    for (const k of lazySetKeys<K>(this.pages, this.cmp)) {
-      super.add(k);
+    try {
+      for (const k of lazySetKeys<K>(this.pages, this.cmp)) {
+        super.add(k);
+      }
+    } catch (err) {
+      super.clear();
+      throw err;
     }
+    this.hydrated = true;
+  }
+
+  /** What {@link readLazyWhole} runs. */
+  [READ_WHOLE](): void {
+    this.hydrate();
+  }
+
+  /** The elements a compiled loop walks ({@link loopWalk}). */
+  loopWalk(): Iterable<K> {
+    return this.hydrated ? super.keys() : walkDisjoint<K>(this.pages);
   }
 
   override get size(): number {
@@ -249,7 +316,7 @@ class LazySortedSet<K> extends SortedSet<K> {
   override has(key: K): boolean {
     if (this.hydrated) return super.has(key);
     if (this.pages.elementCount === 0) return false;
-    return this.pages.get(key as never) !== undefined;
+    return served(() => this.pages.get(key as never)) !== undefined;
   }
 
   override add(key: K): this {
@@ -327,7 +394,7 @@ class LazySortedSet<K> extends SortedSet<K> {
   override minKey(): K | undefined {
     if (this.hydrated) return super.minKey();
     if (this.pages.elementCount === 0) return undefined;
-    return this.pages.fence(0) as K;
+    return served(() => this.pages.fence(0)) as K;
   }
 
   override maxKey(): K | undefined {
@@ -335,7 +402,7 @@ class LazySortedSet<K> extends SortedSet<K> {
     const n = this.pages.segmentCount;
     if (n === 0) return undefined;
     let last: K | undefined;
-    for (const k of this.pages.segment(n - 1) as Set<K>) last = k;
+    for (const k of served(() => this.pages.segment(n - 1)) as Set<K>) last = k;
     return last;
   }
 
@@ -377,19 +444,26 @@ const LAZY_ARRAY_READS = new Set<PropertyKey>(["entries", "keys", "values", "for
 function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
   const target: unknown[] = [];
   let hydrated = false;
+  // A read that fails leaves the array unread rather than half-filled, so
+  // the next access reads again.
   const hydrate = (): void => {
     if (hydrated) return;
-    hydrated = true;
-    for (let i = 0; i < pages.segmentCount; i++) {
-      // Element-by-element append — a spread (`push(...segment)`) passes the
-      // segment as arguments and overflows the engine's argument limit on
-      // ~100k+-element segments.
-      for (const item of pages.segment(i) as unknown[]) target.push(item);
+    try {
+      for (let i = 0; i < pages.segmentCount; i++) {
+        // Element-by-element append — a spread (`push(...segment)`) passes the
+        // segment as arguments and overflows the engine's argument limit on
+        // ~100k+-element segments.
+        for (const item of served(() => pages.segment(i)) as unknown[]) target.push(item);
+      }
+    } catch (err) {
+      target.length = 0;
+      throw err;
     }
+    hydrated = true;
   };
   function* elements(): Generator<unknown> {
     for (let i = 0; i < pages.segmentCount; i++) {
-      yield* pages.segment(i) as unknown[];
+      yield* served(() => pages.segment(i)) as unknown[];
     }
   }
   const lazyReads: Record<PropertyKey, unknown> = {
@@ -409,6 +483,7 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
   };
   const proxy: unknown[] = new Proxy(target, {
     get(t, prop, receiver) {
+      if (prop === READ_WHOLE) return hydrate;
       if (!hydrated) {
         if (prop === "length") return pages.elementCount;
         if (LAZY_ARRAY_READS.has(prop)) return lazyReads[prop];
@@ -418,7 +493,7 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
           // array, and must stay so here.
           const row = Number(prop);
           if (Number.isInteger(row) && row >= 0 && String(row) === prop) {
-            return row < pages.elementCount ? pages.element(row) : undefined;
+            return row < pages.elementCount ? served(() => pages.element(row)) : undefined;
           }
         }
         hydrate();
@@ -466,6 +541,45 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
 }
 
 /**
+ * What a compiled loop over a Set or Dict walks: a Set's elements, a Dict's
+ * entries. A lazy one not yet read whole is walked as east-c's paged loop
+ * walks one — every segment fence verified before the first element, each
+ * segment checked against the next fence as it is read — so over a blob whose
+ * fences descend the loop fails before its first iteration, and over segments
+ * that overlap before the elements of the first that overlaps the next, where
+ * east-c's fails and in its words. Anything else is walked as it iterates.
+ *
+ * @param collection - the Set or Dict the loop walks
+ * @returns what the loop walks
+ * @internal
+ */
+export function loopWalk<E>(collection: Iterable<E>): Iterable<E> {
+  return collection instanceof LazySortedMap || collection instanceof LazySortedSet
+    ? collection.loopWalk() as Iterable<E>
+    : collection;
+}
+
+/**
+ * Reads a lazy collection value whole, if `value` is one not yet read: from
+ * then on it holds its elements, as the eager value does, and keeps its
+ * identity. A read that fails throws a {@link LazyReadError} and leaves the
+ * value unread. Any other value is left as it is.
+ *
+ * East-c reads a lazy value whole the moment it goes into a container — a
+ * struct, an array, a variant or a ref, or a dict literal as a value — so a
+ * corrupt input fails at that constructor. The compiled constructors read the
+ * values they are given through this, to fail at the same node.
+ *
+ * @param value - an East value
+ * @internal
+ */
+export function readLazyWhole(value: unknown): void {
+  if (typeof value === "object" && value !== null) {
+    (value as { [READ_WHOLE]?: () => void })[READ_WHOLE]?.();
+  }
+}
+
+/**
  * Builds a curried lazy opener: `open(source)` returns an ordinary collection
  * value — a `SortedMap`, `SortedSet`, or array — backed by the blob's
  * segment index instead of a whole decode.
@@ -487,19 +601,24 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
  * hydrating, and the collection compares as a value type under `Is` — see
  * {@link isBeast2LazySafe} for the wider shapes a frozen open admits.
  *
+ * A read the value serves that fails — corrupt bytes, or a segment the source
+ * cannot give — throws a {@link LazyReadError}, which compiled East code
+ * raises at the operation that made the read. A hydration that fails leaves
+ * the value unread, so the next access reads the blob again.
+ *
  * @param type - the collection type (Array/Set/Dict)
  * @param options - decode options (platform functions for decoded functions,
  *   frozen)
  * @returns a function opening a blob as a lazy collection value
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
-export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader) => ValueTypeOf<T> {
+export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => ValueTypeOf<T> {
   const typeValue = asTypeValue(type);
   if (!isSegmentedRoot(typeValue)) {
     throw new TypeError(`beast2 v5 lazy values hold Array, Set or Dict roots, not ${typeValue.type}`);
   }
   const frozen = options?.frozen ?? false;
-  return (source: Uint8Array | Beast2SyncRangeReader) => {
+  return (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => {
     // The pages carry the decode options, so every segment (and fence) the
     // lazy value serves is decoded frozen at construction.
     const pages = new Beast2Pages(source, typeValue, options);

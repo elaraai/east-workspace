@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'fs';
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { extname } from 'path';
@@ -17,8 +17,13 @@ import {
     decodeEastIR,
     decodeAsyncEastIR,
     readBeast2Extents,
+    readBeast2Manifest,
+    spliceBeast2,
+    encodeBeast2SegmentsFor,
     openBeast2LazyFor,
     isBeast2LazySafe,
+    type Beast2ManifestSource,
+    type CollectionManifest,
     EastIR,
     AsyncEastIR,
     type EastTypeValue,
@@ -349,6 +354,13 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
 
     switch (format) {
         case 'beast2': {
+            // A manifest-rooted file is the collection it describes: splice
+            // its segment files back under their shared header and decode
+            // that, which is the same value the lazy opener serves.
+            const manifest = readBeast2Manifest(data);
+            if (manifest !== null) {
+                return decodeBeast2(spliceManifestFiles(filePath, manifest), { frozen: true }).value;
+            }
             // For inputs, we use decodeBeast2 which is self-describing
             // This allows loading data without knowing the exact type
             const result = decodeBeast2(data, { frozen: true });
@@ -365,14 +377,39 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
     }
 }
 
+/**
+ * One blob out of a manifest-rooted input's segment files — the whole-value
+ * form, for a decode that is not going to be lazy.
+ *
+ * @remarks
+ * The segments are standalone blobs sharing one header, so the splice is a
+ * concatenation of their frame bytes under it: nothing is decoded, and the
+ * result is byte-identical to the blob the value was cut from.
+ *
+ * @param filePath - the manifest file
+ * @param manifest - its decoded manifest
+ * @returns the spliced blob
+ * @throws {Error} When a segment the manifest names is missing.
+ */
+function spliceManifestFiles(filePath: string, manifest: CollectionManifest): Uint8Array {
+    const type = manifest.type as EastTypeValue;
+    // An empty collection names no segment, so there is nothing to splice:
+    // the writer's own empty blob is what it was cut from.
+    if (manifest.entries.length === 0) return encodeBeast2SegmentsFor(type)([]);
+    const dir = segmentDirFor(filePath);
+    return spliceBeast2(manifest.entries.map((entry) =>
+        new Uint8Array(readFileSync(path.join(dir, `${entry.hash}.beast2`)))));
+}
+
 /** Bytes each lazily opened input has read from its descriptor so far —
  *  what "paged from the file" came to, for the runner's verbose summary. */
 const lazyInputReads = new WeakMap<object, () => number>();
 
 /**
- * Bytes a value from {@link loadInputLazy} has read from its file so far:
- * the geometry (tail and head), every fence probe, and each segment frame
- * decoded. `undefined` for any other value.
+ * Bytes a value from {@link loadInputLazy} has read so far: the geometry
+ * (tail and head), every fence probe, and each segment frame decoded, across
+ * the input file and every segment file a manifest-rooted input opened.
+ * `undefined` for any other value.
  *
  * @param value - a task input value
  * @returns the byte count, or `undefined` when the value was not opened lazily
@@ -384,11 +421,13 @@ export function lazyInputBytesRead(value: unknown): number | undefined {
 /** The descriptors behind lazily opened inputs, closed when their value is
  *  collected: the value reads segment frames from the descriptor for its
  *  whole life. A runner holds one per lazy input. */
-const lazyInputFiles = new FinalizationRegistry<number>((fd) => {
-    try {
-        closeSync(fd);
-    } catch {
-        // Already closed — nothing else to release.
+const lazyInputFiles = new FinalizationRegistry<number[]>((handles) => {
+    for (const fd of handles) {
+        try {
+            closeSync(fd);
+        } catch {
+            // Already closed — nothing else to release.
+        }
     }
 });
 
@@ -423,35 +462,172 @@ const lazyInputFiles = new FinalizationRegistry<number>((fd) => {
  */
 export function loadInputLazy(filePath: string): unknown | undefined {
     if (getFileFormat(filePath) !== 'beast2') return undefined;
-    let fd = -1;
+    const open = openCounted();
     try {
-        fd = openSync(filePath, 'r');
-        const handle = fd;
-        let bytesRead = 0;
-        const reader: Beast2SyncRangeReader = {
-            size: fstatSync(handle).size,
-            read(offset, length) {
-                const out = new Uint8Array(length);
-                let done = 0;
-                while (done < length) {
-                    const n = readSync(handle, out, done, length - done, offset + done);
-                    if (n === 0) throw new Error(`beast2: short read at offset ${offset + done}`);
-                    done += n;
-                }
-                bytesRead += length;
-                return out;
-            },
-        };
+        const reader = open.reader(filePath);
+        // A file whose value is a manifest is the collection it describes,
+        // its segments the sibling files it names — so the input was staged
+        // by linking rather than by splicing, and nothing here reads a
+        // segment the body does not touch.
+        const manifest = readBeast2Manifest(reader);
+        if (manifest !== null) return openManifestLazy(filePath, manifest, open);
+
         const extents = readBeast2Extents(reader);
-        if (!extents.selfContained || !isBeast2LazySafe(extents.typeValue, { frozen: true })) return undefined;
+        if (!extents.selfContained || !isBeast2LazySafe(extents.typeValue, { frozen: true })) {
+            open.closeAll();
+            return undefined;
+        }
         const value = openBeast2LazyFor(extents.typeValue, { frozen: true })(reader) as object;
-        lazyInputFiles.register(value, handle);
-        lazyInputReads.set(value, () => bytesRead);
-        fd = -1; // the value owns the descriptor from here
+        open.own(value);
         return value;
     } catch {
+        open.closeAll();
         return undefined;
-    } finally {
-        if (fd >= 0) closeSync(fd);
     }
+}
+
+/** The directory a manifest-rooted input's segment files sit in, beside the
+ *  file itself: `<input>.segments/<hash>.beast2`. The convention is shared
+ *  with e3-core's staging and with the other runtimes. */
+export function segmentDirFor(filePath: string): string {
+    return `${filePath}.segments`;
+}
+
+/**
+ * The bytes an input stands for: the collection a manifest-rooted file names
+ * — the manifest and every segment file — or any other file's own size.
+ *
+ * @remarks
+ * What the lazy-open threshold and the verbose account measure. A manifest is
+ * a few dozen bytes per segment whatever the collection weighs, so its file's
+ * size would put a multi-gigabyte input under any threshold and decode it
+ * whole. The manifest is recognised through a positioned reader, so a large
+ * blob is never read to learn that it is not one.
+ *
+ * @param filePath - Path to the input file
+ * @returns the byte count
+ */
+export function inputBytes(filePath: string): number {
+    if (getFileFormat(filePath) !== 'beast2') return statSync(filePath).size;
+    const open = openCounted();
+    try {
+        const reader = open.reader(filePath);
+        const manifest = readBeast2Manifest(reader);
+        if (manifest === null) return reader.size;
+        return manifest.entries.reduce((sum, entry) => sum + Number(entry.bytes), reader.size);
+    } catch {
+        return statSync(filePath).size;
+    } finally {
+        open.closeAll();
+    }
+}
+
+/** Opens a manifest-rooted input as a lazy collection over its segment files.
+ *  Returns `undefined` when the element shape is not lazy-safe or a segment
+ *  the manifest names is missing — the caller falls back to the eager load,
+ *  which splices the same files. */
+function openManifestLazy(filePath: string, manifest: CollectionManifest, open: CountedOpener): unknown | undefined {
+    const typeValue = manifest.type as EastTypeValue;
+    if (!isBeast2LazySafe(typeValue, { frozen: true })) {
+        open.closeAll();
+        return undefined;
+    }
+    const dir = segmentDirFor(filePath);
+    const entries = manifest.entries;
+    for (const entry of entries) {
+        if (!existsSync(path.join(dir, `${entry.hash}.beast2`))) {
+            open.closeAll();
+            return undefined;
+        }
+    }
+    const readers: (Beast2SyncRangeReader | undefined)[] = new Array(entries.length);
+    const source: Beast2ManifestSource = {
+        manifest,
+        segment(i) {
+            // A segment file is opened for each read and closed after it: a
+            // body that iterates every segment of a large record would
+            // otherwise hold a descriptor per segment for the value's life,
+            // and run out of them.
+            return readers[i] ??= open.segment(path.join(dir, `${entries[i]!.hash}.beast2`));
+        },
+    };
+    const value = openBeast2LazyFor(typeValue, { frozen: true })(source) as object;
+    open.own(value);
+    return value;
+}
+
+/** Descriptors opened for one lazy input, the bytes they have served, and
+ *  who closes them. */
+interface CountedOpener {
+    /** A positioned reader over `file`, counting every byte it serves. */
+    reader(file: string): Beast2SyncRangeReader;
+    /** A positioned reader over one of a manifest's segment files, counting
+     *  every byte it serves and holding no descriptor between reads. */
+    segment(file: string): Beast2SyncRangeReader;
+    /** Hands the descriptors to `value`, closed when it is collected. */
+    own(value: object): void;
+    /** Closes everything — the open did not produce a value. */
+    closeAll(): void;
+}
+
+/** Exactly `length` bytes of `handle` from `offset`. */
+function readRange(handle: number, offset: number, length: number): Uint8Array {
+    const out = new Uint8Array(length);
+    let done = 0;
+    while (done < length) {
+        const n = readSync(handle, out, done, length - done, offset + done);
+        if (n === 0) throw new Error(`beast2: short read at offset ${offset + done}`);
+        done += n;
+    }
+    return out;
+}
+
+/** The descriptors and the byte counter a lazy input shares across its
+ *  file and, for a manifest, every segment file it reads. */
+function openCounted(): CountedOpener {
+    const handles: number[] = [];
+    let bytesRead = 0;
+    return {
+        reader(file) {
+            const handle = openSync(file, 'r');
+            handles.push(handle);
+            return {
+                size: fstatSync(handle).size,
+                read(offset, length) {
+                    const out = readRange(handle, offset, length);
+                    bytesRead += length;
+                    return out;
+                },
+            };
+        },
+        segment(file) {
+            return {
+                size: statSync(file).size,
+                read(offset, length) {
+                    const handle = openSync(file, 'r');
+                    try {
+                        const out = readRange(handle, offset, length);
+                        bytesRead += length;
+                        return out;
+                    } finally {
+                        closeSync(handle);
+                    }
+                },
+            };
+        },
+        own(value) {
+            lazyInputFiles.register(value, handles);
+            lazyInputReads.set(value, () => bytesRead);
+        },
+        closeAll() {
+            for (const handle of handles) {
+                try {
+                    closeSync(handle);
+                } catch {
+                    // Already closed — nothing else to release.
+                }
+            }
+            handles.length = 0;
+        },
+    };
 }

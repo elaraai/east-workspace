@@ -4,21 +4,39 @@
  */
 
 import { Hono } from 'hono';
-import { defaultJobs, type StorageBackend } from '@elaraai/e3-core';
+import { NullType, variant } from '@elaraai/east';
+import type { Budget, StorageBackend } from '@elaraai/e3-core';
 import {
   startDataflow,
   getDataflowStatus,
   getDataflowGraph,
   getTaskLogs,
   getDataflowExecution,
+  getDataflowBudget,
   cancelDataflow,
 } from '../handlers/dataflow.js';
-import { decodeBody } from '../beast2.js';
+import { decodeBody, sendError } from '../beast2.js';
 import { DataflowRequestType } from '../types.js';
+import type { GetRunner } from './functions.js';
 
+/**
+ * The routes of a workspace's dataflow: start, poll, cancel, its graph, its
+ * tasks' logs, and the budget a run gets.
+ *
+ * @param storage - Storage backend
+ * @param getRepoPath - A repository's path from its name
+ * @param dataflow - How the server runs a dataflow: the runner its tasks and
+ *   units run on, the tasks and units the loop keeps in flight, and the
+ *   budget the runner holds, which the poll and the budget route serve.
+ *   Without it the server starts no dataflow and serves no budget: a host
+ *   that runs them elsewhere, as e3-cloud does, mounts these routes for the
+ *   rest.
+ * @returns The routes
+ */
 export function createExecutionRoutes(
   storage: StorageBackend,
-  getRepoPath: (repo: string) => string
+  getRepoPath: (repo: string) => string,
+  dataflow?: { getRunner: GetRunner; width: number; budget?: Budget },
 ) {
   const app = new Hono();
 
@@ -28,15 +46,15 @@ export function createExecutionRoutes(
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
 
+    if (dataflow === undefined) {
+      return sendError(NullType, variant('internal', { message: 'this server starts no dataflow: its host runs them' }));
+    }
     const body = await decodeBody(c, DataflowRequestType);
-    // The request's `concurrency` is the run's jobs budget: the runner
-    // processes this server keeps in flight for it, across tasks and the
-    // units of partitioned tasks. Absent, the CPUs available to the server.
-    const jobs = body.concurrency.type === 'some' ? Number(body.concurrency.value) : defaultJobs();
     const filter = body.filter.type === 'some' ? body.filter.value : undefined;
 
     return startDataflow(storage, repoPath, ws, {
-      jobs,
+      runner: dataflow.getRunner(repoPath),
+      width: dataflow.width,
       force: body.force,
       filter,
       verbose: c.req.query('verbose') === '1',
@@ -84,8 +102,11 @@ export function createExecutionRoutes(
     const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : undefined;
     const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
 
-    return getDataflowExecution(repoPath, ws, { offset, limit });
+    return getDataflowExecution(repoPath, ws, { offset, limit }, dataflow?.budget);
   });
+
+  // GET /api/repos/:repo/workspaces/:ws/dataflow/budget - The budget a run gets
+  app.get('/budget', () => getDataflowBudget(dataflow?.budget));
 
   // POST /api/repos/:repo/workspaces/:ws/dataflow/cancel - Cancel running execution
   app.post('/cancel', async (c) => {

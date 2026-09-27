@@ -11,6 +11,7 @@
 
 import {
     East,
+    ArrayType,
     NullType,
     BooleanType,
     FunctionType,
@@ -22,15 +23,16 @@ import {
     none,
     some,
     variant,
+    type DictType,
     type EastType,
     type ExprType,
 } from '@elaraai/east';
-import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
+import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-types';
 // The row-source contract is east-ui's (#567): a paged handle IS a
 // `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
 // take it without either package importing the other's data layer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
-import type { DatasetDef, TaskDef } from '@elaraai/e3';
+import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
 
 // ============================================================================
 // Mode + binding descriptor types — shared with the Diff component.
@@ -345,32 +347,72 @@ function bindData<T extends EastType>(
  * a window is not a value you can diff or stage. Bind the same dataset with
  * {@link Data.bind} when you need to edit it.
  *
- * @property revision - Read the content hash shared by pages, total and seek.
- * @property refresh - Refresh at some(hash), or discover current content with none.
+ * Every window, the total and every search belong to one snapshot of the
+ * dataset, its `revision`, so rows from two snapshots never sit side by side.
+ *
+ * @property id - The source's identity: its dataset path, and the index it
+ *   reads through. A renderer keys its window cache on `id` and `revision`.
  * @property page - Read one window: `(offset, limit)` → the window's elements
  *   as a value of the dataset's own type. `none` means the window is still in
  *   flight — the call re-fires when it lands (use inside `Reactive.Root`). An
  *   EMPTY window means the source is exhausted at that offset, so a reader
  *   that walks offsets terminates on `some([])`, never on `none`. A window
- *   whose fetch FAILED throws its reason rather than reading `none` (#811);
- *   a read at least two seconds after the failure fetches it again (a
- *   component's Retry), and a dataset that cannot be paged keeps throwing.
- * @property total - The source's total element count, once any window has
- *   landed; `none` until then.
+ *   whose fetch failed throws its reason, and a read after a short gap fetches
+ *   it again.
+ * @property total - The source's total element count, once any window of the
+ *   snapshot has landed; `none` until then.
  * @property seek - Key search over the dataset, backed by the server's fence
  *   search (`datasetFindKey`). `none` for an Array-typed dataset: stream order
  *   has nothing to binary-search. Decided at bind time from the dataset's own
- *   type, so a component renders the affordance only where it works. A search
- *   that failed throws its reason, like a failed window.
+ *   type, so a component renders the affordance only where it works.
+ * @property revision - The snapshot the source serves: the dataset's content
+ *   hash, or, for a read through an index, the record's state hash. `none`
+ *   while it is being found, or while the dataset has no value. A reader
+ *   re-fires when the source moves to another snapshot.
+ * @property refresh - Move the source: `some(hash)` to that snapshot, `none`
+ *   to the dataset's current one. Call it from an event handler after a
+ *   confirmed write, so the view shows the write without waiting for the
+ *   source to notice it. Returns at once.
  */
 export const DataPagedHandleType = <T extends EastType | string>(t: T) => StructType({
-    id:    StringType,
-    page:  FunctionType([IntegerType, IntegerType], OptionType(t)),
-    total: FunctionType([], OptionType(IntegerType)),
-    seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    id:       StringType,
+    page:     FunctionType([IntegerType, IntegerType], OptionType(t)),
+    total:    FunctionType([], OptionType(IntegerType)),
+    seek:     OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
     revision: FunctionType([], OptionType(StringType)),
-    refresh: FunctionType([OptionType(StringType)], NullType),
+    refresh:  FunctionType([OptionType(StringType)], NullType),
 });
+
+/** The window type an index-selected {@link Data.bindPaged} serves, spelled at
+ *  the TypeScript level so a component's prop types against it. */
+export type IndexWindowType<T extends EastType, IK extends EastType, P extends EastType> =
+    T extends DictType<infer K, infer V>
+        ? ArrayType<StructType<{ ik: IK; key: K; value: P; row: OptionType<V> }>>
+        : never;
+
+/** Reading a record through one of its secondary indexes. */
+export interface BindPagedIndexOptions<T extends EastType, IK extends EastType, P extends EastType> {
+    /**
+     * The index to read through, as the `e3.recordIndex` declaration.
+     *
+     * @remarks
+     * The declaration rather than the name: the window's type — the index key
+     * and the covering projection — comes from it, so a component binding an
+     * index gets the row shape it will actually render, checked at compile
+     * time. Only the NAME travels in the IR.
+     */
+    index: RecordIndexDef<string, T, IK, P>;
+    /**
+     * Read each entry's row from the record too.
+     *
+     * @remarks
+     * Off by default, which is what a covering projection is for: a queue view
+     * that renders from `value` alone touches the index's segments and none of
+     * the record's. Turn it on when the view needs fields the projection does
+     * not carry, and accept a read per entry's segment.
+     */
+    join?: boolean;
+}
 
 /**
  * The TypeScript type of a {@link Data.bindPaged} handle bound to source type
@@ -388,22 +430,50 @@ export const DataPagedHandleType = <T extends EastType | string>(t: T) => Struct
 export type PagedValue<T extends EastType> = ExprType<ReturnType<typeof DataPagedHandleType<T>>>;
 
 /**
- * The underlying `Data.bindPaged` platform-function definition. End-users
- * should call {@link Data.bindPaged}; runtime implementations register
- * against this raw definition via `bindPagedPlatformFn.implement(...)`.
+ * The handle `data_bind_paged` returns, exactly as it was released. Every UI
+ * package exported before pinned reads names this return type in its IR, and
+ * a platform call's return type is checked against its implementation's
+ * exactly, so it never changes.
+ */
+const RELEASED_PAGED_HANDLE = StructType({
+    id:    StringType,
+    page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
+    total: FunctionType([], OptionType(IntegerType)),
+    seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+});
+
+/**
+ * The platform function a UI exported before pinned reads calls: a paged bind
+ * of the dataset's own rows, whose handle has no `revision` or `refresh`. Its
+ * reads are pinned, follow the dataset and fail visibly all the same, since the
+ * runtime serves both binds alike. End-users call {@link Data.bindPaged}, which
+ * emits {@link bindPagedPinnedPlatformFn}.
  */
 export const bindPagedPlatformFn = East.genericPlatform(
     "data_bind_paged",
     ["T"],
     [TreePathType],
-    StructType({
-        id:    StringType,
-        page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
-        total: FunctionType([], OptionType(IntegerType)),
-        seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
-        revision: FunctionType([], OptionType(StringType)),
-        refresh: FunctionType([OptionType(StringType)], NullType),
-    }),
+    RELEASED_PAGED_HANDLE,
+    { optional: true },
+);
+
+/**
+ * The underlying `Data.bindPaged` platform-function definition: the source
+ * path, the index to read through (`none` for the dataset's own rows), and
+ * whether each index entry is joined to its row. Runtime implementations
+ * register against it via `bindPagedPinnedPlatformFn.implement(...)`.
+ *
+ * @remarks
+ * A function of its own rather than a wider `data_bind_paged`: that call and
+ * the handle it returns are baked into every UI package already exported, and
+ * a platform call is checked against its implementation's arity and return
+ * type exactly, so widening either would refuse every one of them.
+ */
+export const bindPagedPinnedPlatformFn = East.genericPlatform(
+    "data_bind_paged_pinned",
+    ["T"],
+    [TreePathType, OptionType(StringType), BooleanType],
+    DataPagedHandleType("T"),
     { optional: true },
 );
 
@@ -413,17 +483,21 @@ export const bindPagedPlatformFn = East.genericPlatform(
 // path (the value type rides as a type-arg), so a paged handle is ordinary
 // serializable East data. Implemented by `PagedRuntime` in
 // `@elaraai/e3-ui-components`.
-const PAGED_DESCRIPTOR = [TreePathType] as const;
+// The index selector rides the descriptor as plain data — a name, not a
+// handle — so a paged handle stays ordinary serializable East data and the
+// runtime reads it back from the call's own arguments.
+const PAGED_DESCRIPTOR = [TreePathType, OptionType(StringType), BooleanType] as const;
 const data_page = East.genericPlatform(
     "data_page", ["T"], [...PAGED_DESCRIPTOR, IntegerType, IntegerType], OptionType("T"), { optional: true });
 const data_page_total = East.genericPlatform(
     "data_page_total", ["T"], [...PAGED_DESCRIPTOR], OptionType(IntegerType), { optional: true });
 // Key search rides the SAME in-flight convention as a window: `none` while the
-// server's fence search is running, `some(range)` when it lands — and, like a
-// window, a THROW when it failed (#811). The row it returns is a global
-// element index in the row space `data_page` windows serve.
+// server's fence search is running, `some(range)` when it lands. The row it
+// returns is a global element index in the row space `data_page` windows serve.
 const data_page_seek = East.genericPlatform(
     "data_page_seek", ["T"], [...PAGED_DESCRIPTOR, SeekQueryType], OptionType(SeekRangeType), { optional: true });
+// The snapshot a source serves, and a move to another, ride the same
+// descriptor, so every bind of one dataset shares them.
 const data_page_revision = East.genericPlatform(
     "data_page_revision", ["T"], [...PAGED_DESCRIPTOR], OptionType(StringType), { optional: true });
 const data_page_refresh = East.genericPlatform(
@@ -436,18 +510,21 @@ const data_page_refresh = East.genericPlatform(
  * @internal Not for direct use — author against {@link Data.bindPaged}.
  */
 export const DataPagedPrimitives = {
-    /** `data_page([T], source, offset, limit) -> Option<T>` — one window
-     *  (`none` = in flight; throws when the window's fetch failed). */
+    /** `data_page([T], source, index, join, offset, limit) -> Option<T>` — one
+     *  window (`none` = in flight). */
     page: data_page,
-    /** `data_page_total([T], source) -> Option<Integer>` — total elements, once known. */
+    /** `data_page_total([T], source, index, join) -> Option<Integer>` — total
+     *  elements, once known. */
     total: data_page_total,
-    /** `data_page_seek([T], source, query) -> Option<SeekRange>` — where a key
-     *  query lands in the source's row order (`none` = search in flight;
-     *  throws when the search failed). */
+    /** `data_page_seek([T], source, index, join, query) -> Option<SeekRange>` —
+     *  where a key query lands in the source's row order (`none` = search in
+     *  flight). */
     seek: data_page_seek,
-    /** Read the coherent source snapshot; none while discovering it. */
+    /** `data_page_revision([T], source, index, join) -> Option<String>` — the
+     *  snapshot the source serves (`none` while it is found). */
     revision: data_page_revision,
-    /** Refresh all consumers at an exact snapshot, or discover current content. */
+    /** `data_page_refresh([T], source, index, join, target) -> Null` — move
+     *  the source to `target`, or to the dataset's current snapshot. */
     refresh: data_page_refresh,
 } as const;
 
@@ -462,8 +539,8 @@ export const DataPagedPrimitives = {
  *
  * @typeParam T - The East type of the source dataset value (a collection type).
  * @param dataset - The dataset (or task) definition to bind.
- * @returns A handle struct described by {@link DataPagedHandleType} — `page`
- *   / `total` / `seek` / `revision` / `refresh`.
+ * @returns A handle struct described by {@link DataPagedHandleType} — `page`,
+ *   `total`, `seek`, `revision` and `refresh`.
  *
  * @remarks
  * Each `page(offset, limit)` fetches exactly that window and decodes it
@@ -471,12 +548,19 @@ export const DataPagedPrimitives = {
  * user code. A window still in flight reads `none` and the call re-fires when
  * it lands, so use it inside `Reactive.Root`; an empty window means the source
  * is exhausted, which is how a walking reader terminates. A window whose fetch
- * failed throws its reason (#811) — the Plan shows it as that window's error
- * band with a Retry, and a Table as its "could not be read" message.
+ * failed throws its reason, so a view shows the failure rather than waiting;
+ * a read after a short gap fetches it again.
  *
- * Unlike {@link Data.bind}, a paged source is NOT preloaded or polled as a
- * whole value — it is declared in the UI task's manifest under `pages`, which
- * is the entire point of binding it paged.
+ * Every window and search is pinned to the source's `revision`, the dataset's
+ * content hash, so rows from two snapshots never sit side by side. The source
+ * follows its dataset: when the content changes — a dataflow run, another
+ * user's write — it moves to the new snapshot, drops what it held, and fetches
+ * again only the windows and searches being read. `refresh` moves it at once,
+ * after a write the view itself confirmed.
+ *
+ * Unlike {@link Data.bind}, a paged source is never preloaded or fetched
+ * whole: it is declared in the UI task's manifest under `pages`, and follows
+ * its dataset by content hash alone, which is the point of binding it paged.
  *
  * @example
  * ```ts
@@ -485,21 +569,17 @@ export const DataPagedPrimitives = {
  * import { Data } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
- * // KEYED, because a Plan row's id starts with its entry's key — the same key
- * // space `page` windows and `seek` searches — and GROUPED by line where the
- * // data is made (an e3 task): the canvas nests what the data nests (#822).
- * const OpsLine = DictType(StringType, OpsRow);
- * const ops = e3.input("ops", DictType(StringType, OpsLine), variant("value", new Map()));
+ * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
+ * // same key space `page` windows and `seek` searches.
+ * const ops = e3.input("ops", DictType(StringType, OpsRow), variant("value", new Map()));
  *
  * // Mirrors `dataBindPagedPlan` in test/bind/data/data.examples.tsx.
  * const dataBindPagedPlan = East.function([], UIComponentType, _$ => {
  *     return Reactive.Root(East.function([], UIComponentType, $ => {
  *         const paged = $.let(Data.bindPaged(ops));
- *         // In an event handler: $(paged.refresh(none)) discovers current content;
- *         // $(paged.refresh(some(committedHash))) pins an acknowledged write.
- *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsLine)));
- *         // Every canvas states its window, paged or inline — none is fitted
- *         // to whatever has loaded (#822).
+ *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsRow)));
+ *         // A paged canvas DECLARES its window: fitting the axis to whatever
+ *         // prefix has landed re-fits it on every window (#567 D8).
  *         const axis = $.const(Plan.axis({
  *             window: { min: week(24n), max: week(42n) }, resolution: "week",
  *         }));
@@ -510,18 +590,48 @@ export const DataPagedPrimitives = {
  */
 function bindDataPaged<T extends EastType>(
     dataset: DatasetDef<T> | TaskDef<T>,
-): PagedValue<T> {
+): PagedValue<T>;
+function bindDataPaged<T extends EastType, IK extends EastType, P extends EastType>(
+    record: RecordDef<T>,
+    options: BindPagedIndexOptions<T, IK, P>,
+): PagedValue<IndexWindowType<T, IK, P>>;
+// The implementation's return is erased: an index window's TS type is a
+// conditional over the record's Dict, which TypeScript cannot resolve against
+// an unbound `T`. The overloads above carry the precise types.
+function bindDataPaged(
+    dataset: DatasetDef<EastType> | TaskDef<EastType>,
+    options?: BindPagedIndexOptions<EastType, EastType, EastType>,
+): PagedValue<any> {
     // A TaskDef binds its output dataset; a DatasetDef binds itself.
     const def = dataset.kind === 'task' ? dataset.output : dataset;
     // The source path comes from the def, so it is statically known by
     // construction — `deriveManifest` reads it back as a single literal
     // `Value` IR node, which `East.value(...)` forces.
     const sourceValue = East.value(def.path, TreePathType);
-    // Two-step cast: the platform definition spells its window type with the
-    // `"T"` type-var, which TS reads as `some: string` inside the nested
-    // `Option`, so it does not overlap the instantiated handle directly. The
-    // East-side substitution is what actually types the value.
-    return bindPagedPlatformFn([def.type as T], sourceValue) as unknown as PagedValue<T>;
+    const index = options?.index;
+    if (index === undefined) {
+        return bindPagedPinnedPlatformFn(
+            [def.type], sourceValue, East.value(none, OptionType(StringType)), East.value(false, BooleanType),
+        ) as unknown as PagedValue<EastType>;
+    }
+    // An index window is the index's OWN order: ORDERED rows, each carrying
+    // what a view needs to render without the record — the index key, the
+    // row's own key and the covering projection, plus the row itself when the
+    // read joins. A Dict would re-sort by its own key and throw that order
+    // away, which is the whole reason the window is positional. The server
+    // encodes the window with the same `indexWindowType`.
+    const record = def.type as unknown as { type: string; key: EastType; value: EastType };
+    if (record.type !== 'Dict') {
+        throw new Error(
+            `Data.bindPaged: an index reads a Dict record; this one holds ${record.type}`,
+        );
+    }
+    return bindPagedPinnedPlatformFn(
+        [indexWindowType(record.key, index.keyType, index.valueType, record.value)],
+        sourceValue,
+        East.value(some(index.name), OptionType(StringType)),
+        East.value(options?.join === true, BooleanType),
+    ) as unknown as PagedValue<EastType>;
 }
 
 /**

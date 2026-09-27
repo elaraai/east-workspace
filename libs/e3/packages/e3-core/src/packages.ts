@@ -14,13 +14,27 @@ import * as fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import yauzl from 'yauzl';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, isEastDict } from '@elaraai/east';
-import { DataflowRunType, ExecutionStatusType, DatasetRefType, EnvironmentSpecType, environmentSpecObjectHashes, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
-import type { PackageObject, TaskObject, FunctionObject } from '@elaraai/e3-types';
+import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import {
+  DataflowRunType,
+  EnvironmentSpecType,
+  RecordIndexObjectType,
+  environmentSpecObjectHashes,
+  decodeFunctionObject,
+  decodeMigrationObject,
+  decodeMutationObject,
+  decodePackageObject,
+  decodeExecutionStatus,
+  decodeRecordObject,
+  decodeTaskObject,
+} from '@elaraai/e3-types';
+import type { PackageObject } from '@elaraai/e3-types';
 import {
   PackageNotFoundError,
   PackageInvalidError,
 } from './errors.js';
+import { readManifest } from './dataset-open.js';
+import { readRecordState } from './records.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /**
@@ -44,13 +58,17 @@ export interface PackageImportOptions {
 /**
  * Import a package from a .zip file into the repository.
  *
- * Extracts objects to `objects/`, creates ref at `packages/<name>/<version>`.
+ * Writes the zip's objects to the store and its package ref,
+ * `packages/<name>/<version>.beast2`, to the repository, with the run and
+ * executions a workspace's export carries.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param zipPath - Path to the .zip package file
  * @param options - Optional import options (e.g. progress callback)
  * @returns Import result with package name, version, and stats
+ * @throws {PackageInvalidError} When the zip holds no package ref, or an older
+ *   e3 exported it
  */
 export async function packageImport(
   storage: StorageBackend,
@@ -82,12 +100,10 @@ export async function packageImport(
       return;
     }
 
-    // Write status first
+    // Write status first, in the current form whichever form it was exported in
     const statusData = currentExecFiles.get('status.beast2');
     if (statusData) {
-      const statusDecoder = decodeBeast2For(ExecutionStatusType);
-      const status = statusDecoder(statusData);
-      await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, status);
+      await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, decodeExecutionStatus(statusData));
     }
 
     // Write logs
@@ -113,18 +129,17 @@ export async function packageImport(
         continue;
       }
 
-      // Handle package ref: packages/<name>/<version>
+      // The package ref, packages/<name>/<version>.beast2, as a repository
+      // keeps one. An older e3 wrote it as text, without the extension.
       if (fileName.startsWith('packages/')) {
         const parts = fileName.split('/');
         if (parts.length === 3) {
-          packageName = parts[1];
-          packageVersion = parts[2];
-
-          // Read the hash from the ref file
-          const data = await getData();
-          packageHash = data.toString('utf-8').trim();
-
-          // Write the ref to the repository
+          if (!parts[2]!.endsWith('.beast2')) {
+            throw new PackageInvalidError('an older e3 exported it — export it again with the current one');
+          }
+          packageName = parts[1]!;
+          packageVersion = parts[2]!.slice(0, -'.beast2'.length);
+          packageHash = decodeBeast2For(StringType)(await getData());
           await storage.refs.packageWrite(repo, packageName, packageVersion, packageHash);
         }
         continue;
@@ -176,13 +191,6 @@ export async function packageImport(
           currentExecDir = execDir;
           currentExecFiles.set(file, await getData());
         }
-        continue;
-      }
-
-      // Handle data refs: data/<path>.ref
-      if (fileName.startsWith('data/') && fileName.endsWith('.ref')) {
-        // Per-dataset ref files in the zip are redundant — refs are stored
-        // inline in the PackageObject's data.refs field. Skip them.
         continue;
       }
 
@@ -339,9 +347,149 @@ export interface PackageExportOptions {
 const DETERMINISTIC_MTIME = new Date(0);
 
 /**
+ * Visits every object a package consists of, each once.
+ *
+ * @remarks
+ * The package object, then what it names: each task with its program or
+ * command, the functions and value its output folds with, and its
+ * environment; each function with its IR and environment; each record with its
+ * mutations, index declarations and migrations; and the stored value of each
+ * dataset ref.
+ * A value is more than the object its ref names. A collection held as a
+ * segment manifest is the manifest, its
+ * header and every segment, and an indexed record's ref names a `$record`
+ * state over the primary's manifest and one per index, each index built under
+ * a declaration of its own. An export that stopped at the named object would
+ * import a dataset whose segments are absent, or a record that cannot be
+ * read, mutated or redeployed, so a package export and a workspace export
+ * both walk this.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param packageHash - the package object's hash
+ * @param pkg - the package object
+ * @param visit - called once per object, in walk order
+ */
+export async function walkPackageObjects(
+  storage: StorageBackend,
+  repo: string,
+  packageHash: string,
+  pkg: PackageObject,
+  visit: (hash: string) => Promise<void>,
+): Promise<void> {
+  const seen = new Set<string>();
+  const add = async (hash: string): Promise<void> => {
+    if (seen.has(hash)) return;
+    seen.add(hash);
+    await visit(hash);
+  };
+
+  // An IR may name objects by hash: any 64-hex run in it that the store
+  // holds is taken to be one, and walked in turn.
+  const addNamedIn = async (hash: string): Promise<void> => {
+    const text = Buffer.from(await storage.objects.read(repo, hash)).toString('latin1');
+    for (const [candidate] of text.matchAll(/[a-f0-9]{64}/g)) {
+      if (seen.has(candidate) || !(await storage.objects.exists(repo, candidate))) continue;
+      await add(candidate);
+      await addNamedIn(candidate);
+    }
+  };
+
+  // An environment spec, and every blob it names: manifest, lockfile, sdists.
+  const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
+  const addEnvironment = async (envHash: string): Promise<void> => {
+    await add(envHash);
+    const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash));
+    for (const blobHash of environmentSpecObjectHashes(spec)) await add(blobHash);
+  };
+
+  // An index declaration, and every IR bundle it names: the key function, the
+  // covering projection and the build program. A record object names one per
+  // declared index and a record STATE names the one each index was actually
+  // built under — the same object only until a declaration changes, and both
+  // have to travel.
+  const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
+  const addRecordIndex = async (indexHash: string): Promise<void> => {
+    await add(indexHash);
+    const index = decodeIndexObject(await storage.objects.read(repo, indexHash));
+    await add(index.keyIr);
+    await add(index.buildIr);
+    if (index.valueIr.type === 'some') await add(index.valueIr.value);
+  };
+
+  await add(packageHash);
+
+  for (const taskHash of pkg.tasks.values()) {
+    await add(taskHash);
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+    const body = task.body.type === 'east' ? task.body.value.program : task.body.value.commandIr;
+    await add(body);
+    await addNamedIn(body);
+    const kind = task.output.kind;
+    if (kind.type === 'dict' && kind.value.merge.type === 'some') await add(kind.value.merge.value);
+    if (kind.type === 'fold') {
+      await add(kind.value.zero);
+      await add(kind.value.combine);
+    }
+    if (task.environment.type === 'some') await addEnvironment(task.environment.value);
+  }
+
+  for (const fnHash of pkg.functions.values()) {
+    await add(fnHash);
+    const fn = decodeFunctionObject(await storage.objects.read(repo, fnHash));
+    await add(fn.bodyIr);
+    await addNamedIn(fn.bodyIr);
+    if (fn.environment.type === 'some') await addEnvironment(fn.environment.value);
+  }
+
+  // A record travels as its state — a ref below — plus the programs that
+  // write and rebuild it.
+  const recordPaths = new Set<string>();
+  for (const recHash of pkg.records.values()) {
+    await add(recHash);
+    const record = decodeRecordObject(await storage.objects.read(repo, recHash));
+    recordPaths.add(record.path);
+    for (const mutationHash of record.mutations.values()) {
+      await add(mutationHash);
+      const mutation = decodeMutationObject(await storage.objects.read(repo, mutationHash));
+      await add(mutation.bodyIr);
+      // A mutation deployed before the delta existed names no program.
+      if (mutation.programIr !== '') await add(mutation.programIr);
+    }
+    for (const indexHash of record.indexes.values()) await addRecordIndex(indexHash);
+    // A deploy of the import runs the steps a workspace has not applied: a
+    // value step its function, a step split over the state its program.
+    for (const step of record.migrations) {
+      await add(step.migration);
+      const migration = decodeMigrationObject(await storage.objects.read(repo, step.migration));
+      await add(migration.bodyIr);
+      if (migration.programIr !== '') await add(migration.programIr);
+    }
+  }
+
+  for (const [refPath, ref] of pkg.data.refs) {
+    if (ref.type !== 'value') continue;
+    await add(ref.value.hash);
+    const held = recordPaths.has(refPath)
+      ? await readRecordState(storage, repo, ref.value.hash)
+      : { primary: ref.value.hash, indexes: new Map<string, { manifest: string; index: string }>() };
+    for (const manifestHash of [held.primary, ...[...held.indexes.values()].map((index) => index.manifest)]) {
+      await add(manifestHash);
+      const manifest = await readManifest(storage, repo, manifestHash);
+      if (manifest !== null) {
+        await add(manifest.header);
+        for (const entry of manifest.entries) await add(entry.hash);
+      }
+    }
+    for (const index of held.indexes.values()) await addRecordIndex(index.index);
+  }
+}
+
+/**
  * Export a package to a .zip file.
  *
- * Collects the package object and all transitively referenced objects.
+ * Collects the package object and every object it consists of
+ * ({@link walkPackageObjects}).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -360,128 +508,20 @@ export async function packageExport(
 ): Promise<PackageExportResult> {
   const partialPath = `${zipPath}.partial`;
 
-  // Resolve package to hash
   const packageHash = await packageResolve(storage, repo, name, version);
+  const packageObject = decodePackageObject(await storage.objects.read(repo, packageHash));
 
-  // Create zip file
   const zipfile = new yazl.ZipFile();
-
-  // Track which objects we've added to avoid duplicates
-  const addedObjects = new Set<string>();
-
-  // Helper to add an object to the zip
-  const addObject = async (hash: string): Promise<void> => {
-    if (addedObjects.has(hash)) return;
-    addedObjects.add(hash);
-
+  let objectCount = 0;
+  await walkPackageObjects(storage, repo, packageHash, packageObject, async (hash) => {
     const data = await storage.objects.read(repo, hash);
-    const objPath = `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`;
-    zipfile.addBuffer(Buffer.from(data), objPath, { mtime: DETERMINISTIC_MTIME });
-    if (options?.onProgress) await options.onProgress({ objectsProcessed: addedObjects.size });
-  };
+    zipfile.addBuffer(Buffer.from(data), `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`, { mtime: DETERMINISTIC_MTIME });
+    objectCount++;
+    if (options?.onProgress) await options.onProgress({ objectsProcessed: objectCount });
+  });
 
-  // Helper to collect children from a tree object
-  // Tree objects are encoded as structs with DataRef fields
-  const collectTreeChildren = async (treeData: Uint8Array): Promise<void> => {
-    // Decode as a generic structure and extract DataRefs
-    // This is a bit tricky since trees have dynamic structure
-    // For now, we'll use a heuristic: scan for hash patterns in the beast2 data
-    // A more robust approach would be to track the structure during export
-
-    const dataStr = Buffer.from(treeData).toString('latin1');
-
-    // Look for hash patterns (64 hex chars) that might be object references
-    // Use matchAll to avoid regex state issues
-    const hashPattern = /[a-f0-9]{64}/g;
-    const matches = dataStr.matchAll(hashPattern);
-
-    for (const match of matches) {
-      const potentialHash = match[0];
-
-      // Skip if we've already added this object
-      if (addedObjects.has(potentialHash)) {
-        continue;
-      }
-
-      // Try to load this as an object - if it exists, it's a reference
-      try {
-        await addObject(potentialHash);
-        // Recursively collect children from this object
-        const childData = await storage.objects.read(repo, potentialHash);
-        await collectTreeChildren(childData);
-      } catch {
-        // Object doesn't exist, not a valid reference - remove from set
-        addedObjects.delete(potentialHash);
-      }
-    }
-  };
-
-  // Add an environment spec object and every blob it references
-  const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
-  const addEnvironment = async (envHash: string): Promise<void> => {
-    await addObject(envHash);
-    const specData = await storage.objects.read(repo, envHash);
-    const spec = decodeEnvironmentSpec(Buffer.from(specData));
-    for (const blobHash of environmentSpecObjectHashes(spec)) {
-      await addObject(blobHash);
-    }
-  };
-
-  // Add the package object first
-  await addObject(packageHash);
-
-  // Load and parse the package object
-  const packageData = await storage.objects.read(repo, packageHash);
-  const packageObject: PackageObject = decodePackageObject(Buffer.from(packageData));
-
-  // Collect all task objects and their commandIr references
-  const taskDecoder = decodeTaskObject;
-  for (const taskHash of packageObject.tasks.values()) {
-    await addObject(taskHash);
-    // Task objects contain commandIr hashes that must also be exported
-    const taskData = await storage.objects.read(repo, taskHash);
-    const taskObject: TaskObject = taskDecoder(Buffer.from(taskData));
-    // The commandIr is a hash reference to an IR object
-    await addObject(taskObject.commandIr);
-    // Recursively collect any objects referenced by the IR
-    const irData = await storage.objects.read(repo, taskObject.commandIr);
-    await collectTreeChildren(irData);
-    // Environment spec + its blobs (manifest/lockfile/sdists) travel with the task
-    if (taskObject.environment.type === 'some') {
-      await addEnvironment(taskObject.environment.value);
-    }
-  }
-
-  // Collect all function objects and their bodyIr references
-  const fnDecoder = decodeFunctionObject;
-  for (const fnHash of packageObject.functions.values()) {
-    await addObject(fnHash);
-    const fnData = await storage.objects.read(repo, fnHash);
-    const fnObject: FunctionObject = fnDecoder(Buffer.from(fnData));
-    await addObject(fnObject.bodyIr);
-    const fnIrData = await storage.objects.read(repo, fnObject.bodyIr);
-    await collectTreeChildren(fnIrData);
-    if (fnObject.environment.type === 'some') {
-      await addEnvironment(fnObject.environment.value);
-    }
-  }
-
-  // Collect value objects from inline per-dataset refs and write data/ ref files
-  if (isEastDict(packageObject.data.refs)) {
-    const refEncoder = encodeBeast2For(DatasetRefType);
-    for (const [refPath, ref] of packageObject.data.refs) {
-      if (ref.type === 'value' && typeof ref.value?.hash === 'string') {
-        await addObject(ref.value.hash);
-      }
-      // Write DatasetRef to data/ dir in zip for roundtrip compatibility
-      const refData = refEncoder(ref);
-      zipfile.addBuffer(Buffer.from(refData), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
-    }
-  }
-
-  // Write the package ref
-  const refPath = `packages/${name}/${version}`;
-  zipfile.addBuffer(Buffer.from(packageHash + '\n'), refPath, { mtime: DETERMINISTIC_MTIME });
+  // The package ref, as a repository keeps one
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(packageHash)), `packages/${name}/${version}.beast2`, { mtime: DETERMINISTIC_MTIME });
 
   // Finalize and write zip to disk
   await new Promise<void>((resolve, reject) => {
@@ -498,7 +538,7 @@ export async function packageExport(
 
   return {
     packageHash,
-    objectCount: addedObjects.size,
+    objectCount,
   };
 }
 

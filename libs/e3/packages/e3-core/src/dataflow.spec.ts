@@ -9,10 +9,9 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
+import { variant, none, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
 import {
+  TASK_OBJECT_KIND,
   TaskObjectType,
   PackageObjectType,
   type TreePath,
@@ -104,10 +103,13 @@ describe('dataflow', () => {
       const commandIrHash = await createCommandIr(repoPath, t.command);
 
       const taskObj = {
-        commandIr: commandIrHash,
-        inputs: t.inputs,
-        output: t.output,
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: t.inputs.map((path) => ({ path, partition: none })),
+        output: { path: t.output, kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const taskHash = await objectWrite(repoPath, taskEncoder(taskObj));
       tasksMap.set(t.name, taskHash);
@@ -126,10 +128,7 @@ describe('dataflow', () => {
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 
-    // Write package ref - the ref file is at packages/<name>/<version> (version is the file, not a directory)
-    const pkgDir = join(repoPath, 'packages', 'test');
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(join(pkgDir, '1.0.0'), pkgHash + '\n');
+    await storage.refs.packageWrite(repoPath, 'test', '1.0.0', pkgHash);
 
     return pkgHash;
   }
@@ -683,19 +682,15 @@ describe('dataflow', () => {
 
       const controller = new AbortController();
 
-      // Start execution with concurrency 2 so both tasks start, and abort the
-      // moment the fast task completes — while the slow one is still running.
-      // (A fixed 300 ms wait assumed the fast task's process had finished by
-      // then; on a loaded Windows runner it had not, and the abort beat it.)
-      // The orchestrator records a completion before it reports one, so the
-      // fast task is already in the state the partial results are built from.
+      // Start execution: the loop keeps four tasks in flight unless told
+      // otherwise, so both tasks start
       const executionPromise = dataflowExecute(storage, testRepo, 'test-ws', {
         signal: controller.signal,
-        concurrency: 2,
-        onTaskComplete: (result) => {
-          if (result.name === 'fast-task') controller.abort();
-        },
       });
+
+      // Wait for fast task to complete, then abort
+      await new Promise(resolve => setTimeout(resolve, 300));
+      controller.abort();
 
       // Should throw with partial results
       try {

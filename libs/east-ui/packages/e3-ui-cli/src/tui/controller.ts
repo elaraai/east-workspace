@@ -24,10 +24,11 @@ import { hitAt, lastFrame, paneTopFromRow, type HitTarget } from './ui/frame.js'
 import { buildCatalogue } from './model/catalogue.js';
 import { HELP_TABS, helpTabFor } from './model/help.js';
 import { listModel } from './model/index.js';
+import { recordSource } from './model/tree.js';
 import type { Glyphs } from './render/glyphs.js';
 import type { Size } from './render/layout.js';
 import type { Tone } from './render/theme.js';
-import { inputView, isLogTab, taskTabsOf, taskView, type Action, type TaskTab, type TuiState, type View } from './state/actions.js';
+import { RECORD_TABS, inputView, isLogTab, recordView, taskTabsOf, taskView, type Action, type RecordTab, type TaskTab, type TuiState, type View } from './state/actions.js';
 import { dirtyCount } from './state/reducer.js';
 import type { Persister } from './state/persist.js';
 import { repoEntry } from './state/persist.js';
@@ -99,6 +100,8 @@ export interface Controller {
     openTask(ws: string, task: string, tab?: TaskTab): void;
     /** Opens an input view. */
     openInput(ws: string, name: string): void;
+    /** Opens a record view (or switches its tab when it is open). */
+    openRecord(ws: string, name: string, tab?: RecordTab): void;
     /** Opens a workspace's dashboard as the new root. */
     openWorkspace(ws: string): void;
     /** Goes back one view. */
@@ -138,9 +141,11 @@ export function createController(deps: ControllerDeps): Controller {
 
     const state = (): TuiState => store.getState();
     const dispatch = (action: Action): void => store.dispatch(action);
+    /** Whether a view is inside a workspace: what it opens is pushed, so back returns to it. */
+    const inWorkspace = (v: View): v is Extract<View, { ws: string }> => v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input' || v.kind === 'record';
     const workspace = (): string | null => {
         const v = state().view;
-        if (v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input') return v.ws;
+        if (inWorkspace(v)) return v.ws;
         const persisted = deps.persist?.state;
         const session = state().session;
         if (persisted !== undefined && session !== null) return persisted.repos[session.stateKey]?.workspace ?? null;
@@ -152,8 +157,8 @@ export function createController(deps: ControllerDeps): Controller {
         if (deps.persist === null || session === null) return;
         deps.persist.update(s => {
             const entry = repoEntry(s, session.stateKey);
-            if (view.kind === 'dashboard' || view.kind === 'task' || view.kind === 'input') entry.workspace = view.ws;
-            entry.view = view.kind === 'task' ? `task:${view.task}` : view.kind === 'input' ? `input:${view.name}` : view.kind;
+            if (inWorkspace(view)) entry.workspace = view.ws;
+            entry.view = view.kind === 'task' ? `task:${view.task}` : view.kind === 'input' ? `input:${view.name}` : view.kind === 'record' ? `record:${view.name}` : view.kind;
         });
     };
 
@@ -177,9 +182,10 @@ export function createController(deps: ControllerDeps): Controller {
                 scope: v.kind === 'repos' || v.kind === 'workspaces' || v.kind === 'dashboard' ? 'list'
                     : v.kind === 'task' ? (v.tab === 'output' ? 'tree' : isLogTab(v.tab) ? 'logs' : 'list')
                     : v.kind === 'input' ? 'tree'
+                    : v.kind === 'record' ? (v.tab === 'state' ? 'tree' : 'list')
                     : 'none',
                 editable: v.kind === 'input',
-                tabs: v.kind === 'task' ? taskTabsOf(s, v.ws, v.task).length : v.kind === 'help' ? HELP_TABS.length : 0,
+                tabs: v.kind === 'task' ? taskTabsOf(s, v.ws, v.task).length : v.kind === 'record' ? RECORD_TABS.length : v.kind === 'help' ? HELP_TABS.length : 0,
                 pendingKey: s.pendingKey,
             };
             const action = resolveKey(input, key, ctx);
@@ -235,13 +241,22 @@ export function createController(deps: ControllerDeps): Controller {
                 dispatch({ type: 'task/tab', tab });
                 return;
             }
-            controller.navigate(taskView(ws, task, tab), v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input');
+            controller.navigate(taskView(ws, task, tab), inWorkspace(v));
             restoreTree(controller, ws, `.tasks.${task}.output`);
         },
         openInput(ws, name) {
             const v = state().view;
-            controller.navigate(inputView(ws, name), v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input');
+            controller.navigate(inputView(ws, name), inWorkspace(v));
             restoreTree(controller, ws, `.inputs.${name}`);
+        },
+        openRecord(ws, name, tab = 'state') {
+            const v = state().view;
+            if (v.kind === 'record' && v.ws === ws && v.name === name) {
+                dispatch({ type: 'record/tab', tab });
+                return;
+            }
+            controller.navigate(recordView(ws, name, tab), inWorkspace(v));
+            restoreTree(controller, ws, recordSource(name, null));
         },
         openWorkspace(ws) {
             dispatch({ type: 'view/root', view: { kind: 'dashboard', ws, list: { sel: 0, top: 0 } } });
@@ -259,7 +274,7 @@ export function createController(deps: ControllerDeps): Controller {
                 return;
             }
             const v = s.view;
-            if (v.kind === 'task' || v.kind === 'input') controller.openWorkspace(v.ws);
+            if (v.kind === 'task' || v.kind === 'input' || v.kind === 'record') controller.openWorkspace(v.ws);
         },
         quit(force) {
             const dirty = dirtyCount(state());
@@ -311,6 +326,8 @@ export function createController(deps: ControllerDeps): Controller {
                     dispatch({ type: 'help/tab', tab: HELP_TABS[action.index]?.tab ?? 'everywhere' });
                 } else if (s.view.kind === 'task') {
                     dispatch({ type: 'task/tab', tab: taskTabsOf(s, s.view.ws, s.view.task)[action.index] ?? 'output' });
+                } else if (s.view.kind === 'record') {
+                    dispatch({ type: 'record/tab', tab: RECORD_TABS[action.index] ?? 'state' });
                 }
                 return;
             }
@@ -323,16 +340,14 @@ export function createController(deps: ControllerDeps): Controller {
                 } else if (s.view.kind === 'task') {
                     const tabs = taskTabsOf(s, s.view.ws, s.view.task);
                     dispatch({ type: 'task/tab', tab: tabs[wrap(Math.max(0, tabs.indexOf(s.view.tab)), tabs.length)]! });
+                } else if (s.view.kind === 'record') {
+                    dispatch({ type: 'record/tab', tab: RECORD_TABS[wrap(Math.max(0, RECORD_TABS.indexOf(s.view.tab)), RECORD_TABS.length)]! });
                 }
                 return;
             }
             case 'move': {
-                if (s.view.kind === 'help') {
-                    const tabs = ['everywhere', 'repos', 'workspaces', 'dashboard', 'task', 'input'] as const;
-                    const i = tabs.indexOf(s.view.tab);
-                    if (action.op === 'up' || action.op === 'down') return;
-                    return void i;
-                }
+                // The help view has no list to move through.
+                if (s.view.kind === 'help') return;
                 if (viewHooks?.tree?.(action, s, controller) === true) return;
                 const model = listModel(s);
                 dispatch({ type: 'list/move', op: action.op, count: model.count, visible: model.visible });
@@ -409,6 +424,7 @@ export function createController(deps: ControllerDeps): Controller {
         if (v.kind === 'repos' || v.kind === 'workspaces' || v.kind === 'dashboard') return v.list.top;
         if (v.kind === 'task') return v.tab === 'runs' ? v.runs.top : v.tab === 'reads' ? v.reads.top : v.tree.top;
         if (v.kind === 'input') return v.tree.top;
+        if (v.kind === 'record') return v.tab === 'history' ? v.history.top : v.tree.top;
         return 0;
     };
 
@@ -507,7 +523,7 @@ export function createController(deps: ControllerDeps): Controller {
     };
 
     /** Commands that leave the current view (they ask first while edits are pending). */
-    const LEAVES = new Set(['task', 'input', 'dataset', 'workspace', 'workspaces', 'repos', 'repo', 'logs', 'runs']);
+    const LEAVES = new Set(['task', 'input', 'record', 'dataset', 'workspace', 'workspaces', 'repos', 'repo', 'logs', 'runs']);
 
     const runCommand = async (command: ParsedCommand, text: string): Promise<void> => {
         const s = state();
@@ -515,7 +531,7 @@ export function createController(deps: ControllerDeps): Controller {
         const viewHooks = hooks.get(s.view.kind);
         const dirty = dirtyCount(s);
         if (dirty > 0 && LEAVES.has(command.name) && command.name !== 'repo') {
-            dispatch({ type: 'command/confirm', confirm: { question: `discard ${dirty} unsaved edit${dirty === 1 ? '' : 's'} and ${describe(command, { workspace: ws, taskCount: 0, running: false, concurrency: 4, dirty }).text}?`, command: `/discard --then "${text.replace(/"/g, '')}"` } });
+            dispatch({ type: 'command/confirm', confirm: { question: `discard ${dirty} unsaved edit${dirty === 1 ? '' : 's'} and ${describe(command, { workspace: ws, taskCount: 0, running: false, dirty, budget: null }).text}?`, command: `/discard --then "${text.replace(/"/g, '')}"` } });
             return;
         }
         if (viewHooks?.command !== undefined && await viewHooks.command(command, s, controller)) return;
@@ -530,14 +546,21 @@ export function createController(deps: ControllerDeps): Controller {
                 controller.openInput(ws, command.target);
                 return;
             }
+            case 'record': {
+                if (ws === null) { controller.toast('open a workspace first', 'warn'); return; }
+                controller.openRecord(ws, command.target);
+                return;
+            }
             case 'dataset': {
                 if (ws === null) { controller.toast('open a workspace first', 'warn'); return; }
                 const path = `.${command.target.replace(/^\./, '')}`;
                 const input = /^\.inputs\.([^.]+)$/.exec(path);
                 const task = /^\.tasks\.([^.]+)\.output$/.exec(path);
+                const record = /^\.records\.([^.]+)$/.exec(path);
                 if (input !== null) controller.openInput(ws, input[1]!);
                 else if (task !== null) controller.openTask(ws, task[1]!);
-                else controller.toast(`${path} is not an input or a task output`, 'warn');
+                else if (record !== null) controller.openRecord(ws, record[1]!);
+                else controller.toast(`${path} is not an input, a task output or a record`, 'warn');
                 return;
             }
             case 'workspace': {
@@ -568,7 +591,7 @@ export function createController(deps: ControllerDeps): Controller {
             case 'run': {
                 const here = viewWorkspace(s);
                 if (here === null) { controller.toast('open a workspace first', 'warn'); return; }
-                await startRun(controller, here, { force: command.force, filter: command.filter, concurrency: command.concurrency });
+                await startRun(controller, here, { force: command.force, filter: command.filter });
                 return;
             }
             case 'stop': {

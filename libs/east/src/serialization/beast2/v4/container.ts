@@ -35,7 +35,7 @@ import { writeStringTableSection, readStringTableSection } from "./string-table.
 import { writeSourceMapSection, readSourceMapSection } from "./sourcemap-table.js";
 import type { SourceMap } from "../../../location.js";
 import { buildValueTable, buildIndexMap, isMutableType, type ValueTableEntry, TAG_ARRAY, TAG_DICT, TAG_SET, TAG_REF } from "./value-table.js";
-import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
+import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, checkDecodeType, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
 
 // v4: EastTypeType values are encoded as regular variants (no special type-table-index encoding).
 // This ensures uniform encoding across value stream and value table, and simplifies multi-runtime implementations.
@@ -816,7 +816,8 @@ export function decodeBeast2V4For(type: EastTypeValue | EastType, options?: Beas
     verifyMagic(data);
 
     const reader = new BufferReader(data, MAGIC_BYTES.length);
-    const { typeTable } = readTypeTableSection(reader);
+    const { rootType, typeTable } = readTypeTableSection(reader);
+    checkDecodeType(rootType, typeValue);
     const stringTable = readStringTableSection(reader);
     const sourceMap = readSourceMapSection(reader, stringTable);
 
@@ -853,7 +854,8 @@ export function decodeBeast2V4For(type: EastTypeValue | EastType, options?: Beas
 export function decodeIRWithSourceMapV4(data: Uint8Array): { ir: any; sourceMap: SourceMap | null } {
   verifyMagic(data);
   const reader = new BufferReader(data, MAGIC_BYTES.length);
-  const { typeTable } = readTypeTableSection(reader);
+  const { rootType, typeTable } = readTypeTableSection(reader);
+  checkDecodeType(rootType, irTypeValue);
   const stringTable = readStringTableSection(reader);
   const sourceMap = readSourceMapSection(reader, stringTable);
 

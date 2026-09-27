@@ -19,9 +19,9 @@ import {
   workspaceCreate,
   workspaceDeploy,
   workspaceStatus,
-  dataflowStart,
+  dataflowExecuteLaunch,
   dataflowExecute,
-  dataflowExecution,
+  dataflowExecutePoll,
   dataflowCancel,
   dataflowGraph,
   datasetSet,
@@ -90,7 +90,7 @@ async function waitForRunning(
 ): Promise<void> {
   await waitFor(async () => {
     try {
-      const state = await dataflowExecution(baseUrl, repoName, workspace, {}, opts);
+      const state = await dataflowExecutePoll(baseUrl, repoName, workspace, {}, opts);
       return state.status.type === 'running';
     } catch {
       return false; // execution record not created yet
@@ -188,12 +188,12 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(latest[0].startedAt, newest, 'the default item is the newest attempt');
       });
 
-      it('dataflowStart triggers execution (non-blocking)', async (t) => {
+      it('dataflowExecuteLaunch triggers execution (non-blocking)', async (t) => {
         const ctx = await withSimpleExec(t);
         const opts = await ctx.opts();
 
         // Should return immediately
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts);
 
         // Poll until execution completes
         const maxWait = 60000;
@@ -214,19 +214,19 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(status.tasks[0].status.type, 'up-to-date');
       });
 
-      it('dataflowExecution returns execution state', async (t) => {
+      it('dataflowExecutePoll returns execution state', async (t) => {
         const ctx = await withSimpleExec(t);
         const opts = await ctx.opts();
 
         // Start execution
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts);
 
         // Poll execution state until complete
         const maxWait = 60000;
         const startTime = Date.now();
 
         while (Date.now() - startTime < maxWait) {
-          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'exec-ws', {}, opts);
+          const state = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'exec-ws', {}, opts);
 
           if (state.status.type === 'completed') {
             assert.ok(state.summary, 'completed execution should have summary');
@@ -316,7 +316,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const opts = await ctx.opts();
 
         // Start execution
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'diamond-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'diamond-ws', { force: true }, opts);
 
         // Poll and collect events
         const events: unknown[] = [];
@@ -324,7 +324,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const startTime = Date.now();
 
         while (Date.now() - startTime < maxWait) {
-          const state = await dataflowExecution(
+          const state = await dataflowExecutePoll(
             ctx.config.baseUrl,
             ctx.repoName,
             'diamond-ws',
@@ -368,19 +368,19 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(result.tasks[0].state.type, 'failed');
       });
 
-      it('dataflowExecution shows failed status after task failure', async (t) => {
+      it('dataflowExecutePoll shows failed status after task failure', async (t) => {
         const ctx = await withFailing(t);
         const opts = await ctx.opts();
 
         // Start execution
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'fail-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'fail-ws', { force: true }, opts);
 
         // Poll until execution completes
         const maxWait = 60000;
         const startTime = Date.now();
 
         while (Date.now() - startTime < maxWait) {
-          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'fail-ws', {}, opts);
+          const state = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'fail-ws', {}, opts);
 
           if (state.status.type === 'failed') {
             // Verify we have summary with failure count
@@ -539,20 +539,20 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
     // Concurrent execution tests must remain serial within their describe
     // because they test locking behavior with timing-sensitive operations
     describe('concurrent execution', () => {
-      it('rejects second dataflowStart while execution is running', async (t) => {
+      it('rejects second dataflowExecuteLaunch while execution is running', async (t) => {
         const ctx = await withSlow(t);
         const opts = await ctx.opts();
 
         // Start first execution (non-blocking)
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
         // Wait until the execution is actually running (holds the lock)
         await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // Try to start second execution - should fail with lock error
         try {
-          await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
-          assert.fail('Second dataflowStart should have thrown an error');
+          await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
+          assert.fail('Second dataflowExecuteLaunch should have thrown an error');
         } catch (err) {
           // Should get a lock error
           assert.ok(err instanceof Error);
@@ -569,7 +569,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const opts = await ctx.opts();
 
         // Start first execution (non-blocking)
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
         // Wait until the execution is actually running (holds the lock)
         await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
@@ -593,7 +593,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const opts = await ctx.opts();
 
         // Start slow execution
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
         // Wait until the execution is actually running
         await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
@@ -609,7 +609,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // honoured.
         let finalStatus = '';
         await waitFor(async () => {
-          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'slow-ws', {}, opts);
+          const state = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'slow-ws', {}, opts);
           finalStatus = state.status.type;
           return finalStatus !== 'running';
         }, 60000);
@@ -631,14 +631,14 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    // Concurrent set during execution - tests that datasetSet is not blocked by dataflowStart
+    // Concurrent set during execution - tests that datasetSet is not blocked by dataflowExecuteLaunch
     describe('concurrent set during execution', () => {
       it('datasetSet succeeds while dataflow is running', async (t) => {
         const ctx = await withSlow(t);
         const opts = await ctx.opts();
 
         // Start slow execution (30s sleep task)
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
         // Wait until the execution is actually running (holds the lock)
         await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
@@ -704,7 +704,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const mergePath = [variant('field', 'tasks'), variant('field', 'merge'), variant('field', 'output')];
 
         // Start execution (non-blocking) — x defaults to 1
-        await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', { force: true }, opts);
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', { force: true }, opts);
 
         // Wait for the test's TRUE precondition before changing the input:
         // at least one task has actually STARTED (a `start` event exists),
@@ -713,7 +713,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // that lands before any task starts isn't a mid-flight change at
         // all. The 3s task sleeps bound how late the set can land.
         await waitFor(async () => {
-          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', {}, opts);
+          const state = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', {}, opts);
           return state.events.some((e) => e.type === 'start');
         }, 60000);
         await datasetSet(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', inputPath, encode(19n), opts);
@@ -725,7 +725,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // transient `dataset_unassigned` instead of reading once and racing it.
         let mergeValue: bigint | undefined;
         await waitFor(async () => {
-          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', {}, opts);
+          const state = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', {}, opts);
           if (state.status.type !== 'completed' && state.status.type !== 'failed' && state.status.type !== 'aborted') {
             return false;
           }
@@ -978,7 +978,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
     });
 
     describe('event pagination', { concurrency: false }, () => {
-      it('dataflowExecution supports event offset and limit', async (t) => {
+      it('dataflowExecutePoll supports event offset and limit', async (t) => {
         const ctx = await withEvtPag(t);
         const opts = await ctx.opts();
 
@@ -986,7 +986,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { force: true }, opts);
 
         // Get first event only
-        const page1 = await dataflowExecution(
+        const page1 = await dataflowExecutePoll(
           ctx.config.baseUrl, ctx.repoName, 'evtpag-ws',
           { offset: 0, limit: 1 },
           opts
@@ -995,7 +995,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.ok(page1.totalEvents >= 3n, `Expected at least 3 total events, got ${page1.totalEvents}`);
 
         // Get second event
-        const page2 = await dataflowExecution(
+        const page2 = await dataflowExecutePoll(
           ctx.config.baseUrl, ctx.repoName, 'evtpag-ws',
           { offset: 1, limit: 1 },
           opts

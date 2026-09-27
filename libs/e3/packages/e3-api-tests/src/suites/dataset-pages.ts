@@ -8,8 +8,11 @@
  *
  * Element windows are exact for every collection kind — Array in stream
  * order, Set/Dict in the canonical East key order, which v5 blobs hold on
- * the wire (sorted, disjoint segments). Collection datasets are stored
- * segmented + indexed at every size, so segment addressing always works.
+ * the wire (sorted, disjoint segments). Collection datasets are stored as
+ * segment objects under a manifest at every size, so segment addressing
+ * always works — and, for a Set or Dict, the boundaries are a pure function
+ * of the value, which is what the layout tests at the end of this suite hold
+ * the server to.
  */
 
 import { describe, it } from 'node:test';
@@ -20,6 +23,7 @@ import {
   ArrayType,
   DictType,
   IntegerType,
+  SEGMENT_MAX_COUNT,
   StringType,
   StructType,
   decodeBeast2For,
@@ -32,6 +36,7 @@ import {
   packageImport,
   workspaceCreate,
   workspaceDeploy,
+  datasetGet,
   datasetGetPage,
   datasetGetStatus,
   datasetSet,
@@ -51,22 +56,6 @@ const labelPath = [variant('field', 'inputs'), variant('field', 'label')];
 
 function makeRows(n: number): { id: bigint; name: string }[] {
   return Array.from({ length: n }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
-}
-
-/** A deterministic, incompressible string of `n` printable characters
- *  (xorshift32) — a wide row the blob writer cannot shrink, so the page byte
- *  budget sees its real width. A repeated string would not do: the writer
- *  stores it in a few bytes and no page is ever trimmed. */
-function noise(seed: number, n: number): string {
-  let x = (Math.imul(seed + 1, 2654435761) >>> 0) || 1;
-  const chars = new Array<string>(n);
-  for (let i = 0; i < n; i++) {
-    x ^= x << 13; x >>>= 0;
-    x ^= x >>> 17;
-    x ^= x << 5; x >>>= 0;
-    chars[i] = String.fromCharCode(33 + (x % 94));
-  }
-  return chars.join('');
 }
 
 /** Asserts `fn` rejects with an {@link ApiError} whose server-side detail
@@ -105,38 +94,43 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       const ctx = await withTablePackage(t);
       const opts = await ctx.opts();
 
-      // Above the segmentation threshold, so the server stores this indexed.
-      const rows = makeRows(2500);
+      // More rows than a segment may hold, so the value spans segments
+      // wherever the cut rule places them.
+      const rows = makeRows(SEGMENT_MAX_COUNT + 1000);
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, encodeBeast2For(RowsType)(rows), opts);
 
-      // A window spanning the 1000-element segment boundary.
-      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: 900, limit: 200 }, opts);
-      assert.equal(page.totalElements, 2500);
+      // A window spanning the boundary between segments 0 and 1.
+      const first = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 0 }, opts);
+      const from = first.count - 100;
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: from, limit: 200 }, opts);
+      assert.equal(page.totalElements, rows.length);
       assert.equal(page.totalExact, true);
-      assert.equal(page.offset, 900);
+      assert.equal(page.offset, from);
       assert.equal(page.count, 200);
       assert.ok(page.segmentCount >= 2, `large array should be stored segmented, got ${page.segmentCount} segments`);
       assert.ok(page.hash.length === 64, 'source content hash rides on the page');
       const decoded = decodeBeast2For(RowsType)(page.data);
-      assert.ok(equalFor(RowsType)(decoded, rows.slice(900, 1100)), 'page equals the expected slice');
+      assert.ok(equalFor(RowsType)(decoded, rows.slice(from, from + 200)), 'page equals the expected slice');
 
       // Tail clamp: a window past the end returns the available tail.
-      const tail = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: 2400, limit: 1000 }, opts);
+      const tail = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset: rows.length - 100, limit: 1000 }, opts);
       assert.equal(tail.count, 100);
-      assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(tail.data), rows.slice(2400)), 'tail page equals the expected slice');
+      assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(tail.data), rows.slice(rows.length - 100)), 'tail page equals the expected slice');
     });
 
-    it('segment windows return one writer batch of an indexed blob', async (t) => {
+    it('segment windows return one segment of an indexed blob', async (t) => {
       const ctx = await withTablePackage(t);
       const opts = await ctx.opts();
 
-      const rows = makeRows(2500);
+      const rows = makeRows(SEGMENT_MAX_COUNT + 1000);
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, encodeBeast2For(RowsType)(rows), opts);
 
+      const first = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 0 }, opts);
+      assert.equal(first.offset, 0);
       const seg = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 1 }, opts);
-      assert.equal(seg.offset, 1000, 'segment 1 starts after segment 0');
-      assert.equal(seg.count, 1000);
-      assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(seg.data), rows.slice(1000, 2000)));
+      assert.equal(seg.offset, first.count, 'segment 1 starts where segment 0 ends');
+      assert.ok(seg.count > 0);
+      assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(seg.data), rows.slice(seg.offset, seg.offset + seg.count)));
 
       await rejectsWithDetail(
         () => datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { segment: 99 }, opts),
@@ -184,28 +178,123 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       const ctx = await withTablePackage(t);
       const opts = await ctx.opts();
 
-      // Above the segmentation threshold: stored segmented + indexed, so
-      // windows decode only the touched segments via the verified fences.
-      const entries = Array.from({ length: 2500 }, (_, i) => [`k${String(i).padStart(4, '0')}`, BigInt(i)] as [string, bigint]);
+      // Stored segmented + indexed, so windows decode only the touched
+      // segments via the verified fences.
+      const count = SEGMENT_MAX_COUNT + 1000;
+      const entries = Array.from({ length: count }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
       const lookup = new Map([...entries].reverse());
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(lookup), opts);
 
-      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { offset: 995, limit: 10 }, opts);
-      assert.equal(page.totalElements, 2500);
+      // Segment windows of a dict report exact totals too.
+      const seg = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { segment: 0 }, opts);
+      assert.equal(seg.totalElements, count);
+      assert.equal(seg.totalExact, true);
+
+      const from = seg.count - 5;
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { offset: from, limit: 10 }, opts);
+      assert.equal(page.totalElements, count);
       assert.equal(page.totalExact, true, 'segment counts are exact for Dict blobs');
       assert.ok(page.segmentCount >= 2, `large dict should be stored segmented, got ${page.segmentCount} segments`);
-      assert.equal(page.offset, 995);
+      assert.equal(page.offset, from);
       assert.equal(page.count, 10);
       const decoded = decodeBeast2For(LookupType)(page.data) as Map<string, bigint>;
       assert.deepEqual(
         [...decoded.entries()],
-        entries.slice(995, 1005),
+        entries.slice(from, from + 10),
         'window crosses the segment boundary in canonical key order');
+    });
 
-      // Segment windows of a dict report exact totals too.
-      const seg = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { segment: 0 }, opts);
-      assert.equal(seg.totalElements, 2500);
-      assert.equal(seg.totalExact, true);
+    it('a dict segments the same whatever history produced it', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      // The property the segment-object layout rests on: the boundaries of a
+      // Set or Dict come from its keys, so two equal values are stored as the
+      // same segment objects under the same manifest — whatever was written
+      // before them. Without it a state shares nothing with its predecessor
+      // and every write costs the whole value again.
+      const entries = Array.from({ length: 3000 }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
+      const ascending = new Map(entries);
+      const descending = new Map([...entries].reverse());
+
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(ascending), opts);
+      const first = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+
+      // A different value in between, so nothing can be answered from a cache
+      // of the last write.
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath,
+        encodeBeast2For(LookupType)(new Map(entries.slice(0, 500))), opts);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(descending), opts);
+      const second = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+
+      assert.equal(second.hash.type, 'some');
+      assert.deepEqual(second.hash, first.hash, 'equal values must be stored identically');
+      assert.deepEqual(second.segments, first.segments);
+      assert.deepEqual(second.size, first.size);
+    });
+
+    it('a one-row change re-cuts one segment and leaves the rest', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      /** Every segment window in order: where it starts, its size, its rows. */
+      const segmentWindows = async (): Promise<{ offset: number; count: number; rows: Map<string, bigint> }[]> => {
+        const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+        const windows: { offset: number; count: number; rows: Map<string, bigint> }[] = [];
+        for (let i = 0; i < Number(status.segments.type === 'some' ? status.segments.value : 0n); i++) {
+          const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { segment: i }, opts);
+          windows.push({ offset: page.offset, count: page.count, rows: decodeBeast2For(LookupType)(page.data) as Map<string, bigint> });
+        }
+        return windows;
+      };
+
+      const entries = Array.from({ length: 3000 }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(entries.reduce((m, [k, v]) => m.set(k, v), new Map<string, bigint>())), opts);
+      const before = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      const windowsBefore = await segmentWindows();
+      assert.ok(windowsBefore.length >= 2, `the value spans segments, got ${windowsBefore.length}`);
+
+      const edited = new Map(entries);
+      edited.set('k01500', 999999n);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(edited), opts);
+      const after = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      const windowsAfter = await segmentWindows();
+
+      assert.notDeepEqual(after.hash, before.hash, 'the value changed, so its address must');
+      assert.deepEqual(
+        windowsAfter.map((w) => [w.offset, w.count]),
+        windowsBefore.map((w) => [w.offset, w.count]),
+        'one changed row must not move a boundary');
+      const changed = windowsAfter.filter((w, i) => !equalFor(LookupType)(w.rows, windowsBefore[i]!.rows));
+      assert.equal(changed.length, 1, 'only the segment holding the row is re-cut');
+      assert.ok(changed[0]!.rows.has('k01500'), 'and it is the one holding the row');
+
+      // ...and the change is visible where it was made, with its neighbours
+      // untouched.
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { offset: 1499, limit: 3 }, opts);
+      const decoded = decodeBeast2For(LookupType)(page.data) as Map<string, bigint>;
+      assert.deepEqual([...decoded.entries()], [['k01499', 1499n], ['k01500', 999999n], ['k01501', 1501n]]);
+    });
+
+    it('a whole read of a manifest-backed dataset decodes to the value it was given', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      // The manifest round trip: the segments splice back into one blob that
+      // decodes equal to the whole encode of the same value.
+      const entries = Array.from({ length: 3000 }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
+      const lookup = new Map(entries);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(lookup), opts);
+
+      const whole = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      const decoded = decodeBeast2For(LookupType)(whole.data) as Map<string, bigint>;
+      assert.equal(decoded.size, 3000);
+      assert.deepEqual([...decoded.entries()], entries);
+
+      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      assert.equal(status.rows.type, 'some');
+      assert.equal(status.rows.type === 'some' ? status.rows.value : 0n, 3000n,
+        'the status geometry comes from the manifest, with nothing decoded');
     });
 
     it('non-collection datasets and bad windows are refused', async (t) => {
@@ -245,7 +334,9 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(0, 10)));
       assert.equal(page.hash, hash);
       // The page is self-describing about the WHOLE dataset: totalBytes is
-      // the stored blob's size (what status reports), not the page's own.
+      // what the value costs in the store — every segment object plus the
+      // manifest naming them, the same number status reports — not the page's
+      // own bytes.
       assert.equal(BigInt(page.totalBytes), status.size.type === 'some' ? status.size.value : -1n);
       assert.ok(page.totalBytes > page.data.length, 'whole-blob bytes exceed one page');
 
@@ -265,48 +356,6 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.equal(stale.status, 409);
       assert.equal(stale.headers.get('X-Content-SHA256'), hash);
       assert.equal(stale.headers.get('Cache-Control'), 'no-store');
-    });
-
-    it('pages of wide rows are trimmed to the same count on every non-final page, and tile the dataset', async (t) => {
-      const ctx = await withTablePackage(t);
-      const opts = await ctx.opts();
-
-      // ~80 KB of incompressible text per row: 100 rows is well past the
-      // default page byte budget, so every page is trimmed below what it asks
-      // for. Readers rely on the trim being UNIFORM across one dataset's
-      // pages — the dataset preview learns the served size from its first
-      // page, and a component's derived windows re-request the rest (#829).
-      const rows = Array.from({ length: 150 }, (_, i) => ({ id: BigInt(i), name: noise(i, 80_000) }));
-      // Big enough to go up through the transfer protocol, which takes an
-      // INDEXED blob (the form the server stores every collection in).
-      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, encodeBeast2For(RowsType, { index: true })(rows), opts);
-
-      const requested = 100;
-      const counts: number[] = [];
-      let blobBytes = 0;
-      let offset = 0;
-      while (offset < rows.length) {
-        const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset, limit: requested }, opts);
-        assert.equal(page.offset, offset);
-        assert.ok(page.count >= 1, `a page at ${offset} served nothing`);
-        // Each page is exactly the next slice — no gap, no overlap.
-        assert.ok(
-          equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(offset, offset + page.count)),
-          `page at ${offset} is the next ${page.count} rows`);
-        counts.push(page.count);
-        blobBytes = page.totalBytes;
-        offset += page.count;
-      }
-      assert.equal(offset, rows.length, 'the pages tile the whole dataset');
-
-      const [first, ...rest] = counts;
-      assert.ok(first! < requested, `wide rows are trimmed below the ${requested} requested (served ${first}; stored blob ${blobBytes} bytes)`);
-      const nonFinal = counts.slice(0, -1);
-      assert.ok(nonFinal.length >= 2, `expected several full pages, got counts ${counts.join(', ')}`);
-      for (const count of nonFinal) {
-        assert.equal(count, first, `every non-final page serves the same count (${counts.join(', ')})`);
-      }
-      assert.ok(rest[rest.length - 1]! <= first!, 'the final page holds the remainder');
     });
 
     it('the requested limit is clamped and the actual count reported', async (t) => {

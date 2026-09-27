@@ -5,7 +5,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { toEastTypeValue, EastTypeValueType, isTypeValueEqual, type EastTypeValue } from "./type_of_type.js";
+import { toEastTypeValue, EastTypeValueType, canonicalTypeValue, isTypeValueEqual, type EastTypeValue } from "./type_of_type.js";
 import { variant } from "./containers/variant.js";
 import { equalFor } from "./comparison.js";
 import {
@@ -400,5 +400,77 @@ describe("toEastTypeValue", () => {
       assert.ok(isTypeValueEqual(actualTail, expectedTail),
         `tail types must match: actual=${actualTail.type}(${(actualTail.value as any)?.type}) vs expected=${expectedTail.type}(${(expectedTail.value as any)?.type})`);
     });
+  });
+});
+
+// A type value stored as data — a segment manifest's collection type — is
+// renamed canonically first, so its bytes are the same whichever runtime, and
+// whichever process, built the type. `typeEqual` compares the ids as data.
+describe("canonicalTypeValue", () => {
+  it("numbers wrappers in preorder from 0 and renames each ref with its wrapper", () => {
+    const nested = variant("Recursive", variant("wrapper", {
+      id: 20n,
+      inner: variant("Struct", [
+        { name: "items", type: variant("Recursive", variant("wrapper", {
+          id: 10n,
+          inner: variant("Array", variant("Recursive", variant("ref", 10n))),
+        })) },
+        { name: "kids", type: variant("Array", variant("Recursive", variant("ref", 20n))) },
+      ]),
+    })) as EastTypeValue;
+    const canonical = variant("Recursive", variant("wrapper", {
+      id: 0n,
+      inner: variant("Struct", [
+        { name: "items", type: variant("Recursive", variant("wrapper", {
+          id: 1n,
+          inner: variant("Array", variant("Recursive", variant("ref", 1n))),
+        })) },
+        { name: "kids", type: variant("Array", variant("Recursive", variant("ref", 0n))) },
+      ]),
+    })) as EastTypeValue;
+    assert.ok(typeEqual(canonicalTypeValue(nested), canonical));
+    assert.ok(isTypeValueEqual(canonicalTypeValue(nested), nested), "the type is kept");
+  });
+
+  it("renames a ref by the innermost wrapper of its id", () => {
+    const shadowed = variant("Recursive", variant("wrapper", {
+      id: 5n,
+      inner: variant("Struct", [
+        { name: "a", type: variant("Recursive", variant("wrapper", { id: 5n, inner: variant("Array", variant("Recursive", variant("ref", 5n))) })) },
+        { name: "b", type: variant("Recursive", variant("ref", 5n)) },
+      ]),
+    })) as EastTypeValue;
+    const canonical = variant("Recursive", variant("wrapper", {
+      id: 0n,
+      inner: variant("Struct", [
+        { name: "a", type: variant("Recursive", variant("wrapper", { id: 1n, inner: variant("Array", variant("Recursive", variant("ref", 1n))) })) },
+        { name: "b", type: variant("Recursive", variant("ref", 0n)) },
+      ]),
+    })) as EastTypeValue;
+    assert.ok(typeEqual(canonicalTypeValue(shadowed), canonical));
+  });
+
+  it("is the same for a type whatever ids it was built with", () => {
+    const ListType = RecursiveType(self => VariantType({
+      nil: NullType,
+      cons: StructType({ head: IntegerType, tail: self }),
+    }));
+    const decoded = variant("Recursive", variant("wrapper", {
+      id: 99n,
+      inner: variant("Variant", [
+        { name: "cons", type: variant("Struct", [
+          { name: "head", type: variant("Integer", null) },
+          { name: "tail", type: variant("Recursive", variant("ref", 99n)) },
+        ]) },
+        { name: "nil", type: variant("Null", null) },
+      ]),
+    })) as EastTypeValue;
+    assert.ok(!typeEqual(toEastTypeValue(ListType), decoded), "the builders' ids differ");
+    assert.ok(typeEqual(canonicalTypeValue(toEastTypeValue(ListType)), canonicalTypeValue(decoded)));
+  });
+
+  it("leaves a type without recursion as it was", () => {
+    const type = toEastTypeValue(DictType(StringType, StructType({ xs: ArrayType(IntegerType), f: FunctionType([FloatType], BooleanType) })));
+    assert.ok(typeEqual(canonicalTypeValue(type), type));
   });
 });

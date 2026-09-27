@@ -13,6 +13,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { some, none } from '@elaraai/east';
+import { EXECUTION_STATE_VERSION } from '@elaraai/e3-types';
 import type { DataflowExecutionState, TaskState } from '../types.js';
 import type { DataflowGraph } from '../../dataflow.js';
 import { InMemoryStateStore } from './InMemoryStateStore.js';
@@ -30,11 +31,11 @@ function makeState(
   }>,
 ): DataflowExecutionState {
   return {
+    version: EXECUTION_STATE_VERSION,
     id: 'test-1',
     repo: overrides?.repo ?? '/tmp/test-repo',
     workspace: overrides?.workspace ?? 'test-ws',
     startedAt: new Date(),
-    concurrency: 4n,
     force: false,
     filter: none,
     graph: some(graph),

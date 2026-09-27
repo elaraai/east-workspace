@@ -23,7 +23,7 @@
  *
  * `uv lock` records a `file://` flat index as a registry path RELATIVE to the
  * project (`source = { registry = "../../.." }`). The captured lock is later
- * materialized by e3 in `<repo>/envs/<hash>.building-<pid>` — a different
+ * materialized by e3 in `<repo>/envs/<hash>.building-<pid>-<pidStartTime>` — a different
  * directory depth — where the relative path resolves to nothing and the sync
  * fails. An `http://127.0.0.1` index locks absolutely, so the materialized
  * env resolves it from anywhere (while this process lives, which spans the

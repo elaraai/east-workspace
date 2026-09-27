@@ -8,11 +8,12 @@ import type { Context } from 'hono';
 import { mkdir, stat, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { variant } from '@elaraai/east';
-import { transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
+import { TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
 import {
   DatasetTypeMismatchError,
   datasetAdoptFile,
   datasetAdoptObject,
+  deliveryKnown,
   transferStagingDir,
   transferStagingPath,
   type DatasetUpload,
@@ -32,9 +33,9 @@ import {
 /** Options for {@link createTransferRoutes}. */
 export interface TransferRouteOptions {
   /**
-   * How long a protocol-2 commit waits for the staged bytes to be verified
-   * before it answers `processing` for the client to poll (default 5000 ms; 0
-   * answers `processing` at once). A protocol-1 commit always waits.
+   * How long a commit waits for the staged bytes to be verified before it
+   * answers `processing` for the client to poll (default 5000 ms; 0 answers
+   * `processing` at once).
    */
   commitWaitMs?: number;
 }
@@ -59,10 +60,17 @@ interface Commit {
   settled: Promise<CommitOutcome>;
 }
 
-/** The transfer protocol version a request speaks: `?protocol=N`, else 1. */
-function requestProtocol(c: Context): number {
-  const version = Number(c.req.query('protocol'));
-  return Number.isInteger(version) && version >= 1 ? version : 1;
+/**
+ * Why a request does not speak this server's transfer protocol, or `null`
+ * when it does. A client names its version with `?protocol=N`, and one that
+ * names none was built before there was a version to name.
+ */
+function protocolProblem(c: Context): string | null {
+  const named = c.req.query('protocol');
+  if (named === String(TRANSFER_PROTOCOL_VERSION)) return null;
+  const newer = named !== undefined && Number(named) > TRANSFER_PROTOCOL_VERSION;
+  return `this server speaks transfer protocol ${TRANSFER_PROTOCOL_VERSION}, and the request ${named === undefined ? 'names none' : `speaks ${named}`}: `
+    + (newer ? 'a newer e3 sent it — upgrade the server' : 'an older e3 sent it — upgrade it');
 }
 
 /** A backend's URL as the client can use it: a relative one resolves against the request's origin. */
@@ -100,12 +108,13 @@ function sendOutcome(outcome: CommitOutcome): Response {
  * generic data endpoints in `data.ts`.
  *
  * @remarks
- * A protocol-2 client (`?protocol=2` on the init and the commit) is sent its
- * bytes' plan as parts, and its commit runs in the background: the request
- * waits up to `commitWaitMs` for it and otherwise answers `processing`, which
- * the client polls — so verifying a delivery of many gigabytes never holds one
- * request open for as long as its SHA-256 takes. A protocol-1 client gets the
- * single upload URL and a commit that answers only when it is done.
+ * The init and the commit name the protocol version they speak
+ * (`?protocol=N`), and one of another version, or none, is refused, naming the
+ * fix. A client is sent its bytes' plan as parts, and its commit runs in the
+ * background: the request waits up to `commitWaitMs` for it and otherwise
+ * answers `processing`, which the client polls — so verifying a delivery of
+ * many gigabytes never holds one request open for as long as its SHA-256
+ * takes.
  */
 export function createTransferRoutes(
   storage: StorageBackend,
@@ -198,17 +207,21 @@ export function createTransferRoutes(
   });
 
   async function handleInit(c: Context) {
+    const problem = protocolProblem(c);
+    if (problem !== null) {
+      return sendError(TransferUploadResponseType, variant('internal', { message: problem }));
+    }
     const repo = c.req.param('repo')!;
     const ws = c.req.param('ws')!;
     const repoPath = getRepoPath(repo);
     const pathStr = extractDatasetPath(c, '/upload');
     const { hash, size } = await decodeBody(c, TransferUploadRequestType);
 
-    // Dedup — the bytes are already an object, so no upload is needed. The
-    // object is not necessarily THIS dataset's type though (it may have been
-    // stored for another one), so the pairing is checked here: it is the only
-    // door that skips the commit.
-    if (await storage.objects.exists(repoPath, hash)) {
+    // Dedup — the store knows these bytes, as the manifest they were split
+    // into or as an object, so no upload is needed. It may have stored them
+    // for another dataset, of another type, so the pairing is checked here: it
+    // is the only door that skips the commit.
+    if (await deliveryKnown(storage, repoPath, hash)) {
       const treePath = urlPathToTreePath(pathStr);
       await datasetAdoptObject(storage, repoPath, ws, treePath, hash);
       return sendSuccess(TransferUploadResponseType, variant('completed', null));
@@ -223,12 +236,8 @@ export function createTransferRoutes(
     // same-device link or rename rather than a whole-file copy.
     await mkdir(transferStagingDir(repoPath), { recursive: true });
 
-    if (requestProtocol(c) >= 2) {
-      const partBytes = await transferBackend.datasetUpload.createParts(transferId, transfer);
-      return sendSuccess(TransferUploadResponseType, variant('upload_parts', { id: transferId, partBytes }));
-    }
-    const uploadUrl = await transferBackend.datasetUpload.getUploadUrl(transferId, repo, hash);
-    return sendSuccess(TransferUploadResponseType, variant('upload', { id: transferId, uploadUrl: resolveUrl(c, uploadUrl) }));
+    const partBytes = await transferBackend.datasetUpload.createParts(transferId, transfer);
+    return sendSuccess(TransferUploadResponseType, variant('upload_parts', { id: transferId, partBytes }));
   }
 
   async function handlePart(c: Context, id: string, part: number, suffix: string) {
@@ -254,6 +263,10 @@ export function createTransferRoutes(
   }
 
   async function handleCommit(c: Context, id: string, suffix: string) {
+    const problem = protocolProblem(c);
+    if (problem !== null) {
+      return sendError(TransferDoneResponseType, variant('internal', { message: problem }));
+    }
     let commit = commits.get(id);
     if (!commit) {
       const transfer = await uploadAt(c, id, suffix);
@@ -267,9 +280,7 @@ export function createTransferRoutes(
       return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
     }
 
-    const outcome = requestProtocol(c) >= 2
-      ? commit.outcome ?? await within(commit.settled, commitWaitMs)
-      : await commit.settled;
+    const outcome = commit.outcome ?? await within(commit.settled, commitWaitMs);
     return outcome ? sendOutcome(outcome) : sendSuccess(TransferDoneResponseType, variant('processing', null));
   }
 
@@ -309,10 +320,10 @@ export function createTransferRoutes(
       const repoPath = getRepoPath(transfer.repo);
       stagingPath = transferStagingPath(repoPath, id);
 
-      // The staged file is never read whole: its size comes from `stat`, its
-      // digest from a streamed hash, its declared type and paging index from
-      // two ranged reads, and it becomes an object by link or rename. A
-      // multi-gigabyte delivery therefore commits for the cost of its SHA-256.
+      // The staged file is never held whole: its size comes from `stat`, its
+      // digest from a streamed hash and its declared type from a read of its
+      // head. A collection is then split into segment objects a segment at a
+      // time, and any other value becomes an object by link or rename.
       const stats = await stat(stagingPath);
       if (BigInt(stats.size) !== transfer.size) {
         return {

@@ -11,22 +11,27 @@
  * @packageDocumentation
  */
 
+import { formatSize } from '../render/text.js';
+
 /** A parsed command. */
 export type ParsedCommand =
     | { name: 'task'; target: string }
     | { name: 'input'; target: string }
+    | { name: 'record'; target: string }
     | { name: 'dataset'; target: string }
     | { name: 'workspace'; target: string }
     | { name: 'workspaces' }
     | { name: 'repos' }
     | { name: 'repo'; target: string }
     | { name: 'login'; url: string }
-    | { name: 'run'; force: boolean; filter: string | undefined; concurrency: number | undefined }
+    | { name: 'run'; force: boolean; filter: string | undefined }
     | { name: 'stop' }
     | { name: 'logs'; task: string; stream: 'stdout' | 'stderr' | undefined }
     | { name: 'runs'; task: string }
     | { name: 'find'; query: string }
     | { name: 'goto'; target: { kind: 'row'; row: number } | { kind: 'percent'; percent: number } }
+    /** A record's index to page through, or `primary` for its rows. */
+    | { name: 'index'; target: string }
     | { name: 'save'; file: string | undefined; force: boolean }
     | { name: 'refresh' }
     | { name: 'help' }
@@ -53,6 +58,7 @@ export type ParseResult = { ok: true; command: ParsedCommand } | { ok: false; er
 export const COMMANDS: readonly { name: CommandName; usage: string; effect: string }[] = [
     { name: 'task', usage: '/task <name>', effect: 'open a task' },
     { name: 'input', usage: '/input <name>', effect: 'open an input' },
+    { name: 'record', usage: '/record <name>', effect: 'open a record' },
     { name: 'dataset', usage: '/dataset <path>', effect: 'open a dataset by path' },
     { name: 'workspace', usage: '/workspace <name>', effect: 'switch workspace' },
     { name: 'workspaces', usage: '/workspaces', effect: 'list the workspaces' },
@@ -65,6 +71,7 @@ export const COMMANDS: readonly { name: CommandName; usage: string; effect: stri
     { name: 'runs', usage: '/runs <task>', effect: 'open a task\'s runs' },
     { name: 'find', usage: '/find <key|prefix|f1|f2>', effect: 'jump to key' },
     { name: 'goto', usage: '/goto <row|N%>', effect: 'jump to row' },
+    { name: 'index', usage: '/index <name|primary>', effect: 'page a record by an index' },
     { name: 'save', usage: '/save [file]', effect: 'write .beast2 / .log' },
     { name: 'tag', usage: '/tag <name>', effect: 'switch a variant tag' },
     { name: 'add', usage: '/add [key]', effect: 'add an item / entry' },
@@ -126,11 +133,13 @@ export function parseCommand(text: string): ParseResult {
             return fail('type a command after /');
         case 'task':
         case 'input':
+        case 'record':
+        case 'index':
         case 'dataset':
         case 'workspace':
         case 'repo': {
             const target = args[0];
-            if (target === undefined) return need(name === 'dataset' ? 'a path' : name === 'repo' ? 'a path or url' : 'a name');
+            if (target === undefined) return need(name === 'dataset' ? 'a path' : name === 'repo' ? 'a path or url' : name === 'index' ? 'an index, or primary' : 'a name');
             return { ok: true, command: { name, target } };
         }
         case 'workspaces':
@@ -155,7 +164,6 @@ export function parseCommand(text: string): ParseResult {
         case 'run': {
             let force = false;
             let filter: string | undefined;
-            let concurrency: number | undefined;
             for (let i = 0; i < args.length; i++) {
                 const a = args[i]!;
                 if (a === '--force') force = true;
@@ -163,14 +171,9 @@ export function parseCommand(text: string): ParseResult {
                     filter = args[++i];
                     if (filter === undefined) return fail('--filter needs a glob');
                 } else if (a.startsWith('--filter=')) filter = a.slice('--filter='.length);
-                else if (a === '--concurrency' || a.startsWith('--concurrency=')) {
-                    const raw = a === '--concurrency' ? args[++i] : a.slice('--concurrency='.length);
-                    const n = Number(raw);
-                    if (raw === undefined || !Number.isInteger(n) || n < 1) return fail(`--concurrency must be a positive integer, got ${raw ?? '(nothing)'}`);
-                    concurrency = n;
-                } else return fail(`unknown /run flag ${a} — /run [--force] [--filter <glob>] [--concurrency <n>]`);
+                else return fail(`unknown /run flag ${a} — /run [--force] [--filter <glob>]`);
             }
-            return { ok: true, command: { name, force, filter, concurrency } };
+            return { ok: true, command: { name, force, filter } };
         }
         case 'logs': {
             const task = args[0];
@@ -228,15 +231,15 @@ export interface DescribeContext {
     taskCount: number;
     /** Whether a run is in progress. */
     running: boolean;
-    /** The default concurrency. */
-    concurrency: number;
     /** Pending edits. */
     dirty: number;
+    /** The budget a run gets (the server's), or null when unknown or its runners hold none. */
+    budget: { cores: number; memory: number } | null;
 }
 
 /**
  * The consequence line the command box shows for a parsed command
- * (`run 6 tasks in main, ignoring the cache · concurrency 4`).
+ * (`run 6 tasks in main, ignoring the cache · 8 cores, 14 GB`).
  *
  * @param command - The parsed command
  * @param ctx - The context
@@ -248,13 +251,15 @@ export function describe(command: ParsedCommand, ctx: DescribeContext): { text: 
         case 'run': {
             const scope = command.filter !== undefined ? `tasks matching ${command.filter}` : `${ctx.taskCount} task${ctx.taskCount === 1 ? '' : 's'}`;
             const cache = command.force ? ', ignoring the cache' : '';
-            const conc = command.concurrency ?? ctx.concurrency;
-            return { text: ctx.running ? 'a run is already in progress' : `run ${scope} in ${ws}${cache} · concurrency ${conc}`, keys: ctx.running ? 'esc' : '⏎ run · esc' };
+            const budget = ctx.budget === null ? '' : ` · ${ctx.budget.cores} core${ctx.budget.cores === 1 ? '' : 's'}, ${formatSize(ctx.budget.memory)}`;
+            return { text: ctx.running ? 'a run is already in progress' : `run ${scope} in ${ws}${cache}${budget}`, keys: ctx.running ? 'esc' : '⏎ run · esc' };
         }
         case 'stop':
             return { text: ctx.running ? `cancel the run in ${ws}` : 'no run in progress', keys: ctx.running ? '⏎ stop · esc' : 'esc' };
         case 'task': return { text: `open task ${command.target}`, keys: '⏎ open · esc' };
         case 'input': return { text: `open input ${command.target}`, keys: '⏎ open · esc' };
+        case 'record': return { text: `open record ${command.target}`, keys: '⏎ open · esc' };
+        case 'index': return { text: command.target === 'primary' ? 'page through the rows' : `page through index ${command.target}`, keys: '⏎ · esc' };
         case 'dataset': return { text: `open dataset ${command.target}`, keys: '⏎ open · esc' };
         case 'workspace': return { text: `switch to workspace ${command.target}`, keys: '⏎ switch · esc' };
         case 'workspaces': return { text: 'list the workspaces', keys: '⏎ · esc' };
@@ -301,5 +306,4 @@ export function hotkeyToCommand(key: string): string | undefined {
 export const RUN_FLAGS: readonly { flag: string; hint: string }[] = [
     { flag: '--force', hint: 're-run everything' },
     { flag: '--filter <glob>', hint: 'only matching tasks' },
-    { flag: '--concurrency <n>', hint: '' },
 ];

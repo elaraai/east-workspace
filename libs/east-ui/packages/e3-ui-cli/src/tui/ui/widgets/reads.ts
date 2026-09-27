@@ -4,15 +4,15 @@
  */
 
 /**
- * The Reads tab of a `ui` task — its data manifest (`decodeManifest` from
- * `@elaraai/e3-ui/internal`): the dataset paths it reads (each `⏎` opens
+ * The Reads tab of a `ui` task — the data manifest its task object carries
+ * as its `ui` role: the dataset paths it reads (each `⏎` opens
  * as a dataset), the paths it reads by window, the package functions it
- * calls and the records it binds.
+ * calls and the records it binds (each `⏎` opens the record).
  *
  * @packageDocumentation
  */
 
-import { decodeManifest, type DataManifest } from '@elaraai/e3-ui/internal';
+import type { DataManifest } from '@elaraai/e3-ui/internal';
 import type { TaskDetails } from '@elaraai/e3-api-client';
 import { dottedPath } from '../../api.js';
 import type { Controller } from '../../controller.js';
@@ -25,7 +25,7 @@ import { withScrollbar } from '../shell/widgets.js';
 export interface ReadRow {
     kind: 'path' | 'page' | 'function' | 'record';
     text: string;
-    /** The dataset path a `path` / `page` row opens. */
+    /** The dataset path a `path` / `page` row opens (a `record` row opens the record it names). */
     path: string | null;
 }
 
@@ -33,15 +33,10 @@ export interface ReadRow {
  * The manifest of a task's details, if it carries one.
  *
  * @param details - The task details
- * @returns The manifest, or null (no metadata, or not a manifest)
+ * @returns The manifest, or null for a data task
  */
 export function manifestOf(details: TaskDetails | undefined): DataManifest | null {
-    if (details === undefined || details.metadata.type !== 'some') return null;
-    try {
-        return decodeManifest(details.metadata.value);
-    } catch {
-        return null;
-    }
+    return details?.role.type === 'ui' ? details.role.value : null;
 }
 
 /** `manifest: 3 reads · 1 function` for the title line. */
@@ -95,7 +90,7 @@ export function renderReads(manifest: DataManifest | null, sel: number, top: num
             lastKind = row.kind;
         }
         const selected = i === sel;
-        const opens = row.path !== null;
+        const opens = row.path !== null || row.kind === 'record';
         rowLines.push(lines.length);
         lines.push([t(' '), selected ? b(g.sel, 'brand') : t(' '), selected ? b(row.text) : t(row.text), d(opens ? `   ${g.enter} open` : '')]);
     });
@@ -107,7 +102,7 @@ export function renderReads(manifest: DataManifest | null, sel: number, top: num
 }
 
 /**
- * `⏎` on a Reads row opens the dataset.
+ * `⏎` on a Reads row opens the dataset, or the record.
  *
  * @param state - The store state
  * @param controller - The controller
@@ -118,8 +113,12 @@ export function openRead(state: TuiState, controller: Controller): void {
     const manifest = manifestOf(state.data.taskDetails[v.ws]?.[v.task]);
     const row = manifest === null ? undefined : readRows(manifest)[v.reads.sel];
     if (row === undefined) return;
+    if (row.kind === 'record') {
+        void controller.execute(`/record ${row.text}`);
+        return;
+    }
     if (row.path === null) {
-        controller.toast(`${row.kind === 'function' ? 'a package function' : 'a record'} has no view here`, 'warn');
+        controller.toast('a package function has no view here', 'warn');
         return;
     }
     void controller.execute(`/dataset ${row.path}`);

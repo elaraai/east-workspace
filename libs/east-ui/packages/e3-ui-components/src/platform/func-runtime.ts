@@ -253,8 +253,15 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
         this.workspace = workspace;
     }
 
-    /** Tear down the adapter and all call state. */
-    clear(): void {
+    /**
+     * Tear down the adapter and all call state.
+     *
+     * @param api - Clear only while this is the installed adapter, so a
+     *   provider tearing down after another installed its own leaves that one
+     *   in place
+     */
+    clear(api?: FunctionApi): void {
+        if (api !== undefined && this.api !== api) return;
         this.api = null;
         this.workspace = null;
         this.clearChannels();
@@ -504,9 +511,13 @@ export function initializeFunctionApi(api: FunctionApi, workspace: string): void
     defaultFuncRuntime.initialize(api, workspace);
 }
 
-/** Tear down the function API adapter and all call state. */
-export function clearFunctionApi(): void {
-    defaultFuncRuntime.clear();
+/**
+ * Tear down the function API adapter and all call state.
+ *
+ * @param api - Clear only while this is the installed adapter
+ */
+export function clearFunctionApi(api?: FunctionApi): void {
+    defaultFuncRuntime.clear(api);
 }
 
 /** Global, manifest-unscoped `Func.bind` impl + its backing primitives.

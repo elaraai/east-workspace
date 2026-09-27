@@ -25,13 +25,7 @@ interface GcOperationInternal {
   status: 'running' | 'succeeded' | 'failed';
   startedAt: Date;
   completedAt?: Date;
-  stats?: {
-    deletedObjects: bigint;
-    deletedPartials: bigint;
-    retainedObjects: bigint;
-    skippedYoung: bigint;
-    bytesFreed: bigint;
-  };
+  stats?: GcResult;
   error?: string;
 }
 
@@ -58,13 +52,7 @@ export function completeGcOperation(executionId: string, stats: GcResult): void 
   if (op) {
     op.status = 'succeeded';
     op.completedAt = new Date();
-    op.stats = {
-      deletedObjects: stats.deletedObjects,
-      deletedPartials: stats.deletedPartials,
-      retainedObjects: stats.retainedObjects,
-      skippedYoung: stats.skippedYoung,
-      bytesFreed: stats.bytesFreed,
-    };
+    op.stats = stats;
   }
 }
 
@@ -105,15 +93,7 @@ export function getGcOperationStatus(executionId: string): GcStatusResult | null
   }
 
   // Convert stats to East option
-  const stats: GcStatusResult['stats'] = op.stats
-    ? some({
-        deletedObjects: op.stats.deletedObjects,
-        deletedPartials: op.stats.deletedPartials,
-        retainedObjects: op.stats.retainedObjects,
-        skippedYoung: op.stats.skippedYoung,
-        bytesFreed: op.stats.bytesFreed,
-      })
-    : none;
+  const stats: GcStatusResult['stats'] = op.stats ? some(op.stats) : none;
 
   return {
     status,

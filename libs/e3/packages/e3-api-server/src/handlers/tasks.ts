@@ -30,12 +30,12 @@ export async function listTasks(
   try {
     const taskNames = await workspaceListTasks(storage, repoPath, workspace);
 
-    // Get hash + kind for each task (the object read is content-addressed and cheap)
+    // Get hash + role for each task (the object read is content-addressed and cheap)
     const result = await Promise.all(
       taskNames.map(async (name) => {
         const hash = await workspaceGetTaskHash(storage, repoPath, workspace, name);
         const task = await workspaceGetTask(storage, repoPath, workspace, name);
-        return { name, hash, kind: task.kind };
+        return { name, hash, role: task.role };
       })
     );
 
@@ -61,11 +61,11 @@ export async function getTask(
     return sendSuccess(TaskDetailsType, {
       name: taskName,
       hash,
-      commandIr: task.commandIr,
+      body: task.body,
+      runner: task.runner,
       inputs: task.inputs,
       output: task.output,
-      kind: task.kind,
-      metadata: task.metadata,
+      role: task.role,
     });
   } catch (err) {
     return sendError(TaskDetailsType, errorToVariant(err));
@@ -85,6 +85,10 @@ function statusToApiStatus(status: ExecutionStatus): ExecutionListItem['status']
       return variant('failed', null);
     case 'error':
       return variant('error', null);
+    case 'cancelled':
+      return variant('cancelled', null);
+    case 'interrupted':
+      return variant('interrupted', null);
   }
 }
 
@@ -108,6 +112,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       completedAt: some(status.value.completedAt.toISOString()),
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: none,
+      peakBytes: status.value.peakBytes,
     };
   }
   if (status.type === 'failed') {
@@ -119,9 +124,24 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       completedAt: some(status.value.completedAt.toISOString()),
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: some(status.value.exitCode),
+      peakBytes: status.value.peakBytes,
     };
   }
-  if (status.type === 'error') {
+  if (status.type === 'cancelled') {
+    return {
+      inputsHash,
+      inputHashes: status.value.inputHashes,
+      status: statusToApiStatus(status),
+      startedAt: status.value.startedAt.toISOString(),
+      completedAt: some(status.value.completedAt.toISOString()),
+      duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
+      exitCode: none,
+      peakBytes: none,
+    };
+  }
+  // An interruption's completedAt is when it was found, not when the runner
+  // stopped, so it has no duration.
+  if (status.type === 'error' || status.type === 'interrupted') {
     return {
       inputsHash,
       inputHashes: status.value.inputHashes,
@@ -130,6 +150,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       completedAt: some(status.value.completedAt.toISOString()),
       duration: none,
       exitCode: none,
+      peakBytes: none,
     };
   }
   // running
@@ -141,13 +162,15 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
     completedAt: none,
     duration: none,
     exitCode: none,
+    peakBytes: none,
   };
 }
 
 /**
  * List execution history for a task: the latest attempt per distinct
  * inputs hash, or — with `all` — every attempt (a forced re-run or a retry
- * after a failure adds one under the same inputs hash).
+ * after a failure adds one under the same inputs hash). A split task's units
+ * are recorded under its hash too, and are left out: they are not its runs.
  */
 export async function listExecutions(
   storage: StorageBackend,
@@ -168,7 +191,7 @@ export async function listExecutions(
           .map(executionId => executionGet(storage, repoPath, taskHash, inputsHash, executionId)))
         : [await executionGetLatest(storage, repoPath, taskHash, inputsHash)];
       for (const status of statuses) {
-        if (status) result.push(toExecutionListItem(inputsHash, status));
+        if (status && !status.value.unit) result.push(toExecutionListItem(inputsHash, status));
       }
     }
 

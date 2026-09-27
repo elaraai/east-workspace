@@ -5,22 +5,77 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
-import { ExecutionStatusType, DataflowRunType } from '@elaraai/e3-types';
+import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { ExecutionOwnerType, ExecutionStatusType, DataflowRunType, decodeExecutionStatus } from '@elaraai/e3-types';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun } from '@elaraai/e3-types';
 import type { RefStore } from '../interfaces.js';
-import { isNotFoundError, ExecutionCorruptError } from '../../errors.js';
-import { atomicWriteFile } from './localHelpers.js';
+import { isNotFoundError, ExecutionCorruptError, checkName } from '../../errors.js';
+import { isUuidv7 } from '../../uuid.js';
+import { isObjectHash } from '../../objects.js';
+import { atomicWriteFile, executionPath } from './localHelpers.js';
+import { removeStaleLocks } from './LocalLockService.js';
+
+/** A record that names an object by its hash. */
+const encodeHash = encodeBeast2For(StringType);
+const decodeHash = decodeBeast2For(StringType);
+const encodeOwner = encodeBeast2For(ExecutionOwnerType);
+const decodeOwner = decodeBeast2For(ExecutionOwnerType);
+
+/**
+ * Reads a record that names an object, or `null` when there is none or it is
+ * not a hash: what it names becomes an object's path, so a torn or edited
+ * record is none.
+ */
+async function readHash(file: string): Promise<string | null> {
+  let data: Buffer;
+  try {
+    data = await fs.readFile(file);
+  } catch (err) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
+  try {
+    const hash = decodeHash(data);
+    return isObjectHash(hash) ? hash : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Removes a file, if it is there. */
+async function unlinkIfPresent(file: string): Promise<void> {
+  try {
+    await fs.unlink(file);
+  } catch (err) {
+    if (!isNotFoundError(err)) throw err;
+  }
+}
 
 /**
  * Local filesystem implementation of RefStore.
  *
- * The `repo` parameter is the path to the e3 repository directory.
+ * The `repo` parameter is the path to the e3 repository directory. Every
+ * record is an East value in beast2:
+ * - `packages/<name>/<version>.beast2`: a package object's hash;
+ * - `workspaces/<ws>.beast2`: a workspace's record, which the caller encodes;
+ * - `executions/<task>/<inputs>/<id>/status.beast2` and `owner.beast2`: an
+ *   execution attempt and the orchestrator that launched it;
+ * - `executions/<task>/<inputs>/plan.beast2`: the `$plan` a split task's
+ *   execution is in;
+ * - `adoptions/<ab>/<rest>.beast2`: the manifest a delivery became;
+ * - `dataflows/<ws>/<runId>.beast2`: a run's record.
  */
 export class LocalRefStore implements RefStore {
   // -------------------------------------------------------------------------
   // Package References
   // -------------------------------------------------------------------------
+
+  /** Path to a package ref: packages/<name>/<version>.beast2 */
+  private packagePath(repo: string, name: string, version: string): string {
+    checkName('package', name);
+    checkName('package version', version);
+    return path.join(repo, 'packages', name, `${version}.beast2`);
+  }
 
   async packageList(repo: string): Promise<{ name: string; version: string }[]> {
     const packagesDir = path.join(repo, 'packages');
@@ -34,10 +89,9 @@ export class LocalRefStore implements RefStore {
         if (stat.isDirectory()) {
           const versions = await fs.readdir(nameDir);
           for (const version of versions) {
-            // Skip in-flight / crash-orphaned atomic-write staging files
-            // (packageWrite stages `<version>.<rand>.partial` siblings here).
-            if (version.includes('.partial')) continue;
-            packages.push({ name, version });
+            // In-flight or crash-orphaned staging files end in `.partial`.
+            if (!version.endsWith('.beast2')) continue;
+            packages.push({ name, version: version.slice(0, -'.beast2'.length) });
           }
         }
       }
@@ -52,33 +106,15 @@ export class LocalRefStore implements RefStore {
   }
 
   async packageResolve(repo: string, name: string, version: string): Promise<string | null> {
-    const refPath = path.join(repo, 'packages', name, version);
-    try {
-      const content = await fs.readFile(refPath, 'utf-8');
-      return content.trim();
-    } catch (err) {
-      if (isNotFoundError(err)) {
-        return null;
-      }
-      throw err;
-    }
+    return readHash(this.packagePath(repo, name, version));
   }
 
   async packageWrite(repo: string, name: string, version: string, hash: string): Promise<void> {
-    const refPath = path.join(repo, 'packages', name, version);
-    await atomicWriteFile(refPath, hash + '\n');
+    await atomicWriteFile(this.packagePath(repo, name, version), encodeHash(hash));
   }
 
   async packageRemove(repo: string, name: string, version: string): Promise<void> {
-    const refPath = path.join(repo, 'packages', name, version);
-    try {
-      await fs.unlink(refPath);
-    } catch (err) {
-      if (isNotFoundError(err)) {
-        return; // Already removed, idempotent
-      }
-      throw err;
-    }
+    await unlinkIfPresent(this.packagePath(repo, name, version));
 
     // Try to remove the package name directory if empty
     const packageDir = path.join(repo, 'packages', name);
@@ -92,6 +128,12 @@ export class LocalRefStore implements RefStore {
   // -------------------------------------------------------------------------
   // Workspace State
   // -------------------------------------------------------------------------
+
+  /** Path to a workspace's state: workspaces/<ws>.beast2 */
+  private workspacePath(repo: string, name: string): string {
+    checkName('workspace', name);
+    return path.join(repo, 'workspaces', `${name}.beast2`);
+  }
 
   async workspaceList(repo: string): Promise<string[]> {
     const workspacesDir = path.join(repo, 'workspaces');
@@ -115,7 +157,7 @@ export class LocalRefStore implements RefStore {
   }
 
   async workspaceRead(repo: string, name: string): Promise<Uint8Array | null> {
-    const stateFile = path.join(repo, 'workspaces', `${name}.beast2`);
+    const stateFile = this.workspacePath(repo, name);
 
     try {
       return await fs.readFile(stateFile);
@@ -128,44 +170,34 @@ export class LocalRefStore implements RefStore {
   }
 
   async workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void> {
-    const stateFile = path.join(repo, 'workspaces', `${name}.beast2`);
     // Atomic stage-and-rename: a concurrent reader sees the old or new complete
     // state, never a 0-byte truncation window.
-    await atomicWriteFile(stateFile, state);
+    await atomicWriteFile(this.workspacePath(repo, name), state);
   }
 
+  /**
+   * Removes a workspace: its state, and with it everything kept under its
+   * name — its dataset refs and its dataflow execution state in
+   * `workspaces/<ws>/`, its run records in `dataflows/<ws>/`, and the locks
+   * its dataflows and dataset writes left when they exited — so none of it
+   * passes to a workspace of the same name. A lock a live process holds is
+   * left for it to release.
+   */
   async workspaceRemove(repo: string, name: string): Promise<void> {
-    const stateFile = path.join(repo, 'workspaces', `${name}.beast2`);
-    try {
-      await fs.unlink(stateFile);
-    } catch (err) {
-      if (isNotFoundError(err)) {
-        return; // Already removed, idempotent
-      }
-      throw err;
-    }
+    await unlinkIfPresent(this.workspacePath(repo, name));
+    await fs.rm(path.join(repo, 'workspaces', name), { recursive: true, force: true });
+    await fs.rm(this.dataflowDir(repo, name), { recursive: true, force: true });
+    // A workspace's name holds neither `#` nor `~`, which join the parts of
+    // the locks named after it, so only its own begin this way.
+    await removeStaleLocks(repo, (resource) => resource.startsWith(`${name}#`) || resource.startsWith(`${name}~`));
   }
 
   // -------------------------------------------------------------------------
   // Execution Cache (with execution history)
   // -------------------------------------------------------------------------
 
-  /**
-   * Path to execution directory: executions/<taskHash>/<inputsHash>/<executionId>/
-   */
-  private executionDir(repo: string, taskHash: string, inputsHash: string, executionId: string): string {
-    return path.join(repo, 'executions', taskHash, inputsHash, executionId);
-  }
-
-  /**
-   * Path to inputs directory: executions/<taskHash>/<inputsHash>/
-   */
-  private inputsDir(repo: string, taskHash: string, inputsHash: string): string {
-    return path.join(repo, 'executions', taskHash, inputsHash);
-  }
-
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
-    const execDir = this.executionDir(repo, taskHash, inputsHash, executionId);
+    const execDir = executionPath(repo, taskHash, inputsHash, executionId);
     const statusPath = path.join(execDir, 'status.beast2');
 
     let data: Buffer;
@@ -179,8 +211,7 @@ export class LocalRefStore implements RefStore {
     }
 
     try {
-      const decoder = decodeBeast2For(ExecutionStatusType);
-      return decoder(data);
+      return decodeExecutionStatus(data);
     } catch (err) {
       throw new ExecutionCorruptError(
         taskHash,
@@ -191,7 +222,7 @@ export class LocalRefStore implements RefStore {
   }
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
-    const execDir = this.executionDir(repo, taskHash, inputsHash, executionId);
+    const execDir = executionPath(repo, taskHash, inputsHash, executionId);
 
     // A single execution rewrites status.beast2 several times over its lifetime
     // (running → success/failed). A bare overwrite truncates the file to 0 bytes
@@ -201,21 +232,32 @@ export class LocalRefStore implements RefStore {
     // status object.
     const encoder = encodeBeast2For(ExecutionStatusType);
     await atomicWriteFile(path.join(execDir, 'status.beast2'), encoder(status));
+  }
 
-    // Also write output hash for success status
-    if (status.type === 'success') {
-      await atomicWriteFile(path.join(execDir, 'output'), status.value.outputHash + '\n');
+  /**
+   * Deletes an attempt's status and owner, and then each directory it leaves
+   * empty: the attempt's, its inputs', and its task's.
+   */
+  async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    const execDir = executionPath(repo, taskHash, inputsHash, executionId);
+    await unlinkIfPresent(path.join(execDir, 'status.beast2'));
+    await unlinkIfPresent(path.join(execDir, 'owner.beast2'));
+    for (const dir of [execDir, executionPath(repo, taskHash, inputsHash), path.join(repo, 'executions', taskHash)]) {
+      try {
+        await fs.rmdir(dir);
+      } catch {
+        return; // Not empty: an attempt, a log or a plan pointer is left in it
+      }
     }
   }
 
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
-    const inputDir = this.inputsDir(repo, taskHash, inputsHash);
+    const inputDir = executionPath(repo, taskHash, inputsHash);
 
     try {
       const entries = await fs.readdir(inputDir);
-      // Filter for UUIDv7-like format (36 chars with dashes) and sort lexicographically
-      const uuids = entries.filter((e) => /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(e));
-      return uuids.sort();
+      // An attempt's directory is named by its UUIDv7, so the latest sorts last.
+      return entries.filter(isUuidv7).sort();
     } catch (err) {
       if (isNotFoundError(err)) {
         return [];
@@ -234,26 +276,6 @@ export class LocalRefStore implements RefStore {
     return this.executionGet(repo, taskHash, inputsHash, latestId);
   }
 
-  async executionGetLatestOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
-    const ids = await this.executionListIds(repo, taskHash, inputsHash);
-    // Iterate from latest to oldest, return first success
-    for (let i = ids.length - 1; i >= 0; i--) {
-      const execDir = this.executionDir(repo, taskHash, inputsHash, ids[i]!);
-      const outputPath = path.join(execDir, 'output');
-      try {
-        const content = await fs.readFile(outputPath, 'utf-8');
-        return content.trim();
-      } catch (err) {
-        if (!isNotFoundError(err)) {
-          throw err;
-        }
-        // No output file, check status to see if it's a success without output
-        // or just continue to next execution
-      }
-    }
-    return null;
-  }
-
   async executionList(repo: string): Promise<{ taskHash: string; inputsHash: string }[]> {
     const executionsDir = path.join(repo, 'executions');
     const result: { taskHash: string; inputsHash: string }[] = [];
@@ -262,7 +284,7 @@ export class LocalRefStore implements RefStore {
       const taskDirs = await fs.readdir(executionsDir);
 
       for (const taskHash of taskDirs) {
-        if (!/^[a-f0-9]{64}$/.test(taskHash)) continue;
+        if (!isObjectHash(taskHash)) continue;
 
         const taskDir = path.join(executionsDir, taskHash);
         const stat = await fs.stat(taskDir);
@@ -270,7 +292,7 @@ export class LocalRefStore implements RefStore {
 
         const inputsDirs = await fs.readdir(taskDir);
         for (const inputsHash of inputsDirs) {
-          if (/^[a-f0-9]{64}$/.test(inputsHash)) {
+          if (isObjectHash(inputsHash)) {
             result.push({ taskHash, inputsHash });
           }
         }
@@ -285,11 +307,12 @@ export class LocalRefStore implements RefStore {
   }
 
   async executionListForTask(repo: string, taskHash: string): Promise<string[]> {
+    if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
     const taskDir = path.join(repo, 'executions', taskHash);
 
     try {
       const entries = await fs.readdir(taskDir);
-      return entries.filter((e) => /^[a-f0-9]{64}$/.test(e));
+      return entries.filter(isObjectHash);
     } catch (err) {
       if (!isNotFoundError(err)) {
         throw err;
@@ -313,58 +336,69 @@ export class LocalRefStore implements RefStore {
   }
 
   /**
-   * Writes the owner sidecar as JSON: executions/<taskHash>/<inputsHash>/<executionId>/owner
+   * Writes the owner record: executions/<taskHash>/<inputsHash>/<executionId>/owner.beast2
    */
   async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {
-    const ownerPath = path.join(this.executionDir(repo, taskHash, inputsHash, executionId), 'owner');
-    const record: ExecutionOwner = { pid: owner.pid, pidStartTime: owner.pidStartTime, bootId: owner.bootId };
-    await atomicWriteFile(ownerPath, JSON.stringify(record) + '\n');
+    await atomicWriteFile(path.join(executionPath(repo, taskHash, inputsHash, executionId), 'owner.beast2'), encodeOwner(owner));
   }
 
   async executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null> {
-    const ownerPath = path.join(this.executionDir(repo, taskHash, inputsHash, executionId), 'owner');
-    let text: string;
+    let data: Buffer;
     try {
-      text = await fs.readFile(ownerPath, 'utf-8');
+      data = await fs.readFile(path.join(executionPath(repo, taskHash, inputsHash, executionId), 'owner.beast2'));
     } catch (err) {
       if (isNotFoundError(err)) {
         return null;
       }
       throw err;
     }
-    // The owner is advisory: one that does not parse is treated as unrecorded,
-    // so the stale-`running` repair — which needs a recorded, dead owner —
-    // leaves the execution alone.
+    // The owner is advisory: one that does not decode is treated as
+    // unrecorded, so the stale-`running` repair — which needs a recorded, dead
+    // owner — leaves the execution alone.
     try {
-      const owner = JSON.parse(text) as Partial<ExecutionOwner>;
-      if (typeof owner.pid === 'number' && typeof owner.pidStartTime === 'number' && typeof owner.bootId === 'string') {
-        return { pid: owner.pid, pidStartTime: owner.pidStartTime, bootId: owner.bootId };
-      }
+      return decodeOwner(data);
     } catch {
-      // Not JSON: fall through to unrecorded.
+      return null;
     }
-    return null;
   }
 
   /**
-   * Writes the plan sidecar: executions/<taskHash>/<inputsHash>/plan, the hash
-   * and a newline.
+   * Writes the plan pointer: executions/<taskHash>/<inputsHash>/plan.beast2,
+   * the `$plan`'s hash, or removes it to clear it.
    */
-  async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void> {
-    await atomicWriteFile(path.join(this.inputsDir(repo, taskHash, inputsHash), 'plan'), planHash + '\n');
+  async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string | null): Promise<void> {
+    const file = path.join(executionPath(repo, taskHash, inputsHash), 'plan.beast2');
+    if (planHash === null) await unlinkIfPresent(file);
+    else await atomicWriteFile(file, encodeHash(planHash));
   }
 
   async executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
-    try {
-      const content = await fs.readFile(path.join(this.inputsDir(repo, taskHash, inputsHash), 'plan'), 'utf-8');
-      const hash = content.trim();
-      return hash === '' ? null : hash;
-    } catch (err) {
-      if (isNotFoundError(err)) {
-        return null;
-      }
-      throw err;
-    }
+    return readHash(path.join(executionPath(repo, taskHash, inputsHash), 'plan.beast2'));
+  }
+
+  // -------------------------------------------------------------------------
+  // Adoption Memo
+  // -------------------------------------------------------------------------
+
+  /**
+   * Path to an adoption memo entry: adoptions/<hash[0..2]>/<hash[2..]>.beast2,
+   * or null for a name that is not a SHA-256 in lowercase hex — a client names
+   * the hash a transfer init asks after, so nothing else is joined into a path.
+   */
+  private adoptionPath(repo: string, sourceHash: string): string | null {
+    if (!isObjectHash(sourceHash)) return null;
+    return path.join(repo, 'adoptions', sourceHash.slice(0, 2), `${sourceHash.slice(2)}.beast2`);
+  }
+
+  async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
+    const entry = this.adoptionPath(repo, sourceHash);
+    if (entry === null) throw new Error(`adoption memo: '${sourceHash}' is not a SHA-256`);
+    await atomicWriteFile(entry, encodeHash(manifestHash));
+  }
+
+  async adoptionRead(repo: string, sourceHash: string): Promise<string | null> {
+    const entry = this.adoptionPath(repo, sourceHash);
+    return entry === null ? null : readHash(entry);
   }
 
   // -------------------------------------------------------------------------
@@ -372,10 +406,14 @@ export class LocalRefStore implements RefStore {
   // -------------------------------------------------------------------------
 
   private dataflowDir(repo: string, workspace: string): string {
+    checkName('workspace', workspace);
     return path.join(repo, 'dataflows', workspace);
   }
 
+  /** A run's record, named by its id, a UUIDv7 — which a package being
+   *  imported names, so nothing else becomes a path. */
   private dataflowRunPath(repo: string, workspace: string, runId: string): string {
+    if (!isUuidv7(runId)) throw new Error(`'${runId}' is not a run id`);
     return path.join(this.dataflowDir(repo, workspace), `${runId}.beast2`);
   }
 
@@ -411,11 +449,11 @@ export class LocalRefStore implements RefStore {
     try {
       const entries = await fs.readdir(dir);
       // Filter for .beast2 files, extract runId, and sort
-      const runIds = entries
+      return entries
         .filter((e) => e.endsWith('.beast2'))
         .map((e) => e.slice(0, -7))  // Remove .beast2
-        .filter((e) => /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(e));
-      return runIds.sort();
+        .filter(isUuidv7)
+        .sort();
     } catch (err) {
       if (isNotFoundError(err)) {
         return [];
@@ -434,12 +472,6 @@ export class LocalRefStore implements RefStore {
   }
 
   async dataflowRunDelete(repo: string, workspace: string, runId: string): Promise<void> {
-    const runPath = this.dataflowRunPath(repo, workspace, runId);
-    try {
-      await fs.unlink(runPath);
-    } catch (err) {
-      if (isNotFoundError(err)) return; // idempotent
-      throw err;
-    }
+    await unlinkIfPresent(this.dataflowRunPath(repo, workspace, runId));
   }
 }

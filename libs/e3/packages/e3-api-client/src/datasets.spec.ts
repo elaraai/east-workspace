@@ -4,20 +4,29 @@
  */
 
 /**
- * Tests for the dataset key-search client call.
+ * Tests for the dataset key-search client call, and a collection's download.
  *
  * `datasetFindKey` is the client half of the fence-backed find endpoint:
  * these tests pin the request shape (the `find` query and its exactly-one
  * of key/prefix parameters, hash pinning), the JSON result decoding with
  * the content hash lifted off the headers, and the error mapping the
  * paged preview relies on (typed ApiError codes, AuthError on 401).
+ *
+ * `datasetGet` downloads a collection as the objects its manifest names and
+ * splices them: these tests pin that the splice is the value's blob, that an
+ * object answered by URL is fetched without the API's auth, and that an object
+ * which does not hash to its name is refused. `datasetGetStream`, which it is
+ * built on, hands the splice over as it goes, a few segments ahead.
  */
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { variant } from '@elaraai/east';
-import { datasetFindKey } from './datasets.js';
-import { ApiError, AuthError } from './http.js';
+import {
+  Beast2ManifestWriter, DictType, IntegerType, SortedMap, StringType, compareFor, decodeCollectionManifest, encodeBeast2PagedFor, sha256Hex, variant,
+} from '@elaraai/east';
+import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
+import { datasetFindKey, datasetGet, datasetGetPage, datasetGetStream } from './datasets.js';
+import { ApiError, AuthError, DatasetHashMismatchError } from './http.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -109,5 +118,134 @@ describe('datasetFindKey', () => {
       datasetFindKey(BASE, 'r', 'ws', lookupPath, { key: '"a"' }, { token: null }),
       (err: unknown) => err instanceof AuthError,
     );
+  });
+
+  it('names the hash the dataset moved on to when a pinned read is refused, for a search and a page', async () => {
+    const current = 'a'.repeat(64);
+    mockFetch(() => new Response(JSON.stringify({ error: { type: 'dataset_hash_mismatch', message: `Dataset content is ${current}, not ${HASH}` } }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/json', 'X-Content-SHA256': current },
+    }));
+    const moved = (err: unknown): boolean => {
+      assert.ok(err instanceof DatasetHashMismatchError, `expected DatasetHashMismatchError, got ${String(err)}`);
+      assert.ok(err instanceof ApiError, 'it is still an ApiError');
+      assert.equal(err.code, 'dataset_hash_mismatch');
+      assert.equal(err.currentHash, current);
+      return true;
+    };
+    await assert.rejects(datasetFindKey(BASE, 'r', 'ws', lookupPath, { key: '"a"', hash: HASH }, { token: null }), moved);
+    await assert.rejects(datasetGetPage(BASE, 'r', 'ws', lookupPath, { offset: 0, limit: 10, hash: HASH }, { token: null }), moved);
+  });
+});
+
+/** A collection as a server stores it — every object by its hash, the
+ *  manifest's own among them — and the blob its splice is. */
+function storedCollection(): { objects: Map<string, Uint8Array>; manifest: string; segments: string[]; blob: Uint8Array } {
+  const type = DictType(StringType, IntegerType);
+  const value = new SortedMap(
+    Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(6, '0')}`, BigInt(i)] as [string, bigint]),
+    compareFor(StringType));
+  const objects = new Map<string, Uint8Array>();
+  let manifest = '';
+  const writer = new Beast2ManifestWriter(type, {
+    object: (hash, bytes) => objects.set(hash, bytes),
+    manifest: (bytes) => {
+      manifest = sha256Hex(bytes);
+      objects.set(manifest, bytes);
+    },
+  });
+  for (const entry of value.entries()) writer.add(entry);
+  writer.finish();
+  const segments = decodeCollectionManifest(objects.get(manifest)!).entries.map((entry) => entry.hash);
+  return { objects, manifest, segments, blob: encodeBeast2PagedFor(type)(value) };
+}
+
+/** Serves a dataset route naming `manifest`, and an objects route answering
+ *  from `objects` — the `presigned` ones with a URL to fetch them from — and
+ *  records each request, and whether it carried the API's auth. */
+function mockServer(manifest: string, objects: Map<string, Uint8Array>, presigned: Set<string>): { requests: { url: string; auth: boolean }[] } {
+  const state = { requests: [] as { url: string; auth: boolean }[] };
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    state.requests.push({ url: url.href, auth: new Headers(init?.headers).has('Authorization') });
+    if (url.pathname.includes('/datasets/')) {
+      return new Response(JSON.stringify({ manifest }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'X-Content-SHA256': HASH },
+      });
+    }
+    const hash = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+    if (url.host === 'example.test' && presigned.has(hash)) {
+      return new Response(JSON.stringify({ url: `https://bucket.test/${hash}` }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(objects.get(hash)!, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
+  }) as typeof fetch;
+  return state;
+}
+
+describe('datasetGet', () => {
+  it('downloads a collection as the objects its manifest names, spliced into the value\'s blob', async () => {
+    const { objects, manifest, segments, blob } = storedCollection();
+    assert.ok(segments.length > 3, `the value spans segments, got ${segments.length}`);
+    // One segment is large, as an object answered with a URL is.
+    const m = mockServer(manifest, objects, new Set([segments[1]!]));
+
+    const result = await datasetGet(BASE, 'r', 'ws', lookupPath, { token: 'tok' });
+    assert.deepEqual(result.data, blob);
+    assert.equal(result.hash, HASH, 'the hash is the dataset\'s own');
+    assert.equal(result.size, blob.byteLength);
+
+    assert.equal(new URL(m.requests[0]!.url).searchParams.get('segments'), 'true');
+    const [presigned, api] = [
+      m.requests.filter((request) => request.url.startsWith('https://bucket.test/')),
+      m.requests.filter((request) => !request.url.startsWith('https://bucket.test/')),
+    ];
+    assert.deepEqual(presigned, [{ url: `https://bucket.test/${segments[1]}`, auth: false }], 'a URL is fetched without the API\'s auth');
+    assert.equal(api.length, segments.length + 3, 'the dataset, the manifest, the header and each segment');
+    assert.ok(api.every((request) => request.auth));
+  });
+
+  it('streams a collection a few segments ahead of the reader, never the value', async () => {
+    const { objects, manifest, segments, blob } = storedCollection();
+    assert.ok(segments.length > 12, `the value spans many segments, got ${segments.length}`);
+    const m = mockServer(manifest, objects, new Set());
+
+    const { hash, chunks } = await datasetGetStream(BASE, 'r', 'ws', lookupPath, { token: null });
+    assert.equal(hash, HASH);
+    assert.equal(m.requests.length, 2, 'the dataset and its manifest are read before the chunks are taken');
+    const parts: Uint8Array[] = [];
+    let fetchedByFirst = 0;
+    for await (const chunk of chunks) {
+      if (parts.length === 0) fetchedByFirst = m.requests.length;
+      parts.push(chunk);
+    }
+    assert.ok(fetchedByFirst <= 2 + 1 + 8, `the first chunk came after ${fetchedByFirst} requests: the header and at most 8 segments ahead`);
+    assert.deepEqual(new Uint8Array(Buffer.concat(parts)), blob);
+  });
+
+  it('streams any other value as the body the server sends', async () => {
+    const body = new Uint8Array(300_000).map((_, i) => i % 251);
+    mockFetch(() => new Response(new Blob([body]).stream(), {
+      status: 200,
+      headers: { 'Content-Type': BEAST2_CONTENT_TYPE, 'X-Content-SHA256': HASH },
+    }));
+    const { hash, chunks } = await datasetGetStream(BASE, 'r', 'ws', lookupPath, { token: null });
+    const parts: Uint8Array[] = [];
+    for await (const chunk of chunks) parts.push(chunk);
+    assert.equal(hash, HASH);
+    assert.deepEqual(new Uint8Array(Buffer.concat(parts)), body);
+  });
+
+  it('refuses an object that does not hash to its name', async () => {
+    const { objects, manifest, segments } = storedCollection();
+    const cut = objects.get(segments[2]!)!.subarray(0, 100);
+    objects.set(segments[2]!, cut);
+    mockServer(manifest, objects, new Set());
+    await assert.rejects(datasetGet(BASE, 'r', 'ws', lookupPath, { token: null }), {
+      message: `object ${segments[2]} arrived as ${sha256Hex(cut)}: the download was cut short or corrupted`,
+    });
   });
 });

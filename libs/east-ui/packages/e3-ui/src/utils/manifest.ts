@@ -6,43 +6,11 @@
 /**
  * Data manifest for UI tasks — declares which datasets a UI binds to via
  * `Data.bind()` / `Data.bindPaged()`, which named functions it calls via
- * `Func.bind()`, and which records it binds via `Record.bind()`. Stored as a
- * beast2-encoded blob in the task's `metadata`.
+ * `Func.bind()`, and which records it binds via `Record.bind()`. A UI task
+ * carries it as its task object's `ui` role, so the type lives in e3-types
+ * beside the task object and is re-exported here.
  *
  * @packageDocumentation
  */
 
-import { StructType, ArrayType, StringType, encodeBeast2For, decodeBeast2For, type ValueTypeOf } from '@elaraai/east';
-import { TreePathType } from '@elaraai/e3-types';
-
-/**
- * East type for the UI binding manifest.
- *
- * @property paths - Dataset paths this UI accesses (read or write) via Data.bind
- *   (also includes each bound record's `.records.<name>` path, so the record's
- *   current value is preloaded and polled like any dataset).
- * @property functions - Named package functions this UI calls via Func.bind.
- * @property records - Record names this UI binds via Record.bind.
- * @property pages - Dataset paths this UI reads BY WINDOW via Data.bindPaged.
- *   Declared separately from `paths` precisely because they are NOT preloaded
- *   or polled as whole values — a paged source is read one window at a time,
- *   which is the entire point of binding it paged.
- */
-export const DataManifestType = StructType({
-  paths: ArrayType(TreePathType),
-  functions: ArrayType(StringType),
-  records: ArrayType(StringType),
-  pages: ArrayType(TreePathType),
-});
-
-export type DataManifest = ValueTypeOf<typeof DataManifestType>;
-
-/** Encode a manifest to beast2 bytes for storage in task metadata. */
-export function encodeManifest(manifest: DataManifest): Uint8Array {
-  return encodeBeast2For(DataManifestType)(manifest);
-}
-
-/** Decode a manifest from beast2 bytes. */
-export function decodeManifest(blob: Uint8Array): DataManifest {
-  return decodeBeast2For(DataManifestType)(blob);
-}
+export { DataManifestType, type DataManifest } from '@elaraai/e3-types';

@@ -475,6 +475,59 @@ function typeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue, env: WrapperPa
 }
 
 /**
+ * Renames a type value's recursive types canonically: each `wrapper` is
+ * numbered in preorder from 0, and each `ref` takes the number of the
+ * innermost enclosing wrapper it names.
+ *
+ * @param type - a type value
+ * @returns an equal type value (under {@link isTypeValueEqual}) whose
+ *   recursive ids depend on the type alone
+ *
+ * @remarks
+ * A wrapper's `id` is a runtime artefact, so two runtimes, or two processes of
+ * one, give the same type different ids. A type value stored as data, as a
+ * segment manifest stores its collection's type, is renamed first so that
+ * equal types encode to equal bytes. The numbering is the one east-c's IR
+ * normalizer gives a type.
+ */
+export function canonicalTypeValue(type: EastTypeValue): EastTypeValue {
+  let next = 0n;
+  const scope: [old: bigint, renamed: bigint][] = [];
+  const rename = (t: EastTypeValue): EastTypeValue => {
+    switch (t.type) {
+      case "Never": case "Null": case "Boolean": case "Integer":
+      case "Float": case "String": case "DateTime": case "Blob":
+        return t;
+      case "Ref": case "Array": case "Set": case "Vector": case "Matrix":
+        return variant(t.type, rename(t.value)) as EastTypeValue;
+      case "Dict":
+        return variant("Dict", { key: rename(t.value.key), value: rename(t.value.value) });
+      case "Struct": case "Variant":
+        return variant(t.type, (t.value as { name: string; type: EastTypeValue }[]).map(({ name, type }) => ({ name, type: rename(type) }))) as EastTypeValue;
+      case "Function": case "AsyncFunction":
+        return variant(t.type, { inputs: t.value.inputs.map(rename), output: rename(t.value.output) }) as EastTypeValue;
+      case "Recursive": {
+        const payload = t.value;
+        if (payload.type === "ref") {
+          for (let i = scope.length - 1; i >= 0; i--) {
+            if (scope[i]![0] === payload.value) return variant("Recursive", variant("ref", scope[i]![1]));
+          }
+          return t;
+        }
+        const id = next++;
+        scope.push([payload.value.id, id]);
+        try {
+          return variant("Recursive", variant("wrapper", { id, inner: rename(payload.value.inner) }));
+        } finally {
+          scope.pop();
+        }
+      }
+    }
+  };
+  return rename(type);
+}
+
+/**
  * Checks if one EastTypeValue is a subtype of another.
  *
  * @param t1 - The potential subtype

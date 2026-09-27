@@ -27,8 +27,9 @@ export function createRepositoryRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const options = await decodeBody(c, GcRequestType);
-    const minAge = options.minAge?.type === 'some' ? Number(options.minAge.value) : undefined;
-    return startGc(storage, repoPath, { dryRun: options.dryRun, minAge });
+    const [minAge, keepRuns, keepDays] = [options.minAge, options.keepRuns, options.keepDays]
+      .map((option) => (option.type === 'some' ? Number(option.value) : undefined));
+    return startGc(storage, repoPath, { dryRun: options.dryRun, minAge, keepRuns, keepDays });
   });
 
   // GET /api/repos/:repo/gc/:executionId - Get GC status

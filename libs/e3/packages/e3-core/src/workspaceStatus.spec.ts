@@ -17,7 +17,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
-import { variant, East, IntegerType } from '@elaraai/east';
+import { variant, none, some, East, IntegerType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 import { workspaceStatus } from './workspaceStatus.js';
@@ -52,6 +52,7 @@ describe('workspaceStatus crash detection', () => {
       pid: BigInt(pid),
       pidStartTime: BigInt(pidStartTime),
       bootId,
+      unit: false,
     });
     await storage.refs.executionWrite(repoPath, taskHash, inHash, executionId, status);
     return executionId;
@@ -81,7 +82,7 @@ describe('workspaceStatus crash detection', () => {
     taskHash = pkgObject.tasks.get('double')!;
     const task = await workspaceGetTask(storage, repoPath, WS, 'double');
     const hashes: string[] = [];
-    for (const inputPath of task.inputs) {
+    for (const { path: inputPath } of task.inputs) {
       const { hash } = await workspaceGetDatasetHash(storage, repoPath, WS, inputPath);
       hashes.push(hash!);
     }
@@ -152,6 +153,8 @@ describe('workspaceStatus crash detection', () => {
         startedAt: new Date(),
         completedAt: new Date(),
         exitCode: 1n,
+        peakBytes: none,
+        unit: false,
       });
       await storage.refs.executionWrite(repoPath, taskHash, `${'0'.repeat(60)}${String(i).padStart(4, '0')}`, executionId, status);
     }
@@ -179,5 +182,38 @@ describe('workspaceStatus crash detection', () => {
       `per-history lookups crept back in: executionGetLatest called ${counts['executionGetLatest']} times`
     );
     assert.equal(counts['executionListForTask'] ?? 0, 0, 'status no longer lists history without statuses');
+  });
+
+  it('names the peak memory of the execution a task\'s status comes from', async () => {
+    const executionId = uuidv7();
+    await storage.refs.executionWrite(repoPath, taskHash, inHash, executionId, variant('failed', {
+      executionId,
+      inputHashes: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      exitCode: 1n,
+      peakBytes: some(48n * 1024n ** 2n),
+      unit: false,
+    }));
+    const result = await workspaceStatus(storage, repoPath, WS);
+    const task = result.tasks.find((t) => t.name === 'double')!;
+    assert.equal(task.status.type, 'failed');
+    assert.equal(task.peakBytes, 48 * 1024 ** 2);
+  });
+
+  it('reads a unit of a split task running as no run of the task', async () => {
+    // A unit is recorded under its task's hash, over its piece's inputs; this
+    // one's runner is alive.
+    const executionId = uuidv7();
+    await storage.refs.executionWrite(repoPath, taskHash, 'e'.repeat(64), executionId, variant('running', {
+      executionId,
+      inputHashes: [],
+      startedAt: new Date(),
+      pid: BigInt(process.pid),
+      pidStartTime: BigInt(await getPidStartTime(process.pid) ?? 0),
+      bootId: await getBootId(),
+      unit: true,
+    }));
+    assert.equal((await taskStatus()).type, 'failed');
   });
 });

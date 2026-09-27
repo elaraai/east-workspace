@@ -68,14 +68,17 @@ e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow]   # Tail / page / 
 ## Dataflow
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force]
+e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--memory <size>] [--force]
 ```
 
-`-j` / `--jobs <n>` is the run's one parallelism budget — the runner processes in
-flight at once, across tasks and the units of partitioned tasks — defaulting to
-the CPUs available to e3 or `E3_JOBS`; `--concurrency` and
-`--partition-concurrency` survive as deprecated aliases. Its design is in
-`e3-execution.md` ("The jobs budget").
+`-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
+e3 spawns: `-j` its cores — the runners in flight at once, a task or a unit each
+— and `--memory` what they may reserve between them. They default to `E3_JOBS`
+and `E3_MEMORY`, else to the CPUs and the memory available to e3. Every command
+that runs units against a local repository takes them — `dataflow run`, `watch`,
+`run`, `call`, `mutate`, `reindex` and `workspace deploy` — and refuses them
+against a server, which runs the work under its own. Their design is in
+`e3-execution.md` ("The Budget").
 
 After a successful run, output paths are printed in flat form so the user can read them without re-discovering the structure:
 
@@ -97,7 +100,7 @@ Task spec separator is `.`, matching the dotted path convention everywhere else 
 ## Watch
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--memory <size>] [--abort-on-change]
 ```
 
 The source file is the first argument — the thing the user is editing leads.

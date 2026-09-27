@@ -18,11 +18,14 @@
 
 import type { EastTypeValue, ValueTypeOf } from '@elaraai/east';
 import type {
+    DataflowBudget,
     DataflowEvent,
     DataflowExecutionState,
     DatasetStatusDetail,
     ExecutionListItem,
     ListEntry,
+    RecordCommitInfo,
+    RecordSignature,
     RepositoryStatus,
     TaskDetails,
     TaskListItem,
@@ -63,7 +66,7 @@ export interface MatchUi {
     /** The query text, for the command box status. */
     text: string;
     /** The query form. */
-    form: 'exact' | 'prefix' | 'fields';
+    form: 'exact' | 'prefix' | 'fields' | 'range';
 }
 
 /** A value tree's UI state. */
@@ -117,12 +120,18 @@ export function isLogTab(tab: TaskTab): tab is 'stdout' | 'stderr' {
 
 /** The tabs of a task, in strip order (`reads` only for a `ui` task). */
 export function taskTabsOf(state: TuiState, ws: string, task: string): TaskTab[] {
-    const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.kind.type === 'some' && x.kind.value === 'ui');
+    const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.role.type === 'ui');
     return ui ? ['output', 'stdout', 'stderr', 'runs', 'reads'] : ['output', 'stdout', 'stderr', 'runs'];
 }
 
+/** The record view's tabs: its state (its rows, or one of its indexes) and its history. */
+export type RecordTab = 'state' | 'history';
+
+/** The record view's tabs, in strip order. */
+export const RECORD_TABS: readonly RecordTab[] = ['state', 'history'];
+
 /** The help view's tabs — one per page, plus what works everywhere. */
-export type HelpTab = 'everywhere' | 'repos' | 'workspaces' | 'dashboard' | 'task' | 'input';
+export type HelpTab = 'everywhere' | 'repos' | 'workspaces' | 'dashboard' | 'task' | 'input' | 'record';
 
 /** Why the session could not open — each maps to a refusal screen. */
 export type Refusal =
@@ -140,6 +149,8 @@ export type View =
     | { kind: 'dashboard'; ws: string; list: ListUi }
     | { kind: 'task'; ws: string; task: string; tab: TaskTab; tree: TreeUi; logs: Record<'stdout' | 'stderr', LogsUi>; runs: RunsUi; reads: ListUi }
     | { kind: 'input'; ws: string; name: string; tree: TreeUi; editing: LeafEditUi | null }
+    /** A record: its state through its rows, or `index`'s entries, and its history. */
+    | { kind: 'record'; ws: string; name: string; tab: RecordTab; index: string | null; tree: TreeUi; history: ListUi }
     | { kind: 'help'; tab: HelpTab }
     | { kind: 'about' };
 
@@ -162,13 +173,18 @@ export function inputView(ws: string, name: string): View {
     return { kind: 'input', ws, name, tree: emptyTree(), editing: null };
 }
 
+/** A record view with fresh UI state, showing the record's rows. */
+export function recordView(ws: string, name: string, tab: RecordTab = 'state'): View {
+    return { kind: 'record', ws, name, tab, index: null, tree: emptyTree(), history: emptyList() };
+}
+
 // ---------------------------------------------------------------------------
 // Command box
 // ---------------------------------------------------------------------------
 
 /** One completion row: what it inserts and its display columns. */
 export interface Candidate {
-    kind: 'command' | 'flag' | 'task' | 'input' | 'dataset' | 'workspace' | 'repo' | 'tag' | 'stream' | 'file';
+    kind: 'command' | 'flag' | 'task' | 'input' | 'record' | 'index' | 'dataset' | 'workspace' | 'repo' | 'tag' | 'stream' | 'file';
     /** The text the box takes on Tab / Enter. */
     insert: string;
     /** The display columns (command, name, status, type, detail). */
@@ -272,6 +288,25 @@ export interface DatasetData {
     mode: DatasetMode;
     /** Whether the whole value was loaded despite the inline limit (`⏎ load whole value`). */
     forced: boolean;
+    /** A record's index read in place of its rows: its name, its key type, which `/find` takes, and whether
+     *  a page joins each entry's row, as it does for an index that projects nothing. */
+    index?: { name: string; keyType: EastTypeValue; join: boolean } | undefined;
+}
+
+/** What the TUI knows of a record. */
+export interface RecordData {
+    /** The state hash what follows was read at (null while the record holds none). */
+    hash: string | null;
+    /** Its mutations and indexes, as its package declares them. */
+    signature: RecordSignature | null;
+    /** Its rows, from the status geometry. */
+    rows: number | null;
+    /** Its newest commit (the dashboard's LAST COMMIT). */
+    head: RecordCommitInfo | null;
+    /** The commits the History tab has read, newest first; null until it reads them. */
+    history: RecordCommitInfo[] | null;
+    /** Whether `history` reaches the chain's root. */
+    complete: boolean;
 }
 
 /** A task's log stream. */
@@ -310,9 +345,11 @@ export interface DataState {
     statusError: Record<string, string>;
     /** Per workspace: the latest execution. */
     execution: Record<string, ExecutionData>;
+    /** Per workspace: the budget a run gets (the server's), or null when its runners hold none. */
+    budget: Record<string, DataflowBudget | null>;
     /** Per workspace: every dataset with its type / hash / size. */
     datasets: Record<string, ListEntry[]>;
-    /** Per workspace: the task list (with kinds). */
+    /** Per workspace: the task list (with roles). */
     taskList: Record<string, TaskListItem[]>;
     /** Per workspace, per task: task details. */
     taskDetails: Record<string, Record<string, TaskDetails>>;
@@ -320,6 +357,8 @@ export interface DataState {
     executions: Record<string, Record<string, ExecutionListItem[]>>;
     /** Per workspace, per dataset path: status + content. */
     dataset: Record<string, Record<string, DatasetData>>;
+    /** Per workspace, per record: its signature, rows and commits. */
+    records: Record<string, Record<string, RecordData>>;
     /** Per workspace, per task, per stream: log text. */
     logs: Record<string, Record<string, Partial<Record<'stdout' | 'stderr', LogsData>>>>;
     /** Epoch milliseconds of the last successful status poll. */
@@ -334,11 +373,13 @@ export const emptyData = (): DataState => ({
     status: {},
     statusError: {},
     execution: {},
+    budget: {},
     datasets: {},
     taskList: {},
     taskDetails: {},
     executions: {},
     dataset: {},
+    records: {},
     logs: {},
     polledAt: null,
 });
@@ -443,6 +484,9 @@ export type Action =
     | { type: 'tree/restore'; open: Record<string, boolean>; top: number; baseDepth: number | undefined }
     | { type: 'tree/match'; match: MatchUi | null }
     | { type: 'task/tab'; tab: TaskTab }
+    | { type: 'record/tab'; tab: RecordTab }
+    /** Shows one of the record's indexes, or its rows again (null), from the top. */
+    | { type: 'record/index'; index: string | null }
     | { type: 'runs/expand'; expanded: boolean }
     | { type: 'logs/follow'; follow: boolean }
     | { type: 'logs/scroll'; top: number }
@@ -471,12 +515,14 @@ export type Action =
     | { type: 'data/statusError'; ws: string; error: string }
     | { type: 'data/execution'; ws: string; state: DataflowExecutionState | null; events: DataflowEvent[]; startedAt: string | null }
     | { type: 'data/executionFlag'; ws: string; settling?: boolean; stopping?: boolean }
+    | { type: 'data/budget'; ws: string; budget: DataflowBudget | null }
     | { type: 'data/datasets'; ws: string; entries: ListEntry[] }
     | { type: 'data/taskList'; ws: string; tasks: TaskListItem[] }
     | { type: 'data/taskDetails'; ws: string; task: string; details: TaskDetails }
     | { type: 'data/executions'; ws: string; task: string; executions: ExecutionListItem[] }
     | { type: 'data/dataset'; ws: string; path: string; data: DatasetData }
     | { type: 'data/datasetMode'; ws: string; path: string; mode: DatasetMode }
+    | { type: 'data/record'; ws: string; name: string; data: RecordData }
     | { type: 'data/logs'; ws: string; task: string; stream: 'stdout' | 'stderr'; logs: LogsData }
     | { type: 'data/reset' }
     // editing

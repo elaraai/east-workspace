@@ -12,8 +12,7 @@ from pathlib import Path
 from east.runtime.errors import EastError
 
 from east_py_cli.loader import get_platform_version, load_platform
-from east_py_cli.runner import merge_blobs, run_program
-from east_py_cli.snapshot import read_snapshot, write_snapshot
+from east_py_cli.runner import execute_unit, print_result, run_program
 
 _EXIT_WITH_PARENT_HELP = (
     "Exit with status 1 once stdin reaches end of file — for a parent that holds a stdin "
@@ -76,6 +75,8 @@ def create_parser() -> argparse.ArgumentParser:
     # run command
     run_parser = subparsers.add_parser("run", help="Run an East IR program")
     run_parser.add_argument(
+        # Not argparse's required positional: that answers a missing one with
+        # a usage dump. Checked in cmd_run, in east-c's and east-node's words.
         "ir_file",
         type=Path,
         nargs="?",
@@ -112,92 +113,25 @@ def create_parser() -> argparse.ArgumentParser:
         help="Enable verbose output",
     )
     run_parser.add_argument(
-        "--snapshot",
-        type=Path,
-        metavar="PATH",
-        help="Write a .east-snapshot bundle (IR + inputs + manifest)",
-    )
-    run_parser.add_argument(
-        "--from-snapshot",
-        type=Path,
-        metavar="PATH",
-        dest="from_snapshot",
-        help="Replay from a .east-snapshot bundle (exclusive with ir_file, -i, -p)",
-    )
-    run_parser.add_argument(
-        # Not argparse `choices`: that answers a bad kind with a usage dump,
-        # where east-c and east-node name the kind they got. Checked in
-        # cmd_run instead, in their words.
-        "--emit",
-        metavar="KIND",
-        help="Write the output incrementally from the function's trailing emit "
-        "parameter (array|set|dict)",
-    )
-    run_parser.add_argument(
-        "--merge",
-        type=Path,
-        metavar="FILE",
-        help="With --emit dict: fold equal keys with the East function (K, V, V) -> V "
-        "in FILE, in emission order",
-    )
-    run_parser.add_argument(
-        "--union",
-        action="store_true",
-        help="With --emit set: collapse equal elements",
-    )
-    run_parser.add_argument(
-        "--stream",
-        type=int,
-        action="append",
-        metavar="N",
-        help="Feed the given -i input lazily (0-based index, repeatable; segment-fed "
-        "iteration, O(segment) decoded memory)",
-    )
-    run_parser.add_argument(
         "--exit-with-parent",
         action="store_true",
         dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
     )
 
-    # merge command (#770): k sorted Set/Dict blobs of one type into one
-    merge_parser = subparsers.add_parser(
-        "merge",
-        help="Merge sorted Set or Dict blobs of one type into one, in a single pass: equal "
-        "keys fold with the East function (K, V, V) -> V in --merge FILE (Dict), or "
-        "collapse under --union (Set); without a fold an equal key is an error. The "
-        "output is what `run --emit` writes for the same entries emitted ascending",
+    # exec command: the runner protocol
+    exec_parser = subparsers.add_parser(
+        "exec",
+        help="Execute a unit, the runner protocol: run a program, or merge the parts of an "
+        "output, as the unit file says, write the output by its kind and record the result; "
+        "exit 0 when it is ok and 1 when it failed",
     )
-    merge_parser.add_argument(
-        "-p", "--package", action="append", default=[], metavar="PACKAGE",
-        help="Platform package the --merge function's platform calls need (can be repeated)",
-    )
-    # Not argparse `required`: that answers a missing one with a usage dump,
-    # where east-c and east-node name what is missing. Checked in cmd_merge.
-    merge_parser.add_argument(
-        "-i", "--input", action="append", default=[], type=Path, metavar="FILE",
-        help="An input blob (can be repeated; equal keys fold in this order)",
-    )
-    merge_parser.add_argument(
-        "-o", "--output", type=Path, metavar="FILE", help="The merged blob",
-    )
-    merge_parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose output",
-    )
-    merge_parser.add_argument(
-        "--merge", type=Path, metavar="FILE",
-        help="Dict inputs: fold equal keys with the East function (K, V, V) -> V in FILE, "
-        "in input order",
-    )
-    merge_parser.add_argument(
-        "--union", action="store_true", help="Set inputs: the first of equal elements stands",
-    )
-    merge_parser.add_argument(
-        "--range", type=Path, metavar="FILE",
-        help="Merge only the keys in [from, to): a beast2 blob of Struct{from: Option<K>, "
-        "to: Option<K>} over the inputs' key type; an absent bound is open",
-    )
-    merge_parser.add_argument(
+    exec_parser.add_argument(
+        "unit", type=Path,
+        help="The unit file (.beast2); relative paths in it are relative to its directory")
+    exec_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print where the time went and the peak memory")
+    exec_parser.add_argument(
         "--exit-with-parent", action="store_true", dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
     )
@@ -294,32 +228,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     """Execute the run command."""
     _start_lifeline(args)
 
-    extract = None
-
-    # --from-snapshot is exclusive with ir_file, -i, -p
-    if args.from_snapshot is not None:
-        if args.ir_file or args.input or args.package:
-            print(
-                "Error: --from-snapshot cannot be combined with ir_file, -i, or -p",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            extract = read_snapshot(args.from_snapshot)
-        except Exception as e:
-            print(f"Error: failed to read snapshot: {e}", file=sys.stderr)
-            return 1
-        args.ir_file = extract.ir_path
-        args.input = extract.input_paths
-        args.package = extract.packages
-
     try:
         # Validate IR file exists
         if args.ir_file is None:
-            print(
-                "Error: Missing ir_file argument (or use --from-snapshot PATH)",
-                file=sys.stderr,
-            )
+            print("Error: Missing ir_file argument", file=sys.stderr)
             return 1
         if not args.ir_file.exists():
             print(f"Error: IR file not found: {args.ir_file}", file=sys.stderr)
@@ -330,46 +242,6 @@ def cmd_run(args: argparse.Namespace) -> int:
             if not input_file.exists():
                 print(f"Error: Input file not found: {input_file}", file=sys.stderr)
                 return 1
-
-        if args.emit is not None and args.emit not in ("array", "set", "dict"):
-            print(f"Error: --emit must be one of array, set or dict, got '{args.emit}'",
-                  file=sys.stderr)
-            return 1
-        if getattr(args, "merge", None) is not None and getattr(args, "emit", None) != "dict":
-            print("Error: --merge applies to --emit dict only", file=sys.stderr)
-            return 1
-        if getattr(args, "union", False) and getattr(args, "emit", None) != "set":
-            print("Error: --union applies to --emit set only", file=sys.stderr)
-            return 1
-
-        # The manifest carries no streaming flags (format v1), so a captured
-        # emit/stream invocation would replay with the wrong arity — refuse
-        # at capture with the fix instead of failing confusingly at replay.
-        if args.snapshot is not None and (
-            getattr(args, "emit", None) is not None or getattr(args, "stream", None) is not None
-        ):
-            print(
-                "Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no "
-                "streaming flags); replay with --from-snapshot passing --emit/--stream explicitly",
-                file=sys.stderr,
-            )
-            return 1
-
-        # Write snapshot BEFORE execution so crashes still leave the bundle.
-        if args.snapshot is not None:
-            try:
-                from east_py_cli import __version__ as cli_version
-            except ImportError:
-                cli_version = "unknown"
-            write_snapshot(
-                out_path=args.snapshot,
-                ir_path=args.ir_file,
-                input_paths=list(args.input),
-                packages=list(args.package),
-                cli_version=f"east-py-cli {cli_version}",
-            )
-            if args.verbose:
-                print(f"Snapshot: {args.snapshot}", file=sys.stderr)
 
         # Load platform functions from packages
         platform_fns = []
@@ -389,10 +261,6 @@ def cmd_run(args: argparse.Namespace) -> int:
             input_files=args.input,
             output_file=args.output,
             verbose=args.verbose,
-            emit=getattr(args, "emit", None),
-            stream_inputs=getattr(args, "stream", None) or (),
-            merge=getattr(args, "merge", None),
-            union=getattr(args, "union", False),
         )
 
         return 0
@@ -408,51 +276,26 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"Error: {e}", file=sys.stderr)
             traceback.print_exc()
         return 1
-    finally:
-        if extract is not None:
-            extract.cleanup()
 
 
-def cmd_merge(args: argparse.Namespace) -> int:
-    """``east-py merge``: k sorted Set/Dict blobs of one type into one (#770)."""
+def cmd_exec(args: argparse.Namespace) -> int:
+    """``east-py exec <unit>``: the runner protocol. The unit's work is done,
+    its output written and its result recorded where it says; the exit status
+    is 0 for an ok outcome and 1 for a failure, whose message and locations
+    also go to stderr. A unit that cannot be read, or a result that cannot be
+    written, leaves no result: exit 2."""
     _start_lifeline(args)
-
-    # No existence pre-check: the merge names a missing input itself, in the
-    # words east-c and east-node use (`merge: input <n> (<path>): cannot open
-    # the file`). The rules below are theirs too, word for word.
-    if not args.input:
-        print("Error: merge requires at least one -i input", file=sys.stderr)
-        return 1
-    if args.output is None:
-        print("Error: merge requires -o FILE", file=sys.stderr)
-        return 1
-    if args.merge is not None and args.union:
-        print("Error: --merge and --union are two folds — give one", file=sys.stderr)
-        return 1
-    if args.output.suffix.lower() != ".beast2":
-        print("Error: merge requires a .beast2 output file (-o)", file=sys.stderr)
-        return 1
-
-    platform_fns = []
-    for package in args.package:
-        try:
-            platform_fns.extend(load_platform(package))
-        except (ImportError, ValueError) as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
-
     try:
-        merge_blobs(
-            input_files=args.input,
-            platform_fns=platform_fns,
-            output_file=args.output,
-            verbose=args.verbose,
-            merge=args.merge,
-            union=args.union,
-            range=args.range,
-        )
-    except (EastError, ValueError, RuntimeError, OSError) as e:
-        print(f"Error: {e}", file=sys.stderr)
+        result = execute_unit(args.unit)
+    except (ValueError, OSError) as e:
+        print(f"Error: exec {args.unit}: {e}", file=sys.stderr)
+        return 2
+    if args.verbose:
+        print_result(result["timings"], result["peak_bytes"])
+    if not result["ok"]:
+        lines = [f"Error: {result['message']}"]
+        lines.extend(f"  at {filename}:{line}:{column}" for filename, line, column in result["locations"])
+        print("\n".join(lines), file=sys.stderr)
         return 1
     return 0
 
@@ -755,8 +598,8 @@ def main() -> None:
         sys.exit(cmd_export_functions(args))
     elif args.command == "run":
         sys.exit(cmd_run(args))
-    elif args.command == "merge":
-        sys.exit(cmd_merge(args))
+    elif args.command == "exec":
+        sys.exit(cmd_exec(args))
     elif args.command == "convert":
         sys.exit(cmd_convert(args))
     elif args.command == "version":

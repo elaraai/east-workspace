@@ -38,6 +38,7 @@ import {
   workspaceGetPackage,
   LocalStorage,
   LocalTaskRunner,
+  type Budget,
 } from '@elaraai/e3-core';
 import { type RunnerValue, decodeFunctionObject } from '@elaraai/e3-types';
 import {
@@ -50,6 +51,7 @@ import {
 } from '@elaraai/e3-api-client';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { parseTaskSpec } from './run.js';
+import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 // Local calls have no transport ceiling — be generous but still bounded.
 const LOCAL_LIMITS = {
@@ -181,6 +183,7 @@ async function callLocal(
   spec: { name?: string; version?: string; fn: string },
   workspace: string | undefined,
   rawArgs: string[],
+  budget: Budget,
   outputPath?: string,
   verbose?: boolean
 ): Promise<void> {
@@ -221,7 +224,7 @@ async function callLocal(
     args.push(await encodeArg(rawArgs[i]!, signature.inputTypes[i]!, i));
   }
 
-  const runner = new LocalTaskRunner(repoPath);
+  const runner = new LocalTaskRunner(repoPath, budget);
   const bodyIr = await storage.objects.read(repoPath, fnObj.bodyIr);
   const detached = await runner.runDetached({
     bodyIr,
@@ -310,14 +313,15 @@ export async function callCommand(
   repoArg: string,
   fnSpec: string,
   args: string[],
-  options: { workspace?: string; output?: string; verbose?: boolean }
+  options: BudgetFlags & { workspace?: string; output?: string; verbose?: boolean }
 ): Promise<void> {
   try {
     const spec = parseFunctionSpec(fnSpec, options.workspace !== undefined);
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
-      await callLocal(location.path, spec, options.workspace, args, options.output, options.verbose);
+      await callLocal(location.path, spec, options.workspace, args, commandBudget(options), options.output, options.verbose);
     } else {
+      refuseRemoteBudget(options);
       await callRemote(location.baseUrl, location.repo, location.token, spec, options.workspace, args, options.output, options.verbose);
     }
   } catch (err) {

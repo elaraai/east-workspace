@@ -16,7 +16,7 @@ platform bridge module.
 """
 
 from libc.stddef cimport size_t
-from libc.stdint cimport int32_t, int64_t, uint8_t, uint64_t
+from libc.stdint cimport int32_t, int64_t, uint8_t, uint32_t, uint64_t
 
 
 # ─── stdbool.h ────────────────────────────────────────────────
@@ -363,6 +363,7 @@ cdef extern from "east/values.h":
 
     EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type)
     EastValue *east_struct_get_field(EastValue *s, const char *name)
+    EastValue *east_struct_get_field_idx(EastValue *s, size_t idx)
     # field_names is NULL whenever the instance's StructType supplies the names
     # (the common case). Always read names through this.
     const char *east_struct_field_name(const EastValue *s, size_t idx)
@@ -428,6 +429,9 @@ cdef extern from "east/serialization.h":
     # BEAST2 v5 — segment-terminated record stream (issue #416)
     ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                       bint with_index)
+    # One collection value as a segmented, indexed blob, cut by the
+    # content-defined rule — the canonical bytes for the value.
+    ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id)
 
     ctypedef struct Beast2StreamWriter:
         pass
@@ -438,8 +442,54 @@ cdef extern from "east/serialization.h":
     bint east_beast2_writer_finish(Beast2StreamWriter *w)
     void east_beast2_writer_free(Beast2StreamWriter *w)
     void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bint parallel)
-    void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi)
-    bint east_beast2_writer_settle(Beast2StreamWriter *w)
+
+    # The canonical writer of a collection blob: elements in, in canonical
+    # order, and segments out wherever the content-defined rule places them.
+    ctypedef struct Beast2ElementWriter:
+        pass
+    Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id)
+    void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bint parallel)
+    bint east_beast2_element_writer_add(Beast2ElementWriter *w, EastValue *element)
+    bint east_beast2_element_writer_add_pair(Beast2ElementWriter *w, EastValue *key,
+                                             EastValue *value)
+    ByteBuffer *east_beast2_element_writer_take(Beast2ElementWriter *w)
+    bint east_beast2_element_writer_finish(Beast2ElementWriter *w)
+    size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w)
+    void east_beast2_element_writer_free(Beast2ElementWriter *w)
+
+    # Sorted runs: a Set's or Dict's elements in any order in, sorted
+    # canonical runs out, each run's bytes handed to the sink's callbacks —
+    # which return C `bool`, hence `cbool`.
+    int EAST_BEAST2_RUN_MAX_COUNT
+    size_t EAST_BEAST2_RUN_MAX_BYTES
+    ctypedef struct Beast2RunSink:
+        void *ctx
+        cbool (*open)(void *ctx, size_t run) noexcept
+        cbool (*write)(void *ctx, const uint8_t *data, size_t length) noexcept
+        cbool (*close)(void *ctx) noexcept
+    ctypedef struct Beast2RunSorter:
+        pass
+    Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
+                                                const Beast2RunSink *sink,
+                                                EastCompiledFn *merge_fn, bint union_mode)
+    void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bint parallel)
+    bint east_beast2_run_sorter_add(Beast2RunSorter *s, EastValue *element)
+    bint east_beast2_run_sorter_add_pair(Beast2RunSorter *s, EastValue *key, EastValue *value)
+    bint east_beast2_run_sorter_finish(Beast2RunSorter *s)
+    size_t east_beast2_run_sorter_runs(const Beast2RunSorter *s)
+    void east_beast2_run_sorter_free(Beast2RunSorter *s)
+
+    # The content-defined cut rule (beast2/v5/boundary.c). Bound here rather
+    # than reimplemented, so this runtime, east-c and TypeScript cut one value
+    # at the same elements — the property the segment-object layout rests on.
+    uint64_t east_beast2_fnv1a64(const uint8_t *bytes, size_t length)
+    uint32_t east_beast2_segment_boundary_hash(const uint8_t *bytes, size_t length)
+    bint east_beast2_segment_is_boundary(uint32_t hash, size_t count, size_t nbytes)
+    bint east_beast2_starts_segment_after(size_t count, size_t nbytes, const uint8_t *hash_input,
+                                          size_t length)
+    ByteBuffer *east_beast2_encode_fence(EastValue *value, EastType *type)
+    size_t east_beast2_segment_starts(EastValue *collection, EastType *type, size_t *out,
+                                      size_t out_cap)
 
     ctypedef struct Beast2SegmentReader:
         pass
@@ -520,6 +570,26 @@ cdef extern from "east/serialization.h":
     bint east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
                           size_t *fences_probed, cbool *hydrated)
     EastType *east_beast2_pages_type(Beast2Pages *p)
+
+    # Segment manifests: a collection held as standalone segment blobs and a
+    # manifest naming them, a manifest directory being the manifest's file
+    # and `<file>.segments/<sha256>.beast2` for every object it names.
+    EastType *east_beast2_manifest_type()
+    int east_beast2_read_manifest(const uint8_t *data, size_t length, EastValue **manifest_out)
+    EastValue *east_beast2_open_manifest_dir(const char *path, EastValue *manifest,
+                                             EastType *type, bint frozen)
+    EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest,
+                                               EastType *type, bint frozen)
+    ctypedef struct Beast2ManifestWriter:
+        pass
+    Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
+                                                              const char *path)
+    bint east_beast2_manifest_writer_add(Beast2ManifestWriter *w, EastValue *element)
+    bint east_beast2_manifest_writer_add_pair(Beast2ManifestWriter *w, EastValue *key,
+                                              EastValue *value)
+    bint east_beast2_manifest_writer_finish(Beast2ManifestWriter *w)
+    size_t east_beast2_manifest_writer_segments(const Beast2ManifestWriter *w)
+    void east_beast2_manifest_writer_free(Beast2ManifestWriter *w)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)
     ctypedef struct Beast2SpliceExtents:
@@ -658,48 +728,20 @@ cdef extern from "east/east.h":
     void east_exit_with_parent()
 
 
-# ─── emit_sink.h ─────────────────────────────────────────────────────────
-# The streaming emit sink behind `run --emit` (#507, #518, #770), shared with
-# the east-c CLI. Struct fields declared `bint` are C `bool` in the header;
-# they are assigned and read by value, which the C compiler converts.
-
-cdef extern from "east/emit_sink.h":
-    ctypedef enum EastEmitKind:
-        EAST_EMIT_ARRAY
-        EAST_EMIT_SET
-        EAST_EMIT_DICT
-
-    ctypedef struct EastEmitSinkConfig:
-        EastEmitKind kind
-        EastType *out_type
-        const char *output_path
-        EastCompiledFn *merge_fn
-        bint union_mode
-
-    ctypedef struct EastEmitSinkStats:
-        size_t emitted
-
-    ctypedef struct EastEmitSink:
-        pass
-
-    EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg)
-    EastValue *east_emit_sink_function(EastEmitSink *sink, EastType *fn_type)
-    bint east_emit_sink_finish(EastEmitSink *sink)
-    void east_emit_sink_stats(const EastEmitSink *sink, EastEmitSinkStats *out)
-    void east_emit_sink_free(EastEmitSink *sink)
-
-
 # ─── merge.h ─────────────────────────────────────────────────────────────
-# The blob merge behind `merge` (#770), shared with the east-c CLI: k sorted
-# Set/Dict blobs of one type in, one canonical blob out, in a single pass.
-# `input_paths` is `const char *const *` in the header; the C compiler
-# accepts the `const char **` this declaration assigns.
+# The blob merge behind a merge unit (#770), shared with the east-c CLI: k
+# sorted Set/Dict blobs of one type in, one canonical blob out, in a single
+# pass. Struct fields declared `bint` are C `bool` in the header; they are
+# assigned and read by value, which the C compiler converts. `input_paths` is
+# `const char *const *` in the header; the C compiler accepts the
+# `const char **` this declaration assigns.
 
 cdef extern from "east/merge.h":
     ctypedef struct EastMergeConfig:
         const char **input_paths
         size_t num_inputs
         const char *output_path
+        bint output_manifest
         EastCompiledFn *merge_fn
         bint union_mode
         const char *range_path
@@ -710,6 +752,85 @@ cdef extern from "east/merge.h":
         size_t folds
 
     bint east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
+
+
+# ─── unit.h ──────────────────────────────────────────────────────────────
+# The runner protocol, shared with the east-c CLI: the unit `exec` executes,
+# the result it reports, and the sink a running program's output goes
+# through. Struct fields declared `bint` are C `bool` in the header; they are
+# assigned and read by value, which the C compiler converts.
+
+cdef extern from "east/unit.h":
+    ctypedef enum EastUnitOutputKind:
+        EAST_UNIT_VALUE
+        EAST_UNIT_ARRAY
+        EAST_UNIT_SET
+        EAST_UNIT_DICT
+        EAST_UNIT_FOLD
+
+    ctypedef struct EastUnitOutput:
+        EastUnitOutputKind kind
+        char *path
+        char *merge
+        char *zero
+        char *combine
+
+    ctypedef struct EastUnit:
+        bint merge
+        char *program
+        char **inputs
+        size_t num_inputs
+        char *range
+        EastUnitOutput output
+        char **platforms
+        size_t num_platforms
+        int64_t threads
+        char *result
+
+    EastUnit *east_unit_read(const char *path)
+    void east_unit_free(EastUnit *unit)
+
+    ctypedef struct EastUnitLocation:
+        const char *filename
+        int64_t line
+        int64_t column
+
+    ctypedef struct EastUnitResult:
+        bint ok
+        const char *message
+        const EastUnitLocation *locations
+        size_t num_locations
+        uint64_t peak_bytes
+        double load_ms
+        double compile_ms
+        double execute_ms
+        double output_ms
+
+    bint east_unit_write_result(const char *path, const EastUnitResult *result)
+    bint east_unit_write_value(const char *path, EastValue *value, EastType *type)
+
+    ctypedef struct EastUnitSink:
+        pass
+
+    EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
+                                     EastCompiledFn *merge_fn, EastCompiledFn *combine_fn,
+                                     EastValue *zero)
+    EastValue *east_unit_sink_function(EastUnitSink *sink, EastType *fn_type)
+    bint east_unit_sink_finish(EastUnitSink *sink, EastValue *result)
+    void east_unit_sink_free(EastUnitSink *sink)
+
+    bint east_unit_merge_runs(const EastUnit *unit, EastCompiledFn *merge_fn)
+
+
+# ─── compat.h ────────────────────────────────────────────────────────────
+
+cdef extern from "east/compat.h":
+    # Caps every pool the library starts at a runner's thread grant; one
+    # thread starts none, 0 lifts the cap.
+    void east_set_thread_limit(int threads)
+    # This process's peak resident memory in KB, as the east-c CLI measures
+    # its own. `long` is 32 bits on Windows: widen before scaling to bytes.
+    long east_peak_rss_kb()
 
 
 # ─── type_of_type.h ─────────────────────────────────────────────────────

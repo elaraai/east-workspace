@@ -11,19 +11,39 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { encodeBeast2For, variant, some, none } from '@elaraai/east';
 import {
-  TaskObjectType, decodeTaskObject,
+  TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject,
   FunctionObjectType, decodeFunctionObject,
   EnvironmentSpecType, environmentSpecObjectHashes,
   type TaskObject, type FunctionObject,
 } from '@elaraai/e3-types';
 import { StructType, StringType, ArrayType, BlobType, OptionType, EastTypeType, toEastTypeValue, IntegerType } from '@elaraai/east';
 import { TreePathType, RunnerType } from '@elaraai/e3-types';
-import { LocalBackend } from '../storage/local/index.js';
+import { LocalStorage } from '../storage/local/index.js';
 import { repoInit } from '../storage/local/repository.js';
-import { materializeEnvironment } from './environment.js';
+import { decodeEnvironmentFile, materializeEnvironment, nodeLockFilename } from './environment.js';
 
-describe('task/function object dual decoders', () => {
-  it('decodes pre-environment task bytes with environment defaulted to none', () => {
+/** An environment's file, as export stores it: a beast2 Blob of its bytes. */
+const encodeFile = encodeBeast2For(BlobType);
+
+describe('the files an environment names', () => {
+  it('decodes a file as its bytes, and refuses one an older SDK stored raw, in the materializer\'s words', () => {
+    const bytes = Buffer.from('#!/bin/sh\necho hi\n');
+    assert.deepStrictEqual(Buffer.from(decodeEnvironmentFile(encodeFile(bytes), 'a'.repeat(64))), bytes);
+    for (const raw of [bytes, encodeBeast2For(StringType)('not a file')]) {
+      assert.throws(() => decodeEnvironmentFile(raw, 'b'.repeat(64)), {
+        message: `the environment file ${'b'.repeat(64)} was exported by an older e3 SDK — re-export its package with the current one`,
+      });
+    }
+  });
+
+  it('tells a node lockfile\'s format from its bytes', () => {
+    assert.strictEqual(nodeLockFilename(Buffer.from('  {"lockfileVersion": 3}')), 'package-lock.json');
+    assert.strictEqual(nodeLockFilename(Buffer.from("lockfileVersion: '9.0'\n")), 'pnpm-lock.yaml');
+  });
+});
+
+describe('task and function object decoders', () => {
+  it('refuses pre-environment task bytes, as every task object an older SDK exported, saying to re-export', () => {
     const PreEnvironmentTaskObjectType = StructType({
       commandIr: StringType,
       inputs: ArrayType(TreePathType),
@@ -41,19 +61,17 @@ describe('task/function object dual decoders', () => {
       runner: variant('custom', { command: [] }),
     });
 
-    const task = decodeTaskObject(legacyBytes);
-    assert.strictEqual(task.commandIr, 'a'.repeat(64));
-    assert.strictEqual(task.environment.type, 'none');
+    assert.throws(() => decodeTaskObject(legacyBytes), /exported by an older e3 SDK — re-export it with the current one/);
   });
 
   it('round-trips a current task with an environment hash', () => {
     const taskObj: TaskObject = {
-      commandIr: 'a'.repeat(64),
-      inputs: [],
-      output: [variant('field', 'y')],
-      kind: none,
-      metadata: none,
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: 'a'.repeat(64) }),
       runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [variant('field', 'y')], kind: variant('value', null) },
+      role: variant('data', null),
       environment: some('b'.repeat(64)),
     };
     const decoded = decodeTaskObject(encodeBeast2For(TaskObjectType)(taskObj));
@@ -61,7 +79,7 @@ describe('task/function object dual decoders', () => {
     assert.strictEqual(decoded.environment.type === 'some' && decoded.environment.value, 'b'.repeat(64));
   });
 
-  it('decodes pre-environment function bytes with environment defaulted to none', () => {
+  it('refuses pre-environment function bytes, saying to re-export', () => {
     const PreEnvironmentFunctionObjectType = StructType({
       bodyIr: StringType,
       inputTypes: ArrayType(EastTypeType),
@@ -75,9 +93,7 @@ describe('task/function object dual decoders', () => {
       runner: variant('east_node', { platforms: [] }),
     });
 
-    const fn = decodeFunctionObject(legacyBytes);
-    assert.strictEqual(fn.bodyIr, 'c'.repeat(64));
-    assert.strictEqual(fn.environment.type, 'none');
+    assert.throws(() => decodeFunctionObject(legacyBytes), /exported by an older e3 SDK — re-export it with the current one/);
   });
 
   it('round-trips a current function with an environment hash', () => {
@@ -94,12 +110,12 @@ describe('task/function object dual decoders', () => {
 
   it('folds the environment into the task object bytes (cache identity)', () => {
     const base: TaskObject = {
-      commandIr: 'a'.repeat(64),
-      inputs: [],
-      output: [variant('field', 'y')],
-      kind: none,
-      metadata: none,
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: 'a'.repeat(64) }),
       runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [variant('field', 'y')], kind: variant('value', null) },
+      role: variant('data', null),
       environment: none,
     };
     const encoder = encodeBeast2For(TaskObjectType);
@@ -132,7 +148,7 @@ describe('environmentSpecObjectHashes', () => {
 describe('materializeEnvironment', () => {
   let tmpDir: string;
   let repo: string;
-  const storage = new LocalBackend();
+  const storage = new LocalStorage();
 
   before(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-spec-'));
@@ -165,8 +181,8 @@ describe('materializeEnvironment', () => {
       name: 'e3-env-fixture', version: '1.0.0', lockfileVersion: 3, requires: true,
       packages: { '': { name: 'e3-env-fixture', version: '1.0.0' } },
     }));
-    const pkgHash = await storage.objects.write(repo, packageJson);
-    const lockHash = await storage.objects.write(repo, lock);
+    const pkgHash = await storage.objects.write(repo, encodeFile(packageJson));
+    const lockHash = await storage.objects.write(repo, encodeFile(lock));
     const spec = encodeBeast2For(EnvironmentSpecType)(
       variant('node', { packageJson: pkgHash, lock: lockHash, tarballs: [] }),
     );
@@ -189,8 +205,8 @@ describe('materializeEnvironment', () => {
   it('materializes a tools environment: files on PATH under bin/, executable, then warm', async () => {
     const runnerBytes = Buffer.from('#!/bin/sh\necho hi\n');
     const helperBytes = Buffer.from('DATA');
-    const runnerHash = await storage.objects.write(repo, runnerBytes);
-    const helperHash = await storage.objects.write(repo, helperBytes);
+    const runnerHash = await storage.objects.write(repo, encodeFile(runnerBytes));
+    const helperHash = await storage.objects.write(repo, encodeFile(helperBytes));
     const spec = encodeBeast2For(EnvironmentSpecType)(variant('tools', {
       files: [
         { path: 'bin/my-runner', hash: runnerHash },
@@ -218,9 +234,24 @@ describe('materializeEnvironment', () => {
     assert.ok(fs.existsSync(path.join(envDir, '.warm-marker')), 'warm hit must not rebuild');
   });
 
+  it('refuses a file an older SDK exported as its raw bytes, naming the re-export', async () => {
+    // A beast2 file holding a String, exported raw, would read as some
+    // other file's bytes were only its body decoded.
+    for (const raw of [Buffer.from('#!/bin/sh\necho hi\n'), Buffer.from(encodeBeast2For(StringType)('not a file'))]) {
+      const fileHash = await storage.objects.write(repo, raw);
+      const spec = encodeBeast2For(EnvironmentSpecType)(variant('tools', { files: [{ path: 'bin/old-tool', hash: fileHash }] }));
+      const envHash = await storage.objects.write(repo, spec);
+      await assert.rejects(
+        materializeEnvironment(storage, repo, envHash),
+        { message: `the environment file ${fileHash} was exported by an older e3 SDK — re-export its package with the current one` },
+      );
+      assert.ok(!fs.existsSync(path.join(repo, 'envs', envHash)), 'nothing is materialized');
+    }
+  });
+
   it('rejects a tools spec whose file path escapes the environment dir', async () => {
     for (const badPath of ['../evil', '/etc/passwd', 'a/../../b', '']) {
-      const blobHash = await storage.objects.write(repo, Buffer.from('x'));
+      const blobHash = await storage.objects.write(repo, encodeFile(Buffer.from('x')));
       const spec = encodeBeast2For(EnvironmentSpecType)(variant('tools', {
         files: [{ path: badPath, hash: blobHash }],
       }));
@@ -259,9 +290,9 @@ describe('materializeEnvironment', () => {
         execFileSync('uv', ['build', '--sdist', '--out-dir', distDir], { cwd: projectDir, stdio: 'ignore' });
         const sdistFile = fs.readdirSync(distDir).find((f) => f.endsWith('.tar.gz'))!;
 
-        const pyprojectHash = await storage.objects.write(repo, fs.readFileSync(path.join(projectDir, 'pyproject.toml')));
-        const lockHash = await storage.objects.write(repo, fs.readFileSync(path.join(projectDir, 'uv.lock')));
-        const sdistHash = await storage.objects.write(repo, fs.readFileSync(path.join(distDir, sdistFile)));
+        const pyprojectHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(projectDir, 'pyproject.toml'))));
+        const lockHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(projectDir, 'uv.lock'))));
+        const sdistHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(distDir, sdistFile))));
         const spec = encodeBeast2For(EnvironmentSpecType)(variant('python', {
           pyproject: pyprojectHash, lock: lockHash,
           sdists: [{ filename: sdistFile, hash: sdistHash }],
@@ -313,10 +344,10 @@ describe('materializeEnvironment', () => {
       const commonTar = fs.readFileSync(pack('packages/common'));
       const pricingTar = fs.readFileSync(pack('packages/pricing'));
 
-      const pkgJsonHash = await storage.objects.write(repo, fs.readFileSync(path.join(ws, 'package.json')));
-      const lockHash = await storage.objects.write(repo, fs.readFileSync(path.join(ws, 'package-lock.json')));
-      const commonHash = await storage.objects.write(repo, commonTar);
-      const pricingHash = await storage.objects.write(repo, pricingTar);
+      const pkgJsonHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(ws, 'package.json'))));
+      const lockHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(ws, 'package-lock.json'))));
+      const commonHash = await storage.objects.write(repo, encodeFile(commonTar));
+      const pricingHash = await storage.objects.write(repo, encodeFile(pricingTar));
       const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
         packageJson: pkgJsonHash, lock: lockHash, config: none, subject: 'packages/pricing',
         members: [
@@ -354,9 +385,9 @@ describe('materializeEnvironment', () => {
     for await (const c of p) chunks.push(c as Buffer);
     const evilTarball = zlib.gzipSync(Buffer.concat(chunks));
 
-    const rootPkg = await storage.objects.write(repo, Buffer.from(JSON.stringify({ name: 'r', workspaces: ['packages/x'] })));
-    const npmLock = await storage.objects.write(repo, Buffer.from(JSON.stringify({ name: 'r', lockfileVersion: 3 })));
-    const evilHash = await storage.objects.write(repo, evilTarball);
+    const rootPkg = await storage.objects.write(repo, encodeFile(Buffer.from(JSON.stringify({ name: 'r', workspaces: ['packages/x'] }))));
+    const npmLock = await storage.objects.write(repo, encodeFile(Buffer.from(JSON.stringify({ name: 'r', lockfileVersion: 3 }))));
+    const evilHash = await storage.objects.write(repo, encodeFile(evilTarball));
     const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
       packageJson: rootPkg, lock: npmLock, config: none, subject: 'packages/x',
       members: [{ path: 'packages/x', name: '@acme/x', tarball: evilHash }],

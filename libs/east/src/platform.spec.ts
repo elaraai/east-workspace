@@ -5,7 +5,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert";
 import { East } from "./expr/index.js";
-import { IntegerType, StringType, NullType, ArrayType, FunctionType, FloatType, StructType } from "./types.js";
+import { IntegerType, StringType, NullType, ArrayType, FunctionType, FloatType, StructType, SetType, DictType } from "./types.js";
 import { printFor } from "./serialization/east.js";
 import type { EastTypeValue } from "./type_of_type.js";
 
@@ -269,6 +269,26 @@ describe("platform functions", () => {
             const result = await f_compiled("hello");
 
             assert.deepStrictEqual(result, ["hello", "hello"]);
+        });
+    });
+
+    describe("collection literals of async values", () => {
+        test("a Set literal holds an element an async platform function gives", async () => {
+            const later = East.asyncPlatform("later", [], IntegerType);
+            const f = East.asyncFunction([], SetType(IntegerType), ($) => {
+                $.return(new Set([later(), East.value(5n)]));
+            });
+            const result = await East.compileAsync(f, [later.implement(() => Promise.resolve(7n))])();
+            assert.deepStrictEqual([...result], [5n, 7n]);
+        });
+
+        test("a Dict literal holds a key and a value async platform functions give", async () => {
+            const later = East.asyncPlatform("later", [], IntegerType);
+            const f = East.asyncFunction([], DictType(IntegerType, IntegerType), ($) => {
+                $.return(new Map([[later(), later()], [East.value(5n), East.value(6n)]]));
+            });
+            const result = await East.compileAsync(f, [later.implement(() => Promise.resolve(7n))])();
+            assert.deepStrictEqual([...result], [[5n, 6n], [7n, 7n]]);
         });
     });
 

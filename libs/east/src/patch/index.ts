@@ -29,7 +29,7 @@ export {
 } from "./types.js";
 
 // Re-export PatchType constructor
-export { PatchType } from "./type_of_patch.js";
+export { PatchType, dictPatchOpsType, setPatchOpsType } from "./type_of_patch.js";
 
 // Re-export merge primitives
 export {

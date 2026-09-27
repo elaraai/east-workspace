@@ -23,6 +23,10 @@ describe('parseCommand', () => {
         assert.deepEqual(ok('/task forecast'), { name: 'task', target: 'forecast' });
         assert.deepEqual(ok('task forecast'), { name: 'task', target: 'forecast' });
         assert.deepEqual(ok('/input params'), { name: 'input', target: 'params' });
+        assert.deepEqual(ok('/record ledger'), { name: 'record', target: 'ledger' });
+        assert.deepEqual(ok('/index by_store'), { name: 'index', target: 'by_store' });
+        assert.deepEqual(ok('/index primary'), { name: 'index', target: 'primary' });
+        assert.match(bad('/index'), /an index, or primary required — \/index <name\|primary>/);
         assert.deepEqual(ok('/dataset .tasks.forecast.output'), { name: 'dataset', target: '.tasks.forecast.output' });
         assert.deepEqual(ok('/workspace staging'), { name: 'workspace', target: 'staging' });
         assert.deepEqual(ok('/repo https://h/repos/x'), { name: 'repo', target: 'https://h/repos/x' });
@@ -33,10 +37,12 @@ describe('parseCommand', () => {
     });
 
     test('/run flags', () => {
-        assert.deepEqual(ok('/run'), { name: 'run', force: false, filter: undefined, concurrency: undefined });
-        assert.deepEqual(ok('/run --force --filter fore* --concurrency 8'), { name: 'run', force: true, filter: 'fore*', concurrency: 8 });
-        assert.deepEqual(ok('/run --filter=fore* --concurrency=2'), { name: 'run', force: false, filter: 'fore*', concurrency: 2 });
-        assert.match(bad('/run --concurrency x'), /positive integer/);
+        assert.deepEqual(ok('/run'), { name: 'run', force: false, filter: undefined });
+        assert.deepEqual(ok('/run --force --filter fore*'), { name: 'run', force: true, filter: 'fore*' });
+        assert.deepEqual(ok('/run --filter=fore*'), { name: 'run', force: false, filter: 'fore*' });
+        // The server's budget decides how much runs at once: a run sets none.
+        assert.match(bad('/run --jobs 2'), /unknown \/run flag --jobs/);
+        assert.match(bad('/run --concurrency 2'), /unknown \/run flag --concurrency/);
         assert.match(bad('/run --filter'), /needs a glob/);
         assert.match(bad('/run --bogus'), /unknown \/run flag --bogus/);
         assert.deepEqual(ok('/stop'), { name: 'stop' });
@@ -98,10 +104,13 @@ describe('parseCommand', () => {
 });
 
 describe('describe', () => {
-    const ctx = { workspace: 'main', taskCount: 6, running: false, concurrency: 4, dirty: 0 };
+    const ctx = { workspace: 'main', taskCount: 6, running: false, dirty: 0, budget: null };
     test('spells the /run consequence the design shows', () => {
-        assert.deepEqual(describeCommand(ok('/run --force'), ctx), { text: 'run 6 tasks in main, ignoring the cache · concurrency 4', keys: '⏎ run · esc' });
-        assert.equal(describeCommand(ok('/run --filter fo* --concurrency 2'), ctx).text, 'run tasks matching fo* in main · concurrency 2');
+        assert.deepEqual(describeCommand(ok('/run --force'), ctx), { text: 'run 6 tasks in main, ignoring the cache', keys: '⏎ run · esc' });
+        assert.equal(describeCommand(ok('/run --filter fo*'), ctx).text, 'run tasks matching fo* in main');
+        // The server's budget, once it has answered.
+        assert.equal(describeCommand(ok('/run'), { ...ctx, budget: { cores: 8, memory: 14 * 1024 ** 3 } }).text, 'run 6 tasks in main · 8 cores, 14 GB');
+        assert.equal(describeCommand(ok('/run --force'), { ...ctx, budget: { cores: 1, memory: 512 * 1024 ** 2 } }).text, 'run 6 tasks in main, ignoring the cache · 1 core, 512 MB');
         assert.equal(describeCommand(ok('/run'), { ...ctx, running: true }).text, 'a run is already in progress');
         assert.equal(describeCommand(ok('/stop'), { ...ctx, running: true }).text, 'cancel the run in main');
         assert.equal(describeCommand(ok('/stop'), ctx).text, 'no run in progress');
@@ -110,6 +119,11 @@ describe('describe', () => {
         assert.equal(describeCommand(ok('/quit'), { ...ctx, dirty: 2 }).text, 'quit with 2 unsaved edits');
         assert.equal(describeCommand(ok('/quit --force'), { ...ctx, dirty: 2 }).text, 'quit');
         assert.equal(describeCommand(ok('/repo ./x'), { ...ctx, dirty: 1 }).text, 'open ./x · 1 unsaved edits are discarded');
+    });
+    test('a record and its indexes', () => {
+        assert.equal(describeCommand(ok('/record ledger'), ctx).text, 'open record ledger');
+        assert.equal(describeCommand(ok('/index by_store'), ctx).text, 'page through index by_store');
+        assert.equal(describeCommand(ok('/index primary'), ctx).text, 'page through the rows');
     });
 });
 

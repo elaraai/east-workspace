@@ -25,22 +25,30 @@
  * where it stops, not of everywhere it passed. A page's size in rows is
  * chosen per dataset from the blob's stored bytes per row
  * ({@link pageSizeFor}): a page of wide rows holds as many rows as
- * {@link PAGE_BYTES_TARGET} covers, a page of narrow rows
- * {@link PAGE_SIZE_MAX}; a server that cuts a window short by its own byte
+ * {@link PAGE_BYTES_TARGET} covers, but never fewer than
+ * {@link PAGE_SIZE_MIN}, and a page of narrow rows {@link PAGE_SIZE_MAX}; a
+ * server that cuts a window short by its own byte
  * budget is asked for the rest until the page is whole. Loaded pages are
  * pruned to {@link MAX_RETAINED_PAGES} around the window whenever the set
  * changes — as a page lands as much as when the window moves — and raw
  * bytes stay in a small cache so a page that left re-materializes without
  * a request. Decoding and materializing yield to the renderer.
  *
+ * A record's index is a source of its own, `.records.<name>#<index>`
+ * (`recordSource`): its pages are the index's windows, decoded by the window
+ * type the record's signature gives, each entry a row labelled by its index
+ * key, and a key search searches the index.
+ *
  * @packageDocumentation
  */
 
-import { decodeBeast2For, variant, type EastTypeValue } from '@elaraai/east';
+import { decodeBeast2For, fromEastTypeValue, toEastTypeValue, variant, type EastType, type EastTypeValue } from '@elaraai/east';
+import type { DatasetPageWindow } from '@elaraai/e3-api-client';
+import { indexWindowType } from '@elaraai/e3-types';
 import { ValueTree } from '@elaraai/east-ui';
 import { findKeyInline, pruneRetainedPages, type DatasetKeyMatchRange, type DatasetKeyQuery, type ValueTreePagedRow } from '@elaraai/east-ui/internal';
 import { apiCode, describeError, treePathOf, type Api } from '../api.js';
-import { applyAnchor, captureAnchor, collectionKeys, isCollectionType, keyTypeOf, viewDataset } from '../model/tree.js';
+import { applyAnchor, captureAnchor, collectionKeys, isCollectionType, keyTypeOf, splitSource, viewDataset } from '../model/tree.js';
 import type { DatasetData, DatasetMode } from '../state/actions.js';
 import type { Store } from '../state/store.js';
 
@@ -52,6 +60,9 @@ export const INLINE_LIMIT = 200 * 1024;
 export const WHOLE_LIMIT = 64 * 1024 * 1024;
 /** Root rows per page at most — the page size of narrow rows. */
 export const PAGE_SIZE_MAX = 500;
+/** Root rows per page at least: rows wider than {@link PAGE_BYTES_TARGET}
+ *  over this still fill a screen in a few requests, not one a row or two. */
+export const PAGE_SIZE_MIN = 16;
 /** Stored bytes a page aims to hold: wide rows make shorter pages, so what one page materializes stays bounded. */
 export const PAGE_BYTES_TARGET = 128 * 1024;
 /** Loaded (materialized) pages retained around the window. */
@@ -73,7 +84,7 @@ type PagedMode = Extract<DatasetMode, { kind: 'paged' }>;
 /**
  * The rows per page of a collection: as many as {@link PAGE_BYTES_TARGET}
  * covers at the blob's average stored bytes per row, at most
- * {@link PAGE_SIZE_MAX}, at least one.
+ * {@link PAGE_SIZE_MAX}, at least {@link PAGE_SIZE_MIN}.
  *
  * @param totalBytes - The stored blob's size
  * @param totalRows - Its root rows
@@ -81,7 +92,7 @@ type PagedMode = Extract<DatasetMode, { kind: 'paged' }>;
  */
 export function pageSizeFor(totalBytes: number, totalRows: number): number {
     if (totalRows <= 0 || totalBytes <= 0) return PAGE_SIZE_MAX;
-    return Math.max(1, Math.min(PAGE_SIZE_MAX, Math.floor(PAGE_BYTES_TARGET / (totalBytes / totalRows))));
+    return Math.max(PAGE_SIZE_MIN, Math.min(PAGE_SIZE_MAX, Math.floor(PAGE_BYTES_TARGET / (totalBytes / totalRows))));
 }
 
 /** The elements of a decoded page in row order (a Dict's entries as pairs). */
@@ -91,8 +102,34 @@ function elementsOf(type: EastTypeValue, decoded: unknown): unknown[] {
     return Array.from((decoded as Set<unknown>).values());
 }
 
-/** One root row of the paged tree: the element materialized, with its global step and label. */
-function rowOf(type: EastTypeValue, element: unknown, row: number): ValueTreePagedRow {
+/** The index a source reads through, as a page is decoded and labelled. */
+type SourceIndex = DatasetData['index'];
+
+/**
+ * One root row of the paged tree: the element materialized, with its global
+ * step and label. An index's entry is labelled by its index key and shows the
+ * row's key with what the index projects, or with the row it joined.
+ */
+function rowOf(type: EastTypeValue, element: unknown, row: number, index?: SourceIndex): ValueTreePagedRow {
+    if (index !== undefined) {
+        type Field = { name: string; type: EastTypeValue };
+        const entry = element as { ik: unknown; key: unknown; value: unknown; row: { type: string; value?: unknown } };
+        const fields = (type.value as EastTypeValue).value as Field[];
+        const key = fields.find(field => field.name === 'key')!;
+        let shown = fields.find(field => field.name === (index.join ? 'row' : 'value'))!;
+        let value = index.join ? entry.row : entry.value;
+        // A joined row is shown as the record's own rows show it, not as the
+        // option the window carries it in.
+        if (index.join && entry.row.type === 'some') {
+            shown = { name: 'row', type: (shown.type.value as Field[]).find(c => c.name === 'some')!.type };
+            value = entry.row.value;
+        }
+        return {
+            node: ValueTree.materialize(variant('Struct', [key, shown]) as EastTypeValue, { key: entry.key, [shown.name]: value }),
+            step: variant('index', BigInt(row)),
+            label: ValueTree.keyLabel(index.keyType, entry.ik),
+        };
+    }
     if (type.type === 'Dict') {
         const { key: keyType, value: valueType } = type.value as { key: EastTypeValue; value: EastTypeValue };
         const [k, v] = element as [unknown, unknown];
@@ -117,6 +154,22 @@ function rowOf(type: EastTypeValue, element: unknown, row: number): ValueTreePag
  */
 export function pageRows(type: EastTypeValue, decoded: unknown, offset: number): ValueTreePagedRow[] {
     return elementsOf(type, decoded).map((element, i) => rowOf(type, element, offset + i));
+}
+
+/**
+ * The window type an index's page decodes by, over a record of type
+ * `Dict<K, V>`: `Array<{ik, key, value, row}>`.
+ *
+ * @param recordType - The record's type
+ * @param keyType - The index key's type
+ * @param valueType - The index's projection type
+ * @returns The window type, or null when the record is not a Dict
+ */
+export function indexWindowTypeOf(recordType: EastTypeValue, keyType: EastTypeValue, valueType: EastTypeValue): EastTypeValue | null {
+    if (recordType.type !== 'Dict') return null;
+    const { key, value } = recordType.value as { key: EastTypeValue; value: EastTypeValue };
+    const east = (tv: EastTypeValue): EastType => fromEastTypeValue(tv as never) as unknown as EastType;
+    return toEastTypeValue(indexWindowType(east(key), east(keyType), east(valueType), east(value)));
 }
 
 /** What the loader needs. */
@@ -148,8 +201,8 @@ export interface DatasetLoader {
     loadWhole(ws: string, path: string): Promise<void>;
     /** Locates a key query: server-side for a paged value, in memory for an inline one. */
     findKey(ws: string, path: string, query: DatasetKeyQuery): Promise<DatasetKeyMatchRange>;
-    /** The stored bytes (`/save`). */
-    bytes(ws: string, path: string): Promise<Uint8Array>;
+    /** The stored bytes, a chunk at a time (`/save`). */
+    bytes(ws: string, path: string): Promise<AsyncIterable<Uint8Array>>;
     /** Drops the caches, the windows and the in-flight bookkeeping. */
     reset(): void;
 }
@@ -273,12 +326,18 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
         }
     };
 
+    /** The window a source asks for: its own, or its index's, joining each entry's row when the index projects nothing. */
+    const windowOf = (ws: string, path: string, window: { offset: number; limit: number; hash: string }): DatasetPageWindow => {
+        const index = current(ws, path)?.index;
+        return index === undefined ? window : { ...window, index: index.name, ...(index.join && { join: true }) };
+    };
+
     /** Fetches the rest of a page — window by window when the server cuts one short — into the byte cache. */
     const fetchPage = async (api: Api, ws: string, path: string, hash: string, key: string, start: number, want: number, partial: CachedPage | undefined): Promise<CachedPage> => {
         const chunks = partial === undefined ? [] : [...partial.chunks];
         let got = chunkRows({ chunks });
         while (got < want) {
-            const p = await api.datasetGetPage(ws, treePathOf(path), { offset: start + got, limit: want - got, hash });
+            const p = await api.datasetGetPage(ws, treePathOf(splitSource(path).path), windowOf(ws, path, { offset: start + got, limit: want - got, hash }));
             const count = Math.max(0, Math.min(p.count, want - got));
             chunks.push({ offset: start + got, count, bytes: p.data });
             if (count === 0) break; // nothing more came: the page ends here
@@ -290,7 +349,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
     };
 
     /** Decodes a page's chunks and materializes its rows `[start, start + want)`, yielding as it goes. */
-    const materializePage = async (type: EastTypeValue, entry: CachedPage, start: number, want: number): Promise<ValueTreePagedRow[]> => {
+    const materializePage = async (type: EastTypeValue, entry: CachedPage, start: number, want: number, index: SourceIndex): Promise<ValueTreePagedRow[]> => {
         const rows: ValueTreePagedRow[] = [];
         const decode = decodeBeast2For(type);
         for (const chunk of entry.chunks) {
@@ -298,7 +357,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
             for (let i = 0; i < elements.length; i++) {
                 const row = chunk.offset + i;
                 if (row < start || row >= start + want) continue;
-                rows.push(rowOf(type, elements[i], row));
+                rows.push(rowOf(type, elements[i], row, index));
                 if (rows.length % MATERIALIZE_SLICE === 0) await yieldToRender();
             }
         }
@@ -321,7 +380,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
             const w = windows.get(datasetKey(ws, path));
             if (w === undefined || w.hash !== hash || page < w.first || page > w.last) return;
             await yieldToRender();
-            const rows = await materializePage(type, entry, start, want);
+            const rows = await materializePage(type, entry, start, want, current(ws, path)?.index);
             const d = current(ws, path);
             if (d === undefined || d.hash !== hash || d.mode.kind !== 'paged') return;
             const after = windows.get(datasetKey(ws, path));
@@ -387,12 +446,17 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
         retryPump.set(key, { at, timer });
     };
 
-    /** A server that reports no row geometry: one window of the head tells the totals, and its rows seed page 0. */
-    const probe = async (api: Api, ws: string, path: string, hash: string): Promise<PagedMode | null> => {
+    /**
+     * A source whose status gives no row geometry — a server without it, or
+     * a record's index: one window of the head tells the totals, and its rows
+     * seed page 0. `rowBytes` adds what a page carries beside the source's own
+     * bytes, as the rows an index joins.
+     */
+    const probe = async (api: Api, ws: string, path: string, hash: string, rowBytes = 0): Promise<PagedMode | null> => {
         try {
-            const p = await api.datasetGetPage(ws, treePathOf(path), { offset: 0, limit: PAGE_SIZE_MAX, hash });
+            const p = await api.datasetGetPage(ws, treePathOf(splitSource(path).path), windowOf(ws, path, { offset: 0, limit: PAGE_SIZE_MAX, hash }));
             cachePut(keyOf(ws, path, hash, 0), { chunks: [{ offset: 0, count: p.count, bytes: p.data }] });
-            return { kind: 'paged', pageSize: pageSizeFor(p.totalBytes, p.totalElements), totalRows: p.totalElements, totalBytes: p.totalBytes, pages: new Map(), loading: [] };
+            return { kind: 'paged', pageSize: pageSizeFor(p.totalBytes + rowBytes, p.totalElements), totalRows: p.totalElements, totalBytes: p.totalBytes, pages: new Map(), loading: [] };
         } catch (err) {
             pageFailure(ws, path, hash, 0, err);
             return null;
@@ -403,10 +467,26 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
         async tick(ws, path, force = false) {
             const api = deps.api();
             if (api === null) return;
-            const status = await api.datasetGetStatus(ws, treePathOf(path));
+            const source = splitSource(path);
+            const status = await api.datasetGetStatus(ws, treePathOf(source.path));
             const hash = status.hash.type === 'some' ? status.hash.value : null;
             const size = status.size.type === 'some' ? Number(status.size.value) : 0;
-            const type = status.type;
+            let type = status.type;
+            // A record's index is read through the window type its signature
+            // gives, over the record's own key and row types.
+            let index: DatasetData['index'];
+            if (source.index !== null) {
+                const name = source.path.replace(/^\.records\./, '');
+                const signature = store.getState().data.records[ws]?.[name]?.signature ?? await api.recordDescribe(ws, name);
+                const declared = signature.indexes.find(i => i.name === source.index);
+                const window = declared === undefined ? null : indexWindowTypeOf(status.type, declared.keyType, declared.valueType);
+                if (declared === undefined || window === null) {
+                    store.dispatch({ type: 'data/dataset', ws, path, data: { status, hash, type, size, mode: { kind: 'error', message: `${name} has no index ${source.index}` }, forced: false } });
+                    return;
+                }
+                type = window;
+                index = { name: source.index, keyType: declared.keyType, join: declared.valueType.type === 'Null' };
+            }
             const before = current(ws, path);
             if (!force && before !== undefined && before.status !== null && before.hash === hash && before.mode.kind !== 'error') {
                 if (before.size !== size) store.dispatch({ type: 'data/dataset', ws, path, data: { ...before, status, size } });
@@ -419,7 +499,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
                 if (edit.conflict !== hash) store.dispatch({ type: 'edit/set', edit: { ...edit, conflict: hash } });
                 return;
             }
-            const base: DatasetData = { status, hash, type, size, mode: { kind: 'loading' }, forced: false };
+            const base: DatasetData = { status, hash, type, size, mode: { kind: 'loading' }, forced: false, ...(index !== undefined && { index }) };
             if (status.refType !== 'value' || hash === null) {
                 store.dispatch({ type: 'data/dataset', ws, path, data: { ...base, mode: { kind: status.refType === 'null' ? 'null' : 'unset' } } });
                 return;
@@ -427,17 +507,18 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
             store.dispatch({ type: 'data/dataset', ws, path, data: base });
             if (isCollectionType(type)) {
                 // The status carries the stored geometry, so the page size is known
-                // before a row is fetched; a server without it is probed once.
-                const rows = status.rows.type === 'some' ? Number(status.rows.value) : null;
+                // before a row is fetched; a server without it is probed once, and
+                // so is an index, whose entries the record's geometry does not count.
+                const rows = index === undefined && status.rows.type === 'some' ? Number(status.rows.value) : null;
                 const paged: PagedMode | null = rows !== null
                     ? { kind: 'paged', pageSize: pageSizeFor(size, rows), totalRows: rows, totalBytes: size, pages: new Map(), loading: [] }
-                    : await probe(api, ws, path, hash);
+                    : await probe(api, ws, path, hash, index?.join === true ? size : 0);
                 if (paged === null) return;
                 setMode(ws, path, hash, paged);
                 // The first window around wherever the view sits (a restored top row may be deep).
                 const s = store.getState();
                 const shown = viewDataset(s);
-                const top = shown !== null && shown.ws === ws && shown.path === path && (s.view.kind === 'task' || s.view.kind === 'input') ? s.view.tree.top : 0;
+                const top = shown !== null && shown.ws === ws && shown.path === path && (s.view.kind === 'task' || s.view.kind === 'input' || s.view.kind === 'record') ? s.view.tree.top : 0;
                 loader.needRows(ws, path, Math.max(0, top - paged.pageSize), top + INITIAL_WINDOW_ROWS + paged.pageSize);
             } else if (size <= INLINE_LIMIT) {
                 await loadInline(api, ws, path, hash, type);
@@ -482,7 +563,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
             if (api === null || d === undefined || d.type === null) return notFound;
             if (d.mode.kind === 'paged') {
                 if (d.hash === null) return notFound;
-                const r = await api.datasetFindKey(ws, treePathOf(path), { ...query, hash: d.hash });
+                const r = await api.datasetFindKey(ws, treePathOf(splitSource(path).path), { ...query, hash: d.hash, ...(d.index !== undefined && { index: d.index.name }) });
                 return { found: r.found, row: r.row, count: r.count };
             }
             if (d.mode.kind === 'inline') {
@@ -496,7 +577,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
         async bytes(ws, path) {
             const api = deps.api();
             if (api === null) throw new Error('no session is open');
-            return (await api.datasetGet(ws, treePathOf(path))).data;
+            return (await api.datasetGetStream(ws, treePathOf(splitSource(path).path))).chunks;
         },
         reset() {
             wholeInflight.clear();

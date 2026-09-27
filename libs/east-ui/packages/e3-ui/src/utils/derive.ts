@@ -32,7 +32,9 @@ import type { DataManifest } from './manifest.js';
 /** Platform-fn name we extract paths from. */
 const DATA_BIND = "data_bind";
 
-/** Platform-fn name we extract paged-source paths from. */
+/** Platform-fn names we extract paged-source paths from: `Data.bindPaged`'s
+ *  own, and the one a UI exported before pinned reads calls. */
+const DATA_BIND_PAGED_PINNED = "data_bind_paged_pinned";
 const DATA_BIND_PAGED = "data_bind_paged";
 
 /** Platform-fn name we extract bound function names from. */
@@ -71,6 +73,7 @@ export function deriveManifest(
                 if (patch.type === 'some') paths.push(patch.value);
                 return;
             }
+            case DATA_BIND_PAGED_PINNED:
             case DATA_BIND_PAGED: {
                 // arg[0] source TreePath. Paged sources are read by window, so
                 // they are declared here but never preloaded as whole values.

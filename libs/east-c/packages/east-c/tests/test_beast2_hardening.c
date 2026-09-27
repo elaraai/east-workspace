@@ -1061,6 +1061,132 @@ static void canonical_type_sections_gate(void)
     if (failures == 0) printf("  [+] canonical type sections match the cross-runtime pins\n");
 }
 
+/* ---- 8. A typed decode checks the header's type ---- */
+
+/* Decoding `blob` as `asked` must fail in `want`, the words TypeScript and
+ * east-py give. */
+static void refused_as(const char *label, const ByteBuffer *blob, EastType *asked, bool frozen,
+                       const char *want)
+{
+    EastValue *v = !blob    ? NULL
+                   : frozen ? east_beast2_decode_full_frozen(blob->data, blob->len, asked)
+                            : east_beast2_decode_full(blob->data, blob->len, asked);
+    char *err = east_builtin_get_error();
+    if (v != NULL || !err || strcmp(err, want) != 0) {
+        printf("FAIL: %s was not refused as another type (%s)\n", label, err ? err : "(no error)");
+        failures++;
+        if (v) east_value_release(v);
+    }
+    free(err);
+}
+
+static void decode_type_gate(void)
+{
+    printf("---- 8. a typed decode checks the header's type ----\n");
+    int before = failures;
+
+    const char *fn[1] = {"a"};
+    EastType *int_field[1] = {&east_integer_type};
+    EastType *str_field[1] = {&east_string_type};
+    EastType *written = east_struct_type(fn, int_field, 1);
+    EastType *asked = east_struct_type(fn, str_field, 1);
+    EastValue *one = east_integer(1);
+    EastValue *fv[1] = {one};
+    EastValue *row = east_struct_new(fn, fv, 1, written);
+    ByteBuffer *v5 = east_beast2_encode_full(row, written);
+    ByteBuffer *v4 = east_beast2_encode_v4(row, written);
+    const char *struct_words = "beast2: cannot decode a blob of type .Struct [(name=\"a\", "
+                               "type=.Integer)] as .Struct [(name=\"a\", type=.String)]";
+    refused_as("a v5 Struct", v5, asked, false, struct_words);
+    refused_as("a v4 Struct", v4, asked, false, struct_words);
+    refused_as("a v5 Struct, frozen", v5, asked, true, struct_words);
+
+    /* A variant whose tags the asked type shifts: its tag 0 is `a`, where the
+     * blob's is `b`. */
+    const char *one_case[1] = {"b"};
+    const char *two_cases[2] = {"a", "b"};
+    EastType *one_type[1] = {&east_integer_type};
+    EastType *two_types[2] = {&east_integer_type, &east_integer_type};
+    EastType *narrow = east_variant_type(one_case, one_type, 1);
+    EastType *wide = east_variant_type(two_cases, two_types, 2);
+    EastValue *b = east_variant_new("b", one, narrow);
+    ByteBuffer *vb = east_beast2_encode_full(b, narrow);
+    refused_as("a Variant whose tags shift", vb, wide, false,
+               "beast2: cannot decode a blob of type .Variant [(name=\"b\", type=.Integer)] as "
+               ".Variant [(name=\"a\", type=.Integer), (name=\"b\", type=.Integer)]");
+
+    /* A variant holding the asked one's first cases reads as it: a `none`
+     * written as its own type decodes as an Option, from either container. */
+    const char *none_case[1] = {"none"};
+    const char *option_cases[2] = {"none", "some"};
+    EastType *none_types[1] = {&east_null_type};
+    EastType *option_types[2] = {&east_null_type, &east_integer_type};
+    EastType *none_only = east_variant_type(none_case, none_types, 1);
+    EastType *option = east_variant_type(option_cases, option_types, 2);
+    EastValue *none_value = east_variant_new("none", east_null(), none_only);
+    EastValue *none_option = east_variant_new("none", east_null(), option);
+    ByteBuffer *none_blobs[2] = {east_beast2_encode_full(none_value, none_only),
+                                 east_beast2_encode_v4(none_value, none_only)};
+    for (int i = 0; i < 2; i++) {
+        EastValue *read =
+            none_blobs[i] ? east_beast2_decode_full(none_blobs[i]->data, none_blobs[i]->len, option)
+                          : NULL;
+        if (!read || east_value_compare(read, none_option) != 0) {
+            printf("FAIL: a %s none did not read as an Option\n", i == 0 ? "v5" : "v4");
+            failures++;
+        }
+        if (read) east_value_release(read);
+        if (none_blobs[i]) byte_buffer_free(none_blobs[i]);
+    }
+
+    /* The Option is wider than the one-case variant asked for; and an Array
+     * of the one-case variant is no Array of the Option, since East's
+     * subtyping holds a collection's element type invariant. */
+    ByteBuffer *option_blob = east_beast2_encode_full(none_option, option);
+    refused_as("a wider Variant", option_blob, none_only, false,
+               "beast2: cannot decode a blob of type .Variant [(name=\"none\", type=.Null), "
+               "(name=\"some\", type=.Integer)] as .Variant [(name=\"none\", type=.Null)]");
+    EastType *none_array = east_array_type(none_only);
+    EastType *option_array = east_array_type(option);
+    EastValue *rows = east_array_new(none_only);
+    east_array_push(rows, none_value);
+    ByteBuffer *rows_blob = east_beast2_encode_full(rows, none_array);
+    char *rows_type = east_print_type(none_array);
+    char *asked_rows_type = east_print_type(option_array);
+    char rows_words[512];
+    snprintf(rows_words, sizeof rows_words, "beast2: cannot decode a blob of type %s as %s",
+             rows_type ? rows_type : "?", asked_rows_type ? asked_rows_type : "?");
+    refused_as("an Array of a narrower Variant", rows_blob, option_array, false, rows_words);
+    free(rows_type);
+    free(asked_rows_type);
+    if (rows_blob) byte_buffer_free(rows_blob);
+    if (option_blob) byte_buffer_free(option_blob);
+    east_value_release(rows);
+    east_value_release(none_option);
+    east_value_release(none_value);
+
+    /* The type the header names still decodes, in both containers. */
+    EastValue *from_v5 = v5 ? east_beast2_decode_full(v5->data, v5->len, written) : NULL;
+    EastValue *from_v4 = v4 ? east_beast2_decode_full(v4->data, v4->len, written) : NULL;
+    if (!from_v5 || !from_v4 || east_value_compare(from_v5, row) != 0 ||
+        east_value_compare(from_v4, row) != 0) {
+        printf("FAIL: a blob of the asked type was refused\n");
+        failures++;
+    }
+    if (from_v5) east_value_release(from_v5);
+    if (from_v4) east_value_release(from_v4);
+
+    if (failures == before)
+        printf("  [+] a blob of another type is refused, naming both, in either container, and "
+               "a subtype whose tags line up reads as the asked type\n");
+    if (vb) byte_buffer_free(vb);
+    if (v4) byte_buffer_free(v4);
+    if (v5) byte_buffer_free(v5);
+    east_value_release(b);
+    east_value_release(row);
+    east_value_release(one);
+}
+
 int main(void)
 {
     east_type_of_type_init();
@@ -1340,6 +1466,7 @@ int main(void)
 
     v5_gate();
     canonical_type_sections_gate();
+    decode_type_gate();
 
     byte_buffer_free(deep_buf);
     byte_buffer_free(mixed_buf);

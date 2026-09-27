@@ -170,7 +170,9 @@ struct EastValue {
              *               exactly once with (release_ctx, data, len) when the
              *               value dies (east_beast2_open_paged_external);
              *  - none:      borrowed — the host keeps the bytes alive
-             *               (east_beast2_open_paged_view). */
+             *               (east_beast2_open_paged_view) — or no bytes at
+             *               all: a manifest's pager reads its segments
+             *               itself (east_beast2_open_paged_manifest). */
             EastValue *owner;
             void (*release)(void *ctx, uint8_t *data, size_t len);
             void *release_ctx;
@@ -458,9 +460,10 @@ EastValue *east_function_value(EastCompiledFn *fn);
  * `owns_data` (east_free on release), `owner` (a value whose bytes `data`
  * aliases, retained here and released after the pager), `release` (a host
  * callback fired once with (release_ctx, data, len) when the value dies), or
- * none of them (borrowed — the host keeps the bytes alive). Construction seam
- * for the east_beast2_open_paged* entries (serialization.h), which validate
- * the blob and build the pager. */
+ * none of them (borrowed — the host keeps the bytes alive). A manifest's pager
+ * reads its segments itself and comes with no bytes: NULL data, zero length.
+ * Construction seam for the east_beast2_open_paged* entries (serialization.h),
+ * which validate the blob and build the pager. */
 EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len, bool owns_data,
                           EastValue *owner, void (*release)(void *ctx, uint8_t *data, size_t len),
                           void *release_ctx);

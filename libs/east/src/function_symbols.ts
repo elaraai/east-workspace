@@ -6,7 +6,8 @@
 /**
  * The symbols a compiled East function value carries. They live in their own
  * module so a reader of function values (the comparators) need not import the
- * compiler that attaches them; `compile.ts` re-exports them.
+ * compiler that attaches them; the compiler (`compile/runtime.ts`, and
+ * `compile.ts` from there) re-exports them.
  *
  * @packageDocumentation
  */

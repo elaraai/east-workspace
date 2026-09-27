@@ -68,8 +68,21 @@ static EastValue *table_value(EastType *dt, size_t n)
 static int write_fixtures(EastType *dt)
 {
     EastValue *dict = table_value(dt, 300);
-    /* Tiny segments: 300 rows over many segments, so a keyed read touches one. */
-    ByteBuffer *paged = east_beast2_encode_paged(dict, dt, EAST_BEAST2_CODEC_DEFLATE, 64);
+    /* 300 rows in segments of 10 — the test's geometry rather than the cut
+     * rule's, which holds 300 narrow rows in one — so a keyed read touches
+     * one segment of many. */
+    Beast2StreamWriter *w = east_beast2_writer_new(dt, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    bool wrote = w != NULL;
+    for (size_t i = 0; wrote && i < 300; i += 10) {
+        EastValue *batch = east_dict_new(dt->data.dict.key, dt->data.dict.value);
+        for (size_t k = i; k < i + 10; k++)
+            east_dict_set(batch, east_dict_key_at(dict, k), east_dict_val_at(dict, k));
+        wrote = east_beast2_writer_write(w, batch);
+        east_value_release(batch);
+    }
+    wrote = wrote && east_beast2_writer_finish(w);
+    ByteBuffer *paged = wrote ? east_beast2_writer_take(w) : NULL;
+    east_beast2_writer_free(w);
     ByteBuffer *whole = east_beast2_encode_full(dict, dt);
     east_value_release(dict);
     int ok = paged && whole && write_file(TABLE_PATH, paged->data, paged->len) &&

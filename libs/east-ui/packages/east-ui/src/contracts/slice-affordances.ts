@@ -63,7 +63,6 @@ export const SliceAffordanceType = VariantType({
     brush: NullType,
     presets: NullType,
     legend: NullType,
-    // Appended last: wire-order compatibility.
     resolution: NullType,
     summary: NullType,
 });

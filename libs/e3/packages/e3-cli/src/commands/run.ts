@@ -23,6 +23,7 @@ import {
 } from '@elaraai/e3-core';
 import { decodeBeast2, variant } from '@elaraai/east';
 import { resolveRepo, parsePackageSpec, formatError, exitError, shortHash } from '../utils.js';
+import { commandBudget, type BudgetFlags } from './budget.js';
 
 /**
  * Parse task specifier: `pkg.task` or `pkg@version.task`.
@@ -60,11 +61,13 @@ export async function runCommand(
   repoArg: string,
   taskSpec: string,
   inputs: string[],
-  options: { output?: string; force?: boolean; verbose?: boolean }
+  options: BudgetFlags & { output?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   try {
     const repoPath = resolveRepo(repoArg);
     const storage = new LocalStorage();
+    // The budget a split task's units take from.
+    const budget = commandBudget(options);
 
     // Parse task specifier
     const { name, version, task } = parseTaskSpec(taskSpec);
@@ -85,9 +88,10 @@ export async function runCommand(
       );
     }
 
-    // Read and validate every input file before anything touches the
-    // repository — a bad file exits here, holding nothing.
-    const inputData: { path: string; data: Uint8Array }[] = [];
+    console.log(`Running ${name}@${version}/${task}`);
+
+    // Read input files and store as objects
+    const inputHashes: string[] = [];
     for (const inputPath of inputs) {
       const data = await readFile(inputPath);
 
@@ -97,46 +101,32 @@ export async function runCommand(
       } catch {
         exitError(`Invalid beast2 file: ${inputPath}`);
       }
-      inputData.push({ path: inputPath, data });
+
+      const hash = await objectWrite(repoPath, data);
+      inputHashes.push(hash);
+      console.log(`  Input: ${inputPath} -> ${shortHash(hash)}`);
     }
 
-    // Hold the repository's task lock shared from before the first input
-    // object is written until the output has been read back: gc takes it
-    // exclusively, so a sweep never runs while this execution's unrooted
-    // objects exist — its inputs, carved slices and unit outputs alike. It is
-    // taken BEFORE the run announces itself, so "Running …" means the run
-    // holds the lock: a watcher needs no probe of its own (and an exclusive
-    // probe would be indistinguishable from a gc).
+    // Execute the task, holding the repository's task lock shared for the
+    // duration: gc takes it exclusively, so a sweep never runs while this
+    // execution's unrooted objects (carved slices, unit outputs) exist.
     const lock = await storage.locks.acquire(repoPath, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
     if (lock === null) {
       exitError('run: a garbage collection is running in this repository — retry when it finishes');
     }
+    const startTime = Date.now();
     let result: Awaited<ReturnType<typeof taskExecute>>;
-    let elapsed: number;
-    let outputData: Uint8Array | undefined;
     try {
-      console.log(`Running ${name}@${version}/${task}`);
-
-      const inputHashes: string[] = [];
-      for (const { path, data } of inputData) {
-        const hash = await objectWrite(repoPath, data);
-        inputHashes.push(hash);
-        console.log(`  Input: ${path} -> ${shortHash(hash)}`);
-      }
-
-      const startTime = Date.now();
       result = await taskExecute(storage, repoPath, taskHash, inputHashes, {
         force: options.force,
         verbose: options.verbose,
+        budget,
       });
-      elapsed = Date.now() - startTime;
-
-      if (result.state === 'success' && result.outputHash) {
-        outputData = await objectRead(repoPath, result.outputHash);
-      }
     } finally {
       await lock.release();
     }
+
+    const elapsed = Date.now() - startTime;
 
     if (result.cached) {
       console.log(`Cached (${elapsed}ms)`);
@@ -145,7 +135,9 @@ export async function runCommand(
     }
 
     // Handle result
-    if (result.state === 'success' && outputData !== undefined) {
+    if (result.state === 'success' && result.outputHash) {
+      // Read output object and write to file
+      const outputData = await objectRead(repoPath, result.outputHash);
       await writeFile(options.output, outputData);
       console.log(`Output: ${options.output}`);
     } else if (result.state === 'failed') {

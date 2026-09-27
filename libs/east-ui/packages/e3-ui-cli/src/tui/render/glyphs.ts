@@ -23,6 +23,7 @@
  * @property quarter - In progress / running (`◔`)
  * @property empty - Ready / unset / never (`○`)
  * @property cross - Failed / error / offline (`✗`)
+ * @property requeue - A unit stopped and run again (`⟲`)
  * @property diamond - Dirty / pending edits (`◆`)
  * @property sel - The selection bar (`▌`)
  * @property tabL - The active tab's left bracket (`▌`)
@@ -64,6 +65,7 @@ export interface Glyphs {
     quarter: string;
     empty: string;
     cross: string;
+    requeue: string;
     diamond: string;
     sel: string;
     tabL: string;
@@ -106,6 +108,7 @@ export const UNICODE: Glyphs = {
     quarter: '◔',
     empty: '○',
     cross: '✗',
+    requeue: '⟲',
     diamond: '◆',
     sel: '▌',
     tabL: '▌',
@@ -148,6 +151,7 @@ export const ASCII: Glyphs = {
     quarter: 'o',
     empty: '.',
     cross: 'x',
+    requeue: '~',
     diamond: '+',
     sel: '>',
     tabL: '[',

@@ -15,6 +15,8 @@ export {
   PackageExportProgressType,
   PackageExportStatusType,
   type PackageExport,
+  WorkspaceDeployJobType,
+  type WorkspaceDeployJob,
 } from './types.js';
 
 // Interfaces
@@ -24,6 +26,7 @@ export {
   type DatasetDownloadStore,
   type PackageImportStore,
   type PackageExportStore,
+  type WorkspaceDeployStore,
   type TransferBackend,
 } from './interfaces.js';
 
@@ -38,8 +41,11 @@ export {
 export {
   handleProcessExport,
   handleProcessImport,
+  handleProcessDeploy,
   type ProcessExportDeps,
   type ProcessExportInput,
   type ProcessImportDeps,
   type ProcessImportInput,
+  type ProcessDeployDeps,
+  type ProcessDeployInput,
 } from './process.js';

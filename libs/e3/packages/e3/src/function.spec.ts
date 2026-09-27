@@ -182,9 +182,9 @@ describe('export_ with functions', () => {
     const entries = await readZip(zipPath);
 
     // Resolve the package object from the ref
-    const refData = entries.get('packages/fn-pkg/1.0.0');
+    const refData = entries.get('packages/fn-pkg/1.0.0.beast2');
     assert.ok(refData, 'package ref missing');
-    const pkgHash = refData.toString('utf-8').trim();
+    const pkgHash = decodeBeast2For(StringType)(refData);
     const pkgData = objectEntry(entries, pkgHash);
     assert.ok(pkgData, 'package object missing');
 
@@ -242,66 +242,31 @@ describe('decodePackageObject', () => {
     assert.strictEqual(source?.type === 'file' ? source.value.path : undefined, '/deliveries/TABLE.beast2');
   });
 
-  it('decodes a pre-functions (legacy) package with functions defaulted empty', () => {
-    const LegacyPackageObjectType = StructType({
-      tasks: DictType(StringType, StringType),
-      data: PackageDataType,
-    });
-    const bytes = encodeBeast2For(LegacyPackageObjectType)({
-      tasks: new Map([['t', 'a'.repeat(64)]]),
-      data: { structure: variant('struct', new Map()), refs: new Map() },
-    });
-
-    // The strict decoder rejects old bytes...
-    assert.throws(() => decodeBeast2For(PackageObjectType)(bytes));
-    // ...but the tolerant decoder accepts them
-    const decoded = decodePackageObject(bytes);
-    assert.strictEqual(decoded.tasks.get('t'), 'a'.repeat(64));
-    assert.strictEqual(decoded.functions.size, 0);
-    assert.strictEqual(decoded.records.size, 0);
-  });
-
-  it('decodes a pre-records (functions-era) package with records defaulted empty', () => {
-    const FunctionsEraPackageObjectType = StructType({
-      tasks: DictType(StringType, StringType),
-      data: PackageDataType,
-      functions: DictType(StringType, StringType),
-    });
-    const bytes = encodeBeast2For(FunctionsEraPackageObjectType)({
-      tasks: new Map([['t', 'a'.repeat(64)]]),
-      data: { structure: variant('struct', new Map()), refs: new Map() },
-      functions: new Map([['f', 'b'.repeat(64)]]),
-    });
-
-    // The strict 5-field decoder rejects 3-field bytes...
-    assert.throws(() => decodeBeast2For(PackageObjectType)(bytes));
-    // ...the tolerant decoder recovers via the functions-era tier, records empty.
-    const decoded = decodePackageObject(bytes);
-    assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
-    assert.strictEqual(decoded.records.size, 0);
-    assert.strictEqual(decoded.sources.size, 0);
-  });
-
-  it('decodes a pre-sources (records-era) package with sources defaulted empty', () => {
-    // The tier that matters for #765: a package exported before
-    // path-initialised inputs existed still decodes and still deploys.
-    const RecordsEraPackageObjectType = StructType({
-      tasks: DictType(StringType, StringType),
-      data: PackageDataType,
-      functions: DictType(StringType, StringType),
-      records: DictType(StringType, StringType),
-    });
-    const bytes = encodeBeast2For(RecordsEraPackageObjectType)({
-      tasks: new Map([['t', 'a'.repeat(64)]]),
-      data: { structure: variant('struct', new Map()), refs: new Map() },
-      functions: new Map([['f', 'b'.repeat(64)]]),
-      records: new Map([['r', 'c'.repeat(64)]]),
-    });
-
-    assert.throws(() => decodeBeast2For(PackageObjectType)(bytes));
-    const decoded = decodePackageObject(bytes);
-    assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
-    assert.strictEqual(decoded.records.get('r'), 'c'.repeat(64));
-    assert.strictEqual(decoded.sources.size, 0);
+  it('refuses a package of an earlier shape, saying to re-export it', () => {
+    const refused = /the package object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/;
+    // Before functions, before records, and before sources.
+    const earlier = [
+      encodeBeast2For(StructType({ tasks: DictType(StringType, StringType), data: PackageDataType }))({
+        tasks: new Map([['t', 'a'.repeat(64)]]),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+      }),
+      encodeBeast2For(StructType({
+        tasks: DictType(StringType, StringType), data: PackageDataType, functions: DictType(StringType, StringType),
+      }))({
+        tasks: new Map([['t', 'a'.repeat(64)]]),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map([['f', 'b'.repeat(64)]]),
+      }),
+      encodeBeast2For(StructType({
+        tasks: DictType(StringType, StringType), data: PackageDataType,
+        functions: DictType(StringType, StringType), records: DictType(StringType, StringType),
+      }))({
+        tasks: new Map([['t', 'a'.repeat(64)]]),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map([['f', 'b'.repeat(64)]]),
+        records: new Map([['r', 'c'.repeat(64)]]),
+      }),
+    ];
+    for (const bytes of earlier) assert.throws(() => decodePackageObject(bytes), refused);
   });
 });

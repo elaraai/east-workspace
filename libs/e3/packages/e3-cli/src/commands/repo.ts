@@ -12,6 +12,8 @@ import { rmSync } from 'fs';
 import {
   repoInit,
   repoGc,
+  DEFAULT_KEEP_DAYS,
+  DEFAULT_KEEP_RUNS,
   packageList,
   workspaceList,
   workspaceRemove,
@@ -211,17 +213,26 @@ export const repoCommand = {
   },
 
   /**
-   * Run garbage collection.
+   * Run garbage collection: the runs and executions the repository no longer
+   * keeps go first, and then the objects nothing kept names.
    */
-  async gc(locationArg: string, options: { dryRun?: boolean; minAge?: string }): Promise<void> {
+  async gc(locationArg: string, options: { dryRun?: boolean; minAge?: string; keepRuns?: string; keepDays?: string }): Promise<void> {
     try {
       const location = await parseRepoLocation(locationArg);
       const minAge = options.minAge ? parseInt(options.minAge, 10) : 60000;
+      const keep: { keepRuns?: number; keepDays?: number } = {};
+      for (const [key, flag] of [['keepRuns', '--keep-runs'], ['keepDays', '--keep-days']] as const) {
+        const value = options[key];
+        if (value === undefined) continue;
+        if (!/^\d+$/.test(value)) exitError(`${flag} takes a whole number of zero or more, got '${value}'`);
+        keep[key] = Number(value);
+      }
 
       if (options.dryRun) {
         console.log('Dry run - no files will be deleted');
       }
       console.log(`Minimum age: ${minAge}ms`);
+      console.log(`History kept: the last ${keep.keepRuns ?? DEFAULT_KEEP_RUNS} runs of each workspace, and ${keep.keepDays ?? DEFAULT_KEEP_DAYS} days of runs and executions`);
       console.log('');
 
       if (location.type === 'local') {
@@ -231,23 +242,28 @@ export const repoCommand = {
         const result = await repoGc(storage, location.path, {
           dryRun: options.dryRun,
           minAge,
+          ...keep,
         });
 
         console.log('Garbage collection complete:');
-        console.log(`  Objects retained: ${result.retainedObjects}`);
-        console.log(`  Objects deleted:  ${result.deletedObjects}`);
-        console.log(`  Partials deleted: ${result.deletedPartials}`);
-        console.log(`  Skipped (young):  ${result.skippedYoung}`);
+        console.log(`  Runs deleted:       ${result.deletedRuns}`);
+        console.log(`  Executions deleted: ${result.deletedExecutions}`);
+        console.log(`  Objects retained:   ${result.retainedObjects}`);
+        console.log(`  Objects deleted:    ${result.deletedObjects}`);
+        console.log(`  Partials deleted:   ${result.deletedPartials}`);
+        console.log(`  Skipped (young):    ${result.skippedYoung}`);
 
         if (result.bytesFreed > 0) {
           const mb = (result.bytesFreed / 1024 / 1024).toFixed(2);
-          console.log(`  Space reclaimed:  ${mb} MB`);
+          console.log(`  Space reclaimed:    ${mb} MB`);
         }
       } else {
         // Start async GC
         const { executionId } = await repoGcStartRemote(location.baseUrl, location.repo, {
           dryRun: options.dryRun ?? false,
           minAge: minAge ? some(BigInt(minAge)) : none,
+          keepRuns: keep.keepRuns === undefined ? none : some(BigInt(keep.keepRuns)),
+          keepDays: keep.keepDays === undefined ? none : some(BigInt(keep.keepDays)),
         }, { token: location.token });
 
         console.log('Running garbage collection...');
@@ -270,14 +286,16 @@ export const repoCommand = {
 
             console.log('');
             console.log('Garbage collection complete:');
-            console.log(`  Objects retained: ${result.retainedObjects}`);
-            console.log(`  Objects deleted:  ${result.deletedObjects}`);
-            console.log(`  Partials deleted: ${result.deletedPartials}`);
-            console.log(`  Skipped (young):  ${result.skippedYoung}`);
+            console.log(`  Runs deleted:       ${result.deletedRuns}`);
+            console.log(`  Executions deleted: ${result.deletedExecutions}`);
+            console.log(`  Objects retained:   ${result.retainedObjects}`);
+            console.log(`  Objects deleted:    ${result.deletedObjects}`);
+            console.log(`  Partials deleted:   ${result.deletedPartials}`);
+            console.log(`  Skipped (young):    ${result.skippedYoung}`);
 
             if (result.bytesFreed > 0n) {
               const mb = (Number(result.bytesFreed) / 1024 / 1024).toFixed(2);
-              console.log(`  Space reclaimed:  ${mb} MB`);
+              console.log(`  Space reclaimed:    ${mb} MB`);
             }
             break;
           }

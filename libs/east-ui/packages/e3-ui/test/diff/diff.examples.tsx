@@ -47,6 +47,8 @@ import {
     some,
     variant,
     example,
+    type PatchTypeOf,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import {
     Card, HStack, VStack, Slider, Input, Switch, Select, Separator, Text, Button,
@@ -655,10 +657,16 @@ export const rosterPatchInput = e3.input(
 //   - `insert "AU"`        — key already exists in source      → stale insert
 //   - `update "US"` with `replace(before=30 → 25)` — before mismatches source's 39.95
 //   - `update "EU"` with `replace(before=44.95 → 39.95)` — clean (for contrast)
+/** What one touched key of a regional-prices patch carries — derived from the
+ *  patch type rather than written out, so it follows the price type. */
+type RegionalPriceOp =
+  Extract<ValueTypeOf<PatchTypeOf<DictType<StringType, FloatType>>>, { type: 'patch' }>['value'] extends Map<string, infer Op>
+    ? Op : never;
+
 export const regionalPricesDriftPatchInput = e3.input(
     "regional_prices_drift_patch",
     PatchType(DictType(StringType, FloatType)),
-    variant('value', variant("patch", new Map<string, { type: string; value: unknown }>([
+    variant('value', variant("patch", new Map<string, RegionalPriceOp>([
         ["MX", variant("delete", 99.0)],
         ["AU", variant("insert", 100.0)],
         ["US", variant("update", variant("replace", { before: 30.0, after: 25.0 }))],

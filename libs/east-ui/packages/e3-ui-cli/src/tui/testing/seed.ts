@@ -91,7 +91,7 @@ export async function seedFixtureRepo(options: SeedOptions = {}): Promise<Seeded
         try {
             const stateStore = new FileStateStore(join(path, 'workspaces'));
             const orchestrator = new LocalOrchestrator(stateStore);
-            const handle = await orchestrator.start(storage, path, 'main', { concurrency: 2 });
+            const handle = await orchestrator.start(storage, path, 'main', { width: 2 });
             const result = await orchestrator.wait(handle);
             ran = result.success;
         } catch {

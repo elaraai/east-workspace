@@ -9,14 +9,20 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import yauzl from 'yauzl';
-import { East, IntegerType, StringType, FloatType, ArrayType, decodeBeast2For } from '@elaraai/east';
+import {
+  East, IntegerType, StringType, FloatType, ArrayType, DictType, SortedMap, StructType,
+  compareFor, decodeBeast2For, decodeEastIR, isTypeValueEqual, toEastTypeValue,
+} from '@elaraai/east';
 import {
   RecordObjectType,
   MutationObjectType,
+  decodeMigrationObject,
   decodePackageObject,
+  decodeRecordObject,
 } from '@elaraai/e3-types';
 import { record, recordsTree } from './record.js';
 import { mutation } from './mutation.js';
+import { migration } from './migration.js';
 import { package_ } from './package.js';
 import { export_ } from './export.js';
 
@@ -49,7 +55,7 @@ function objectAt(entries: Map<string, Buffer>, hash: string): Buffer {
   return buf;
 }
 
-describe('e3.record / e3.mutation', () => {
+describe('e3.record / e3.mutation.reduce', () => {
   it('record() mounts a non-writable dataset at .records.<name> with the initial value', () => {
     const counter = record('counter', IntegerType, 0n);
     assert.strictEqual(counter.kind, 'dataset');
@@ -63,9 +69,9 @@ describe('e3.record / e3.mutation', () => {
     assert.ok(counter.deps.has(recordsTree));
   });
 
-  it('mutation() derives the extra arg types from the reducer signature', () => {
+  it('mutation.reduce() derives the extra arg types from the reducer signature', () => {
     const counter = record('counter', IntegerType, 0n);
-    const increment = mutation(
+    const increment = mutation.reduce(
       'increment',
       counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -78,7 +84,7 @@ describe('e3.record / e3.mutation', () => {
 
   it('package() folds mutations onto their record', () => {
     const counter = record('counter', IntegerType, 0n);
-    const increment = mutation(
+    const increment = mutation.reduce(
       'increment',
       counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -92,7 +98,7 @@ describe('e3.record / e3.mutation', () => {
 
   it('preserves a record’s mutations when its package is imported into another', () => {
     const counter = record('counter', IntegerType, 0n);
-    const increment = mutation(
+    const increment = mutation.reduce(
       'increment',
       counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -117,12 +123,40 @@ describe('e3.record / e3.mutation', () => {
     );
   });
 
+  it('refuses two mutations of one name on a record, wherever the second comes from', () => {
+    const counter = record('counter', IntegerType, 0n);
+    const reducer = East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by));
+    const increment = mutation.reduce('increment', counter, reducer);
+    const another = mutation.reduce('increment', counter, reducer);
+    // A record keeps one mutation per name. With two it would keep whichever
+    // came last, and a caller of `increment` would run the other one.
+    assert.throws(() => package_('c', '1.0.0', increment, another), /record 'counter' declares two mutations named 'increment'/);
+    assert.throws(() => package_('c', '1.0.0', package_('inner', '1.0.0', increment), another), /two mutations named 'increment'/);
+    // One declaration passed twice is one mutation.
+    assert.deepStrictEqual(Object.keys(package_('c', '1.0.0', increment, increment).records.counter.mutations), ['increment']);
+  });
+
+  it('refuses a mutation name that is not an identifier, the names e3\'s own commits take among them', () => {
+    const counter = record('counter', IntegerType, 0n);
+    const tally = record('tally', DictType(StringType, IntegerType), new Map());
+    const reducer = East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by));
+    // A commit is named after its mutation, so '$reset' would read as a reset
+    // in the record's history; 'a.b' could not be addressed as record.mutation.
+    for (const name of ['$reset', '$migrate:x', 'set-status', 'a.b', '1st', '']) {
+      assert.throws(() => mutation.reduce(name, counter, reducer), /e3\.mutation\.reduce requires a name that is an identifier/, name);
+      assert.throws(() => mutation.edit(name, tally, reducer as never), /e3\.mutation\.edit requires a name that is an identifier/, name);
+      assert.throws(() => mutation.patch(tally, name), /e3\.mutation\.patch requires a name that is an identifier/, name);
+    }
+    assert.strictEqual(mutation.reduce('set_status', counter, reducer).name, 'set_status');
+    assert.strictEqual(mutation.patch(tally).name, 'patch');
+  });
+
   it('rejects an async reducer body at definition time', () => {
     const counter = record('counter', IntegerType, 0n);
     // Async bodies break CAS-retry safety; the typed overload rejects them at
     // compile time, and the cast checks the runtime guard for dynamic callers.
     assert.throws(
-      () => mutation('bad', counter, East.asyncFunction([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)) as never),
+      () => mutation.reduce('bad', counter, East.asyncFunction([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)) as never),
       /pure, synchronous|async/i,
     );
   });
@@ -133,7 +167,7 @@ describe('e3.record / e3.mutation', () => {
     // async check misses it — the body walk must reject it: the CAS retry loop
     // re-runs the reducer, so a platform result is non-deterministic.
     assert.throws(
-      () => mutation('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
+      () => mutation.reduce('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
         ($, state, by) => state.add(East.platform('time_now', [], IntegerType)()).add(by))),
       /must not call platform functions/,
     );
@@ -143,7 +177,7 @@ describe('e3.record / e3.mutation', () => {
     const counter = record('counter', IntegerType, 0n);
     // The walk must descend into closure bodies, not just the top level.
     assert.throws(
-      () => mutation('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
+      () => mutation.reduce('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
         ($, state, by) => {
           $.let(East.value([1n, 2n], ArrayType(IntegerType))
             .map(($, x) => x.add(East.platform('time_now', [], IntegerType)())));
@@ -160,7 +194,7 @@ describe('e3.record / e3.mutation', () => {
     // still reject a mismatched reducer (here Integer record vs String reducer).
     assert.throws(
       () =>
-        mutation(
+        mutation.reduce(
           'bad',
           counter,
           East.function([StringType, FloatType], StringType, ($, state, _by) => state) as never
@@ -176,7 +210,7 @@ describe('e3.record / e3.mutation', () => {
 
     it('writes a RecordObject + MutationObject and a writable:false structure leaf', async () => {
       const counter = record('counter', IntegerType, 0n);
-      const increment = mutation(
+      const increment = mutation.reduce(
         'increment',
         counter,
         East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -186,7 +220,7 @@ describe('e3.record / e3.mutation', () => {
       await export_(pkg, zip);
 
       const entries = await readZip(zip);
-      const pkgHash = entries.get('packages/counters/1.0.0')!.toString().trim();
+      const pkgHash = decodeBeast2For(StringType)(entries.get('packages/counters/1.0.0.beast2')!);
       const pkgObject = decodePackageObject(objectAt(entries, pkgHash));
 
       // records map points at a RecordObject
@@ -211,6 +245,44 @@ describe('e3.record / e3.mutation', () => {
 
       // the record's initial state ref is present
       assert.ok(pkgObject.data.refs.get('records/counter'), 'record initial-state ref present');
+    });
+
+    it('writes a record\'s migrations in chain order, a step split over the state with the program it runs', async () => {
+      const RowV1Type = StructType({ title: StringType });
+      const RowV2Type = StructType({ title: StringType, owner: StringType });
+      const plans = record('plans', DictType(StringType, RowV2Type), new Map());
+      const normalize = migration.value('normalize', plans,
+        East.function([DictType(StringType, RowV1Type)], DictType(StringType, RowV1Type), ($, old) => old));
+      const addOwner = migration.rows('add_owner', plans,
+        East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' })),
+        { after: normalize });
+      const zip = path.join(tmp, 'plans.zip');
+      await export_(package_('planning', '2.0.0', addOwner), zip);
+
+      const entries = await readZip(zip);
+      const pkgHash = decodeBeast2For(StringType)(entries.get('packages/planning/2.0.0.beast2')!);
+      const recObject = decodeRecordObject(objectAt(entries, decodePackageObject(objectAt(entries, pkgHash)).records.get('plans')!));
+      assert.deepStrictEqual(recObject.migrations.map((step) => step.name), ['normalize', 'add_owner']);
+      const [whole, split] = recObject.migrations.map((step) => decodeMigrationObject(objectAt(entries, step.migration)));
+
+      assert.strictEqual(whole!.form, 'value');
+      assert.strictEqual(whole!.programIr, '', 'a value step runs its own function, and names no program');
+      objectAt(entries, whole!.bodyIr);
+
+      assert.strictEqual(split!.form, 'rows');
+      assert.ok(isTypeValueEqual(split!.from, toEastTypeValue(DictType(StringType, RowV1Type))));
+      assert.ok(isTypeValueEqual(split!.to, toEastTypeValue(DictType(StringType, RowV2Type))));
+      objectAt(entries, split!.bodyIr);
+      // The program in the bundle is the one that runs: each row out under
+      // its key, as the function rewrites it.
+      const run = decodeEastIR(objectAt(entries, split!.programIr)).compile([]) as
+        (piece: unknown, emit: (key: unknown, row: unknown) => null) => unknown;
+      const out: unknown[][] = [];
+      run(new SortedMap([['p1', { title: 'One' }]], compareFor(StringType)), (key, row) => {
+        out.push([key, row]);
+        return null;
+      });
+      assert.deepStrictEqual(out, [['p1', { title: 'One', owner: 'unassigned' }]]);
     });
   });
 });

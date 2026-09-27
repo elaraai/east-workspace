@@ -10,13 +10,13 @@
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ● up-to-date        features            —                 Dict<String, Struct>      84.2 MB · 38.4s       
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ● up-to-date      features           —               Dict<String, Struct>    84.2 MB · 38.4s   2.9 GB       
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -31,6 +31,6 @@
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › /run --force_                       run 6 tasks in main, ignoring the cache · concurrency 4      ⏎ run · esc         
+ › /run --force_                       run 6 tasks in main, ignoring the cache · 8 cores, 14 GB    ⏎ run · esc          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- --force  re-run everything    --filter <glob>  only matching tasks    --concurrency <n>                                
+ --force  re-run everything    --filter <glob>  only matching tasks                                                     

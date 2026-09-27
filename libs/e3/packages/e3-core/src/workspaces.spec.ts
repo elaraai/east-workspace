@@ -9,12 +9,12 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StringType, variant, some, none, encodeBeast2For } from '@elaraai/east';
+import { StringType, variant, some, none, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  EnvironmentSpecType, TaskObjectType, PackageObjectType, WorkspaceStateType,
+  EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import type { TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
@@ -75,11 +75,13 @@ describe('workspaces', () => {
       assert.ok(existsSync(wsFile));
     });
 
-    it('creates empty file (undeployed)', async () => {
+    it('creates an undeployed workspace, whose record is none', async () => {
       await workspaceCreate(storage, testRepo, 'empty');
 
       const state = await workspaceGetState(storage, testRepo, 'empty');
       assert.strictEqual(state, null);
+      const record = decodeBeast2For(WorkspaceRecordType)(readFileSync(join(testRepo, 'workspaces', 'empty.beast2')));
+      assert.strictEqual(record.type, 'none');
     });
   });
 
@@ -292,10 +294,14 @@ describe('workspaces', () => {
       // tasks referencing the env specs
       const taskEnc = encodeBeast2For(TaskObjectType);
       const mkTask = (envHash: string, out: string): TaskObject => ({
-        commandIr, inputs: [], output: [variant('field', out)],
-        kind: none, metadata: none, runner: variant('custom', { command: [] }),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr }),
+        runner: variant('custom', { command: [] }),
+        inputs: [],
+        output: { path: [variant('field', out)], kind: variant('value', null) },
+        role: variant('data', null),
         environment: some(envHash),
-      } as TaskObject);
+      });
       const toolsTask = await storage.objects.write(testRepo, taskEnc(mkTask(toolsEnv, 'tools_out')));
       const wnTask = await storage.objects.write(testRepo, taskEnc(mkTask(wnEnv, 'wn_out')));
 
@@ -314,7 +320,7 @@ describe('workspaces', () => {
         packageName: 'envbundle', packageVersion: '1.0.0', packageHash: pkgHash,
         deployedAt: new Date(), currentRunId: none,
       };
-      writeFileSync(join(wsDir, 'envws.beast2'), encodeBeast2For(WorkspaceStateType)(state));
+      writeFileSync(join(wsDir, 'envws.beast2'), encodeBeast2For(WorkspaceRecordType)(some(state)));
 
       // export → import into a FRESH repo
       const exportZip = join(tempDir, 'envbundle.zip');

@@ -5,8 +5,8 @@
 
 /**
  * The Runs tab — `taskExecutionList` (every attempt, `all=true`) newest
- * first: status, started, duration, exit code, the inputs hash (`← current`
- * on the newest when the task is up to date); `⏎` expands the selected
+ * first: status, started, duration, peak memory, exit code, the inputs hash
+ * (`← current` on the newest when the task is up to date); `⏎` expands the selected
  * run's input hashes, paired with the task's input paths. A retry after a
  * failure and a forced re-run each add a row under the same inputs hash.
  *
@@ -16,7 +16,7 @@
 import type { ExecutionListItem } from '@elaraai/e3-api-client';
 import { dottedPath } from '../../api.js';
 import { breakpoint, columnPlan } from '../../render/layout.js';
-import { formatDuration, formatStamp, hashMid, hashTiny } from '../../render/text.js';
+import { formatDuration, formatSize, formatStamp, hashMid, hashTiny } from '../../render/text.js';
 import type { Glyphs } from '../../render/glyphs.js';
 import { historyStatusCell } from '../../model/status.js';
 import type { TuiState } from '../../state/actions.js';
@@ -54,6 +54,7 @@ export function runRows(runs: readonly ExecutionListItem[], current: boolean, g:
                 status: { text: `${cell.glyph} ${cell.word}`, tone: cell.tone },
                 started: formatStamp(run.startedAt),
                 duration: run.duration.type === 'some' ? formatDuration(Number(run.duration.value)) : '—',
+                peak: run.peakBytes.type === 'some' ? formatSize(Number(run.peakBytes.value)) : '—',
                 exit: run.exitCode.type === 'some' ? String(run.exitCode.value) : '—',
                 inputs: hashMid(run.inputsHash),
                 note: i === 0 && current ? `${g.left} current` : '',
@@ -88,7 +89,7 @@ export function renderRuns(state: TuiState, ws: string, task: string, visible: n
         if (run !== undefined) {
             const inputs = state.data.taskDetails[ws]?.[task]?.inputs ?? [];
             const pairs = run.inputHashes.map((h, i) => {
-                const p = inputs[i];
+                const p = inputs[i]?.path;
                 const name = p === undefined ? `#${i + 1}` : dottedPath(p).replace(/^\.inputs\./, '').replace(/^\.tasks\./, '.tasks.');
                 return `${name} ${hashTiny(h)}`;
             });

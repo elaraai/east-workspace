@@ -7,29 +7,36 @@
  * An in-memory {@link Api} for the frame specs — a builder
  * (`fakeRepo().workspace('main').task('forecast', { … })`) that serves
  * workspace status, `datasetGetPage` windows and `datasetFindKey` over
- * synthetic values, log chunks, executions, and a scripted dataflow whose
- * events arrive over time. Every view spec drives it.
+ * synthetic values — a record's rows, and its indexes' windows in index
+ * order — log chunks, executions, a record's signature and commits, and a
+ * scripted dataflow whose events arrive over time. Every view spec drives it.
  *
  * @packageDocumentation
  */
 
 import {
     ApiError,
+    type DataflowBudget,
     type DataflowOptions,
     type DataflowEvent,
     type DataflowExecutionState,
     type DatasetStatusDetail,
     type ExecutionListItem,
     type ListEntry,
+    type RecordCommitInfo,
+    type RecordHistoryResult,
+    type RecordSignature,
     type RepositoryStatus,
+    type SplitProgress,
     type TaskDetails,
     type TaskListItem,
     type TaskStatus,
+    type UnitWait,
     type WorkspaceInfo,
     type WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
-import type { TreePath, WorkspaceState } from '@elaraai/e3-types';
-import { encodeDatasetBlob } from '@elaraai/e3-types';
+import type { DataManifest, TreePath, WorkspaceState } from '@elaraai/e3-types';
+import { encodeDatasetBlob, indexWindowType } from '@elaraai/e3-types';
 import {
     compareFor,
     decodeBeast2For,
@@ -51,7 +58,6 @@ import { dottedPath } from './api.js';
 /** A task's fixture. */
 export interface FakeTask {
     name: string;
-    kind?: 'ui' | undefined;
     status: TaskStatus;
     inputs: string[];
     dependsOn: string[];
@@ -59,14 +65,16 @@ export interface FakeTask {
     output?: { type: EastType | EastTypeValue; value: unknown } | undefined;
     /** The output path (default `.tasks.<name>.output`). */
     outputPath?: string | undefined;
-    /** Task metadata blob (a `ui` task's manifest). */
-    metadata?: Uint8Array | undefined;
+    /** A `ui` task's data manifest; absent for a data task. */
+    manifest?: DataManifest | undefined;
     logs?: { stdout?: string; stderr?: string } | undefined;
     executions?: ExecutionListItem[] | undefined;
     /** Marks the output as a legacy, un-pageable blob (`dataset_not_indexed`). */
     notIndexed?: boolean | undefined;
     /** Marks the output as too large to page (`dataset_too_large`). */
     tooLarge?: boolean | undefined;
+    /** The peak memory, in bytes, of the execution the task's status comes from. */
+    peakBytes?: number | undefined;
 }
 
 /** An input's fixture. */
@@ -78,12 +86,40 @@ export interface FakeInput {
     status?: 'unset' | 'stale' | 'up-to-date' | undefined;
 }
 
+/** An index of a record's fixture: its key and projection, and the entries a row makes. */
+export interface FakeIndex {
+    name: string;
+    keyType: EastType;
+    /** The projection's type; `Null` for an index whose reads join the rows. */
+    valueType: EastType;
+    multi?: boolean | undefined;
+    /** A row's entries: each index key it sorts under, with what the index projects. */
+    entries: (key: unknown, row: unknown) => { ik: unknown; value: unknown }[];
+}
+
+/** A record's fixture. */
+export interface FakeRecord {
+    name: string;
+    /** The record's type (a Dict for a record with indexes). */
+    type: EastType;
+    /** `undefined` = no state. */
+    value?: unknown;
+    mutations?: { name: string; form: 'reduce' | 'edit' | 'patch' }[] | undefined;
+    indexes?: FakeIndex[] | undefined;
+    /** Its commits, newest first. */
+    commits?: RecordCommitInfo[] | undefined;
+}
+
 /** The fake's own (mutable) record of a dataflow execution. */
 export interface FakeExecution {
     status: 'running' | 'completed' | 'failed' | 'aborted';
     startedAt: string;
     completedAt: string | null;
     events: DataflowEvent[];
+    /** The tasks and units waiting for room, which the poll serves while the run runs. */
+    waiting?: UnitWait[] | undefined;
+    /** Each split task's progress, which the poll serves while the run runs. */
+    splits?: SplitProgress[] | undefined;
 }
 
 /** A workspace's fixture. */
@@ -94,6 +130,7 @@ export interface FakeWorkspace {
     deployedAt?: Date | undefined;
     tasks: FakeTask[];
     inputs: FakeInput[];
+    records?: FakeRecord[] | undefined;
     lock?: { pid: number; acquiredAt: string; command: string } | undefined;
     /** The latest execution, or null for never run. */
     execution?: FakeExecution | null | undefined;
@@ -151,6 +188,10 @@ export class FakeApi implements Api {
     calls: string[] = [];
     /** Latency added to every call, in milliseconds. */
     latencyMs = 0;
+    /** When set, a call whose name begins with `prefix` waits for `until`
+     *  before it answers: a response a spec holds back until it has seen what
+     *  the view shows without it. */
+    hold: { prefix: string; until: Promise<void> } | null = null;
     /** When set, every call rejects with it (simulates an unreachable server). */
     failWith: Error | null = null;
     /** What the server's byte budget does to wide rows: no page window carries more than this many rows (null = as asked). */
@@ -161,6 +202,8 @@ export class FakeApi implements Api {
     repo = 'default';
     /** The identity `whoami` would print. */
     identity: string | null = null;
+    /** The server's budget, which the poll and `dataflowBudget` serve; null for a server whose runners hold none. */
+    budget: DataflowBudget | null = null;
     private readonly stores = new Map<string, Stored>();
     private readonly runTimers: ReturnType<typeof setTimeout>[] = [];
 
@@ -195,6 +238,14 @@ export class FakeApi implements Api {
         return this;
     }
 
+    /** Adds a record to a workspace. */
+    record(ws: string, record: FakeRecord): this {
+        const w = this.workspace(ws);
+        w.records = [...(w.records ?? []).filter(r => r.name !== record.name), record];
+        if (record.value !== undefined) this.store(ws, `.records.${record.name}`, record.type, record.value);
+        return this;
+    }
+
     /** Stores a dataset value (as the server would, segmented for collections). */
     store(ws: string, path: string, type: EastType | EastTypeValue, value: unknown): Stored {
         const tv = typeValueOf(type);
@@ -225,6 +276,7 @@ export class FakeApi implements Api {
     private async call<T>(name: string, fn: () => T): Promise<T> {
         this.calls.push(name);
         if (this.latencyMs > 0) await new Promise(resolve => setTimeout(resolve, this.latencyMs));
+        if (this.hold !== null && name.startsWith(this.hold.prefix)) await this.hold.until;
         if (this.failWith !== null) throw this.failWith;
         return fn();
     }
@@ -239,6 +291,36 @@ export class FakeApi implements Api {
         const t = ws.tasks.find(x => x.name === name);
         if (t === undefined) throw new ApiError('task_not_found', { task: name });
         return t;
+    }
+
+    private findRecord(ws: FakeWorkspace, name: string): FakeRecord {
+        const r = ws.records?.find(x => x.name === name);
+        if (r === undefined) throw new ApiError('dataset_not_found', { workspace: ws.name, path: name });
+        return r;
+    }
+
+    /** The record at a dataset path, if any. */
+    private recordAt(ws: FakeWorkspace, path: string): FakeRecord | undefined {
+        return ws.records?.find(r => `.records.${r.name}` === path);
+    }
+
+    /** A record's index entries in index order: by index key, then by the row's key. */
+    private indexEntries(record: FakeRecord, index: FakeIndex, value: Map<unknown, unknown>): { ik: unknown; key: unknown; value: unknown; row: unknown }[] {
+        const byIk = compareFor(toEastTypeValue(index.keyType));
+        const byKey = compareFor(toEastTypeValue((record.type as unknown as { key: EastType }).key));
+        const out: { ik: unknown; key: unknown; value: unknown; row: unknown }[] = [];
+        for (const [key, row] of value) {
+            for (const entry of index.entries(key, row)) out.push({ ik: entry.ik, key, value: entry.value, row });
+        }
+        return out.sort((a, b) => byIk(a.ik, b.ik) || byKey(a.key, b.key));
+    }
+
+    /** A record's index named by a page window or a key search. */
+    private indexOf(w: FakeWorkspace, path: string, name: string): { record: FakeRecord; index: FakeIndex } {
+        const record = this.recordAt(w, path);
+        const index = record?.indexes?.find(i => i.name === name);
+        if (record === undefined || index === undefined) throw new ApiError('bad_request', `${path} has no index ${name}`);
+        return { record, index };
     }
 
     private outputPathOf(t: FakeTask): string {
@@ -256,7 +338,7 @@ export class FakeApi implements Api {
     }
 
     private allPaths(w: FakeWorkspace): string[] {
-        return [...w.inputs.map(i => `.inputs.${i.name}`), ...w.tasks.map(t => this.outputPathOf(t))];
+        return [...w.inputs.map(i => `.inputs.${i.name}`), ...w.tasks.map(t => this.outputPathOf(t)), ...(w.records ?? []).map(r => `.records.${r.name}`)];
     }
 
     /** A view of this fake bound to another repository. */
@@ -315,6 +397,7 @@ export class FakeApi implements Api {
                 inputs: t.inputs,
                 output: this.outputPathOf(t),
                 dependsOn: t.dependsOn,
+                peakBytes: t.peakBytes !== undefined ? some(BigInt(t.peakBytes)) : none,
             }));
             const count = (pred: (t: FakeTask) => boolean) => BigInt(w.tasks.filter(pred).length);
             const dcount = (status: string) => BigInt(datasets.filter(d => d.status.type === status).length);
@@ -341,7 +424,11 @@ export class FakeApi implements Api {
     }
 
     async taskList(ws: string): Promise<TaskListItem[]> {
-        return this.call(`taskList ${ws}`, () => this.ws(ws).tasks.map(t => ({ name: t.name, hash: sha256(new TextEncoder().encode(t.name)), kind: t.kind !== undefined ? some(t.kind) : none })));
+        return this.call(`taskList ${ws}`, () => this.ws(ws).tasks.map(t => ({
+            name: t.name,
+            hash: sha256(new TextEncoder().encode(t.name)),
+            role: t.manifest !== undefined ? variant('ui', t.manifest) : variant('data', null),
+        })));
     }
 
     async taskGet(ws: string, task: string): Promise<TaskDetails> {
@@ -352,11 +439,11 @@ export class FakeApi implements Api {
             return {
                 name: t.name,
                 hash: sha256(new TextEncoder().encode(t.name)),
-                commandIr: '',
-                inputs: t.inputs.map(toPath),
-                output: toPath(this.outputPathOf(t)),
-                kind: t.kind !== undefined ? some(t.kind) : none,
-                metadata: t.metadata !== undefined ? some(t.metadata) : none,
+                body: variant('east', { program: '' }),
+                runner: variant('east_node', { platforms: [] }),
+                inputs: t.inputs.map(p => ({ path: toPath(p), partition: none })),
+                output: { path: toPath(this.outputPathOf(t)), kind: variant('value', null) },
+                role: t.manifest !== undefined ? variant('ui', t.manifest) : variant('data', null),
             };
         });
     }
@@ -372,7 +459,7 @@ export class FakeApi implements Api {
             for (const path of this.allPaths(w)) {
                 const stored = this.stored(w.name, path);
                 const task = w.tasks.find(t => this.outputPathOf(t) === path);
-                const declared = w.inputs.find(i => `.inputs.${i.name}` === path)?.type ?? task?.output?.type;
+                const declared = w.inputs.find(i => `.inputs.${i.name}` === path)?.type ?? task?.output?.type ?? this.recordAt(w, path)?.type;
                 const type = stored?.type ?? (declared !== undefined ? typeValueOf(declared) : toEastTypeValue({ type: 'Null' } as EastType));
                 // The real listing shows a task's subtree as one leaf at `.tasks.<name>` (the output's type / hash / size).
                 const listed = task !== undefined && path === `.tasks.${task.name}.output` ? `tasks.${task.name}` : path.replace(/^\./, '');
@@ -394,8 +481,9 @@ export class FakeApi implements Api {
             const stored = this.stored(w.name, dotted);
             const input = w.inputs.find(i => `.inputs.${i.name}` === dotted);
             const task = w.tasks.find(t => this.outputPathOf(t) === dotted);
-            if (input === undefined && task === undefined) throw new ApiError('dataset_not_found', { workspace: ws, path: dotted });
-            const declared = input?.type ?? task?.output?.type;
+            const record = this.recordAt(w, dotted);
+            if (input === undefined && task === undefined && record === undefined) throw new ApiError('dataset_not_found', { workspace: ws, path: dotted });
+            const declared = input?.type ?? task?.output?.type ?? record?.type;
             const type = stored?.type ?? (declared !== undefined ? typeValueOf(declared) : toEastTypeValue({ type: 'Null' } as EastType));
             const rows = this.geometry && stored !== undefined ? countOf(stored) : null;
             return {
@@ -419,8 +507,27 @@ export class FakeApi implements Api {
         });
     }
 
-    async datasetGetPage(ws: string, path: TreePath, window: { offset: number; limit: number; hash?: string } | { segment: number; hash?: string }) {
-        return this.call(`datasetGetPage ${ws}${dottedPath(path)} ${'offset' in window ? `${window.offset}+${window.limit}` : `seg${window.segment}`}`, () => {
+    /** The stored bytes in chunks of this many, as a stream arrives in several. */
+    streamChunkBytes = 64 * 1024;
+
+    async datasetGetStream(ws: string, path: TreePath): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }> {
+        return this.call(`datasetGetStream ${ws}${dottedPath(path)}`, () => {
+            const stored = this.stored(ws, dottedPath(path));
+            if (stored === undefined) throw new ApiError('dataset_not_found', { workspace: ws, path: dottedPath(path) });
+            const { bytes } = stored;
+            const size = this.streamChunkBytes;
+            return {
+                hash: stored.hash,
+                chunks: (async function* () {
+                    for (let at = 0; at < bytes.length; at += size) yield bytes.subarray(at, at + size);
+                })(),
+            };
+        });
+    }
+
+    async datasetGetPage(ws: string, path: TreePath, window: ({ offset: number; limit: number } | { segment: number }) & { hash?: string; index?: string; join?: boolean }) {
+        const through = window.index !== undefined ? ` #${window.index}${window.join === true ? '+join' : ''}` : '';
+        return this.call(`datasetGetPage ${ws}${dottedPath(path)} ${'offset' in window ? `${window.offset}+${window.limit}` : `seg${window.segment}`}${through}`, () => {
             const w = this.ws(ws);
             const dotted = dottedPath(path);
             const stored = this.stored(w.name, dotted);
@@ -430,6 +537,28 @@ export class FakeApi implements Api {
             if (task?.tooLarge === true) throw new ApiError('dataset_too_large', 'the page byte budget was exceeded');
             if (window.hash !== undefined && window.hash !== stored.hash) throw new ApiError('dataset_hash_mismatch', 'stale hash pin');
             if (!('offset' in window)) throw new ApiError('bad_request', 'segment windows are not served by the fake');
+            if (window.index !== undefined) {
+                // An index's window: its entries in index order, the row each names
+                // filled in when the read joins, and the index's own totals.
+                const { record, index } = this.indexOf(w, dotted, window.index);
+                const dict = record.type as unknown as { key: EastType; value: EastType };
+                const encode = encodeBeast2For(indexWindowType(dict.key, index.keyType, index.valueType, dict.value));
+                const entries = this.indexEntries(record, index, stored.value as Map<unknown, unknown>)
+                    .map(e => ({ ik: e.ik, key: e.key, value: e.value, row: window.join === true ? some(e.row) : none }));
+                const offset = Math.max(0, Math.min(window.offset, entries.length));
+                const limit = this.pageRowCap === null ? window.limit : Math.min(window.limit, Math.max(1, this.pageRowCap));
+                const slice = entries.slice(offset, offset + limit);
+                return {
+                    data: encode(slice as never),
+                    totalElements: entries.length,
+                    totalBytes: encode(entries as never).length,
+                    totalExact: true,
+                    segmentCount: 1,
+                    offset,
+                    count: slice.length,
+                    hash: stored.hash,
+                };
+            }
             const t = stored.type;
             let elements: unknown[];
             let build: (slice: unknown[]) => unknown;
@@ -462,14 +591,23 @@ export class FakeApi implements Api {
         });
     }
 
-    async datasetFindKey(ws: string, path: TreePath, query: { key: string } | { prefix: string } | { fields: string[]; prefix?: string }) {
+    async datasetFindKey(ws: string, path: TreePath, query: ({ key: string } | { prefix: string } | { fields: string[]; prefix?: string }) & { hash?: string; index?: string }) {
         return this.call(`datasetFindKey ${ws}${dottedPath(path)} ${JSON.stringify(query)}`, () => {
             const stored = this.stored(ws, dottedPath(path));
             if (stored === undefined) throw new ApiError('dataset_not_found', { workspace: ws, path: dottedPath(path) });
             const t = stored.type;
-            const keyType = t.type === 'Dict' ? (t.value as { key: EastTypeValue }).key : t.type === 'Set' ? (t.value as EastTypeValue) : null;
+            let keyType: EastTypeValue | null;
+            let keys: unknown[];
+            if (query.index !== undefined) {
+                // An index is searched by its own key, over its own rows.
+                const { record, index } = this.indexOf(this.ws(ws), dottedPath(path), query.index);
+                keyType = toEastTypeValue(index.keyType);
+                keys = this.indexEntries(record, index, stored.value as Map<unknown, unknown>).map(e => e.ik);
+            } else {
+                keyType = t.type === 'Dict' ? (t.value as { key: EastTypeValue }).key : t.type === 'Set' ? (t.value as EastTypeValue) : null;
+                keys = t.type === 'Dict' ? [...(stored.value as Map<unknown, unknown>).keys()] : [...(stored.value as Set<unknown>).values()];
+            }
             if (keyType === null) throw new ApiError('dataset_not_keyed', 'not a Set or Dict');
-            const keys = t.type === 'Dict' ? [...(stored.value as Map<unknown, unknown>).keys()] : [...(stored.value as Set<unknown>).values()];
             const cmp = compareFor(keyType);
             let lower: (k: unknown) => boolean;
             let upper: (k: unknown) => boolean;
@@ -520,7 +658,7 @@ export class FakeApi implements Api {
     }
 
     async dataflowExecuteLaunch(ws: string, options: DataflowOptions = {}): Promise<void> {
-        const flags = `${options.force === true ? ' --force' : ''}${options.filter != null ? ` --filter ${options.filter}` : ''}${options.concurrency != null ? ` --concurrency ${options.concurrency}` : ''}`;
+        const flags = `${options.force === true ? ' --force' : ''}${options.filter != null ? ` --filter ${options.filter}` : ''}`;
         return this.call(`dataflowExecuteLaunch ${ws}${flags}`, () => {
             const w = this.ws(ws);
             if (w.lock !== undefined) throw new ApiError('workspace_locked', { workspace: ws, holder: variant('known', { pid: BigInt(w.lock.pid), acquiredAt: w.lock.acquiredAt, bootId: none, command: some(w.lock.command) }) });
@@ -567,7 +705,17 @@ export class FakeApi implements Api {
                 }),
                 events: done.slice(offset),
                 totalEvents: BigInt(done.length),
+                budget: this.budget !== null ? some(this.budget) : none,
+                waiting: state.waiting ?? [],
+                splits: state.splits ?? [],
             } as DataflowExecutionState;
+        });
+    }
+
+    async dataflowBudget(ws: string): Promise<DataflowBudget | null> {
+        return this.call(`dataflowBudget ${ws}`, () => {
+            this.ws(ws);
+            return this.budget;
         });
     }
 
@@ -601,6 +749,26 @@ export class FakeApi implements Api {
                 totalSize: BigInt(bytes.length),
                 complete: end >= bytes.length,
             };
+        });
+    }
+
+    async recordDescribe(ws: string, record: string): Promise<RecordSignature> {
+        return this.call(`recordDescribe ${ws}.${record}`, () => {
+            const r = this.findRecord(this.ws(ws), record);
+            return {
+                name: r.name,
+                mutations: (r.mutations ?? []).map(m => ({ name: m.name, argTypes: [], form: m.form })),
+                indexes: (r.indexes ?? []).map(i => ({ name: i.name, keyType: toEastTypeValue(i.keyType), valueType: toEastTypeValue(i.valueType), multi: i.multi ?? false })),
+            };
+        });
+    }
+
+    async recordHistory(ws: string, record: string, page: { limit: number; from?: string }): Promise<RecordHistoryResult> {
+        return this.call(`recordHistory ${ws}.${record} ${page.from ?? 'head'}+${page.limit}`, () => {
+            const commits = this.findRecord(this.ws(ws), record).commits ?? [];
+            const start = page.from === undefined ? 0 : commits.findIndex(c => c.hash === page.from);
+            if (start === -1) throw new ApiError('object_not_found', { hash: page.from ?? '' });
+            return { commits: commits.slice(start, start + page.limit) };
         });
     }
 }
@@ -647,6 +815,28 @@ export function wideDictOf(n: number, noteChars: number): { type: EastType; valu
         value.set(`k${String(i).padStart(5, '0')}`, { store: stores[i % 3]!, units: BigInt(1000 + (i * 37) % 400), note });
     }
     return { type, value };
+}
+
+/**
+ * A record's chain of `n` commits, newest first, a minute apart up to
+ * `newest`: the oldest is `$init`, the rest `set_status` by two actors. A
+ * commit's hash follows from its place counted from the oldest, so a chain
+ * one commit longer shares every hash but the new head's.
+ */
+export function commitChain(n: number, newest: Date): RecordCommitInfo[] {
+    const hashOf = (seq: number): string => sha256(new TextEncoder().encode(`commit ${seq}`));
+    return Array.from({ length: n }, (_, i) => {
+        const seq = n - 1 - i;
+        return {
+            hash: hashOf(seq),
+            parent: seq > 0 ? some(hashOf(seq - 1)) : none,
+            state: sha256(new TextEncoder().encode(`state ${seq}`)),
+            mutation: seq === 0 ? '$init' : 'set_status',
+            actor: seq % 2 === 0 ? 'alice' : 'bob',
+            at: new Date(newest.getTime() - i * 60_000),
+            delta: none,
+        };
+    });
 }
 
 /** The East type constructors the fixtures use (kept in one place). */

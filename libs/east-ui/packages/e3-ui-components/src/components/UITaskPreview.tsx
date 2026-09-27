@@ -4,9 +4,9 @@
  */
 
 /**
- * `<UITaskPreview>` — render a kind:'ui' e3 task.
+ * `<UITaskPreview>` — render an e3 task whose role is `ui`.
  *
- * Pipeline: useTaskDetails → decode manifest → preload manifest reads →
+ * Pipeline: useTaskDetails → the role's manifest → preload manifest reads →
  * register reads with workspace poller → fetch output → render decoded
  * value as a UIComponent tree, scoped to the manifest.
  *
@@ -36,7 +36,6 @@ import type { ValueTypeOf } from '@elaraai/east';
 import type { UIComponentType } from '@elaraai/east-ui';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import type { TreePath } from '@elaraai/e3-types';
-import { decodeManifest } from '@elaraai/e3-ui/internal';
 import {
     useReactiveDatasetCacheOptional,
     usePreloadReactiveDatasets,
@@ -48,14 +47,14 @@ import { createScopedPagedPlatform } from '../platform/paged-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { createScopedRecordPlatform } from '../platform/record-runtime.js';
 import { DecisionBindPlatform } from '../decision/handle-runtime.js';
-import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
+import { useTaskDetails } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
 import { StatusDisplay } from './StatusDisplay.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 export interface UITaskPreviewProps {
-    /** Task name (must have `kind: 'ui'`). */
+    /** Task name (a task whose role is `ui`). */
     task: string;
     /**
      * Override the surrounding `<E3Provider>` config — useful when a
@@ -99,16 +98,9 @@ export const UITaskPreview = memo(function UITaskPreview({
     const detailsQuery = useTaskDetails(apiUrl ?? '', repo, workspace, task, { requestOptions });
     const details = detailsQuery.data;
 
-    const kind = details ? getTaskKind(details) : null;
-    const isUI = kind === 'ui';
+    const manifest = useMemo(() => (details?.role.type === 'ui' ? details.role.value : null), [details]);
 
-    const manifest = useMemo(() => {
-        if (!details || !isUI) return null;
-        const meta = getTaskMetadata(details);
-        return meta ? decodeManifest(meta) : { paths: [], functions: [], records: [], pages: [] };
-    }, [details, isUI]);
-
-    const outputPath = details ? treePathToString(details.output as TreePath) : null;
+    const outputPath = details ? treePathToString(details.output.path) : null;
 
     // Preload manifest paths so Data.bind().read() never misses on first paint.
     const preloads = useMemo<ReactiveDatasetToPreload[]>(
@@ -179,7 +171,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     if (detailsQuery.isLoading) return <StatusDisplay variant="loading" title="Loading task..." />;
     if (detailsQuery.error) return <StatusDisplay variant="error" title="Error" message={detailsQuery.error.message} />;
     if (!details) return <StatusDisplay variant="info" title="No task" message={`Task "${task}" not found`} />;
-    if (!isUI) return <StatusDisplay variant="error" title="Not a UI task" message={`Task "${task}" has kind "${kind ?? '(none)'}"`} />;
+    if (!manifest) return <StatusDisplay variant="error" title="Not a UI task" message={`Task "${task}" is a ${details.role.type} task`} />;
     if (preloadError) return <StatusDisplay variant="error" title="Preload failed" message={preloadError.message} />;
     if (preloading) return <StatusDisplay variant="loading" title="Loading datasets..." />;
     if (statusQuery.isLoading || !statusQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;

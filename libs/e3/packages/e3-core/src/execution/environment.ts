@@ -19,7 +19,8 @@
  * temp sibling and atomically renames into place, so a cache directory's
  * existence means it is complete; concurrent builders race benignly (the
  * loser discards its build) and in-process duplicates are deduped with a
- * keyed lock.
+ * keyed lock. gc removes an environment once nothing it keeps names the spec,
+ * and a build whose builder died ({@link sweepEnvironments}).
  */
 
 import * as path from 'node:path';
@@ -29,14 +30,19 @@ import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
-import { decodeBeast2For } from '@elaraai/east';
+import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
 import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../storage/local/keyedMutex.js';
+import { getPidStartTime, processExited } from './processHelpers.js';
 
 const execFileAsync = promisify(execFile);
 
 const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
+
+/** An environment's files are objects holding their bytes as beast2 Blobs. */
+const FILE_TYPE = toEastTypeValue(BlobType);
+const decodeFile = decodeBeast2For(BlobType);
 
 /** The executable dir a materialized environment contributes to PATH. */
 function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
@@ -69,15 +75,55 @@ async function run(command: string, args: string[], cwd: string, what: string): 
   }
 }
 
-async function writeBlob(storage: StorageBackend, repo: string, hash: string, dest: string): Promise<void> {
-  const data = await storage.objects.read(repo, hash);
-  await fs.writeFile(dest, Buffer.from(data));
+/**
+ * Decodes the object an environment names for one of its files: the file's
+ * bytes, which an export stores as a beast2 Blob.
+ *
+ * @remarks
+ * Whatever reads an environment's files decodes them here, so a file an older
+ * SDK stored raw is refused in one set of words wherever it is read.
+ *
+ * @param data - The object's bytes
+ * @param hash - The object's hash, which a refusal names
+ * @returns The file's bytes
+ * @throws {Error} When the object is not a beast2 Blob: the raw file an older
+ *   e3 SDK exported, whose package is re-exported
+ */
+export function decodeEnvironmentFile(data: Uint8Array, hash: string): Uint8Array {
+  let isFile = false;
+  try {
+    isFile = isTypeValueEqual(readBeast2Type(data), FILE_TYPE);
+  } catch {
+    // Not beast2 at all
+  }
+  if (!isFile) {
+    throw new Error(`the environment file ${hash} was exported by an older e3 SDK — re-export its package with the current one`);
+  }
+  return decodeFile(data);
 }
 
-/** The two lockfile formats node captures can carry; content-sniffed because
- *  the spec stores lock bytes, not a filename (JSON ⇒ npm, YAML ⇒ pnpm). */
-function nodeLockFilename(lock: Buffer): 'package-lock.json' | 'pnpm-lock.yaml' {
-  const head = lock.toString('utf-8', 0, Math.min(lock.length, 512)).trimStart();
+/** Reads a file an environment names (see {@link decodeEnvironmentFile}). */
+async function readFile(storage: StorageBackend, repo: string, hash: string): Promise<Buffer> {
+  return Buffer.from(decodeEnvironmentFile(await storage.objects.read(repo, hash), hash));
+}
+
+async function writeBlob(storage: StorageBackend, repo: string, hash: string, dest: string): Promise<void> {
+  await fs.writeFile(dest, await readFile(storage, repo, hash));
+}
+
+/**
+ * The file a node environment's lockfile is written as: npm's, which is JSON,
+ * or pnpm's, which is YAML.
+ *
+ * @remarks
+ * An environment spec stores a lockfile's bytes and not its name, so the name
+ * is told from the content.
+ *
+ * @param lock - The lockfile's bytes
+ * @returns Its file name
+ */
+export function nodeLockFilename(lock: Uint8Array): 'package-lock.json' | 'pnpm-lock.yaml' {
+  const head = new TextDecoder().decode(lock.subarray(0, 512)).trimStart();
   return head.startsWith('{') ? 'package-lock.json' : 'pnpm-lock.yaml';
 }
 
@@ -129,7 +175,7 @@ async function buildNode(
   spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string,
 ): Promise<void> {
   await writeBlob(storage, repo, spec.value.packageJson, path.join(buildDir, 'package.json'));
-  const lockData = Buffer.from(await storage.objects.read(repo, spec.value.lock));
+  const lockData = await readFile(storage, repo, spec.value.lock);
   const lockName = nodeLockFilename(lockData);
   await fs.writeFile(path.join(buildDir, lockName), lockData);
   if (lockName === 'pnpm-lock.yaml') {
@@ -318,7 +364,7 @@ async function buildWorkspaceNode(
   spec: Extract<EnvironmentSpec, { type: 'workspace_node' }>, buildDir: string, envDir: string,
 ): Promise<void> {
   // v1 supports npm workspaces only; pnpm capture ships later.
-  const lockData = Buffer.from(await storage.objects.read(repo, spec.value.lock));
+  const lockData = await readFile(storage, repo, spec.value.lock);
   if (nodeLockFilename(lockData) !== 'package-lock.json') {
     throw new Error('workspace_node: only npm workspaces are supported by the local runner yet');
   }
@@ -326,7 +372,7 @@ async function buildWorkspaceNode(
   // Root package.json with `workspaces` pinned to exactly the closure members
   // (explicit paths, no globs) so npm ci links only them — non-closure
   // members and their third-party deps are pruned.
-  const rootPkg = JSON.parse(Buffer.from(await storage.objects.read(repo, spec.value.packageJson)).toString('utf-8'));
+  const rootPkg = JSON.parse((await readFile(storage, repo, spec.value.packageJson)).toString('utf-8'));
   rootPkg.workspaces = spec.value.members.map((m) => m.path);
   await fs.writeFile(path.join(buildDir, 'package.json'), JSON.stringify(rootPkg, null, 2));
   await fs.writeFile(path.join(buildDir, 'package-lock.json'), lockData);
@@ -335,7 +381,7 @@ async function buildWorkspaceNode(
   for (const member of spec.value.members) {
     const memberDir = resolveMemberDir(buildDir, member.path);
     await fs.mkdir(memberDir, { recursive: true });
-    await extractMemberTarball(Buffer.from(await storage.objects.read(repo, member.tarball)), memberDir);
+    await extractMemberTarball(await readFile(storage, repo, member.tarball), memberDir);
     const memberPkg = JSON.parse(await fs.readFile(path.join(memberDir, 'package.json'), 'utf-8'));
     if (memberPkg.name !== member.name) {
       throw new Error(`workspace member at '${member.path}' is '${memberPkg.name}', expected '${member.name}'`);
@@ -362,6 +408,41 @@ async function buildWorkspaceNode(
 
 async function pathExists(p: string): Promise<boolean> {
   try { await fs.access(p); return true; } catch { return false; }
+}
+
+/**
+ * Removes from `<repo>/envs` each built environment whose spec object gc's
+ * mark no longer reached, and each build directory whose builder has exited.
+ *
+ * @param repo - Repository path
+ * @param reachable - The objects the mark reached
+ * @returns How many directories were removed
+ */
+export async function sweepEnvironments(repo: string, reachable: ReadonlySet<string>): Promise<number> {
+  const envsDir = path.join(repo, 'envs');
+  let entries: string[];
+  try {
+    entries = await fs.readdir(envsDir);
+  } catch {
+    return 0; // nothing built yet
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    // <envHash>, or <envHash>.building-<pid>-<pidStartTime>
+    const built = /^[0-9a-f]{64}$/.test(entry);
+    const building = /^[0-9a-f]{64}\.building-(\d+)-(\d+)$/.exec(entry);
+    const gone = built
+      ? !reachable.has(entry)
+      : building !== null && await processExited(Number(building[1]), Number(building[2]));
+    if (!gone) continue;
+    try {
+      await fs.rm(path.join(envsDir, entry), { recursive: true, force: true });
+      removed++;
+    } catch {
+      // Left for the next sweep
+    }
+  }
+  return removed;
 }
 
 /**
@@ -414,7 +495,8 @@ export async function materializeEnvironment(
       // still cold
     }
 
-    const buildDir = `${envDir}.building-${process.pid}`;
+    // Named after this process, so gc removes it once the process is gone.
+    const buildDir = `${envDir}.building-${process.pid}-${await getPidStartTime(process.pid)}`;
     await fs.rm(buildDir, { recursive: true, force: true });
     await fs.mkdir(buildDir, { recursive: true });
     try {

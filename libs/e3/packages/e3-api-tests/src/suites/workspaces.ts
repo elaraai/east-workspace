@@ -28,7 +28,7 @@ import {
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { createPackageZip, createKindsPackageZip } from '../fixtures.js';
+import { createPackageZip, createRolesPackageZip } from '../fixtures.js';
 
 /**
  * Register workspace operation tests.
@@ -128,24 +128,23 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         const computeTask = tasks.find(t => t.name === 'compute');
         assert.ok(computeTask, 'should have compute task');
         assert.ok(computeTask.hash.length > 0);
-        // Plain task() → no kind (#341)
-        assert.strictEqual(computeTask.kind.type, 'none');
+        // A plain task() is a data task
+        assert.strictEqual(computeTask.role.type, 'data');
       });
 
-      it('taskList carries task kind (#341)', async (t) => {
+      it('taskList carries each task\'s role', async (t) => {
         const ctx = await setup(t);
         const opts = await ctx.opts();
 
-        const zipPath = await createKindsPackageZip(ctx.tempDir, 'kinds-pkg', '1.0.0');
+        const zipPath = await createRolesPackageZip(ctx.tempDir, 'roles-pkg', '1.0.0');
         await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
-        await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'kinds-ws', opts);
-        await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'kinds-ws', 'kinds-pkg@1.0.0', opts);
+        await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'roles-ws', opts);
+        await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'roles-ws', 'roles-pkg@1.0.0', opts);
 
-        const tasks = await taskList(ctx.config.baseUrl, ctx.repoName, 'kinds-ws', opts);
+        const tasks = await taskList(ctx.config.baseUrl, ctx.repoName, 'roles-ws', opts);
         const byName = new Map(tasks.map(task => [task.name, task]));
-        const display = byName.get('display');
-        assert.ok(display?.kind.type === 'some' && display.kind.value === 'ui');
-        assert.strictEqual(byName.get('compute')?.kind.type, 'none');
+        assert.strictEqual(byName.get('display')?.role.type, 'ui');
+        assert.strictEqual(byName.get('compute')?.role.type, 'data');
       });
 
       it('taskGet returns task details', async (t) => {

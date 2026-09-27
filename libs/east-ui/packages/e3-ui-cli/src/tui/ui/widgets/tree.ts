@@ -20,7 +20,9 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parseFor, printFor, StringType, type EastTypeValue } from '@elaraai/east';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { EastTypeValue } from '@elaraai/east';
 import {
     fmtLeaf,
     humanize,
@@ -188,8 +190,8 @@ export interface TreeContext {
 }
 
 /**
- * The tree context of the current view (the task view's Output tab or an
- * input view).
+ * The tree context of the current view (the task view's Output tab, an
+ * input view, or the record view's State tab).
  *
  * @param state - The store state
  * @returns The context, or null
@@ -197,7 +199,7 @@ export interface TreeContext {
 export function treeContext(state: TuiState): TreeContext | null {
     const shown = viewDataset(state);
     const v = state.view;
-    if (shown === null || (v.kind !== 'task' && v.kind !== 'input')) return null;
+    if (shown === null || (v.kind !== 'task' && v.kind !== 'input' && v.kind !== 'record')) return null;
     let data = state.data.dataset[shown.ws]?.[shown.path];
     const edit = state.edit;
     const editingHere = edit !== null && edit.ws === shown.ws && edit.path === shown.path;
@@ -472,8 +474,9 @@ function afterToggle(controller: Controller, before: TreeContext): void {
 }
 
 /**
- * Parses `/find` text for a key type: a quoted string is an exact key,
- * `a|b` are struct-key fields, anything else goes to the shared grammar.
+ * Parses `/find` text for a key type: `a|b` are struct-key fields, and the
+ * rest is the grammar the browser's search box uses — a quoted string is an
+ * exact key and `from..to` a range, here as there.
  *
  * @param keyType - The collection's key type
  * @param text - The typed text
@@ -481,23 +484,23 @@ function afterToggle(controller: Controller, before: TreeContext): void {
  */
 export function parseFindText(keyType: EastTypeValue, text: string): ParsedKeyInput {
     const trimmed = text.trim();
-    if (keyType.type === 'String' && /^".*"$/.test(trimmed)) {
-        const parsed = parseFor(StringType)(trimmed);
-        if (parsed.success) return { kind: 'query', query: { key: printFor(StringType)(parsed.value) } };
-    }
     if (keyType.type === 'Struct') return parseKeyInput(keyType, trimmed.replace(/\|/g, ','));
     return parseKeyInput(keyType, trimmed);
 }
 
 /** The query's form word for the footer / toast. */
 function formOf(query: DatasetKeyQuery): MatchUi['form'] {
-    return 'key' in query ? 'exact' : 'fields' in query ? 'fields' : 'prefix';
+    return 'key' in query ? 'exact' : 'fields' in query ? 'fields' : 'prefix' in query ? 'prefix' : 'range';
 }
 
-/** The `/save` target: `<ws>.<name>.beast2` in the working directory unless a file is given. */
+/**
+ * The `/save` target: `<ws>.<name>.beast2` in the working directory unless a
+ * file is given. A record's index saves the record's rows, so it is named
+ * after the record.
+ */
 export function saveTarget(ws: string, dataset: string, file: string | undefined): string {
     if (file !== undefined) return path.resolve(file);
-    const name = dataset.replace(/^\.(inputs|tasks)\./, '').replace(/\.output$/, '');
+    const name = dataset.replace(/#.*$/, '').replace(/^\.(inputs|tasks|records)\./, '').replace(/\.output$/, '');
     return path.resolve(`${ws}.${name}.beast2`);
 }
 
@@ -567,10 +570,19 @@ export async function treeCommand(command: ParsedCommand, state: TuiState, contr
                 controller.toast('nothing to save — the dataset has no value', 'warn');
                 return true;
             }
-            const bytes = await controller.deps.feeds.datasets.bytes(ctx.ws, ctx.path);
+            // The value streams to the file a few segments at a time, into a
+            // partial file that takes the target's name once it is whole.
+            const chunks = await controller.deps.feeds.datasets.bytes(ctx.ws, ctx.path);
             fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, bytes);
-            controller.toast(`saved ${formatSize(bytes.length)} to ${target}`, 'pos');
+            const partial = `${target}.partial`;
+            try {
+                await pipeline(Readable.from(chunks), fs.createWriteStream(partial));
+                fs.renameSync(partial, target);
+            } catch (err) {
+                fs.rmSync(partial, { force: true });
+                throw err;
+            }
+            controller.toast(`saved ${formatSize(fs.statSync(target).size)} to ${target}`, 'pos');
             return true;
         }
         default:

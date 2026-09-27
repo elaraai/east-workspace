@@ -301,36 +301,6 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(status.refType, 'unassigned');
       });
 
-      it('datasetSet rejects write to function_ir', async (t) => {
-        const ctx = await setup(t);
-        const opts = await ctx.opts();
-
-        const zipPath = await createPackageZip(ctx.tempDir, 'writable2-pkg', '1.0.0');
-        const packageZip = readFileSync(zipPath);
-        await packageImport(ctx.config.baseUrl, ctx.repoName, packageZip, opts);
-
-        await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'writable2-ws', opts);
-        await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'writable2-ws', 'writable2-pkg@1.0.0', opts);
-
-        // Attempt to set the task function_ir (not writable)
-        const encode = encodeBeast2For(IntegerType);
-        const irPath = [
-          variant('field', 'tasks'),
-          variant('field', 'compute'),
-          variant('field', 'function_ir'),
-        ];
-
-        await assert.rejects(
-          () => datasetSet(ctx.config.baseUrl, ctx.repoName, 'writable2-ws', irPath, encode(99n), opts),
-          (err: Error) => {
-            assert.ok(err.message.includes('not writable') || err.message.includes('internal'),
-              `Expected writable error, got: ${err.message}`);
-            return true;
-          },
-          'datasetSet on function_ir should be rejected'
-        );
-      });
-
       it('datasetSet succeeds on writable input', async (t) => {
         const ctx = await setup(t);
         const opts = await ctx.opts();

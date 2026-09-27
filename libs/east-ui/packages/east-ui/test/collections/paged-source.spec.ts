@@ -33,6 +33,7 @@ describeEast("Row-source contract (#567)", (test) => {
         pagedTableSource: ex.pagedTableSource,
         pagedSourceTrimmed: ex.pagedSourceTrimmed,
         pagedSourceWindows: ex.pagedSourceWindows,
+        indexWindowQueue: ex.indexWindowQueue,
         pagedSourceBlocks: ex.pagedSourceBlocks,
         pagedSnapshotRevision: ex.pagedSnapshotRevision,
     });

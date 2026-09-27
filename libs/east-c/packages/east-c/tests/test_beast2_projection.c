@@ -120,7 +120,43 @@ static EastValue *wide_row(EastType *row_t, int64_t i)
     return row;
 }
 
-/* Paged-encode an Array<row> of n rows with tiny segments. */
+/* Rows per segment: the test's geometry rather than the cut rule's, which
+ * would hold these small fixtures in one segment. */
+#define ROWS_PER_SEGMENT 16
+
+/* A self-contained, indexed blob of `value` (an Array or Dict) in segments of
+ * ROWS_PER_SEGMENT rows. */
+static uint8_t *encode_in_segments(EastValue *value, EastType *type, size_t *len_out)
+{
+    Beast2StreamWriter *w = east_beast2_writer_new(type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    if (!w) return NULL;
+    size_t n = type->kind == EAST_TYPE_ARRAY ? east_array_len(value) : east_dict_len(value);
+    bool ok = true;
+    for (size_t i = 0; ok && i < n; i += ROWS_PER_SEGMENT) {
+        size_t end = i + ROWS_PER_SEGMENT < n ? i + ROWS_PER_SEGMENT : n;
+        EastValue *batch = type->kind == EAST_TYPE_ARRAY
+                               ? east_array_new(type->data.element)
+                               : east_dict_new(type->data.dict.key, type->data.dict.value);
+        for (size_t k = i; k < end; k++) {
+            if (type->kind == EAST_TYPE_ARRAY)
+                east_array_push(batch, east_array_get(value, k));
+            else
+                east_dict_set(batch, east_dict_key_at(value, k), east_dict_val_at(value, k));
+        }
+        ok = east_beast2_writer_write(w, batch);
+        east_value_release(batch);
+    }
+    ok = ok && east_beast2_writer_finish(w);
+    ByteBuffer *buf = ok ? east_beast2_writer_take(w) : NULL;
+    east_beast2_writer_free(w);
+    if (!buf) return NULL;
+    uint8_t *data = malloc(buf->len);
+    memcpy(data, buf->data, buf->len);
+    *len_out = buf->len;
+    byte_buffer_free(buf);
+    return data;
+}
+
 static uint8_t *encode_wide_array(EastType *row_t, size_t n, size_t *len_out)
 {
     EastType *at = east_array_type(row_t);
@@ -130,13 +166,8 @@ static uint8_t *encode_wide_array(EastType *row_t, size_t n, size_t *len_out)
         east_array_push(arr, row);
         east_value_release(row);
     }
-    ByteBuffer *buf = east_beast2_encode_paged(arr, at, EAST_BEAST2_CODEC_DEFLATE, 1024);
+    uint8_t *data = encode_in_segments(arr, at, len_out);
     east_value_release(arr);
-    if (!buf) return NULL;
-    uint8_t *data = malloc(buf->len);
-    memcpy(data, buf->data, buf->len);
-    *len_out = buf->len;
-    byte_buffer_free(buf);
     return data;
 }
 
@@ -151,13 +182,8 @@ static uint8_t *encode_wide_dict(EastType *row_t, size_t n, size_t *len_out)
         east_value_release(k);
         east_value_release(row);
     }
-    ByteBuffer *buf = east_beast2_encode_paged(dict, dt, EAST_BEAST2_CODEC_DEFLATE, 1024);
+    uint8_t *data = encode_in_segments(dict, dt, len_out);
     east_value_release(dict);
-    if (!buf) return NULL;
-    uint8_t *data = malloc(buf->len);
-    memcpy(data, buf->data, buf->len);
-    *len_out = buf->len;
-    byte_buffer_free(buf);
     return data;
 }
 
@@ -440,7 +466,7 @@ static void test_alias_detection(void)
     EastValue *arr = east_array_new(row_t);
     east_array_push(arr, row);
     east_value_release(row);
-    ByteBuffer *buf = east_beast2_encode_paged(arr, at, EAST_BEAST2_CODEC_NONE, 0);
+    ByteBuffer *buf = east_beast2_encode_paged(arr, at, EAST_BEAST2_CODEC_NONE);
     east_value_release(arr);
     CHECK(buf != NULL, "alias encode failed");
     if (!buf) return;

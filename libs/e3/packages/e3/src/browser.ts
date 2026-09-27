@@ -21,12 +21,18 @@
  */
 
 export type {
+  ArrayOutputDef,
   DataTreeDef,
   DatasetDef,
   DatasetsOf,
+  DictOutputDef,
+  FoldOutputDef,
   FunctionDef,
   MutationDef,
+  OutputDef,
+  PartitionDef,
   RecordDef,
+  SetOutputDef,
   TaskDef,
   PackageDef,
   PackageItem,
@@ -42,14 +48,15 @@ export type {
   EastNodePlatform,
   EastCPlatform,
 } from './runner.js';
-export { runnerToCommand, runnerToVariant, DEFAULT_RUNNER } from './runner.js';
+export { runnerToVariant, DEFAULT_RUNNER } from './runner.js';
 
 // Authoring builders + their singleton trees — all browser-safe (they build
 // in-memory East IR; only `export_`/`sha256` touch node:fs, and are omitted).
 export { input, inputsTree } from './input.js';
 export { record, recordsTree } from './record.js';
 export { mutation } from './mutation.js';
-export { task, customTask, partitionTask, streamTask, tasksTree } from './task.js';
-export type { PartitionTaskSpec, StreamTaskSpec, EmitOf } from './task.js';
+export { task, customTask, streamTask, partition, tasksTree } from './task.js';
+export type { StreamTaskSpec } from './task.js';
+export { output } from './output.js';
 export { function_ } from './function.js';
 export { package_ as package } from './package.js';

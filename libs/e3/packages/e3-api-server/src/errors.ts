@@ -6,6 +6,7 @@
 import { variant, some, none } from '@elaraai/east';
 import {
   RepoNotFoundError,
+  InvalidNameError,
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceExistsError,
@@ -29,6 +30,7 @@ import type { Error } from './types.js';
  */
 export function errorToHttpStatus(err: unknown): number {
   if (err instanceof RepoNotFoundError) return 404;
+  if (err instanceof InvalidNameError) return 400;
   if (err instanceof WorkspaceNotFoundError) return 404;
   if (err instanceof WorkspaceNotDeployedError) return 409;
   if (err instanceof WorkspaceExistsError) return 409;
@@ -53,6 +55,7 @@ export function errorToHttpStatus(err: unknown): number {
  */
 function errorToType(err: unknown): string {
   if (err instanceof RepoNotFoundError) return 'repository_not_found';
+  if (err instanceof InvalidNameError) return 'invalid_name';
   if (err instanceof WorkspaceNotFoundError) return 'workspace_not_found';
   if (err instanceof WorkspaceNotDeployedError) return 'workspace_not_deployed';
   if (err instanceof WorkspaceExistsError) return 'workspace_exists';
@@ -93,6 +96,9 @@ export function sendJsonError(err: unknown): Response {
 export function errorToVariant(err: unknown): Error {
   if (err instanceof RepoNotFoundError) {
     return variant('repository_not_found', { repo: err.repo });
+  }
+  if (err instanceof InvalidNameError) {
+    return variant('invalid_name', { kind: err.kind, name: err.value, message: err.message });
   }
   if (err instanceof WorkspaceNotFoundError) {
     return variant('workspace_not_found', { workspace: err.workspace });

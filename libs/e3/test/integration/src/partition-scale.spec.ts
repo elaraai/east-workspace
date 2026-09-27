@@ -9,15 +9,18 @@
  *
  * The job #770 was reported on: the #765 harness row (16 fields, six nested
  * arrays of 11 structs) re-keyed by a scattered id into a Dict of more than
- * 3 GiB, assembled by a `partitionTask({ merge })` on east-c. The CLI runs
- * under `NODE_OPTIONS=--max-old-space-size=256`, a fraction of one decoded
- * partial, and must finish with every row in the output. `e3 repo gc` then
- * collects the repository under `--max-old-space-size=128`, over datasets many
- * times its heap.
+ * 3 GiB, by an `e3.streamTask` on east-c whose output is folded by `merge`:
+ * the input splits into pieces of the platform's size, and merge units
+ * assemble their outputs. The CLI runs under
+ * `NODE_OPTIONS=--max-old-space-size=256`, a fraction of the output, and must
+ * finish with every row in it. `e3 repo gc` then collects
+ * the repository under `--max-old-space-size=128`, over datasets many times
+ * its heap.
  *
  * Runs only with `E3_PARTITION_SCALE=1` and east-c on PATH. It writes about
- * 25 GB under the temp directory, so point `TMPDIR` (which `E3_SCRATCH_DIR`
- * defaults to) at a disk — a tmpfs `/tmp` would hold the run in memory:
+ * 25 GB into its repository, scratch directories included, which it creates
+ * under the temp directory, so point `TMPDIR` at a disk — a tmpfs `/tmp` would
+ * hold the run in memory:
  *
  *     TMPDIR=/data/tmp E3_PARTITION_SCALE=1 node --test dist/partition-scale.spec.js
  */
@@ -33,16 +36,14 @@ import {
   Beast2Writer,
   BooleanType,
   DateTimeType,
-  DictType,
   East,
   FloatType,
   IntegerType,
   StringType,
   StructType,
-  readBeast2ExtentsRanged,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { LocalStorage, workspaceGetDatasetHash } from '@elaraai/e3-core';
+import { DatasetSegments, LocalStorage, workspaceGetDatasetHash } from '@elaraai/e3-core';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 
 const ItemType = StructType({ sku: StringType, qty: IntegerType, price: FloatType, ok: BooleanType, when: DateTimeType });
@@ -54,7 +55,6 @@ const RowType = StructType({
   a3: ArrayType(ItemType), a4: ArrayType(ItemType), a5: ArrayType(ItemType),
 });
 const TableType = ArrayType(RowType);
-const OutType = DictType(StringType, RowType);
 
 /** Rows in the table: about 1.2 KB each on the wire, so the output passes 3 GiB. */
 const ROWS = 2_720_000;
@@ -92,22 +92,19 @@ describe('partition assembly at scale', { skip: !optedIn ? 'opt-in: set E3_PARTI
   let repo: string;
   const storage = new LocalStorage();
 
-  // Every row re-keyed by a bijection mod the prime 4294967311, printed: each
-  // partition's keys spread over the whole key space, so every partial
-  // overlaps every other and the whole output goes through merge units.
+  // Every row re-keyed by a bijection mod the prime 4294967311, printed: the
+  // keys spread over the whole key space in the order the rows are read, so
+  // every part the output is assembled from overlaps every other and the whole
+  // of it goes through the merge.
   const table = e3.input('table', TableType);
-  const rekeyed = e3.partitionTask('rekeyed', {
-    partitions: [table],
-    output: OutType,
-    merge: ($, _key, a, _b) => a,
-    targetPartitionBytes: 128 * 1024 * 1024,
+  const rekeyed = e3.streamTask('rekeyed', {
+    inputs: [e3.partition(table)],
+    output: e3.output.dict(StringType, RowType, { merge: ($, _key, a, _b) => a }),
     runner: { runtime: 'east-c', platforms: ['east-c-std'] },
-  }, ($, slice) => {
-    const out = $.let(new Map(), OutType);
-    $.for(slice, ($, r) => {
-      $(out.insert(East.str`k${r.id.multiply(2654435761n).remainder(4294967311n)}`, r));
+  }, ($, table, emit) => {
+    $.for(table, ($, r) => {
+      $(emit(East.str`k${r.id.multiply(2654435761n).remainder(4294967311n)}`, r));
     });
-    return out;
   });
 
   /** The stored output's hash. */
@@ -158,13 +155,11 @@ describe('partition assembly at scale', { skip: !optedIn ? 'opt-in: set E3_PARTI
   it('assembles a re-keyed output larger than 3 GiB under a 256 MiB orchestrator heap', async () => {
     const run = await runE3Command(['dataflow', 'run', repo, 'ws'], dir, { env: { NODE_OPTIONS: '--max-old-space-size=256' } });
     assert.equal(run.exitCode, 0, `${run.stderr}\n${run.stdout}`);
-    assert.match(run.stdout, /\[MERGE\] rekeyed/, 'the partials were merged by merge units');
+    assert.match(run.stdout, /\[MERGE\] rekeyed/, 'the pieces\' outputs were merged by merge units');
 
-    const hash = await outputHash();
-    const { size } = await storage.objects.stat(repo, hash);
-    assert.ok(size >= 3 * GIB, `the output is ${size} bytes`);
-    const extents = await readBeast2ExtentsRanged({ size, read: (offset, length) => storage.objects.readRange!(repo, hash, offset, length) });
-    assert.equal(extents.elementCount, ROWS, 'every row is in the output, under its own key');
+    const output = await DatasetSegments.open(storage, repo, await outputHash());
+    assert.ok(output.bytes >= 3 * GIB, `the output is ${output.bytes} bytes`);
+    assert.equal(output.elementCount, ROWS, 'every row is in the output, under its own key');
   });
 
   it('collects the repository under a 128 MiB heap', async () => {

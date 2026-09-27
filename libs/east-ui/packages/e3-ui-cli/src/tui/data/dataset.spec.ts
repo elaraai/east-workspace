@@ -10,18 +10,19 @@
  * a server that cuts pages short, the byte cache, a content-hash change,
  * the not-indexed and too-large states, `⏎ load whole value`, key search
  * on both paths, a failed page's retry hold and the hash-mismatch refetch,
- * all over the in-memory API.
+ * and a record's index as a source of its own, all over the in-memory API.
  */
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { FloatType, IntegerType, StringType, StructType, variant } from '@elaraai/east';
+import { FloatType, IntegerType, NullType, StringType, StructType, toEastTypeValue, variant } from '@elaraai/east';
 import { ApiError } from '@elaraai/e3-api-client';
 import { dictOf, fakeRepo, wideDictOf, type FakeApi } from '../api.fake.js';
+import { recordSource } from '../model/tree.js';
 import { initialState, type DatasetData } from '../state/actions.js';
 import { createStore, type Store } from '../state/store.js';
-import { createDatasetLoader, INLINE_LIMIT, MAX_INFLIGHT, MAX_RETAINED_PAGES, PAGE_BYTES_TARGET, PAGE_SIZE_MAX, pageSizeFor, type DatasetLoader } from './dataset.js';
+import { createDatasetLoader, INLINE_LIMIT, MAX_INFLIGHT, MAX_RETAINED_PAGES, PAGE_BYTES_TARGET, PAGE_SIZE_MAX, PAGE_SIZE_MIN, pageSizeFor, type DatasetLoader } from './dataset.js';
 
 const session = { kind: 'local' as const, label: 'demo-repo', repo: 'default', apiUrl: 'http://x', path: '/x', origin: null, identity: null, stateKey: '/x', target: '/x' };
 
@@ -170,6 +171,24 @@ describe('dataset loader', () => {
         }
     });
 
+    test('rows wider than the byte target covers sixteen of still page sixteen at a time', async () => {
+        const { api, store, loader } = setup();
+        api.geometry = true;
+        const { type, value } = wideDictOf(200, 32_000);
+        api.task('main', { name: 'forecast', status: ready, inputs: [], dependsOn: [], output: { type, value } });
+        const bytes = api.stored('main', FORECAST)!.bytes.length;
+        assert.ok(Math.floor(PAGE_BYTES_TARGET / (bytes / 200)) < PAGE_SIZE_MIN, 'the byte target alone would page fewer');
+        assert.equal(pageSizeFor(bytes, 200), PAGE_SIZE_MIN);
+        await loader.tick('main', FORECAST);
+        await quiet(store, 'main', FORECAST);
+        const d = paged(store.getState().data.dataset['main']![FORECAST]);
+        assert.equal(d.pageSize, PAGE_SIZE_MIN);
+        assert.equal(d.pages.get(0)?.length, PAGE_SIZE_MIN);
+        // The first window, sixty rows and a page of margin, in five requests.
+        assert.deepEqual(pageCalls(api).map(c => c.split(' ').at(-1)!).sort((a, b) => parseInt(a) - parseInt(b)),
+            ['0+16', '16+16', '32+16', '48+16', '64+16']);
+    });
+
     test('a server that cuts pages short by its byte budget: each page fills with follow-up windows', async () => {
         const { api, store, loader } = setup();
         const { type, value } = dictOf(1_200);
@@ -309,5 +328,55 @@ describe('dataset loader', () => {
         const d = store.getState().data.dataset['main']![FORECAST]!;
         assert.notEqual(d.hash, before);
         assert.equal(paged(d).totalRows, 900);
+    });
+
+    test('a record\'s index is a source of its own: entries labelled by its key, rows joined or projections shown, searched by its key', async () => {
+        const { api, store, loader } = setup();
+        api.geometry = true;
+        const { type, value } = dictOf(300);
+        api.record('main', {
+            name: 'ledger',
+            type,
+            value,
+            indexes: [
+                { name: 'by_store', keyType: StringType, valueType: NullType, entries: (_key, row) => [{ ik: (row as { store: string }).store, value: null }] },
+                { name: 'by_units', keyType: IntegerType, valueType: StringType, entries: (_key, row) => [{ ik: (row as { units: bigint }).units, value: (row as { store: string }).store }] },
+            ],
+        });
+        const BY_STORE = recordSource('ledger', 'by_store');
+        await loader.tick('main', BY_STORE);
+        await quiet(store, 'main', BY_STORE);
+        const d = store.getState().data.dataset['main']![BY_STORE]!;
+        assert.deepEqual(d.index, { name: 'by_store', keyType: toEastTypeValue(StringType), join: true });
+        assert.equal(paged(d).totalRows, 300, 'an entry a row');
+        // The record's geometry counts its rows, not the index's entries: the index is probed, its rows joined.
+        const calls = api.calls.filter(c => c.startsWith('datasetGetPage main.records.ledger '));
+        assert.equal(calls[0], `datasetGetPage main.records.ledger 0+${PAGE_SIZE_MAX} #by_store+join`);
+        assert.ok(calls.every(c => c.endsWith(' #by_store+join')), 'every window reads through the index');
+        const first = paged(d).pages.get(0)![0]!;
+        assert.equal(first.label, 'Bakery', 'labelled by its index key');
+        assert.deepEqual(first.node.type === 'struct' ? first.node.value.fields.map(f => f.name) : [], ['key', 'row']);
+        const row = first.node.type === 'struct' ? first.node.value.fields.find(f => f.name === 'row')?.node : undefined;
+        assert.equal(row?.type, 'struct', 'the joined row, not the option the window carries it in');
+        assert.equal(paged(d).pages.get(0)![100]?.label, 'Deli', 'in index order');
+        assert.deepEqual(await loader.findKey('main', BY_STORE, { prefix: 'Deli' }), { found: true, row: 100, count: 100 });
+        assert.ok(api.calls.some(c => c.startsWith('datasetFindKey main.records.ledger') && c.includes('"index":"by_store"')), 'the key search goes through the index');
+        // An index with a projection shows it, and never asks for the rows.
+        const BY_UNITS = recordSource('ledger', 'by_units');
+        await loader.tick('main', BY_UNITS);
+        await quiet(store, 'main', BY_UNITS);
+        const u = store.getState().data.dataset['main']![BY_UNITS]!;
+        assert.equal(u.index?.join, false);
+        const cheapest = paged(u).pages.get(0)![0]!;
+        assert.equal(cheapest.label, '1000');
+        assert.deepEqual(cheapest.node.type === 'struct' ? cheapest.node.value.fields.map(f => f.name) : [], ['key', 'value']);
+        assert.ok(api.calls.filter(c => c.includes(' #by_units')).every(c => !c.endsWith('+join')));
+        // An index the record does not declare says so; /save of an index writes the record's rows.
+        const NOPE = recordSource('ledger', 'nope');
+        await loader.tick('main', NOPE);
+        assert.deepEqual(store.getState().data.dataset['main']![NOPE]!.mode, { kind: 'error', message: 'ledger has no index nope' });
+        const parts: Uint8Array[] = [];
+        for await (const chunk of await loader.bytes('main', BY_STORE)) parts.push(chunk);
+        assert.deepEqual(new Uint8Array(Buffer.concat(parts)), api.stored('main', '.records.ledger')!.bytes);
     });
 });

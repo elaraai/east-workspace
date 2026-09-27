@@ -8,20 +8,16 @@ import { mkdir, open, writeFile, readFile, unlink } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { variant } from '@elaraai/east';
-import { transferPartCount, transferPartRange } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import {
-  BEAST2_CONTENT_TYPE,
   ObjectNotFoundError,
+  packageStagingPath,
   transferStagingDir,
   transferStagingPath,
   type StorageBackend,
   type TransferBackend,
 } from '@elaraai/e3-core';
-
-const STAGING_DIR = join(tmpdir(), 'e3-transfers');
 
 /**
  * Reject requests that carry an Authorization header.
@@ -42,8 +38,8 @@ function rejectAuthHeader(c: { req: { header(name: string): string | undefined }
  * Create generic upload/download data endpoints.
  *
  * Returns two Hono apps:
- * - `uploads`: PUT /:id — upload data (dataset BEAST2 or package zip);
- *   PUT /:id/parts/:part — one part of a dataset upload planned as parts
+ * - `uploads`: PUT /:id — upload a package zip;
+ *   PUT /:id/parts/:part — one part of a dataset upload
  * - `downloads`: GET /:id — download data (dataset BEAST2 or package zip)
  *
  * These are unauthenticated — the UUID in the URL is the sole capability.
@@ -57,40 +53,13 @@ export function createDataEndpoints(
   const uploads = new Hono();
   const downloads = new Hono();
 
-  // PUT /api/uploads/:id — Upload data (dataset BEAST2 or package zip)
+  // PUT /api/uploads/:id — Upload a package zip, staged for the trigger
+  // endpoint to process
   uploads.put('/:id', async (c) => {
     const rejected = rejectAuthHeader(c);
     if (rejected) return rejected;
 
     const id = c.req.param('id')!;
-
-    // Try dataset upload first
-    const dsRecord = await transferBackend.datasetUpload.get(id);
-    if (dsRecord) {
-      // Streamed to the repo's own staging area: a delivery can be far larger
-      // than this process's heap, and the commit turns the staged file into an
-      // object by link or rename — which only works on the repo's device.
-      const repoPath = getRepoPath(dsRecord.repo);
-      const stagingPath = transferStagingPath(repoPath, id);
-      await mkdir(transferStagingDir(repoPath), { recursive: true });
-      const stream = c.req.raw.body;
-      try {
-        if (stream) {
-          await pipeline(Readable.fromWeb(stream as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(stagingPath));
-        } else {
-          await writeFile(stagingPath, new Uint8Array(await c.req.arrayBuffer()));
-        }
-      } catch (err) {
-        // A broken upload leaves no partial file behind; gc sweeps the staging
-        // directory only as the backstop for a server that crashed mid-upload.
-        // The transfer record stays, so the client may retry the PUT.
-        await unlink(stagingPath).catch(() => {});
-        throw err;
-      }
-      return new Response(null, { status: 200 });
-    }
-
-    // Try package import — stage file for later processing by trigger endpoint
     const pkgRecord = await transferBackend.packageImport.get(id);
     if (pkgRecord) {
       const body = new Uint8Array(await c.req.arrayBuffer());
@@ -102,9 +71,9 @@ export function createDataEndpoints(
         );
       }
 
-      const stagingPath = join(STAGING_DIR, `${id}.zip.partial`);
-      await mkdir(STAGING_DIR, { recursive: true });
-      await writeFile(stagingPath, body);
+      const repoPath = getRepoPath(pkgRecord.repo);
+      await mkdir(transferStagingDir(repoPath), { recursive: true });
+      await writeFile(packageStagingPath(repoPath, id), body);
       await transferBackend.packageImport.updateStatus(id, variant('uploaded', null));
 
       return new Response(null, { status: 200 });
@@ -113,8 +82,10 @@ export function createDataEndpoints(
     return new Response('Not found', { status: 404 });
   });
 
-  // PUT /api/uploads/:id/parts/:part — One part of a dataset upload planned as
-  // parts (protocol 2)
+  // PUT /api/uploads/:id/parts/:part — One part of a dataset upload. The staged
+  // file sits in the repository, far larger than this process's heap if need
+  // be, because the commit turns it into an object by link or rename, which
+  // only works on the repository's device.
   uploads.put('/:id/parts/:part', async (c) => {
     const rejected = rejectAuthHeader(c);
     if (rejected) return rejected;
@@ -136,9 +107,9 @@ export function createDataEndpoints(
 
     // Every part streams to its own offset in the one staged file — in any
     // order, concurrently, and a re-sent part over the old one — so the commit
-    // adopts the file exactly as it does a single PUT's, with nothing to
-    // assemble. Opening with 'a' creates the file without truncating the parts
-    // already there; the write itself needs a positioned handle.
+    // adopts the file with nothing to assemble. Opening with 'a' creates the
+    // file without truncating the parts already there; the write itself needs
+    // a positioned handle.
     const repoPath = getRepoPath(record.repo);
     const stagingPath = transferStagingPath(repoPath, id);
     await mkdir(transferStagingDir(repoPath), { recursive: true });
@@ -210,7 +181,7 @@ export function createDataEndpoints(
     // Try package export
     const pkgRecord = await transferBackend.packageExport.get(id);
     if (pkgRecord && pkgRecord.status.type === 'completed') {
-      const stagingPath = join(STAGING_DIR, `${id}.zip`);
+      const stagingPath = packageStagingPath(getRepoPath(pkgRecord.repo), id);
       try {
         const fileData = await readFile(stagingPath);
         await unlink(stagingPath).catch(() => {});

@@ -33,7 +33,7 @@ import {
   isSegmentedRoot,
 } from "./codec.js";
 import { Beast2Writer } from "./stream.js";
-import type { Beast2Codec } from "./frames.js";
+import { type Beast2Codec, FRAME_HEADER_MAX } from "./frames.js";
 import {
   type Beast2Extents,
   type Beast2RangedExtents,
@@ -42,6 +42,7 @@ import {
   TAG_OR_TERMINATOR_FRAME,
   isBeast2SyncRangeReader,
   isTagOrTerminatorFrame,
+  readExact,
   readU64LE,
   readBeast2ExtentsSync,
 } from "./range.js";
@@ -135,6 +136,37 @@ export function readBeast2Extents(data: Uint8Array | Beast2SyncRangeReader, opti
 /** The end offset of segment `i`'s frame. */
 function segmentEnd(extents: Beast2Extents, i: number): number {
   return i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd;
+}
+
+/**
+ * Each segment's logical size: the bytes its elements encode to before
+ * compression, which is what the cut rule measures a segment by.
+ *
+ * Read from the frame headers alone. A frame declares its uncompressed length
+ * up front, and a segment frame holds its element count's varint and then its
+ * elements, so nothing is inflated or decoded; through a reader, each segment
+ * costs one read of a frame header.
+ *
+ * @param source - the whole blob, or synchronous ranged access to it
+ * @param extents - the blob's extents, when already read
+ * @returns each segment's logical size, in segment order
+ * @throws {Error} When the blob is not a segmented, indexed v5 collection, or a
+ *   frame header is malformed.
+ */
+export function readBeast2SegmentLogicalBytes(source: Uint8Array | Beast2SyncRangeReader, extents?: Beast2Extents): number[] {
+  const ranged = isBeast2SyncRangeReader(source);
+  const ext = extents ?? (ranged ? readBeast2ExtentsSync(source) : readBeast2Extents(source));
+  const sizes: number[] = new Array(ext.offsets.length);
+  for (let i = 0; i < ext.offsets.length; i++) {
+    const start = ext.offsets[i]!;
+    const length = Math.min(FRAME_HEADER_MAX, segmentEnd(ext, i) - start);
+    const reader = new BufferReader(ranged ? readExact(source, start, length) : source.subarray(start, start + length), 0);
+    reader.readVarint();  // codec
+    let countVarint = 1;
+    for (let v = ext.counts[i]!; v >= 0x80; v = Math.floor(v / 128)) countVarint++;
+    sizes[i] = reader.readVarint() - countVarint;
+  }
+  return sizes;
 }
 
 /**
@@ -302,6 +334,50 @@ export function spliceBeast2Tail(segments: readonly { offset: number; count: num
   writer.writeBytes(TAG_OR_TERMINATOR_FRAME);
   writeIndexAndFooter(writer, [...segments], true, streamEnd + TAG_OR_TERMINATOR_FRAME.length);
   return writer.toUint8Array();
+}
+
+/**
+ * The blob a collection's segment blobs splice into, streamed a chunk at a
+ * time: the header they share, each segment's frames in order, and the tail
+ * ({@link spliceBeast2Tail}).
+ *
+ * @remarks
+ * What a collection a manifest names is read whole as, from a store or over a
+ * network: a canonical writer's segment blobs share the header the manifest
+ * names, so their frames concatenate under it into the single-blob form, byte
+ * for byte, with no value decoded. Only the segment in hand is held, so a
+ * caller that fetches segments ahead of the splice bounds its memory by how far
+ * ahead it fetches.
+ *
+ * @param head - the header bytes every segment is written under: a segment
+ *   blob's bytes up to its first segment frame
+ * @param segments - the segment blobs, in order
+ * @returns the spliced blob's bytes, in order
+ * @throws {Error} When a segment blob is not a segmented, indexed v5
+ *   collection, or was written under another header.
+ */
+export async function* spliceBeast2Segments(
+  head: Uint8Array,
+  segments: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+): AsyncIterable<Uint8Array> {
+  yield head;
+  const table: { offset: number; count: number }[] = [];
+  let pos = head.length;
+  let i = 0;
+  for await (const bytes of segments) {
+    const extents = readBeast2Extents(bytes);
+    if (extents.prefixEnd !== head.length || !bytesEqual(bytes, head, head.length)) {
+      throw new Error(`beast2 v5: segment ${i} was written under another header — the segments of one collection share theirs`);
+    }
+    for (let s = 0; s < extents.offsets.length; s++) {
+      table.push({ offset: extents.offsets[s]! - extents.prefixEnd + pos, count: extents.counts[s]! });
+    }
+    const frames = bytes.subarray(extents.prefixEnd, extents.segmentsEnd);
+    yield frames;
+    pos += frames.length;
+    i++;
+  }
+  yield spliceBeast2Tail(table, pos);
 }
 
 /** Whether the first `length` bytes of `a` and `b` are identical. */
