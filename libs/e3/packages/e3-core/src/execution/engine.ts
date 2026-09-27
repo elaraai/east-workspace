@@ -325,7 +325,11 @@ export class SplitTask {
 
     // The task's execution is recorded `running` while its units run, under
     // the owner its driver names, so a run that dies here is found
-    // interrupted; with no owner it never is.
+    // interrupted; with no owner it never is. The owner is written first, so a
+    // run that dies between the two writes leaves no `running` record.
+    if (owner !== null) {
+      await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, owner);
+    }
     await storage.refs.executionWrite(repo, taskHash, ids.inHash, ids.executionId, variant('running', {
       executionId: ids.executionId,
       inputHashes,
@@ -335,9 +339,6 @@ export class SplitTask {
       bootId: await getBootId(),
       unit: false,
     }));
-    if (owner !== null) {
-      await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, owner);
-    }
     split.running = true;
     return split;
   }

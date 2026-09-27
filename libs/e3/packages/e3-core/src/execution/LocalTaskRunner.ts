@@ -973,21 +973,12 @@ async function runCommand(
       // Write running status with actual child PID
       onSpawned: async (pid, stop) => {
         if (pid !== null) onRunner?.(pid, stop);
-        const pidStartTime = await getPidStartTime(pid ?? -1);
         const startedAt = new Date();
-        const status: ExecutionStatus = variant('running', {
-          executionId,
-          inputHashes,
-          startedAt,
-          pid: BigInt(pid ?? -1),
-          pidStartTime: BigInt(pidStartTime ?? -1),
-          bootId,
-          unit,
-        });
-        await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-        // The owner sidecar: this process, which alone writes the outcome.
-        // A `running` record with no owner is never repaired, so one whose
-        // owner cannot be recorded is recorded failed before the spawn fails.
+        // The owner sidecar first: this process, which alone writes the
+        // outcome. A `running` record with no owner is never repaired, so every
+        // one has its owner before it is written, and a process killed between
+        // the two leaves no `running` record at all. One whose owner cannot be
+        // recorded is recorded `error` before the spawn fails.
         try {
           await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, await processOwner());
         } catch (err) {
@@ -1001,6 +992,17 @@ async function runCommand(
           }));
           throw err;
         }
+        const pidStartTime = await getPidStartTime(pid ?? -1);
+        const status: ExecutionStatus = variant('running', {
+          executionId,
+          inputHashes,
+          startedAt,
+          pid: BigInt(pid ?? -1),
+          pidStartTime: BigInt(pidStartTime ?? -1),
+          bootId,
+          unit,
+        });
+        await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
       },
     });
   } finally {

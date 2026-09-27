@@ -364,12 +364,20 @@ describe('stopped executions', () => {
     }
   });
 
-  it('writes the owner sidecar beside the running record', async () => {
+  it('writes the owner sidecar before the running record', async () => {
+    // A process killed between the two writes then leaves no `running` record
+    // without the owner its repair needs.
     const { taskHash, inputHashes } = await bashTask('cp "$1" "$2"');
+    const refs = storage.refs;
+    const write = refs.executionWrite.bind(refs);
+    const ownerAtRunning: (ExecutionOwner | null)[] = [];
+    refs.executionWrite = async (r, t, i, e, status) => {
+      if (status.type === 'running') ownerAtRunning.push(await refs.executionOwnerRead(r, t, i, e));
+      return write(r, t, i, e, status);
+    };
     const result = await taskExecute(storage, repo, taskHash, inputHashes);
     assert.equal(result.state, 'success', result.error ?? '');
-    const owner = await storage.refs.executionOwnerRead!(repo, taskHash, result.inputsHash, result.executionId);
-    assert.deepEqual(owner, { pid: BigInt(process.pid), pidStartTime: BigInt(await getPidStartTime(process.pid)), bootId: await getBootId() });
+    assert.deepEqual(ownerAtRunning, [{ pid: BigInt(process.pid), pidStartTime: BigInt(await getPidStartTime(process.pid)), bootId: await getBootId() }]);
   });
 });
 
