@@ -188,6 +188,10 @@ export class FakeApi implements Api {
     calls: string[] = [];
     /** Latency added to every call, in milliseconds. */
     latencyMs = 0;
+    /** When set, a call whose name begins with `prefix` waits for `until`
+     *  before it answers: a response a spec holds back until it has seen what
+     *  the view shows without it. */
+    hold: { prefix: string; until: Promise<void> } | null = null;
     /** When set, every call rejects with it (simulates an unreachable server). */
     failWith: Error | null = null;
     /** What the server's byte budget does to wide rows: no page window carries more than this many rows (null = as asked). */
@@ -272,6 +276,7 @@ export class FakeApi implements Api {
     private async call<T>(name: string, fn: () => T): Promise<T> {
         this.calls.push(name);
         if (this.latencyMs > 0) await new Promise(resolve => setTimeout(resolve, this.latencyMs));
+        if (this.hold !== null && name.startsWith(this.hold.prefix)) await this.hold.until;
         if (this.failWith !== null) throw this.failWith;
         return fn();
     }
