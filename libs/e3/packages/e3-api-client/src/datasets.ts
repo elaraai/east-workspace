@@ -7,7 +7,9 @@ import { ArrayType, NullType, StringType, decodeBeast2For, encodeBeast2For, spli
 import type { TreePath } from '@elaraai/e3-types';
 import { BEAST2_CONTENT_TYPE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import { computeHash } from './util.js';
-import { ApiError, AuthError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, type RequestOptions, type Response } from './http.js';
+import {
+  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, type RequestOptions, type Response,
+} from './http.js';
 import {
   ResponseType,
   DatasetStatusDetailType,
@@ -339,6 +341,8 @@ export interface DatasetPage {
  * @param window - The window to read
  * @param options - Request options including auth token
  * @returns The page bytes plus totals and window placement
+ * @throws {DatasetHashMismatchError} When the window is pinned to a hash the
+ *   dataset no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors (non-collection dataset, bad window)
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -379,6 +383,9 @@ export async function datasetGetPage(
     const error = parseErrorBody(text, `http_${response.status}`);
     if (response.status === 401) {
       throw new AuthError(error.details as string ?? 'Authentication required');
+    }
+    if (error.code === 'dataset_hash_mismatch') {
+      throw new DatasetHashMismatchError(error.details, response.headers.get('X-Content-SHA256'));
     }
     throw error;
   }
@@ -459,8 +466,10 @@ export interface DatasetFindResult {
  * @param query - The key literal or string prefix to locate
  * @param options - Request options including auth token
  * @returns The match's row placement and count
+ * @throws {DatasetHashMismatchError} When the query is pinned to a hash the
+ *   dataset no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors (non-keyed dataset,
- *   unparsable key literal, stale hash pin, index-less blob)
+ *   unparsable key literal, index-less blob)
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function datasetFindKey(
@@ -508,6 +517,9 @@ export async function datasetFindKey(
     const error = parseErrorBody(text, `http_${response.status}`);
     if (response.status === 401) {
       throw new AuthError(error.details as string ?? 'Authentication required');
+    }
+    if (error.code === 'dataset_hash_mismatch') {
+      throw new DatasetHashMismatchError(error.details, response.headers.get('X-Content-SHA256'));
     }
     throw error;
   }

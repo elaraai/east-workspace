@@ -80,6 +80,28 @@ export class ApiError extends Error {
 }
 
 /**
+ * A read pinned to a content hash the dataset no longer holds (a 409
+ * `dataset_hash_mismatch`): the dataset has moved on, and the server names what
+ * it holds now.
+ *
+ * @remarks
+ * A pinned read is never answered from other content, so a window from one
+ * snapshot can never sit beside one from another. A reader that follows the
+ * dataset moves to `currentHash` and reads again, pinned to it.
+ */
+export class DatasetHashMismatchError extends ApiError {
+  /**
+   * @param details - The server's message
+   * @param currentHash - The content the dataset holds now, as the response's
+   *   `X-Content-SHA256` names it; `null` when the response names none
+   */
+  constructor(details: unknown, public readonly currentHash: string | null) {
+    super('dataset_hash_mismatch', details);
+    this.name = 'DatasetHashMismatchError';
+  }
+}
+
+/**
  * Authentication error (401 response).
  */
 export class AuthError extends Error {

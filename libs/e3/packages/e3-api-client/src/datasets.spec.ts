@@ -25,8 +25,8 @@ import {
   Beast2ManifestWriter, DictType, IntegerType, SortedMap, StringType, compareFor, decodeCollectionManifest, encodeBeast2PagedFor, sha256Hex, variant,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { datasetFindKey, datasetGet, datasetGetStream } from './datasets.js';
-import { ApiError, AuthError } from './http.js';
+import { datasetFindKey, datasetGet, datasetGetPage, datasetGetStream } from './datasets.js';
+import { ApiError, AuthError, DatasetHashMismatchError } from './http.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -118,6 +118,23 @@ describe('datasetFindKey', () => {
       datasetFindKey(BASE, 'r', 'ws', lookupPath, { key: '"a"' }, { token: null }),
       (err: unknown) => err instanceof AuthError,
     );
+  });
+
+  it('names the hash the dataset moved on to when a pinned read is refused, for a search and a page', async () => {
+    const current = 'a'.repeat(64);
+    mockFetch(() => new Response(JSON.stringify({ error: { type: 'dataset_hash_mismatch', message: `Dataset content is ${current}, not ${HASH}` } }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/json', 'X-Content-SHA256': current },
+    }));
+    const moved = (err: unknown): boolean => {
+      assert.ok(err instanceof DatasetHashMismatchError, `expected DatasetHashMismatchError, got ${String(err)}`);
+      assert.ok(err instanceof ApiError, 'it is still an ApiError');
+      assert.equal(err.code, 'dataset_hash_mismatch');
+      assert.equal(err.currentHash, current);
+      return true;
+    };
+    await assert.rejects(datasetFindKey(BASE, 'r', 'ws', lookupPath, { key: '"a"', hash: HASH }, { token: null }), moved);
+    await assert.rejects(datasetGetPage(BASE, 'r', 'ws', lookupPath, { offset: 0, limit: 10, hash: HASH }, { token: null }), moved);
   });
 });
 
