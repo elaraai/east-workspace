@@ -37,6 +37,20 @@ east-py run program.beast2 \
 east-py run program.beast2 -p east-py-std -v
 ```
 
+### Running a unit (`exec`)
+
+`east-py exec <unit.beast2>` is the command e3 runs: the machine-facing twin
+of `run`. The unit file names the work — a program to run over its inputs, or
+the parts of an output to merge — with the platforms, the threads the runner
+may use, the output's kind (a value the program returns, or an array, set,
+dict or fold it emits into), and where to write the output and a typed
+result: the outcome (`ok`, or `failed` with the message and its source
+locations), the peak memory, and the time spent loading, compiling, executing
+and writing. Paths in a unit may be relative to its file, so a unit and the
+files it names replay wherever they are moved together. It exits 0 when the
+outcome is `ok` and 1 when the result records a failure; `-v` prints where the
+time went and the peak memory.
+
 ### Large Inputs
 
 An indexed beast2 collection input of `EAST_LAZY_INPUT_BYTES` bytes or more
@@ -213,7 +227,7 @@ See [LICENSE.md](LICENSE.md) for full details.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
   - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Object store, dataflow orchestrator, execution state
   - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
-  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 start`, `e3 watch`, `e3 logs` commands
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 dataflow run`, `e3 watch`, `e3 task logs` commands
   - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 repositories
   - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
   - [@elaraai/e3-api-tests](https://www.npmjs.com/package/@elaraai/e3-api-tests): Shared API compliance test suites

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1173,
+    "totalEntries": 1175,
     "totalFiles": 195,
     "packages": {
       "east": 551,
@@ -10,7 +10,7 @@
       "east-py-datascience": 94,
       "east-ui": 347,
       "e3-ui": 40,
-      "e3": 11,
+      "e3": 13,
       "e3-ui-cli": 7,
       "e3-create": 5
     }
@@ -41450,7 +41450,7 @@
         "import { East, StringType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Chain tasks via .output\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst shout = e3.task(\n  'shout',\n  [greet.output],\n  East.function([StringType], StringType, ($, s) => s.toUpperCase())\n);",
+      "source": "// Chain tasks via .output\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst shout = e3.task(\n  'shout',\n  [greet.output],\n  East.function([StringType], StringType, ($, s) => s.upperCase())\n);",
       "languages": [
         "typescript"
       ]
@@ -41461,20 +41461,23 @@
       "package": "e3",
       "file": "static",
       "suite": "e3.task",
-      "test": "Define a task with a custom Python runner",
+      "test": "Run a task on the Python runner, or wrap a command with the custom runtime",
       "keywords": [
         "e3",
         "task",
         "runner",
+        "runtime",
+        "platforms",
         "python",
-        "uv",
-        "east-py"
+        "east-py",
+        "custom",
+        "uv"
       ],
       "imports": [
         "import { East, IntegerType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Define a task with a custom Python runner\nconst pyTask = e3.task(\n  'py_task',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }\n);",
+      "source": "// A stock runtime and the platforms it loads: a typo, or another runtime's\n// platform, is a compile error.\nconst pyTask = e3.task(\n  'py_task',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }\n);\n\n// Any other command is the custom runtime: e3 runs it with `run`'s arguments\n// appended — -i <input> for each input, -o <output>, then the program's file.\nconst wrapped = e3.task(\n  'wrapped',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }\n);",
       "languages": [
         "typescript"
       ]
@@ -41864,91 +41867,160 @@
       "skill": "e3",
       "package": "e3",
       "file": "static",
-      "suite": "e3.partitionTask",
-      "test": "Merge keyed partials that may share keys, segment by segment",
+      "suite": "e3.partition",
+      "test": "Split a stream task's work over a huge input with e3.partition — keys that repeat across pieces fold with merge",
       "keywords": [
         "e3",
-        "partitionTask",
+        "partition",
+        "streamTask",
+        "output",
+        "dict",
         "merge",
-        "segment",
-        "partials",
-        "overlap",
-        "collide",
-        "keyed",
+        "pieces",
+        "split",
+        "parallel",
+        "re-key",
+        "rekey",
+        "shuffle",
+        "by",
+        "partitionTask",
         "Dict",
-        "union",
+        "huge",
+        "bounded memory"
+      ],
+      "imports": [
+        "import { DictType, FloatType, IntegerType, StringType, StructType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "const SaleKeyType = StructType({ sku: StringType, id: IntegerType });\nconst SaleType = StructType({ amount: FloatType, currency: StringType });\nconst sales = e3.input('sales', DictType(SaleKeyType, SaleType));\nconst rates = e3.input('rates', DictType(StringType, FloatType));\n\n// e3.partition splits the work over `sales`: the body runs once per piece — a\n// key range, cut by content — each piece a cached unit, run in parallel. `rates`\n// reaches every piece whole, opened lazily when large. A key emitted more than\n// once, in one piece or across pieces, folds with `merge`.\nconst bySku = e3.streamTask('by_sku', {\n  inputs: [e3.partition(sales), rates],\n  output: e3.output.dict(StringType, FloatType, { merge: ($, _sku, a, b) => a.add(b) }),\n}, ($, sales, rates, emit) => {\n  $.for(sales, ($, sale, key) => {\n    $(emit(key.sku, sale.amount.multiply(rates.get(sale.currency))));\n  });\n});\n\n// `by` names leading key fields: rows whose `by` fields are equal are never\n// split across pieces, so each piece holds whole SKUs, in key order.\nconst perSku = e3.streamTask('per_sku', {\n  inputs: [e3.partition(sales, { by: ['sku'] })],\n  output: e3.output.array(FloatType),\n}, ($, sales, emit) => { /* a running total per SKU */ });",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:stream-output-kinds",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.streamTask",
+      "test": "Emit an output instead of returning it — array, set, dict or fold, in any order",
+      "keywords": [
+        "e3",
+        "streamTask",
+        "output",
+        "emit",
+        "array",
+        "set",
+        "fold",
+        "zero",
+        "combine",
+        "running balance",
+        "sequential",
+        "one pass",
+        "aggregate",
+        "total",
         "Set",
-        "fan-in",
-        "re-key"
+        "Array"
+      ],
+      "imports": [
+        "import { ArrayType, FloatType, StringType, StructType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "const EventType = StructType({ account: StringType, amount: FloatType });\nconst events = e3.input('events', ArrayType(EventType));\n\n// A stream task emits its output into an output kind, which fixes emit's\n// signature and how the parts of the output combine. Emission order is free.\n// With no partitioned input the task is one unit, exact left to right.\nconst balances = e3.streamTask('balances', {\n  inputs: [events],\n  output: e3.output.array(FloatType),\n}, ($, events, emit) => {\n  const balance = $.let(0.0);\n  $.for(events, ($, event) => {\n    $.assign(balance, balance.add(event.amount));\n    $(emit(balance));\n  });\n});\n\n// A Set holds an element emitted twice once.\nconst accounts = e3.streamTask('accounts', {\n  inputs: [e3.partition(events)],\n  output: e3.output.set(StringType),\n}, ($, events, emit) => {\n  $.for(events, ($, event) => { $(emit(event.account)); });\n});\n\n// A fold folds every emitted value with `combine`, from `zero`.\nconst total = e3.streamTask('total', {\n  inputs: [e3.partition(events)],\n  output: e3.output.fold(FloatType, { zero: 0.0, combine: ($, a, b) => a.add(b) }),\n}, ($, events, emit) => {\n  $.for(events, ($, event) => { $(emit(event.amount)); });\n});",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:stream-producer",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.streamTask",
+      "test": "A producer with no inputs emits in any order — a keyed output is sorted for it",
+      "keywords": [
+        "e3",
+        "streamTask",
+        "producer",
+        "ingest",
+        "emit",
+        "any order",
+        "out of order",
+        "pages",
+        "cursor",
+        "dict",
+        "merge",
+        "latest",
+        "Dict"
       ],
       "imports": [
         "import { East, DictType, IntegerType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const EventType = StructType({ entity: StringType, at: IntegerType });\nconst events = e3.input('events', DictType(IntegerType, EventType));\n\n// Each partition returns a Dict keyed by entity; the same entity may appear in\n// several partitions. `merge` resolves such a key: the orchestrator splices the\n// partials no other partial reaches and runs the runner's `merge` command over\n// the overlaps, never decoding a partial itself. A Set output takes\n// `merge: 'union'`.\nconst latest = e3.partitionTask('latest', {\n  partitions: [events],\n  output: DictType(StringType, EventType),\n  merge: ($, _entity, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n}, ($, slice) => slice.toDict(\n  ($, event, _id) => event.entity,\n  ($, event, _id) => event,\n  ($, a, b, _entity) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n));",
+      "source": "const RowType = StructType({ id: StringType, at: IntegerType });\n\n// A producer has no inputs: it reads platform sources (paged APIs, database\n// cursors) and emits. Emission order is free — the runner sorts a Dict output\n// in runs of bounded size — and a key emitted twice folds with `merge`: here\n// the latest row wins.\nconst rows = e3.streamTask('ingest', {\n  inputs: [],\n  output: e3.output.dict(StringType, RowType, {\n    merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n  }),\n}, ($, emit) => { /* fetch pages, $(emit(row.id, row)) each */ });",
       "languages": [
         "typescript"
       ]
     },
     {
-      "id": "e3:static:stream-merge-grouped",
+      "id": "e3:static:record-mutations",
       "skill": "e3",
       "package": "e3",
       "file": "static",
-      "suite": "e3.streamTask",
-      "test": "Fold equal keys that arrive together in one pass — a Set or Dict output is emitted in ascending key order",
+      "suite": "e3.mutation",
+      "test": "Write a record only through mutations — reduce the whole state, edit a few entries, or apply a client's patch",
       "keywords": [
         "e3",
-        "streamTask",
-        "merge",
-        "emit",
-        "ascending",
-        "order",
-        "grouped",
-        "adjacent",
-        "fold",
-        "totals",
+        "record",
+        "mutation",
+        "reduce",
+        "edit",
+        "patch",
+        "editType",
+        "recordIndex",
+        "audited",
+        "commit",
+        "compare-and-swap",
         "Dict",
-        "union",
-        "Set",
-        "one pass"
+        "state"
       ],
       "imports": [
-        "import { ArrayType, DictType, FloatType, StringType, StructType } from '@elaraai/east';",
+        "import { East, DictType, NullType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const PaymentType = StructType({ account: StringType, amount: FloatType });\n// Sorted by account: equal keys arrive together and the accounts ascend.\nconst payments = e3.input('payments', ArrayType(PaymentType));\n\n// A Set or Dict output must be emitted in ascending key order — the runner\n// writes it in one pass, and an out-of-order key fails the task. `merge` folds\n// the equal keys that arrive together; a Set output takes `merge: 'union'`.\n// Keys that collide across the stream, or arrive out of order, are a\n// partitionTask with `merge` (e3:static:partition-rekey).\nconst accountTotals = e3.streamTask('account_totals', {\n  stream: payments,\n  output: DictType(StringType, FloatType),\n  merge: (_$, _account, a, b) => a.add(b),\n}, ($, payments, emit) => {\n  $.for(payments, ($, payment) => {\n    $(emit(payment.account, payment.amount));\n  });\n});",
+      "source": "const PlanType = StructType({ title: StringType, owner: StringType });\nconst plans = e3.record('plans', DictType(StringType, PlanType), new Map());\n\n// reduce: the reducer returns the whole new state — any record.\nconst addPlan = e3.mutation.reduce('add_plan', plans,\n  East.function([plans.type, StringType, PlanType], plans.type, ($, state, id, plan) => {\n    const next = $.let(state.copy());   // the state is a frozen input\n    $(next.insert(id, plan));\n    return next;\n  }));\n\n// edit: reads the state lazily and writes through `edit`, so a write costs the\n// segments it touches — a Dict or Set record.\nconst reassign = e3.mutation.edit('reassign', plans,\n  East.function([plans.type, StringType, StringType, e3.mutation.editType(plans.type)], NullType,\n    ($, state, id, owner, edit) => { $(edit.set(id, { title: state.get(id).title, owner })); }));\n\n// An index: a second collection in another order, maintained in the same commit.\nconst byOwner = e3.recordIndex('by_owner', plans, {\n  key: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner),\n});\n\n// patch: no body — the argument is the change, a PatchType of the state.\nconst pkg = e3.package('planning', '1.0.0', plans, addPlan, reassign, e3.mutation.patch(plans), byOwner);",
       "languages": [
         "typescript"
       ]
     },
     {
-      "id": "e3:static:partition-rekey",
+      "id": "e3:static:record-migration",
       "skill": "e3",
       "package": "e3",
       "file": "static",
-      "suite": "e3.partitionTask",
-      "test": "Re-key a huge collection — a producer emits pairs in arrival order, a partitionTask with merge keys them",
+      "suite": "e3.migration",
+      "test": "Change a record's type between package versions with a migration a deploy runs once per workspace",
       "keywords": [
         "e3",
-        "partitionTask",
-        "streamTask",
-        "re-key",
+        "migration",
+        "record",
+        "rows",
         "rekey",
-        "shuffle",
-        "pairs",
-        "producer",
-        "ingest",
-        "toDict",
-        "merge",
-        "Dict",
-        "out of order"
+        "value",
+        "after",
+        "chain",
+        "deploy",
+        "schema",
+        "--schema",
+        "--plan",
+        "type change",
+        "$migrate"
       ],
       "imports": [
-        "import { East, ArrayType, DictType, IntegerType, StringType, StructType } from '@elaraai/east';",
+        "import { East, DictType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const RowType = StructType({ id: StringType, at: IntegerType });\nconst PairType = StructType({ key: StringType, value: RowType });\n\n// An ingest that cannot page in key order emits pairs as they arrive — an\n// Array takes any order; a Dict output would have to ascend.\nconst pairs = e3.streamTask('ingest_pairs', {\n  output: ArrayType(PairType),\n}, ($, emit) => { /* fetch pages, $(emit({ key: row.id, value: row })) each */ });\n\n// The partitionTask re-keys them: each partition builds its slice's Dict\n// (toDict folds the keys that collide inside the slice) and `merge` folds the\n// keys that collide across partitions, on the task's runner.\nconst rows = e3.partitionTask('rows', {\n  partitions: [pairs.output],\n  output: DictType(StringType, RowType),\n  merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n}, ($, slice) => slice.toDict(\n  ($, pair, _i) => pair.key,\n  ($, pair, _i) => pair.value,\n  ($, a, b, _id) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n));",
+      "source": "const RowV1Type = StructType({ title: StringType });\nconst RowV2Type = StructType({ title: StringType, owner: StringType });\nconst plans = e3.record('plans', DictType(StringType, RowV2Type), new Map());\n\n// A deploy runs the steps a workspace has not applied, in order, a\n// `$migrate:<name>` commit each; once applied, a step is known by its name.\n// rows: a Dict's rows, one at a time and a piece at a time; rekey changes the\n// keys too, and value takes the whole state.\nconst addOwner = e3.migration.rows('add_owner', plans,\n  East.function([StringType, RowV1Type], RowV2Type,\n    ($, _id, row) => ({ title: row.title, owner: 'unassigned' })));\n\n// The next version's step names this one: { after: addOwner }.\nconst pkg = e3.package('planning', '2.0.0', plans, addOwner);\n// e3 workspace deploy <repo> <ws> --from-zip planning.zip --plan   → what it would do; writes nothing",
       "languages": [
         "typescript"
       ]

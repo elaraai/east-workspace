@@ -780,6 +780,14 @@ Then five more, asked once the first five had landed (decided 2026-09-26). Each 
 
 Items 6, 7 and 10 land after item 5; 8 and 9 land with record migrations. Asked back: e3-core records every execution it runs with the spawning process as its owner, so if e3-cloud's compute runs units through e3-core, a probe from another Lambda repairs a live unit as item 4 describes. If it does, the owner becomes the caller's to pass there too, with item 6.
 
+Then one more, asked while stage 7 was under way (e3-cloud#210; decided 2026-09-27: built as asked, with stage 7's part 1).
+
+12. **A deploy job run in rounds.** e3-cloud runs a deploy job in rounds, a Lambda each, since a Lambda stops at 15 minutes and a deploy that migrates or indexes a large record can take longer. Each round runs `workspaceDeploy` from the top and is served the steps earlier rounds finished from the execution cache, as a deploy run again is: the steps run before the deploy's first ref write, so a round that stops during them has written no ref. Shortly before its cap, a round's runner stops waiting, and the round hands over to the next. Two things stopped a round from calling `handleProcessDeploy`:
+    - it recorded any throw as the job's `failed`, so a round that handed over read as failed to a client polling the job;
+    - it passed no lock to `workspaceDeploy`, so each round took the workspace lock and released it, and a dataflow or another deploy could take the workspace between two rounds.
+
+    `ProcessDeployDeps` gains `lock`, which `workspaceDeploy` is given and, as with any lock it is given, never releases; and `signal`, with which a deploy that throws once the signal has aborted leaves the job `processing` and rethrows, so the caller tells a hand-over from a failure. Without either, a deploy job runs as before.
+
 ### Record migrations (decided 2026-09-26)
 
 A record's type is fixed for its life today. A redeploy whose record changed type is refused, and the only way out is removing the workspace, which deletes the state and its history. Three more gaps sit beside it:
@@ -951,7 +959,19 @@ Acceptance:
   - it is a plugin skill: coordinate the change and regenerate the example index (plugin-artifacts).
 - **Other docs:** `libs/e3/USAGE.md`, with `workspace deploy`'s `--schema`, `--allow-drop-records` and `--plan` and `watch --schema`, the Codex plugin's copy of the e3 skill, and the runner READMEs.
 - **`libs/east-ui/packages/e3-ui-cli/SKILL.md` and the plugin's static index** (`e3-ui-cli:static:tui-*`): the scheduler in the TUI (stage 5) and records in it (`/record`, `/index`, the RECORDS table, the record view), and what they still name that is gone — `/run --jobs`, the `o` / `e` keys and a `2 Logs` tab. A plugin skill: coordinate the change and regenerate the example index (found while building #953's part 2).
-- **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted. `e3-reactive-dataflow.md`, `e3-api.md`, `e3-core.md`, `e3-mvp-core.md` and `e3-execution-history.md` describe a repository e3 no longer keeps — locks beside the workspaces, `.ref` files, an `output` ref, a workspace's runs deleted when the next starts and never gc'd — and are rewritten to the code or deleted (found while building the repository's records, parts 1 and 4).
+- **`libs/e3/design/`:** this document is rewritten to describe the code, and the review is deleted. `e3-reactive-dataflow.md`, `e3-api.md`, `e3-core.md`, `e3-mvp-core.md` and `e3-execution-history.md` describe a repository e3 no longer keeps — locks beside the workspaces, `.ref` files, an `output` ref, a workspace's runs deleted when the next starts and never gc'd — and are deleted (found while building the repository's records, parts 1 and 4; decided 2026-09-27: the plan had each rewritten or deleted).
+  - What the five describe that the code still does — the reactive model and its version vectors, the API's contracts, and the bounded history — moves into this document before they go, and every link to them is fixed.
+  - This document keeps the architecture as built: §3, with §5's rules and §6's bounds. Its decisions, its stages, #786's guarantees and the audit go, since git, #797 and #831 keep them (decided 2026-09-27).
+  - The other design docs stay outside this stage. Those that name what e3 no longer does are listed in an issue of their own (decided 2026-09-27).
+
+Built in three parts, in this order (decided 2026-09-27):
+1. **The e3 skill:** `libs/e3/SKILL.md`, `libs/e3/USAGE.md`, the runner READMEs and the plugin's static e3 examples, with the Codex plugin's copy and the example index regenerated. With it, what the sweep of the other skills found (decided 2026-09-27): the east and east-py skills' typed decodes, which refuse a blob whose header names another type (#945's part 5), east's `spliceBeast2Segments`, and `e3 start` / `e3 logs`, renamed before this PR, wherever docs still name them: `libs/e3/README.md`, the CLI's own comments, and the ecosystem snippet with its copies. And what building it found (decided 2026-09-27):
+   - the e3-cli README, which names none of the record commands, deploy's plan and policies, `watch --schema` or `dataset set --from-file`, brought up to the CLI as built, and the e3 README's repository layout, which predates the repository's records, up to §3.13;
+   - the CLI's own hints, which name `e3 logs` in the list of a workspace's tasks and in its usage error;
+   - a split task named so in the CLI's help and comments, and in e3-core's comments, which still said "partitioned task";
+   - the SDK's README, whose API list names four functions, given the rest in a line each, pointing to `USAGE.md`.
+2. **The e3-ui-cli skill** and the plugin's static TUI entries.
+3. **The design docs:** this document, the review and the five above.
 
 ### Stage 8 — e3-cloud
 

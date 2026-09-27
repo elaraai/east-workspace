@@ -365,7 +365,7 @@ Task → What do you need?
     │   │       │   canonical runs, one run's memory, the runs east-c and TypeScript write; merging them gives the value
     │   │       ├─ segments of your own choosing → Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │   │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
-    │   │       ├─ decode_beast2_with_header_for(T)(blob)  — whole, v4 AND v5
+    │   │       ├─ decode_beast2_with_header_for(T)(blob)  — whole, v4 AND v5 ❗ValueError when the header names another type
     │   │       ├─ open_beast2_pages_for(T)(source) — .element(n)/.segment(i), ONE segment each ❗borrows the buffer — keep it alive
     │   │       └─ read_beast2_index(T, blob) -> (segments, elements) — totals without decoding
     │   ├─ Logic genuinely needs python (numpy / a model / a solver) → to_columns()/EastArray.from_columns · map_batches ·
@@ -1723,7 +1723,7 @@ with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
 
 | Signature | Description |
 |-----------|-------------|
-| `encode_beast2_with_header_for(T, *, version=None)` / `decode_beast2_with_header_for(T)` | **The one you want.** The full, self-describing container: magic + type schema + value. Encode writes the current default container (v5); pass `version=4` only for a reader that predates v5. Decode accepts v4 **and** v5 — it never needs a version |
+| `encode_beast2_with_header_for(T, *, version=None)` / `decode_beast2_with_header_for(T)` | **The one you want.** The full, self-describing container: magic + type schema + value. Encode writes the current default container (v5); pass `version=4` only for a reader that predates v5. Decode accepts v4 **and** v5 — it never needs a version. ❗The header's type must be `T`, or a subtype of it whose variant cases line up with `T`'s (a `none` reads as any `Option`): the encoding is positional, so any other type raises `ValueError: beast2: cannot decode a blob of type … as …` before the value decodes — the words TypeScript and east-c use |
 | `encode_beast2_for(T)` / `decode_beast2_for(T)` | **Headerless** — raw type-directed bytes, no magic and no schema, so the reader must already know `T` exactly, and mutable containers (Array/Set/Dict/Ref) are rejected outright. Note this name means the *full container* in the TypeScript API (`encodeBeast2For`) — the two languages disagree, so do not port a call site by name |
 
 | Signature | Description |
@@ -1735,7 +1735,7 @@ with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
 | `encode_beast2_segments_for(T, **opts) -> (batches) -> bytes` | In-memory convenience over `Beast2Writer` — one segment per non-empty batch |
 | `encode_beast2_v5_for(T, *, codec="deflate", index=False) -> (value) -> bytes` | Whole-value v5 encode (any root type); decode with `decode_beast2_with_header_for` |
 | `iter_beast2_segments_for(T) -> (source) -> iterator` | Yield one decoded collection per segment, O(segment) memory; `source` is bytes / `mmap` / binary stream |
-| `decode_beast2_with_header_for(T) -> (blob) -> value` | Whole decode of v4 **or** v5 blobs (segments concatenate; Set/Dict wire must hold the canonical value — sorted, disjoint segments — and non-canonical blobs are rejected as corrupt) |
+| `decode_beast2_with_header_for(T) -> (blob) -> value` | Whole decode of v4 **or** v5 blobs (segments concatenate; Set/Dict wire must hold the canonical value — sorted, disjoint segments — and non-canonical blobs are rejected as corrupt); a header of another type raises `ValueError` first, as above |
 | `read_beast2_index(T, blob) -> (segments, elements) \| None` | O(1) totals from a v5 blob's trailing index |
 | `open_beast2_pages_for(T) -> (source) -> Beast2Pages` | Random access: `.segment_count` `.element_count` `.self_contained` `.counts`, `.segment(i)`, `.element(row)` (also `len()`/`[]`). Seeks via the index and decodes ONE segment — O(segment), not O(blob). ❗Needs a blob written with `index=True` **and** `self_contained=True` (both default); `.element()` is Array roots only. ❗Borrows the source buffer — keep it alive (and an mmap open) for the pages' lifetime, or use `open_beast2_file`, which owns it |
 

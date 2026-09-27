@@ -47,6 +47,20 @@ east-node run ./process.beast2 \
 east-node run ./program.beast2 -p @elaraai/east-node-std -v
 ```
 
+### Running a unit (`exec`)
+
+`east-node exec <unit.beast2>` is the command e3 runs: the machine-facing twin
+of `run`. The unit file names the work — a program to run over its inputs, or
+the parts of an output to merge — with the platforms, the threads the runner
+may use, the output's kind (a value the program returns, or an array, set,
+dict or fold it emits into), and where to write the output and a typed
+result: the outcome (`ok`, or `failed` with the message and its source
+locations), the peak memory, and the time spent loading, compiling, executing
+and writing. Paths in a unit may be relative to its file, so a unit and the
+files it names replay wherever they are moved together. It exits 0 when the
+outcome is `ok` and 1 when the result records a failure; `-v` prints where the
+time went and the peak memory.
+
 ### Exiting with the Parent
 
 With `--exit-with-parent` on its command line (`run` and `exec`) the runner
@@ -127,6 +141,21 @@ Options:
   -h, --help                 Display help
 ```
 
+### `east-node exec`
+
+Execute a unit, the runner protocol (see [Running a unit](#running-a-unit-exec)).
+
+```
+east-node exec <unit> [options]
+
+Arguments:
+  unit                       The unit file (.beast2); relative paths in it are relative to its directory
+
+Options:
+  -v, --verbose              Print where the time went and the peak memory
+  --exit-with-parent         Exit as soon as stdin reaches end of file
+```
+
 ### `east-node transpile`
 
 Print an East IR program as TypeScript `East.function` builder source.
@@ -200,11 +229,10 @@ names is a standalone blob in `<file>.segments/<sha256>.beast2`. It opens
 over those files — lazily, a read opening only the segments it reaches, or
 whole — and counts as the size of its segments against the threshold.
 
-Lazy opening applies only to **value-semantic element shapes** (scalars,
-structs, variants). An element type that transitively contains an Array, Set,
-Dict or Ref — which East mutates in place through read-out elements — or a
-Vector/Matrix/function (identity-compared) always decodes whole, keeping
-writes and identity semantics exactly eager. The same rule applies in the
+Inputs open **frozen** — a frozen value cannot be mutated, and a frozen
+collection compares by value — so a lazy open serves every element shape but
+one that carries a `Ref` or a function, whose identity a fresh decode of each
+segment would lose; that shape decodes whole. The same rule applies in the
 east-c and east-py runners.
 
 ## Platform Packages
@@ -280,7 +308,7 @@ Dual-licensed:
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
   - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Object store, dataflow orchestrator, execution state
   - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
-  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 start`, `e3 watch`, `e3 logs` commands
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 dataflow run`, `e3 watch`, `e3 task logs` commands
   - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 repositories
   - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
   - [@elaraai/e3-api-tests](https://www.npmjs.com/package/@elaraai/e3-api-tests): Shared API compliance test suites
