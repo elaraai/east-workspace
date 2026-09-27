@@ -126,7 +126,7 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
 
 - `/` starts a command; anything else is a fuzzy jump across workspaces, tasks, inputs and dataset paths of the open repo.
 - Completion rises above the box (≤ 8 rows), `↑↓` pick, `Tab` complete, `⏎` run, `Esc` clear. Every candidate row carries its status, type and size so the box doubles as a status line.
-- Confirmations live here: `r` prefills `/run` and the box explains the consequence (`run 6 tasks in main · ⏎ run · esc`); nothing runs until `⏎`.
+- Confirmations live here: `r` prefills `/run` and the box explains the consequence, with the cores and memory the server's budget gives the run (`run 6 tasks in main · 8 cores, 14 GB · ⏎ run · esc`); nothing runs until `⏎`.
 - Pickers live here too: `t` on a variant leaf prefills `/tag ` with the tags as completion rows — no popup.
 - Toasts are one line in the hint row for 3 s (`● Dataflow started · main · 6 tasks queued`).
 
@@ -154,13 +154,13 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ● up-to-date        features            —                 Dict<String, Struct>      84.2 MB · 38.4s       
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
+  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
+  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
+ ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
+  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
+  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
+  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -193,13 +193,13 @@ Pills (right of the header, mono uppercase, dot + word): connection (`● CONNEC
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ● up-to-date        features            —                 Dict<String, Struct>      84.2 MB · 38.4s       
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
+  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
+  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
+ ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
+  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
+  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
+  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -393,6 +393,8 @@ Launch shows the wordmark in block letters while the embedded server starts (loc
 
 Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExecutePoll` every 1 s with an event cursor. The body is one scrollable column: counts, execution, tasks table, inputs table. `⏎` on a task row opens the task; on an input row opens the input; on the failed execution row opens that task's logs. Status detail is inline (`✗ failed · exit 2`, `◐ waiting`, `◔ in-progress`), the cloud UI's hover-card text made visible.
 
+While a run is live, the execution panel shows the scheduler: its header what the server's budget holds (`cores 4 of 8 · memory 12.6 of 14 GB`), and its feed each task's latest event (a finished task's with its peak memory), a split task's start naming how far its stage has got (`forecast · 3 of 8 pieces`), each unit the guard stopped and requeued (`⟲ requeued`, why and the most it reached), and each task or unit waiting for room (`◐ waiting`, what it needs and what the budget has free), whose wait stands in place of the start of a task that waits whole. The tasks table's PEAK is the peak memory of the execution each task's status comes from.
+
 ```text
  e3-ui  demo-repo › main                                                                                   ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -406,13 +408,13 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ● up-to-date        features            —                 Dict<String, Struct>      84.2 MB · 38.4s       
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
+  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
+  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
+ ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
+  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
+  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
+  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -433,7 +435,7 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
 ```
 
 ```text
- e3-ui  demo-repo › main                                                                    ◔ RUNNING 3/6  ● CONNECTED  
+ e3-ui  demo-repo › main                                                                    ◔ RUNNING 2/6  ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  main                                                          ● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none 
  TASKS 6                                                   DATASETS 10                                                  
@@ -441,20 +443,21 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
  ✗ failed             1   ○ ready          0               ○ unset              1                                       
  ▁▃▅▇▇▇  6 of 6 accounted                                                                                               
                                                                                                                         
- EXECUTION                                                               ◔ RUNNING · started 12s ago · 3 of 6 tasks · ⠸ 
+ EXECUTION                         ◔ RUNNING · started 12s ago · 2 of 6 tasks · cores 4 of 8 · memory 12.6 of 14 GB · ⠸ 
    12s  ● cached      ingest                                                                                            
-   11s  ● complete    features                                                                                  4.2s    
-    9s  ◔ start       forecast                                                                                  ⠸ 9s    
-    9s  ◐ waiting     optimise                                                                   waiting on forecast    
+   11s  ● complete    features                                                                    4.2s · peak 1.8 GB    
+    9s  ◔ start       forecast · 3 of 8 pieces                                                                  ⠸ 9s    
+    4s  ⟲ requeued    forecast · piece 5 of 8                                                  over budget at 3.2 GB    
+    2s  ◐ waiting     forecast · piece 5 of 8                                             needs 3.2 GB · 1.4 GB free    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ◔ in-progress       features            —                 Dict<String, Struct>      ⠸ 9s                  
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
+  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
+  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
+ ▌forecast  ◔ in-progress      features           —                Dict<String, Struct> ⠸ 9s               —            
+  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
+  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
+  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -462,7 +465,6 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
   calendar      ● up-to-date    Array<Struct>             2.1 KB    5b0e88a1c3d7                                        
   params        ◐ stale         Struct                    1.2 KB    0a44e1b7c9d2                                        
   overrides     ○ unset         Dict<String, Float>       —         —                                                   
-                                                                                                                        
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -484,13 +486,13 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ● up-to-date        features            —                 Dict<String, Struct>      84.2 MB · 38.4s       
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
+  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
+  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
+ ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
+  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
+  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
+  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -505,7 +507,7 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › /run --force_                       run 6 tasks in main, ignoring the cache                      ⏎ run · esc         
+ › /run --force_                       run 6 tasks in main, ignoring the cache · 8 cores, 14 GB    ⏎ run · esc          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  --force  re-run everything    --filter <glob>  only matching tasks
 ```
@@ -514,7 +516,7 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
 
 Tabs `1 Output · 2 Stdout · 3 Stderr · 4 Runs` (+ `5 Reads` for a `ui` task). Title line: role, status word with detail, duration, inputs hash (a `ui` task: `3 reads · 1 function`). Second line: output path, type, entry count, size, content hash.
 
-**Output** — the value tree (§8). **Stdout / Stderr** — one tab per stream: `taskLogs` in 64 KB chunks (`offset += size`, 10 MB cap), 1 s poll for the shown stream (stderr every 5 s on every task tab, so the Stderr tab carries its line count — `3 Stderr (12)` — before it is visited), follow-tail with a `↑ pauses follow` rule, `/find` with n/N, `s` save, `c` copy (OSC 52, with a fallback note); each tab keeps its own scroll, follow and match. **Runs** — `taskExecutionList` with `all=true` (every attempt, not only the latest per inputs hash), `⏎` expands the inputs hashes. **Reads** — the manifest's `paths` (each `⏎`-openable as a dataset), `functions`, `records`.
+**Output** — the value tree (§8). **Stdout / Stderr** — one tab per stream: `taskLogs` in 64 KB chunks (`offset += size`, 10 MB cap), 1 s poll for the shown stream (stderr every 5 s on every task tab, so the Stderr tab carries its line count — `3 Stderr (12)` — before it is visited), follow-tail with a `↑ pauses follow` rule, `/find` with n/N, `s` save, `c` copy (OSC 52, with a fallback note); each tab keeps its own scroll, follow and match. **Runs** — `taskExecutionList` with `all=true` (every attempt, not only the latest per inputs hash), with each attempt's peak memory; `⏎` expands the inputs hashes. **Reads** — the manifest's `paths` (each `⏎`-openable as a dataset), `functions`, `records`.
 
 ```text
  e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED
@@ -678,14 +680,14 @@ Tabs `1 Output · 2 Stdout · 3 Stderr · 4 Runs` (+ `5 Reads` for a `ui` task).
  forecast    1 Output   2 Stdout   3 Stderr (12)  ▌4 Runs▐   DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9
  .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-  STATUS      STARTED               DURATION  EXIT  INPUTS
- ▌● success   2026-09-08 11:42:10   38.4s     0     4be1…a9       ← current
-  ● success   2026-09-08 09:12:44   37.9s     0     4be1…a9
-  ✗ failed    2026-09-07 18:03:21   2.1s      2     1c07…3f
-  ● success   2026-09-07 17:55:02   39.0s     0     1c07…3f
-  ◐ error     2026-09-06 08:00:00   —         —     e0d2…77       runner exited early
-  ● success   2026-09-05 08:00:00   41.2s     0     e0d2…77
-  ● success   2026-09-04 08:00:00   40.7s     0     90aa…c1
+  STATUS      STARTED               DURATION  PEAK      EXIT  INPUTS
+ ▌● success   2026-09-08 11:42:10   38.4s     2.9 GB    0     4be1…a9       ← current
+  ● success   2026-09-08 09:12:44   37.9s     2.8 GB    0     4be1…a9
+  ✗ failed    2026-09-07 18:03:21   2.1s      1.2 GB    2     1c07…3f
+  ● success   2026-09-07 17:55:02   39.0s     2.9 GB    0     1c07…3f
+  ◐ error     2026-09-06 08:00:00   —         —         —     e0d2…77       runner exited early
+  ● success   2026-09-05 08:00:00   41.2s     3.0 GB    0     e0d2…77
+  ● success   2026-09-04 08:00:00   40.7s     2.9 GB    0     90aa…c1
 
  ▪ 4be1…a9 = sha256 of the inputs (.tasks.features.output 0a44…, params 7be2…) · ⏎ expands the list
 
@@ -943,13 +945,13 @@ The same tree, editable (§9), with the commit bar above the command box while d
     1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ● up-to-date        features            —                 Dict<String, Struct>      84.2 MB · 38.4s       
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS             DEPENDS ON         INPUTS           OUTPUT               SIZE · LAST RUN    PEAK         
+  ingest    ● up-to-date       —                  sales, calendar  Array<Struct>        12.1 MB · 3.1s     310 MB       
+  features  ● up-to-date       ingest             params           Struct               412.6 MB · 12.0s   1.8 GB       
+ ▌forecast  ● up-to-date       features           —                Dict<String, Struct> 84.2 MB · 38.4s    2.9 GB       
+  optimise  ◐ waiting          forecast           overrides        Array<Struct>        — · waiting on fo… —            
+  report    ✗ failed · exit 2  forecast, optimise —                String               — · 0.8s           96 MB        
+  dashboard ○ ready            —                  sales            UIComponentType      41 KB · never      —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -985,7 +987,7 @@ Edits are an ordered op list (`edit | insert | remove | tag`) applied through `V
 
 ## 10. Dataflow
 
-`/run` → `dataflowExecuteLaunch` (its own `workspace_locked` retry), then the execution poller is bumped; the request carries no parallelism — the run goes under its server's budget, which for a local repository is the embedded server's (`-j` / `--memory`); `/stop` → `dataflowCancel`. A *settling* flag blocks double-launch until the poll catches up. Events are formatted as the cloud UI does (`start · complete 4.2s · cached · failed exit 2 · error msg · input_unavailable reason`) with relative timestamps. `status.lock` shows the holder (pid · acquiredAt · command). Cancelling a run launched by another server process fails with `internal: No active execution` → a toast explains.
+`/run` → `dataflowExecuteLaunch` (its own `workspace_locked` retry), then the execution poller is bumped; the request carries no parallelism — the run goes under its server's budget, which for a local repository is the embedded server's (`-j` / `--memory`), and which the confirmation names (`dataflowBudget`, polled every 30 s); `/stop` → `dataflowCancel`. A *settling* flag blocks double-launch until the poll catches up. Events are formatted as the cloud UI does (`start · complete 4.2s · peak 1.8 GB · cached · failed exit 2 · error msg · input_unavailable reason`, and a unit's `requeued · over budget at 3.2 GB`) with relative timestamps. The poll carries, beside the events, the budget in use and, while the run is in flight in the server that serves the poll, the tasks and units waiting for room and each split task's progress: nothing stores those two, so a run another process runs shows neither. `status.lock` shows the holder (pid · acquiredAt · command). Cancelling a run launched by another server process fails with `internal: No active execution` → a toast explains.
 
 ## 11. Polling and connection
 
@@ -1124,6 +1126,7 @@ Where the implementation differs from the mocks above (each was a deliberate cal
 - **Task tabs** — the Logs tab became two, `2 Stdout` and `3 Stderr` (Runs and Reads move to `4` and `5`); the Stderr tab carries its line count once the stream has any, each stream tab keeps its own scroll / follow / match, and the status line under the rule shows the shown stream's totals; `o` / `e` are retired (the digits switch), `/logs <task> [stderr]` opens the tab. To keep 120 columns: a `ui` task's title reads `3 reads · 1 function` (no `manifest:`), the hint bar's tab list is two-spaced and the Output tab's hints drop `pgup pgdn`, and the mouse hint yields when the line is full (a user request while testing, 2026-09-09).
 - **Tabs by keyboard** — `tab` / `⇧tab` cycle a task's tabs and the help tabs (the "next / prev pane" the design reserved them for had no second pane); `←` / `→` cycle too, but only where no content claims the arrows — the help view and the Stdout / Stderr tabs — since the Output tab expands and collapses on them and Runs / Reads open on `→` (a user question while testing, 2026-09-09).
 - **Runs** — every attempt is a row (the executions endpoint gained `?all=true`; its default stays the latest attempt per inputs hash, which hid retries and forced re-runs — a user report while testing, 2026-09-09); no per-run note text beyond `← current` (the newest run of an up-to-date task); durations are the API's milliseconds.
+- **The scheduler** (e3's budget, 2026-09-27) — as the approved mock, with these calls: the running header keeps `started 12s ago` and, short of room, drops it for the budget, then the budget for it; the memory in use names its unit once when both share it (`12.6 of 14 GB`); a split task's start reads `forecast · 3 of 8 pieces` (the mock: `piece 3 of 8`); a unit's requeue and wait are rows of their own, the latest requeue per unit, and a task waiting whole shows its wait in place of its start; `/run`'s confirmation reads `· 8 cores, 14 GB` (no `budget`, so `--force` keeps 120 columns). PEAK is the wide tasks table's last column, dropped below 100 columns, and a task in progress shows `—` there (its execution has no peak until it ends; the mock showed the last run's); the Runs tab's PEAK follows DURATION. To fit PEAK at 120 columns the tasks table starts NAME at 10 cells (it grows to the longest name), STATUS and DEPENDS ON at 19, INPUTS 17, OUTPUT 21 and SIZE · LAST RUN 19, so a waiting reason ends sooner.
 - **Inputs** — `⏎` with nothing pending toggles a branch or edits a leaf; `esc` with pending edits confirms a discard; commands that leave the view confirm through `/discard --then "<command>"`; the conflict banner's `esc` keeps editing on the old base (an apply then overwrites).
 - **Layout** — the medium (80–99) and narrow (60–79) column plans are tighter than the 120-column design, and `fitPlan` narrows the widest fixed columns until the last column keeps 12 cells (untouched at 120); a table's NAME column grows to its longest name (up to 24 cells) so real task names such as `forecast_count` are never clipped, and a fixed cell that still overflows ends in `…` with one cell of gap before the next column.
 - **Durations** — event, summary and run durations are the API's milliseconds; an execution summary without a duration (the server only times the runs it launched itself) shows `completedAt − startedAt`.

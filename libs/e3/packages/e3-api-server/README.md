@@ -232,11 +232,13 @@ another version, or none, is refused, naming the fix. The full protocol is in
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/repos/:repo/workspaces/:ws/dataflow/start` | Start dataflow (async, returns immediately) |
-| POST | `/api/repos/:repo/workspaces/:ws/dataflow/execute` | Execute dataflow (blocking, returns result) |
+| POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight in this server, the tasks and units waiting for room and each split task's progress |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a server that runs no dataflow) |
+| POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/logs/:task` | Read task logs |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/state` | Get current execution state |
 
 ## Request/Response Format
 

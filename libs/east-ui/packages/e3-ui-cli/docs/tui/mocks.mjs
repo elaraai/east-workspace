@@ -170,26 +170,33 @@ function dashboard({ running = false, commit = [], completion = [], command = CM
     two(pad('✗ failed', 18) + padL('1', 4) + '   ' + pad('○ ready', 14) + padL('0', 4), pad('○ unset', 18) + padL('1', 4)),
     two('▁▃▅▇▇▇  6 of 6 accounted', ''),
   ];
+  // An event row: the detail flush right, four cells from the edge.
+  const feed = (left, right) => left + padL(right, W - left.length - 4);
+  // While running: the server's budget in use; forecast split into 8 pieces, 3 done, and
+  // piece 5, stopped past the budget, waiting for the room to run again.
   const exec = running ? [
-    lr('EXECUTION', '◔ RUNNING · started 12s ago · 3 of 6 tasks · ⠸'),
+    lr('EXECUTION', '◔ RUNNING · started 12s ago · 2 of 6 tasks · cores 4 of 8 · memory 12.6 of 14 GB · ⠸'),
     '   12s  ● cached      ingest',
-    '   11s  ● complete    features' + padL('4.2s', W - 34),
-    '    9s  ◔ start       forecast' + padL('⠸ 9s', W - 34),
-    '    9s  ◐ waiting     optimise' + padL('waiting on forecast', W - 34),
+    feed('   11s  ● complete    features', '4.2s · peak 1.8 GB'),
+    feed('    9s  ◔ start       forecast · 3 of 8 pieces', '⠸ 9s'),
+    feed('    4s  ⟲ requeued    forecast · piece 5 of 8', 'over budget at 3.2 GB'),
+    feed('    2s  ◐ waiting     forecast · piece 5 of 8', 'needs 3.2 GB · 1.4 GB free'),
   ] : [
     lr('LAST EXECUTION', '✗ FAILED · started 2m ago · 38.4s · executed 4 · cached 1 · failed 1 · skipped 0'),
-    '    1m  ✗ failed      report' + padL('exit 2 · 0.8s     ⏎ logs', W - 32),
+    feed('    1m  ✗ failed      report', 'exit 2 · 0.8s     ⏎ logs'),
   ];
-  const t = (sel, name, status, deps, inputs, out) => ' ' + (sel ? '▌' : ' ') + pad(name, 12) + pad(status, 20) + pad(deps, 20) + pad(inputs, 18) + pad(out, 26) + '';
+  // A cell that overflows ends in `…` with a cell of gap, as the table fits it.
+  const fit = (s, n) => pad(s.length >= n ? s.slice(0, n - 2) + '…' : s, n);
+  const t = (sel, name, status, deps, inputs, out, size, peak) => ' ' + (sel ? '▌' : ' ') + pad(name, 10) + fit(status, 19) + fit(deps, 19) + fit(inputs, 17) + fit(out, 21) + fit(size, 19) + peak;
   const tasks = [
     lr('TASKS', ''),
-    ' ' + pad(' NAME', 13) + pad('STATUS', 20) + pad('DEPENDS ON', 20) + pad('INPUTS', 18) + pad('OUTPUT', 26) + 'SIZE · LAST RUN',
-    t(false, 'ingest', '● up-to-date', '—', 'sales, calendar', 'Array<Struct>') + '12.1 MB · 3.1s',
-    t(false, 'features', '● up-to-date', 'ingest', 'params', 'Struct') + '412.6 MB · 12.0s',
-    t(true, 'forecast', running ? '◔ in-progress' : '● up-to-date', 'features', '—', 'Dict<String, Struct>') + (running ? '⠸ 9s' : '84.2 MB · 38.4s'),
-    t(false, 'optimise', '◐ waiting', 'forecast', 'overrides', 'Array<Struct>') + '— · waiting on forecast',
-    t(false, 'report', '✗ failed · exit 2', 'forecast, optimise', '—', 'String') + '— · 0.8s',
-    t(false, 'dashboard', '○ ready', '—', 'sales', 'UIComponentType') + '41 KB · never',
+    ' ' + pad(' NAME', 11) + pad('STATUS', 19) + pad('DEPENDS ON', 19) + pad('INPUTS', 17) + pad('OUTPUT', 21) + pad('SIZE · LAST RUN', 19) + 'PEAK',
+    t(false, 'ingest', '● up-to-date', '—', 'sales, calendar', 'Array<Struct>', '12.1 MB · 3.1s', '310 MB'),
+    t(false, 'features', '● up-to-date', 'ingest', 'params', 'Struct', '412.6 MB · 12.0s', '1.8 GB'),
+    t(true, 'forecast', running ? '◔ in-progress' : '● up-to-date', 'features', '—', 'Dict<String, Struct>', running ? '⠸ 9s' : '84.2 MB · 38.4s', running ? '—' : '2.9 GB'),
+    t(false, 'optimise', '◐ waiting', 'forecast', 'overrides', 'Array<Struct>', '— · waiting on forecast', '—'),
+    t(false, 'report', '✗ failed · exit 2', 'forecast, optimise', '—', 'String', '— · 0.8s', '96 MB'),
+    t(false, 'dashboard', '○ ready', '—', 'sales', 'UIComponentType', '41 KB · never', '—'),
   ];
   const d = (name, status, type, size, hash) => '  ' + pad(name, 14) + pad(status, 16) + pad(type, 26) + pad(size, 10) + hash;
   const inputs = [
@@ -201,7 +208,7 @@ function dashboard({ running = false, commit = [], completion = [], command = CM
     d('overrides', '○ unset', 'Dict<String, Float>', '—', '—'),
   ];
   const body = [lr('main', '● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none'), ...strip, '', ...exec, '', ...tasks, '', ...inputs];
-  const pills = running ? '◔ RUNNING 3/6  ● CONNECTED  ' : PILLS_OK;
+  const pills = running ? '◔ RUNNING 2/6  ● CONNECTED  ' : PILLS_OK;
   const context = 'main · demand@1.4.2 · deployed 3d ago · lock: none';
   return shell({
     crumb: 'demo-repo › main', pills, context, body, commit, completion, command,
@@ -211,9 +218,9 @@ function dashboard({ running = false, commit = [], completion = [], command = CM
 write('S05-dashboard', dashboard({}));
 write('S06-dashboard-running', dashboard({ running: true, footer: FOOTER('↑↓ move   ⏎ open   x stop   / commands', 'polled just now') }));
 
-// S06b — run confirmation lives IN the command bar (no dialog)
+// S06b — run confirmation lives IN the command bar (no dialog), with the budget the server gives the run
 write('S06b-run-confirm', dashboard({
-  command: ' > /run --force_                       run 6 tasks in main, ignoring the cache                      ⏎ run · esc',
+  command: ' > /run --force_                       run 6 tasks in main, ignoring the cache · 8 cores, 14 GB    ⏎ run · esc',
   footer: FOOTER('--force  re-run everything    --filter <glob>  only matching tasks', ''),
 }));
 
@@ -390,16 +397,16 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
 // S11 — runs
 // ---------------------------------------------------------------------------
 {
-  const r = (sel, status, started, dur, exit, hash, note = '') => ' ' + (sel ? '▌' : ' ') + pad(status, 12) + pad(started, 22) + pad(dur, 10) + pad(exit, 6) + pad(hash, 14) + note;
+  const r = (sel, status, started, dur, peak, exit, hash, note = '') => ' ' + (sel ? '▌' : ' ') + pad(status, 12) + pad(started, 22) + pad(dur, 10) + pad(peak, 10) + pad(exit, 6) + pad(hash, 14) + note;
   const body = [
-    ' ' + pad(' STATUS', 13) + pad('STARTED', 22) + pad('DURATION', 10) + pad('EXIT', 6) + pad('INPUTS', 14) + '',
-    r(true, '● success', '2026-09-08 11:42:10', '38.4s', '0', '4be1…a9', '← current'),
-    r(false, '● success', '2026-09-08 09:12:44', '37.9s', '0', '4be1…a9'),
-    r(false, '✗ failed', '2026-09-07 18:03:21', '2.1s', '2', '1c07…3f'),
-    r(false, '● success', '2026-09-07 17:55:02', '39.0s', '0', '1c07…3f'),
-    r(false, '◐ error', '2026-09-06 08:00:00', '—', '—', 'e0d2…77', 'runner exited early'),
-    r(false, '● success', '2026-09-05 08:00:00', '41.2s', '0', 'e0d2…77'),
-    r(false, '● success', '2026-09-04 08:00:00', '40.7s', '0', '90aa…c1'),
+    ' ' + pad(' STATUS', 13) + pad('STARTED', 22) + pad('DURATION', 10) + pad('PEAK', 10) + pad('EXIT', 6) + pad('INPUTS', 14) + '',
+    r(true, '● success', '2026-09-08 11:42:10', '38.4s', '2.9 GB', '0', '4be1…a9', '← current'),
+    r(false, '● success', '2026-09-08 09:12:44', '37.9s', '2.8 GB', '0', '4be1…a9'),
+    r(false, '✗ failed', '2026-09-07 18:03:21', '2.1s', '1.2 GB', '2', '1c07…3f'),
+    r(false, '● success', '2026-09-07 17:55:02', '39.0s', '2.9 GB', '0', '1c07…3f'),
+    r(false, '◐ error', '2026-09-06 08:00:00', '—', '—', '—', 'e0d2…77', 'runner exited early'),
+    r(false, '● success', '2026-09-05 08:00:00', '41.2s', '3.0 GB', '0', 'e0d2…77'),
+    r(false, '● success', '2026-09-04 08:00:00', '40.7s', '2.9 GB', '0', '90aa…c1'),
     '',
     ' ▪ 4be1…a9 = sha256 of the inputs (.tasks.features.output 0a44…, params 7be2…) · ⏎ expands the list',
   ];

@@ -150,6 +150,21 @@ the run is aborted.
 command has its own, so two commands running at once on one machine each take
 the full count.
 
+## Watching a run
+
+- **`e3 dataflow run`** prints each task as it starts and ends, each unit of a
+  split task as it finishes (`[PART]`, `[MERGE]`, `[COMBINE]`), and each unit
+  the guard stopped (`[REQUEUE]`: why, and what it reserves when it runs again).
+- **The API's execution poll** carries the run's events, among them each
+  finished task's peak memory and each unit requeued. While the run is in
+  flight in the server that serves the poll, it also carries what waits for
+  room and how far each split task has got through its stage, beside the budget
+  in use. Nothing stores those two, so a run another process runs shows neither.
+- **e3-ui** shows them on a workspace's dashboard: the budget in use in the
+  execution panel's header, `forecast · 3 of 8 pieces` on a split task's start,
+  a row for each unit requeued and each task or unit waiting for room, and each
+  task's peak memory. `/run` names the budget the run gets before it starts.
+
 ## Records
 
 A task reads a record as it reads any collection. It gets the record's rows,
