@@ -8,11 +8,13 @@
  * the current view), so a feed runs only while a view that needs it is
  * mounted: `workspaceStatus` 1 s and the execution state 1 s (5 s idle) for
  * the open workspace, `workspaceList` 5 s once a repository is bound,
- * `repoList` 5 s on a bare origin, dataset types 5 s, task kinds, the
- * deployed state and the budget a run gets (`/run`'s confirmation) 30 s,
- * per-workspace summaries 5 s in the workspaces view, task details once,
- * executions 5 s on the runs tab, the shown log stream 1 s and stderr 5 s
- * on every task tab (the Stderr tab's line count). Each result becomes a
+ * `repoList` 5 s on a bare origin, dataset types 5 s — each record's
+ * signature, rows and newest commit read after them when its state moved —
+ * task kinds, the deployed state and the budget a run gets (`/run`'s
+ * confirmation) 30 s, per-workspace summaries 5 s in the workspaces view,
+ * task details once, executions 5 s on the runs tab, the shown log stream
+ * 1 s and stderr 5 s on every task tab (the Stderr tab's line count), and a
+ * record's newest commits 5 s on its History tab. Each result becomes a
  * `data/*` action; the connection pill is derived from the pollers after
  * every result and failure.
  *
@@ -24,6 +26,7 @@ import type { Api } from '../api.js';
 import { describeError, isApiCode } from '../api.js';
 import { createDatasetLoader, viewDataset, type DatasetLoader } from './dataset.js';
 import { createLogsLoader } from './logs.js';
+import { createRecordsLoader, type RecordsLoader } from './records.js';
 import { isLogTab, type TuiState } from '../state/actions.js';
 import { connectionState, createPoller, type PollClock, type Poller } from '../state/poll.js';
 import type { Store } from '../state/store.js';
@@ -51,6 +54,8 @@ export interface Feeds {
     sync(): void;
     /** The dataset loader behind the value tree (pages, key search, saves). */
     datasets: DatasetLoader;
+    /** The records loader behind the RECORDS table and the record view. */
+    records: RecordsLoader;
 }
 
 /** What {@link createFeeds} needs. */
@@ -66,7 +71,7 @@ export interface FeedsDeps {
 /** The workspace a view is about, if any. */
 export function viewWorkspace(state: TuiState): string | null {
     const v = state.view;
-    if (v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input') return v.ws;
+    if (v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input' || v.kind === 'record') return v.ws;
     return null;
 }
 
@@ -85,6 +90,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
     const repoStatusRequested = new Set<string>();
     const datasets = createDatasetLoader({ store, api: deps.api, log: deps.log });
     const logs = createLogsLoader({ store, api: deps.api, log: deps.log });
+    const records = createRecordsLoader({ store, api: deps.api, log: deps.log });
 
     /** A repository's counts and its latest deployment (the repositories view's lazy columns). */
     const repoFacts = async (api: Api, name: string): Promise<void> => {
@@ -233,6 +239,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 run: async () => {
                     const entries = await api.datasetList(ws);
                     store.dispatch({ type: 'data/datasets', ws, entries });
+                    await records.tick(ws);
                 },
             });
             out.push({
@@ -294,6 +301,9 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 if (stream !== logTab && stream === 'stdout') continue;
                 out.push({ key: `logs:${ws}/${task}/${stream}`, intervalMs: stream === logTab ? 1_000 : 5_000, run: () => logs.tick(view.ws, task, stream) });
             }
+        }
+        if (view.kind === 'record' && view.tab === 'history') {
+            out.push({ key: `recordHistory:${view.ws}/${view.name}`, intervalMs: 5_000, run: () => records.history(view.ws, view.name) });
         }
         return out;
     };
@@ -361,5 +371,6 @@ export function createFeeds(deps: FeedsDeps): Feeds {
         pollers: () => [...running.values()],
         sync,
         datasets,
+        records,
     };
 }

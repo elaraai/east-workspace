@@ -23,6 +23,10 @@ describe('parseCommand', () => {
         assert.deepEqual(ok('/task forecast'), { name: 'task', target: 'forecast' });
         assert.deepEqual(ok('task forecast'), { name: 'task', target: 'forecast' });
         assert.deepEqual(ok('/input params'), { name: 'input', target: 'params' });
+        assert.deepEqual(ok('/record ledger'), { name: 'record', target: 'ledger' });
+        assert.deepEqual(ok('/index by_store'), { name: 'index', target: 'by_store' });
+        assert.deepEqual(ok('/index primary'), { name: 'index', target: 'primary' });
+        assert.match(bad('/index'), /an index, or primary required — \/index <name\|primary>/);
         assert.deepEqual(ok('/dataset .tasks.forecast.output'), { name: 'dataset', target: '.tasks.forecast.output' });
         assert.deepEqual(ok('/workspace staging'), { name: 'workspace', target: 'staging' });
         assert.deepEqual(ok('/repo https://h/repos/x'), { name: 'repo', target: 'https://h/repos/x' });
@@ -115,6 +119,11 @@ describe('describe', () => {
         assert.equal(describeCommand(ok('/quit'), { ...ctx, dirty: 2 }).text, 'quit with 2 unsaved edits');
         assert.equal(describeCommand(ok('/quit --force'), { ...ctx, dirty: 2 }).text, 'quit');
         assert.equal(describeCommand(ok('/repo ./x'), { ...ctx, dirty: 1 }).text, 'open ./x · 1 unsaved edits are discarded');
+    });
+    test('a record and its indexes', () => {
+        assert.equal(describeCommand(ok('/record ledger'), ctx).text, 'open record ledger');
+        assert.equal(describeCommand(ok('/index by_store'), ctx).text, 'page through index by_store');
+        assert.equal(describeCommand(ok('/index primary'), ctx).text, 'page through the rows');
     });
 });
 

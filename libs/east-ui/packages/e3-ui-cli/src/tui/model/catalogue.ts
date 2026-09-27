@@ -4,9 +4,10 @@
  */
 
 /**
- * The completion catalogue — every workspace, task, input and dataset of
- * the open repository with its status / type / size columns, built from
- * the current workspace status + the workspace list.
+ * The completion catalogue — every workspace, task, input, record and
+ * dataset of the open repository with its status / type / size columns,
+ * built from the current workspace status + the workspace list, and in a
+ * record view the indexes `/index` pages through.
  *
  * @packageDocumentation
  */
@@ -14,8 +15,9 @@
 import type { EastTypeValue } from '@elaraai/east';
 import type { Catalogue, CatalogueItem } from '../input/completion.js';
 import type { Glyphs } from '../render/glyphs.js';
-import { formatSize } from '../render/text.js';
+import { formatInt, formatSize } from '../render/text.js';
 import type { TuiState } from '../state/actions.js';
+import { keyTypeOf } from './tree.js';
 import { compactType } from './types.js';
 import { datasetStatusCell, statusText, taskStatusCell } from './status.js';
 
@@ -86,6 +88,18 @@ export function buildCatalogue(state: TuiState, g: Glyphs, tags?: string[]): Cat
                     detail: entry?.size != null ? formatSize(entry.size) : '—',
                 });
             }
+            if (dataset.path.startsWith('.records.')) {
+                const name = dataset.path.slice('.records.'.length);
+                const rows = state.data.records[ws]?.[name]?.rows;
+                items.push({
+                    kind: 'record',
+                    name,
+                    workspace: ws,
+                    status: rows != null ? `${formatInt(rows)} rows` : '',
+                    type: entry?.type ?? '',
+                    detail: entry?.size != null ? formatSize(entry.size) : '—',
+                });
+            }
             items.push({
                 kind: 'dataset',
                 name: dataset.path,
@@ -100,5 +114,28 @@ export function buildCatalogue(state: TuiState, g: Glyphs, tags?: string[]): Cat
         const status = state.data.repos?.status[name];
         items.push({ kind: 'repo', name, workspace: null, status: status !== undefined ? `${status.workspaceCount} workspaces` : '', type: '', detail: '' });
     }
-    return { items, tags };
+    return { items, tags, indexes: indexesOf(state) };
+}
+
+/**
+ * What `/index` offers in a record view: `primary` (the rows, by the
+ * record's own key), then each index the record declares.
+ *
+ * @param state - The store state
+ * @returns The choices, or undefined outside a record view
+ */
+function indexesOf(state: TuiState): { name: string; key: string; detail: string }[] | undefined {
+    const v = state.view;
+    if (v.kind !== 'record') return undefined;
+    const listed = (state.data.datasets[v.ws] ?? []).find(entry => entry.type === 'dataset' && entry.value.path.replace(/^\./, '') === `records.${v.name}`);
+    const primaryKey = listed?.type === 'dataset' ? keyTypeOf(listed.value.type) : null;
+    const out = [{ name: 'primary', key: primaryKey === null ? '' : `${compactType(primaryKey)} key`, detail: 'the rows' }];
+    for (const index of state.data.records[v.ws]?.[v.name]?.signature?.indexes ?? []) {
+        out.push({
+            name: index.name,
+            key: `${compactType(index.keyType)} key${index.multi ? 's' : ''}`,
+            detail: index.valueType.type === 'Null' ? 'joins each row' : `projects ${compactType(index.valueType)}`,
+        });
+    }
+    return out;
 }

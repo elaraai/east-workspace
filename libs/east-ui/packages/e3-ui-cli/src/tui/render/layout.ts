@@ -129,7 +129,7 @@ export interface ColumnSpec {
 }
 
 /** The tables with a per-breakpoint column plan. */
-export type TableKind = 'tasks' | 'inputs' | 'workspaces' | 'repos' | 'runs' | 'completion' | 'jump';
+export type TableKind = 'tasks' | 'inputs' | 'records' | 'workspaces' | 'repos' | 'runs' | 'history' | 'completion' | 'jump';
 
 /**
  * The column plan of a table at a width class. Widths are the design's
@@ -173,6 +173,16 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
                 { key: 'size', title: 'SIZE', width: narrow ? 0 : 10 },
                 ...(narrow ? [] : [{ key: 'hash', title: 'HASH', width: 0 }]),
             ];
+        case 'records':
+            // The newest commit takes the rest of the row — its mutation, actor and age, which at
+            // 80 columns still fit beside the indexes; NAME starts narrow and grows to the longest.
+            return [
+                { key: 'name', title: 'NAME', width: 10, grow: 24 },
+                { key: 'rows', title: 'ROWS', width: narrow || medium ? 10 : 12 },
+                { key: 'size', title: 'SIZE', width: 10 },
+                ...(narrow ? [] : [{ key: 'indexes', title: 'INDEXES', width: medium ? 20 : 26 }]),
+                { key: 'lastCommit', title: 'LAST COMMIT', width: 0 },
+            ];
         case 'workspaces':
             return [
                 { key: 'name', title: 'NAME', width: narrow || medium ? 12 : 14, grow: 24 },
@@ -198,6 +208,13 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
                 { key: 'exit', title: 'EXIT', width: 6 },
                 { key: 'inputs', title: 'INPUTS', width: narrow ? 0 : 14 },
                 ...(narrow ? [] : [{ key: 'note', title: '', width: 0 }]),
+            ];
+        case 'history':
+            return [
+                { key: 'when', title: 'WHEN', width: 22 },
+                { key: 'mutation', title: 'MUTATION', width: 14, grow: 28 },
+                ...(narrow ? [] : [{ key: 'actor', title: 'ACTOR', width: 14, grow: 24 }]),
+                { key: 'commit', title: 'COMMIT', width: 0 },
             ];
         case 'completion':
             return [

@@ -190,8 +190,8 @@ export interface TreeContext {
 }
 
 /**
- * The tree context of the current view (the task view's Output tab or an
- * input view).
+ * The tree context of the current view (the task view's Output tab, an
+ * input view, or the record view's State tab).
  *
  * @param state - The store state
  * @returns The context, or null
@@ -199,7 +199,7 @@ export interface TreeContext {
 export function treeContext(state: TuiState): TreeContext | null {
     const shown = viewDataset(state);
     const v = state.view;
-    if (shown === null || (v.kind !== 'task' && v.kind !== 'input')) return null;
+    if (shown === null || (v.kind !== 'task' && v.kind !== 'input' && v.kind !== 'record')) return null;
     let data = state.data.dataset[shown.ws]?.[shown.path];
     const edit = state.edit;
     const editingHere = edit !== null && edit.ws === shown.ws && edit.path === shown.path;
@@ -493,10 +493,14 @@ function formOf(query: DatasetKeyQuery): MatchUi['form'] {
     return 'key' in query ? 'exact' : 'fields' in query ? 'fields' : 'prefix' in query ? 'prefix' : 'range';
 }
 
-/** The `/save` target: `<ws>.<name>.beast2` in the working directory unless a file is given. */
+/**
+ * The `/save` target: `<ws>.<name>.beast2` in the working directory unless a
+ * file is given. A record's index saves the record's rows, so it is named
+ * after the record.
+ */
 export function saveTarget(ws: string, dataset: string, file: string | undefined): string {
     if (file !== undefined) return path.resolve(file);
-    const name = dataset.replace(/^\.(inputs|tasks)\./, '').replace(/\.output$/, '');
+    const name = dataset.replace(/#.*$/, '').replace(/^\.(inputs|tasks|records)\./, '').replace(/\.output$/, '');
     return path.resolve(`${ws}.${name}.beast2`);
 }
 

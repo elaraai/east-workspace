@@ -71,7 +71,7 @@ function Row({ line, theme }: { line: Line; theme: Theme }): ReactElement {
 /** Whether the state animates (the spinner ticks). */
 function animating(state: TuiState): boolean {
     if (state.view.kind === 'launch') return true;
-    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' ? state.view.ws : null;
+    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' || state.view.kind === 'record' ? state.view.ws : null;
     if (ws === null) return false;
     const execution = state.data.execution[ws];
     return execution?.state?.status.type === 'running' || execution?.settling === true;

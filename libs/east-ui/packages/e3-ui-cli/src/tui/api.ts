@@ -37,6 +37,8 @@ import {
     taskLogs,
     workspaceGet,
     workspaceList,
+    workspaceRecordDescribe,
+    workspaceRecordHistory,
     workspaceStatus,
     type DataflowBudget,
     type DataflowExecutionState,
@@ -50,6 +52,8 @@ import {
     type ListEntry,
     type LogChunk,
     type LogOptions,
+    type RecordHistoryResult,
+    type RecordSignature,
     type RepositoryStatus,
     type RequestOptions,
     type TaskDetails,
@@ -109,6 +113,10 @@ export interface Api {
     dataflowBudget(ws: string): Promise<DataflowBudget | null>;
     dataflowCancel(ws: string): Promise<void>;
     taskLogs(ws: string, task: string, options: LogOptions): Promise<LogChunk>;
+    /** A record's mutations and indexes. */
+    recordDescribe(ws: string, record: string): Promise<RecordSignature>;
+    /** A page of a record's commits, newest first: from its newest, or from the commit `from`. */
+    recordHistory(ws: string, record: string, page: { limit: number; from?: string }): Promise<RecordHistoryResult>;
     /** The same origin bound to another repository (the repositories view's lazy facts). */
     withRepo(repo: string): Api;
 }
@@ -165,6 +173,8 @@ export function createHttpApi(config: HttpApiConfig): Api {
         dataflowBudget: async (ws) => dataflowBudget(apiUrl, repo(), ws, await options()),
         dataflowCancel: async (ws) => dataflowCancel(apiUrl, repo(), ws, await options()),
         taskLogs: async (ws, task, logOptions) => taskLogs(apiUrl, repo(), ws, task, logOptions, await options()),
+        recordDescribe: async (ws, record) => workspaceRecordDescribe(apiUrl, repo(), ws, record, await options()),
+        recordHistory: async (ws, record, page) => workspaceRecordHistory(apiUrl, repo(), ws, record, page.limit, await options(), page.from),
         withRepo: (other) => createHttpApi({ ...config, repo: other }),
     };
 }

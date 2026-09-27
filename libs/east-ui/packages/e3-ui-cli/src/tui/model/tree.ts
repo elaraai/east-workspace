@@ -87,11 +87,36 @@ export function defaultOpenDepth(type: EastTypeValue): number {
     return isCollectionType(row) ? 0 : DEFAULT_OPEN_DEPTH;
 }
 
+/**
+ * The dataset source a record view pages: the record's rows at
+ * `.records.<name>`, or one of its indexes at `.records.<name>#<index>` —
+ * a key no dataset path can take, since a path's segments are identifiers.
+ *
+ * @param name - The record
+ * @param index - The index, or null for the rows
+ * @returns The source's key
+ */
+export function recordSource(name: string, index: string | null): string {
+    return index === null ? `.records.${name}` : `.records.${name}#${index}`;
+}
+
+/**
+ * A dataset source's dataset path and the index it reads through.
+ *
+ * @param source - The source's key (a dataset path, or {@link recordSource}'s)
+ * @returns The path and the index (null for the dataset itself)
+ */
+export function splitSource(source: string): { path: string; index: string | null } {
+    const at = source.indexOf('#');
+    return at === -1 ? { path: source, index: null } : { path: source.slice(0, at), index: source.slice(at + 1) };
+}
+
 /** The dataset a view shows, if any. */
 export function viewDataset(state: TuiState): { ws: string; path: string; editable: boolean } | null {
     const v = state.view;
     if (v.kind === 'task' && v.tab === 'output') return { ws: v.ws, path: `.tasks.${v.task}.output`, editable: false };
     if (v.kind === 'input') return { ws: v.ws, path: `.inputs.${v.name}`, editable: true };
+    if (v.kind === 'record' && v.tab === 'state') return { ws: v.ws, path: recordSource(v.name, v.index), editable: false };
     return null;
 }
 
@@ -133,6 +158,8 @@ interface TreeModelKey {
     open: TreeUi['open'];
     baseDepth: number | undefined;
     editable: boolean;
+    /** The index read in place of a record's rows, if any. */
+    index: string | undefined;
 }
 
 let memo: { key: TreeModelKey; model: TreeModel } | null = null;
@@ -140,7 +167,7 @@ let builds = 0;
 
 function sameKey(a: TreeModelKey, b: TreeModelKey): boolean {
     return a.type === b.type && a.kind === b.kind && a.root === b.root && a.pages === b.pages && a.totalRows === b.totalRows
-        && a.open === b.open && a.baseDepth === b.baseDepth && a.editable === b.editable;
+        && a.open === b.open && a.baseDepth === b.baseDepth && a.editable === b.editable && a.index === b.index;
 }
 
 /**
@@ -154,10 +181,12 @@ export function treeModelBuilds(): number {
     return builds;
 }
 
-/** Flattens the content into a model (the memo's miss path). */
-function buildTreeModel(type: EastTypeValue, mode: TreeContent, tree: TreeUi, editable: boolean): TreeModel {
-    const openDepth = tree.baseDepth ?? defaultOpenDepth(type);
-    const keyType = keyTypeOf(type);
+/** Flattens the content into a model (the memo's miss path). An index's
+ *  entries start one line each, their summaries naming the row and what the
+ *  index projects, and `/find` takes the index's key. */
+function buildTreeModel(type: EastTypeValue, mode: TreeContent, tree: TreeUi, editable: boolean, index: DatasetData['index']): TreeModel {
+    const openDepth = tree.baseDepth ?? (index !== undefined ? 0 : defaultOpenDepth(type));
+    const keyType = index?.keyType ?? keyTypeOf(type);
     if (mode.kind === 'inline') {
         const rows = flattenRows(mode.root, tree.open, openDepth, editable, editable);
         const roots = rows.filter(r => r.depth === 0).length;
@@ -217,10 +246,11 @@ export function treeModel(data: DatasetData | undefined, tree: TreeUi, editable:
         open: tree.open,
         baseDepth: tree.baseDepth,
         editable,
+        index: data.index?.name,
     };
     if (memo !== null && sameKey(memo.key, key)) return memo.model;
     builds += 1;
-    const model = buildTreeModel(data.type, mode, tree, editable);
+    const model = buildTreeModel(data.type, mode, tree, editable, data.index);
     memo = { key, model };
     return model;
 }
@@ -249,7 +279,7 @@ export interface TreeAnchor {
 export function captureAnchor(state: TuiState, ws: string, path: string): TreeAnchor | null {
     const shown = viewDataset(state);
     const v = state.view;
-    if (shown === null || shown.ws !== ws || shown.path !== path || (v.kind !== 'task' && v.kind !== 'input')) return null;
+    if (shown === null || shown.ws !== ws || shown.path !== path || (v.kind !== 'task' && v.kind !== 'input' && v.kind !== 'record')) return null;
     const data = state.data.dataset[ws]?.[path];
     if (data?.mode.kind !== 'paged') return null;
     const model = treeModel(data, v.tree, shown.editable);
@@ -280,7 +310,7 @@ export function captureAnchor(state: TuiState, ws: string, path: string): TreeAn
 export function applyAnchor(state: TuiState, anchor: TreeAnchor): View | null {
     const shown = viewDataset(state);
     const v = state.view;
-    if (shown === null || shown.ws !== anchor.ws || shown.path !== anchor.path || (v.kind !== 'task' && v.kind !== 'input')) return null;
+    if (shown === null || shown.ws !== anchor.ws || shown.path !== anchor.path || (v.kind !== 'task' && v.kind !== 'input' && v.kind !== 'record')) return null;
     const data = state.data.dataset[anchor.ws]?.[anchor.path];
     if (data?.mode.kind !== 'paged') return null;
     const model = treeModel(data, v.tree, shown.editable);

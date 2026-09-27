@@ -29,16 +29,16 @@ export function breadcrumb(state: TuiState, ctx: RenderCtx): string {
     const session = state.session;
     if (session !== null) parts.push(session.label);
     const v: View = state.view;
-    if (v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input') parts.push(v.ws);
+    if (v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input' || v.kind === 'record') parts.push(v.ws);
     if (v.kind === 'task') parts.push(v.task);
-    if (v.kind === 'input') parts.push(v.name);
+    if (v.kind === 'input' || v.kind === 'record') parts.push(v.name);
     if (v.kind === 'help' || v.kind === 'about') {
         // Help and about keep the breadcrumb of the page underneath.
         const under = state.history[state.history.length - 1];
         if (under !== undefined) {
-            if (under.kind === 'dashboard' || under.kind === 'task' || under.kind === 'input') parts.push(under.ws);
+            if (under.kind === 'dashboard' || under.kind === 'task' || under.kind === 'input' || under.kind === 'record') parts.push(under.ws);
             if (under.kind === 'task') parts.push(under.task);
-            if (under.kind === 'input') parts.push(under.name);
+            if (under.kind === 'input' || under.kind === 'record') parts.push(under.name);
         }
     }
     return parts.join(` ${ctx.g.crumb} `);
@@ -50,7 +50,7 @@ export function pills(state: TuiState, ctx: RenderCtx): Line {
     const out: Line = [];
     const dirty = dirtyCount(state);
     if (dirty > 0) out.push(b(`${g.diamond} ${dirty} DIRTY`, 'warn'), t('  '));
-    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' ? state.view.ws : null;
+    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' || state.view.kind === 'record' ? state.view.ws : null;
     const execution = ws !== null ? state.data.execution[ws] : undefined;
     if (execution?.state?.status.type === 'running' || execution?.settling === true || execution?.stopping === true) {
         const total = ws !== null ? state.data.status[ws]?.result.tasks.length ?? 0 : 0;
@@ -138,7 +138,7 @@ export function commandStatus(state: TuiState): { text: string; keys: string; er
         if (completion !== null) return { text: `${completion.items.length} match${completion.items.length === 1 ? '' : 'es'} · ↑↓ pick · ⏎ open · tab complete`, keys: '', error: false };
         return { text: parsed.error, keys: 'esc', error: true };
     }
-    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' ? state.view.ws : null;
+    const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' || state.view.kind === 'record' ? state.view.ws : null;
     const status = ws !== null ? state.data.status[ws]?.result : undefined;
     const execution = ws !== null ? state.data.execution[ws] : undefined;
     const budget = ws !== null ? state.data.budget[ws] : undefined;
@@ -149,7 +149,7 @@ export function commandStatus(state: TuiState): { text: string; keys: string; er
         dirty: dirtyCount(state),
         budget: budget === undefined || budget === null ? null : { cores: Number(budget.cores), memory: Number(budget.memory) },
     });
-    if (completion !== null && (parsed.command.name === 'task' || parsed.command.name === 'input' || parsed.command.name === 'workspace' || parsed.command.name === 'dataset' || parsed.command.name === 'repo' || parsed.command.name === 'logs' || parsed.command.name === 'runs' || parsed.command.name === 'tag')) {
+    if (completion !== null && (parsed.command.name === 'task' || parsed.command.name === 'input' || parsed.command.name === 'record' || parsed.command.name === 'index' || parsed.command.name === 'workspace' || parsed.command.name === 'dataset' || parsed.command.name === 'repo' || parsed.command.name === 'logs' || parsed.command.name === 'runs' || parsed.command.name === 'tag')) {
         return { text: `${completion.items.length} match${completion.items.length === 1 ? '' : 'es'} · ↑↓ pick · ⏎ open · tab complete`, keys: '', error: false };
     }
     return { text: described.text, keys: described.keys, error: false };

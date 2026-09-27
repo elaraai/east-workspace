@@ -8,8 +8,9 @@
  * the TASKS / DATASETS counts with the accounted bar, the execution panel
  * (the last run's failures; while it runs, the budget in use and the live
  * feed: each task's latest event, the units requeued and what waits for
- * room), the tasks table and the inputs table. `⏎` opens the task, the
- * input, or a failed task's logs. Status detail is inline
+ * room), the tasks table, the inputs table and, when the workspace holds
+ * records, the records table. `⏎` opens the task, the input, the record,
+ * or a failed task's logs. Status detail is inline
  * (`✗ failed · exit 2`, `◐ waiting`, `◔ in-progress`).
  *
  * The column is built in two steps. {@link dashboardModel} derives what
@@ -17,19 +18,19 @@
  * lists, the latest event per task, the dataset map, the fitted table
  * plans, each row's cells and where each selectable row sits — once per
  * data change: a single-entry cache keyed on the identity of the status,
- * the execution, the dataset list, the task list, the width and the
- * breakpoint. {@link dashboardLines} then renders only the lines on
+ * the execution, the dataset list, the task list, the records read, the
+ * width and the breakpoint. {@link dashboardLines} then renders only the lines on
  * screen, restyling the selected row and stamping the clock and the
  * spinner. A selection move costs the window, not the workspace.
  *
  * @packageDocumentation
  */
 
-import type { DataflowEvent, WorkspaceStatusResult } from '@elaraai/e3-api-client';
+import type { DataflowEvent, RecordCommitInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
 import type { WorkspaceState } from '@elaraai/e3-types';
 import type { Glyphs } from '../../render/glyphs.js';
 import { breakpoint, columnPlan, scrollIntoView, type Breakpoint, type ColumnSpec } from '../../render/layout.js';
-import { agoShort, formatDuration, formatSize, hashShort, padEnd, padStart, timeAgo } from '../../render/text.js';
+import { agoShort, formatDuration, formatInt, formatSize, hashShort, padEnd, padStart, timeAgo } from '../../render/text.js';
 import type { Tone } from '../../render/theme.js';
 import type { DataState, ExecutionData, NavOp, TuiState } from '../../state/actions.js';
 import { layoutOf, registerListModel } from '../../model/index.js';
@@ -39,6 +40,7 @@ import {
 } from '../../model/status.js';
 import { registerViewHooks, type Controller } from '../../controller.js';
 import { isRunLive, lockHolderText } from '../../data/dataflow.js';
+import { recordEntries } from '../../data/records.js';
 import type { Hit, Pane } from '../frame.js';
 import { b, blank, d, lineWidth, lrLine, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, sectionLine, tableLine, tablePlan, withScrollbar, type TableRow } from '../shell/widgets.js';
@@ -57,7 +59,7 @@ export interface DashboardCtx {
 
 /** A selectable row of the column: what `⏎` opens, and its line index. */
 export interface DashboardRow {
-    kind: 'logs' | 'task' | 'input';
+    kind: 'logs' | 'task' | 'input' | 'record';
     name: string;
     line: number;
 }
@@ -326,6 +328,14 @@ export interface TaskRowModel {
     event: DataflowEvent | undefined;
 }
 
+/** A record's row: the cells the data decides, and the newest commit the `LAST COMMIT` cell is stamped from per frame. */
+export interface RecordRowModel {
+    /** The cells the data decides (`lastCommit` carries the clock, so it is stamped at render). */
+    cells: TableRow['cells'];
+    /** The record's newest commit, once read. */
+    head: RecordCommitInfo | null;
+}
+
 /**
  * The data-derived column: everything that follows from the workspace's
  * data and the terminal width. Built by {@link dashboardModel}, rendered
@@ -344,11 +354,15 @@ export interface TaskRowModel {
  * @property inputPlan - The inputs table's fitted column plan
  * @property inputs - The input rows
  * @property inputNames - The input names, in row order
- * @property rows - The selectable rows in column order (failures, tasks, inputs) with their line indices
+ * @property recordPlan - The records table's fitted column plan
+ * @property records - The record rows
+ * @property recordNames - The record names, in row order
+ * @property rows - The selectable rows in column order (failures, tasks, inputs, records) with their line indices
  * @property total - Lines in the column
  * @property panelAt - The execution panel's first line
  * @property tasksAt - The TASKS section line (the header follows, then the rows)
  * @property inputsAt - The INPUTS section line
+ * @property recordsAt - The RECORDS section line, or -1 when the workspace holds no record
  */
 export interface DashboardModel {
     status: WorkspaceStatusResult | undefined;
@@ -364,11 +378,15 @@ export interface DashboardModel {
     inputPlan: ColumnSpec[];
     inputs: TableRow[];
     inputNames: string[];
+    recordPlan: ColumnSpec[];
+    records: RecordRowModel[];
+    recordNames: string[];
     rows: DashboardRow[];
     total: number;
     panelAt: number;
     tasksAt: number;
     inputsAt: number;
+    recordsAt: number;
 }
 
 /** What the model is keyed on — identities, so a poll that replaces a value rebuilds and a selection move does not. */
@@ -380,6 +398,7 @@ interface DashboardKey {
     execution: ExecutionData | undefined;
     datasets: DataState['datasets'][string] | undefined;
     taskList: DataState['taskList'][string] | undefined;
+    records: DataState['records'][string] | undefined;
     columns: number;
     bp: Breakpoint;
     g: Glyphs;
@@ -389,14 +408,15 @@ let cached: { key: DashboardKey; model: DashboardModel } | null = null;
 
 function sameKey(a: DashboardKey, b: DashboardKey): boolean {
     return a.ws === b.ws && a.status === b.status && a.statusError === b.statusError && a.workspaceState === b.workspaceState
-        && a.execution === b.execution && a.datasets === b.datasets && a.taskList === b.taskList
+        && a.execution === b.execution && a.datasets === b.datasets && a.taskList === b.taskList && a.records === b.records
         && a.columns === b.columns && a.bp === b.bp && a.g === b.g;
 }
 
 /**
  * The dashboard model for a workspace — built once per data change and
  * returned as the same object until the status, the execution, the
- * dataset list, the task list, the width or the breakpoint changes. The
+ * dataset list, the task list, the records read, the width or the
+ * breakpoint changes. The
  * clock, the spinner and the selection are not inputs: they restyle lines
  * at render ({@link dashboardLines}).
  *
@@ -414,6 +434,7 @@ export function dashboardModel(state: TuiState, ws: string, dctx: DashboardCtx):
         execution: state.data.execution[ws],
         datasets: state.data.datasets[ws],
         taskList: state.data.taskList[ws],
+        records: state.data.records[ws],
         columns: dctx.columns,
         bp: dctx.bp,
         g: dctx.g,
@@ -432,7 +453,8 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const execution = key.execution;
     const empty: DashboardModel = {
         status, placeholder: [], counts: [], execution, live: false, done: 0, feed: [], latest: new Map(),
-        taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], rows: [], total: 0, panelAt: 0, tasksAt: 0, inputsAt: 0,
+        taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], recordPlan: [], records: [], recordNames: [],
+        rows: [], total: 0, panelAt: 0, tasksAt: 0, inputsAt: 0, recordsAt: -1,
     };
     if (status === undefined) {
         const placeholder: Line[] = [];
@@ -490,10 +512,27 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
             },
         };
     });
+    // The dataset list names the records; what the records loader read of each fills its row.
+    const recordNames = recordEntries(key.datasets ?? []).map(entry => entry.name);
+    const records: RecordRowModel[] = recordNames.map(name => {
+        const facts = key.records?.[name];
+        const entry = entries.get(`.records.${name}`);
+        const indexes = facts?.signature?.indexes.map(index => index.name) ?? null;
+        return {
+            head: facts?.head ?? null,
+            cells: {
+                name,
+                rows: facts?.rows != null ? formatInt(facts.rows) : '—',
+                size: entry?.size != null ? formatSize(entry.size) : '—',
+                indexes: indexes === null ? '…' : indexes.length > 0 ? indexes.join(', ') : '—',
+            },
+        };
+    });
     const taskPlan = tablePlan(columnPlan('tasks', dctx.bp), tasks, width);
     const inputPlan = tablePlan(columnPlan('inputs', dctx.bp), inputs, width);
+    const recordPlan = records.length > 0 ? tablePlan(columnPlan('records', dctx.bp), records, width) : [];
     const counts = countsLines(status, dctx);
-    // The geometry: every selectable row's line, numbered in column order — failures, tasks, inputs.
+    // The geometry: every selectable row's line, numbered in column order — failures, tasks, inputs, records.
     const rows: DashboardRow[] = [];
     let line = counts.length + 1;
     const panelAt = line;
@@ -510,7 +549,19 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     line += 2;
     inputNames.forEach((name, i) => rows.push({ kind: 'input', name, line: line + i }));
     line += Math.max(1, inputs.length);
-    return { ...empty, counts, live, done, feed, latest, taskPlan, tasks, inputPlan, inputs, inputNames, rows, total: line, panelAt, tasksAt, inputsAt };
+    // A workspace without records has no RECORDS section at all.
+    let recordsAt = -1;
+    if (records.length > 0) {
+        line += 1;
+        recordsAt = line;
+        line += 2;
+        recordNames.forEach((name, i) => rows.push({ kind: 'record', name, line: line + i }));
+        line += records.length;
+    }
+    return {
+        ...empty, counts, live, done, feed, latest, taskPlan, tasks, inputPlan, inputs, inputNames, recordPlan, records, recordNames,
+        rows, total: line, panelAt, tasksAt, inputsAt, recordsAt,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -610,6 +661,12 @@ function lastRunText(task: TaskInfo, event: DataflowEvent | undefined, size: str
     }
 }
 
+/** The `LAST COMMIT` cell of a record row: `set_status · alice · 3m ago`. */
+function lastCommitText(head: RecordCommitInfo | null, dctx: DashboardCtx): string {
+    if (head === null) return '—';
+    return `${head.mutation} ${dctx.g.sep} ${head.actor} ${dctx.g.sep} ${timeAgo(head.at, dctx.now)}`;
+}
+
 /**
  * The column's lines in `[top, top + visible)` — the window the screen
  * shows, rendered from the model with the selected row restyled and the
@@ -632,8 +689,10 @@ export function dashboardLines(model: DashboardModel, dctx: DashboardCtx, sel: n
     const panel = executionLines(model, selected, dctx);
     const taskSel = selected?.kind === 'task' ? model.tasks.findIndex(row => row.task.name === selected.name) : -1;
     const inputSel = selected?.kind === 'input' ? model.inputNames.indexOf(selected.name) : -1;
+    const recordSel = selected?.kind === 'record' ? model.recordNames.indexOf(selected.name) : -1;
     const tasksFirst = model.tasksAt + 2;
     const inputsFirst = model.inputsAt + 2;
+    const recordsFirst = model.recordsAt + 2;
     const out: Line[] = [];
     for (let i = first; i < end; i++) {
         if (i < model.counts.length) out.push(model.counts[i]!);
@@ -650,10 +709,17 @@ export function dashboardLines(model: DashboardModel, dctx: DashboardCtx, sel: n
         else if (i < model.inputsAt) out.push(blank(width));
         else if (i === model.inputsAt) out.push(sectionLine('INPUTS', '', width));
         else if (i === model.inputsAt + 1) out.push(tableLine(model.inputPlan, null, false, width, g));
-        else {
+        else if (model.recordsAt === -1 || i < model.recordsAt - 1) {
             const row = model.inputs[i - inputsFirst];
             if (row === undefined) out.push([t('  '), d('no inputs')]);
             else out.push(tableLine(model.inputPlan, row, i - inputsFirst === inputSel, width, g));
+        }
+        else if (i < model.recordsAt) out.push(blank(width));
+        else if (i === model.recordsAt) out.push(sectionLine('RECORDS', '', width));
+        else if (i === model.recordsAt + 1) out.push(tableLine(model.recordPlan, null, false, width, g));
+        else {
+            const row = model.records[i - recordsFirst]!;
+            out.push(tableLine(model.recordPlan, { cells: { ...row.cells, lastCommit: lastCommitText(row.head, dctx) } }, i - recordsFirst === recordSel, width, g));
         }
     }
     return out;
@@ -834,6 +900,7 @@ registerViewHooks('dashboard', {
         const ws = state.view.ws;
         if (row.kind === 'logs') controller.openTask(ws, row.name, 'stdout');
         else if (row.kind === 'task') controller.openTask(ws, row.name);
+        else if (row.kind === 'record') controller.openRecord(ws, row.name);
         else controller.openInput(ws, row.name);
     },
     key: (action, state, controller) => {

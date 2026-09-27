@@ -44,7 +44,7 @@ export interface TreeState {
 export interface RepoState {
     /** The last workspace opened. */
     workspace?: string | undefined;
-    /** The last view (`dashboard`, `task:<name>`, `input:<name>`). */
+    /** The last view (`dashboard`, `task:<name>`, `input:<name>`, `record:<name>`). */
     view?: string | undefined;
     /** Value trees by storage key (`${ws}:${path}`). */
     trees: Record<string, TreeState>;
