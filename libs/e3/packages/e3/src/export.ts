@@ -7,7 +7,9 @@
  * Export functionality for e3 packages.
  *
  * Exports a package definition to a .zip bundle that can be imported
- * into an e3 repository. The bundle holds a repository's own forms:
+ * into an e3 repository. The bundle holds a repository's own forms, and the
+ * release that exported it:
+ * - `release.beast2` - the release of e3 that exported it, a String, first
  * - `packages/<name>/<version>.beast2` - the package ref: the package object's hash, a String
  * - `objects/<ab>/<cdef...>.beast2` - content-addressed objects
  */
@@ -18,7 +20,7 @@ import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
 import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
@@ -128,8 +130,10 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     return linked;
   };
 
-  // Create zip file
+  // Create zip file, the release exporting it first, so an import meets it
+  // before anything
   const zipfile = new yazl.ZipFile();
+  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(E3_RELEASE)), 'release.beast2', { mtime: DETERMINISTIC_MTIME });
 
   // Initialize empty package object that we'll populate as we iterate
   const tasks = new SortedMap<string, string>(); // name -> task object hash
@@ -393,7 +397,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         bodyIr,
         argTypes: mdef.argTypes.map((t) => toEastTypeValue(t)),
         runner: runnerToVariant(mdef.runner),
-        form: mdef.form,
+        form: variant(mdef.form, null),
         programIr,
       };
       const mutHash = addObject(zipfile, Buffer.from(mutationEncoder(mutObject)));
@@ -429,7 +433,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       const irObject = (bundle: EastIR<any, any>): string =>
         addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, step.runner))));
       const migrationObject: MigrationObject = {
-        form: step.form,
+        form: variant(step.form, null),
         from: toEastTypeValue(step.from),
         to: toEastTypeValue(step.to),
         bodyIr: irObject(step.body),

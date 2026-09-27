@@ -1241,7 +1241,7 @@ describe('gc', () => {
       const BODY = 'c'.repeat(64);
       const PROGRAM = 'd'.repeat(64);
       const root = 'real-mutation'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }), form: 'reduce', programIr: PROGRAM })]]);
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }), form: variant('reduce', null), programIr: PROGRAM })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');
@@ -1262,9 +1262,9 @@ describe('gc', () => {
           path: 'records/counts', mutations: new Map(), indexes: new Map(),
           migrations: [{ name: 'repair', migration: VALUE_STEP }, { name: 'relabel', migration: ROWS_STEP }],
         })],
-        [VALUE_STEP, encodeBeast2For(MigrationObjectType)({ form: 'value', from: counts, to: counts, bodyIr: VALUE_BODY, programIr: '', runner })],
+        [VALUE_STEP, encodeBeast2For(MigrationObjectType)({ form: variant('value', null), from: counts, to: counts, bodyIr: VALUE_BODY, programIr: '', runner })],
         [ROWS_STEP, encodeBeast2For(MigrationObjectType)({
-          form: 'rows', from: counts, to: toEastTypeValue(DictType(StringType, StringType)), bodyIr: ROWS_BODY, programIr: ROWS_PROGRAM, runner,
+          form: variant('rows', null), from: counts, to: toEastTypeValue(DictType(StringType, StringType)), bodyIr: ROWS_BODY, programIr: ROWS_PROGRAM, runner,
         })],
       ]);
 

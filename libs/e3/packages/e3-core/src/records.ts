@@ -629,7 +629,7 @@ async function writeDelta(
   const targets = new Map<string, string>([['primary', state.primary]]);
   for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
 
-  let deltaHash = mutObj.form === 'patch' && state.indexes.size === 0 && args[0] !== undefined
+  let deltaHash = mutObj.form.type === 'patch' && state.indexes.size === 0 && args[0] !== undefined
     ? await patchAsDelta(storage, repo, state.primary, args[0])
     : null;
   if (deltaHash === null) {
@@ -1245,7 +1245,7 @@ export async function recordDescribe(
   const mutations: RecordSignature['mutations'] = [];
   for (const [name, mutHash] of resolved.mutations) {
     const mutObj = decodeMutationObject(await storage.objects.read(repo, mutHash));
-    mutations.push({ name, form: mutObj.form, argTypes: mutObj.argTypes });
+    mutations.push({ name, form: mutObj.form.type, argTypes: mutObj.argTypes });
   }
   const indexes: RecordSignature['indexes'] = [];
   for (const [name, indexHash] of resolved.indexes) {

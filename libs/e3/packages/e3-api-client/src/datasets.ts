@@ -5,7 +5,7 @@
 
 import { ArrayType, NullType, StringType, decodeBeast2For, encodeBeast2For, spliceBeast2Segments } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { BEAST2_CONTENT_TYPE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, transferPartCount, transferPartRange } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, E3_RELEASE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import { computeHash } from './util.js';
 import {
   ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, type RequestOptions, type Response,
@@ -638,7 +638,7 @@ async function datasetSetTransfer(
   const repoEncoded = encodeURIComponent(repo);
   const wsEncoded = encodeURIComponent(workspace);
   const uploadPath = `/repos/${repoEncoded}/workspaces/${wsEncoded}/datasets/${pathStr}/upload`;
-  const protocol = `protocol=${TRANSFER_PROTOCOL_VERSION}`;
+  const protocol = `protocol=${TRANSFER_PROTOCOL_VERSION}&release=${encodeURIComponent(E3_RELEASE)}`;
 
   // 1. Init transfer (BEAST2 request/response)
   const encodeInit = encodeBeast2For(TransferUploadRequestType);

@@ -179,13 +179,18 @@ export interface ReactiveDatasetCacheInterface {
     preload(workspace: string, path: TreePath): Promise<void>;
     /** List fields at a path */
     list(workspace: string, path: TreePath): Promise<string[]>;
-    /** Set polling interval for a dataset */
+    /**
+     * Poll a dataset, for one watcher. Each call is paired with one
+     * {@link clearRefetchInterval}: a path two views watch stays polled until
+     * both have cleared it.
+     */
     setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void;
     /**
-     * Stop polling a dataset previously registered with
-     * {@link setRefetchInterval}. The workspace's shared poller stops
-     * entirely once its last path is cleared — without this, a long-lived
-     * session accumulates watched paths (and network traffic) forever.
+     * Stop polling a dataset for one watcher registered with
+     * {@link setRefetchInterval}. The path stops being polled once its last
+     * watcher clears it, and the workspace's shared poller once its last path
+     * goes — without this, a long-lived session accumulates watched paths (and
+     * network traffic) forever.
      */
     clearRefetchInterval(workspace: string, path: TreePath): void;
     /**
@@ -212,8 +217,10 @@ export interface ReactiveDatasetCacheInterface {
      * path's content against the server (hash-gated; only changed datasets
      * refetch). Use after an out-of-band server mutation (e.g. a record
      * mutation commit) so a watched dataset picks up the new bytes without
-     * waiting for the standing poll interval. No-op if the workspace has no
-     * active poller. Fire-and-forget; resolves when the poll settles.
+     * waiting for the standing poll interval. A poll already in flight may
+     * have read the status before the mutation, so the refresh polls again
+     * once it settles. No-op if the workspace has no active poller.
+     * Fire-and-forget; resolves when the refresh's poll settles.
      */
     refresh(workspace: string): Promise<void>;
     /** Subscribe to changes on a specific key */
@@ -318,10 +325,11 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
 
     // Workspace status polling — groups subscriptions by workspace for
     // efficiency. Each entry holds the active interval handle from the
-    // injected {@link Clock} so tests can drive ticking deterministically.
+    // injected {@link Clock} so tests can drive ticking deterministically,
+    // and each polled path with how many watchers poll it.
     private workspacePollers: Map<string, {
         intervalMs: number;
-        paths: Set<string>;
+        paths: Map<string, number>;
         handle: { clear(): void } | null;
     }> = new Map();
     private readonly clock: Clock;
@@ -450,10 +458,8 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                     status: variant('stale', null),
                 });
 
-                // Trigger a poll to refresh the hash + authoritative status.
-                if (this.workspacePollers.has(workspace)) {
-                    void this.pollWorkspaceStatus(workspace);
-                }
+                // Refresh the hash + authoritative status.
+                void this.refresh(workspace);
             } catch (error) {
                 // Roll back only if no later write owns the key's state.
                 if (!this.destroyed && this.writeEpochs.get(key) === myEpoch) {
@@ -579,15 +585,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      * 3. Only fetches full content when hash changes
      *
      * Multiple subscriptions to the same workspace share a single poller.
-     * Pair with {@link clearRefetchInterval} on unmount so the poller can
-     * stop when nothing is watching.
+     * Pair each call with one {@link clearRefetchInterval} on unmount so the
+     * poller can stop when nothing is watching.
      */
     setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void {
         const pathStr = datasetPathToString(path);
         let poller = this.workspacePollers.get(workspace);
 
         if (poller) {
-            poller.paths.add(pathStr);
+            poller.paths.set(pathStr, (poller.paths.get(pathStr) ?? 0) + 1);
             // If the new interval is shorter, restart with shorter interval.
             if (intervalMs < poller.intervalMs) {
                 poller.handle?.clear();
@@ -600,7 +606,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         } else {
             poller = {
                 intervalMs,
-                paths: new Set([pathStr]),
+                paths: new Map([[pathStr, 1]]),
                 handle: this.clock.setInterval(
                     () => this.pollWorkspaceStatus(workspace),
                     intervalMs,
@@ -614,13 +620,20 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     }
 
     /**
-     * Stop polling a dataset; the workspace poller is torn down when its
-     * last watched path is cleared.
+     * Stop polling a dataset for one watcher; the path goes when its last
+     * watcher clears it, and the workspace poller is torn down when its last
+     * path goes.
      */
     clearRefetchInterval(workspace: string, path: TreePath): void {
         const poller = this.workspacePollers.get(workspace);
         if (!poller) return;
-        poller.paths.delete(datasetPathToString(path));
+        const pathStr = datasetPathToString(path);
+        const watchers = (poller.paths.get(pathStr) ?? 0) - 1;
+        if (watchers > 0) {
+            poller.paths.set(pathStr, watchers);
+            return;
+        }
+        poller.paths.delete(pathStr);
         this.stopIdlePoller(workspace);
     }
 
@@ -646,7 +659,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         if (!poller) {
             this.workspacePollers.set(workspace, {
                 intervalMs,
-                paths: new Set(),
+                paths: new Map(),
                 handle: this.clock.setInterval(() => this.pollWorkspaceStatus(workspace), intervalMs),
             });
             void this.pollWorkspaceStatus(workspace);
@@ -677,12 +690,17 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     }
 
     refresh(workspace: string): Promise<void> {
-        // One immediate hash-gated poll, reusing the standing workspace poller
-        // the same way write() nudges after a confirmed set. No-op when nothing
-        // watches the workspace; pollWorkspaceStatus dedupes an in-flight poll.
+        // One immediate hash-gated poll, reusing the standing workspace poller,
+        // as write() does after a confirmed set. No-op when nothing watches the
+        // workspace. A poll in flight may have read the status before what the
+        // caller refreshes for, so joining it could leave the change unseen
+        // until the next interval: the refresh polls once it has settled.
         if (this.destroyed) return Promise.resolve();
         if (!this.workspacePollers.has(workspace)) return Promise.resolve();
-        return this.pollWorkspaceStatus(workspace);
+        const inFlight = this.inFlightPolls.get(workspace);
+        if (inFlight === undefined) return this.pollWorkspaceStatus(workspace);
+        const again = () => (this.destroyed || !this.workspacePollers.has(workspace) ? undefined : this.pollWorkspaceStatus(workspace));
+        return inFlight.then(again, again);
     }
 
     /**
@@ -708,7 +726,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         // any write that lands after this point owns its key's state, and
         // this poll's (potentially pre-write) content must not apply.
         const epochsAtStart = new Map<string, number>();
-        for (const pathStr of poller.paths) {
+        for (const pathStr of poller.paths.keys()) {
             const key = pathStr ? `${workspace}.${pathStr}` : workspace;
             epochsAtStart.set(key, this.writeEpochs.get(key) ?? 0);
         }
@@ -753,7 +771,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         const pending: PendingFetch[] = [];
 
         this.batch(() => {
-            for (const pathStr of poller.paths) {
+            for (const pathStr of poller.paths.keys()) {
                 const e3Path = pathStr ? `.${pathStr}` : "";
                 const info = infoByPath.get(e3Path);
                 const key = pathStr ? `${workspace}.${pathStr}` : workspace;

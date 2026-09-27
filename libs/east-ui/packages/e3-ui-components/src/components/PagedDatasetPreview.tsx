@@ -21,7 +21,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Flex, Text } from '@chakra-ui/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ApiError, datasetFindKey, datasetGetPage } from '@elaraai/e3-api-client';
+import { ApiError, DatasetHashMismatchError, datasetFindKey, datasetGetPage } from '@elaraai/e3-api-client';
 import type { DatasetPage, RequestOptions } from '@elaraai/e3-api-client';
 import { none, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
@@ -153,6 +153,10 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     /** Key-search jump target — the tree's controlled scrollToRow (#520). */
     const [jumpRow, setJumpRow] = useState<number | undefined>(undefined);
     const inflightRef = useRef(new Set<number>());
+    // The value the preview shows. A page applies only while it is the one
+    // the page was fetched for: one still in flight when the value moves
+    // belongs to the old value, and would land among the new one's pages.
+    const shownRef = useRef({ path, hash });
     // The size pages are addressed by — requested at PAGE_SIZE, then whatever
     // the server actually serves (#829). The ref is what an in-flight load
     // checks when it lands: a page fetched at a size since abandoned covers
@@ -163,19 +167,22 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     // A new value (content hash) invalidates every page.
     useEffect(() => {
         pagingDebug(`reset (path=${path}, hash=${hash.slice(0, 8)})`);
+        shownRef.current = { path, hash };
         setPages(new Map());
         setTotals(null);
         setError(null);
         setJumpRow(undefined);
-        inflightRef.current.clear();
+        inflightRef.current = new Set();
         pageSizeRef.current = PAGE_SIZE;
         setPageSize(PAGE_SIZE);
     }, [path, hash]);
 
     const loadPage = useCallback((pageIdx: number) => {
-        if (inflightRef.current.has(pageIdx)) return;
+        const inflight = inflightRef.current;
+        if (inflight.has(pageIdx)) return;
+        inflight.add(pageIdx);
+        const current = () => shownRef.current.path === path && shownRef.current.hash === hash;
         const size = pageSizeRef.current;
-        inflightRef.current.add(pageIdx);
         setLoadingCount((n) => n + 1);
         pagingDebug(`fetch p${pageIdx} (offset=${pageIdx * size}, limit=${size}, hash=${hash.slice(0, 8)})`);
         const pathParts = path.split('.').filter(Boolean).map((v) => variant('field', v));
@@ -187,6 +194,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * size, limit: size, hash }, reqOpts),
             staleTime: Infinity, // pages of one content hash are immutable
         }).then((page) => {
+            if (!current()) return;
             if (size !== pageSizeRef.current) return; // addressed at an abandoned size — the tree re-asks
             const decoded = decodeBeast2For(type)(page.data);
             const rows = pageRows(type, decoded, page.offset);
@@ -208,6 +216,14 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             setPages(pageIdx === 0 ? new Map([[0, rows]]) : new Map());
         }).catch((err: unknown) => {
             pagingDebug(`p${pageIdx} FAILED:`, err);
+            if (!current()) return;
+            if (err instanceof DatasetHashMismatchError) {
+                // The dataset holds another value now, which is no failure:
+                // its status, fetched again, names the new hash, and the new
+                // hash re-keys this preview.
+                void queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
+                return;
+            }
             if (err instanceof ApiError && err.code === 'dataset_not_indexed') {
                 // A legacy (pre-index) blob cannot page — hand back to the
                 // parent, which falls back to the inline tree. The error
@@ -216,7 +232,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             }
             setError(err instanceof Error ? err : new Error(String(err)));
         }).finally(() => {
-            inflightRef.current.delete(pageIdx);
+            inflight.delete(pageIdx);
             setLoadingCount((n) => n - 1);
         });
     }, [queryClient, apiUrl, repo, workspace, path, hash, requestOptions, type, onNotIndexed]);
@@ -336,4 +352,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             </Box>
         </Flex>
     );
-}, (prev, next) => prev.path === next.path && prev.workspace === next.workspace && prev.hash === next.hash && prev.sizeBytes === next.sizeBytes);
+}, (prev, next) => prev.apiUrl === next.apiUrl && prev.repo === next.repo && prev.workspace === next.workspace
+    && prev.path === next.path && prev.hash === next.hash && prev.sizeBytes === next.sizeBytes
+    // A rotated token re-renders the preview, or its reads keep the old one.
+    && prev.requestOptions?.token === next.requestOptions?.token);

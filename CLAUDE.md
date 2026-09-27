@@ -153,9 +153,11 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
   (readers accept every released version; writers are lockstep), and why the
   environment e2e uses a local stand-in registry rather than the last release.
 - [`docs/conventions/WIRE_MIGRATION.md`](docs/conventions/WIRE_MIGRATION.md)
-  — the one migration rule for e3's wires: everything cuts over hard. Packages
-  are re-exported, a repository an older e3 wrote is re-created, no reader
-  keeps a decoder for an earlier form, and the list of frozen wires.
+  — how e3's wires change: packages are re-exported; a release that changes a
+  stored form ships a repository upgrade step, which upgrades a repository an
+  older release wrote in place; what e3 keeps and ships names the release that
+  wrote it; no reader keeps a decoder for an earlier form; and the list of
+  frozen wires.
 - [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
   — mandatory structure for `SKILL.md` + reference/example files.
 - [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md)

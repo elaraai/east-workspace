@@ -4,16 +4,17 @@
  */
 
 /**
- * The execution state's version. A stored state is decoded against the whole
- * type it was written with, so each state here is one that version's e3 wrote:
- * the current version reads, and an older or a newer one is refused, naming
- * its version.
+ * The execution state's form. A stored state is decoded against the whole
+ * type it was written with, so each state here is one an e3 wrote: this
+ * release's form reads, and every other is refused, naming the release that
+ * wrote it — or, for a state from before states recorded one, an older e3.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { IntegerType, StringType, StructType, encodeBeast2For, none, some, variant } from '@elaraai/east';
-import { EXECUTION_STATE_VERSION, decodeDataflowExecutionState } from './dataflow.js';
+import { ArrayType, DictType, StringType, StructType, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { decodeDataflowExecutionState } from './dataflow.js';
+import { E3_RELEASE } from './release.js';
 
 /** Version 1, written by the released e3: task `double` completed, `sum`
  *  ready, and four events. */
@@ -148,21 +149,53 @@ const STATE_V5 = Buffer.from(
   'base64',
 );
 
-const NEW_VERSION = 'a change to the execution state\'s type is a new version: raise EXECUTION_STATE_VERSION, move this state to the older-version refusal, and add one the new version writes';
+/** The version 5 state, as release 1.0.79 writes it: the release in place of
+ *  the version. */
+const STATE = Buffer.from(
+  'iUVhc3QNCgUAngsoKQEFBAAIAgRub25lAwRzb21lAAoACQUEbmFtZQAEaGFzaAAGaW5wdXRzBQZvdXRwdXQACWRlcGVuZHNP' +
+  'bgUKBgkBBXRhc2tzBwgCBG5vbmUDBHNvbWUICAIEbm9uZQMEc29tZQICCAIEbm9uZQMEc29tZQsIAgRub25lAwRzb21lAQkC' +
+  'CmlucHV0c0hhc2gAC2V4ZWN1dGlvbklkAAgCBG5vbmUDBHNvbWUOCQsEbmFtZQAGc3RhdHVzAAZjYWNoZWQKCm91dHB1dEhh' +
+  'c2gEBWVycm9yBAhleGl0Q29kZQwJc3RhcnRlZEF0DQtjb21wbGV0ZWRBdA0IZHVyYXRpb24MBHBsYW4ECWV4ZWN1dGlvbg8L' +
+  'ABALAAALABIJAwNzZXELCXRpbWVzdGFtcAEGcmVhc29uBAkIA3NlcQsJdGltZXN0YW1wAQdzdWNjZXNzAghleGVjdXRlZAsG' +
+  'Y2FjaGVkCwZmYWlsZWQLB3NraXBwZWQLCGR1cmF0aW9uCwkEA3NlcQsJdGltZXN0YW1wAQtleGVjdXRpb25JZAAKdG90YWxU' +
+  'YXNrcwsJBQNzZXELCXRpbWVzdGFtcAEEcGF0aAAMcHJldmlvdXNIYXNoAAduZXdIYXNoAAkHA3NlcQsJdGltZXN0YW1wAQR0' +
+  'YXNrAAZjYWNoZWQCCm91dHB1dEhhc2gACGR1cmF0aW9uCwlwZWFrQnl0ZXMMCQQDc2VxCwl0aW1lc3RhbXABBHRhc2sADGNv' +
+  'bmZsaWN0UGF0aAAJBgNzZXELCXRpbWVzdGFtcAEEdGFzawAFZXJyb3IECGV4aXRDb2RlDAhkdXJhdGlvbgsJBANzZXELCXRp' +
+  'bWVzdGFtcAEEdGFzawAGcmVhc29uAAkFA3NlcQsJdGltZXN0YW1wAQR0YXNrAAVsZXZlbAsGbGV2ZWxzCwkGA3NlcQsJdGlt' +
+  'ZXN0YW1wAQR0YXNrAAVsZXZlbAsGbGV2ZWxzCwV1bml0cwsJAwNzZXELCXRpbWVzdGFtcAEEdGFzawAJBANzZXELCXRpbWVz' +
+  'dGFtcAEEdGFzawAFY2F1c2UACQQDc2VxCwl0aW1lc3RhbXABBHRhc2sABnBpZWNlcwsJAgVsZXZlbAsGbGV2ZWxzCwgCBG5v' +
+  'bmUDBHNvbWUhCQMFbWVyZ2UiBWluZGV4CwV1bml0cwsIAwZidWRnZXQDA2NhcAMHbWFjaGluZQMJBwNzZXELCXRpbWVzdGFt' +
+  'cAEEdGFzawAEdW5pdCMGcmVhc29uJARwZWFrCwhyZXNlcnZlcwsIDxNleGVjdXRpb25fY2FuY2VsbGVkFBNleGVjdXRpb25f' +
+  'Y29tcGxldGVkFRFleGVjdXRpb25fc3RhcnRlZBYNaW5wdXRfY2hhbmdlZBcOdGFza19jb21wbGV0ZWQYDXRhc2tfZGVmZXJy' +
+  'ZWQZC3Rhc2tfZmFpbGVkGhB0YXNrX2ludmFsaWRhdGVkGxR0YXNrX21lcmdlX2NvbXBsZXRlZBwSdGFza19tZXJnZV9zdGFy' +
+  'dGVkHQp0YXNrX3JlYWR5Hgx0YXNrX3NraXBwZWQfCnRhc2tfc3BsaXQgDHRhc2tfc3RhcnRlZB4NdW5pdF9yZXF1ZXVlZCUK' +
+  'JgkXB3JlbGVhc2UAAmlkAARyZXBvAAl3b3Jrc3BhY2UACXN0YXJ0ZWRBdAEFZm9yY2UCBmZpbHRlcgQFZ3JhcGgJCWdyYXBo' +
+  'SGFzaAQFdGFza3MRCGV4ZWN1dGVkCwZjYWNoZWQLBmZhaWxlZAsHc2tpcHBlZAsGc3RhdHVzAAtjb21wbGV0ZWRBdA0FZXJy' +
+  'b3IEDnZlcnNpb25WZWN0b3JzEw1pbnB1dFNuYXBzaG90Eg90YXNrT3V0cHV0UGF0aHMFCnJlZXhlY3V0ZWQLBmV2ZW50cycI' +
+  'ZXZlbnRTZXELAQAB5QaaAmMz1DPQM7dUMTC0NEg0SDLQtQACXXMDAyALRAAxHLAUpRbkM5UXNzw5fep9GgMDIwMTW0p+aVJO' +
+  'qkMihYCBkVMvM6+gtKRYr4KBV68ksTi7WA9iNgMDc3FprkMKhYCBEc1YLigXaDgDI9QfDEAA8xOU4kzOzy3ISS1JTWFkYHRI' +
+  'phAAA+3CZ1DoMS5oPgOiJICGJlEIiIk8Q1AggjB3Zl58QVF+elFqcTHIu4wfJoEcAmQwpZoCfQ8UYi8qzcvLzEsHSSNHjEMa' +
+  'hQBoPGokIMcB0F4mJkjSIi418rJAghIaUSxskCCFRSXFcSXB2NDQkMDLAQkgUNjxcCHYLHw8BxbBOAxMLAxAxdNAOqYxcvJN' +
+  '2ASTYWJiYuADAA==',
+  'base64',
+);
+
+const NEW_FORM = 'a change to the execution state\'s type is a new form: ship a repository upgrade step that carries a repository\'s states into it, move this state to the refusals, and add one the new form writes';
 
 describe('decodeDataflowExecutionState', () => {
-  it('refuses a state an older e3 wrote, naming its version and the fix', () => {
-    for (const [state, version] of [[STATE_V1, 1n], [STATE_V2, 2n], [STATE_V3, 3n], [STATE_V4, 4n]] as const) {
+  it('refuses a state from before states recorded their release, naming the fix', () => {
+    for (const state of [STATE_V1, STATE_V2, STATE_V3, STATE_V4, STATE_V5]) {
       assert.throws(
         () => decodeDataflowExecutionState(state),
-        { message: `the execution state was written by an older e3: it is version ${version}, and this e3 reads version ${EXECUTION_STATE_VERSION} — re-create the repository: deploy again and import its data again` },
+        { message: `the execution state was written by an older e3, in a form this e3, ${E3_RELEASE}, does not read — re-create the repository: deploy again and import its data again` },
       );
     }
   });
 
-  it('reads a version 5 state', () => {
-    const state = decodeDataflowExecutionState(STATE_V5);
-    assert.equal(state.version, 5n, NEW_VERSION);
+  it('reads a state in this release\'s form', () => {
+    assert.doesNotThrow(() => decodeDataflowExecutionState(STATE), NEW_FORM);
+    const state = decodeDataflowExecutionState(STATE);
+    assert.equal(state.release, '1.0.79');
     assert.deepEqual(state.tasks.get('sum')!.plan, some('e5'));
     assert.deepEqual(state.tasks.get('sum')!.execution, none);
     assert.deepEqual(state.tasks.get('double')!.execution, some({ inputsHash: 'b'.repeat(64), executionId: '0190a0b0-8888-7000-8000-000000000001' }));
@@ -178,11 +211,21 @@ describe('decodeDataflowExecutionState', () => {
     });
   });
 
-  it('refuses a state a newer e3 wrote, naming its version', () => {
-    const newer = encodeBeast2For(StructType({ version: IntegerType, id: StringType }))({ version: EXECUTION_STATE_VERSION + 1n, id: '7' });
+  it('refuses a state a newer release wrote, naming it', () => {
+    const newer = encodeBeast2For(StructType({ release: StringType, id: StringType }))({ release: '999.0.0', id: '7' });
     assert.throws(
       () => decodeDataflowExecutionState(newer),
-      { message: `the execution state was written by a newer e3: it is version ${EXECUTION_STATE_VERSION + 1n}, and this e3 reads version ${EXECUTION_STATE_VERSION}` },
+      { message: `the execution state was written by e3 999.0.0, in a form this e3, ${E3_RELEASE}, does not read — use e3 999.0.0 or a newer one` },
+    );
+  });
+
+  it('refuses a state an older release wrote in another form, naming it and the fix', () => {
+    const older = encodeBeast2For(StructType({
+      release: StringType, workspace: StringType, tasks: DictType(StringType, StringType), events: ArrayType(StringType),
+    }))({ release: '1.0.0', workspace: 'main', tasks: new Map(), events: [] });
+    assert.throws(
+      () => decodeDataflowExecutionState(older),
+      { message: `the execution state was written by e3 1.0.0, in a form this e3, ${E3_RELEASE}, does not read — re-create the repository: deploy again and import its data again` },
     );
   });
 

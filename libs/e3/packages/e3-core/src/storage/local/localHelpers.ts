@@ -15,7 +15,7 @@
 // like `fs.rename` resolves the property at call time — this is the seam tests
 // stub to simulate Windows sharing-violation errnos against the shared
 // renameWithRetry. (Behaviourally identical to `fs/promises`.)
-import { promises as fs } from 'node:fs';
+import { promises as fs, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
 import { isUuidv7 } from '../../uuid.js';
 import { isObjectHash } from '../../objects.js';
@@ -260,6 +260,35 @@ export async function atomicWriteFile(filePath: string, data: Uint8Array | strin
     await renameWithRetry(stagingPath, filePath);
   } catch (err) {
     try { await fs.unlink(stagingPath); } catch { /* ignore cleanup failure */ }
+    throw err;
+  }
+}
+
+/**
+ * {@link atomicWriteFile} for a caller that cannot wait on a promise: the
+ * bytes are staged in a unique sibling `.partial` file and renamed over the
+ * destination, a Windows sharing violation retried as {@link renameWithRetry}
+ * retries it, the thread sleeping between attempts.
+ *
+ * @param filePath - Destination path to atomically (over)write, in a
+ *   directory that exists
+ * @param data - Bytes to write
+ */
+export function atomicWriteFileSync(filePath: string, data: Uint8Array): void {
+  const stagingPath = `${filePath}.${Math.random().toString(36).slice(2, 10)}.partial`;
+  writeFileSync(stagingPath, data);
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        renameSync(stagingPath, filePath);
+        return;
+      } catch (err) {
+        if (attempt >= 24 || !isTransientFsError(err)) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(2 ** attempt, 100));
+      }
+    }
+  } catch (err) {
+    try { unlinkSync(stagingPath); } catch { /* ignore cleanup failure */ }
     throw err;
   }
 }

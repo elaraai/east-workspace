@@ -21,7 +21,7 @@
  */
 
 import { variant, some, none } from '@elaraai/east';
-import { EXECUTION_STATE_VERSION, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
+import { E3_RELEASE, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
 import {
@@ -153,7 +153,7 @@ export async function stepInitialize(
 
   // Create initial state
   const state = {
-    version: EXECUTION_STATE_VERSION,
+    release: E3_RELEASE,
     id: executionId,
     repo,
     workspace,

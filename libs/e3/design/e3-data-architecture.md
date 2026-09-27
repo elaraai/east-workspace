@@ -263,7 +263,7 @@ Every task execution is a **unit graph**, built by one engine (`execution/engine
 - Each stage's units are a `$plan` object (`UnitPlanType`), written once and named by the task's entry in the execution state, which records the stage rather than each unit. So a state write grows with the tasks, not the units: a 10 TB input is some 160,000 pieces. A plan names the plan of the stage before it, and the largest peak those stages reached (§3.8).
 - A yield or a crash resumes per unit. The stage's `$plan` is read back and each of its units probed in the execution cache, so the units that finished are found without being recorded one by one, and only the rest run.
 - The run's timeline records a split task's stages: its pieces planned, and each merge level started and finished. Each unit's progress is a callback, which the CLI prints. The API's events are a task's, and a requeued unit's (§3.8).
-- The execution state and its events carry a version. A reader reads its own version and refuses any other, naming it.
+- The execution state names the release that wrote it. A reader reads this release's form and refuses any other, naming the release that wrote it; a release that changes the form ships a repository upgrade step (§3.13).
 - Every unit, a piece with the merge of its own runs or a merge or fold over pieces, is cached on its own identity: kind, program or merge function, input hashes and output kind. A re-run after an append re-runs only the pieces it touched and the merges they reach. Because pieces are content-defined, the same holds for an insertion in the middle.
 
 **Drivers.** `SplitTask` is a split task's stages:
@@ -398,8 +398,9 @@ Every new kind lands with its GC test in the same PR.
 ### 3.12 Migration
 
 `docs/conventions/WIRE_MIGRATION.md` states one rule, a hard cutover:
-- **Package-borne wires** — task objects, package objects, function, record, mutation, migration and index objects, IR bundles, environment specs — change and packages are re-exported. A package an older SDK exported fails, saying so.
-- **Stored state** — datasets, manifests, record states and commits, execution records and state, and the repository's other records (§3.13) — changes and a repository an older e3 wrote is re-created: deployed again, and its data imported again. Readers read the current form only, as writers write it, and refuse any other, naming the fix. No reader keeps a decoder for an earlier form.
+- **Package-borne wires** — task objects, package objects, function, record, mutation, migration and index objects, IR bundles, environment specs — change and packages are re-exported. A package an older SDK exported fails, saying so, and an import refuses a zip a newer release exported, naming it.
+- **Stored state** — datasets, manifests, record states and commits, execution records and state, and the repository's other records (§3.13) — changes by an upgrade step, which the release that changes it ships and which carries a repository an older release wrote into the new form in place, when that release first opens it (§3.13). Readers read the current form only, as writers write it, and refuse any other, naming the release that wrote it. No reader keeps a decoder for an earlier form. A repository from before repositories recorded their upgrades is re-created: deployed again, and its data imported again.
+- **The release.** What e3 keeps and ships names the release that wrote it: e3-types' `E3_RELEASE`, which the release scripts write with every package's version. No stored form carries a number of its own. The transfer protocol keeps its number, which decides compatibility, and a request names its release beside it (§3.17).
 - **Frozen wires** — the beast2 container, its type registry and the segment manifest — change only by a new version of the thing. The container keeps its own promise to read every released version (`docs/conventions/BEAST2_WIRE_VERSION.md`).
 
 ### 3.13 The repository
@@ -408,12 +409,12 @@ A local repository is a directory of records and objects:
 
 | Path | What it holds | East type |
 |---|---|---|
-| `repository.beast2` | the repository: the layout's version, and its name, status and times | `RepositoryRecordType`, `{ layout, metadata }` |
+| `repository.beast2` | the repository: the release that last wrote it, the store upgrades it has had, and its name, status and times | `RepositoryRecordType`, `{ release, upgrades, metadata }` |
 | `objects/<ab>/<rest>.beast2` | content-addressed objects, an environment's files among them as Blobs | any |
 | `packages/<name>/<version>.beast2` | a package ref: the package object's hash | String |
 | `workspaces/<ws>.beast2` | a workspace: `none` until a package is deployed, then its state | `WorkspaceRecordType`, an `Option` of `WorkspaceStateType` |
 | `workspaces/<ws>/data/<path>.beast2` | a dataset ref and its revision | `{ revision, ref }` |
-| `workspaces/<ws>/execution.beast2` | the workspace's latest dataflow execution | `DataflowExecutionStateType` |
+| `workspaces/<ws>/execution.beast2` | the workspace's latest dataflow execution, naming the release that wrote it | `DataflowExecutionStateType` |
 | `dataflows/<ws>/<runId>.beast2` | a run's record | `DataflowRunType` |
 | `executions/<task>/<inputs>/<id>/status.beast2` | an execution attempt | `ExecutionStatusType` |
 | `executions/<task>/<inputs>/<id>/owner.beast2` | the orchestrator that launched it | `ExecutionOwnerType` |
@@ -425,8 +426,11 @@ A local repository is a directory of records and objects:
 | `tmp/scratch/`, `tmp/transfers/` | working space: executions, staged uploads and package zips | — |
 
 - **Every record is an East value in beast2**, except the logs, which stay the runners' own text: they are appended as output arrives and read by byte offset. A record is read as the type its header names or refused, since every runtime's typed decode checks the header against the type it is asked for. A header's type reads as the asked type when East's subtyping makes it that type or a subtype whose variant tags line up, so `none` reads as any `Option`.
-- **A package zip holds the repository's own forms:** the objects, the package ref at `packages/<name>/<version>.beast2`, and from a workspace the run its current state came from, with that run's executions. It holds nothing an import does not read, and an import refuses a zip an older e3 wrote, naming the export.
-- **The layout is checked.** The repository record carries the layout's version, and opening a repository refuses any other version, or none, naming the fix: re-create it.
+- **A package zip holds the repository's own forms:** the objects, the package ref at `packages/<name>/<version>.beast2`, and from a workspace the executions the run its current state came from used, so the importing repository's cache serves the outputs they made. It names the release that exported it in `release.beast2`, a String, its first entry. It carries no run's record, which names a workspace of the repository the run ran in: a run's history stays there, and an import files none. It holds nothing an import does not read. An import reads the zip's directory before it writes anything, and refuses a zip a newer release exported, naming that release, and one an older e3 wrote in a form no longer read, naming the export.
+- **Upgrades are recorded.** The repository record names the release that last wrote it and the store upgrades the repository has had, each with the release that applied it.
+  - A release that changes a stored form ships a named upgrade step (`REPOSITORY_UPGRADES`). A step is synchronous and idempotent, leaving a record already in the new form as it is, and once released it is never edited, reordered or removed.
+  - An e3 that opens a repository applies the steps it has not had, in order, in place and before anything reads it, recording each with its release as soon as it is applied. So the repository's records keep their states and histories across releases. Every open applies them: the CLI's, the API server's when it starts over one repository or at a repository's first request, and `LocalStorage.validateRepository`. Two processes opening a repository at once may both apply a step, which its idempotence makes safe.
+  - A repository that has had a step this e3 does not know was upgraded by a newer e3, and is refused, naming the release that applied it. One with no repository record is refused, naming the fix: re-create it. Releases that change no stored form ship no step, so they open each other's repositories either way.
 - **Names are checked** before they become paths: a repository's name where a server keeps several, workspace names, package names and versions, and lock resources. A path separator, a character a Windows file name refuses, or `.` or `..` as a whole segment, is refused. A hash — an object's, which a client names too, or an execution's task and inputs hashes — and an attempt's or a run's id, which an imported package names, must be of the form e3 writes.
 - **One record for one fact.** The `success` status holds the output hash, and a dataflow run has one id, its UUIDv7 `runId`.
 - **What goes with what it describes:** a workspace's execution state and runs go with the workspace, and so do the locks its dataflows and dataset writes left when they exited; a lock a live process holds is left for it to release. A built environment goes when gc no longer reaches its spec.
@@ -509,10 +513,10 @@ A value too large for an inline `PUT` (the client's threshold is 1 MB) is staged
 
 | Step | Method | Path | Request | Response |
 |---|---|---|---|---|
-| Init | POST | `…/upload?protocol=2` | `TransferUploadRequestType` `{hash, size}` | `TransferUploadResponseType` |
+| Init | POST | `…/upload?protocol=2&release=<release>` | `TransferUploadRequestType` `{hash, size}` | `TransferUploadResponseType` |
 | Part target | GET | `…/upload/<id>/parts/<n>` | - | `TransferPartResponseType` `{url, headers}` |
 | Send bytes | PUT | each part's URL | raw bytes (+ the part's `headers`) | HTTP status only |
-| Commit | POST | `…/upload/<id>?protocol=2` | - | `TransferDoneResponseType` |
+| Commit | POST | `…/upload/<id>?protocol=2&release=<release>` | - | `TransferDoneResponseType` |
 | Poll | GET | `…/upload/<id>` | - | `TransferDoneResponseType` |
 
 ```typescript
@@ -528,7 +532,7 @@ const TransferDoneResponseType = VariantType({
 });
 ```
 
-**The version.** A client names the protocol it speaks with `?protocol=N` on the init and the commit (`TRANSFER_PROTOCOL_VERSION`, 2). A server speaks one version. It refuses a request that names another, or none, with an `internal` error naming the fix: upgrade the client, or the server.
+**The version.** A client names the protocol it speaks with `?protocol=N` on the init and the commit (`TRANSFER_PROTOCOL_VERSION`, 2), and its release beside it (`&release=`). The release decides nothing, so a release that leaves the protocol alone keeps an older client working against a newer server. A server speaks one version. It refuses a request that names another, or none, with an `internal` error naming its release and the request's, and the fix: upgrade the client, or the server.
 
 **Parts.**
 - The server plans the upload. Part `n` (from 1) is the byte range `[(n-1)·partBytes, min(size, n·partBytes))`, and an upload no larger than `partBytes` is one part (`transferPartCount` / `transferPartRange`).
@@ -606,7 +610,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
   - Each step's input type is its predecessor's output type, and the last step's output type is the record's declared type.
   - Each is an error at definition, naming the two steps or the two types that conflict.
 
-**Wire.** `MigrationObjectType` has the fields `form`, `from` and `to` (the record's type before and after the step), `bodyIr`, `programIr` and `runner`. `programIr` is the generated program a `rows` or `rekey` step runs, and is empty for `value`. `RecordObjectType` has `migrations`, the declared chain in order: each step's name and object hash. Both are package-borne (§3.12).
+**Wire.** `MigrationObjectType` has the fields `form`, `from` and `to` (the record's type before and after the step), `bodyIr`, `programIr` and `runner`. `form` is a variant, `value | rows | rekey`, as a mutation object's is, `reduce | edit | patch`: a form e3 does not know does not decode, where a String read as any string and ran as whichever form its checks fell through to. `programIr` is the generated program a `rows` or `rekey` step runs, and is empty for `value`. `RecordObjectType` has `migrations`, the declared chain in order: each step's name and object hash. Both are package-borne (§3.12).
 
 **What a workspace has applied.** The record ref's reserved `$schema` slot holds the names of the steps applied, in order, separated by commas.
 - **By name, not by hash.** A step is identified by its name, not by its object's hash. An object's hash covers its IR, which carries its source locations and changes with the SDK that exported it and with any function it imports. So a step moved in its file, or re-exported by a newer e3, would read as edited, and every later deploy would be refused.
@@ -635,6 +639,8 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 - `--schema=fail` refuses to run any migration, for a workspace whose migrations go through their own change control.
 - `--schema=reset` resets a record that cannot be kept or migrated to the package's initial value, with a `$reset` root commit, so the reset is in its history.
 - `--plan` answers the plan, each index's build, drop or keep among it, and writes nothing. The CLI's `--plan` fails when the deploy would be refused.
+  - From a zip or a source, a plan imports nothing. Locally it reads the package where it is, through a view of the repository with the zip laid over it (`packageZipOpen`): the package, record, index and migration objects and the initial values, each read when asked for and checked against its hash. The view refuses every write.
+  - A server plans only a package it holds, so the CLI refuses a plan from a zip or a source against one, naming the two steps: `e3 package import`, then `workspace deploy <name>@<version> --plan`.
 - `e3 watch` takes `--schema`, and on a type change fails, naming `e3 watch --schema=reset`.
 
 **Running.** The steps run before the deploy writes a ref, as index builds do, through the deploy's task runner: a `value` step as one unit, and a `rows` or `rekey` step as a split task over the state before it. They write objects and no ref, so a failure leaves the workspace as it was, with nothing to restore. A deploy run again after a failure is served its finished steps from the execution cache when their code, and the code that exports them, have not moved. A migrated record's indexes are then built over its new state: a changed type rebuilds every one. An export's IR carries the source locations of the code that built it, so a `$deploy` commit follows any change to a package's code.

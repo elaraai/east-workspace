@@ -246,9 +246,64 @@ describe("StagedStore — hydration concurrency", () => {
         await store.ready();
         store.write(ws, policyPath, new Uint8Array([1]), new Uint8Array([2]));
         await store.flushPending();
-        // After flushPending, the persistence is durable (the adapter has it).
+        // After flushPending, the persistence is durable (the adapter has it),
+        // under the store's own scope, none having been set.
         const persisted = await adapter.loadAll();
-        assert.ok(persisted.has("test-workspace.policy"));
+        assert.ok(persisted.has("\u0000test-workspace.policy"));
+    });
+});
+
+// ============================================================================
+// Scope — each server's and repository's edits apart
+// ============================================================================
+
+describe("StagedStore — scope", () => {
+    const serverA = JSON.stringify(["http://a.test", "default"]);
+    const serverB = JSON.stringify(["http://b.test", "default"]);
+
+    test("keeps each server's and repository's edits apart, and a scope's move re-renders its paths", async () => {
+        const { store } = await newStore();
+        store.setScope(serverA);
+        store.write(ws, policyPath, new Uint8Array([1]), new Uint8Array([10]));
+        let calls = 0;
+        store.subscribe("test-workspace.policy", () => { calls++; });
+
+        store.setScope(serverB);
+        assert.equal(calls, 1, "a view of the path reads the other scope's entries now");
+        assert.equal(store.hasPending(ws, policyPath), false);
+        assert.deepEqual(store.listKeys(), []);
+        store.write(ws, policyPath, new Uint8Array([2]), new Uint8Array([20]));
+
+        store.setScope(serverA);
+        assert.deepEqual(store.getBuffered(ws, policyPath), new Uint8Array([10]));
+        assert.deepEqual(store.listKeys(), ["test-workspace.policy"]);
+    });
+
+    test("a scope's release unsets it only while it is still that scope", async () => {
+        const { store } = await newStore();
+        const releaseA = store.setScope(serverA);
+        store.setScope(serverB);
+        store.write(ws, policyPath, new Uint8Array([2]), new Uint8Array([20]));
+        releaseA();
+        assert.deepEqual(store.getBuffered(ws, policyPath), new Uint8Array([20]), "B is still the scope");
+    });
+
+    test("drops an entry an older build left, which names no server, with a warning", async () => {
+        const adapter = new MemoryStagedAdapter();
+        await adapter.save("test-workspace.policy", { snapshot: new Uint8Array([1]), buffered: new Uint8Array([2]) });
+        const store = new StagedStore(adapter);
+        const errors: { key: string; err: unknown }[] = [];
+        store.onPersistError((key, err) => errors.push({ key, err }));
+        await store.ready();
+        await store.flushPending();
+
+        assert.equal(store.hasPending(ws, policyPath), false);
+        store.setScope(serverA);
+        assert.equal(store.hasPending(ws, policyPath), false);
+        assert.equal((await adapter.loadAll()).size, 0, "the entry is gone from persistence");
+        assert.equal(errors.length, 1);
+        assert.equal(errors[0]!.key, "test-workspace.policy");
+        assert.match(String(errors[0]!.err), /an older build left names no server or repository, and was dropped/);
     });
 });
 

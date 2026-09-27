@@ -33,6 +33,7 @@ import {
   readBeast2Type,
   toEastTypeValue,
 } from '@elaraai/east';
+import { E3_RELEASE, compareReleases } from './release.js';
 
 // =============================================================================
 // Status Literals (TypeScript only - East uses StringType)
@@ -160,11 +161,11 @@ export type RequeueReason = ValueTypeOf<typeof RequeueReasonType>;
  * inline in the execution state (not as a separate JSONL file).
  *
  * @remarks
- * Part of the execution state's wire, which changes only by version (see
- * {@link EXECUTION_STATE_VERSION}): a reader decodes a state against the whole
- * type it was written with, so a new event is a new version of the state.
- * Each unit's progress is a callback, {@link PartitionProgress}, and is not
- * persisted.
+ * Part of the execution state's wire: a reader decodes a state against the
+ * whole type it was written with, so a new event is a new form of the state,
+ * which the release that makes it carries repositories into with an upgrade
+ * step. Each unit's progress is a callback, {@link PartitionProgress}, and is
+ * not persisted.
  */
 export const ExecutionEventType = VariantType({
   /** Execution started */
@@ -397,24 +398,6 @@ export interface PartitionProgress {
 // =============================================================================
 
 /**
- * The version of the execution state this e3 writes.
- *
- * @remarks
- * A reader decodes a stored state against the whole type it was written with,
- * so the type changes only by version, and
- * {@link decodeDataflowExecutionState} reads this version alone, refusing any
- * other and naming it.
- *
- * - 1: as first released, without a `version`.
- * - 2: a task's `plan`, and the events of a split task's stages.
- * - 3: no `concurrency`: the budget of the process that runs it decides what
- *   runs, and is never persisted.
- * - 4: a task's `execution`: the one it completed with.
- * - 5: a unit requeued (`unit_requeued`), and a completed task's peak.
- */
-export const EXECUTION_STATE_VERSION = 5n;
-
-/**
  * Persistent state for a dataflow execution.
  *
  * Stored in workspaces/<ws>/execution.beast2
@@ -423,12 +406,14 @@ export const EXECUTION_STATE_VERSION = 5n;
  * - Tasks are stored as a Dict (serializes as object, not array of tuples)
  * - Events are stored inline (not as separate JSONL file)
  * - Dates are Date objects (via DateTimeType)
- * - Read it back with {@link decodeDataflowExecutionState}, which reads
- *   {@link EXECUTION_STATE_VERSION} alone
+ * - Read it back with {@link decodeDataflowExecutionState}, which reads this
+ *   form alone. A release that changes it ships a repository upgrade step,
+ *   which carries a repository's states into the new form when that release
+ *   first opens it.
  */
 export const DataflowExecutionStateType = StructType({
-  /** The state's version: {@link EXECUTION_STATE_VERSION} */
-  version: IntegerType,
+  /** The release of e3 that wrote the state */
+  release: StringType,
 
   // Identity
   /** The run's id, a UUIDv7, which its `DataflowRun` record carries as `runId` */
@@ -498,31 +483,32 @@ const decodeState = decodeBeast2For(DataflowExecutionStateType);
 /**
  * Decodes a stored execution state.
  *
- * The version is told by the type the state's header declares, since a
- * decoder built for another version's type would misread it rather than fail.
- * Stored state changes by hard cutover, so a state of another version is
- * refused, naming its version: an older e3's, whose repository is re-created,
- * or a newer one's.
+ * The form is told by the type the state's header declares, since a decoder
+ * built for another form's type would misread it rather than fail. A
+ * repository's upgrade steps carry its states into this form when this
+ * release first opens it, so a state of another form is refused, naming the
+ * release that wrote it: a newer one, whose e3 reads it, or an older one that
+ * no step carries forward, whose repository is re-created.
  *
  * @param data - the stored state
  * @returns the state
- * @throws {Error} When an older or a newer e3 wrote the state, naming its
- *   version, or the data is not an execution state.
+ * @throws {Error} When the state is of another form, naming the release that
+ *   wrote it, or the data is not an execution state.
  */
 export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutionState {
   const type = readBeast2Type(data);
   if (isTypeValueEqual(type, STATE_TYPE)) return decodeState(data);
   const { value } = decodeBeast2(data);
   const state = typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
-  const version = state?.version;
-  if (typeof version === 'bigint' && version > EXECUTION_STATE_VERSION) {
+  const release = typeof state?.release === 'string' ? state.release : null;
+  if (release !== null && compareReleases(release, E3_RELEASE) > 0) {
     throw new Error(
-      `the execution state was written by a newer e3: it is version ${version}, and this e3 reads version ${EXECUTION_STATE_VERSION}`,
+      `the execution state was written by e3 ${release}, in a form this e3, ${E3_RELEASE}, does not read — use e3 ${release} or a newer one`,
     );
   }
   if (state !== null && 'workspace' in state && 'tasks' in state && 'events' in state) {
     throw new Error(
-      `the execution state was written by an older e3: it is version ${typeof version === 'bigint' ? version : 1n}, and this e3 reads version ${EXECUTION_STATE_VERSION} — ` +
+      `the execution state was written by ${release === null ? 'an older e3' : `e3 ${release}`}, in a form this e3, ${E3_RELEASE}, does not read — ` +
       're-create the repository: deploy again and import its data again',
     );
   }

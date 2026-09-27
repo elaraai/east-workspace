@@ -102,6 +102,9 @@ export interface Server {
  *
  * @param config - Server configuration
  * @returns Server instance
+ * @throws {RangeError} When the budget's settings do not resolve
+ * @throws {RepoNotFoundError} When the single repository is none
+ * @throws {RepoLayoutError} When this e3 cannot open the single repository
  */
 export async function createServer(config: ServerConfig): Promise<Server> {
   const {
@@ -125,6 +128,12 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Single storage instance shared across all requests
   // Pass reposDir for multi-repo mode to enable storage.repos.* operations
   const storage: StorageBackend = new LocalStorage(isSingleRepoMode ? undefined : reposDir);
+
+  // The one repository is opened before anything is served, as the CLI opens
+  // one: refused when this e3 cannot read it, and upgraded in place when an
+  // older release wrote it. Several are each opened by their first request
+  // (the middleware below).
+  if (isSingleRepoMode) await storage.validateRepository(singleRepoPath!);
 
   // Helper to compute repo path from repo name
   // In single-repo mode, middleware validates 'default' before routes are called
@@ -283,8 +292,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
       const repo = c.req.param('repo')!;
 
-      // Check repo metadata for status. A repo an older e3 created has none,
-      // and the refusal names the fix — send it, not a bare 500.
+      // Check repo metadata for status, which opens the repository: one an
+      // older release wrote is upgraded in place first. A repo this e3 cannot
+      // read is refused naming the fix — send it, not a bare 500.
       let metadata;
       try {
         metadata = await storage.repos.getMetadata(repo);

@@ -10,8 +10,10 @@
  * that exceed inline body size limits.
  *
  * A client names the protocol version it speaks with `?protocol=N` on the init
- * and commit requests, and a server refuses a request that names another
- * version, or none, naming the fix.
+ * and commit requests, and its release beside it (`&release=`). A server
+ * refuses a request that names another version, or none, naming both
+ * releases and the fix. The release decides nothing, so an older client and a
+ * newer server that speak one version work together.
  */
 
 import { VariantType, StructType, StringType, IntegerType, NullType, DictType, type ValueTypeOf } from '@elaraai/east';

@@ -39,6 +39,12 @@ const TEXT_VERSION_FILES = [
   'libs/east-c/VERSION',  // baked into the east-c binary at CMake configure time
 ];
 
+// TypeScript sources that name the release in one `export const <NAME> = '…';`
+// line (e3 records the release in what it keeps and ships).
+const SOURCE_VERSION_FILES = [
+  { path: 'libs/e3/packages/e3-types/src/release.ts', constant: 'E3_RELEASE' },
+];
+
 // The launcher's per-platform optionalDependencies are NOT committed (they'd
 // break pnpm install --frozen-lockfile until the per-platform packages exist
 // on npm). They get injected at publish time via
@@ -85,6 +91,13 @@ for (const rel of NPM_PKGS) {
 for (const rel of TEXT_VERSION_FILES) {
   const v = fs.readFileSync(path.join(repoRoot, rel), 'utf8').trim();
   if (v !== canonical) errors.push(`${rel}: ${v} ≠ ${canonical}`);
+}
+
+for (const { path: rel, constant } of SOURCE_VERSION_FILES) {
+  const raw = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+  const found = [...raw.matchAll(new RegExp(`^export const ${constant} = '([^']*)';$`, 'gm'))];
+  if (found.length !== 1) errors.push(`${rel}: expected one \`export const ${constant} = '…';\` line, found ${found.length}`);
+  else if (found[0][1] !== canonical) errors.push(`${rel} (${constant}): ${found[0][1]} ≠ ${canonical}`);
 }
 
 for (const rel of PYPROJECTS) {

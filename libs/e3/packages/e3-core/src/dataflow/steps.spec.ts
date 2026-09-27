@@ -13,7 +13,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { some, none, variant, StringType, encodeBeast2For } from '@elaraai/east';
-import { EXECUTION_STATE_VERSION, type TreePath, type Structure } from '@elaraai/e3-types';
+import { E3_RELEASE, type TreePath, type Structure } from '@elaraai/e3-types';
 import {
   stepInvalidateTasks,
   stepDetectInputChanges,
@@ -55,7 +55,7 @@ function makeState(
   }>,
 ): DataflowExecutionState {
   return {
-    version: EXECUTION_STATE_VERSION,
+    release: E3_RELEASE,
     id: 'test-1',
     repo: overrides?.repo ?? '/tmp/test-repo',
     workspace: overrides?.workspace ?? 'test-ws',

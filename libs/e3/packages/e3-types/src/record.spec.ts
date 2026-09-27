@@ -66,7 +66,7 @@ describe('decodeMutationObject', () => {
     bodyIr: 'a'.repeat(64),
     argTypes: [toEastTypeValue(IntegerType)],
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
-    form: 'edit',
+    form: variant('edit', null),
     programIr: 'b'.repeat(64),
   };
 
@@ -96,13 +96,28 @@ describe('decodeMutationObject', () => {
       /^Error: the mutation object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
     );
   });
+
+  it('refuses a mutation whose form is a String, as an older SDK wrote it, whatever the string', () => {
+    // A String form decoded as any string, and a form e3 does not know ran as
+    // whichever form its checks fell through to.
+    const StringFormMutationType = StructType({
+      bodyIr: StringType, argTypes: ArrayType(EastTypeType), runner: RunnerType, form: StringType, programIr: StringType,
+    });
+    for (const form of ['edit', 'bogus']) {
+      assert.throws(
+        () => decodeMutationObject(encodeBeast2For(StringFormMutationType)({ ...mutation, form })),
+        /^Error: the mutation object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+        form,
+      );
+    }
+  });
 });
 
 describe('decodeMigrationObject', () => {
   const RowV1Type = StructType({ name: StringType });
   const RowV2Type = StructType({ name: StringType, shift: IntegerType });
   const migration: MigrationObject = {
-    form: 'rows',
+    form: variant('rows', null),
     from: toEastTypeValue(DictType(StringType, RowV1Type)),
     to: toEastTypeValue(DictType(StringType, RowV2Type)),
     bodyIr: 'a'.repeat(64),
@@ -124,12 +139,26 @@ describe('decodeMigrationObject', () => {
 
   it('refuses the bytes of another object, naming the re-export', () => {
     const mutation: MutationObject = {
-      bodyIr: 'a'.repeat(64), argTypes: [], runner: migration.runner, form: 'reduce', programIr: '',
+      bodyIr: 'a'.repeat(64), argTypes: [], runner: migration.runner, form: variant('reduce', null), programIr: '',
     };
     assert.throws(
       () => decodeMigrationObject(encodeBeast2For(MutationObjectType)(mutation)),
       /^Error: the migration object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
     );
+  });
+
+  it('refuses a migration whose form is a String, as an older SDK wrote it, whatever the string', () => {
+    // A deploy ran a String form it did not know as a split step.
+    const StringFormMigrationType = StructType({
+      form: StringType, from: EastTypeType, to: EastTypeType, bodyIr: StringType, programIr: StringType, runner: RunnerType,
+    });
+    for (const form of ['rows', 'bogus']) {
+      assert.throws(
+        () => decodeMigrationObject(encodeBeast2For(StringFormMigrationType)({ ...migration, form })),
+        /^Error: the migration object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+        form,
+      );
+    }
   });
 });
 

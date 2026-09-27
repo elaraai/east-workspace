@@ -8,7 +8,7 @@ import type { Context } from 'hono';
 import { mkdir, stat, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { variant } from '@elaraai/east';
-import { TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
+import { E3_RELEASE, TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
 import {
   DatasetTypeMismatchError,
   datasetAdoptFile,
@@ -63,13 +63,17 @@ interface Commit {
 /**
  * Why a request does not speak this server's transfer protocol, or `null`
  * when it does. A client names its version with `?protocol=N`, and one that
- * names none was built before there was a version to name.
+ * names none was built before there was a version to name. It names its
+ * release beside it (`&release=`), which decides nothing: a refusal names it
+ * beside this server's.
  */
 function protocolProblem(c: Context): string | null {
   const named = c.req.query('protocol');
   if (named === String(TRANSFER_PROTOCOL_VERSION)) return null;
+  const release = c.req.query('release');
   const newer = named !== undefined && Number(named) > TRANSFER_PROTOCOL_VERSION;
-  return `this server speaks transfer protocol ${TRANSFER_PROTOCOL_VERSION}, and the request ${named === undefined ? 'names none' : `speaks ${named}`}: `
+  return `this server, e3 ${E3_RELEASE}, speaks transfer protocol ${TRANSFER_PROTOCOL_VERSION}, and the request, `
+    + `${release === undefined ? 'which names no release' : `from e3 ${release}`}, ${named === undefined ? 'names no protocol' : `speaks ${named}`}: `
     + (newer ? 'a newer e3 sent it — upgrade the server' : 'an older e3 sent it — upgrade it');
 }
 
@@ -109,8 +113,8 @@ function sendOutcome(outcome: CommitOutcome): Response {
  *
  * @remarks
  * The init and the commit name the protocol version they speak
- * (`?protocol=N`), and one of another version, or none, is refused, naming the
- * fix. A client is sent its bytes' plan as parts, and its commit runs in the
+ * (`?protocol=N`) and the client's release (`&release=`), and one of another
+ * version, or none, is refused, naming both releases and the fix. A client is sent its bytes' plan as parts, and its commit runs in the
  * background: the request waits up to `commitWaitMs` for it and otherwise
  * answers `processing`, which the client polls — so verifying a delivery of
  * many gigabytes never holds one request open for as long as its SHA-256

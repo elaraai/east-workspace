@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { variant, some, none } from '@elaraai/east';
-import { EXECUTION_STATE_VERSION } from '@elaraai/e3-types';
+import { E3_RELEASE } from '@elaraai/e3-types';
 import type { ExecutionEvent, DataflowExecutionState } from './types.js';
 import { coreEventToApiEvent, coreStateToApiState } from './api-compat.js';
 
@@ -18,7 +18,7 @@ const now = new Date('2025-01-15T12:00:00Z');
 
 function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExecutionState {
   return {
-    version: EXECUTION_STATE_VERSION,
+    release: E3_RELEASE,
     id: '1',
     repo: 'test-repo',
     workspace: 'ws',

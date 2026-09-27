@@ -290,7 +290,7 @@ A split task is planned when it becomes ready and is not cached: its pieces are 
 
 A yield stops the loop launching, suspends each split task in progress — its execution recorded `interrupted` — and resets the in-progress tasks to `pending`, keeping a split task's `plan`. The resumed run takes each stage up again from its plan, and finds the units that finished in the execution cache. A run whose host died is resumed the same way. An aborted run ends a split task whose next units never started `cancelled`, as its units in flight end.
 
-The execution state carries its version (`EXECUTION_STATE_VERSION`, 5: version 2 brought a task's `plan` and a split task's events, version 3 dropped `concurrency`, which the budget replaced, version 4 records the execution each task completed with, and version 5 a unit requeued and a completed task's peak). `decodeDataflowExecutionState` reads its own version and refuses any other, naming it: a newer one's, and an older one's, which is re-created with its repository (see `docs/conventions/WIRE_MIGRATION.md`). A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
+The execution state names the release that wrote it (`release`). `decodeDataflowExecutionState` reads this release's form and refuses any other, naming the release that wrote it: a newer one's, and an older one's that no repository upgrade step carried forward, which is re-created with its repository (see `docs/conventions/WIRE_MIGRATION.md`). A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
 
 ## Garbage Collection Integration
 

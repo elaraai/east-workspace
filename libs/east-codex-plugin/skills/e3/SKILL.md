@@ -772,7 +772,10 @@ and an edit to an applied step's body is not detected.
 with a record that cannot be kept as it is: `migrate` (the default), `fail`
 (run no migration, and refuse), or `reset` (reset it to the package's initial
 value, with a `$reset` commit). `--plan` prints what the deploy would do to
-each record and index, and writes nothing. The steps run before the deploy
+each record and index, and writes nothing: from a zip or a source it imports
+nothing, reading the package from the zip where it is, and a server, which
+plans only a package it holds, refuses one — `e3 package import` the zip, then
+plan the package by name. The steps run before the deploy
 writes, so a failed step leaves the workspace as it was, and a deploy run again
 is served the steps that finished from the execution cache while their code has
 not moved. `e3 watch` fails on a type change, naming `--schema=reset`.
@@ -829,6 +832,10 @@ e3 package export <repo> <pkg> <zipPath> # Export to .zip
 e3 package list <repo>                   # List packages
 e3 package remove <repo> <pkg>           # Remove package
 ```
+
+A zip names the release of e3 that exported it, and an import refuses a zip a
+newer release exported, naming that release: import it with an e3 at least as
+new as the SDK that exported it.
 
 ### Workspace
 
@@ -1033,7 +1040,7 @@ my-project/
 ├── src/
 │   └── index.ts        # Package definition
 └── repo/               # Repository (created by e3 repo create)
-    ├── repository.beast2  # The repository record; its layout's version is checked on open
+    ├── repository.beast2  # The repository record: the release that last wrote it, and the upgrades a newer e3 applies on open
     ├── objects/        # Content-addressed objects: values, segments, manifests, programs
     ├── packages/       # Package refs
     ├── workspaces/     # Each workspace's state and dataset refs

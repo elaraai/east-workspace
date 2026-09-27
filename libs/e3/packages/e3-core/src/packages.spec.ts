@@ -9,25 +9,59 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { createWriteStream, existsSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import yazl from 'yazl';
 import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { DataflowRunType, ExecutionStatusType } from '@elaraai/e3-types';
+import { DataflowRunType, E3_RELEASE, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
 import {
   packageImport,
+  packageZipOpen,
   packageExport,
   packageRemove,
   packageList,
   packageResolve,
   packageRead,
 } from './packages.js';
+import { workspaceDeploy } from './workspaces.js';
+import { computeHash } from './objects.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, zipEqual } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
+
+/** Writes a zip of the given entries, in the given order. */
+async function writeZip(zipPath: string, entries: Iterable<readonly [string, Buffer]>): Promise<string> {
+  const zip = new yazl.ZipFile();
+  for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
+  await new Promise<void>((resolve, reject) => {
+    zip.outputStream.pipe(createWriteStream(zipPath)).on('close', resolve).on('error', reject);
+    zip.end();
+  });
+  return zipPath;
+}
+
+/** A zip's entries with its release entry naming `release`, placed last; none when `release` is null. */
+function withRelease(entries: Map<string, Buffer>, release: string | null): Array<readonly [string, Buffer]> {
+  const rest = [...entries].filter(([name]) => name !== 'release.beast2');
+  return release === null ? rest : [...rest, ['release.beast2', Buffer.from(encodeBeast2For(StringType)(release))]];
+}
+
+/** Every file under a directory, by its path, with a hash of its bytes. */
+function filesUnder(dir: string): Map<string, string> {
+  const files = new Map<string, string>();
+  const walk = (at: string): void => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else files.set(path, computeHash(readFileSync(path)));
+    }
+  };
+  walk(dir);
+  return files;
+}
 
 describe('packages', () => {
   let testRepo: string;
@@ -112,35 +146,51 @@ describe('packages', () => {
       assert.strictEqual(result1.version, result2.version);
     });
 
-    it('refuses an execution or a run a zip names by a hash or an id not of the form e3 writes', async () => {
-      // Each becomes a path: an execution's by its entries' names, and a run's
-      // by the id its record holds.
+    it('refuses an execution a zip names by a hash not of the form e3 writes', async () => {
+      // An execution's entries' names become its path.
       const zipPath = join(tempDir, 'named.zip');
       await e3.export(e3.package('named', '1.0.0') as any, zipPath);
-      const entries = await readZipEntries(zipPath);
       const executionId = '0190a0b0-5555-7000-8000-000000000000';
       const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
         executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
       }));
-      const run = encodeBeast2For(DataflowRunType)({
-        runId: 'not-a-run-id', workspaceName: 'main', packageRef: 'named@1.0.0', startedAt: new Date(0), completedAt: none,
+      const crafted = join(tempDir, 'crafted.zip');
+      const zip = new yazl.ZipFile();
+      for (const [name, bytes] of await readZipEntries(zipPath)) zip.addBuffer(bytes, name);
+      zip.addBuffer(Buffer.from(status), `executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`);
+      await new Promise<void>((resolve, reject) => {
+        zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
+        zip.end();
+      });
+      await assert.rejects(packageImport(storage, testRepo, crafted), /is not a task hash/);
+    });
+
+    it('files no run a zip carries, however it is named: a run\'s history stays where it ran', async () => {
+      // An older e3's workspace export carried its current run's record, which
+      // an import filed under the exporting workspace's name — a workspace of
+      // this repository's that is another, or none, which gc never prunes.
+      const zipPath = join(tempDir, 'runs.zip');
+      await e3.export(e3.package('runs', '1.0.0') as any, zipPath);
+      const run = (runId: string) => encodeBeast2For(DataflowRunType)({
+        runId, workspaceName: 'main', packageRef: 'runs@1.0.0', startedAt: new Date(0), completedAt: none,
         status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
         summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
       });
-      for (const [entry, data, refusal] of [
-        [`executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`, status, /is not a task hash/],
-        ['dataflows/main/not-a-run-id.beast2', run, /is not a run id/],
-      ] as const) {
-        const crafted = join(tempDir, 'crafted.zip');
-        const zip = new yazl.ZipFile();
-        for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
-        zip.addBuffer(Buffer.from(data), entry);
-        await new Promise<void>((resolve, reject) => {
-          zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
-          zip.end();
-        });
-        await assert.rejects(packageImport(storage, testRepo, crafted), refusal);
-      }
+      const runId = '0190a0b0-6666-7000-8000-000000000000';
+      const crafted = join(tempDir, 'with-runs.zip');
+      const zip = new yazl.ZipFile();
+      for (const [name, bytes] of await readZipEntries(zipPath)) zip.addBuffer(bytes, name);
+      zip.addBuffer(Buffer.from(run(runId)), `dataflows/main/${runId}.beast2`);
+      zip.addBuffer(Buffer.from(run('not-a-run-id')), 'dataflows/main/not-a-run-id.beast2');
+      await new Promise<void>((resolve, reject) => {
+        zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
+        zip.end();
+      });
+
+      const result = await packageImport(storage, testRepo, crafted);
+      assert.strictEqual(result.name, 'runs');
+      assert.deepStrictEqual(await storage.refs.dataflowRunList(testRepo, 'main'), []);
+      assert.ok(!existsSync(join(testRepo, 'dataflows', 'main')), 'nothing is filed under the workspace name');
     });
 
     it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {
@@ -159,6 +209,138 @@ describe('packages', () => {
       await assert.rejects(packageImport(storage, testRepo, older), (err: unknown) =>
         err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
       assert.deepStrictEqual(await packageList(storage, testRepo), []);
+    });
+
+    it('refuses a zip a newer release exported, naming it, before anything of it is written', async () => {
+      const zipPath = join(tempDir, 'current.zip');
+      await e3.export(e3.package('newer', '1.0.0', e3.input('note', StringType, variant('value', 'kept'))), zipPath);
+      // The release last, as a newer e3 might place it: the import reads the
+      // zip's directory before it writes anything.
+      const newer = await writeZip(join(tempDir, 'newer.zip'), withRelease(await readZipEntries(zipPath), '999.0.0'));
+
+      await assert.rejects(packageImport(storage, testRepo, newer), (err: unknown) =>
+        err instanceof PackageInvalidError &&
+        err.message === `Invalid package: e3 999.0.0 exported it, and this e3 is ${E3_RELEASE} — import it with e3 999.0.0 or a newer one`);
+      assert.deepStrictEqual(await packageList(storage, testRepo), []);
+      assert.deepStrictEqual(await storage.objects.list(testRepo), [], 'no object is written');
+    });
+
+    it('reads a zip an older release exported, and one from before zips named their release', async () => {
+      const zipPath = join(tempDir, 'current.zip');
+      await e3.export(e3.package('older', '1.0.0'), zipPath);
+      const entries = await readZipEntries(zipPath);
+      assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE, 'the SDK names its release');
+
+      for (const release of ['0.0.1', null]) {
+        const repo = createTestRepo();
+        try {
+          const result = await packageImport(storage, repo, await writeZip(join(tempDir, `older-${release}.zip`), withRelease(entries, release)));
+          assert.strictEqual(result.name, 'older', `${release}`);
+        } finally {
+          removeTestRepo(repo);
+        }
+      }
+    });
+
+    it('refuses a zip whose release entry names no release', async () => {
+      const zipPath = join(tempDir, 'current.zip');
+      await e3.export(e3.package('unnamed', '1.0.0'), zipPath);
+      const unnamed = await writeZip(join(tempDir, 'unnamed.zip'), withRelease(await readZipEntries(zipPath), 'latest'));
+      await assert.rejects(packageImport(storage, testRepo, unnamed), (err: unknown) =>
+        err instanceof PackageInvalidError && /^Invalid package: "latest" is not a release/.test(err.message));
+    });
+  });
+
+  describe('packageZipOpen', () => {
+    it('reads a package from a zip where it is, as an import would leave the repository, and writes nothing', async () => {
+      const OrderType = StructType({ status: StringType });
+      const orders = e3.record('orders', DictType(StringType, OrderType), new Map([['o-1', { status: 'open' }]]));
+      const byStatus = e3.recordIndex('by_status', orders, {
+        key: East.function([StringType, OrderType], StringType, ($, _id, order) => order.status),
+      });
+      const zipPath = join(tempDir, 'orders.zip');
+      await e3.export(e3.package('orders', '1.0.0', orders, byStatus), zipPath);
+      const imported = createTestRepo();
+      try {
+        const expected = await packageImport(storage, imported, zipPath);
+        const before = filesUnder(testRepo);
+
+        const zip = await packageZipOpen(zipPath);
+        try {
+          assert.deepStrictEqual([zip.name, zip.version, zip.packageHash, zip.objectCount],
+            ['orders', '1.0.0', expected.packageHash, expected.objectCount]);
+          const view = zip.view(storage);
+          assert.strictEqual(await packageResolve(view, testRepo, 'orders', '1.0.0'), expected.packageHash);
+          for (const hash of await storage.objects.list(imported)) {
+            const read = Buffer.from(await view.objects.read(testRepo, hash));
+            assert.ok(read.equals(Buffer.from(await storage.objects.read(imported, hash))), `object ${hash} reads as imported`);
+          }
+
+          // A deploy's plan reads the package, its record and index objects
+          // and the record's initial value through the view.
+          const records: RecordPlan[] = [];
+          const indexes: RecordIndexPlan[] = [];
+          await workspaceDeploy(view, testRepo, 'main', 'orders', '1.0.0', {
+            plan: true, onRecordPlan: (plan) => records.push(plan), onRecordIndex: (plan) => indexes.push(plan),
+          });
+          assert.deepStrictEqual(records.map((plan) => [plan.record, plan.action.type]), [['records/orders', 'mint']]);
+          assert.deepStrictEqual(indexes.map((plan) => [plan.record, plan.index, plan.action.type]), [['records/orders', 'by_status', 'build']]);
+
+          await assert.rejects(view.objects.write(testRepo, new Uint8Array([1])), /^Error: a view of a package zip writes nothing, and was asked to write an object$/);
+          await assert.rejects(view.refs.packageWrite(testRepo, 'orders', '1.0.0', expected.packageHash), /was asked to write a package ref$/);
+          await assert.rejects(view.datasets.write(testRepo, 'main', 'records/orders', variant('unassigned', null)), /was asked to write a dataset ref$/);
+        } finally {
+          zip.close();
+        }
+        assert.deepStrictEqual(filesUnder(testRepo), before, 'the repository is as it was');
+      } finally {
+        removeTestRepo(imported);
+      }
+    });
+
+    it('refuses what an import refuses, and an object that is not the bytes its name hashes', async () => {
+      const zipPath = join(tempDir, 'refused.zip');
+      await e3.export(e3.package('refused', '1.0.0', e3.input('note', StringType, variant('value', 'kept'))), zipPath);
+      const entries = await readZipEntries(zipPath);
+      const ref = 'packages/refused/1.0.0.beast2';
+      const packageHash = decodeBeast2For(StringType)(entries.get(ref)!);
+      const rewritten = async (file: string, entryOf: (name: string, bytes: Buffer) => [string, Buffer] | null): Promise<string> => {
+        const zip = new yazl.ZipFile();
+        for (const [name, bytes] of entries) {
+          const entry = entryOf(name, bytes);
+          if (entry !== null) zip.addBuffer(entry[1], entry[0]);
+        }
+        await new Promise<void>((resolve, reject) => {
+          zip.outputStream.pipe(createWriteStream(join(tempDir, file))).on('close', resolve).on('error', reject);
+          zip.end();
+        });
+        return join(tempDir, file);
+      };
+
+      const refless = await rewritten('refless.zip', (name, bytes) => name === ref ? null : [name, bytes]);
+      await assert.rejects(packageZipOpen(refless), (err: unknown) =>
+        err instanceof PackageInvalidError && err.message === 'Invalid package: missing package ref');
+
+      const older = await rewritten('older.zip', (name, bytes) => name === ref ? ['packages/refused/1.0.0', Buffer.from(`${packageHash}\n`)] : [name, bytes]);
+      await assert.rejects(packageZipOpen(older), (err: unknown) =>
+        err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
+
+      const newer = await writeZip(join(tempDir, 'newer.zip'), withRelease(entries, '999.0.0'));
+      await assert.rejects(packageZipOpen(newer), (err: unknown) =>
+        err instanceof PackageInvalidError &&
+        err.message === `Invalid package: e3 999.0.0 exported it, and this e3 is ${E3_RELEASE} — import it with e3 999.0.0 or a newer one`);
+
+      // Opening reads no object, so the zip opens; the object is refused when
+      // it is read.
+      const packageEntry = `objects/${packageHash.slice(0, 2)}/${packageHash.slice(2)}.beast2`;
+      const swapped = await rewritten('swapped.zip', (name, bytes) => name === packageEntry ? [name, Buffer.from('another object')] : [name, bytes]);
+      const zip = await packageZipOpen(swapped);
+      try {
+        await assert.rejects(packageRead(zip.view(storage), testRepo, 'refused', '1.0.0'), (err: unknown) =>
+          err instanceof PackageInvalidError && err.message === `Invalid package: its object ${packageHash} holds the bytes of another`);
+      } finally {
+        zip.close();
+      }
     });
   });
 
@@ -310,9 +492,12 @@ describe('packages', () => {
       const result = await packageExport(storage, testRepo, 'export-input', '1.0.0', exportZip);
 
       assert.ok(result.objectCount >= 2, `Expected at least 2 objects, got ${result.objectCount}`);
-      // Beside the objects, only the package ref, as the repository keeps it
+      // Beside the objects, only the release that exported it, first, and the
+      // package ref, as the repository keeps it
       const entries = await readZipEntries(exportZip);
-      assert.deepStrictEqual([...entries.keys()].filter((name) => !name.startsWith('objects/')), ['packages/export-input/1.0.0.beast2']);
+      assert.deepStrictEqual([...entries.keys()].filter((name) => !name.startsWith('objects/')), ['release.beast2', 'packages/export-input/1.0.0.beast2']);
+      assert.strictEqual([...entries.keys()][0], 'release.beast2');
+      assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE);
       assert.strictEqual(decodeBeast2For(StringType)(entries.get('packages/export-input/1.0.0.beast2')!), result.packageHash);
     });
 

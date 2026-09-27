@@ -234,6 +234,7 @@ describe('e3.record / e3.mutation.reduce', () => {
       assert.ok(mutHash, 'mutation in record object');
       const mutObject = decodeBeast2For(MutationObjectType)(objectAt(entries, mutHash!));
       assert.strictEqual(mutObject.argTypes.length, 1);
+      assert.strictEqual(mutObject.form.type, 'reduce');
 
       // structure leaf at .records.counter is non-writable
       const structure = pkgObject.data.structure;
@@ -265,11 +266,11 @@ describe('e3.record / e3.mutation.reduce', () => {
       assert.deepStrictEqual(recObject.migrations.map((step) => step.name), ['normalize', 'add_owner']);
       const [whole, split] = recObject.migrations.map((step) => decodeMigrationObject(objectAt(entries, step.migration)));
 
-      assert.strictEqual(whole!.form, 'value');
+      assert.strictEqual(whole!.form.type, 'value');
       assert.strictEqual(whole!.programIr, '', 'a value step runs its own function, and names no program');
       objectAt(entries, whole!.bodyIr);
 
-      assert.strictEqual(split!.form, 'rows');
+      assert.strictEqual(split!.form.type, 'rows');
       assert.ok(isTypeValueEqual(split!.from, toEastTypeValue(DictType(StringType, RowV1Type))));
       assert.ok(isTypeValueEqual(split!.to, toEastTypeValue(DictType(StringType, RowV2Type))));
       objectAt(entries, split!.bodyIr);
