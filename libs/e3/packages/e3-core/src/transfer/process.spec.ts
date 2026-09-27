@@ -6,22 +6,24 @@
 /**
  * A deploy job run over several calls, as compute with a time limit runs a
  * long one: the job a call its caller stopped leaves behind, and the workspace
- * lock the caller holds from the first call to the last.
+ * lock the caller holds from the first call to the last. And a gc job: the
+ * status a poll reads, whatever gc did.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
-import { DictType, East, StringType, StructType, variant } from '@elaraai/east';
+import { DictType, East, StringType, StructType, none, some, variant } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
 import { packageImport } from '../packages.js';
 import { workspaceCreate, workspaceGetState } from '../workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from '../test-helpers.js';
+import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
 import { InMemoryTransferBackend } from './InMemoryTransferBackend.js';
-import { handleProcessDeploy } from './process.js';
+import { handleProcessDeploy, handleProcessGc } from './process.js';
 
 const PlanType = StructType({ owner: StringType });
 
@@ -125,5 +127,48 @@ describe('a deploy job run over several calls', () => {
     } finally {
       await lock.release();
     }
+  });
+});
+
+describe('a gc job', () => {
+  let storage: InMemoryStorage;
+  let gcStore: InMemoryTransferBackend['repoGc'];
+
+  beforeEach(async () => {
+    storage = new InMemoryStorage();
+    await storage.repos.create('repo');
+    gcStore = new InMemoryTransferBackend({}).repoGc;
+  });
+
+  it('records what gc did, having swept as it was asked', async () => {
+    const orphan = await storage.objects.write('repo', new Uint8Array([1, 2, 3]));
+    await gcStore.create('swept', {
+      repo: 'repo',
+      request: { dryRun: false, minAge: some(0n), keepRuns: none, keepDays: none },
+      status: { status: variant('running', null), stats: none, error: none },
+      createdAt: new Date(),
+    });
+
+    await handleProcessGc({ storage, gcStore }, { id: 'swept', repo: 'repo' });
+
+    const { status } = (await gcStore.get('swept'))!;
+    assert.equal(status.status.type, 'succeeded');
+    assert.equal(status.stats.type === 'some' ? status.stats.value.deletedObjects : null, 1n);
+    assert.equal(await storage.objects.exists('repo', orphan), false);
+  });
+
+  it('records the job failed, with why, and rethrows', async () => {
+    await gcStore.create('refused', {
+      repo: 'repo',
+      request: { dryRun: true, minAge: none, keepRuns: some(-1n), keepDays: none },
+      status: { status: variant('running', null), stats: none, error: none },
+      createdAt: new Date(),
+    });
+
+    await assert.rejects(handleProcessGc({ storage, gcStore }, { id: 'refused', repo: 'repo' }), RangeError);
+
+    const { status } = (await gcStore.get('refused'))!;
+    assert.equal(status.status.type, 'failed');
+    assert.equal(status.error.type === 'some' ? status.error.value : null, 'gc: keepRuns must be a whole number of zero or more, got -1');
   });
 });

@@ -13,7 +13,7 @@
  * - S3DynamoTransferBackend (AWS cloud, future)
  */
 
-import type { DatasetUpload, PackageImport, PackageExport, WorkspaceDeployJob } from './types.js';
+import type { DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
 
 // =============================================================================
 // Dataset Upload Store
@@ -183,6 +183,34 @@ export interface WorkspaceDeployStore {
 }
 
 // =============================================================================
+// Repository GC Store
+// =============================================================================
+
+/**
+ * Manages gc jobs: trigger → process → poll.
+ *
+ * @remarks
+ * gc takes as long as the repository is large, which outlasts a request. So
+ * it runs as a job in the compute the store dispatches it to, and the client
+ * polls its status from the store, whichever instance answers the poll.
+ *
+ * Flow: create → execute → poll get → delete
+ */
+export interface RepoGcStore {
+  create(id: string, record: RepoGcJob): Promise<void>;
+  get(id: string): Promise<RepoGcJob | null>;
+  updateStatus(id: string, status: RepoGcJob['status']): Promise<void>;
+  delete(id: string): Promise<void>;
+
+  /**
+   * Dispatch processing.
+   * Local: runs `handleProcessGc` in the background, in the server's process.
+   * Cloud: invokes its own compute, which runs `handleProcessGc`.
+   */
+  execute(id: string, repo: string): Promise<void>;
+}
+
+// =============================================================================
 // Transfer Backend
 // =============================================================================
 
@@ -199,4 +227,5 @@ export interface TransferBackend {
   readonly packageImport: PackageImportStore;
   readonly packageExport: PackageExportStore;
   readonly workspaceDeploy: WorkspaceDeployStore;
+  readonly repoGc: RepoGcStore;
 }

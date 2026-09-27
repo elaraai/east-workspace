@@ -13,6 +13,7 @@ import type {
   ObjectStore,
   RefStore,
   DatasetRefStore,
+  GcObjectEntry,
   LockService,
   LockHandle,
   LockOperation,
@@ -25,12 +26,15 @@ import { InMemoryRepoStore } from './InMemoryRepoStore.js';
 
 /**
  * In-memory implementation of ObjectStore for testing.
+ *
+ * It keeps when it last wrote each object, as a file keeps its mtime, so gc's
+ * age gate spares an object written a moment ago.
  */
 /* eslint-disable @typescript-eslint/require-await */
 class InMemoryObjectStore implements ObjectStore {
-  private objects = new Map<string, Map<string, Uint8Array>>();
+  private objects = new Map<string, Map<string, { data: Uint8Array; writtenAt: number }>>();
 
-  private getRepoObjects(repo: string): Map<string, Uint8Array> {
+  private getRepoObjects(repo: string): Map<string, { data: Uint8Array; writtenAt: number }> {
     let repoObjects = this.objects.get(repo);
     if (!repoObjects) {
       repoObjects = new Map();
@@ -41,7 +45,7 @@ class InMemoryObjectStore implements ObjectStore {
 
   async write(repo: string, data: Uint8Array): Promise<string> {
     const hash = computeHash(data);
-    this.getRepoObjects(repo).set(hash, data);
+    this.getRepoObjects(repo).set(hash, { data, writtenAt: Date.now() });
     return hash;
   }
 
@@ -61,19 +65,19 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async read(repo: string, hash: string): Promise<Uint8Array> {
-    const data = this.getRepoObjects(repo).get(hash);
-    if (!data) {
+    const object = this.getRepoObjects(repo).get(hash);
+    if (!object) {
       throw new ObjectNotFoundError(hash);
     }
-    return data;
+    return object.data;
   }
 
   async readRange(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array> {
-    const data = this.getRepoObjects(repo).get(hash);
-    if (!data) {
+    const object = this.getRepoObjects(repo).get(hash);
+    if (!object) {
       throw new ObjectNotFoundError(hash);
     }
-    return data.subarray(offset, offset + length);
+    return object.data.subarray(offset, offset + length);
   }
 
   async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
@@ -94,11 +98,11 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async stat(repo: string, hash: string): Promise<{ size: number }> {
-    const data = this.getRepoObjects(repo).get(hash);
-    if (!data) {
+    const object = this.getRepoObjects(repo).get(hash);
+    if (!object) {
       throw new ObjectNotFoundError(hash);
     }
-    return { size: data.length };
+    return { size: object.data.length };
   }
 
   async list(repo: string): Promise<string[]> {
@@ -107,6 +111,20 @@ class InMemoryObjectStore implements ObjectStore {
 
   async count(repo: string): Promise<number> {
     return this.getRepoObjects(repo).size;
+  }
+
+  /** Every object of a repository, with its size and when it was last
+   *  written: what gc's object scan lists. */
+  gcEntries(repo: string): GcObjectEntry[] {
+    return [...this.getRepoObjects(repo)].map(([hash, { data, writtenAt }]) => ({
+      hash, lastModified: writtenAt, size: data.length,
+    }));
+  }
+
+  /** Deletes a repository's objects; one already gone is passed over. */
+  gcDelete(repo: string, hashes: readonly string[]): void {
+    const repoObjects = this.getRepoObjects(repo);
+    for (const hash of hashes) repoObjects.delete(hash);
   }
 
   clear(): void {
@@ -651,8 +669,8 @@ export class InMemoryStorage implements StorageBackend {
     this.refs = new InMemoryRefStore();
     this.locks = new InMemoryLockService();
     this.logs = new InMemoryLogStore();
-    this.repos = new InMemoryRepoStore(this.refs, this.upgrades);
     this.datasets = new InMemoryDatasetRefStore();
+    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades);
   }
 
   async validateRepository(repo: string): Promise<void> {

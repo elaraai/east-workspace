@@ -6,12 +6,11 @@
 /**
  * `e3 repo gc` on a local repository (issue #770, gate (e)).
  *
- * The local form used to fail before marking anything (`RepoStore operations
- * require reposDir to be configured`). It collects a repository, keeping what
- * its workspace references, and refuses while a dataflow run holds a
- * workspace's dataflow lock or an ad-hoc `e3 run` holds the repository's task
- * lock — a run and gc never overlap, so the slices and unit outputs a run
- * writes before rooting them need no rooting.
+ * It runs with no directory of repositories, only the repository's own path.
+ * It collects a repository, keeping what its workspace references, and refuses
+ * while a dataflow run holds a workspace's dataflow lock or an ad-hoc `e3 run`
+ * holds the repository's task lock — a run and gc never overlap, so the slices
+ * and unit outputs a run writes before rooting them need no rooting.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';

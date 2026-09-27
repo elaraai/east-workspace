@@ -6,7 +6,7 @@
 /**
  * Repository operations test suite.
  *
- * Tests: status, record, gc, create, remove, list
+ * Tests: status, record, gc (a job a poll reads), create, remove, list
  */
 
 import { describe, it } from 'node:test';
@@ -15,9 +15,12 @@ import assert from 'node:assert/strict';
 import { none, some } from '@elaraai/east';
 import { E3_RELEASE } from '@elaraai/e3-types';
 import {
+  ApiError,
   repoStatus,
   repoRecord,
   repoGc,
+  repoGcStart,
+  repoGcStatus,
   repoCreate,
   repoRemove,
   repoList,
@@ -174,6 +177,35 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       );
       assert.strictEqual(rerun.cached, 1n, 'the re-run is served from the cache');
       assert.strictEqual(rerun.executed, 0n);
+    });
+
+    it('repoGcStatus answers the repository that started the job, and refuses another', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const other = `gc-other-${Date.now()}`;
+      await repoCreate(ctx.config.baseUrl, other, opts);
+
+      try {
+        const { executionId } = await repoGcStart(
+          ctx.config.baseUrl, ctx.repoName,
+          { dryRun: true, minAge: none, keepRuns: none, keepDays: none },
+          opts,
+        );
+        await assert.rejects(repoGcStatus(ctx.config.baseUrl, other, executionId, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${err}`);
+          assert.strictEqual(err.code, 'internal');
+          assert.strictEqual((err.details as { message: string }).message, `repository '${other}' has no gc job '${executionId}'`);
+          return true;
+        });
+        const status = await repoGcStatus(ctx.config.baseUrl, ctx.repoName, executionId, opts);
+        assert.ok(['running', 'succeeded'].includes(status.status.type), `the job is ${status.status.type}`);
+      } finally {
+        try {
+          await repoRemove(ctx.config.baseUrl, other, opts);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     });
 
     it('repoCreate creates a new repository', async (t) => {

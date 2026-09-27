@@ -395,4 +395,20 @@ describe('LocalRepoStore', () => {
       assert.strictEqual(result.objects.length, 0);
     });
   });
+
+  describe('without the directory the repositories are in', () => {
+    it('runs gc\'s primitives, and refuses a repository\'s lifecycle, naming what it needs', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const hash = await storage.objects.write(repoPath, new Uint8Array([1]));
+      const alone = new LocalStorage().repos;
+
+      assert.deepStrictEqual((await alone.gcScanObjects(repoPath)).objects.map((object) => object.hash), [hash]);
+      const needs = { message: 'a repository\'s lifecycle needs the directory the repositories are in: give LocalStorage its reposDir' };
+      await assert.rejects(alone.list(), needs);
+      await assert.rejects(alone.create('other'), needs);
+      await assert.rejects(alone.getMetadata('my-repo'), needs);
+      await assert.rejects(alone.remove('my-repo'), needs);
+    });
+  });
 });

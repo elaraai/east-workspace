@@ -109,6 +109,14 @@ describe('single-repo mode', () => {
       assert.match(result.stdout, /No workspaces/i);
     });
 
+    it('collects garbage at /repos/default, though the server knows no directory of repositories', async () => {
+      const remoteUrl = `${serverUrl}/repos/default`;
+      const result = await runE3Command(['repo', 'gc', remoteUrl, '--min-age', '0'], tempDir, { env: authEnv() });
+
+      assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}\n${result.stdout}`);
+      assert.match(result.stdout, /Garbage collection complete:/);
+    });
+
     it('creates and lists packages at /repos/default', async () => {
       // Create a test package
       const input = e3.input('value', IntegerType, variant('value', 42n));

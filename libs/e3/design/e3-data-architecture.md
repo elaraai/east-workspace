@@ -388,7 +388,7 @@ The left column decides how work, and so floating-point folds, are grouped, whic
 ### 3.11 Object kinds and GC
 
 Every object introduced for this layer that names other objects carries a `kind` tag: manifests (`$segments`), record states (`$record`), task objects (`$task`) and unit plans (`$plan`). A piece merges its own runs (§3.7), so no object names a unit's runs.
-- **Dispatch.** GC's `markReachable` (`storage/local/gc.ts`) dispatches on the tag through one table. The table gives, for each tag, the field names of its kind and the objects a value of it names.
+- **Dispatch.** GC's `markReachable` (`gc.ts`) dispatches on the tag through one table. The table gives, for each tag, the field names of its kind and the objects a value of it names.
 - **Versions.** An object is walked as a kind when its fields begin with the kind's and its `kind` is the kind's tag, so a later version, which appends fields, is walked for the fields this build knows.
 - **Untagged objects** are recognised by their current shape exactly: packages, functions, records, index objects, mutations, migrations, environment specs, commits and trees. An object of an earlier shape, which only an older e3's repository holds, is a leaf.
 - **Header-first marking.** The mark reads an object's type from its head, and reads it whole only when it is a shape that names other objects, so a dataset is never read whole.
@@ -436,6 +436,7 @@ A local repository is a directory of records and objects:
 - **One record for one fact.** The `success` status holds the output hash, and a dataflow run has one id, its UUIDv7 `runId`.
 - **What goes with what it describes:** a workspace's execution state and runs go with the workspace, and so do the locks its dataflows and dataset writes left when they exited; a lock a live process holds is left for it to release. A built environment goes when gc no longer reaches its spec.
 - **Staging files are `.partial`s**, which gc sweeps, and they sit inside the repository, never in the machine's temp directory.
+- **gc is one driver over every backend** (`repoGc`, `gc.ts`): it prunes the history, marks from the roots the `RepoStore`'s scans find, and sweeps the objects nothing reaches. What a backend keeps beside its objects and records it sweeps itself (`RepoStore.gcSweepBackend`): a local repository its staging files, the scratch directories of orchestrators that have exited and the built environments nothing kept names; the in-memory backend nothing. A local repository's gc needs only its path. Over the API gc runs as a job, which the transfer backend's `repoGc` store files and dispatches, and a poll reads its status there, whichever instance answers.
 - **History is bounded.** gc keeps:
   - the last 10 runs of each workspace, every run from the last 7 days, and the run its current state came from;
   - every execution those runs used, and every execution each workspace's current state is served from: a task's own, and a split task's units, which its `success` record names through the `$plan` of its last stage, each plan naming the one before it;

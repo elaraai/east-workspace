@@ -88,6 +88,27 @@ export interface GcObjectScanResult {
   cursor?: unknown;
 }
 
+/**
+ * How {@link RepoStore.gcSweepBackend} sweeps.
+ */
+export interface GcBackendSweepOptions {
+  /** Minimum age in milliseconds of a staging file it removes: a younger one
+   *  may be a write in flight */
+  minAge: number;
+  /** Whether to count what it would remove, and remove nothing */
+  dryRun: boolean;
+}
+
+/**
+ * What {@link RepoStore.gcSweepBackend} removed, or in a dry run would.
+ */
+export interface GcBackendSweepResult {
+  /** Staging files of writes and transfers that never finished, removed */
+  deletedPartials: number;
+  /** Staging files left because they are younger than the age gate */
+  skippedYoung: number;
+}
+
 // =============================================================================
 // Object Store
 // =============================================================================
@@ -698,6 +719,11 @@ export interface LogStore {
  *
  * Handles repo creation, deletion, status tracking, and GC.
  * Follows the sub-interface pattern (storage.repos.*) like other stores.
+ *
+ * Its lifecycle names a repository as {@link RepoStore.list} does; its gc
+ * primitives take the identifier the other stores take. A local repository's
+ * are its directory's name and its path, and its gc runs without the
+ * directory the repositories are in.
  */
 export interface RepoStore {
   // -------------------------------------------------------------------------
@@ -820,6 +846,21 @@ export interface RepoStore {
    * @param hashes - Object hashes to delete
    */
   gcDeleteObjects(repo: string, hashes: string[]): Promise<void>;
+
+  /**
+   * Sweep what the backend keeps beside a repository's objects and records,
+   * which gc's mark does not reach: a local repository's staging files of
+   * writes and transfers that never finished, the scratch directories of
+   * orchestrators that have exited, and the built environments no kept object
+   * names. A backend that keeps nothing of the kind sweeps nothing. gc calls
+   * it last, holding the repository still.
+   *
+   * @param repo - Repository identifier
+   * @param reachable - The objects gc's mark reached
+   * @param options - The age gate, and whether this is a dry run
+   * @returns What it removed, or in a dry run would
+   */
+  gcSweepBackend(repo: string, reachable: ReadonlySet<string>, options: GcBackendSweepOptions): Promise<GcBackendSweepResult>;
 }
 
 // =============================================================================

@@ -28,7 +28,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { chmodSync, constants, copyFileSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   ArrayType,
   DictType,
@@ -48,7 +48,7 @@ import { computeHash } from './objects.js';
 import { packageImport } from './packages.js';
 import { workspaceDeploy, workspaceGetState } from './workspaces.js';
 import { datasetWrite, workspaceGetDatasetStatus, workspaceSetDataset, workspaceSetDatasetBytes } from './trees.js';
-import { repoGc } from './storage/local/gc.js';
+import { repoGc } from './gc.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, encodeInSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
@@ -684,14 +684,13 @@ describe('path-initialised inputs', () => {
      *  and runs once it has finished — so it was the lock that refused it. */
     async function sweepWaitsFor(hold: ReturnType<typeof held>, write: Promise<unknown>): Promise<void> {
       await Promise.race([hold.writing, write]);
-      const sweeper = new LocalStorage(dirname(testRepo));
       try {
-        await assert.rejects(repoGc(sweeper, testRepo, { minAge: 0 }), /a task is running/);
+        await assert.rejects(repoGc(storage, testRepo, { minAge: 0 }), /a task is running/);
       } finally {
         hold.release();
       }
       await write;
-      await repoGc(sweeper, testRepo, { minAge: 0 });
+      await repoGc(storage, testRepo, { minAge: 0 });
     }
 
     /** The table's rows, read back after the sweep. */

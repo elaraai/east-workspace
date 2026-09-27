@@ -22,7 +22,7 @@ import type { Structure, TreePath } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
 import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
 import { summarizeDelta } from './record-apply.js';
-import { repoGc } from './storage/local/gc.js';
+import { repoGc } from './gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError } from './errors.js';
 import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
@@ -107,8 +107,7 @@ describe('records', () => {
   beforeEach(async () => {
     repo = createTestRepo();
     tempDir = createTempDir();
-    // reposDir = parent of the repo, so repoGc's RepoStore scans resolve.
-    storage = new LocalStorage(dirname(repo));
+    storage = new LocalStorage();
 
     // counter record + increment(state, by) => state + by
     const counter = e3.record('counter', IntegerType, 0n);

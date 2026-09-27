@@ -4,7 +4,8 @@
  */
 
 /**
- * Shared processing handlers for package import/export and workspace deploy.
+ * Shared processing handlers for package import/export, workspace deploy and
+ * repository gc.
  *
  * These are cloud-agnostic handlers that perform the actual work of each job.
  * Used by both the local InMemoryTransferBackend and cloud backends
@@ -12,15 +13,16 @@
  */
 
 import { stat, unlink } from 'node:fs/promises';
-import { variant } from '@elaraai/east';
+import { none, some, variant } from '@elaraai/east';
 import type { RecordIndexPlan, RecordPlan } from '@elaraai/e3-types';
 
+import { repoGc } from '../gc.js';
 import { packageExport } from '../packages.js';
 import { workspaceDeploy, workspaceExport } from '../workspaces.js';
 import { packageImport } from '../packages.js';
 import type { LockHandle, StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
-import type { PackageExportStore, PackageImportStore, WorkspaceDeployStore } from './interfaces.js';
+import type { PackageExportStore, PackageImportStore, RepoGcStore, WorkspaceDeployStore } from './interfaces.js';
 
 // =============================================================================
 // Throttled progress callback
@@ -288,6 +290,68 @@ export async function handleProcessDeploy(
     if (signal?.aborted === true) throw err;
     const message = err instanceof Error ? err.message : String(err);
     await deployStore.updateStatus(id, variant('failed', { message }));
+    throw err;
+  }
+}
+
+// =============================================================================
+// Process GC
+// =============================================================================
+
+/** Dependencies for handleProcessGc. */
+export interface ProcessGcDeps {
+  storage: StorageBackend;
+  gcStore: RepoGcStore;
+}
+
+/** Input for handleProcessGc. */
+export interface ProcessGcInput {
+  id: string;
+  repo: string;
+}
+
+/**
+ * Processes a gc job.
+ *
+ * Gets the job, runs gc over its repository as it was asked to, and updates
+ * the status to what gc did, or to why it failed.
+ *
+ * @param deps - Storage backend and gc store
+ * @param input - Job ID and repository identifier
+ *
+ * @throws Re-throws gc's error once the job is recorded `failed`
+ */
+export async function handleProcessGc(
+  deps: ProcessGcDeps,
+  input: ProcessGcInput,
+): Promise<void> {
+  const { storage, gcStore } = deps;
+  const { id, repo } = input;
+
+  const record = await gcStore.get(id);
+  if (!record) throw new Error(`gc record ${id} not found`);
+
+  const { dryRun } = record.request;
+  const [minAge, keepRuns, keepDays] = [record.request.minAge, record.request.keepRuns, record.request.keepDays]
+    .map((option) => (option.type === 'some' ? Number(option.value) : undefined));
+  try {
+    const result = await repoGc(storage, repo, { dryRun, minAge, keepRuns, keepDays });
+    await gcStore.updateStatus(id, {
+      status: variant('succeeded', null),
+      stats: some({
+        deletedObjects: BigInt(result.deletedObjects),
+        deletedPartials: BigInt(result.deletedPartials),
+        retainedObjects: BigInt(result.retainedObjects),
+        skippedYoung: BigInt(result.skippedYoung),
+        bytesFreed: BigInt(result.bytesFreed),
+        deletedRuns: BigInt(result.deletedRuns),
+        deletedExecutions: BigInt(result.deletedExecutions),
+      }),
+      error: none,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await gcStore.updateStatus(id, { status: variant('failed', null), stats: none, error: some(message) });
     throw err;
   }
 }

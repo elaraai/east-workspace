@@ -11,23 +11,20 @@
  * 2. markReachable: DFS through object graph via BEAST2 schema-aware traversal
  * 3. sweepBatch: Pure decision function — identify unreachable objects to delete
  * 4. repoGc: Driver that calls all phases in sequence, after pruning the
- *    history of runs and executions it does not keep (history.ts)
+ *    history of runs and executions it does not keep (history.ts), and then
+ *    the backend's own sweep
  *
- * These functions work with any StorageBackend — no instanceof checks.
- * Cloud-specific concerns (S3 reachable set persistence, orphaned version cleanup)
- * are handled in the cloud Lambda handlers.
+ * These functions work with any StorageBackend, through its interfaces. What a
+ * backend keeps beside its objects and records — a local repository's staging
+ * files, scratch directories and built environments — its `RepoStore` sweeps
+ * (`gcSweepBackend`).
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { decodeBeast2, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
-import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from '../interfaces.js';
-import { transferStagingDir } from './localHelpers.js';
-import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from '../../history.js';
-import { withRepositoryHeld } from '../../running-work.js';
-import { sweepScratchDirs } from '../../execution/scratch.js';
-import { sweepEnvironments } from '../../execution/environment.js';
+import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from './storage/interfaces.js';
+import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from './history.js';
+import { withRepositoryHeld } from './running-work.js';
 
 /**
  * Options for garbage collection
@@ -668,7 +665,7 @@ export function sweepBatch(
 }
 
 // =============================================================================
-// Local Driver
+// Driver
 // =============================================================================
 
 /**
@@ -677,13 +674,15 @@ export function sweepBatch(
  * Works with any StorageBackend — no instanceof checks.
  *
  * gc holds the repository still ({@link withRepositoryHeld}): the tasks lock
- * exclusively and every workspace's dataflow lock, from before the history's prune until the sweep is done, so it never
- * overlaps a write holding the tasks lock or a dataflow run: the objects
- * either writes before it roots them need no rooting, and no record is written
- * while it decides which to keep. It prunes the history first (history.ts),
- * and then marks from what it kept, so the outputs only the deleted records
- * kept go in the same sweep. Marking is header-first, so a dataset is never
- * read whole.
+ * exclusively and every workspace's dataflow lock, from before the history's
+ * prune until the sweep is done, so it never overlaps a write holding the
+ * tasks lock or a dataflow run: the objects either writes before it roots them
+ * need no rooting, and no record is written while it decides which to keep. It
+ * prunes the history first (history.ts), and then marks from what it kept, so
+ * the outputs only the deleted records kept go in the same sweep. Marking is
+ * header-first, so a dataset is never read whole. Last, the backend sweeps
+ * what it keeps beside its objects and records
+ * ({@link RepoStore.gcSweepBackend}).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -767,198 +766,16 @@ async function collectGarbage(
     cursor = scan.cursor;
   } while (cursor !== undefined);
 
-  // Step 4: Clean up orphaned .partial files (local-only concern)
-  let deletedPartials = 0;
-  let partialSkippedYoung = 0;
-  try {
-    const partialResult = await cleanupPartials(repo, minAge, dryRun);
-    deletedPartials = partialResult.deleted;
-    partialSkippedYoung = partialResult.skippedYoung;
-  } catch {
-    // Not a fatal error
-  }
-
-  // Step 4b: Sweep orphaned .partial staging files left by atomicWriteFile in
-  // the record trees — cleanupPartials above only covers objects/ and the
-  // staged transfers — and beside the repository's own record, at the root.
-  // The root holds the trees and what the other steps sweep, so it is swept
-  // without being walked.
-  const partialNow = Date.now();
-  for (const [refRoot, walk] of [
-    ['', false], ['packages', true], ['workspaces', true], ['executions', true],
-    ['dataflows', true], ['adoptions', true], ['locks', true],
-  ] as const) {
-    try {
-      const result = await cleanupRefTreePartials(path.join(repo, refRoot), partialNow, minAge, dryRun, walk);
-      deletedPartials += result.deleted;
-      partialSkippedYoung += result.skippedYoung;
-    } catch {
-      // Not a fatal error
-    }
-  }
-
-  // Step 5: Remove the scratch directories of executions whose orchestrator
-  // has exited, and the built environments the mark no longer reached
-  // (local-only concerns)
-  if (!dryRun) {
-    try {
-      await sweepScratchDirs(repo);
-    } catch {
-      // Not a fatal error
-    }
-    try {
-      await sweepEnvironments(repo, reachable);
-    } catch {
-      // Not a fatal error
-    }
-  }
+  // Step 4: The backend sweeps what it keeps beside its objects and records
+  const backend = await storage.repos.gcSweepBackend(repo, reachable, { minAge, dryRun });
 
   return {
     deletedObjects: totalDeleted,
-    deletedPartials,
+    deletedPartials: backend.deletedPartials,
     retainedObjects: totalRetained,
-    skippedYoung: totalSkippedYoung + partialSkippedYoung,
+    skippedYoung: totalSkippedYoung + backend.skippedYoung,
     bytesFreed: totalBytesFreed,
     deletedRuns: history.deletedRuns,
     deletedExecutions: history.deletedExecutions,
   };
-}
-
-/**
- * Clean up orphaned .partial staging files in the objects directory — both
- * the per-prefix stages of whole-object writes and the root-level
- * `stage.*.partial` files of streaming writes (which cannot stage under a
- * prefix: the content path is unknown until the digest names it) — and the
- * transfers staged in {@link transferStagingDir}, which a transfer that was
- * never finished leaves behind and nothing else removes.
- * This is a local-only concern — cloud storage doesn't use .partial files.
- */
-async function cleanupPartials(
-  repoPath: string,
-  minAge: number,
-  dryRun: boolean
-): Promise<{ deleted: number; skippedYoung: number }> {
-  const objectsDir = path.join(repoPath, 'objects');
-  const now = Date.now();
-  let deleted = 0;
-  let skippedYoung = 0;
-
-  const sweep = async (filePath: string): Promise<void> => {
-    try {
-      const fileStat = await fs.stat(filePath);
-      const age = now - fileStat.mtimeMs;
-      if (minAge > 0 && age < minAge) {
-        skippedYoung++;
-        return;
-      }
-      if (!dryRun) {
-        await fs.unlink(filePath);
-      }
-      deleted++;
-    } catch {
-      // Skip files we can't stat or delete
-    }
-  };
-
-  try {
-    const entries = await fs.readdir(objectsDir);
-    for (const entry of entries) {
-      if (entry.endsWith('.partial')) {
-        await sweep(path.join(objectsDir, entry));
-        continue;
-      }
-      if (!/^[a-f0-9]{2}$/.test(entry)) continue;
-      const subdirPath = path.join(objectsDir, entry);
-      try {
-        const stat = await fs.stat(subdirPath);
-        if (!stat.isDirectory()) continue;
-      } catch {
-        continue;
-      }
-
-      const files = await fs.readdir(subdirPath);
-      for (const file of files) {
-        if (!file.endsWith('.partial')) continue;
-        await sweep(path.join(subdirPath, file));
-      }
-    }
-  } catch {
-    // Objects directory doesn't exist
-  }
-
-  // Transfers staged under the repository. An in-flight upload is young, so
-  // the same age gate keeps gc from racing it.
-  const stagingDir = transferStagingDir(repoPath);
-  let staged: string[] = [];
-  try {
-    staged = await fs.readdir(stagingDir);
-  } catch {
-    // No upload has been staged in this repository (ENOENT) — nothing to sweep
-  }
-  for (const entry of staged) {
-    if (entry.endsWith('.partial')) {
-      await sweep(path.join(stagingDir, entry));
-    }
-  }
-
-  return { deleted, skippedYoung };
-}
-
-/**
- * Unlink aged `.partial` staging files in a directory, and in every directory
- * beneath it when it is walked.
- *
- * `atomicWriteFile` stages bytes in a sibling `<dest>.<rand>.partial` file
- * before renaming it over the destination; that staging file survives only if a
- * writer crashed between the write and the rename. This sweeps those orphans
- * from the record trees (packages/, workspaces/ — including nested dataset
- * refs —, executions/, dataflows/, adoptions/, locks/) and the repository's
- * root, which {@link cleanupPartials} does not cover. The age gate ensures a
- * live, in-flight staging file is never raced.
- *
- * @param rootDir - The directory to sweep
- * @param now - Reference timestamp for the age gate
- * @param minAge - Minimum age (ms) before a staging file is eligible for removal
- * @param dryRun - When true, count but do not delete
- * @param walk - Whether the directories beneath it are swept too
- * @returns Counts of deleted and too-young-to-delete staging files
- */
-async function cleanupRefTreePartials(
-  rootDir: string,
-  now: number,
-  minAge: number,
-  dryRun: boolean,
-  walk: boolean
-): Promise<{ deleted: number; skippedYoung: number }> {
-  let deleted = 0;
-  let skippedYoung = 0;
-
-  const entries = await fs.readdir(rootDir, { withFileTypes: true }).catch(() => null);
-  if (!entries) return { deleted, skippedYoung }; // Root directory doesn't exist
-
-  for (const entry of entries) {
-    const full = path.join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      if (!walk) continue;
-      const sub = await cleanupRefTreePartials(full, now, minAge, dryRun, walk);
-      deleted += sub.deleted;
-      skippedYoung += sub.skippedYoung;
-    } else if (entry.name.endsWith('.partial')) {
-      try {
-        const fileStat = await fs.stat(full);
-        if (minAge > 0 && now - fileStat.mtimeMs < minAge) {
-          skippedYoung++;
-          continue;
-        }
-        if (!dryRun) {
-          await fs.unlink(full);
-        }
-        deleted++;
-      } catch {
-        // Skip files we can't stat or delete
-      }
-    }
-  }
-
-  return { deleted, skippedYoung };
 }

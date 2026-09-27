@@ -387,6 +387,7 @@ export async function packageZipOpen(zipPath: string): Promise<PackageZip> {
         gcScanExecutionRoots: refuse('collect garbage'),
         gcScanObjects: refuse('collect garbage'),
         gcDeleteObjects: refuse('collect garbage'),
+        gcSweepBackend: refuse('collect garbage'),
       },
       datasets: {
         read: datasets.read.bind(datasets),

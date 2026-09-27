@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-export { getStatus, startGc, getGcStatus } from './repository.js';
+export { getStatus, getRecord, startGc, getGcStatus } from './repository.js';
 
 export {
   listPackages,

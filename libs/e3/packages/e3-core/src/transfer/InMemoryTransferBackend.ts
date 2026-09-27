@@ -14,7 +14,7 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { variant } from '@elaraai/east';
+import { none, some, variant } from '@elaraai/east';
 
 import type { StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
@@ -26,10 +26,11 @@ import type {
   DatasetDownloadStore,
   PackageImportStore,
   PackageExportStore,
+  RepoGcStore,
   WorkspaceDeployStore,
 } from './interfaces.js';
-import type { DatasetUpload, PackageImport, PackageExport, WorkspaceDeployJob } from './types.js';
-import { handleProcessDeploy, handleProcessExport, handleProcessImport } from './process.js';
+import type { DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
+import { handleProcessDeploy, handleProcessExport, handleProcessGc, handleProcessImport } from './process.js';
 
 /** The part size a dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
@@ -321,6 +322,74 @@ class InMemoryWorkspaceDeployStore implements WorkspaceDeployStore {
 }
 
 // =============================================================================
+// Repository GC
+// =============================================================================
+
+class InMemoryRepoGcStore implements RepoGcStore {
+  private readonly records = new Map<string, RepoGcJob>();
+  private readonly executing = new Set<string>();
+
+  constructor(
+    private readonly storage?: StorageBackend,
+    private readonly getRepoPath?: (repo: string) => string,
+  ) {}
+
+  async create(id: string, record: RepoGcJob): Promise<void> {
+    this.records.set(id, record);
+  }
+
+  async get(id: string): Promise<RepoGcJob | null> {
+    return this.records.get(id) ?? null;
+  }
+
+  async updateStatus(id: string, status: RepoGcJob['status']): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`gc job ${id} not found`);
+    this.records.set(id, { ...record, status });
+  }
+
+  async delete(id: string): Promise<void> {
+    this.records.delete(id);
+  }
+
+  async execute(id: string, repo: string): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`gc job ${id} not found`);
+
+    if (this.executing.has(id)) return;
+    this.executing.add(id);
+
+    if (!this.storage || !this.getRepoPath) {
+      // Mock fallback for tests that don't provide storage
+      await this.updateStatus(id, {
+        status: variant('succeeded', null),
+        stats: some({
+          deletedObjects: 0n, deletedPartials: 0n, retainedObjects: 0n, skippedYoung: 0n, bytesFreed: 0n,
+          deletedRuns: 0n, deletedExecutions: 0n,
+        }),
+        error: none,
+      });
+      this.executing.delete(id);
+      return;
+    }
+
+    // gc runs in this process, and outlives the request that started it.
+    void handleProcessGc(
+      { storage: this.storage, gcStore: this },
+      { id, repo: this.getRepoPath(repo) },
+    ).catch(() => {
+      // Error already recorded in job status by handleProcessGc
+    }).finally(() => {
+      this.executing.delete(id);
+    });
+  }
+
+  clear(): void {
+    this.records.clear();
+  }
+}
+
+// =============================================================================
 // Transfer Backend
 // =============================================================================
 
@@ -347,6 +416,7 @@ export class InMemoryTransferBackend implements TransferBackend {
   readonly packageImport: InMemoryPackageImportStore;
   readonly packageExport: InMemoryPackageExportStore;
   readonly workspaceDeploy: InMemoryWorkspaceDeployStore;
+  readonly repoGc: InMemoryRepoGcStore;
 
   constructor(options: InMemoryTransferBackendOptions) {
     const baseUrl = options.baseUrl ?? '';
@@ -359,6 +429,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.packageImport = new InMemoryPackageImportStore(baseUrl, options.storage, options.getRepoPath);
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);
     this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
+    this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath);
   }
 
   clear(): void {
@@ -367,5 +438,6 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.packageImport.clear();
     this.packageExport.clear();
     this.workspaceDeploy.clear();
+    this.repoGc.clear();
   }
 }

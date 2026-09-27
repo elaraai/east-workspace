@@ -38,6 +38,8 @@ export {
   type GcRootScanResult,
   type GcObjectEntry,
   type GcObjectScanResult,
+  type GcBackendSweepOptions,
+  type GcBackendSweepResult,
   // Dataset refs
   type DatasetRefStore,
   // Repository upgrades

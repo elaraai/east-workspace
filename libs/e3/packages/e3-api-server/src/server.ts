@@ -422,7 +422,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Each route file creates a sub-app that uses getRepoPath to resolve the repo
 
   // Repository status and GC: /api/repos/:repo/status, /api/repos/:repo/gc
-  app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath));
+  app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath, transferBackend));
 
   // Package transfer routes: repo-level import/export + package-level export trigger
   app.route('/api/repos/:repo', pkgTransfer.repoApi);

@@ -17,7 +17,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import {
   ArrayType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, isTypeValueEqual, none,
   readBeast2Type, toEastTypeValue, variant, type EastType,
@@ -35,7 +35,7 @@ import { getBootId } from './execution/processHelpers.js';
 import { packageImport } from './packages.js';
 import { recordMutate } from './records.js';
 import { repositoryOpen } from './repository-record.js';
-import { repoGc } from './storage/local/gc.js';
+import { repoGc } from './gc.js';
 import { LocalStorage } from './storage/local/index.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './storage/local/LocalRefStore.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './storage/local/upgrades.js';
@@ -70,8 +70,7 @@ describe('the repository\'s records', () => {
   beforeEach(async () => {
     repo = createTestRepo();
     tempDir = createTempDir();
-    // reposDir = the repository's parent, so gc's repository scans resolve.
-    storage = new LocalStorage(dirname(repo));
+    storage = new LocalStorage();
 
     const rows = e3.input('rows', ArrayType(IntegerType));
     const total = e3.task('total', [rows], East.function([ArrayType(IntegerType)], IntegerType, ($, rows) =>

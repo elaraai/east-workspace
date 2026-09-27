@@ -22,7 +22,7 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  PackageImportProgressType, PackageExportProgressType, SchemaPolicyType, WorkspaceDeployStatusType,
+  GcRequestType, GcStatusResultType, PackageImportProgressType, PackageExportProgressType, SchemaPolicyType, WorkspaceDeployStatusType,
 } from '@elaraai/e3-types';
 export { PackageImportProgressType, PackageExportProgressType };
 
@@ -112,3 +112,20 @@ export const WorkspaceDeployJobType = StructType({
 });
 
 export type WorkspaceDeployJob = ValueTypeOf<typeof WorkspaceDeployJobType>;
+
+// =============================================================================
+// Repository GC
+// =============================================================================
+
+/**
+ * A gc job, as a store keeps it: the repository, what gc was asked to keep
+ * and whether to delete, and the status a poll reads.
+ */
+export const RepoGcJobType = StructType({
+  repo: StringType,
+  request: GcRequestType,
+  status: GcStatusResultType,
+  createdAt: DateTimeType,
+});
+
+export type RepoGcJob = ValueTypeOf<typeof RepoGcJobType>;

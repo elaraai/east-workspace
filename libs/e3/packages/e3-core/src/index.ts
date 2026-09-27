@@ -60,7 +60,7 @@ export {
   type GcResult,
   type MarkReachableOptions,
   type SweepBatchResult,
-} from './storage/local/gc.js';
+} from './gc.js';
 
 // The history gc keeps: which runs and executions, and the deletion of the rest
 export {
