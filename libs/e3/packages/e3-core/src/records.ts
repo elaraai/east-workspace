@@ -1216,18 +1216,23 @@ export async function recordIndexNames(storage: StorageBackend, repo: string, st
   return [...(await readRecordState(storage, repo, stateHash)).indexes.keys()];
 }
 
-/** A record's mutation surface: each mutation's name, write form and EXTRA arg
- *  types. The form tells a caller what the arguments MEAN — a `patch`
- *  mutation's one argument is a `PatchType(State)`, not a value of the
- *  record's own type. */
+/** A record's surface: each mutation's name, write form and EXTRA arg types,
+ *  and each index's name, key type, projection type and whether it is multi.
+ *  The form tells a caller what the arguments MEAN — a `patch` mutation's one
+ *  argument is a `PatchType(State)`, not a value of the record's own type. The
+ *  index types are what a read through the index decodes its window by. */
 export interface RecordSignature {
   name: string;
   mutations: Array<{ name: string; form: string; argTypes: EastTypeValue[] }>;
+  indexes: Array<{ name: string; keyType: EastTypeValue; valueType: EastTypeValue; multi: boolean }>;
 }
 
 /**
  * Describe a record's mutations (name + extra arg types), so dynamic callers
- * can encode arguments. Returns null if the workspace has no such record.
+ * can encode arguments, and its indexes (name, key and projection types), so
+ * they can read through them. The indexes are the package's declarations,
+ * which a deploy builds the state's to. Returns null if the workspace has no
+ * such record.
  */
 export async function recordDescribe(
   storage: StorageBackend,
@@ -1242,7 +1247,12 @@ export async function recordDescribe(
     const mutObj = decodeMutationObject(await storage.objects.read(repo, mutHash));
     mutations.push({ name, form: mutObj.form, argTypes: mutObj.argTypes });
   }
-  return { name: recordName, mutations };
+  const indexes: RecordSignature['indexes'] = [];
+  for (const [name, indexHash] of resolved.indexes) {
+    const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, indexHash));
+    indexes.push({ name, keyType: indexObj.keyType, valueType: indexObj.valueType, multi: indexObj.multi });
+  }
+  return { name: recordName, mutations, indexes };
 }
 
 /**

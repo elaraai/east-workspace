@@ -12,7 +12,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ArrayType, EastTypeType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant,
+  ArrayType, EastTypeType, NullType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, toEastTypeValue, variant,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { workspaceRecordDescribe, workspaceRecordHistory, workspaceRecordMutate } from './records.js';
@@ -40,8 +40,11 @@ describe('record responses', () => {
   it('reads each field as sent', async () => {
     serve(encodeBeast2For(ResponseType(RecordSignatureType))(variant('success', {
       name: 'plans', mutations: [{ name: 'patch', argTypes: [], form: 'patch' }],
+      indexes: [{ name: 'by_status', keyType: toEastTypeValue(StringType), valueType: toEastTypeValue(NullType), multi: true }],
     })));
-    assert.equal((await workspaceRecordDescribe(BASE, 'r', 'ws', 'plans', { token: null })).mutations[0]!.form, 'patch');
+    const signature = await workspaceRecordDescribe(BASE, 'r', 'ws', 'plans', { token: null });
+    assert.equal(signature.mutations[0]!.form, 'patch');
+    assert.deepEqual(signature.indexes.map(({ name, multi }) => [name, multi]), [['by_status', true]]);
 
     serve(encodeBeast2For(ResponseType(RecordHistoryResultType))(variant('success', { commits: [
       { hash: HASH, parent: none, state: HASH, mutation: 'retitle', actor: 'cli:x', at: AT, delta: some(HASH) },

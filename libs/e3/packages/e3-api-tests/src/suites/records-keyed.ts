@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
-  IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For,
+  IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, isTypeValueEqual, toEastTypeValue,
   variant, none, PatchType, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import { indexWindowType } from '@elaraai/e3-types';
@@ -93,12 +93,15 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
   }
 
   describe('keyed records', { concurrency: false }, () => {
-    it('describes each mutation\'s write form', async (t) => {
+    it('describes each mutation\'s write form, and each index with the types a read through it decodes by', async (t) => {
       const ctx = await withRecord(t);
       const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, WS, 'plans', await ctx.opts());
       assert.deepEqual(
         Object.fromEntries(sig.mutations.map((m) => [m.name, m.form])),
         { seed: 'reduce', retitle: 'edit', patch: 'patch' });
+      assert.deepEqual(sig.indexes.map(({ name, multi }) => [name, multi]), [['by_status', false]]);
+      assert.ok(isTypeValueEqual(sig.indexes[0]!.keyType, toEastTypeValue(PlanStatusKeyType)), 'the index key\'s type');
+      assert.ok(isTypeValueEqual(sig.indexes[0]!.valueType, toEastTypeValue(StringType)), 'the covering projection\'s type');
     });
 
     it('reads as its rows through the ordinary dataset door, index and all', async (t) => {

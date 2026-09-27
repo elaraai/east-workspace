@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
+import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { RecordIndexObjectType } from '@elaraai/e3-types';
 import type { Structure, TreePath } from '@elaraai/e3-types';
@@ -1568,11 +1568,15 @@ describe('the mutation delta', () => {
     assert.ok(indexed.indexes.has('by_status'), 'the indexed workspace really does hold an index');
   });
 
-  it('describes each mutation\'s write form, so a caller knows what its arguments mean', async () => {
+  it('describes each mutation\'s write form and each index\'s types, so a caller knows what its arguments mean and how to read an index', async () => {
     const signature = await recordDescribe(storage, repo, ws, 'plans');
     assert.deepStrictEqual(
       Object.fromEntries(signature!.mutations.map((m) => [m.name, m.form])),
       { seed: 'reduce', retitle: 'edit', patch: 'patch' });
+    assert.deepStrictEqual(signature!.indexes.map(({ name, multi }) => [name, multi]), [['by_status', false]]);
+    assert.ok(isTypeValueEqual(signature!.indexes[0]!.keyType, toEastTypeValue(StatusKeyType)), 'the index key\'s type');
+    assert.ok(isTypeValueEqual(signature!.indexes[0]!.valueType, toEastTypeValue(StringType)), 'the covering projection\'s type');
+    assert.deepStrictEqual((await recordDescribe(storage, repo, plain, 'plans'))!.indexes, [], 'a record that declares none names none');
   });
 
   it('keeps every object a commit names — the delta included — reachable through gc', async () => {

@@ -1078,8 +1078,8 @@ export const MutationResultType = StructType({
 
 /**
  * A record's callable surface, returned by `describe` so dynamic callers can
- * encode mutation arguments. The mutation `argTypes` are the EXTRA parameters
- * after the implicit current state.
+ * encode mutation arguments and read through its indexes. The mutation
+ * `argTypes` are the EXTRA parameters after the implicit current state.
  */
 export const RecordSignatureType = StructType({
   name: StringType,
@@ -1090,6 +1090,19 @@ export const RecordSignatureType = StructType({
      *  arguments MEAN: a `patch` mutation's one argument is a
      *  `PatchType(State)`, not a value of the record's own type. */
     form:     StringType,
+  })),
+  /** The indexes the record declares. A page read through one is decoded by
+   *  `indexWindowType(K, keyType, valueType, V)` over the record's
+   *  `Dict<K, V>`, and a key search through one takes a `keyType` key. */
+  indexes: ArrayType(StructType({
+    name:      StringType,
+    /** The index key's type. */
+    keyType:   EastTypeType,
+    /** The covering projection's type: `Null` when the index projects
+     *  nothing, and a read joins the rows instead. */
+    valueType: EastTypeType,
+    /** Whether a row may hold several index keys. */
+    multi:     BooleanType,
   })),
 });
 
