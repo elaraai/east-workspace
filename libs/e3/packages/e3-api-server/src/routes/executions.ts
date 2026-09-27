@@ -5,13 +5,14 @@
 
 import { Hono } from 'hono';
 import { NullType, variant } from '@elaraai/east';
-import type { StorageBackend } from '@elaraai/e3-core';
+import type { Budget, StorageBackend } from '@elaraai/e3-core';
 import {
   startDataflow,
   getDataflowStatus,
   getDataflowGraph,
   getTaskLogs,
   getDataflowExecution,
+  getDataflowBudget,
   cancelDataflow,
 } from '../handlers/dataflow.js';
 import { decodeBody, sendError } from '../beast2.js';
@@ -19,22 +20,23 @@ import { DataflowRequestType } from '../types.js';
 import type { GetRunner } from './functions.js';
 
 /**
- * The routes of a workspace's dataflow: start, poll, cancel, its graph and
- * its tasks' logs.
+ * The routes of a workspace's dataflow: start, poll, cancel, its graph, its
+ * tasks' logs, and the budget a run gets.
  *
  * @param storage - Storage backend
  * @param getRepoPath - A repository's path from its name
  * @param dataflow - How the server runs a dataflow: the runner its tasks and
- *   units run on, which holds the server's budget, and the tasks and units
- *   the loop keeps in flight. Without it the server starts no dataflow: a
- *   host that runs them elsewhere, as e3-cloud does, mounts these routes for
- *   the rest.
+ *   units run on, the tasks and units the loop keeps in flight, and the
+ *   budget the runner holds, which the poll and the budget route serve.
+ *   Without it the server starts no dataflow and serves no budget: a host
+ *   that runs them elsewhere, as e3-cloud does, mounts these routes for the
+ *   rest.
  * @returns The routes
  */
 export function createExecutionRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
-  dataflow?: { getRunner: GetRunner; width: number },
+  dataflow?: { getRunner: GetRunner; width: number; budget?: Budget },
 ) {
   const app = new Hono();
 
@@ -100,8 +102,11 @@ export function createExecutionRoutes(
     const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : undefined;
     const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
 
-    return getDataflowExecution(repoPath, ws, { offset, limit });
+    return getDataflowExecution(repoPath, ws, { offset, limit }, dataflow?.budget);
   });
+
+  // GET /api/repos/:repo/workspaces/:ws/dataflow/budget - The budget a run gets
+  app.get('/budget', () => getDataflowBudget(dataflow?.budget));
 
   // POST /api/repos/:repo/workspaces/:ws/dataflow/cancel - Cancel running execution
   app.post('/cancel', async (c) => {

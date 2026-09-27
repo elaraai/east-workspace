@@ -25,6 +25,7 @@ import {
   BooleanType,
   DateTimeType,
   OptionType,
+  NullType,
   ValueTypeOf,
   decodeBeast2,
   decodeBeast2For,
@@ -125,6 +126,34 @@ export type DataflowGraph = ValueTypeOf<typeof DataflowGraphType>;
 // =============================================================================
 
 /**
+ * A unit of a split task, by its place in the task: its stage — the pieces,
+ * or a level of the merges that assemble their outputs — and its index among
+ * the stage's units.
+ */
+export const StageUnitType = StructType({
+  /** The merge level, from 1, and the levels the merges take; `none` for a
+   *  piece */
+  merge: OptionType(StructType({ level: IntegerType, levels: IntegerType })),
+  /** The unit's index in its stage, from 0 */
+  index: IntegerType,
+  /** The units of its stage */
+  units: IntegerType,
+});
+export type StageUnit = ValueTypeOf<typeof StageUnitType>;
+
+/**
+ * Why a unit's runner was stopped and the unit requeued: `budget`, the guard
+ * stopped it with the runners past the budget; `machine`, the guard stopped it
+ * with the machine nearly out of memory; `cap`, its cgroup's cap killed it.
+ */
+export const RequeueReasonType = VariantType({
+  budget: NullType,
+  machine: NullType,
+  cap: NullType,
+});
+export type RequeueReason = ValueTypeOf<typeof RequeueReasonType>;
+
+/**
  * Execution events (VariantType for discriminated union).
  *
  * Events track the progress of a dataflow execution and are stored
@@ -181,6 +210,10 @@ export const ExecutionEventType = VariantType({
     outputHash: StringType,
     /** Duration in milliseconds */
     duration: IntegerType,
+    /** The highest peak resident memory, in bytes, a runner of the task's
+     *  execution reached; `none` when none reported one, or the cache served
+     *  the task */
+    peakBytes: OptionType(IntegerType),
   }),
   /** Task failed */
   task_failed: StructType({
@@ -311,6 +344,24 @@ export const ExecutionEventType = VariantType({
     /** The number of levels the merges take */
     levels: IntegerType,
   }),
+  /** A unit of a split task was stopped and requeued: it runs again, under
+   *  the same execution, once the memory it reserves fits. */
+  unit_requeued: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** The unit */
+    unit: StageUnitType,
+    /** Why its runner was stopped */
+    reason: RequeueReasonType,
+    /** The most its runner was measured using, in bytes: for a cap, the cap */
+    peak: IntegerType,
+    /** The memory, in bytes, it reserves when it runs again */
+    reserves: IntegerType,
+  }),
 });
 export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
 
@@ -359,8 +410,9 @@ export interface PartitionProgress {
  * - 3: no `concurrency`: the budget of the process that runs it decides what
  *   runs, and is never persisted.
  * - 4: a task's `execution`: the one it completed with.
+ * - 5: a unit requeued (`unit_requeued`), and a completed task's peak.
  */
-export const EXECUTION_STATE_VERSION = 4n;
+export const EXECUTION_STATE_VERSION = 5n;
 
 /**
  * Persistent state for a dataflow execution.

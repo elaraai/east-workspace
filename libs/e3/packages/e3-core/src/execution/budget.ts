@@ -70,6 +70,8 @@ export interface BudgetRequest {
   signal?: AbortSignal;
   /** What the grant runs (default `task`). */
   kind?: GrantKind;
+  /** Called once, when the request cannot be granted at once and waits. */
+  onWaiting?: () => void;
 }
 
 /** A runner a grant runs, as the guard watches it. */
@@ -330,7 +332,7 @@ export class Budget {
    * @throws {RangeError} When the memory asked for is negative or not a number.
    */
   acquire(request: BudgetRequest = {}): Promise<Grant> {
-    const { memory = 0, signal, kind = 'task' } = request;
+    const { memory = 0, signal, kind = 'task', onWaiting } = request;
     if (!(memory >= 0)) {
       return Promise.reject(new RangeError(`a request's memory must be a non-negative number of bytes, got ${memory}`));
     }
@@ -351,6 +353,7 @@ export class Budget {
       }
       this.queue.push(waiter);
       this.grantNext();
+      if (this.queue.includes(waiter)) onWaiting?.();
     });
   }
 

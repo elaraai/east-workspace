@@ -21,7 +21,7 @@ import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTa
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
+import type { SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue } from './interfaces.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { storeDatasetFile } from '../store-collection.js';
@@ -72,6 +72,14 @@ export interface ExecuteOptions {
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
+  /** Called when the execution waits for room in the budget, with the memory
+   *  in bytes it waits to reserve (0 when it waits for a core alone), and with
+   *  `null` once it has room or stops waiting: again for each attempt that
+   *  waits. Runtime-only. */
+  onWaiting?: (needs: number | null) => void;
+  /** Called when the guard, or the attempt's cgroup's cap, stopped a unit of
+   *  a split task, which runs again under the same execution. Runtime-only. */
+  onRequeued?: (requeue: UnitRequeue) => void;
   /** Variables every runner process of the execution gets in its environment,
    *  after this process's own: a unit's run and its output merge, and every
    *  unit of a split task. Runtime-only: never hashed and never logged. One
@@ -141,6 +149,8 @@ export class LocalTaskRunner implements TaskRunner {
       budget: this.budget,
       expectedPeakBytes: options?.expectedPeakBytes,
       onPartitionProgress: options?.onPartitionProgress,
+      onWaiting: options?.onWaiting,
+      onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
     }));
   }
@@ -159,6 +169,8 @@ export class LocalTaskRunner implements TaskRunner {
       onStderr: options?.onStderr,
       budget: this.budget,
       expectedPeakBytes: options?.expectedPeakBytes,
+      onWaiting: options?.onWaiting,
+      onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
     }));
   }
@@ -430,10 +442,13 @@ interface Attempt {
 }
 
 /** An attempt the guard, or its cgroup's cap, stopped: the memory the next
- *  attempt reserves, and why, for the execution's log. */
+ *  attempt reserves, and why — for the execution's log, and as its caller's
+ *  `onRequeued` hears it. */
 interface Requeue {
   requeue: number;
   cause: string;
+  reason: UnitRequeue['reason'];
+  peak: number;
 }
 
 /** The standard execution body: scratch dir, input marshalling, the runner's
@@ -636,12 +651,22 @@ export async function taskExecuteBody(
         if (kind === 'unit' && !(stop.reason === 'machine' && grant!.alone)) {
           const again = Math.max(reservation, stop.peak);
           const why = stop.reason === 'budget' ? `past the budget of ${mib(options.budget!.memory)}` : 'with the machine nearly out of memory';
-          return { requeue: again, cause: `the guard stopped the runner at ${mib(stop.peak)}, ${why}: it runs again once ${mib(again)} fit` };
+          return {
+            requeue: again,
+            cause: `the guard stopped the runner at ${mib(stop.peak)}, ${why}: it runs again once ${mib(again)} fit`,
+            reason: stop.reason,
+            peak: stop.peak,
+          };
         }
         return await stoppedResult('failed', `the guard stopped the runner at ${mib(stop.peak)}, with the machine nearly out of memory`);
       }
       if (cap !== null && await cgroups!.capKilled(cgroup!)) {
-        return { requeue: cap, cause: `the runner outgrew its cap of ${mib(cap)}: it runs again under a cap of ${mib(unitCap(cap))}` };
+        return {
+          requeue: cap,
+          cause: `the runner outgrew its cap of ${mib(cap)}: it runs again under a cap of ${mib(unitCap(cap))}`,
+          reason: 'cap',
+          peak: cap,
+        };
       }
       if (result.timedOut) {
         return await stoppedResult('error', `timed out: e3 stopped the runner after ${options.timeout} ms`);
@@ -685,13 +710,24 @@ export async function taskExecuteBody(
     for (let attempts = 1; ; attempts++) {
       let grant: Grant | null = null;
       if (options.budget !== undefined) {
+        let waited = false;
         try {
-          grant = await options.budget.acquire({ memory: reservation, kind, signal: options.signal });
+          grant = await options.budget.acquire({
+            memory: reservation,
+            kind,
+            signal: options.signal,
+            onWaiting: () => {
+              waited = true;
+              options.onWaiting?.(reservation);
+            },
+          });
         } catch (err) {
           if (options.signal?.aborted) {
             return await stoppedResult('cancelled', 'cancelled: e3 did not start the runner because the run was aborted');
           }
           throw err;
+        } finally {
+          if (waited) options.onWaiting?.(null);
         }
       }
       let cgroup: string | null = null;
@@ -720,6 +756,7 @@ export async function taskExecuteBody(
       } catch (err) {
         console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
       }
+      options.onRequeued?.({ reason: ended.reason, peak: ended.peak, reserves: ended.requeue });
       if (unit !== null) {
         await clearUnitOutput(unit);
       } else {

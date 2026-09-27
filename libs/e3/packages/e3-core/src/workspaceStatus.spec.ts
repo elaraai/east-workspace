@@ -17,7 +17,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
-import { variant, none, East, IntegerType } from '@elaraai/east';
+import { variant, none, some, East, IntegerType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 import { workspaceStatus } from './workspaceStatus.js';
@@ -180,5 +180,21 @@ describe('workspaceStatus crash detection', () => {
       `per-history lookups crept back in: executionGetLatest called ${counts['executionGetLatest']} times`
     );
     assert.equal(counts['executionListForTask'] ?? 0, 0, 'status no longer lists history without statuses');
+  });
+
+  it('names the peak memory of the execution a task\'s status comes from', async () => {
+    const executionId = uuidv7();
+    await storage.refs.executionWrite(repoPath, taskHash, inHash, executionId, variant('failed', {
+      executionId,
+      inputHashes: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      exitCode: 1n,
+      peakBytes: some(48n * 1024n ** 2n),
+    }));
+    const result = await workspaceStatus(storage, repoPath, WS);
+    const task = result.tasks.find((t) => t.name === 'double')!;
+    assert.equal(task.status.type, 'failed');
+    assert.equal(task.peakBytes, 48 * 1024 ** 2);
   });
 });

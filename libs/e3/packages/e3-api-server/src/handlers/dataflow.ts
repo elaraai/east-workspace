@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, some, none, variant } from '@elaraai/east';
+import { NullType, OptionType, some, none, variant } from '@elaraai/east';
 import {
   dataflowGetGraph,
   workspaceStatus,
@@ -17,8 +17,9 @@ import {
   type DatasetStatusInfo as CoreDatasetStatusInfo,
   type TaskStatusInfo as CoreTaskStatusInfo,
   type DataflowExecutionStatus,
+  type OrchestratorExecutionStatus,
 } from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner } from '@elaraai/e3-core';
+import type { Budget, StorageBackend, TaskRunner } from '@elaraai/e3-core';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -26,6 +27,7 @@ import {
   DataflowGraphType,
   LogChunkType,
   DataflowExecutionStateType,
+  DataflowBudgetType,
   type WorkspaceStatusResult,
   type DatasetStatusInfo,
   type TaskStatusInfo,
@@ -115,7 +117,20 @@ function convertTaskStatus(info: CoreTaskStatusInfo): TaskStatusInfo {
     inputs: info.inputs,
     output: info.output,
     dependsOn: info.dependsOn,
+    peakBytes: info.peakBytes === null ? none : some(BigInt(info.peakBytes)),
   };
+}
+
+/** A budget as the API serves it: its capacity, and what its runners hold of
+ *  it now; `none` for a server whose runners hold no budget. */
+function budgetView(budget: Budget | undefined): DataflowExecutionState['budget'] {
+  if (budget === undefined) return none;
+  return some({
+    cores: BigInt(budget.cores),
+    memory: BigInt(budget.memory),
+    coresInUse: BigInt(budget.inFlight),
+    memoryInUse: BigInt(budget.used),
+  });
 }
 
 /**
@@ -287,12 +302,22 @@ export async function getTaskLogs(
  * Get dataflow execution state (for polling).
  *
  * Returns the current execution state including events for progress tracking.
- * Supports offset/limit for paginating events.
+ * Supports offset/limit for paginating events. While the run is in flight in
+ * this server, it carries the tasks and units waiting for room and each split
+ * task's progress, which the loop keeps in memory; and it carries the server's
+ * budget when it has one.
+ *
+ * @param repoPath - The repository's path
+ * @param workspace - The workspace
+ * @param options - The window of events to serve
+ * @param budget - The server's budget, which its runners hold, if any
+ * @returns The execution state, or `execution_not_found`
  */
 export async function getDataflowExecution(
   repoPath: string,
   workspace: string,
-  options: { offset?: number; limit?: number } = {}
+  options: { offset?: number; limit?: number } = {},
+  budget?: Budget
 ): Promise<Response> {
   const stateStore = getStateStore(repoPath);
 
@@ -345,6 +370,7 @@ export async function getDataflowExecution(
           task: apiEvent.task,
           timestamp: apiEvent.timestamp,
           duration: apiEvent.duration ?? 0,
+          peakBytes: apiEvent.peakBytes === undefined ? none : some(apiEvent.peakBytes),
         }));
         break;
       case 'cached':
@@ -373,6 +399,17 @@ export async function getDataflowExecution(
           task: apiEvent.task,
           timestamp: apiEvent.timestamp,
           reason: apiEvent.reason ?? 'Upstream task failed',
+        }));
+        break;
+      case 'requeued':
+        // coreEventToApiEvent gives a requeue each of these.
+        apiEvents.push(variant('requeued', {
+          task: apiEvent.task,
+          timestamp: apiEvent.timestamp,
+          unit: apiEvent.unit!,
+          reason: variant(apiEvent.requeueReason!, null),
+          peak: apiEvent.peak!,
+          reserves: apiEvent.reserves!,
         }));
         break;
     }
@@ -419,6 +456,19 @@ export async function getDataflowExecution(
     ? some(coreState.completedAt.value.toISOString())
     : none;
 
+  // The waits and each split task's progress, while the run is in flight here:
+  // nothing stores them, so a run that has ended, or that another process
+  // runs, has none.
+  let live: OrchestratorExecutionStatus | null = null;
+  const active = getActiveExecution(repoPath, workspace);
+  if (active !== null && active.id === handle.id) {
+    try {
+      live = await getOrchestrator(repoPath).getStatus(active);
+    } catch {
+      // Ended since it was looked up: nothing is waiting.
+    }
+  }
+
   const state: DataflowExecutionState = {
     status,
     startedAt: coreState.startedAt.toISOString(),
@@ -426,9 +476,24 @@ export async function getDataflowExecution(
     summary,
     events: apiEvents,
     totalEvents: BigInt(totalApiEvents),
+    budget: budgetView(budget),
+    waiting: live?.waiting ?? [],
+    splits: live?.splits ?? [],
   };
 
   return sendSuccess(DataflowExecutionStateType, state);
+}
+
+/**
+ * The budget a run of the dataflow gets: the server's, which it shares with
+ * everything else the server runs.
+ *
+ * @param budget - The server's budget, which its runners hold, if any
+ * @returns The budget with what its runners hold now, or `none` for a server
+ *   whose runners hold none
+ */
+export function getDataflowBudget(budget: Budget | undefined): Response {
+  return sendSuccess(OptionType(DataflowBudgetType), budgetView(budget));
 }
 
 /**

@@ -3,12 +3,13 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, none, some, variant } from '@elaraai/east';
-import type { LogChunk, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
+import { NullType, OptionType, none, some, variant } from '@elaraai/east';
+import type { LogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
 import {
   LogChunkType,
   DataflowRequestType,
   DataflowGraphType,
+  DataflowBudgetType,
   DataflowExecutionStateType,
 } from './types.js';
 import { get, post, verboseQuery, ApiError, type RequestOptions } from './http.js';
@@ -92,7 +93,8 @@ function buildDataflowResult(state: DataflowExecutionState): DataflowResult {
   const tasks: TaskExecutionResult[] = [];
 
   // Process events to build task results
-  // Events are: start, complete, cached, failed, error, input_unavailable
+  // Events are: start, complete, cached, failed, error, input_unavailable,
+  // and a unit's requeued, which ends no task
   for (const event of state.events) {
     switch (event.type) {
       case 'complete':
@@ -309,6 +311,34 @@ export async function dataflowExecutePoll(
   const path = `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow/execution${query ? `?${query}` : ''}`;
 
   return get(url, path, DataflowExecutionStateType, options);
+}
+
+/**
+ * Get the budget a run of a workspace's dataflow gets: the server's cores and
+ * memory, which it shares with everything else the server runs, and what its
+ * runners hold of it now.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param options - Request options including auth token
+ * @returns The budget, or `null` for a server whose runners hold none
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function dataflowBudget(
+  url: string,
+  repo: string,
+  workspace: string,
+  options: RequestOptions
+): Promise<DataflowBudget | null> {
+  const budget = await get(
+    url,
+    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow/budget`,
+    OptionType(DataflowBudgetType),
+    options
+  );
+  return budget.type === 'some' ? budget.value : null;
 }
 
 /**

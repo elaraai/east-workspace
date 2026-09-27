@@ -21,8 +21,9 @@
  */
 
 import { variant, some, none } from '@elaraai/east';
-import { EXECUTION_STATE_VERSION, type VersionVector, type Structure } from '@elaraai/e3-types';
+import { EXECUTION_STATE_VERSION, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
+import type { UnitRequeue } from '../execution/interfaces.js';
 import {
   dataflowGetGraph,
   dataflowGetReadyTasks,
@@ -770,6 +771,42 @@ export function stepTaskMergeCompleted(
 }
 
 /**
+ * Record that a unit of a split task was stopped — by the budget's guard, or
+ * its cgroup's cap — and requeued: it runs again, under the same execution,
+ * once the memory it reserves fits.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - Name of the task
+ * @param unit - The unit, by its place in the task
+ * @param requeue - Why its runner was stopped, the most it was measured using,
+ *   and what it reserves when it runs again
+ * @returns Event to record
+ */
+export function stepUnitRequeued(
+  state: DataflowExecutionState,
+  taskName: string,
+  unit: StageUnit,
+  requeue: UnitRequeue
+): ExecutionEvent {
+  if (!state.tasks.has(taskName)) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('unit_requeued', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskName,
+    unit,
+    reason: variant(requeue.reason, null),
+    peak: BigInt(requeue.peak),
+    reserves: BigInt(requeue.reserves),
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
  * Mark a task as completed successfully.
  *
  * Mutates the execution state, computes the merged version vector for the
@@ -782,6 +819,8 @@ export function stepTaskMergeCompleted(
  * @param duration - Execution duration in milliseconds
  * @param execution - The execution the task completed with, which ran or
  *   which the cache served: its inputs hash and its id
+ * @param peakBytes - The highest peak resident memory, in bytes, a runner of
+ *   the execution reached, when one reported it
  * @returns Result with newly ready tasks and event
  */
 export function stepTaskCompleted(
@@ -790,7 +829,8 @@ export function stepTaskCompleted(
   outputHash: string,
   cached: boolean,
   duration: number,
-  execution: { inputsHash: string; executionId: string }
+  execution: { inputsHash: string; executionId: string },
+  peakBytes?: number
 ): { result: TaskCompletedResult; event: ExecutionEvent } {
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
   if (!taskState) {
@@ -845,6 +885,7 @@ export function stepTaskCompleted(
     cached,
     outputHash,
     duration: BigInt(duration),
+    peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
   });
   (mutableState.events as ExecutionEvent[]).push(event);
 

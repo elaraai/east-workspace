@@ -12,7 +12,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { IntegerType, StringType, StructType, encodeBeast2For, none, some } from '@elaraai/east';
+import { IntegerType, StringType, StructType, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import { EXECUTION_STATE_VERSION, decodeDataflowExecutionState } from './dataflow.js';
 
 /** Version 1, written by the released e3: task `double` completed, `sum`
@@ -117,11 +117,42 @@ const STATE_V4 = Buffer.from(
   'base64',
 );
 
+/** Version 5: task `double` completed with the peak its runners reached, and
+ *  a piece of `sum` stopped past the budget and requeued. */
+const STATE_V5 = Buffer.from(
+  'iUVhc3QNCgUAngsoKQIBBQQACAIEbm9uZQQEc29tZQEKAQkFBG5hbWUBBGhhc2gBBmlucHV0cwYGb3V0cHV0AQlkZXBlbmRz' +
+  'T24GCgcJAQV0YXNrcwgIAgRub25lBARzb21lCQgCBG5vbmUEBHNvbWUDCAIEbm9uZQQEc29tZQAIAgRub25lBARzb21lAgkC' +
+  'CmlucHV0c0hhc2gBC2V4ZWN1dGlvbklkAQgCBG5vbmUEBHNvbWUOCQsEbmFtZQEGc3RhdHVzAQZjYWNoZWQLCm91dHB1dEhh' +
+  'c2gFBWVycm9yBQhleGl0Q29kZQwJc3RhcnRlZEF0DQtjb21wbGV0ZWRBdA0IZHVyYXRpb24MBHBsYW4FCWV4ZWN1dGlvbg8L' +
+  'ARALAQELARIJAwNzZXEACXRpbWVzdGFtcAIGcmVhc29uBQkIA3NlcQAJdGltZXN0YW1wAgdzdWNjZXNzAwhleGVjdXRlZAAG' +
+  'Y2FjaGVkAAZmYWlsZWQAB3NraXBwZWQACGR1cmF0aW9uAAkEA3NlcQAJdGltZXN0YW1wAgtleGVjdXRpb25JZAEKdG90YWxU' +
+  'YXNrcwAJBQNzZXEACXRpbWVzdGFtcAIEcGF0aAEMcHJldmlvdXNIYXNoAQduZXdIYXNoAQkHA3NlcQAJdGltZXN0YW1wAgR0' +
+  'YXNrAQZjYWNoZWQDCm91dHB1dEhhc2gBCGR1cmF0aW9uAAlwZWFrQnl0ZXMMCQQDc2VxAAl0aW1lc3RhbXACBHRhc2sBDGNv' +
+  'bmZsaWN0UGF0aAEJBgNzZXEACXRpbWVzdGFtcAIEdGFzawEFZXJyb3IFCGV4aXRDb2RlDAhkdXJhdGlvbgAJBANzZXEACXRp' +
+  'bWVzdGFtcAIEdGFzawEGcmVhc29uAQkFA3NlcQAJdGltZXN0YW1wAgR0YXNrAQVsZXZlbAAGbGV2ZWxzAAkGA3NlcQAJdGlt' +
+  'ZXN0YW1wAgR0YXNrAQVsZXZlbAAGbGV2ZWxzAAV1bml0cwAJAwNzZXEACXRpbWVzdGFtcAIEdGFzawEJBANzZXEACXRpbWVz' +
+  'dGFtcAIEdGFzawEFY2F1c2UBCQQDc2VxAAl0aW1lc3RhbXACBHRhc2sBBnBpZWNlcwAJAgVsZXZlbAAGbGV2ZWxzAAgCBG5v' +
+  'bmUEBHNvbWUhCQMFbWVyZ2UiBWluZGV4AAV1bml0cwAIAwZidWRnZXQEA2NhcAQHbWFjaGluZQQJBwNzZXEACXRpbWVzdGFt' +
+  'cAIEdGFzawEEdW5pdCMGcmVhc29uJARwZWFrAAhyZXNlcnZlcwAIDxNleGVjdXRpb25fY2FuY2VsbGVkFBNleGVjdXRpb25f' +
+  'Y29tcGxldGVkFRFleGVjdXRpb25fc3RhcnRlZBYNaW5wdXRfY2hhbmdlZBcOdGFza19jb21wbGV0ZWQYDXRhc2tfZGVmZXJy' +
+  'ZWQZC3Rhc2tfZmFpbGVkGhB0YXNrX2ludmFsaWRhdGVkGxR0YXNrX21lcmdlX2NvbXBsZXRlZBwSdGFza19tZXJnZV9zdGFy' +
+  'dGVkHQp0YXNrX3JlYWR5Hgx0YXNrX3NraXBwZWQfCnRhc2tfc3BsaXQgDHRhc2tfc3RhcnRlZB4NdW5pdF9yZXF1ZXVlZCUK' +
+  'JgkXB3ZlcnNpb24AAmlkAQRyZXBvAQl3b3Jrc3BhY2UBCXN0YXJ0ZWRBdAIFZm9yY2UDBmZpbHRlcgUFZ3JhcGgKCWdyYXBo' +
+  'SGFzaAUFdGFza3MRCGV4ZWN1dGVkAAZjYWNoZWQABmZhaWxlZAAHc2tpcHBlZAAGc3RhdHVzAQtjb21wbGV0ZWRBdA0FZXJy' +
+  'b3IFDnZlcnNpb25WZWN0b3JzEw1pbnB1dFNuYXBzaG90Eg90YXNrT3V0cHV0UGF0aHMGCnJlZXhlY3V0ZWQABmV2ZW50cycI' +
+  'ZXZlbnRTZXEAAQAB3waUAuNSMTC0NEg0SDLQtQACXXMDAyALRAAxHLAUpRbkM5UXNzw5fep9GgMDIwMTW0p+aVJOqkMihYCB' +
+  'kVMvM6+gtKRYr4KBV68ksTi7WA9iNgMDc3FprkMKhYCBEc1YLigXaDgDI9QfDEAA8xOU4kzOzy3ISS1JTWFkYHRIphAAA+3C' +
+  'Z1DoMS5oPgOiJICGJlEIiIk8Q1AggjB3Zl58QVF+elFqcTHIu4wfJoEcAmQwpZoCfQ8UYi8qzcvLzEsHSSNHjEMahQBoPGok' +
+  'IMcB0F4mJkjSIi418rJAghIaUSxskCCFRSXFcSXB2NDQkMDLAQkgUNjxcCHYLHw8BxbBOAxMLAxAxdNAOqYxcvJN2ASTYWJi' +
+  'YuADAA==',
+  'base64',
+);
+
 const NEW_VERSION = 'a change to the execution state\'s type is a new version: raise EXECUTION_STATE_VERSION, move this state to the older-version refusal, and add one the new version writes';
 
 describe('decodeDataflowExecutionState', () => {
   it('refuses a state an older e3 wrote, naming its version and the fix', () => {
-    for (const [state, version] of [[STATE_V1, 1n], [STATE_V2, 2n], [STATE_V3, 3n]] as const) {
+    for (const [state, version] of [[STATE_V1, 1n], [STATE_V2, 2n], [STATE_V3, 3n], [STATE_V4, 4n]] as const) {
       assert.throws(
         () => decodeDataflowExecutionState(state),
         { message: `the execution state was written by an older e3: it is version ${version}, and this e3 reads version ${EXECUTION_STATE_VERSION} — re-create the repository: deploy again and import its data again` },
@@ -129,14 +160,22 @@ describe('decodeDataflowExecutionState', () => {
     }
   });
 
-  it('reads a version 4 state', () => {
-    const state = decodeDataflowExecutionState(STATE_V4);
-    assert.equal(state.version, 4n, NEW_VERSION);
+  it('reads a version 5 state', () => {
+    const state = decodeDataflowExecutionState(STATE_V5);
+    assert.equal(state.version, 5n, NEW_VERSION);
     assert.deepEqual(state.tasks.get('sum')!.plan, some('e5'));
     assert.deepEqual(state.tasks.get('sum')!.execution, none);
     assert.deepEqual(state.tasks.get('double')!.execution, some({ inputsHash: 'b'.repeat(64), executionId: '0190a0b0-8888-7000-8000-000000000001' }));
-    assert.deepEqual(state.events.map((event) => event.type), ['execution_started', 'task_started', 'task_split', 'task_merge_started', 'task_merge_completed']);
-    assert.deepEqual(state.events[3]!.value, { seq: 3n, timestamp: new Date('2026-01-02T03:04:05.000Z'), task: 'sum', level: 1n, levels: 1n, units: 1n });
+    assert.deepEqual(state.events.map((event) => event.type),
+      ['execution_started', 'task_started', 'task_completed', 'task_started', 'task_split', 'unit_requeued', 'task_merge_started']);
+    assert.deepEqual(state.events[2]!.value, {
+      seq: 3n, timestamp: new Date('2026-01-02T03:04:02.000Z'), task: 'double', cached: false, outputHash: 'c'.repeat(64), duration: 12n,
+      peakBytes: some(96n * 1024n ** 2n),
+    });
+    assert.deepEqual(state.events[5]!.value, {
+      seq: 6n, timestamp: new Date('2026-01-02T03:04:04.000Z'), task: 'sum', unit: { merge: none, index: 1n, units: 2n },
+      reason: variant('budget', null), peak: 150n * 1024n ** 2n, reserves: 150n * 1024n ** 2n,
+    });
   });
 
   it('refuses a state a newer e3 wrote, naming its version', () => {

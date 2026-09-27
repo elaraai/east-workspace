@@ -59,20 +59,26 @@ describe('coreEventToApiEvent', () => {
     assert.strictEqual(result?.task, 'build');
   });
 
-  it('maps task_completed (not cached) to complete', () => {
+  it('maps task_completed (not cached) to complete, with the peak its runners reported', () => {
     const event: ExecutionEvent = variant('task_completed', {
       seq: 2n, timestamp: now, task: 'build',
-      cached: false, outputHash: 'abc', duration: 1000n,
+      cached: false, outputHash: 'abc', duration: 1000n, peakBytes: some(96n * 1024n ** 2n),
     });
     const result = coreEventToApiEvent(event);
     assert.strictEqual(result?.type, 'complete');
     assert.strictEqual(result?.duration, 1000);
+    assert.strictEqual(result?.peakBytes, 96n * 1024n ** 2n);
+    const unmeasured: ExecutionEvent = variant('task_completed', {
+      seq: 2n, timestamp: now, task: 'build',
+      cached: false, outputHash: 'abc', duration: 1000n, peakBytes: none,
+    });
+    assert.strictEqual(coreEventToApiEvent(unmeasured)?.peakBytes, undefined);
   });
 
   it('maps task_completed (cached) to cached', () => {
     const event: ExecutionEvent = variant('task_completed', {
       seq: 2n, timestamp: now, task: 'build',
-      cached: true, outputHash: 'abc', duration: 0n,
+      cached: true, outputHash: 'abc', duration: 0n, peakBytes: none,
     });
     const result = coreEventToApiEvent(event);
     assert.strictEqual(result?.type, 'cached');
@@ -136,6 +142,16 @@ describe('coreEventToApiEvent', () => {
     assert.strictEqual(coreEventToApiEvent(event), null);
   });
 
+  it('maps unit_requeued to requeued, naming the unit, why, its peak and what it reserves', () => {
+    const unit = { merge: some({ level: 1n, levels: 2n }), index: 2n, units: 4n };
+    const event: ExecutionEvent = variant('unit_requeued', {
+      seq: 9n, timestamp: now, task: 'build', unit, reason: variant('cap', null), peak: 96n * 1024n ** 2n, reserves: 96n * 1024n ** 2n,
+    });
+    assert.deepStrictEqual(coreEventToApiEvent(event), {
+      type: 'requeued', task: 'build', timestamp: now.toISOString(), unit, requeueReason: 'cap', peak: 96n * 1024n ** 2n, reserves: 96n * 1024n ** 2n,
+    });
+  });
+
   it('returns null for a split task\'s stages: the API\'s events are a task\'s', () => {
     const events: ExecutionEvent[] = [
       variant('task_split', { seq: 6n, timestamp: now, task: 'build', pieces: 4n }),
@@ -166,7 +182,7 @@ describe('coreStateToApiState', () => {
       }),
       variant('task_completed', {
         seq: 3n, timestamp: now, task: 'build',
-        cached: false, outputHash: 'abc', duration: 1000n,
+        cached: false, outputHash: 'abc', duration: 1000n, peakBytes: none,
       }),
       variant('execution_completed', {
         seq: 4n, timestamp: now, success: true,

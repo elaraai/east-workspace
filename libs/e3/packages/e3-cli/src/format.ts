@@ -7,6 +7,8 @@
  * Shared formatting utilities for CLI commands.
  */
 
+import type { RequeueReason, StageUnit } from '@elaraai/e3-types';
+
 /**
  * Format a byte count as a human-readable string.
  *
@@ -26,5 +28,25 @@ export function formatSize(bytes: number): string {
   }
   // unreachable, but TypeScript needs it
   return `${bytes} B`;
+}
+
+/**
+ * A requeued unit as a run prints it: `piece 3/8: the guard stopped it at
+ * 620 MB, past the budget; it runs again reserving 620 MB`.
+ *
+ * @param unit - The unit, by its place in its task
+ * @param reason - Why its runner was stopped
+ * @param peak - The most it was measured using, in bytes: for a cap, the cap
+ * @param reserves - The memory it reserves when it runs again, in bytes
+ * @returns The text
+ */
+export function formatRequeue(unit: StageUnit, reason: RequeueReason['type'], peak: number, reserves: number): string {
+  const place = unit.merge.type === 'none'
+    ? `piece ${unit.index + 1n}/${unit.units}`
+    : `merge level ${unit.merge.value.level}/${unit.merge.value.levels} unit ${unit.index + 1n}/${unit.units}`;
+  const cause = reason === 'cap'
+    ? `it outgrew its cap of ${formatSize(peak)}`
+    : `the guard stopped it at ${formatSize(peak)}, ${reason === 'budget' ? 'past the budget' : 'with the machine nearly out of memory'}`;
+  return `${place}: ${cause}; it runs again reserving ${formatSize(reserves)}`;
 }
 

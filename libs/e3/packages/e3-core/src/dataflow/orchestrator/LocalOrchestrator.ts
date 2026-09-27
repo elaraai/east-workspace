@@ -16,7 +16,7 @@
  */
 
 import { decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
-import type { DataflowRun, TaskExecutionRecord, Structure, TaskObject, VersionVector } from '@elaraai/e3-types';
+import type { DataflowRun, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector } from '@elaraai/e3-types';
 import { WorkspaceRecordType, decodeTaskObject } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
@@ -51,6 +51,7 @@ import {
   stepTaskSplit,
   stepTaskMergeStarted,
   stepTaskMergeCompleted,
+  stepUnitRequeued,
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,
@@ -142,6 +143,7 @@ interface TaskOutcome {
   error?: string;
   cancelled?: boolean;
   duration: number;
+  peakBytes?: number;
 }
 
 /** A split task's execution, as the loop completes it. */
@@ -155,6 +157,7 @@ function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
     error: result.error ?? undefined,
     cancelled: result.cancelled,
     duration: Date.now() - startTime,
+    ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
   };
 }
 
@@ -212,6 +215,10 @@ interface RunningExecution {
   runningTasks: Map<string, Promise<void>>;
   /** Split tasks in progress, by name, in the order they started */
   splits: Map<string, SplitRun>;
+  /** The tasks and units waiting for room in the runner's budget, by the key
+   *  each is tracked under in runningTasks. A wait matters only while it
+   *  lasts, so nothing stores it. */
+  waiting: Map<string, UnitWait>;
   /** The next key a split task's unit takes in runningTasks */
   unitSeq: number;
   /** Set once a task has failed: the loop launches no more tasks */
@@ -462,6 +469,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       yielded: false,
       runningTasks: new Map(),
       splits: new Map(),
+      waiting: new Map(),
       unitSeq: 0,
       hasFailure: false,
       structure: null,
@@ -531,7 +539,19 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       throw new Error(`Execution ${handle.id} not found for workspace '${handle.workspace}'`);
     }
 
-    return stateToStatus(execution.state);
+    return {
+      ...stateToStatus(execution.state),
+      waiting: [...execution.waiting.values()],
+      splits: [...execution.splits].map(([task, run]) => {
+        const { merge, units } = run.split.stage;
+        return {
+          task,
+          merge: merge === null ? none : some({ level: BigInt(merge.level), levels: BigInt(merge.levels) }),
+          done: BigInt(run.results.filter((result) => result?.state === 'success').length),
+          units: BigInt(units.length),
+        };
+      }),
+    };
   }
 
   async cancel(handle: ExecutionHandle): Promise<void> {
@@ -1130,7 +1150,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             result.outputHash ?? '',
             result.cached,
             result.duration,
-            completed
+            completed,
+            result.peakBytes
           );
 
           // Track task execution for DataflowRun
@@ -1256,6 +1277,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // would drop the newer promise's tracking and orphan the task.
         if (execution.runningTasks.get(taskName) === taskPromise) {
           execution.runningTasks.delete(taskName);
+          execution.waiting.delete(taskName);
         }
       });
     execution.runningTasks.set(taskName, taskPromise);
@@ -1341,14 +1363,21 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     run: SplitRun
   ): void {
     const index = run.next++;
-    const unit = run.split.stage.units[index]!;
+    const { merge, units } = run.split.stage;
+    const unit = units[index]!;
+    // The unit's place in the task, which its wait and its requeue name.
+    const place: StageUnit = {
+      merge: merge === null ? none : some({ level: BigInt(merge.level), levels: BigInt(merge.levels) }),
+      index: BigInt(index),
+      units: BigInt(units.length),
+    };
     const expectedPeakBytes = run.split.stagePeak;
     const key = `${taskName}\u0000${execution.unitSeq++}`;
     run.inFlight++;
     run.split.unitStarted(index);
     const launched = (async () => {
       try {
-        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes);
+        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, key, place);
         run.results[index] = result;
         run.split.unitSettled(index, result);
         // A unit e3 stopped because the run was aborted is not a failure.
@@ -1368,6 +1397,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await this.failTask(execution, taskName, err);
       })
       .finally(() => {
+        execution.waiting.delete(key);
         if (execution.runningTasks.get(key) === launched) {
           execution.runningTasks.delete(key);
         }
@@ -1427,7 +1457,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Execute one unit of a split task, through the run's runner or locally.
+   * Execute one unit of a split task, through the run's runner or locally:
+   * its wait for room is kept, under the key it is tracked by, while it lasts,
+   * and a requeue is recorded as an event of the run, naming its place.
    */
   private async executeUnit(
     storage: StorageBackend,
@@ -1436,7 +1468,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     taskName: string,
     taskHash: string,
     unit: SplitUnit,
-    expectedPeakBytes: number | undefined
+    expectedPeakBytes: number | undefined,
+    key: string,
+    place: StageUnit
   ): Promise<ExecutionResult> {
     const { options } = execution;
     const execOptions: TaskExecuteOptions = {
@@ -1448,6 +1482,20 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
       expectedPeakBytes,
+      onWaiting: (needs) => {
+        if (needs === null) execution.waiting.delete(key);
+        else execution.waiting.set(key, { task: taskName, unit: some(place), needs: BigInt(needs), since: new Date().toISOString() });
+      },
+      onRequeued: (requeue) => {
+        options.onUnitRequeued?.(taskName, place, requeue);
+        void execution.mutex.runExclusive(async () => {
+          stepUnitRequeued(execution.state, taskName, place, requeue);
+          await this.persistState(execution, execution.state);
+        }).catch(() => {
+          // The event is in the state already, which the run's next write
+          // persists.
+        });
+      },
     };
     if (!options.runner) {
       return taskExecuteUnit(storage, repo, taskHash, unit, execOptions);
@@ -1495,6 +1543,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       onPartitionProgress: options.onPartitionProgress
         ? (progress) => options.onPartitionProgress!(taskName, progress)
         : undefined,
+      // A wait for room is kept, under the task's name, while it lasts.
+      onWaiting: (needs) => {
+        if (needs === null) execution.waiting.delete(taskName);
+        else execution.waiting.set(taskName, { task: taskName, unit: none, needs: BigInt(needs), since: new Date().toISOString() });
+      },
     };
 
     // Use provided runner if available, otherwise call taskExecute directly
@@ -1509,6 +1562,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         error: result.error,
         cancelled: result.cancelled,
         duration: Date.now() - startTime,
+        ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
       };
     } else {
       const result = await taskExecute(storage, repo, prepared.taskHash, prepared.inputHashes, execOptions);
@@ -1521,6 +1575,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         error: result.error ?? undefined,
         cancelled: result.cancelled,
         duration: Date.now() - startTime,
+        ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
       };
     }
   }

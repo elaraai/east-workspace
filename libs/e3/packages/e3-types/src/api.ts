@@ -38,6 +38,7 @@ import {
 import { StructureType, TreePathType } from './structure.js';
 import { RunnerType } from './runner.js';
 import { TaskBodyType, TaskInputType, TaskOutputType, TaskRoleType } from './task.js';
+import { RequeueReasonType, StageUnitType } from './dataflow.js';
 
 // =============================================================================
 // Error Types
@@ -514,6 +515,9 @@ export const DatasetStatusInfoType = StructType({
  * @property inputs - Dataset paths this task reads from
  * @property output - Dataset path this task writes to
  * @property dependsOn - Names of tasks that must complete before this one
+ * @property peakBytes - The highest peak resident memory, in bytes, a runner
+ *   of the execution the status comes from reached: the one the output came
+ *   from, or the failure; `none` when it recorded none, or while it runs
  */
 export const TaskStatusInfoType = StructType({
   name: StringType,
@@ -522,6 +526,7 @@ export const TaskStatusInfoType = StructType({
   inputs: ArrayType(StringType),
   output: StringType,
   dependsOn: ArrayType(StringType),
+  peakBytes: OptionType(IntegerType),
 });
 
 /**
@@ -686,11 +691,15 @@ export const DataflowResultType = StructType({
  * Dataflow event types for API polling.
  *
  * - `start`: Task started executing
- * - `complete`: Task executed and succeeded
+ * - `complete`: Task executed and succeeded, with the highest peak memory its
+ *   runners reached when they reported one
  * - `cached`: Task result retrieved from cache (no execution)
  * - `failed`: Task exited with non-zero code
  * - `error`: Internal error during task execution
  * - `input_unavailable`: Task couldn't run because inputs not available
+ * - `requeued`: A unit of a split task was stopped — by the budget's guard, or
+ *   its cgroup's cap — and runs again once the memory it reserves fits: the
+ *   unit, why, the most it was measured using and what it reserves, in bytes
  */
 export const DataflowEventType = VariantType({
   start: StructType({
@@ -701,6 +710,7 @@ export const DataflowEventType = VariantType({
     task: StringType,
     timestamp: StringType,
     duration: FloatType,
+    peakBytes: OptionType(IntegerType),
   }),
   cached: StructType({
     task: StringType,
@@ -721,6 +731,14 @@ export const DataflowEventType = VariantType({
     task: StringType,
     timestamp: StringType,
     reason: StringType,
+  }),
+  requeued: StructType({
+    task: StringType,
+    timestamp: StringType,
+    unit: StageUnitType,
+    reason: RequeueReasonType,
+    peak: IntegerType,
+    reserves: IntegerType,
   }),
 });
 
@@ -754,6 +772,55 @@ export const DataflowExecutionSummaryType = StructType({
 });
 
 /**
+ * A server's budget of cores and memory, which every runner it spawns takes
+ * from, and what its runners hold of it now.
+ *
+ * @property cores - Runner processes at once
+ * @property memory - Bytes of memory the runners may hold between them
+ * @property coresInUse - Runner processes holding the budget now
+ * @property memoryInUse - Bytes the runners hold now, each at the larger of
+ *   its reservation and what it was last measured using
+ */
+export const DataflowBudgetType = StructType({
+  cores: IntegerType,
+  memory: IntegerType,
+  coresInUse: IntegerType,
+  memoryInUse: IntegerType,
+});
+
+/**
+ * A task, or a unit of a split task, waiting for room in the server's budget.
+ *
+ * @property task - The task
+ * @property unit - The unit, for a split task's; `none` for a task run as one
+ * @property needs - The memory, in bytes, it waits to reserve; 0 when it
+ *   waits for a core alone
+ * @property since - ISO timestamp when it began waiting
+ */
+export const UnitWaitType = StructType({
+  task: StringType,
+  unit: OptionType(StageUnitType),
+  needs: IntegerType,
+  since: StringType,
+});
+
+/**
+ * A split task's progress through the stage it is in.
+ *
+ * @property task - The task
+ * @property merge - The merge level, from 1, and the levels the merges take;
+ *   `none` while its pieces run
+ * @property done - The stage's units that have finished
+ * @property units - The stage's units
+ */
+export const SplitProgressType = StructType({
+  task: StringType,
+  merge: OptionType(StructType({ level: IntegerType, levels: IntegerType })),
+  done: IntegerType,
+  units: IntegerType,
+});
+
+/**
  * Dataflow execution state returned by API polling.
  *
  * A lightweight view of the execution state for client polling.
@@ -768,6 +835,12 @@ export const DataflowExecutionSummaryType = StructType({
  * @property summary - Execution summary (available when complete)
  * @property events - Task events (may be paginated via offset/limit)
  * @property totalEvents - Total number of events (for pagination)
+ * @property budget - The server's budget now, where it has one: a server whose
+ *   runners hold none, as a remote backend's, serves `none`
+ * @property waiting - The tasks and units of the run waiting for room, while it
+ *   runs; nothing stores them
+ * @property splits - Each split task's progress, while the run runs; nothing
+ *   stores it
  */
 export const ApiDataflowExecutionStateType = StructType({
   status: ApiExecutionStatusType,
@@ -776,6 +849,9 @@ export const ApiDataflowExecutionStateType = StructType({
   summary: OptionType(DataflowExecutionSummaryType),
   events: ArrayType(DataflowEventType),
   totalEvents: IntegerType,
+  budget: OptionType(DataflowBudgetType),
+  waiting: ArrayType(UnitWaitType),
+  splits: ArrayType(SplitProgressType),
 });
 
 // =============================================================================
@@ -806,6 +882,8 @@ export const ExecutionHistoryStatusType = VariantType({
  * @property completedAt - ISO timestamp when execution finished (if done)
  * @property duration - Execution duration in milliseconds (if done)
  * @property exitCode - Process exit code (if failed)
+ * @property peakBytes - The highest peak resident memory, in bytes, a runner
+ *   of the execution reached, when it succeeded or failed and one reported it
  */
 export const ExecutionListItemType = StructType({
   inputsHash: StringType,
@@ -815,6 +893,7 @@ export const ExecutionListItemType = StructType({
   completedAt: OptionType(StringType),
   duration: OptionType(IntegerType),
   exitCode: OptionType(IntegerType),
+  peakBytes: OptionType(IntegerType),
 });
 
 // =============================================================================
@@ -1068,6 +1147,9 @@ export type DataflowResult = ValueTypeOf<typeof DataflowResultType>;
 export type DataflowEvent = ValueTypeOf<typeof DataflowEventType>;
 export type ApiExecutionStatus = ValueTypeOf<typeof ApiExecutionStatusType>;
 export type DataflowExecutionSummary = ValueTypeOf<typeof DataflowExecutionSummaryType>;
+export type DataflowBudget = ValueTypeOf<typeof DataflowBudgetType>;
+export type UnitWait = ValueTypeOf<typeof UnitWaitType>;
+export type SplitProgress = ValueTypeOf<typeof SplitProgressType>;
 export type ApiDataflowExecutionState = ValueTypeOf<typeof ApiDataflowExecutionStateType>;
 export type ExecutionHistoryStatus = ValueTypeOf<typeof ExecutionHistoryStatusType>;
 export type ExecutionListItem = ValueTypeOf<typeof ExecutionListItemType>;

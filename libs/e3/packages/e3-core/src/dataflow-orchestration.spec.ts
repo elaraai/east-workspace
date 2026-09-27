@@ -24,10 +24,11 @@ import {
   type TreePath,
   type Structure,
   type DatasetRef,
+  type StageUnit,
 } from '@elaraai/e3-types';
 import { dataflowExecute } from './dataflow.js';
 import { LocalOrchestrator } from './dataflow/orchestrator/LocalOrchestrator.js';
-import type { ExecutionHandle, TaskCompletedCallback } from './dataflow/orchestrator/interfaces.js';
+import type { ExecutionHandle, ExecutionStatus, TaskCompletedCallback } from './dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from './dataflow/state-store/InMemoryStateStore.js';
 import { datasetWrite } from './trees.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
@@ -40,7 +41,7 @@ import { LocalStorage } from './storage/local/index.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { inputsHash } from './executions.js';
 import type { StorageBackend, LockHandle, LockOperation } from './storage/interfaces.js';
-import type { TaskExecuteOptions, TaskRunner } from './execution/interfaces.js';
+import type { TaskExecuteOptions, TaskRunner, UnitRequeue } from './execution/interfaces.js';
 
 describe('dataflow orchestration with MockTaskRunner', () => {
   let testRepo: string;
@@ -2428,6 +2429,83 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.match(failed?.error ?? '', /^Piece 3 of \d+ failed \(exit code 1\)$/);
       assert.strictEqual(calls, 3, 'the stage started no unit after the failure');
       assert.deepStrictEqual(mockRunner.getCalls(), [], 'the task after it never ran');
+    });
+
+    it('keeps a wait while it lasts, records a requeue as an event of the run naming the unit, and serves each split task\'s progress', async () => {
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const report = e3.task('report', [total.output], East.function([IntegerType], IntegerType, ($, sum) => sum.multiply(2n)));
+      const zip = join(tempDir, 'split.zip');
+      await e3.export(e3.package('split', '1.0.0', rows, total, report), zip);
+      await packageImport(storage, testRepo, zip);
+      await workspaceCreate(storage, testRepo, 'test-ws');
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'split', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, (await workspaceGetPackage(storage, testRepo, 'test-ws')).hash));
+
+      // One unit at a time, so the pieces run in index order. The second waits
+      // for room, and the run is read while it waits; then its runner reports
+      // it stopped and requeued. The task after it waits for a core alone.
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+      let handle!: ExecutionHandle;
+      let unitWaits: ExecutionStatus | undefined;
+      let taskWaits: ExecutionStatus | undefined;
+      let pieces = 0;
+      mockRunner.setUnitResult(deployed.tasks.get('total')!, async (unit) => {
+        if (unit.merge !== null) return { state: 'success', cached: false, outputHash: 'sum' };
+        const index = pieces++;
+        if (index === 1) {
+          const calls = mockRunner.getUnitCalls();
+          const options = calls[calls.length - 1]!.options!;
+          options.onWaiting!(2_048);
+          unitWaits = await orchestrator.getStatus(handle);
+          options.onWaiting!(null);
+          options.onRequeued!({ reason: 'budget', peak: 3_000, reserves: 3_000 });
+        }
+        return { state: 'success', cached: false, outputHash: `piece-${index}` };
+      });
+      mockRunner.setResult(deployed.tasks.get('report')!, async () => {
+        const options = mockRunner.getCalls()[0]!.options!;
+        options.onWaiting!(0);
+        taskWaits = await orchestrator.getStatus(handle);
+        options.onWaiting!(null);
+        return { state: 'success', cached: false, outputHash: 'report', peakBytes: 5_000 };
+      });
+
+      const requeued: [string, StageUnit, UnitRequeue][] = [];
+      handle = await orchestrator.start(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        width: 1,
+        onUnitRequeued: (task, unit, requeue) => requeued.push([task, unit, requeue]),
+      });
+      const result = await orchestrator.wait(handle);
+      assert.strictEqual(result.success, true);
+
+      const units = BigInt(pieces);
+      const second = { merge: none, index: 1n, units };
+      assert.deepStrictEqual(unitWaits!.waiting.map(({ since: _since, ...wait }) => wait), [{ task: 'total', unit: some(second), needs: 2_048n }]);
+      assert.deepStrictEqual(unitWaits!.splits, [{ task: 'total', merge: none, done: 1n, units }], 'the first piece had finished');
+      assert.deepStrictEqual(taskWaits!.waiting.map(({ since: _since, ...wait }) => wait), [{ task: 'report', unit: none, needs: 0n }]);
+      assert.deepStrictEqual(taskWaits!.splits, [], 'the split task had ended');
+      assert.deepStrictEqual((await orchestrator.getStatus(handle)).waiting, [], 'nothing waits once the run has ended');
+
+      assert.deepStrictEqual(requeued, [['total', second, { reason: 'budget', peak: 3_000, reserves: 3_000 }]]);
+      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
+      const events = final!.events.filter((event) => event.type === 'unit_requeued');
+      assert.deepStrictEqual(events.map((event) => {
+        const { seq: _seq, timestamp: _timestamp, ...requeue } = event.value;
+        return requeue;
+      }), [{ task: 'total', unit: second, reason: variant('budget', null), peak: 3_000n, reserves: 3_000n }]);
+      const completed = final!.events.find((event) => event.type === 'task_completed' && event.value.task === 'report');
+      assert.deepStrictEqual(completed?.type === 'task_completed' && completed.value.peakBytes, some(5_000n), 'a completed task names its peak');
     });
   });
 

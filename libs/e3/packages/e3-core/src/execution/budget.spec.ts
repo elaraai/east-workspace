@@ -59,6 +59,19 @@ describe('Budget', () => {
     assert.equal(budget.inFlight, 1);
   });
 
+  it('tells a request that cannot be granted at once that it waits, once', async () => {
+    const budget = new Budget({ cores: 1, memory: GiB });
+    let waits = 0;
+    const first = await budget.acquire({ onWaiting: () => { waits++; } });
+    assert.equal(waits, 0, 'a request granted at once never waits');
+    const second = budget.acquire({ onWaiting: () => { waits++; } });
+    await settle();
+    assert.equal(waits, 1);
+    first.release();
+    (await second).release();
+    assert.equal(waits, 1);
+  });
+
   it('withdraws a waiting request when its signal aborts, and refuses an aborted one outright', async () => {
     const budget = new Budget({ cores: 1, memory: GiB });
     const held = await budget.acquire();

@@ -295,6 +295,7 @@ export {
   stepTaskSplit,
   stepTaskMergeStarted,
   stepTaskMergeCompleted,
+  stepUnitRequeued,
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,

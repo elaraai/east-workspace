@@ -11,9 +11,9 @@
  * - StepFunctionsOrchestrator: AWS Step Functions state machine (in e3-aws)
  */
 
-import type { ExecutionOwner, PartitionProgress } from '@elaraai/e3-types';
+import type { ExecutionOwner, PartitionProgress, SplitProgress, StageUnit, UnitWait } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
-import type { TaskRunner } from '../../execution/interfaces.js';
+import type { TaskRunner, UnitRequeue } from '../../execution/interfaces.js';
 import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../types.js';
 
 /**
@@ -52,6 +52,13 @@ export interface ExecutionStatus {
   startedAt: Date;
   /** Completion time */
   completedAt?: Date;
+  /** The tasks and units waiting for room in the runner's budget, as the
+   *  runner reports them, while the run is in flight: nothing stores a wait,
+   *  so a run read back from its state has none */
+  waiting: UnitWait[];
+  /** Each split task's progress through its stage, while the run is in
+   *  flight; nothing stores it */
+  splits: SplitProgress[];
 }
 
 /**
@@ -100,6 +107,10 @@ export interface OrchestratorStartOptions {
    *  outputs) starts, and as it succeeds. Callback-only progress: the
    *  execution state records a split task's stages, not each unit. */
   onPartitionProgress?: (taskName: string, progress: PartitionProgress) => void;
+  /** Called when a unit of a split task was stopped — by the budget's guard,
+   *  or its cgroup's cap — and runs again, as the loop records it in the
+   *  run's events. */
+  onUnitRequeued?: (taskName: string, unit: StageUnit, requeue: UnitRequeue) => void;
   /** Callback for task stdout */
   onStdout?: (taskName: string, data: string) => void;
   /** Callback for task stderr */
@@ -298,5 +309,7 @@ export function stateToStatus(state: DataflowExecutionState): ExecutionStatus {
     error: errorValue,
     startedAt: state.startedAt,
     completedAt: completedAtValue,
+    waiting: [],
+    splits: [],
   };
 }

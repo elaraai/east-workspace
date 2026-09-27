@@ -43,6 +43,15 @@ export interface TaskExecuteOptions {
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
+  /** Called when the execution waits for room to run, with the memory in
+   *  bytes it waits to reserve (0 when it waits for a core alone), and with
+   *  `null` once it has room or stops waiting. A runner that holds no budget
+   *  never calls it. Runtime-only. */
+  onWaiting?: (needs: number | null) => void;
+  /** Called when a unit of a split task was stopped — by the budget's guard,
+   *  or its cgroup's cap — and runs again under the same execution. The
+   *  dataflow's loop records it as an event of the run. Runtime-only. */
+  onRequeued?: (requeue: UnitRequeue) => void;
   /** Variables every runner process of the execution gets in its environment,
    *  after the orchestrator's own: the secrets a platform function reads, say,
    *  which the caller holds for this execution alone. Runtime-only: never
@@ -50,6 +59,17 @@ export interface TaskExecuteOptions {
    *  logged. A local runner refuses one that sets a variable e3 sets itself
    *  (`PATH`, `E3_RUNNER_SEARCH_DIRS`). */
   extraEnv?: Readonly<Record<string, string>>;
+}
+
+/** A unit stopped and run again (see {@link TaskExecuteOptions.onRequeued}). */
+export interface UnitRequeue {
+  /** Why its runner was stopped: past the budget, with the machine nearly out
+   *  of memory, or by its cgroup's cap. */
+  readonly reason: 'budget' | 'machine' | 'cap';
+  /** The most its runner was measured using, in bytes: for a cap, the cap. */
+  readonly peak: number;
+  /** The memory, in bytes, it reserves when it runs again. */
+  readonly reserves: number;
 }
 
 /**

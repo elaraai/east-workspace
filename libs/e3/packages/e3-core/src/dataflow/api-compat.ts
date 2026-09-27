@@ -17,8 +17,10 @@
  * - e3-core 'task_completed' (cached: true) -> API 'cached'
  * - e3-core 'task_failed' -> API 'failed' or 'error'
  * - e3-core 'task_skipped' -> API 'input_unavailable'
+ * - e3-core 'unit_requeued' -> API 'requeued'
  */
 
+import type { RequeueReason, StageUnit } from '@elaraai/e3-types';
 import type {
   ExecutionEvent,
   DataflowExecutionStatus,
@@ -39,7 +41,8 @@ export type ApiDataflowEventType =
   | 'cached'
   | 'failed'
   | 'error'
-  | 'input_unavailable';
+  | 'input_unavailable'
+  | 'requeued';
 
 /**
  * API-compatible event structure.
@@ -52,6 +55,17 @@ export interface ApiDataflowEvent {
   exitCode?: bigint;
   message?: string;
   reason?: string;
+  /** A completed task's highest peak memory, in bytes, when its runners
+   *  reported one */
+  peakBytes?: bigint;
+  /** A requeued unit, by its place in the task */
+  unit?: StageUnit;
+  /** Why a requeued unit's runner was stopped */
+  requeueReason?: RequeueReason['type'];
+  /** The most a requeued unit was measured using, in bytes */
+  peak?: bigint;
+  /** The memory, in bytes, a requeued unit reserves when it runs again */
+  reserves?: bigint;
 }
 
 /**
@@ -71,7 +85,9 @@ export interface ApiExecutionSummary {
 }
 
 /**
- * API-compatible execution state (matches DataflowExecutionStateType).
+ * API-compatible execution state: the part of the API's that the stored state
+ * holds. The budget, the waits and each split task's progress are a live
+ * server's, which nothing stores.
  */
 export interface ApiExecutionState {
   status: ApiExecutionStatus;
@@ -117,6 +133,7 @@ export function coreEventToApiEvent(event: ExecutionEvent): ApiDataflowEvent | n
         task: event.value.task,
         timestamp: event.value.timestamp.toISOString(),
         duration: Number(event.value.duration),
+        ...(event.value.peakBytes.type === 'some' && { peakBytes: event.value.peakBytes.value }),
       };
 
     case 'task_failed': {
@@ -149,11 +166,23 @@ export function coreEventToApiEvent(event: ExecutionEvent): ApiDataflowEvent | n
         reason: `Upstream task '${event.value.cause}' failed`,
       };
 
+    case 'unit_requeued':
+      return {
+        type: 'requeued',
+        task: event.value.task,
+        timestamp: event.value.timestamp.toISOString(),
+        unit: event.value.unit,
+        requeueReason: event.value.reason.type,
+        peak: event.value.peak,
+        reserves: event.value.reserves,
+      };
+
     // Events without API equivalents.
     // Reactive events (input_changed, task_invalidated, task_deferred) are
     // internal to the execution loop and not yet exposed via the API, and
     // neither are a split task's stages (task_split, task_merge_started,
-    // task_merge_completed): the API's events are a task's.
+    // task_merge_completed): the API's events are a task's, but for a unit
+    // requeued.
     case 'execution_started':
     case 'task_ready':
     case 'execution_completed':

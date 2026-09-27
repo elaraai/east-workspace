@@ -15,6 +15,7 @@ import { LocalTaskRunner, probeExecutionCache, taskExecute } from './LocalTaskRu
 import { collectNodeModulesBins } from './processExec.js';
 import { Budget } from './budget.js';
 import type { MemorySampler } from './memory.js';
+import type { UnitRequeue } from './interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { uuidv7 } from '../uuid.js';
 import { inputsHash } from '../executions.js';
@@ -437,6 +438,23 @@ describe('the budget', () => {
     assert.equal(together.peak, 2, 'two expecting 40% each ran at once');
   });
 
+  it('tells its caller while an execution waits for room, with what it waits to reserve, and when it no longer waits', async () => {
+    const budget = new Budget({ cores: 1, memory: 1024 ** 3 });
+    const held = await budget.acquire();
+    const { taskHash, inputHashes } = await bashTask('cp "$1" "$2"', 'waiting');
+    const waits: (number | null)[] = [];
+    const run = new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null },
+      { expectedPeakBytes: 64 * 1024 ** 2, onWaiting: (needs) => waits.push(needs) });
+    await new Promise<void>((resolve) => {
+      const poll = setInterval(() => { if (budget.queued === 1) { clearInterval(poll); resolve(); } }, 10);
+    });
+    assert.deepEqual(waits, [64 * 1024 ** 2]);
+    held.release();
+    const result = await run;
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.deepEqual(waits, [64 * 1024 ** 2, null]);
+  });
+
   it('records an execution the run aborts while it waits for the budget as cancelled, without a runner', async () => {
     const budget = new Budget({ cores: 1, memory: 1024 ** 3 });
     const abort = new AbortController();
@@ -554,10 +572,13 @@ describe('the guard', () => {
     };
     const budget = new Budget({ cores: 2, memory: 100 * MiB }, { sampler, sampleMs: 10 });
     const { taskHash, inputHashes } = await markingTask(0.5, 'past the budget');
-    const result = await new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null }, { expectedPeakBytes: 10 * MiB });
+    const requeues: UnitRequeue[] = [];
+    const result = await new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null },
+      { expectedPeakBytes: 10 * MiB, onRequeued: (requeue) => requeues.push(requeue) });
 
     assert.equal(result.state, 'success', result.error ?? '');
     assert.equal(attempts(), 2);
+    assert.deepEqual(requeues, [{ reason: 'budget', peak: 150 * MiB, reserves: 150 * MiB }], 'its caller hears the requeue');
     const stderr = (await storage.logs.read(repo, taskHash, inputsHash(inputHashes), result.executionId, 'stderr')).data;
     assert.ok(stderr.includes('e3: the guard stopped the runner at 150 MiB, past the budget of 100 MiB: it runs again once 150 MiB fit\n'), stderr);
     assert.deepEqual(await storage.refs.executionListIds(repo, taskHash, inputsHash(inputHashes)), [result.executionId], 'one execution, run twice');

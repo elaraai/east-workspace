@@ -13,6 +13,7 @@ export {
   type TaskResult,
   type TaskRunner,
   type SplitUnit,
+  type UnitRequeue,
 } from './interfaces.js';
 
 // TaskRunner implementations

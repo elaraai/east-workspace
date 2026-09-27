@@ -112,6 +112,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       completedAt: some(status.value.completedAt.toISOString()),
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: none,
+      peakBytes: status.value.peakBytes,
     };
   }
   if (status.type === 'failed') {
@@ -123,6 +124,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       completedAt: some(status.value.completedAt.toISOString()),
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: some(status.value.exitCode),
+      peakBytes: status.value.peakBytes,
     };
   }
   if (status.type === 'cancelled') {
@@ -134,6 +136,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       completedAt: some(status.value.completedAt.toISOString()),
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: none,
+      peakBytes: none,
     };
   }
   // An interruption's completedAt is when it was found, not when the runner
@@ -147,6 +150,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       completedAt: some(status.value.completedAt.toISOString()),
       duration: none,
       exitCode: none,
+      peakBytes: none,
     };
   }
   // running
@@ -158,6 +162,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
     completedAt: none,
     duration: none,
     exitCode: none,
+    peakBytes: none,
   };
 }
 

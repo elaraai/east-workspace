@@ -37,7 +37,7 @@ import {
 import { type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { getValidToken } from '../credentials.js';
-import { formatSize } from '../format.js';
+import { formatRequeue, formatSize } from '../format.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 /** Polling interval for remote execution (ms) */
@@ -181,6 +181,9 @@ async function executeLocal(
         const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
         console.log(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`);
       }
+    },
+    onUnitRequeued: (task, unit, requeue) => {
+      console.log(`  [REQUEUE] ${task} ${formatRequeue(unit, requeue.reason, requeue.peak, requeue.reserves)}`);
     },
   });
 
@@ -347,6 +350,9 @@ function printEvent(event: DataflowEvent): void {
       break;
     case 'input_unavailable':
       console.log(`  [SKIP] ${event.value.task}`);
+      break;
+    case 'requeued':
+      console.log(`  [REQUEUE] ${event.value.task} ${formatRequeue(event.value.unit, event.value.reason.type, Number(event.value.peak), Number(event.value.reserves))}`);
       break;
   }
 }

@@ -5,20 +5,22 @@
 
 /**
  * The dataflow routes run a dataflow on the runner the server injects, which
- * holds its budget: an embedder that runs dataflows elsewhere, as e3-cloud
- * does, mounts them without one, and they start none. And a server's budget
- * settings that do not resolve refuse the server.
+ * holds its budget, and serve that budget: an embedder that runs dataflows
+ * elsewhere, as e3-cloud does, mounts them without one, and they start none
+ * and serve no budget. And a server's budget settings that do not resolve
+ * refuse the server.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import { NullType, decodeBeast2For, encodeBeast2For, none } from '@elaraai/east';
+import { NullType, OptionType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { Budget, MockTaskRunner } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { createExecutionRoutes } from '../routes/executions.js';
 import { createServer } from '../server.js';
-import { DataflowRequestType, ResponseType } from '../types.js';
+import { DataflowBudgetType, DataflowRequestType, ResponseType } from '../types.js';
 
 describe('dataflow routes', () => {
   it('start no dataflow when mounted without a runner', async () => {
@@ -34,6 +36,27 @@ describe('dataflow routes', () => {
     const error = result.value as { type: string; value: { message: string } };
     assert.equal(error.type, 'internal');
     assert.equal(error.value.message, 'this server starts no dataflow: its host runs them');
+  });
+
+  it('serve the budget a run gets, with what its runners hold now, and none when mounted without one', async () => {
+    const decode = decodeBeast2For(ResponseType(OptionType(DataflowBudgetType)));
+    const budgetOf = async (app: Hono) =>
+      decode(new Uint8Array(await (await app.request('/api/repos/r/workspaces/main/dataflow/budget')).arrayBuffer()));
+
+    const budget = new Budget({ cores: 3, memory: 4 * 1024 ** 3 });
+    const held = await budget.acquire({ memory: 1024 ** 3 });
+    const withBudget = new Hono();
+    withBudget.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      width: budget.cores,
+      budget,
+    }));
+    assert.deepEqual(await budgetOf(withBudget), variant('success', some({ cores: 3n, memory: 4n * 1024n ** 3n, coresInUse: 1n, memoryInUse: 1024n ** 3n })));
+    held.release();
+
+    const without = new Hono();
+    without.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo'));
+    assert.deepEqual(await budgetOf(without), variant('success', none));
   });
 });
 
