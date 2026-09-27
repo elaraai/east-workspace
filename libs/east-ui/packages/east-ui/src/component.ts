@@ -815,11 +815,15 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     Pagination: PaginationType,
 
     Matrix: StructType({
+        // The rows in pre-order, each with its depth (#955) — mirrors
+        // `MatrixRowType`; spelled inline because a cell's slot and popover
+        // need the recursion `node`.
         rows: ArrayType(StructType({
             key: StringType,
             value: StringType,
             sublabel: OptionType(StringType),
-            group: OptionType(StringType),
+            depth: IntegerType,
+            collapsed: BooleanType,
             cells: DictType(StringType, StructType({
                 segments: ArrayType(MatrixSegmentType),
                 markers: ArrayType(MatrixMarkerType),

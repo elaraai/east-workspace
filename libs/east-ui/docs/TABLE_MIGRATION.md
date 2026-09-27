@@ -1,4 +1,8 @@
-# Table migration — nested rows replace `groupBy` (#954)
+# Table and Matrix migration — nested rows replace `groupBy` (#954, #955)
+
+The Table's change is first; the Matrix's (#955) follows it in
+[The Matrix (#955)](#the-matrix-955) below — the same `tree` option and the same
+pre-order walk, with no aggregates.
 
 A Table's rows nest the way the Plan's do since #822: a row carries its
 children, to any depth, and a parent IS the group row. It draws its own
@@ -82,3 +86,50 @@ change, and the plain toggle overwrote the range; the range now stands.
 | — | `tableTree` — a four-deep bill of materials: a Currency-formatted `sum`, a leaf `count`, a collapsed assembly |
 | — | `tableTreePaged` — the same tree over a paged source, one top-level assembly per window |
 | `tableNumberFormats` (a `groupBy` over regions) | `tableNumberFormats` — the regions as parent rows: a Currency `sum`, a Percent `mean`, a bare `sum`, a year's `max` and a line `count`, each printed by #874's rules |
+
+## The Matrix (#955)
+
+A Matrix's `groupBy` banded consecutive rows under a printed label, one level
+deep, and a band had no cells — so a team inside a department could not be
+said, and a team's own utilisation had nowhere to sit. Now a Matrix's rows nest
+the way the Table's do: `tree={{ children, collapsed? }}`, a row carrying its
+children to any depth, walked in pre-order by the same function
+(`libs/east-ui/packages/east-ui/src/shared/tree.ts`). A parent is a full row:
+its header, indented with a fold caret, and its own cells from the same `cell`
+builder. The Matrix has no aggregates — a segment bar has nothing to fold — so
+a parent's bars are whatever its row builds.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `MatrixRowType` (`Matrix.Types.Row`) | `{ key, value, sublabel, group: Option<String>, cells }` | `{ key, value, sublabel, depth: Integer, collapsed: Boolean, cells }` — the rows in pre-order, a parent followed by its subtree |
+| `MatrixRootType` | `height` / `maxHeight` before the callbacks | the `component.ts` arm's order — the callbacks, then `height` / `maxHeight` (the mirror had drifted from the wire; `matrix.spec.ts` now holds the two to one type) |
+| `MatrixConfig.groupBy` | `(row) => String` | removed — nest the data (`tree`) |
+
+Stored `UIComponentType` values holding a Matrix re-emit.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `groupBy={r => r.team}` over flat rows | nest the data: a `RecursiveType` row with `tree={{ children: (r) => r.members }}`, or a lookup among flat rows of one struct — the data holding the top-level rows, `tree={{ children: (r) => people.filter((_$, p) => p.team.equal(r.name)) }}`. A band becomes a parent row with its own header and cells | `matrixHeatGrid` (recursive), `matrixVariants` (lookup) |
+
+### Behaviour
+
+- **A parent is a row.** It draws its header and its own cells; its caret — the
+  Table's, before its name, one step (20px) per depth — folds exactly its
+  subtree, and a leaf child's name starts where its parent's does. A flat
+  matrix draws neither.
+- **Folds persist by path**, never by key, so two parents sharing a key fold
+  apart. A parent absent from the persisted folds starts as its row declares.
+- **Events keep the row's key** (`onCellClick { row, column }` and the segment
+  events), at any depth — a nested matrix keys its rows uniquely across the tree.
+
+### Renderer (`@elaraai/east-ui-components`)
+
+- The `matrix` recipe loses `groupHead` / `groupHeadCell`; the row header is a
+  row of the Table recipe's `treeIndent` / `treeToggle` and a new
+  `rowHeaderText` column (a flat matrix lays out as before).
+- A nested matrix's rows carry `data-row-key`, `data-depth` and, on a parent,
+  `data-parent`; the persisted state gains `folds`.

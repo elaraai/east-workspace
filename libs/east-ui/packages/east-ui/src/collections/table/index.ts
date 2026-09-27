@@ -6,8 +6,6 @@
 import {
     type ExprType,
     type SubtypeExprOrValue,
-    type ExpandOnce,
-    type RecursiveExpr,
     type RecursiveType,
     East,
     Expr,
@@ -32,8 +30,6 @@ import {
     DateTimeType,
     BlobType,
     EastTypeType,
-    isTypeEqual,
-    printFor,
 } from "@elaraai/east";
 
 import {
@@ -72,6 +68,7 @@ import { DensityType } from "../../style/interaction.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
 import { reifyAccessor } from "../../shared/reify.js";
+import { preOrderRows, treeElement, type TreeInput, type TreeNode } from "../../shared/tree.js";
 import {
     RowSourceType, resolveRowSource, buildRowSource,
     type PagedSource, type RowSource,
@@ -183,19 +180,15 @@ export interface TableSelectionInput {
  * `children` returns a row's child rows: more of the SAME row type (an
  * `Array` of the data's element type), so every row fills the same columns —
  * a `RecursiveType` row's own field (`r => r.lines`), or a lookup over flat
- * data (`r => byParent.get(r.id)`), with the data holding only the top-level
- * rows. A parent IS the group row: it draws its own cells, and in a column
- * that declares an `aggregate`, its children's subtotal. `collapsed` says
- * which parents start closed.
+ * data (`r => all.filter((_$, c) => c.parent.equal(r.id))`), with the data
+ * holding only the top-level rows. A parent IS the group row: it draws its own
+ * cells, and in a column that declares an `aggregate`, its children's
+ * subtotal. `collapsed` says which parents start closed. The Matrix nests the
+ * same way (#955).
  *
  * @typeParam RowType - The row an accessor receives — a struct, or a recursive row's node
  */
-export interface TableTreeInput<RowType extends StructType = StructType> {
-    /** A row's child rows — an `Array` of the data's element type (a recursive row's own field, say). */
-    children: (row: ExprType<RowType>) => Expr;
-    /** Whether a parent starts collapsed — `true` for every parent, or per row. Default open. */
-    collapsed?: boolean | ((row: ExprType<RowType>) => SubtypeExprOrValue<BooleanType>);
-}
+export type TableTreeInput<RowType extends StructType = StructType> = TreeInput<RowType>;
 
 export interface TableOptions<ColumnKeys extends string = string, RowType extends StructType = StructType> extends TableStyle<ColumnKeys> {
     /**
@@ -532,7 +525,7 @@ export type TableColumnConfig<FieldType extends EastType = EastType, RowType ext
  *
  * @typeParam S - The data's element type
  */
-export type TableRowNode<S> = S extends RecursiveType<infer U> ? ExpandOnce<U, S> : S;
+export type TableRowNode<S> = TreeNode<S>;
 
 /**
  * What a Table's `data` may be: an array of struct rows, or of recursive rows
@@ -613,22 +606,11 @@ export function createTable(
     // Table is POSITIONAL, so it speaks `Array<Row>` where the Plan speaks
     // `Dict<String, Row>`; neither component sniffs shapes of its own.
     const resolved = resolveRowSource(data, "Table");
-    const elementType = resolved.elementType;
     // A recursive row reaches every accessor as its NODE (#954), so the
     // accessors read its fields directly at every depth.
-    const recursive = (elementType as { type: string }).type === "Recursive";
-    const rowType = (recursive ? (elementType as RecursiveType<StructType>).node : elementType) as StructType;
-    if ((rowType as { type: string }).type !== "Struct") {
-        throw new Error(
-            `Table: rows must be structs, or recursive rows whose node is a struct — got ` +
-            `${(rowType as { type: string }).type}. Map the collection to a struct per row before passing it.`,
-        );
-    }
+    const element = treeElement("Table", resolved.elementType);
+    const { elementType, rowType, nodeOf } = element;
     const field_types = rowType.fields;
-    /** An element as the accessors receive it — its node, when recursive. */
-    const nodeOf = (element: ExprType<EastType>): ExprType<StructType> => (recursive
-        ? (element as unknown as RecursiveExpr<StructType>).unwrap()
-        : element) as ExprType<StructType>;
 
     // Normalize columns to object format
     // dataType: the original field type from the data struct
@@ -698,60 +680,16 @@ export function createTable(
         return cells;
     });
 
-    // Nested rows (#954): a row's children — more of the table's own rows —
-    // and whether it starts collapsed (default open), each reified once.
-    const tree = style?.tree;
-    const collapsed = tree?.collapsed;
-    const nesting = tree === undefined ? undefined : {
-        children: childRowsOf(elementType, nodeOf, tree.children),
-        collapsed: East.function([elementType], BooleanType, (_$, element) => (typeof collapsed === "function"
-            ? East.value(collapsed(nodeOf(element)), BooleanType)
-            : East.value(collapsed ?? false, BooleanType))),
-    };
-
-    const Frame = StructType({ value: elementType, depth: IntegerType });
-    const Frames = ArrayType(Frame);
     // `make` — the DOMAIN collection to the Table's own rows, IN PRE-ORDER: a
-    // parent, then its subtree, each row with its depth (#954). The inline arm
-    // applies it to the whole array; the paged arm inside `page`, so a window —
-    // whole top-level rows, each with its subtree — is built once per window
-    // rather than per render, and everything downstream sees one row space
-    // (#576). The tree's depth is data, so the walk is an explicit stack (the
-    // Plan's, `plan/series.ts`): a level's rows go on REVERSED, so the stack
-    // pops the first of them first.
-    const flatten = East.function([ArrayType(elementType)], TableRowsCollectionType, ($, collection) => {
-        // Every function the walk calls, bound ONCE — a captured function
-        // referenced in a loop would be re-inlined per use.
-        const cells = $.const(cellsOf);
-        const out = $.let([], TableRowsCollectionType);
-        if (nesting === undefined) {
-            $.for(collection, ($2, element) => {
-                $2(out.pushLast(East.value({ cells: cells(element), depth: 0n, collapsed: false }, TableRowType)));
-            });
-            return out;
-        }
-        const kids = $.const(nesting.children);
-        const fold = $.const(nesting.collapsed);
-        const stack = $.let([], Frames);
-        $.for(collection, ($2, element) => {
-            $2(stack.pushLast(East.value({ value: element, depth: 0n }, Frame)));
-        });
-        $(stack.reverseInPlace());
-        $.while(stack.size().greater(0n), ($2) => {
-            const frame = $2.let(stack.popLast(), Frame);
-            const below = $2.let(kids(frame.value), ArrayType(elementType));
-            // Only a row with children folds.
-            const closed = $2.let(below.size().greater(0n).and(() => fold(frame.value)), BooleanType);
-            $2(out.pushLast(East.value({ cells: cells(frame.value), depth: frame.depth, collapsed: closed }, TableRowType)));
-            const next = $2.let([], Frames);
-            $2.for(below, ($3, element) => {
-                $3(next.pushLast(East.value({ value: element, depth: frame.depth.add(1n) }, Frame)));
-            });
-            $2(next.reverseInPlace());
-            $2(stack.append(next));
-        });
-        return out;
-    });
+    // parent, then its subtree, each row with its depth and whether it starts
+    // collapsed (#954; the walk shared with the Matrix, `shared/tree.ts`). The
+    // inline arm applies it to the whole array; the paged arm inside `page`,
+    // so a window — whole top-level rows, each with its subtree — is built once
+    // per window rather than per render, and everything downstream sees one
+    // row space (#576).
+    const flatten = preOrderRows("Table", element, TableRowType,
+        (_$, row, depth, collapsed) => East.value({ cells: cellsOf(row), depth, collapsed }, TableRowType),
+        style?.tree);
     const makeRows = (collection: ExprType<EastType>) => flatten(collection as ExprType<ArrayType<EastType>>);
     const rows_source: RowSource<TableRowsCollectionType> =
         buildRowSource(resolved, TableRowsCollectionType, makeRows);
@@ -970,37 +908,6 @@ function buildFooterDict(row: Record<string, TableFooterCellInput>): ExprType<Di
         }, TableFooterCellType));
     }
     return East.value(entries, DictType(StringType, TableFooterCellType));
-}
-
-/** East's own printer over a type value — the types a build-time message names. */
-const printType = printFor(EastTypeType);
-
-/**
- * A `tree.children` accessor as a real East function (#954): from a row to its
- * child rows, which must be more of the table's own rows — an `Array` of its
- * element type — because every row fills the same columns.
- *
- * @param elementType - The data's element type
- * @param nodeOf - An element as the accessors receive it (its node, when recursive)
- * @param children - The author's accessor
- * @returns The accessor, reified once
- * @throws {Error} When the accessor returns anything but an Array of the element type
- */
-function childRowsOf(
-    elementType: EastType,
-    nodeOf: (element: ExprType<EastType>) => ExprType<StructType>,
-    children: (row: ExprType<StructType>) => Expr,
-): ExprType<FunctionType<[EastType], ArrayType<EastType>>> {
-    const fn = reifyAccessor([elementType], (element) => children(nodeOf(element as ExprType<EastType>)));
-    const output = (Expr.type(fn as unknown as Expr) as unknown as { output: EastType }).output;
-    const want = ArrayType(elementType);
-    if (!isTypeEqual(output, want)) {
-        throw new Error(
-            `Table: \`tree.children\` returns a row's child rows — more of the table's own rows, ` +
-            `${printType(toEastTypeValue(want))} — but it returned ${printType(toEastTypeValue(output))}. ` +
-            "Every row fills the same columns: return a recursive row's own children, or look them up among the rows.");
-    }
-    return fn as unknown as ExprType<FunctionType<[EastType], ArrayType<EastType>>>;
 }
 
 /**

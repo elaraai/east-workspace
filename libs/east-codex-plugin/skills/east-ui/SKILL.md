@@ -558,8 +558,10 @@ Task → Which tag?
 │   │       └─ Sheet.Types.DraftContext(R, D) / Draft(R) / Fill(T) / Patch(R) / Proposal(R) / PatchEvent(E) / ChangeSet(E) / Applied(E) / Entry(G, "rows") / ApplyResult / Readiness / CheckContext(R) — typed contracts for providers, drafts, checked application and checks; grouped contexts use (G, "rows", D). The transaction and draft types are the shared editing contract's (`Editing.Types.*`, #879) under their Sheet names — the same values. Sheet.Types.Link / Member / Cell / Row / Line / SubRow / Facet / DateLevel / Noun / View / Selection / Counted / Sides / RegisterMember are shared value and wire types.
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({…})} /> — rows × columns of status-coloured segment bars
 │   │   ├─ Props:
-│   │   │   ├─ data (required) — row structs; columns (required) — array of Matrix.column(…) (data-drivable with .map)
+│   │   │   ├─ data (required) — row structs, or RecursiveType rows whose node is a struct (nested with `tree`); columns (required) — array of Matrix.column(…) (data-drivable with .map)
 │   │   │   ├─ cell (required) — (row, column) => Matrix.cell(…) builder
+│   │   │   ├─ rowKey (required) — the row's key, its address in every event (keep keys unique across a nested tree); rowValue / rowSublabel (optional) — the row header's text
+│   │   │   ├─ tree (optional) — { children: r => r.members, collapsed?: true | r => Boolean } rows nest to ANY depth from the data's own tree (#955), as on the Table: `children` returns more of the SAME row type (a RecursiveType row's own field, or a lookup among flat rows — `r => people.filter((_$, p) => p.team.equal(r.name))`); a parent is a FULL row — its header indented with a fold caret, and its own cells from the same `cell` builder (no aggregates: a parent's bars are whatever its row builds); the caret folds its subtree (persisted by path under the storageKey). There is no `groupBy`: group flat rows as a data step
 │   │   │   ├─ rowHeader (optional) — header label for the left identity column
 │   │   │   ├─ orientation (optional) — default segment orientation
 │   │   │   └─ legend (optional) — explicit legend entries [{ fill, label }] (omitted ⇒ auto-derived)

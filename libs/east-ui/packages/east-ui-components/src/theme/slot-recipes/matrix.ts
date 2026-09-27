@@ -6,8 +6,9 @@
 /**
  * Matrix slot recipe — the row × column grid of status-coloured segment bars.
  *
- * Shares the collection header / group-head / row-header / marker chrome (one
- * unified header system across Table / Matrix) and adds the
+ * Shares the collection header / row-header / marker chrome (one unified
+ * header system across Table / Matrix — a nested row's indent and caret are
+ * the `table` recipe's `treeIndent` / `treeToggle`, #955) and adds the
  * matrix-native bar: a weighted segment track whose colour is driven by a
  * `fill` variant (the status palette + brand / slack / free), a per-orientation
  * track (`orientation`), and the status `markerRing` / `markerIcon` carried
@@ -23,7 +24,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
     className: "elara-matrix",
     slots: [
         "root", "header", "leftPanel",
-        "row", "groupHead", "groupHeadCell", "rowHeader", "rowHeaderName", "rowHeaderSub",
+        "row", "rowHeader", "rowHeaderText", "rowHeaderName", "rowHeaderSub",
         "cell",
         "bar", "seg", "segLabel", "resizeHandle",
         "markerRing", "markerIcon",
@@ -36,38 +37,25 @@ export const matrixSlotRecipe = defineSlotRecipe({
         header: { background: "bg.panel", alignItems: "stretch" },
         leftPanel: { background: "bg.surface" },
         row: { borderBottomWidth: "1px", borderBottomColor: "border.subtle" },
-        groupHead: {
-            background: "bg.panel",
-            minHeight: "28px",
-            fontFamily: "mono",
-            fontSize: "9.5px",
-            fontWeight: "bold",
-            letterSpacing: "0.16em",
-            textTransform: "uppercase",
-            color: "fg.muted",
-            display: "flex",
-            alignItems: "center",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
-        },
-        groupHeadCell: {
-            display: "flex",
-            alignItems: "center",
-            padding: "6px 12px",
-            borderRightWidth: "1px",
-            borderRightColor: "border.subtle",
-        },
-        // Row header — mono name, border-right rule. No avatar, no sublabel.
+        // Row header — mono name, border-right rule. No avatar. A nested row
+        // leads with its indent and caret (#955), then its text.
         rowHeader: {
             fontFamily: "mono",
             padding: "8px 12px",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
+            alignItems: "center",
             minWidth: 0,
             overflow: "hidden",
+        },
+        // The row header's text — its name over its sublabel, centred in the row.
+        rowHeaderText: {
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            flex: "1",
+            minWidth: 0,
         },
         rowHeaderName: {
             fontFamily: "mono",

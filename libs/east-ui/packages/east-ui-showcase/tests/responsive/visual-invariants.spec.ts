@@ -549,6 +549,75 @@ test.describe("Visual invariants — the Table", () => {
     });
 });
 
+/** The Matrix examples whose rows nest (#955). */
+const NESTED_MATRICES = ["matrixHeatGrid", "matrixVariants"];
+
+/** A Matrix example's entry, at rest with its first row in view. */
+async function openMatrix(page: Page, name: string): Promise<Locator> {
+    await page.goto(`/#collections/matrix/${name}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#collections/matrix/${name}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-row-key]").first()).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+test.describe("Visual invariants — the Matrix", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
+
+    for (const name of NESTED_MATRICES) {
+        test(`${name}: a nested row's header steps in one indent from its parent's — carets aligned at each depth, a leaf's name under its parent's — and every row's cells sit on the column grid`, async ({ page }) => {
+            const entry = await openMatrix(page, name);
+            const closed = entry.locator("[data-slot='treeToggle'][aria-expanded='false']");
+            for (let i = 0; i < 20 && await closed.count() > 0; i++) await closed.first().click();
+            await expect(closed).toHaveCount(0);
+            await settled(page);
+            const read = await entry.evaluate((root, step) => {
+                const out: string[] = [];
+                const rows = [...root.querySelectorAll<HTMLElement>("[data-row-key][data-depth]")].map((el) => {
+                    const toggle = el.querySelector("[data-slot='treeToggle']")?.getBoundingClientRect();
+                    const text = el.querySelector("[data-slot='rowHeaderText']")!.getBoundingClientRect().left;
+                    const header = el.querySelector("[data-slot='rowHeader']")!.getBoundingClientRect();
+                    return {
+                        el, header, toggle, text,
+                        depth: Number(el.getAttribute("data-depth")),
+                        name: el.getAttribute("data-row-key") ?? "",
+                        start: toggle?.left ?? text,
+                    };
+                });
+                rows.forEach((r, i) => {
+                    if (r.toggle !== undefined && (r.toggle.left < r.header.left - 0.5 || r.toggle.right > r.header.right + 0.5)) out.push(`"${r.name}": its caret spills out of its header`);
+                    if (r.depth === 0) return;
+                    let p = i - 1;
+                    while (p >= 0 && rows[p]!.depth !== r.depth - 1) p--;
+                    const parent = rows[p];
+                    if (parent === undefined) { out.push(`"${r.name}": depth ${r.depth} with no parent above it`); return; }
+                    const stepped = r.start - parent.start;
+                    if (Math.abs(stepped - step) > 0.5) out.push(`"${r.name}": starts ${stepped.toFixed(1)}px right of its parent "${parent.name}", want ${step}px`);
+                    if (r.toggle === undefined && Math.abs(r.text - parent.text) > 0.5) out.push(`"${r.name}": its name at ${r.text.toFixed(1)}, its parent's at ${parent.text.toFixed(1)}`);
+                });
+                const carets = new Map<number, number[]>();
+                for (const r of rows) if (r.toggle !== undefined) carets.set(r.depth, [...(carets.get(r.depth) ?? []), r.toggle.left]);
+                for (const [depth, xs] of carets) if (Math.max(...xs) - Math.min(...xs) > 0.5) out.push(`depth ${depth}: carets at ${xs.map((x) => x.toFixed(1)).join(", ")}`);
+                // Every row's cells on the column grid: a cell starts where its column's header does.
+                const heads = [...root.querySelectorAll("[data-slot='headerCell']")].map((h) => h.getBoundingClientRect());
+                for (const r of rows) {
+                    const cells = [...r.el.querySelectorAll("[data-slot='cell']")].map((c) => c.getBoundingClientRect());
+                    if (cells.length !== heads.length) { out.push(`"${r.name}": ${cells.length} cells under ${heads.length} columns`); continue; }
+                    cells.forEach((c, ci) => {
+                        if (Math.abs(c.left - heads[ci]!.left) > 0.5 || Math.abs(c.width - heads[ci]!.width) > 0.5) out.push(`"${r.name}" column ${ci}: cell ${c.left.toFixed(1)}+${c.width.toFixed(1)}, header ${heads[ci]!.left.toFixed(1)}+${heads[ci]!.width.toFixed(1)}`);
+                    });
+                }
+                return { bad: out, parents: rows.filter((r) => r.toggle !== undefined).length, deepest: Math.max(...rows.map((r) => r.depth)) };
+            }, TREE_STEP);
+            expect(read.parents, "parent rows").toBeGreaterThan(0);
+            expect(read.deepest, "nesting depth").toBeGreaterThan(0);
+            expect(read.bad).toEqual([]);
+        });
+    }
+});
+
 test.describe("Visual invariants — the Table, on touch", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch viewport");
 

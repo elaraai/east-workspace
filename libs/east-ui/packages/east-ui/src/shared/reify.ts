@@ -93,8 +93,9 @@ export function mapRows<T extends EastType>(
 
 /**
  * `mapRows` for row mappers whose body needs a block builder — per-row
- * normalizations that declare `$.let` bindings or emit statements (Matrix,
- * Library row construction).
+ * normalizations that declare `$.let` bindings or emit statements (Library
+ * row construction; the Table and the Matrix build theirs in the tree walk,
+ * `shared/tree.ts`).
  *
  * @typeParam T - The fixed East element type the mapper produces
  * @param rows - The caller's rows array expression

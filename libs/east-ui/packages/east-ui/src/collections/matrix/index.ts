@@ -4,14 +4,19 @@
  */
 
 import {
+    type EastType,
     type ExprType,
+    type RecursiveType,
     type SubtypeExprOrValue,
     type TypeOf,
     East,
+    Expr,
     ArrayType,
+    BooleanType,
     DictType,
     FloatType,
     FunctionType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -33,7 +38,7 @@ import {
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { UIComponentType } from "../../component.js";
-import { mapRowsBlock } from "../../shared/reify.js";
+import { preOrderRows, treeElement, type TreeInput, type TreeNode } from "../../shared/tree.js";
 import {
     MatrixFillType,
     MatrixSegmentType,
@@ -115,27 +120,31 @@ export type MatrixCellType = typeof MatrixCellType;
  *
  * @remarks
  * `value` is the row-header main text and `sublabel` its optional secondary
- * line — the Planner row-header model (no avatar). `group` is the group-head
- * band label (from `groupBy`, or a Slice breakdown). `cells` is keyed by
- * column key.
+ * line — the Planner row-header model (no avatar). `cells` is keyed by column
+ * key. A Matrix's rows arrive in PRE-ORDER (#955): each parent, then its
+ * subtree — the rows after it with a greater `depth`, up to the next row at
+ * its depth or shallower. A flat matrix's rows are all at depth 0.
  *
  * @property key - Stable row key
  * @property value - Row-header main text (defaults to `key`)
  * @property sublabel - Optional row-header secondary text
- * @property group - Optional group-head label (groups consecutive rows)
+ * @property depth - How deep the row sits — 0 for a top-level row
+ * @property collapsed - Whether the row starts collapsed (a parent's; a leaf's is false)
  * @property cells - Dict of column key → cell
  */
 export const MatrixRowType: StructType<{
     key: StringType,
     value: StringType,
     sublabel: OptionType<StringType>,
-    group: OptionType<StringType>,
+    depth: IntegerType,
+    collapsed: BooleanType,
     cells: DictType<StringType, MatrixCellType>,
 }> = StructType({
     key: StringType,
     value: StringType,
     sublabel: OptionType(StringType),
-    group: OptionType(StringType),
+    depth: IntegerType,
+    collapsed: BooleanType,
     cells: DictType(StringType, MatrixCellType),
 });
 
@@ -175,7 +184,7 @@ export type MatrixColumnType = typeof MatrixColumnType;
  * `onCell/Segment*` callbacks. Pair it with a `Slice.Rail` for filter / search
  * / breakdown / range.
  *
- * @property rows - Row data
+ * @property rows - The rows in pre-order, each with its depth (#955)
  * @property columns - Column definitions (the x-axis)
  * @property rowHeader - Optional header label for the row-header (left) column
  * @property orientation - Default cell orientation (per-cell overridable)
@@ -186,6 +195,8 @@ export type MatrixColumnType = typeof MatrixColumnType;
  * @property onSegmentClick - Optional segment-click callback
  * @property onSegmentChange - Optional segment drag-resize callback (presence ⇒ handles)
  */
+// Field for field, in order, the `Matrix` arm of `component.ts` — the wire —
+// held to it by `test/collections/matrix.spec.ts`.
 export const MatrixRootType: StructType<{
     rows: ArrayType<MatrixRowType>,
     columns: ArrayType<MatrixColumnType>,
@@ -195,11 +206,11 @@ export const MatrixRootType: StructType<{
     minLabelSize: OptionType<FloatType>,
     density: OptionType<DensityType>,
     plotGutter: OptionType<PlotGutterType>,
-    height: OptionType<StringType>,
-    maxHeight: OptionType<StringType>,
     onCellClick: OptionType<FunctionType<[MatrixCellClickEventType], NullType>>,
     onSegmentClick: OptionType<FunctionType<[MatrixSegmentClickEventType], NullType>>,
     onSegmentChange: OptionType<FunctionType<[MatrixSegmentChangeEventType], NullType>>,
+    height: OptionType<StringType>,
+    maxHeight: OptionType<StringType>,
 }> = StructType({
     rows: ArrayType(MatrixRowType),
     columns: ArrayType(MatrixColumnType),
@@ -209,13 +220,13 @@ export const MatrixRootType: StructType<{
     minLabelSize: OptionType(FloatType),
     density: OptionType(DensityType),
     plotGutter: OptionType(PlotGutterType),
+    onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
+    onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
+    onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
     /** Uniform sizing (#320): bound the matrix; it scrolls within. `"fill"` fills the parent box. */
     height: OptionType(StringType),
     /** Uniform sizing (#320): max-height cap; content-sized up to it. */
     maxHeight: OptionType(StringType),
-    onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
-    onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
-    onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
 });
 
 export type MatrixRootType = typeof MatrixRootType;
@@ -416,14 +427,43 @@ function createColumn(input: MatrixColumnInput): ExprType<MatrixColumnType> {
     }, MatrixColumnType);
 }
 
-// Infer the row struct type R from the data argument, mirroring Planner/Gantt.
-export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
-    TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
+/**
+ * What a Matrix's `data` may be: an array of struct rows, or of recursive rows
+ * whose node is a struct — the rows `tree.children` nests (#955).
+ */
+export type MatrixData =
+    | SubtypeExprOrValue<ArrayType<StructType>>
+    | SubtypeExprOrValue<ArrayType<RecursiveType<StructType>>>;
+
+/**
+ * The row an accessor receives, inferred from the data argument — the struct,
+ * or a recursive row's node (#955).
+ *
+ * @typeParam T - The data's type
+ */
+export type RowElement<T extends MatrixData> =
+    TypeOf<T> extends ArrayType<infer S> ? (TreeNode<S> extends StructType ? TreeNode<S> : never) : never;
+
+/**
+ * How a Matrix's rows nest (#955) — the data's own tree, to any depth, as on
+ * the Table (#954).
+ *
+ * @remarks
+ * `children` returns a row's child rows: more of the SAME row type (an
+ * `Array` of the data's element type) — a `RecursiveType` row's own field
+ * (`r => r.members`), or a lookup over flat data, with the data holding only
+ * the top-level rows. A parent is a full row: its header, indented with a fold
+ * caret, and its own cells from the same `cell` builder. `collapsed` says which
+ * parents start closed.
+ *
+ * @typeParam R - The row an accessor receives — a struct, or a recursive row's node
+ */
+export type MatrixTreeInput<R extends StructType = StructType> = TreeInput<R>;
 
 /**
  * Matrix construction config (Planner-style — grouped, typed).
  *
- * @typeParam R - The struct type of each data row
+ * @typeParam R - The struct each accessor receives — a data row, or a recursive row's node
  *
  * @property columns - The x-axis column definitions
  * @property cell - Per-(row, column) cell builder: `(row, columnKey) => Matrix.cell(...)`
@@ -431,7 +471,7 @@ export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property rowHeader - Optional header label for the row-header (left) column
  * @property rowValue - Optional row-header main-text accessor (defaults to `rowKey`)
  * @property rowSublabel - Optional row-header secondary-text accessor
- * @property groupBy - Optional group-head label accessor (groups consecutive rows)
+ * @property tree - Optional nesting — `{ children, collapsed? }`, the data's own tree ({@link MatrixTreeInput})
  * @property orientation - Default cell orientation (`"horizontal"` | `"vertical"`)
  * @property legend - Optional explicit legend entries (omitted ⇒ auto-derived from fills)
  * @property minLabelSize - Optional min segment px below which in-bar labels hide
@@ -457,8 +497,15 @@ export interface MatrixConfig<R extends StructType> {
     rowValue?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
     /** Optional row-header secondary-text accessor. */
     rowSublabel?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
-    /** Optional group-head label accessor (groups consecutive rows). */
-    groupBy?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
+    /**
+     * Nested rows (#955) — the data's own tree, to any depth
+     * ({@link MatrixTreeInput}): `tree={{ children: (r) => r.members }}`. A
+     * parent is a full row — its header, indented with a fold caret, and its
+     * own cells from `cell`; its caret folds its subtree. Row keys stay the
+     * row's address in every event, so a nested matrix keys its rows uniquely
+     * across the tree. Grouping flat rows is a data step: nest them first.
+     */
+    tree?: MatrixTreeInput<R>;
     /** Default cell orientation. Default `"horizontal"`. */
     orientation?: MatrixOrientationLiteral;
     /** Explicit legend entries. Omit to auto-derive from the fills used. */
@@ -485,15 +532,15 @@ export interface MatrixConfig<R extends StructType> {
  * Creates a Matrix — a row × column grid of status-coloured segment bars.
  *
  * @typeParam T - The data array type
- * @param data - The row data
+ * @param data - The row data — structs, or recursive rows nested with `tree`
  * @param config - The Matrix configuration ({@link MatrixConfig})
  * @returns An East expression of `UIComponentType`
  *
  * @remarks
  * Data + accessors (Planner parity): `columns` declares the x-axis, `cell`
- * builds each `(row, column)` cell with `Matrix.cell(...)`, `groupBy` groups
- * rows. Pair the result with a `Slice.Rail` to get filter / search /
- * breakdown / range for free.
+ * builds each `(row, column)` cell with `Matrix.cell(...)`, `tree` nests the
+ * rows to any depth (#955). Pair the result with a `Slice.Rail` to get filter /
+ * search / breakdown / range for free.
  *
  * @example
  * ```ts
@@ -515,16 +562,21 @@ export interface MatrixConfig<R extends StructType> {
  *     ));
  * ```
  */
-function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
+function createMatrix<T extends MatrixData>(
     data: T,
     config: MatrixConfig<RowElement<T>>,
 ): ExprType<UIComponentType> {
-    const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
+    const data_expr = East.value(data as SubtypeExprOrValue<ArrayType<StructType>>) as unknown as ExprType<ArrayType<EastType>>;
     const cfg = config as unknown as MatrixConfig<StructType>;
+    // A recursive row reaches every accessor as its NODE (#955).
+    const element = treeElement("Matrix", (Expr.type(data_expr as unknown as Expr) as ArrayType<EastType>).value);
 
     const columns_expr = East.value(cfg.columns, ArrayType(MatrixColumnType));
 
-    const rows = mapRowsBlock(data_expr, MatrixRowType, ($, row) => {
+    // The rows IN PRE-ORDER — a parent, then its subtree, each with its depth
+    // and whether it starts collapsed (the Table's walk, `shared/tree.ts`).
+    const flatten = preOrderRows("Matrix", element, MatrixRowType, ($, entry, depth, collapsed) => {
+        const row = $.let(element.nodeOf(entry));
         const cells = $.let(columns_expr.toDict(
             ($, col) => col.key,
             ($, col) => East.value(cfg.cell(row, col), MatrixCellType),
@@ -533,10 +585,12 @@ function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
             key: cfg.rowKey(row),
             value: cfg.rowValue !== undefined ? cfg.rowValue(row) : cfg.rowKey(row),
             sublabel: cfg.rowSublabel !== undefined ? some(cfg.rowSublabel(row)) : none,
-            group: cfg.groupBy !== undefined ? some(cfg.groupBy(row)) : none,
+            depth,
+            collapsed,
             cells,
         }, MatrixRowType);
-    });
+    }, cfg.tree);
+    const rows = flatten(data_expr);
 
     const legend = cfg.legend !== undefined
         ? some(East.value(cfg.legend.map(e => East.value({
@@ -602,7 +656,7 @@ const MatrixTypes: MatrixTypesShape = {
      * The standalone mirror of the inline `Matrix` arm in `component.ts`; the
      * shape `Matrix.Root` produces and the renderer consumes.
      *
-     * @property rows - Row data
+     * @property rows - The rows in pre-order, each with its depth (#955)
      * @property columns - Column definitions (the x-axis)
      * @property rowHeader - Optional header label for the row-header (left) column
      * @property orientation - Default cell orientation (per-cell overridable)
@@ -620,12 +674,14 @@ const MatrixTypes: MatrixTypesShape = {
      * @remarks
      * One row of the grid: `value` (main row-header text) + optional `sublabel`
      * (secondary line) — the Planner row-header model — plus a dict of cells
-     * keyed by column key. `group` bands consecutive rows under a group head.
+     * keyed by column key. The rows arrive in PRE-ORDER (#955): each parent,
+     * then its subtree — the rows after it with a greater `depth`.
      *
      * @property key - Stable row key
      * @property value - Row-header main text (defaults to `key`)
      * @property sublabel - Optional row-header secondary text
-     * @property group - Optional group-head label (groups consecutive rows)
+     * @property depth - How deep the row sits — 0 for a top-level row
+     * @property collapsed - Whether the row starts collapsed (a parent's; a leaf's is false)
      * @property cells - Dict of column key → cell
      */
     Row: MatrixRowType,
@@ -816,9 +872,9 @@ const MatrixImpl: MatrixNamespace = {
      *
      * @remarks
      * Data + accessors (Planner parity): `columns` declares the x-axis, `cell`
-     * builds each `(row, column)` cell with `Matrix.cell(...)`, `groupBy` groups
-     * rows. Pair the result with a `Slice.Rail` to get filter / search /
-     * breakdown / range for free.
+     * builds each `(row, column)` cell with `Matrix.cell(...)`, `tree` nests the
+     * rows to any depth (#955). Pair the result with a `Slice.Rail` to get
+     * filter / search / breakdown / range for free.
      *
      * @example
      * ```ts
