@@ -96,6 +96,11 @@ export function createDataEndpoints(
     if (!record || partBytes === null) {
       return new Response('Not found', { status: 404 });
     }
+    // A part sent once the commit is under way could rewrite the bytes it
+    // verifies.
+    if ((await transferBackend.datasetUpload.getCommitStatus(id)) !== null) {
+      return new Response('the upload is committed: it takes no more parts', { status: 409 });
+    }
     const part = Number(c.req.param('part'));
     const range = transferPartRange(record.size, partBytes, part);
     if (!range) {

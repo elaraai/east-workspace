@@ -13,12 +13,15 @@
 
 /* eslint-disable @typescript-eslint/require-await */
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, stat, unlink } from 'node:fs/promises';
 import { none, some, variant } from '@elaraai/east';
+import { urlPathToTreePath } from '@elaraai/e3-types';
 
 import type { StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
-import { packageStagingPath, transferStagingDir } from '../storage/local/localHelpers.js';
+import { datasetAdoptFile } from '../dataset-adopt.js';
+import { DatasetTypeMismatchError } from '../errors.js';
+import { packageStagingPath, transferStagingDir, transferStagingPath } from '../storage/local/localHelpers.js';
 import type {
   TransferBackend,
   DatasetPartUpload,
@@ -29,21 +32,41 @@ import type {
   RepoGcStore,
   WorkspaceDeployStore,
 } from './interfaces.js';
-import type { DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
+import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
 import { handleProcessDeploy, handleProcessExport, handleProcessGc, handleProcessImport } from './process.js';
 
 /** The part size a dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
 
+/** How long a finished commit's status, and its upload, stay readable. */
+const COMMIT_RESULT_TTL_MS = 10 * 60 * 1000;
+
 // =============================================================================
 // Dataset Upload
 // =============================================================================
 
+/** A commit asked for: how it stands, and its end. */
+interface UploadCommit {
+  status: DatasetCommitStatus;
+  /** Settles as the commit finishes; never rejects. */
+  settled: Promise<DatasetCommitStatus>;
+}
+
+/**
+ * The local server's uploads: records in memory, each upload's parts staged
+ * in one file in its repository, which the commit takes in by link or rename.
+ */
 class InMemoryDatasetUploadStore implements DatasetUploadStore {
   private readonly records = new Map<string, DatasetUpload>();
   private readonly partPlans = new Map<string, bigint>();
+  private readonly commits = new Map<string, UploadCommit>();
 
-  constructor(private readonly baseUrl: string, private readonly partBytes: bigint) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly partBytes: bigint,
+    private readonly storage?: StorageBackend,
+    private readonly getRepoPath?: (repo: string) => string,
+  ) {}
 
   async create(id: string, record: DatasetUpload): Promise<void> {
     this.records.set(id, record);
@@ -56,9 +79,15 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
   async delete(id: string): Promise<void> {
     this.records.delete(id);
     this.partPlans.delete(id);
+    this.commits.delete(id);
   }
 
-  async createParts(id: string, _record: DatasetUpload): Promise<bigint> {
+  async createParts(id: string, record: DatasetUpload): Promise<bigint> {
+    // The parts are staged in the repository, so the commit takes the file
+    // in by a same-device link or rename rather than a copy.
+    if (this.getRepoPath !== undefined) {
+      await mkdir(transferStagingDir(this.getRepoPath(record.repo)), { recursive: true });
+    }
     this.partPlans.set(id, this.partBytes);
     return this.partBytes;
   }
@@ -73,15 +102,64 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
     return { url: `${this.baseUrl}/api/uploads/${id}/parts/${part}`, headers: {} };
   }
 
-  async commitObject(_repo: string, _hash: string, uploadId: string): Promise<void> {
-    // Mock — just remove the record. Real verification happens in integration tests.
-    this.records.delete(uploadId);
-    this.partPlans.delete(uploadId);
+  async commit(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
+    let commit = this.commits.get(id);
+    if (commit === undefined) {
+      const settled = this.verifyAndAdopt(id, record).then((status) => {
+        started.status = status;
+        // The answer stays readable for a while — a client whose response was
+        // lost asks again — and then goes, with the upload.
+        setTimeout(() => { void this.delete(id); }, COMMIT_RESULT_TTL_MS).unref();
+        return status;
+      });
+      const started: UploadCommit = { status: variant('processing', null), settled };
+      this.commits.set(id, started);
+      commit = started;
+    }
+    return commit.settled;
+  }
+
+  async getCommitStatus(id: string): Promise<DatasetCommitStatus | null> {
+    return this.commits.get(id)?.status ?? null;
+  }
+
+  /**
+   * Verifies the staged file and points the upload's dataset at it; never
+   * rejects. The file is never held whole: its size comes from `stat`, its
+   * digest from a streamed hash and its declared type from a read of its head.
+   * A collection is then split into segment objects a segment at a time, and
+   * any other value becomes an object by link or rename.
+   */
+  private async verifyAndAdopt(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
+    if (this.storage === undefined || this.getRepoPath === undefined) {
+      return variant('failed', { message: 'this store takes in no upload: it was given no storage' });
+    }
+    let stagingPath: string | null = null;
+    try {
+      const repoPath = this.getRepoPath(record.repo);
+      stagingPath = transferStagingPath(repoPath, id);
+      const stats = await stat(stagingPath);
+      if (BigInt(stats.size) !== record.size) {
+        return variant('failed', { message: `size mismatch: expected ${record.size}, got ${stats.size}` });
+      }
+      await datasetAdoptFile(this.storage, repoPath, record.workspace, urlPathToTreePath(record.path), stagingPath, {
+        expectHash: record.hash,
+      });
+      return variant('completed', null);
+    } catch (err) {
+      if (err instanceof DatasetTypeMismatchError) {
+        return variant('type_mismatch', { path: err.path, message: err.message });
+      }
+      return variant('failed', { message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      if (stagingPath !== null) await unlink(stagingPath).catch(() => {});
+    }
   }
 
   clear(): void {
     this.records.clear();
     this.partPlans.clear();
+    this.commits.clear();
   }
 }
 
@@ -424,7 +502,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     if (!Number.isSafeInteger(partBytes) || partBytes < 1) {
       throw new Error(`partBytes must be a positive integer, got ${partBytes}`);
     }
-    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl, BigInt(partBytes));
+    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl, BigInt(partBytes), options.storage, options.getRepoPath);
     this.datasetDownload = new InMemoryDatasetDownloadStore(baseUrl);
     this.packageImport = new InMemoryPackageImportStore(baseUrl, options.storage, options.getRepoPath);
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);

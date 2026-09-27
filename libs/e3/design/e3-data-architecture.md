@@ -549,7 +549,9 @@ const TransferDoneResponseType = VariantType({
 - It then points the dataset at what it stored, with the version vector's self entry.
 - A refusal is an `error` answer, or the `dataset_type_mismatch` API error.
 - A commit may answer `processing` instead. The client then polls `GET …/upload/<id>` (100 ms, doubling to 1 s) until it answers `completed` or `error`.
-- A finished commit's answer stays pollable for a while, so a client whose response was lost asks again and hears the same thing.
+- The upload store commits it (`DatasetUploadStore.commit`), where it runs its commits — a local server in its own process, a cloud on its own compute — and a poll reads the commit's status from the store (`getCommitStatus`), whichever instance answers.
+- A commit asked for again starts nothing new and answers as the first does. A finished commit's answer stays pollable for a while, so a client whose response was lost asks again and hears the same thing.
+- Once a commit has been asked for, the upload takes no more parts, since a part sent then could rewrite the bytes being verified.
 
 **Dedup.** An init whose hash the store already knows answers `completed`. The store knows the bytes as the manifest a delivery of them was split into (the adoption memo, §3.6), or as an object. Either is checked against the dataset's declared type first, and a collection object goes through the store's door. It is the one door that skips the commit.
 

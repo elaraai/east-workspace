@@ -95,7 +95,7 @@ async function startUpload(ctx: TestContext, data: Uint8Array) {
     }
     return done;
   };
-  return { id, partBytes, count, put, commit, uploadUrl };
+  return { id, partBytes, count, partUrl, put, commit, uploadUrl };
 }
 
 describe('dataset transfer parts on the local server', { concurrency: false }, () => {
@@ -150,6 +150,31 @@ describe('dataset transfer parts on the local server', { concurrency: false }, (
     const refused = await upload.put(2, data.subarray(start, end - 1));
     assert.equal(refused.status, 400);
     assert.match(await refused.text(), new RegExp(`part 2 is ${end - start} bytes, got ${end - start - 1}`));
+  });
+
+  it('refuses a part sent once the commit has been asked for, which would rewrite the bytes it verifies', async (t) => {
+    const ctx = await deployed(t);
+    const data = encodedDelivery();
+    const upload = await startUpload(ctx, data);
+    for (let part = 1; part <= upload.count; part++) {
+      const { start, end } = transferPartRange(data.byteLength, upload.partBytes, part)!;
+      assert.equal((await upload.put(part, data.subarray(start, end))).status, 200);
+    }
+    // Where part 1 goes, asked for while the upload still takes parts.
+    const url = await upload.partUrl(1);
+
+    // The server answers a commit `processing` at once (its commit wait is 0).
+    const asked = await call(`${upload.uploadUrl}/${upload.id}?protocol=2`, 'POST', TransferDoneResponseType);
+    assert.equal(asked.type, 'success');
+    const first = transferPartRange(data.byteLength, upload.partBytes, 1)!;
+    const late = await fetch(url, { method: 'PUT', body: data.subarray(first.start, first.end) });
+    assert.equal(late.status, 409);
+    assert.equal(await late.text(), 'the upload is committed: it takes no more parts');
+
+    const done = await upload.commit();
+    assert.ok(done.type === 'success' && done.value.type === 'completed', 'the upload lands as its parts were sent');
+    const status = await datasetGetStatus(baseUrl, ctx.repoName, 'ws', path, { token: '' });
+    assert.deepEqual(status.hash, some(sha256(data)));
   });
 
   it('does not land an upload with a part never sent', async (t) => {

@@ -7,6 +7,8 @@
 export {
   DatasetUploadType,
   type DatasetUpload,
+  DatasetCommitStatusType,
+  type DatasetCommitStatus,
   PackageImportType,
   PackageImportProgressType,
   PackageImportStatusType,

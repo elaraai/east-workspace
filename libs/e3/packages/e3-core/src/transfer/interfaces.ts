@@ -13,7 +13,7 @@
  * - S3DynamoTransferBackend (AWS cloud, future)
  */
 
-import type { DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
+import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
 
 // =============================================================================
 // Dataset Upload Store
@@ -30,10 +30,11 @@ export interface DatasetPartUpload {
 }
 
 /**
- * Manages staged dataset uploads.
+ * Manages staged dataset uploads, and their commits.
  *
  * Flow: create → createParts → getPartUpload per part → (client uploads the
- * parts) → commit → delete
+ * parts) → commit → poll getCommitStatus. The store forgets an upload a while
+ * after its commit finishes.
  */
 export interface DatasetUploadStore {
   create(id: string, record: DatasetUpload): Promise<void>;
@@ -41,15 +42,16 @@ export interface DatasetUploadStore {
   delete(id: string): Promise<void>;
 
   /**
-   * Plan a created upload as parts.
+   * Plan a created upload as parts, and make ready where they are staged.
    *
    * @remarks
    * Every part but the last is exactly the returned size, and an upload no
    * larger than it is one part. The plan is the backend's to choose and to
-   * remember: a local store takes its configured part size, while an object
-   * store may send an upload it can take in one PUT as a single part carrying a
-   * checksum header, and a larger one as a multipart upload whose part size
-   * keeps the part count within its limits.
+   * remember: a local store takes its configured part size, and makes the
+   * staging directory in the repository, while an object store may send an
+   * upload it can take in one PUT as a single part carrying a checksum header,
+   * and a larger one as a multipart upload whose part size keeps the part count
+   * within its limits.
    *
    * @param id - The upload's id
    * @param record - The upload, as created
@@ -76,11 +78,36 @@ export interface DatasetUploadStore {
   getPartUpload(id: string, record: DatasetUpload, part: number): Promise<DatasetPartUpload>;
 
   /**
-   * Verify the upload and make the object visible in the catalogue.
-   * On success, the object is queryable via storage.objects.read(repo, hash).
-   * On failure, throws — caller should clean up the transfer record.
+   * Commit an upload whose parts have all been sent: check the staged bytes are
+   * the upload's size and hash, take them into the store through its door — a
+   * collection split into the store's own segments — checking them against the
+   * type the dataset declares, and point the dataset at them.
+   *
+   * @remarks
+   * The commit runs where the store runs it — a local store in its own
+   * process, a cloud's on its own compute — and outlives the request that asked
+   * for it. Asked for again, while it runs or once it has finished, it starts
+   * nothing new and answers as it did. Once it has been asked for, the upload
+   * takes no more parts. It never rejects for the bytes' sake: how it finished
+   * is its status.
+   *
+   * @param id - The upload's id
+   * @param record - The upload, as created
+   * @returns How the commit finished, once it has; a store that runs it
+   *   elsewhere may answer `processing` at once, for the client to poll
    */
-  commitObject(repo: string, hash: string, uploadId: string): Promise<void>;
+  commit(id: string, record: DatasetUpload): Promise<DatasetCommitStatus>;
+
+  /**
+   * How an upload's commit stands, which a poll reads whichever instance
+   * answers it. A finished commit's status stays readable for a while, with the
+   * upload's record, so a client whose answer was lost asks again and hears the
+   * same.
+   *
+   * @param id - The upload's id
+   * @returns The status, or `null` when no commit of the upload was asked for
+   */
+  getCommitStatus(id: string): Promise<DatasetCommitStatus | null>;
 }
 
 // =============================================================================
