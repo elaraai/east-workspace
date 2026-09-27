@@ -18,11 +18,11 @@ import {
   objectWrite,
   objectRead,
   taskExecute,
+  withRunningWork,
   LocalStorage,
-  TASKS_LOCK,
 } from '@elaraai/e3-core';
-import { decodeBeast2, variant } from '@elaraai/east';
-import { resolveRepo, parsePackageSpec, formatError, exitError, shortHash } from '../utils.js';
+import { decodeBeast2 } from '@elaraai/east';
+import { openRepo, parsePackageSpec, formatError, exitError, shortHash } from '../utils.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 
 /**
@@ -64,7 +64,7 @@ export async function runCommand(
   options: BudgetFlags & { output?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   try {
-    const repoPath = resolveRepo(repoArg);
+    const repoPath = await openRepo(repoArg);
     const storage = new LocalStorage();
     // The budget a split task's units take from.
     const budget = commandBudget(options);
@@ -107,24 +107,15 @@ export async function runCommand(
       console.log(`  Input: ${inputPath} -> ${shortHash(hash)}`);
     }
 
-    // Execute the task, holding the repository's task lock shared for the
-    // duration: gc takes it exclusively, so a sweep never runs while this
-    // execution's unrooted objects (carved slices, unit outputs) exist.
-    const lock = await storage.locks.acquire(repoPath, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
-    if (lock === null) {
-      exitError('run: a garbage collection is running in this repository — retry when it finishes');
-    }
+    // Execute the task as running work: gc takes the repository exclusively,
+    // so a sweep never runs while this execution's unrooted objects (carved
+    // slices, unit outputs) exist.
     const startTime = Date.now();
-    let result: Awaited<ReturnType<typeof taskExecute>>;
-    try {
-      result = await taskExecute(storage, repoPath, taskHash, inputHashes, {
-        force: options.force,
-        verbose: options.verbose,
-        budget,
-      });
-    } finally {
-      await lock.release();
-    }
+    const result = await withRunningWork(storage, repoPath, () => taskExecute(storage, repoPath, taskHash, inputHashes, {
+      force: options.force,
+      verbose: options.verbose,
+      budget,
+    }));
 
     const elapsed = Date.now() - startTime;
 

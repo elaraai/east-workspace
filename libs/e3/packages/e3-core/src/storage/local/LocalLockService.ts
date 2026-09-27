@@ -24,7 +24,7 @@ import * as path from 'path';
 import { randomBytes } from 'crypto';
 import { encodeBeast2For, decodeBeast2For, variant, none } from '@elaraai/east';
 import { LockStateType, type LockHolderVariant, type LockState, type LockOperation } from '@elaraai/e3-types';
-import { InvalidNameError, WorkspaceLockError, checkName, type LockHolderInfo } from '../../errors.js';
+import { InvalidNameError, WorkspaceLockError, checkName, lockStateToHolderInfo, type LockHolderInfo } from '../../errors.js';
 import { getBootId, getPidStartTime, isProcessAlive } from '../../execution/processHelpers.js';
 import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
 import type { LockHandle, LockService } from '../interfaces.js';
@@ -164,26 +164,6 @@ async function readLockState(lockPath: string): Promise<LockState | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * A lock's holder as an error names it.
- *
- * @param state - The lock's state
- * @returns The holder's details, flattened for a message
- */
-export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
-  const info: LockHolderInfo = {
-    acquiredAt: state.acquiredAt.toISOString(),
-    operation: state.operation.type,
-  };
-  if (state.holder.type === 'process') {
-    info.pid = Number(state.holder.value.pid);
-    info.bootId = state.holder.value.bootId;
-    info.startTime = Number(state.holder.value.startTime);
-    info.command = state.holder.value.command;
-  }
-  return info;
 }
 
 // =============================================================================

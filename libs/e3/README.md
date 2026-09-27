@@ -47,7 +47,8 @@ e3 dataset get . dev.my-task
 
 ```
 my-repo/                      # e3 repository directory
-├── repository.beast2         # The release that last wrote it, its upgrades, and its name and status
+├── repository.beast2         # The release that last wrote it, and the upgrades it has had
+├── metadata.beast2           # Its name and status
 ├── objects/                  # Content-addressable storage
 │   └── ab/cd1234...beast2    # IR, values, segments, manifests, commits
 ├── packages/                 # Package refs

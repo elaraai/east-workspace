@@ -25,7 +25,7 @@ import {
 import e3 from '@elaraai/e3';
 import {
   DataflowExecutionStateType, DataflowRunType, DatasetRefType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType,
-  LockStateType, UNIT_PLAN_KIND, WorkspaceRecordType, encodeUnitPlan,
+  LockStateType, RepoMetadataType, RepositoryRecordType, UNIT_PLAN_KIND, WorkspaceRecordType, encodeUnitPlan,
 } from '@elaraai/e3-types';
 import { datasetAdoptFile } from './dataset-adopt.js';
 import { LocalOrchestrator } from './dataflow/orchestrator/LocalOrchestrator.js';
@@ -34,18 +34,19 @@ import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { getBootId } from './execution/processHelpers.js';
 import { packageImport } from './packages.js';
 import { recordMutate } from './records.js';
+import { repositoryOpen } from './repository-record.js';
 import { repoGc } from './storage/local/gc.js';
 import { LocalStorage } from './storage/local/index.js';
-import {
-  REPOSITORY_FILENAME, REPOSITORY_UPGRADES, RepositoryRecordType, encodeRepositoryRecord, repoGet, type RepositoryUpgrade,
-} from './storage/local/repository.js';
+import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './storage/local/LocalRefStore.js';
+import { LOCAL_REPOSITORY_UPGRADES } from './storage/local/upgrades.js';
 import { workspaceCreate, workspaceDeploy, workspaceRemove } from './workspaces.js';
 import { createTempDir, createTestRepo, deadPid, removeTempDir, removeTestRepo } from './test-helpers.js';
-import type { StorageBackend } from './storage/interfaces.js';
+import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js';
 
 /** Each record a repository keeps: what it is, where, and its East type. */
 const RECORDS: ReadonlyArray<readonly [name: string, path: RegExp, type: EastType]> = [
   ['the repository record', /^repository\.beast2$/, RepositoryRecordType],
+  ['the repository\'s metadata', /^metadata\.beast2$/, RepoMetadataType],
   ['a package ref', /^packages\/[^/]+\/[^/]+\.beast2$/, StringType],
   ['a workspace record', /^workspaces\/[^/]+\.beast2$/, WorkspaceRecordType],
   ['a workspace\'s execution state', /^workspaces\/[^/]+\/execution\.beast2$/, DataflowExecutionStateType],
@@ -187,14 +188,15 @@ describe('the repository\'s records', () => {
     }
   });
 
-  it('opens a repository an older release wrote, applying the upgrade it has not had once, every record keeping its state and history', async () => {
-    // The step this test registers: a package ref, which an older form kept as
-    // the hash in text, rewritten as the String this form keeps. A ref
-    // already in this form is left as it is.
+  it('opens a repository an older release wrote, applying the layout step it has not had once, every record keeping its state and history', async () => {
+    // The local layout's step this test registers: a package ref, which an
+    // older layout kept as the hash in text, rewritten as the String this
+    // layout keeps. A ref already in this form is left as it is. Only the
+    // local backend reads its own files, so the step is its own.
     let applied = 0;
     const upgrade: RepositoryUpgrade = {
       name: 'package-refs-in-beast2',
-      apply(repoPath) {
+      async apply(_storage, repoPath) {
         applied++;
         for (const name of readdirSync(join(repoPath, 'packages'))) {
           for (const file of readdirSync(join(repoPath, 'packages', name))) {
@@ -209,8 +211,8 @@ describe('the repository\'s records', () => {
 
     // What the release before the step left: a record without it, and the
     // package ref in the older form.
-    const record = decodeBeast2For(RepositoryRecordType)(readFileSync(join(repo, REPOSITORY_FILENAME)));
-    writeFileSync(join(repo, REPOSITORY_FILENAME), encodeRepositoryRecord({ ...record, release: '0.0.1' }));
+    const record = decodeBeast2For(RepositoryRecordType)(readFileSync(join(repo, REPOSITORY_RECORD_FILE)));
+    writeFileSync(join(repo, REPOSITORY_RECORD_FILE), encodeRepositoryRecord({ ...record, release: '0.0.1' }));
     const ref = join(repo, 'packages', 'layout', '1.0.0.beast2');
     const packageHash = decodeBeast2For(StringType)(readFileSync(ref));
     writeFileSync(join(repo, 'packages', 'layout', '1.0.0'), `${packageHash}\n`);
@@ -227,17 +229,18 @@ describe('the repository\'s records', () => {
     });
     const before = await kept();
 
-    REPOSITORY_UPGRADES.push(upgrade);
+    const metadata = readFileSync(join(repo, 'metadata.beast2'));
+    LOCAL_REPOSITORY_UPGRADES.push(upgrade);
     try {
-      // Opened by the CLI's door, then by the store's: the step runs once.
-      assert.equal(repoGet(repo), repo);
-      await storage.validateRepository(repo);
+      // Opened twice: the step runs once.
+      await repositoryOpen(storage, repo);
+      await repositoryOpen(storage, repo);
       assert.equal(applied, 1);
 
-      const upgraded = decodeBeast2For(RepositoryRecordType)(readFileSync(join(repo, REPOSITORY_FILENAME)));
+      const upgraded = decodeBeast2For(RepositoryRecordType)(readFileSync(join(repo, REPOSITORY_RECORD_FILE)));
       assert.equal(upgraded.release, E3_RELEASE);
       assert.deepEqual(upgraded.upgrades, [...record.upgrades, { name: 'package-refs-in-beast2', release: E3_RELEASE }]);
-      assert.deepEqual(upgraded.metadata, record.metadata);
+      assert.deepEqual(readFileSync(join(repo, 'metadata.beast2')), metadata, 'the metadata is left as it is');
       assert.equal(await storage.refs.packageResolve(repo, 'layout', '1.0.0'), packageHash);
       assert.deepEqual(await kept(), before);
 
@@ -247,7 +250,7 @@ describe('the repository\'s records', () => {
       assert.ok(rerun.success, 'the run succeeds');
       assert.deepEqual([rerun.executed, rerun.cached], [0, 1]);
     } finally {
-      REPOSITORY_UPGRADES.splice(REPOSITORY_UPGRADES.indexOf(upgrade), 1);
+      LOCAL_REPOSITORY_UPGRADES.splice(LOCAL_REPOSITORY_UPGRADES.indexOf(upgrade), 1);
     }
   });
 });

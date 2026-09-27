@@ -4,7 +4,8 @@
  */
 
 import { variant } from '@elaraai/east';
-import { repoGc, packageList, workspaceList } from '@elaraai/e3-core';
+import { RepositoryRecordType } from '@elaraai/e3-types';
+import { repoGc, packageList, repositoryOpen, workspaceList } from '@elaraai/e3-core';
 import type { StorageBackend } from '@elaraai/e3-core';
 import { sendSuccess, sendSuccessWithStatus, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
@@ -45,6 +46,25 @@ export async function getStatus(
     return sendSuccess(RepositoryStatusType, status);
   } catch (err) {
     return sendError(RepositoryStatusType, errorToVariant(err));
+  }
+}
+
+/**
+ * The repository's record: the release of e3 that last wrote it, and the store
+ * upgrades it has had.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @returns The response: the record, or the error
+ */
+export async function getRecord(
+  storage: StorageBackend,
+  repoPath: string
+): Promise<Response> {
+  try {
+    return sendSuccess(RepositoryRecordType, await repositoryOpen(storage, repoPath));
+  } catch (err) {
+    return sendError(RepositoryRecordType, errorToVariant(err));
   }
 }
 

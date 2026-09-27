@@ -7,7 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { none, variant } from '@elaraai/east';
 import { computeHash } from '../../objects.js';
 import { ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
-import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord } from '@elaraai/e3-types';
 import type {
   StorageBackend,
   ObjectStore,
@@ -19,6 +19,7 @@ import type {
   LockState,
   LogStore,
   LogChunk,
+  RepositoryUpgrade,
 } from '../interfaces.js';
 import { InMemoryRepoStore } from './InMemoryRepoStore.js';
 
@@ -118,6 +119,8 @@ class InMemoryObjectStore implements ObjectStore {
  */
 /* eslint-disable @typescript-eslint/require-await */
 class InMemoryRefStore implements RefStore {
+  // repository records keyed by repo
+  private repositories = new Map<string, RepositoryRecord>();
   private packages = new Map<string, Map<string, string>>();
   private workspaces = new Map<string, Map<string, Uint8Array>>();
   // executions now keyed by taskHash/inputsHash/executionId
@@ -181,6 +184,15 @@ class InMemoryRefStore implements RefStore {
 
   private makeDataflowRunKey(workspace: string, runId: string): string {
     return `${workspace}/${runId}`;
+  }
+
+  // Repository record
+  async repositoryRead(repo: string): Promise<RepositoryRecord | null> {
+    return this.repositories.get(repo) ?? null;
+  }
+
+  async repositoryWrite(repo: string, record: RepositoryRecord): Promise<void> {
+    this.repositories.set(repo, record);
   }
 
   // Package operations
@@ -354,6 +366,7 @@ class InMemoryRefStore implements RefStore {
   }
 
   clear(): void {
+    this.repositories.clear();
     this.packages.clear();
     this.workspaces.clear();
     this.executions.clear();
@@ -389,8 +402,19 @@ class InMemoryLockService implements LockService {
     operation: LockOperation,
     options?: { wait?: boolean; timeout?: number; mode?: 'shared' | 'exclusive' }
   ): Promise<LockHandle | null> {
+    // A waiting acquire polls until the lock is free or its time is up, as the
+    // local service's does, with the same default timeout.
+    const deadline = Date.now() + (options?.wait === true ? (options.timeout ?? 30_000) : 0);
+    for (;;) {
+      const handle = this.tryAcquire(repo, resource, operation, options?.mode ?? 'exclusive');
+      if (handle !== null || Date.now() >= deadline) return handle;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  /** Takes the lock if it is free in `mode`, or returns null. */
+  private tryAcquire(repo: string, resource: string, operation: LockOperation, mode: 'shared' | 'exclusive'): LockHandle | null {
     const key = this.makeLockKey(repo, resource);
-    const mode = options?.mode ?? 'exclusive';
 
     if (mode === 'shared') {
       // Shared mode: fail if exclusive lock is held
@@ -401,9 +425,12 @@ class InMemoryLockService implements LockService {
       const count = this.sharedLockCounts.get(key) ?? 0;
       this.sharedLockCounts.set(key, count + 1);
 
+      let released = false;
       return {
         resource,
         release: async () => {
+          if (released) return;
+          released = true;
           const current = this.sharedLockCounts.get(key) ?? 0;
           if (current <= 1) {
             this.sharedLockCounts.delete(key);
@@ -430,9 +457,12 @@ class InMemoryLockService implements LockService {
       };
       this.exclusiveLocks.set(key, state);
 
+      let released = false;
       return {
         resource,
         release: async () => {
+          if (released) return;
+          released = true;
           this.exclusiveLocks.delete(key);
         },
       };
@@ -602,6 +632,8 @@ class InMemoryDatasetRefStore implements DatasetRefStore {
  * where filesystem access is not needed.
  */
 export class InMemoryStorage implements StorageBackend {
+  /** The backend's own upgrades: none, unless a test gives some */
+  public readonly upgrades: RepositoryUpgrade[];
   public readonly objects: InMemoryObjectStore;
   public readonly refs: InMemoryRefStore;
   public readonly locks: InMemoryLockService;
@@ -609,12 +641,17 @@ export class InMemoryStorage implements StorageBackend {
   public readonly repos: InMemoryRepoStore;
   public readonly datasets: InMemoryDatasetRefStore;
 
-  constructor() {
+  /**
+   * @param options - `upgrades`: the backend's own upgrades, for a test of
+   *   what an open does with a backend's steps
+   */
+  constructor(options: { upgrades?: RepositoryUpgrade[] } = {}) {
+    this.upgrades = options.upgrades ?? [];
     this.objects = new InMemoryObjectStore();
     this.refs = new InMemoryRefStore();
     this.locks = new InMemoryLockService();
     this.logs = new InMemoryLogStore();
-    this.repos = new InMemoryRepoStore();
+    this.repos = new InMemoryRepoStore(this.refs, this.upgrades);
     this.datasets = new InMemoryDatasetRefStore();
   }
 

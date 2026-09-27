@@ -11,12 +11,15 @@ import type {
   BatchResult,
   GcObjectScanResult,
   GcRootScanResult,
+  RefStore,
+  RepositoryUpgrade,
 } from '../interfaces.js';
 import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
 } from '../../errors.js';
+import { newRepositoryRecord } from '../../repository-record.js';
 
 /**
  * In-memory implementation of RepoStore for testing.
@@ -29,6 +32,13 @@ import {
 /* eslint-disable @typescript-eslint/require-await */
 export class InMemoryRepoStore implements RepoStore {
   private repos = new Map<string, RepoMetadata>();
+
+  /**
+   * @param refs - The ref store a created repository's record is written to
+   * @param upgrades - The backend's own upgrades, which a created repository's
+   *   record names
+   */
+  constructor(private readonly refs: RefStore, private readonly upgrades: readonly RepositoryUpgrade[]) {}
 
   // ===========================================================================
   // Queries
@@ -56,6 +66,7 @@ export class InMemoryRepoStore implements RepoStore {
     }
 
     const now = new Date();
+    await this.refs.repositoryWrite(repo, newRepositoryRecord(this.upgrades));
     this.repos.set(repo, {
       name: repo,
       status: variant('active', null),

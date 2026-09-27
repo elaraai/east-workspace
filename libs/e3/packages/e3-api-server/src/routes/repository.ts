@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import type { StorageBackend } from '@elaraai/e3-core';
-import { getStatus, startGc, getGcStatus } from '../handlers/repository.js';
+import { getStatus, getRecord, startGc, getGcStatus } from '../handlers/repository.js';
 import { decodeBody } from '../beast2.js';
 import { GcRequestType } from '../types.js';
 
@@ -20,6 +20,13 @@ export function createRepositoryRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     return getStatus(storage, repoPath);
+  });
+
+  // GET /api/repos/:repo/record - The repository's record: its release and upgrades
+  app.get('/record', async (c) => {
+    const repo = c.req.param('repo')!;
+    const repoPath = getRepoPath(repo);
+    return getRecord(storage, repoPath);
   });
 
   // POST /api/repos/:repo/gc - Start garbage collection (async)

@@ -36,10 +36,23 @@ export {
   type InitRepositoryResult,
 } from './storage/local/repository.js';
 
+// The repository record, and the upgrades an open applies: every backend's
+export {
+  repositoryOpen,
+  newRepositoryRecord,
+} from './repository-record.js';
+
+// What holds a repository: running work shared, and gc or an upgrade exclusive
+export {
+  TASKS_LOCK,
+  withRunningWork,
+  withRepositoryHeld,
+  type RepositoryHoldOptions,
+} from './running-work.js';
+
 // Garbage collection
 export {
   repoGc,
-  TASKS_LOCK,
   collectAllRoots,
   markReachable,
   sweepBatch,
@@ -56,7 +69,7 @@ export {
   DEFAULT_KEEP_DAYS,
   type HistoryOptions,
   type HistoryResult,
-} from './storage/local/history.js';
+} from './history.js';
 
 // Object storage, and the form every store checks an object's hash has
 export { computeHash, isObjectHash } from './objects.js';
@@ -341,7 +354,6 @@ export {
   acquireWorkspaceLock,
   getWorkspaceLockState,
   getWorkspaceLockHolder,
-  lockStateToHolderInfo,
   isLockHolderAlive,
   workspaceLockPath,
   type WorkspaceLockHandle,
@@ -390,6 +402,7 @@ export {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  lockStateToHolderInfo,
   type LockHolderInfo,
   // Package
   PackageNotFoundError,

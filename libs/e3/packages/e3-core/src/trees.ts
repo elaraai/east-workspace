@@ -35,7 +35,7 @@ import { DataRefType, WorkspaceRecordType, checkDatasetType, datasetAddress, dec
 import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
 import { storeCollection } from './store-collection.js';
 import { packageRead } from './packages.js';
-import { withRunningWork } from './storage/local/gc.js';
+import { withRunningWork } from './running-work.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,

@@ -5,14 +5,14 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore, RepoStore, DatasetRefStore } from '../interfaces.js';
+import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore, RepoStore, DatasetRefStore, RepositoryUpgrade } from '../interfaces.js';
 import { LocalObjectStore } from './LocalObjectStore.js';
 import { LocalRefStore } from './LocalRefStore.js';
 import { LocalLockService } from './LocalLockService.js';
 import { LocalLogStore } from './LocalLogStore.js';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
-import { repoOpen } from './repository.js';
+import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
 import { RepoNotFoundError } from '../../errors.js';
 
 /**
@@ -47,6 +47,9 @@ class RepoDirNotFoundError extends RepoNotFoundError {
  * ```
  */
 export class LocalStorage implements StorageBackend {
+  /** The upgrades of a local repository's own layout */
+  public readonly upgrades: readonly RepositoryUpgrade[] = LOCAL_REPOSITORY_UPGRADES;
+
   /** Content-addressed object storage */
   public readonly objects: ObjectStore;
 
@@ -86,11 +89,9 @@ export class LocalStorage implements StorageBackend {
   }
 
   /**
-   * Validate that a repository exists and is properly structured, and open
-   * it: a repository an older release wrote is upgraded in place.
+   * Validate that a repository exists and is properly structured.
    * @param repo - Path to the e3 repository directory
    * @throws {RepoNotFoundError} If repository doesn't exist or is invalid
-   * @throws {RepoLayoutError} If this e3 cannot open it
    */
   async validateRepository(repo: string): Promise<void> {
     const requiredDirs = ['objects', 'packages', 'workspaces', 'executions'];
@@ -101,7 +102,6 @@ export class LocalStorage implements StorageBackend {
         throw new RepoDirNotFoundError(repo);
       }
     }
-    repoOpen(repo);
   }
 }
 

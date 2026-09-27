@@ -309,6 +309,7 @@ export async function packageZipOpen(zipPath: string): Promise<PackageZip> {
       Promise.reject(new Error(`a view of a package zip writes nothing, and was asked to ${what}`));
     const { objects, refs, logs, repos, datasets } = storage;
     return {
+      upgrades: storage.upgrades,
       objects: {
         write: refuse('write an object'),
         writeStream: refuse('write an object'),
@@ -332,6 +333,8 @@ export async function packageZipOpen(zipPath: string): Promise<PackageZip> {
         count: async (repo) => new Set([...await objects.list(repo), ...entries.keys()]).size,
       },
       refs: {
+        repositoryRead: refs.repositoryRead.bind(refs),
+        repositoryWrite: refuse('write the repository record'),
         packageList: async (repo) => [
           ...(await refs.packageList(repo)).filter((p) => p.name !== name || p.version !== version),
           { name, version },

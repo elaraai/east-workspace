@@ -20,11 +20,12 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { decodeBeast2, readBeast2Type, toEastTypeValue, variant, type EastType, type EastTypeValue } from '@elaraai/east';
+import { decodeBeast2, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
-import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
+import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
-import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from './history.js';
+import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from '../../history.js';
+import { withRepositoryHeld } from '../../running-work.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
 import { sweepEnvironments } from '../../execution/environment.js';
 
@@ -671,49 +672,12 @@ export function sweepBatch(
 // =============================================================================
 
 /**
- * The lock gc takes exclusive, and every write that stores objects before a
- * ref names them holds shared, so the two never overlap: an ad-hoc task run
- * (`e3 run`), which has no dataflow lock, a record write, a dataset write
- * through the store's door, and a deploy. Each writes objects it has not yet
- * rooted, which a concurrent sweep would delete.
- */
-export const TASKS_LOCK = '#tasks';
-
-/**
- * Runs `fn` holding the tasks lock shared, so a sweep cannot run while it
- * does.
- *
- * @remarks
- * A write through the store's door stores objects before anything names them
- * — a delivery's segments, a delta, an index build's output — exactly as an
- * ad-hoc task run does, and the answer is the same one: gc takes this lock
- * exclusively, so the two never overlap and none of it needs rooting. Without
- * it a sweep landing mid-write deletes objects the ref it is about to write
- * names.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param fn - the work, which writes objects before anything names them
- * @returns what `fn` returns
- * @throws {Error} When a garbage collection holds the lock.
- */
-export async function withRunningWork<T>(storage: StorageBackend, repo: string, fn: () => Promise<T>): Promise<T> {
-  const lock = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
-  if (!lock) throw new Error('a garbage collection is running in this repository — retry when it finishes');
-  try {
-    return await fn();
-  } finally {
-    await lock.release();
-  }
-}
-
-/**
  * Run garbage collection on an e3 repository.
  *
  * Works with any StorageBackend — no instanceof checks.
  *
- * gc holds the {@link TASKS_LOCK} exclusively and every workspace's dataflow
- * lock from before the history's prune until the sweep is done, so it never
+ * gc holds the repository still ({@link withRepositoryHeld}): the tasks lock
+ * exclusively and every workspace's dataflow lock, from before the history's prune until the sweep is done, so it never
  * overlaps a write holding the tasks lock or a dataflow run: the objects
  * either writes before it roots them need no rooting, and no record is written
  * while it decides which to keep. It prunes the history first (history.ts),
@@ -740,26 +704,7 @@ export async function repoGc(
       throw new RangeError(`gc: ${name} must be a whole number of zero or more, got ${value}`);
     }
   }
-  const locks: LockHandle[] = [];
-  try {
-    const tasks = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null));
-    if (tasks === null) {
-      throw new Error('gc: a task is running — retry when it finishes');
-    }
-    locks.push(tasks);
-    for (const ws of await storage.refs.workspaceList(repo)) {
-      const lock = await storage.locks.acquire(repo, `${ws}#dataflow`, variant('dataflow', null));
-      if (lock === null) {
-        throw new Error(`gc: a dataflow is running in workspace '${ws}' — retry when it finishes`);
-      }
-      locks.push(lock);
-    }
-    return await collectGarbage(storage, repo, options);
-  } finally {
-    for (const lock of locks) {
-      await lock.release();
-    }
-  }
+  return withRepositoryHeld(storage, repo, { doing: 'gc' }, () => collectGarbage(storage, repo, options));
 }
 
 /** The mark and sweep of {@link repoGc}, run under its locks. */

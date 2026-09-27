@@ -1037,6 +1037,7 @@ my-project/
 │   └── index.ts        # Package definition
 └── repo/               # Repository (created by e3 repo create)
     ├── repository.beast2  # The repository record: the release that last wrote it, and the upgrades a newer e3 applies on open
+    ├── metadata.beast2    # Its name and status
     ├── objects/        # Content-addressed objects: values, segments, manifests, programs
     ├── packages/       # Package refs
     ├── workspaces/     # Each workspace's state and dataset refs

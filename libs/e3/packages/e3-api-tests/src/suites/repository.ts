@@ -6,15 +6,17 @@
 /**
  * Repository operations test suite.
  *
- * Tests: status, gc, create, remove, list
+ * Tests: status, record, gc, create, remove, list
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { none, some } from '@elaraai/east';
+import { E3_RELEASE } from '@elaraai/e3-types';
 import {
   repoStatus,
+  repoRecord,
   repoGc,
   repoCreate,
   repoRemove,
@@ -43,6 +45,20 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       assert.ok(typeof status.objectCount === 'bigint');
       assert.ok(typeof status.packageCount === 'bigint');
       assert.ok(typeof status.workspaceCount === 'bigint');
+    });
+
+    it('repoRecord names, for a created repository, the release of e3 that created it', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      const record = await repoRecord(ctx.config.baseUrl, ctx.repoName, opts);
+
+      assert.strictEqual(record.release, E3_RELEASE);
+      // A new repository is in the forms of every upgrade its e3 knows, each
+      // recorded as applied by that release.
+      for (const upgrade of record.upgrades) {
+        assert.strictEqual(upgrade.release, E3_RELEASE, `the upgrade ${upgrade.name} is recorded as this release's`);
+      }
     });
 
     it('repoGc with dryRun returns stats', async (t) => {

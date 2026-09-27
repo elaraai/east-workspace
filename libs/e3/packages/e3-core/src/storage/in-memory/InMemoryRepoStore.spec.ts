@@ -9,7 +9,8 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { InMemoryRepoStore } from './InMemoryRepoStore.js';
+import type { InMemoryRepoStore } from './InMemoryRepoStore.js';
+import { InMemoryStorage } from './InMemoryStorage.js';
 import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
@@ -20,7 +21,7 @@ describe('InMemoryRepoStore', () => {
   let store: InMemoryRepoStore;
 
   beforeEach(() => {
-    store = new InMemoryRepoStore();
+    store = new InMemoryStorage().repos;
   });
 
   describe('list', () => {

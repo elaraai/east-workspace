@@ -17,7 +17,7 @@ export function shortHash(hash: string): string {
   return `${hash.slice(0, HASH_DISPLAY_WIDTH)}...`;
 }
 
-import { repoGet } from '@elaraai/e3-core';
+import { LocalStorage, repoGet, repositoryOpen } from '@elaraai/e3-core';
 import { parseDatasetPath, parsePackageRef } from '@elaraai/e3-types';
 import { ApiError } from '@elaraai/e3-api-client';
 import { getValidToken } from './credentials.js';
@@ -66,6 +66,7 @@ export type RepoLocation =
  *
  * For remote locations, this function will load and validate the auth token.
  * If not logged in or token is expired and cannot be refreshed, throws an error.
+ * A local repository is opened ({@link openRepo}).
  *
  * @returns For local: { type: 'local', path: '/absolute/path/to/repo' }
  *          For remote: { type: 'remote', baseUrl: 'https://example.com', repo: 'my_repo', token: '...' }
@@ -90,7 +91,7 @@ export async function parseRepoLocation(arg: string): Promise<RepoLocation> {
       token,
     };
   }
-  return { type: 'local', path: resolveRepo(arg) };
+  return { type: 'local', path: await openRepo(arg) };
 }
 
 /**
@@ -104,7 +105,8 @@ export type RepoLocationNoToken =
  * Parse a repository location (synchronous, no auth).
  *
  * Use this only for operations that don't need authentication (e.g., local repos).
- * For remote repos, use parseRepoLocation() instead.
+ * For remote repos, use parseRepoLocation() instead. A local repository is
+ * found, not opened: {@link openRepo} opens it.
  */
 export function parseRepoLocationSync(arg: string): RepoLocationNoToken {
   if (arg.startsWith('https://') || arg.startsWith('http://')) {
@@ -124,11 +126,27 @@ export function parseRepoLocationSync(arg: string): RepoLocationNoToken {
 
 /**
  * Resolve repository path from CLI argument.
- * Supports `.` for current directory and relative/absolute paths.
+ * Supports `.` for current directory and relative/absolute paths. The
+ * repository is found, not opened: {@link openRepo} opens it.
  */
 export function resolveRepo(repoArg: string): string {
   const absolutePath = resolve(repoArg);
   return repoGet(absolutePath);
+}
+
+/**
+ * Resolve a repository from a CLI argument and open it, as every way into a
+ * repository does: refused when this e3 cannot read it, and upgraded in place
+ * when an older release wrote it.
+ *
+ * @param repoArg - The repository argument
+ * @returns The repository's path
+ * @throws {RepoLayoutError} When this e3 cannot open the repository
+ */
+export async function openRepo(repoArg: string): Promise<string> {
+  const repoPath = resolveRepo(repoArg);
+  await repositoryOpen(new LocalStorage(), repoPath);
+  return repoPath;
 }
 
 /**

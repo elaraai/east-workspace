@@ -17,16 +17,16 @@ import { DictType, IntegerType, SortedMap, compareFor, decodeBeast2For, encodeBe
 import e3 from '@elaraai/e3';
 import { PackageObjectType, UNIT_PLAN_KIND, WorkspaceRecordType, decodeUnitPlan, encodeUnitPlan } from '@elaraai/e3-types';
 import { pruneHistory } from './history.js';
-import { repoGc } from './gc.js';
-import { LocalStorage } from './index.js';
-import { objectWrite } from './LocalObjectStore.js';
-import { dataflowExecute } from '../../dataflow.js';
-import { inputsHash } from '../../executions.js';
-import { packageImport } from '../../packages.js';
-import { workspaceSetDataset } from '../../trees.js';
-import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from '../../workspaces.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../../test-helpers.js';
-import type { StorageBackend } from '../interfaces.js';
+import { repoGc } from './storage/local/gc.js';
+import { LocalStorage } from './storage/local/index.js';
+import { objectWrite } from './storage/local/LocalObjectStore.js';
+import { dataflowExecute } from './dataflow.js';
+import { inputsHash } from './executions.js';
+import { packageImport } from './packages.js';
+import { workspaceSetDataset } from './trees.js';
+import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from './workspaces.js';
+import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
+import type { StorageBackend } from './storage/interfaces.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 

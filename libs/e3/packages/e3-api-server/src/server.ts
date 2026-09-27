@@ -9,7 +9,7 @@ import { cors } from 'hono/cors';
 import { serve, type ServerType } from '@hono/node-server';
 import {
   Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend, resolveBudget,
-  checkName,
+  checkName, repositoryOpen,
 } from '@elaraai/e3-core';
 import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
@@ -131,9 +131,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
   // The one repository is opened before anything is served, as the CLI opens
   // one: refused when this e3 cannot read it, and upgraded in place when an
-  // older release wrote it. Several are each opened by their first request
+  // older release wrote it. Several are each opened by every request to them
   // (the middleware below).
-  if (isSingleRepoMode) await storage.validateRepository(singleRepoPath!);
+  if (isSingleRepoMode) await repositoryOpen(storage, singleRepoPath!);
 
   // Helper to compute repo path from repo name
   // In single-repo mode, middleware validates 'default' before routes are called
@@ -292,8 +292,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
       const repo = c.req.param('repo')!;
 
-      // Check repo metadata for status, which opens the repository: one an
-      // older release wrote is upgraded in place first. A repo this e3 cannot
+      // Check repo metadata for status. A repo whose metadata this e3 cannot
       // read is refused naming the fix — send it, not a bare 500.
       let metadata;
       try {
@@ -310,6 +309,17 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       const statusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/status$/);
       if (metadata.status.type === 'deleting' && !statusMatch) {
         return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
+      }
+
+      // Opened as every way into a repository opens it: refused when this e3
+      // cannot read it, and upgraded in place when an older release wrote it.
+      // One being deleted is left as it is.
+      if (metadata.status.type !== 'deleting') {
+        try {
+          await repositoryOpen(storage, getRepoPath(repo));
+        } catch (err) {
+          return sendJsonError(err);
+        }
       }
 
       await next();

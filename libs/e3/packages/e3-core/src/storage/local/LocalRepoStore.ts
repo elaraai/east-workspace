@@ -18,20 +18,32 @@ import type { RefStore, DatasetRefStore } from '../interfaces.js';
 import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
+  RepoLayoutError,
   RepoStatusConflictError,
   checkName,
+  isNotFoundError,
 } from '../../errors.js';
-import { decodeBeast2For, variant } from '@elaraai/east';
-import { E3_RELEASE, WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
+import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
+import { RepoMetadataType, WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
 import { refPathToKeypath } from '../../dataset-refs.js';
+import { newRepositoryRecord } from '../../repository-record.js';
 import { atomicWriteFile } from './localHelpers.js';
-import { REPOSITORY_FILENAME, encodeRepositoryRecord, repoOpen, writeNewRepoMetadata } from './repository.js';
+import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
+
+/** A repository's metadata's file, at the repository's root. */
+export const METADATA_FILE = 'metadata.beast2';
+
+/** Encodes a repository's metadata as a local repository keeps it. */
+export const encodeRepoMetadata: (metadata: RepoMetadata) => Uint8Array = encodeBeast2For(RepoMetadataType);
+const decodeRepoMetadata = decodeBeast2For(RepoMetadataType);
 
 /**
  * Local filesystem implementation of RepoStore.
  *
  * Manages repository lifecycle for local e3 repositories stored
- * as subdirectories within a parent directory.
+ * as subdirectories within a parent directory. A repository's metadata is
+ * `metadata.beast2` at its root, beside the repository record the ref store
+ * keeps.
  */
 export class LocalRepoStore implements RepoStore {
   /**
@@ -55,10 +67,29 @@ export class LocalRepoStore implements RepoStore {
   }
 
   /**
-   * Get the path to a repository's record.
+   * Get the path to a repository's metadata.
    */
-  private getRecordPath(repo: string): string {
-    return path.join(this.getRepoPath(repo), REPOSITORY_FILENAME);
+  private getMetadataPath(repo: string): string {
+    return path.join(this.getRepoPath(repo), METADATA_FILE);
+  }
+
+  /**
+   * Read a repository's metadata, refusing a repository whose metadata does
+   * not read: an e3 older than this layout wrote it.
+   */
+  private async readMetadata(repo: string): Promise<RepoMetadata> {
+    let data: Buffer;
+    try {
+      data = await fs.readFile(this.getMetadataPath(repo));
+    } catch (err) {
+      if (isNotFoundError(err)) throw new RepoLayoutError(this.getRepoPath(repo), null);
+      throw err;
+    }
+    try {
+      return decodeRepoMetadata(data);
+    } catch {
+      throw new RepoLayoutError(this.getRepoPath(repo), null);
+    }
   }
 
   /**
@@ -109,12 +140,8 @@ export class LocalRepoStore implements RepoStore {
   /**
    * The repository's metadata, or `null` when there is no repository.
    *
-   * @remarks
-   * The repository is opened: a repository an older release wrote is
-   * upgraded in place first.
-   *
-   * @throws {RepoLayoutError} When the repository has no record this e3 reads,
-   *   or has had an upgrade this e3 does not know
+   * @throws {RepoLayoutError} When the repository's metadata does not read:
+   *   an older e3 wrote it
    */
   async getMetadata(repo: string): Promise<RepoMetadata | null> {
     const repoPath = this.getRepoPath(repo);
@@ -124,7 +151,7 @@ export class LocalRepoStore implements RepoStore {
       return null;
     }
 
-    return repoOpen(repoPath).metadata;
+    return this.readMetadata(repo);
   }
 
   // ===========================================================================
@@ -146,7 +173,12 @@ export class LocalRepoStore implements RepoStore {
     await fs.mkdir(path.join(repoPath, 'executions'), { recursive: true });
     await fs.mkdir(path.join(repoPath, 'workspaces'), { recursive: true });
 
-    writeNewRepoMetadata(repoPath, repo);
+    // Its record first, so a repository whose metadata is there has one.
+    await this.refs.repositoryWrite(repoPath, newRepositoryRecord(LOCAL_REPOSITORY_UPGRADES));
+    const now = new Date();
+    await atomicWriteFile(this.getMetadataPath(repo), encodeRepoMetadata({
+      name: repo, status: variant('active', null), createdAt: now, statusChangedAt: now,
+    }));
   }
 
   async setStatus(
@@ -158,20 +190,20 @@ export class LocalRepoStore implements RepoStore {
     if (!(await this.isValidRepository(repoPath))) {
       throw new RepoNotFoundError(repo);
     }
-    const record = repoOpen(repoPath);
+    const metadata = await this.readMetadata(repo);
 
     // Check expected status (CAS)
     if (expected !== undefined) {
       const expectedArray = Array.isArray(expected) ? expected : [expected];
-      if (!expectedArray.includes(record.metadata.status.type)) {
-        throw new RepoStatusConflictError(repo, expected, record.metadata.status.type);
+      if (!expectedArray.includes(metadata.status.type)) {
+        throw new RepoStatusConflictError(repo, expected, metadata.status.type);
       }
     }
 
-    await atomicWriteFile(this.getRecordPath(repo), encodeRepositoryRecord({
-      ...record,
-      release: E3_RELEASE,
-      metadata: { ...record.metadata, status: variant(status, null), statusChangedAt: new Date() },
+    await atomicWriteFile(this.getMetadataPath(repo), encodeRepoMetadata({
+      ...metadata,
+      status: variant(status, null),
+      statusChangedAt: new Date(),
     }));
   }
 

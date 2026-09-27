@@ -33,9 +33,9 @@ import { workspaceGetDatasetHash } from './trees.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
+  lockStateToHolderInfo,
   type LockHolderInfo,
 } from './errors.js';
-import { lockStateToHolderInfo } from './storage/local/LocalLockService.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 // =============================================================================

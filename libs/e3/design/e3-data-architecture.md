@@ -409,7 +409,8 @@ A local repository is a directory of records and objects:
 
 | Path | What it holds | East type |
 |---|---|---|
-| `repository.beast2` | the repository: the release that last wrote it, the store upgrades it has had, and its name, status and times | `RepositoryRecordType`, `{ release, upgrades, metadata }` |
+| `repository.beast2` | the repository record: the release that last wrote it, and the store upgrades it has had | `RepositoryRecordType`, `{ release, upgrades }` |
+| `metadata.beast2` | the repository's name, status and times | `RepoMetadataType` |
 | `objects/<ab>/<rest>.beast2` | content-addressed objects, an environment's files among them as Blobs | any |
 | `packages/<name>/<version>.beast2` | a package ref: the package object's hash | String |
 | `workspaces/<ws>.beast2` | a workspace: `none` until a package is deployed, then its state | `WorkspaceRecordType`, an `Option` of `WorkspaceStateType` |
@@ -427,9 +428,9 @@ A local repository is a directory of records and objects:
 
 - **Every record is an East value in beast2**, except the logs, which stay the runners' own text: they are appended as output arrives and read by byte offset. A record is read as the type its header names or refused, since every runtime's typed decode checks the header against the type it is asked for. A header's type reads as the asked type when East's subtyping makes it that type or a subtype whose variant tags line up, so `none` reads as any `Option`.
 - **A package zip holds the repository's own forms:** the objects, the package ref at `packages/<name>/<version>.beast2`, and from a workspace the executions the run its current state came from used, so the importing repository's cache serves the outputs they made. It names the release that exported it in `release.beast2`, a String, its first entry. It carries no run's record, which names a workspace of the repository the run ran in: a run's history stays there, and an import files none. It holds nothing an import does not read. An import reads the zip's directory before it writes anything, and refuses a zip a newer release exported, naming that release, and one an older e3 wrote in a form no longer read, naming the export.
-- **Upgrades are recorded.** The repository record names the release that last wrote it and the store upgrades the repository has had, each with the release that applied it.
-  - A release that changes a stored form ships a named upgrade step (`REPOSITORY_UPGRADES`). A step is synchronous and idempotent, leaving a record already in the new form as it is, and once released it is never edited, reordered or removed.
-  - An e3 that opens a repository applies the steps it has not had, in order, in place and before anything reads it, recording each with its release as soon as it is applied. So the repository's records keep their states and histories across releases. Every open applies them: the CLI's, the API server's when it starts over one repository or at a repository's first request, and `LocalStorage.validateRepository`. Two processes opening a repository at once may both apply a step, which its idempotence makes safe.
+- **Upgrades are recorded.** The repository record names the release that last wrote it and the store upgrades the repository has had, each with the release that applied it. Every backend keeps it, through its ref store (`repositoryRead`, `repositoryWrite`), and writes it as it creates a repository (`newRepositoryRecord`).
+  - A release that changes a stored form ships a named upgrade step. A change to a record's East type is every backend's (`REPOSITORY_UPGRADES`), and its step goes through the storage backend; a change to one backend's layout, a local repository's files or the cloud's items, is that backend's own (`StorageBackend.upgrades`). A step is idempotent, leaving a record already in the new form as it is, and once released it is never edited, reordered or removed.
+  - Every way into a repository opens it (`repositoryOpen`): the CLI, the API server when it starts over one repository and at every request to one of several, and any host that mounts the API's routes. An open reads the record and applies the steps the repository has not had, the backend's before the shared ones, in order, in place and before anything reads it, recording each with its release as soon as it is applied. So the repository's records keep their states and histories across releases. It holds the repository still while it does, as gc does (§3.16), waiting for work running there to finish, and of two opens at once one applies the steps and the other finds them applied.
   - A repository that has had a step this e3 does not know was upgraded by a newer e3, and is refused, naming the release that applied it. One with no repository record is refused, naming the fix: re-create it. Releases that change no stored form ship no step, so they open each other's repositories either way.
 - **Names are checked** before they become paths: a repository's name where a server keeps several, workspace names, package names and versions, and lock resources. A path separator, a character a Windows file name refuses, or `.` or `..` as a whole segment, is refused. A hash — an object's, which a client names too, or an execution's task and inputs hashes — and an attempt's or a run's id, which an imported package names, must be of the form e3 writes.
 - **One record for one fact.** The `success` status holds the output hash, and a dataflow run has one id, its UUIDv7 `runId`.
@@ -494,13 +495,13 @@ A lock is shared or exclusive, on a resource. It records what took it and who ho
 | Resource | Shared by | Exclusive by |
 |---|---|---|
 | `<ws>`, the workspace | a dataflow run; a dataset write; a record write — a mutation, a reindex, a compaction or a system commit | a deploy, a removal, an export |
-| `<ws>#dataflow` | — | a dataflow run, so one runs at a time; gc |
-| `#tasks`, the repository's work | every write that stores objects before a ref names them: an ad-hoc `e3 run`, a dataset write through the door, a record write, a deploy | gc |
+| `<ws>#dataflow` | — | a dataflow run, so one runs at a time; gc; an open that applies upgrades |
+| `#tasks`, the repository's work | every write that stores objects before a ref names them: an ad-hoc `e3 run`, a dataset write through the door, a record write, a deploy | gc; an open that applies upgrades |
 | one dataset's ref | — | its conditional write, for the instant of its read, compare and rename |
 
 - **Writes during a run.** A dataflow and dataset writes go on together: a write changes a root input, and the running dataflow reacts to it (§3.15). Two dataflows of one workspace do not.
 - **Structural changes.** A deploy, a removal or an export is refused while a dataflow or a write holds the workspace. A deploy's caller may take the lock itself and hand it to the deploy, which then releases nothing. That is how a deploy run in rounds keeps the workspace across them (§3.18).
-- **gc** takes `#tasks` and every workspace's `#dataflow` exclusively. So it never overlaps a write whose objects no ref names yet, nor a run, and none of those objects needs rooting.
+- **gc** takes `#tasks` and every workspace's `#dataflow` exclusively (`withRepositoryHeld`). So it never overlaps a write whose objects no ref names yet, nor a run, and none of those objects needs rooting. An open that applies upgrades holds the repository the same way, waiting for the work to finish where gc refuses at once.
 - **A dataset ref's own lock** makes its conditional write (`writeIf`) a compare-and-swap across processes. A revision is minted per write, never taken from the content, so an equal value written twice is two revisions and no write is lost to ABA.
 
 ### 3.17 The API's data contracts

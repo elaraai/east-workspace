@@ -347,6 +347,7 @@ describe('path-initialised inputs', () => {
     /** `storage`, with some of its stores swapped. */
     function withStores(stores: Partial<Pick<StorageBackend, 'objects' | 'refs'>>): StorageBackend {
       return {
+        upgrades: storage.upgrades,
         objects: stores.objects ?? storage.objects,
         refs: stores.refs ?? storage.refs,
         locks: storage.locks,
@@ -574,6 +575,7 @@ describe('path-initialised inputs', () => {
         write: { value: async (): Promise<never> => { throw new Error('disk full'); } },
       }) as StorageBackend['objects'];
       const failing: StorageBackend = {
+        upgrades: storage.upgrades,
         objects,
         refs: storage.refs,
         locks: storage.locks,
@@ -664,6 +666,7 @@ describe('path-initialised inputs', () => {
       }) as StorageBackend['objects'];
       return {
         storage: {
+          upgrades: inner.upgrades,
           objects,
           refs: inner.refs,
           locks: inner.locks,

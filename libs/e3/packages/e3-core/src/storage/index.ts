@@ -40,6 +40,8 @@ export {
   type GcObjectScanResult,
   // Dataset refs
   type DatasetRefStore,
+  // Repository upgrades
+  type RepositoryUpgrade,
   // Combined backend
   type StorageBackend,
 } from './interfaces.js';

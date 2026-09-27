@@ -21,7 +21,7 @@
  * caller, and the fallbacks were whole-object reads.
  */
 
-import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, DataflowRun, DatasetRef, RepoMetadata, RepoStatus } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, DataflowRun, DatasetRef, RepoMetadata, RepoStatus, RepositoryRecord } from '@elaraai/e3-types';
 import type { LockHolderInfo } from '../errors.js';
 
 // Re-export lock types for consumers of this module
@@ -236,6 +236,29 @@ export interface ObjectStore {
  * All methods take `repo` as first parameter to identify the repository.
  */
 export interface RefStore {
+  // -------------------------------------------------------------------------
+  // Repository Record
+  // -------------------------------------------------------------------------
+
+  /**
+   * Read the repository's record: the release of e3 that last wrote it, and
+   * the store upgrades the repository has had.
+   *
+   * @param repo - Repository identifier
+   * @returns The record, or null when the repository has none that reads: an
+   *   e3 from before repositories recorded their upgrades wrote it
+   */
+  repositoryRead(repo: string): Promise<RepositoryRecord | null>;
+
+  /**
+   * Write the repository's record, replacing the one there. A reader sees the
+   * old record or the new one, never a torn one.
+   *
+   * @param repo - Repository identifier
+   * @param record - The record
+   */
+  repositoryWrite(repo: string, record: RepositoryRecord): Promise<void>;
+
   // -------------------------------------------------------------------------
   // Package References
   // -------------------------------------------------------------------------
@@ -706,7 +729,9 @@ export interface RepoStore {
   // -------------------------------------------------------------------------
 
   /**
-   * Create a new repository.
+   * Create a new repository, with its record: this release and every store
+   * upgrade this e3 knows (`newRepositoryRecord`), since a new repository is
+   * in the forms they write.
    * Sets status to 'active' after initialization.
    * @param repo - Repository name
    * @throws {RepoAlreadyExistsError} If repository already exists
@@ -902,6 +927,38 @@ export interface DatasetRefStore {
 }
 
 // =============================================================================
+// Repository Upgrades
+// =============================================================================
+
+/**
+ * A change to the forms a repository keeps its records in, which the release
+ * that makes it ships, and which an e3 opening a repository written before it
+ * applies in place (`repositoryOpen`).
+ *
+ * @remarks
+ * A change to a record's East type is every backend's, and its step goes
+ * through the stores. A change to one backend's layout — a local repository's
+ * files, the cloud's items — is that backend's own, in
+ * {@link StorageBackend.upgrades}. A step runs with the repository held still
+ * — no task, dataflow or gc runs meanwhile — and it is idempotent: it leaves a
+ * record already in the new form as it is, so a step a crash cut short runs
+ * again whole.
+ */
+export interface RepositoryUpgrade {
+  /** The step's name, which the repository record keeps once it is applied:
+   *  never another step's, a backend's or a shared one, nor reused */
+  readonly name: string;
+  /**
+   * Rewrites the repository's records into the forms the release that ships
+   * the step reads.
+   *
+   * @param storage - Storage backend
+   * @param repo - Repository identifier
+   */
+  apply(storage: StorageBackend, repo: string): Promise<void>;
+}
+
+// =============================================================================
 // Combined Storage Backend
 // =============================================================================
 
@@ -913,6 +970,14 @@ export interface DatasetRefStore {
  * against different storage implementations.
  */
 export interface StorageBackend {
+  /**
+   * The upgrades of this backend's own layout, in the order they apply: none
+   * yet for the local and in-memory backends. An open applies them before the
+   * steps every backend shares, since those go through this backend's stores,
+   * which read its current layout.
+   */
+  readonly upgrades: readonly RepositoryUpgrade[];
+
   /** Content-addressed object storage */
   readonly objects: ObjectStore;
 
@@ -932,7 +997,9 @@ export interface StorageBackend {
   readonly datasets: DatasetRefStore;
 
   /**
-   * Validate that a repository exists and is properly structured.
+   * Validate that a repository exists and is properly structured. It reads no
+   * record: `repositoryOpen` does, and applies the upgrades the repository
+   * owes.
    * @param repo - Repository identifier (path to e3 repository directory for local storage)
    * @throws {RepoNotFoundError} If repository doesn't exist or is invalid
    */
