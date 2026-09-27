@@ -23,13 +23,12 @@ do is implemented here.
 
 - [`../../CLAUDE.md`](../../CLAUDE.md) — e3 lib-level overview with the
   full concept glossary.
-- [`../../design/e3-core.md`](../../design/e3-core.md) — core design
-  spec.
-- [`../../design/e3-execution.md`](../../design/e3-execution.md) +
-  [`e3-execution-history.md`](../../design/e3-execution-history.md) —
-  execution and provenance tracking.
-- [`../../design/e3-reactive-dataflow.md`](../../design/e3-reactive-dataflow.md)
-  — reactive execution, per-dataset refs, version vectors.
+- [`../../design/e3-data-architecture.md`](../../design/e3-data-architecture.md)
+  — how e3 stores data and runs work, as built: the store's door, the
+  engine, the budget, the repository's records, reactive execution with
+  per-dataset refs and version vectors, locks and record migrations.
+- [`../../design/e3-execution.md`](../../design/e3-execution.md) —
+  running a task: execution records and history, split tasks, the budget.
 - [`../../design/repo-manager-abstraction.md`](../../design/repo-manager-abstraction.md)
   + [`task-runner-implementation.md`](../../design/task-runner-implementation.md)
   — storage/execution abstractions.

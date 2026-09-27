@@ -196,7 +196,7 @@ A collection is streamed as the splice of its segments. A client whose host
 buffers responses downloads the manifest, the header it names and its segments
 through the objects route and splices them itself, as e3-api-client's
 `datasetGet` does; see
-[`design/e3-api.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-api.md#dataset-download).
+[`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-download).
 
 ### Objects
 
@@ -210,7 +210,7 @@ through the objects route and splices them itself, as e3-api-client's
 Values too large to `PUT` inline are staged in parts and committed. The init
 and the commit name the protocol version with `?protocol=2`, and a request of
 another version, or none, is refused, naming the fix. The full protocol is in
-[`design/e3-api.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-api.md#dataset-transfer).
+[`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-transfer).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

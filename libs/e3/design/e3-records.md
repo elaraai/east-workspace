@@ -5,7 +5,8 @@
 > AWS implementation is sketched in §10 and would get a companion doc in
 > `e3-cloud/design/e3-records-cloud.md` (same split as `e3-functions.md`).
 > Builds directly on `e3-functions.md` (runDetached, FunctionObject patterns)
-> and `e3-reactive-dataflow.md` (per-dataset refs, version vectors).
+> and the reactive dataflow (per-dataset refs, version vectors), now
+> `e3-data-architecture.md` §3.15.
 
 ## 1. Summary
 
@@ -73,7 +74,7 @@ for "copy the latest extract in", but it cannot host operational state:
 - **Decision history as a compliance artifact.** "What did we forecast on
   March 3, what did the planner change, what did we commit to" is a join
   between record commit chains and the execution provenance e3 already
-  tracks (`e3-execution-history.md`). That is the literal meaning of
+  tracks (`e3-execution.md`). That is the literal meaning of
   *system of record*.
 - **Workflow state machines and counters.** Approval states, integration
   cursors ("last synced order id"), sequence numbers (an order-number

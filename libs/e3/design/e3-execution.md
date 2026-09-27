@@ -282,7 +282,7 @@ Dependency: A → B → C (and A → C)
 - `stepTaskSplit`, `stepTaskMergeStarted` and `stepTaskMergeCompleted`: a split task's stages;
 - `stepFinalize`;
 - `stepYield` and `stepCancel`;
-- the reactive steps that detect input changes, invalidate tasks and check version consistency (see e3-reactive-dataflow.md).
+- the reactive steps that detect input changes, invalidate tasks and check version consistency (see `e3-data-architecture.md` §3.15).
 
 A run has one id, a UUIDv7 the orchestrator mints: the execution state's id, the run record's `runId` (`dataflows/<ws>/<runId>.beast2`), and the workspace's `currentRunId` once it succeeds. A resumed run keeps it. The run record names each task's execution whole — its task hash, inputs hash and id: the attempt that ran, or the one the cache served — which the execution state records as each task completes, so a resumed run's record names the executions its first incarnation used too. Each step is pure or idempotent over the persisted state, so a run can yield and resume. The loop keeps up to `width` things in flight — a task, a split task while its pieces are planned, and each unit of a split task — and the CLI and the API server set `width` to their budget's cores, of which every runner they spawn takes one. A split task's units launch first, in the order the tasks started, a stage's first unit alone. A split task in progress runs to its end even once another task has failed, as a running task does; nothing starts once the run is aborted.
 
