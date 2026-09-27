@@ -47,6 +47,7 @@ import {
     initializeRecordApi,
     clearRecordApi,
 } from "./record-runtime.js";
+import { getStagedStore } from "./staged-store.js";
 import { useE3Config } from "./e3-config.js";
 
 // =============================================================================
@@ -143,6 +144,9 @@ export function ReactiveDatasetProvider({
             initializePagedApi(pagedApi, workspace);
             initializeRecordApi(recordApi, cache, workspace);
         }
+        // Staged edits are kept per server and repository: one browser origin
+        // can serve several, and their edits must not meet.
+        const unscopeStaged = getStagedStore().setScope(JSON.stringify([apiUrl, repo]));
         setInstalled({ apiUrl, repo, workspace, cache });
         return () => {
             // Order matters: drop the queued writes BEFORE destroying the
@@ -152,6 +156,7 @@ export function ReactiveDatasetProvider({
             clearFunctionApi(functionApi);
             clearPagedApi(pagedApi);
             clearRecordApi(recordApi);
+            unscopeStaged();
             cache.destroy();
             // Drop binding-registry entries for this workspace so a long
             // session navigating across workspaces doesn't leak metadata

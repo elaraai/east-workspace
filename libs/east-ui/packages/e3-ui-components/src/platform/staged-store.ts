@@ -25,6 +25,12 @@
  *
  * Subscribers are notified per-key on writes / discards / hydrate.
  *
+ * Entries are kept per server and repository, the store's scope, which the
+ * provider sets: IndexedDB is one per browser origin, and two servers or
+ * repositories served from one origin must not share pending edits, or a
+ * commit would write one project's edit into another's dataset. An entry an
+ * older build left names no server, and is dropped when the store hydrates.
+ *
  * Hydration is async (one IndexedDB load on first construction). Until
  * `await store.ready()` resolves, the in-memory cache is empty and reads
  * return undefined. Reactive subscribers fire after hydrate completes, so
@@ -102,8 +108,19 @@ export interface StagedStoreInterface {
     /** Drop the staged entry for a path. Returns true if there was one. */
     discard(workspace: string, path: TreePath): boolean;
 
-    /** All currently-staged keys (workspace+path combinations). */
+    /** All currently-staged keys (workspace+path combinations) in the scope. */
     listKeys(): string[];
+
+    /**
+     * Scope the store to a server and repository: every read and write goes to
+     * that scope's entries, and entries of any other scope are kept, unseen.
+     * With no scope set, the store has one scope of its own.
+     *
+     * @param scope - The server and repository, as one string
+     * @returns A function that unsets the scope while it is still this one, so
+     *   a provider tearing down after another set its own leaves that in place
+     */
+    setScope(scope: string): () => void;
 
     // Reactive tracker integration
     subscribe(key: string, callback: () => void): () => void;
@@ -240,8 +257,20 @@ export class MemoryStagedAdapter implements StagedPersistenceAdapter {
 // StagedStore — adapter-driven, sync in-memory cache, async write-through.
 // ============================================================================
 
+/** Joins an entry's scope to its `datasetCacheKey`. A workspace name holds no
+ *  control character, so a key without one is an older build's. */
+const SCOPE_SEPARATOR = "\u0000";
+
+/** The `datasetCacheKey` an entry key holds, after its scope. */
+function cacheKeyOf(key: string): string {
+    return key.slice(key.indexOf(SCOPE_SEPARATOR) + 1);
+}
+
 export class StagedStore implements StagedStoreInterface {
+    // By scope and `datasetCacheKey`; subscribers and versions go by the
+    // `datasetCacheKey` alone, which is what a reactive view tracks.
     private entries: Map<string, StagedEntry> = new Map();
+    private scope: string | null = null;
     private subscribers: Map<string, Set<() => void>> = new Map();
     private versions: Map<string, number> = new Map();
     private adapter: StagedPersistenceAdapter;
@@ -273,19 +302,19 @@ export class StagedStore implements StagedStoreInterface {
     }
 
     hasPending(workspace: string, path: TreePath): boolean {
-        return this.entries.has(datasetCacheKey(workspace, path));
+        return this.entries.has(this.keyOf(workspace, path));
     }
 
     getBuffered(workspace: string, path: TreePath): Uint8Array | undefined {
-        return this.entries.get(datasetCacheKey(workspace, path))?.buffered;
+        return this.entries.get(this.keyOf(workspace, path))?.buffered;
     }
 
     getSnapshot(workspace: string, path: TreePath): Uint8Array | undefined {
-        return this.entries.get(datasetCacheKey(workspace, path))?.snapshot;
+        return this.entries.get(this.keyOf(workspace, path))?.snapshot;
     }
 
     getEntry(workspace: string, path: TreePath): StagedEntry | undefined {
-        return this.entries.get(datasetCacheKey(workspace, path));
+        return this.entries.get(this.keyOf(workspace, path));
     }
 
     write(
@@ -294,13 +323,13 @@ export class StagedStore implements StagedStoreInterface {
         snapshotIfNew: Uint8Array,
         buffered: Uint8Array,
     ): void {
-        const key = datasetCacheKey(workspace, path);
+        const key = this.keyOf(workspace, path);
         const existing = this.entries.get(key);
         const next: StagedEntry = existing
             ? { snapshot: existing.snapshot, buffered }
             : { snapshot: snapshotIfNew, buffered };
         this.entries.set(key, next);
-        this.notify(key);
+        this.notify(datasetCacheKey(workspace, path));
 
         const persisted: PersistedStagedEntry = {
             snapshot: next.snapshot,
@@ -310,16 +339,28 @@ export class StagedStore implements StagedStoreInterface {
     }
 
     discard(workspace: string, path: TreePath): boolean {
-        const key = datasetCacheKey(workspace, path);
+        const key = this.keyOf(workspace, path);
         if (!this.entries.has(key)) return false;
         this.entries.delete(key);
-        this.notify(key);
+        this.notify(datasetCacheKey(workspace, path));
         this.persist(key, () => this.adapter.remove(key));
         return true;
     }
 
     listKeys(): string[] {
-        return [...this.entries.keys()];
+        const prefix = `${this.scope ?? ""}${SCOPE_SEPARATOR}`;
+        return [...this.entries.keys()].filter((key) => key.startsWith(prefix)).map(cacheKeyOf);
+    }
+
+    setScope(scope: string): () => void {
+        const before = this.scope;
+        this.scope = scope;
+        this.notifyScopes(before, scope);
+        return () => {
+            if (this.scope !== scope) return;
+            this.scope = null;
+            this.notifyScopes(scope, null);
+        };
     }
 
     subscribe(key: string, callback: () => void): () => void {
@@ -344,11 +385,11 @@ export class StagedStore implements StagedStoreInterface {
         return () => { this.errorListeners.delete(cb); };
     }
 
-    /** Test-only: clear in-memory + persisted state. */
+    /** Test-only: clear in-memory + persisted state, in every scope. */
     async clear(): Promise<void> {
         const keys = [...this.entries.keys()];
         this.entries.clear();
-        for (const key of keys) this.notify(key);
+        for (const key of new Set(keys.map(cacheKeyOf))) this.notify(key);
         // Drain in-flight saves/removes before wiping persistence, so a save
         // that lands after the wipe can't resurrect a discarded entry.
         await this.flushPending();
@@ -356,6 +397,22 @@ export class StagedStore implements StagedStoreInterface {
     }
 
     // ----- internals -------------------------------------------------------
+
+    /** The key a path's entry is held under in the current scope. */
+    private keyOf(workspace: string, path: TreePath): string {
+        return `${this.scope ?? ""}${SCOPE_SEPARATOR}${datasetCacheKey(workspace, path)}`;
+    }
+
+    /** Tells every path with an entry in either scope that what it reads has
+     *  changed: the scope's move shows one's entries and hides the other's. */
+    private notifyScopes(from: string | null, to: string | null): void {
+        const keys = new Set<string>();
+        for (const key of this.entries.keys()) {
+            const scope = key.slice(0, key.indexOf(SCOPE_SEPARATOR));
+            if (scope === (from ?? "") || scope === (to ?? "")) keys.add(cacheKeyOf(key));
+        }
+        for (const key of keys) this.notify(key);
+    }
 
     private notify(key: string): void {
         this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
@@ -376,7 +433,7 @@ export class StagedStore implements StagedStoreInterface {
         // are routed, not propagated.
         const settled: Promise<void> = prev.then(op, op).then(
             () => undefined,
-            (err: unknown) => { this.emitPersistError(key, err); },
+            (err: unknown) => { this.emitPersistError(cacheKeyOf(key), err); },
         ).then(() => {
             if (this.saveChains.get(key) === settled) this.saveChains.delete(key);
             this.inFlight.delete(settled);
@@ -408,11 +465,20 @@ export class StagedStore implements StagedStoreInterface {
             return;
         }
         for (const [key, p] of persisted) {
+            if (!key.includes(SCOPE_SEPARATOR)) {
+                // An older build's entry names no server: shown under one, a
+                // commit could write it into another project's dataset.
+                this.persist(key, () => this.adapter.remove(key));
+                this.emitPersistError(key, new Error(
+                    `a staged edit of ${key} that an older build left names no server or repository, and was dropped`,
+                ));
+                continue;
+            }
             this.entries.set(key, {
                 snapshot: p.snapshot,
                 buffered: p.buffered,
             });
-            this.notify(key);
+            this.notify(cacheKeyOf(key));
         }
     }
 }

@@ -15,12 +15,14 @@
 import { StrictMode } from "react";
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
+import { variant } from "@elaraai/east";
 import { E3Provider } from "./e3-config.js";
 import { ReactiveDatasetProvider, useReactiveDatasetCache } from "./dataset-hooks.js";
 import { defaultBindRuntime, getReactiveDatasetCache } from "./bind-runtime.js";
 import { defaultPagedRuntime } from "./paged-runtime.js";
 import { defaultFuncRuntime } from "./func-runtime.js";
 import { defaultRecordRuntime } from "./record-runtime.js";
+import { getStagedStore } from "./staged-store.js";
 import type { ReactiveDatasetCacheInterface } from "./dataset-store.js";
 
 afterEach(cleanup);
@@ -76,5 +78,26 @@ describe("ReactiveDatasetProvider", () => {
         const { unmount } = render(tree("a"));
         unmount();
         expect(boundWorkspaces()).toEqual([undefined, null, null, null]);
+    });
+
+    test("staged edits are kept per server: another server's provider does not see them", () => {
+        // Two servers served from one browser origin share its IndexedDB.
+        const staged = getStagedStore();
+        const inputs = [variant("field", "inputs")];
+        const at = (apiUrl: string) => (
+            <E3Provider key={apiUrl} config={{ apiUrl, workspace: "dev" }}>
+                <ReactiveDatasetProvider><div /></ReactiveDatasetProvider>
+            </E3Provider>
+        );
+        const { rerender } = render(at("http://x.test"));
+        staged.write("dev", inputs, new Uint8Array([1]), new Uint8Array([2]));
+        try {
+            rerender(at("http://y.test"));
+            expect(staged.hasPending("dev", inputs)).toBe(false);
+            rerender(at("http://x.test"));
+            expect(staged.hasPending("dev", inputs)).toBe(true);
+        } finally {
+            staged.discard("dev", inputs);
+        }
     });
 });

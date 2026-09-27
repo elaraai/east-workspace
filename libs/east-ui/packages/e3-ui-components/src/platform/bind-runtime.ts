@@ -651,6 +651,13 @@ export class BindRuntime {
             return null;
         };
 
+        // Whether the source has a value, tracked as a read of it: a view that
+        // renders an empty branch on `has()` re-renders when the value lands.
+        const hasSource = (): boolean => {
+            this.trackPath(ws, sourcePath);
+            return cache.has(ws, sourcePath);
+        };
+
         // ----- direct, no patch — writes go to source ------------------
         if (mode === "direct" && !patchPath) {
             return {
@@ -674,7 +681,7 @@ export class BindRuntime {
                 pending: () => false,
                 commit: () => null,
                 discard: () => null,
-                has: () => cache.has(ws, sourcePath),
+                has: hasSource,
                 status: () => {
                     this.trackPath(ws, sourcePath);
                     return cache.getStatus(ws, sourcePath);
@@ -739,7 +746,7 @@ export class BindRuntime {
                     this.queueWrite(() => cache.write(ws, pPath, encodePatch(UNCHANGED_VARIANT)));
                     return null;
                 },
-                has: () => cache.has(ws, sourcePath),
+                has: hasSource,
                 status: () => {
                     this.trackPath(ws, sourcePath);
                     return cache.getStatus(ws, sourcePath);
@@ -788,7 +795,7 @@ export class BindRuntime {
                     staged.discard(ws, sourcePath);
                     return null;
                 },
-                has: () => cache.has(ws, sourcePath),
+                has: hasSource,
                 status: () => {
                     this.trackPath(ws, sourcePath);
                     return cache.getStatus(ws, sourcePath);
@@ -837,7 +844,7 @@ export class BindRuntime {
                 staged.discard(ws, sourcePath);
                 return null;
             },
-            has: () => cache.has(ws, sourcePath),
+            has: hasSource,
             status: () => {
                 this.trackPath(ws, sourcePath);
                 return cache.getStatus(ws, sourcePath);
