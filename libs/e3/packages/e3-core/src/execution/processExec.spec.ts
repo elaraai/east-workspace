@@ -25,7 +25,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
 import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, UnitType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
@@ -471,6 +471,16 @@ describe('a runner\'s command line', () => {
     const result = await spawnAndCapture(['argv-echo', ...AWKWARD_ARGUMENTS], dir, { extraBins: [bin] });
     assert.equal(result.exitCode, 0, result.stderrTail);
     assert.deepEqual(JSON.parse(result.stdoutTail), JSON.parse(direct.stdout));
+  });
+
+  it('hands the runner absolute paths for relative ones: its PATH entries and its search directories', async () => {
+    // The runner runs in its scratch directory, where a path relative to the
+    // caller's working directory names nothing.
+    const result = await spawnAndCapture([process.execPath, '-e',
+      'process.stdout.write(JSON.stringify([process.env.PATH.split(require("node:path").delimiter)[0], process.env.E3_RUNNER_SEARCH_DIRS]))'], dir,
+      { extraBins: ['relative-bin'], searchDirs: ['relative-search'] });
+    assert.equal(result.exitCode, 0, result.stderrTail);
+    assert.deepEqual(JSON.parse(result.stdoutTail), [resolve('relative-bin'), resolve('relative-search')]);
   });
 
   it('reports the runner\'s own exit code', async () => {

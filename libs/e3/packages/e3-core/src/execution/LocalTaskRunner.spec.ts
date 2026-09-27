@@ -364,6 +364,23 @@ describe('stopped executions', () => {
     }
   });
 
+  it('runs a task whose repository is named relative to the working directory', async () => {
+    // A runner runs in its execution's scratch directory, so every path it is
+    // handed must be absolute, however the caller named the repository: a
+    // server given a relative --repos names each repository relative to its
+    // own working directory.
+    const { taskHash, inputHashes } = await customTask(['node', '-e', 'require("node:fs").copyFileSync(process.argv[1], process.argv[2])']);
+    const cwd = process.cwd();
+    process.chdir(path.dirname(repo));
+    try {
+      const result = await taskExecute(storage, path.basename(repo), taskHash, inputHashes);
+      assert.equal(result.state, 'success', result.error ?? '');
+      assert.equal(result.outputHash, inputHashes[0], 'its output is the bytes it copies');
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   it('writes the owner sidecar before the running record', async () => {
     // A process killed between the two writes then leaves no `running` record
     // without the owner its repair needs.
