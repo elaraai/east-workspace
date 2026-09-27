@@ -104,7 +104,12 @@ describe('the record view', () => {
 
     test('the History tab: newest first, the head marked, older pages read as the selection nears the last', async () => {
         const api = repo();
+        // Slowed, so the tab is seen before its first page lands: nothing is counted then.
+        api.latencyMs = 50;
         mounted = await mountApp({ api, feeds: true, view: recordView('main', 'ledger', 'history') });
+        await mounted.waitFor(shows(mounted, 6, /loading…/));
+        assert.match(mounted.lines()[35]!, /esc back\s*$/);
+        api.latencyMs = 0;
         await mounted.waitFor(shows(mounted, 35, /100\+ commits$/));
         const lines = mounted.lines();
         assert.match(lines[2]!, /^ ledger    1 State  ▌2 History▐\s+RECORD · 300 rows/);

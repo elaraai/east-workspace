@@ -13,7 +13,8 @@
 //    the app (/goto, G, /find, gg, a held j, page downs, a row expanded), with
 //    requests, times, pages retained, the heap and the RSS;
 // 4. /save of a massive collection, sampling the RSS while it writes;
-// 5. a record: the dashboard, /dataset and the dataset list.
+// 5. a record: its row in the RECORDS table, its state, an index's pages
+//    (/find, G) and its history, from the table and from /dataset.
 // Frames are written to <out-dir>.
 //
 //   node --expose-gc contrib/tui-check-probe.mjs <repo-dir> <out-dir> [jobs] [memory] [parts]
@@ -269,16 +270,40 @@ if (parts.has(4)) {
 if (parts.has(5)) {
   const m = await mount();
   m.controller.openWorkspace('big');
-  await until('the dashboard', shows(m, 'TASKS'));
+  await until('the RECORDS row', () => m.store.getState().data.records['big']?.['ledger']?.signature != null && /^ .?ledger\s+[\d,]+\s/m.test(m.frame()));
   snap(m, '5-dashboard');
-  console.log(`\n== 5. record: the dashboard names it: ${m.frame().includes('ledger')}`);
-  const listed = (await api.datasetList('big')).filter(e => JSON.stringify(e, (_, v) => typeof v === 'bigint' ? String(v) : v).includes('records'));
-  console.log(`the dataset list has ${listed.length} record entries`);
-  await m.type('/dataset .records.ledger');
-  await m.press(KEY.enter);
-  await sleep(200);
-  snap(m, '5-dataset-record');
-  console.log(`/dataset .records.ledger: ${m.lines()[m.lines().length - 3]?.trim()}`);
+  console.log(`\n== 5. record: the RECORDS row: ${m.lines().find(l => /^ .?ledger\s/.test(l))?.trim()}`);
+  const step = async (label, keys, done) => {
+    m.dropFrames();
+    const t = Date.now();
+    requests = 0;
+    for (const k of keys) {
+      if (k.startsWith('/')) {
+        await m.type(k);
+        await m.press(KEY.enter);
+      } else {
+        await m.press(k);
+      }
+    }
+    await until(label, done);
+    console.log(`${label}: ${Date.now() - t} ms, ${requests} page requests; ${m.lines()[3]?.trim()}`);
+  };
+  // From the table: the last selectable row is the record's.
+  await step('the state, from the table', ['G', KEY.enter], shows(m, 'L0000000'));
+  snap(m, '5-state');
+  await step('/goto 50%', ['/goto 50%'], shows(m, 'L0100000'));
+  await step('/index by_site', ['/index by_site'], () => /index by_site/.test(m.lines()[3] ?? '') && shows(m, 'site-0 · L')());
+  snap(m, '5-index');
+  await step('/find site-50 on the index', ['/find site-50'], shows(m, 'site-50 · L'));
+  await step('G on the index', ['G'], shows(m, 'site-96 · L0199'));
+  snap(m, '5-index-end');
+  await step('/index primary', ['/index primary'], shows(m, 'L0000000'));
+  await step('the History tab', ['2'], () => / commits?$/.test(m.lines().at(-1) ?? ''));
+  console.log(`history: ${m.lines().at(-1)?.trim()}; ${m.lines().slice(6, 9).map(l => l.trim()).join(' | ')}`);
+  snap(m, '5-history');
+  await m.press(KEY.escape);
+  await step('/dataset .records.ledger', ['/dataset .records.ledger'], () => m.store.getState().view.kind === 'record');
+  console.log(`record: ${mem()}`);
   m.unmount();
 }
 

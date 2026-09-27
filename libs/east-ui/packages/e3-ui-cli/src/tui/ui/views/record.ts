@@ -141,7 +141,9 @@ registerView('record', (state, ctx) => {
         body.push(table[0]!, ...withScrollbar(rows.slice(0, visible), width, commits.length, visible, top, g));
         for (let i = top; i < Math.min(commits.length, top + visible); i++) hits.push({ row: HISTORY_CHROME_ROWS + (i - top), x0: 0, x1: width - 1, target: { kind: 'list', index: i } });
         const pane: Pane = { top: HISTORY_CHROME_ROWS, rows: visible, total: commits.length, visible, scrollTop: top };
-        const count = `${formatInt(commits.length)}${facts?.complete === false && commits.length > 0 ? '+' : ''} commit${commits.length === 1 ? '' : 's'}`;
+        // Nothing is counted until the first page is read.
+        const count = facts?.history == null ? ''
+            : `${formatInt(commits.length)}${facts.complete === false && commits.length > 0 ? '+' : ''} commit${commits.length === 1 ? '' : 's'}`;
         return { body, hits, pane, hints: { left: `${g.up}${g.down} move   1 state   esc back`, right: count } };
     }
     const data = state.data.dataset[ws]?.[recordSource(name, index)];
