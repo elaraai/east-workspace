@@ -24,6 +24,7 @@ import {
     datasetGetStatus,
     datasetListRecursive,
     datasetSet,
+    dataflowBudget,
     dataflowCancel,
     dataflowExecuteLaunch,
     dataflowExecutePoll,
@@ -36,6 +37,7 @@ import {
     workspaceGet,
     workspaceList,
     workspaceStatus,
+    type DataflowBudget,
     type DataflowExecutionState,
     type DataflowOptions,
     type DatasetFindQuery,
@@ -100,6 +102,8 @@ export interface Api {
     datasetSet(ws: string, path: TreePath, data: Uint8Array): Promise<void>;
     dataflowExecuteLaunch(ws: string, options: DataflowOptions): Promise<void>;
     dataflowExecutePoll(ws: string, offset: number): Promise<DataflowExecutionState>;
+    /** The budget a run of the workspace gets (the server's), or null for a server whose runners hold none. */
+    dataflowBudget(ws: string): Promise<DataflowBudget | null>;
     dataflowCancel(ws: string): Promise<void>;
     taskLogs(ws: string, task: string, options: LogOptions): Promise<LogChunk>;
     /** The same origin bound to another repository (the repositories view's lazy facts). */
@@ -154,6 +158,7 @@ export function createHttpApi(config: HttpApiConfig): Api {
         datasetSet: async (ws, path, data) => datasetSet(apiUrl, repo(), ws, path, data, await options()),
         dataflowExecuteLaunch: async (ws, dataflowOptions) => dataflowExecuteLaunch(apiUrl, repo(), ws, dataflowOptions, await options()),
         dataflowExecutePoll: async (ws, offset) => dataflowExecutePoll(apiUrl, repo(), ws, { offset }, await options()),
+        dataflowBudget: async (ws) => dataflowBudget(apiUrl, repo(), ws, await options()),
         dataflowCancel: async (ws) => dataflowCancel(apiUrl, repo(), ws, await options()),
         taskLogs: async (ws, task, logOptions) => taskLogs(apiUrl, repo(), ws, task, logOptions, await options()),
         withRepo: (other) => createHttpApi({ ...config, repo: other }),

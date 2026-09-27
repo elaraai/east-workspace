@@ -53,7 +53,8 @@ export function pills(state: TuiState, ctx: RenderCtx): Line {
     const execution = ws !== null ? state.data.execution[ws] : undefined;
     if (execution?.state?.status.type === 'running' || execution?.settling === true || execution?.stopping === true) {
         const total = ws !== null ? state.data.status[ws]?.result.tasks.length ?? 0 : 0;
-        const done = execution.events.filter(e => e.type !== 'start').length;
+        // A requeue is a unit's, and ends no task.
+        const done = execution.events.filter(e => e.type !== 'start' && e.type !== 'requeued').length;
         const spin = g.spinner[ctx.spinner % g.spinner.length]!;
         if (execution.stopping) out.push(b(`${g.square} STOPPING ${spin}`, 'warn'), t('  '));
         else out.push(b(`${g.quarter} RUNNING ${done}/${total} ${spin}`, 'info'), t('  '));
@@ -139,11 +140,13 @@ export function commandStatus(state: TuiState): { text: string; keys: string; er
     const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' ? state.view.ws : null;
     const status = ws !== null ? state.data.status[ws]?.result : undefined;
     const execution = ws !== null ? state.data.execution[ws] : undefined;
+    const budget = ws !== null ? state.data.budget[ws] : undefined;
     const described = describe(parsed.command, {
         workspace: ws,
         taskCount: status?.tasks.length ?? 0,
         running: execution?.state?.status.type === 'running' || execution?.settling === true,
         dirty: dirtyCount(state),
+        budget: budget === undefined || budget === null ? null : { cores: Number(budget.cores), memory: Number(budget.memory) },
     });
     if (completion !== null && (parsed.command.name === 'task' || parsed.command.name === 'input' || parsed.command.name === 'workspace' || parsed.command.name === 'dataset' || parsed.command.name === 'repo' || parsed.command.name === 'logs' || parsed.command.name === 'runs' || parsed.command.name === 'tag')) {
         return { text: `${completion.items.length} match${completion.items.length === 1 ? '' : 'es'} · ↑↓ pick · ⏎ open · tab complete`, keys: '', error: false };

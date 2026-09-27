@@ -18,6 +18,7 @@
 
 import type { EastTypeValue, ValueTypeOf } from '@elaraai/east';
 import type {
+    DataflowBudget,
     DataflowEvent,
     DataflowExecutionState,
     DatasetStatusDetail,
@@ -310,6 +311,8 @@ export interface DataState {
     statusError: Record<string, string>;
     /** Per workspace: the latest execution. */
     execution: Record<string, ExecutionData>;
+    /** Per workspace: the budget a run gets (the server's), or null when its runners hold none. */
+    budget: Record<string, DataflowBudget | null>;
     /** Per workspace: every dataset with its type / hash / size. */
     datasets: Record<string, ListEntry[]>;
     /** Per workspace: the task list (with roles). */
@@ -334,6 +337,7 @@ export const emptyData = (): DataState => ({
     status: {},
     statusError: {},
     execution: {},
+    budget: {},
     datasets: {},
     taskList: {},
     taskDetails: {},
@@ -471,6 +475,7 @@ export type Action =
     | { type: 'data/statusError'; ws: string; error: string }
     | { type: 'data/execution'; ws: string; state: DataflowExecutionState | null; events: DataflowEvent[]; startedAt: string | null }
     | { type: 'data/executionFlag'; ws: string; settling?: boolean; stopping?: boolean }
+    | { type: 'data/budget'; ws: string; budget: DataflowBudget | null }
     | { type: 'data/datasets'; ws: string; entries: ListEntry[] }
     | { type: 'data/taskList'; ws: string; tasks: TaskListItem[] }
     | { type: 'data/taskDetails'; ws: string; task: string; details: TaskDetails }

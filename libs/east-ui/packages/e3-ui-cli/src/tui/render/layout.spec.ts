@@ -42,12 +42,13 @@ describe('layout', () => {
     });
 
     test('column plans drop secondary columns as the terminal narrows', () => {
-        assert.deepEqual(columnPlan('tasks', 'wide').map(c => c.key), ['name', 'status', 'dependsOn', 'inputs', 'output', 'size']);
+        assert.deepEqual(columnPlan('tasks', 'wide').map(c => c.key), ['name', 'status', 'dependsOn', 'inputs', 'output', 'size', 'peak']);
         assert.deepEqual(columnPlan('tasks', 'medium').map(c => c.key), ['name', 'status', 'dependsOn', 'output', 'size']);
         assert.deepEqual(columnPlan('tasks', 'narrow').map(c => c.key), ['name', 'status', 'output', 'size']);
         assert.deepEqual(columnPlan('inputs', 'narrow').map(c => c.key), ['name', 'status', 'type', 'size']);
         assert.deepEqual(columnPlan('workspaces', 'wide').map(c => c.key), ['name', 'state', 'package', 'tasks', 'lastRun']);
         assert.deepEqual(columnPlan('repos', 'narrow').map(c => c.key), ['name', 'workspaces', 'packages', 'lastDeploy']);
+        assert.deepEqual(columnPlan('runs', 'wide').map(c => c.key), ['status', 'started', 'duration', 'peak', 'exit', 'inputs', 'note']);
         for (const table of ['tasks', 'inputs', 'workspaces', 'repos', 'runs', 'completion', 'jump'] as const) {
             for (const bp of ['wide', 'medium', 'narrow'] as const) {
                 const plan = columnPlan(table, bp);
@@ -76,7 +77,7 @@ describe('layout', () => {
         }
         // The first column is never narrowed.
         const squeezed = fitPlan(columnPlan('tasks', 'wide'), 99);
-        assert.equal(squeezed[0]!.width, 12);
+        assert.equal(squeezed[0]!.width, columnPlan('tasks', 'wide')[0]!.width);
         assert.equal(squeezed.reduce((n, c) => n + c.width, 0) + 2 + 12, 99);
     });
 

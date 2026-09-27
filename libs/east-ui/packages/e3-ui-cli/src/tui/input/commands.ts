@@ -11,6 +11,8 @@
  * @packageDocumentation
  */
 
+import { formatSize } from '../render/text.js';
+
 /** A parsed command. */
 export type ParsedCommand =
     | { name: 'task'; target: string }
@@ -224,11 +226,13 @@ export interface DescribeContext {
     running: boolean;
     /** Pending edits. */
     dirty: number;
+    /** The budget a run gets (the server's), or null when unknown or its runners hold none. */
+    budget: { cores: number; memory: number } | null;
 }
 
 /**
  * The consequence line the command box shows for a parsed command
- * (`run 6 tasks in main, ignoring the cache`).
+ * (`run 6 tasks in main, ignoring the cache · 8 cores, 14 GB`).
  *
  * @param command - The parsed command
  * @param ctx - The context
@@ -240,7 +244,8 @@ export function describe(command: ParsedCommand, ctx: DescribeContext): { text: 
         case 'run': {
             const scope = command.filter !== undefined ? `tasks matching ${command.filter}` : `${ctx.taskCount} task${ctx.taskCount === 1 ? '' : 's'}`;
             const cache = command.force ? ', ignoring the cache' : '';
-            return { text: ctx.running ? 'a run is already in progress' : `run ${scope} in ${ws}${cache}`, keys: ctx.running ? 'esc' : '⏎ run · esc' };
+            const budget = ctx.budget === null ? '' : ` · ${ctx.budget.cores} core${ctx.budget.cores === 1 ? '' : 's'}, ${formatSize(ctx.budget.memory)}`;
+            return { text: ctx.running ? 'a run is already in progress' : `run ${scope} in ${ws}${cache}${budget}`, keys: ctx.running ? 'esc' : '⏎ run · esc' };
         }
         case 'stop':
             return { text: ctx.running ? `cancel the run in ${ws}` : 'no run in progress', keys: ctx.running ? '⏎ stop · esc' : 'esc' };

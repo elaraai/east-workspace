@@ -6,13 +6,14 @@
 /**
  * The workspace dashboard — the title line, then one scrolling column:
  * the TASKS / DATASETS counts with the accounted bar, the execution panel
- * (the last run's failures, or the live per-task feed while it runs), the
- * tasks table and the inputs table. `⏎` opens the task, the input, or a
- * failed task's logs. Status detail is inline (`✗ failed · exit 2`,
- * `◐ waiting`, `◔ in-progress`).
+ * (the last run's failures; while it runs, the budget in use and the live
+ * feed: each task's latest event, the units requeued and what waits for
+ * room), the tasks table and the inputs table. `⏎` opens the task, the
+ * input, or a failed task's logs. Status detail is inline
+ * (`✗ failed · exit 2`, `◐ waiting`, `◔ in-progress`).
  *
  * The column is built in two steps. {@link dashboardModel} derives what
- * follows from the data and the width — the counts, the events the panel
+ * follows from the data and the width — the counts, the rows the panel
  * lists, the latest event per task, the dataset map, the fitted table
  * plans, each row's cells and where each selectable row sits — once per
  * data change: a single-entry cache keyed on the identity of the status,
@@ -33,7 +34,9 @@ import type { Tone } from '../../render/theme.js';
 import type { DataState, ExecutionData, NavOp, TuiState } from '../../state/actions.js';
 import { layoutOf, registerListModel } from '../../model/index.js';
 import { datasetEntries } from '../../model/catalogue.js';
-import { datasetStatusCell, eventCell, executionDuration, executionStatusCell, statusText, taskStatusCell } from '../../model/status.js';
+import {
+    datasetStatusCell, eventCell, executionDuration, executionStatusCell, splitPlace, statusText, taskStatusCell, unitPlace, waitCell, type StatusCell,
+} from '../../model/status.js';
 import { registerViewHooks, type Controller } from '../../controller.js';
 import { isRunLive, lockHolderText } from '../../data/dataflow.js';
 import type { Hit, Pane } from '../frame.js';
@@ -214,7 +217,8 @@ function countsLines(status: WorkspaceStatusResult, dctx: DashboardCtx): Line[] 
 // ---------------------------------------------------------------------------
 
 /**
- * The latest event of each task, in order of first appearance.
+ * The latest event of each task, in order of first appearance. A unit's
+ * requeue is not a task's event, so it never stands for its task.
  *
  * @param events - The execution's events
  * @returns One event per task
@@ -223,6 +227,7 @@ export function latestPerTask(events: readonly DataflowEvent[]): DataflowEvent[]
     const order: string[] = [];
     const latest = new Map<string, DataflowEvent>();
     for (const event of events) {
+        if (event.type === 'requeued') continue;
         const task = event.value.task;
         if (!latest.has(task)) order.push(task);
         latest.set(task, event);
@@ -238,6 +243,76 @@ function isLive(execution: ExecutionData | undefined): boolean {
 /** Whether an event's row opens the task's logs. */
 function opensLogs(event: DataflowEvent): boolean {
     return event.type === 'failed' || event.type === 'error';
+}
+
+/**
+ * A row of the execution panel: a task's latest event, a unit requeued, or a
+ * task or unit waiting for room in the server's budget.
+ *
+ * @property cell - The glyph, tone and word, and the detail at the row's right
+ * @property task - The task
+ * @property place - After the task's name: the unit, or a split task's progress (`piece 5 of 8`); `''` for none
+ * @property timestamp - When it happened, or began
+ * @property running - Whether it is a running task's start, whose right shows the spinner and its age
+ * @property logs - Whether `⏎` opens the task's logs
+ */
+export interface FeedRow {
+    cell: StatusCell;
+    task: string;
+    place: string;
+    timestamp: string;
+    running: boolean;
+    logs: boolean;
+}
+
+/** An event's row, with nothing after the task's name. */
+function eventRow(event: DataflowEvent, g: Glyphs): FeedRow {
+    const cell = eventCell(event, g);
+    return { cell, task: cell.task, place: '', timestamp: cell.timestamp, running: event.type === 'start', logs: opensLogs(event) };
+}
+
+/**
+ * The rows of the live panel, in the order each happened or began: each
+ * task's latest event, a split task's start naming its progress; each unit's
+ * latest requeue; and each task or unit waiting for room, whose wait takes the
+ * place of the start of a task that waits whole.
+ *
+ * @param execution - The execution
+ * @param latest - Each task's latest event
+ * @param g - The glyph set
+ * @returns The rows
+ */
+export function liveRows(execution: ExecutionData, latest: readonly DataflowEvent[], g: Glyphs): FeedRow[] {
+    const state = execution.state;
+    const budget = state !== null && state.budget.type === 'some' ? state.budget.value : null;
+    const waiting = state?.waiting ?? [];
+    const splits = new Map((state?.splits ?? []).map(split => [split.task, split] as const));
+    const waitsWhole = new Set(waiting.filter(wait => wait.unit.type === 'none').map(wait => wait.task));
+    const rows: FeedRow[] = [];
+    for (const event of latest) {
+        if (event.type === 'start' && waitsWhole.has(event.value.task)) continue;
+        const split = event.type === 'start' ? splits.get(event.value.task) : undefined;
+        rows.push({ ...eventRow(event, g), place: split === undefined ? '' : splitPlace(split, g.sep) });
+    }
+    // A unit requeued more than once shows its latest.
+    const requeues = new Map<string, FeedRow>();
+    for (const event of execution.events) {
+        if (event.type !== 'requeued') continue;
+        const place = unitPlace(event.value.unit, g.sep);
+        requeues.set(`${event.value.task} ${place}`, { ...eventRow(event, g), place });
+    }
+    rows.push(...requeues.values());
+    for (const wait of waiting) {
+        rows.push({
+            cell: waitCell(wait, budget, g),
+            task: wait.task,
+            place: wait.unit.type === 'some' ? unitPlace(wait.unit.value, g.sep) : '',
+            timestamp: wait.since,
+            running: false,
+            logs: false,
+        });
+    }
+    return rows.sort((a, c) => Date.parse(a.timestamp) - Date.parse(c.timestamp));
 }
 
 /** A task's row: the cells that follow from the data, and what the `SIZE · LAST RUN` cell is stamped from per frame. */
@@ -261,8 +336,8 @@ export interface TaskRowModel {
  * @property counts - The counts block (the two stat groups and the accounted bar)
  * @property execution - The execution the panel shows
  * @property live - Whether the panel shows the live feed
- * @property done - Events past `start` (the live feed's `N of M tasks`)
- * @property events - The events the panel lists: the latest per task — the last ones while live, the failures after
+ * @property done - Tasks the run has ended (the live feed's `N of M tasks`)
+ * @property feed - The rows the panel lists: while live, the last of the rows {@link liveRows} gives; after, each task's failure
  * @property latest - The latest event per task
  * @property taskPlan - The tasks table's fitted column plan
  * @property tasks - The task rows
@@ -282,7 +357,7 @@ export interface DashboardModel {
     execution: ExecutionData | undefined;
     live: boolean;
     done: number;
-    events: DataflowEvent[];
+    feed: FeedRow[];
     latest: ReadonlyMap<string, DataflowEvent>;
     taskPlan: ColumnSpec[];
     tasks: TaskRowModel[];
@@ -356,7 +431,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const status = key.status;
     const execution = key.execution;
     const empty: DashboardModel = {
-        status, placeholder: [], counts: [], execution, live: false, done: 0, events: [], latest: new Map(),
+        status, placeholder: [], counts: [], execution, live: false, done: 0, feed: [], latest: new Map(),
         taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], rows: [], total: 0, panelAt: 0, tasksAt: 0, inputsAt: 0,
     };
     if (status === undefined) {
@@ -372,12 +447,14 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     }
     // The dataset map and the latest event per task: once per build, shared by every row.
     const entries = datasetEntries(state, ws);
-    const latest = new Map(latestPerTask(execution?.events ?? []).map(e => [e.value.task, e] as const));
+    const latestEvents = latestPerTask(execution?.events ?? []);
+    const latest = new Map(latestEvents.map(e => [e.value.task, e] as const));
     const live = isLive(execution);
-    const done = execution === undefined ? 0 : execution.events.filter(e => e.type !== 'start').length;
-    const events = execution === undefined || execution.state === null ? []
-        : live ? [...latest.values()].slice(-MAX_EVENT_ROWS)
-        : [...latest.values()].filter(opensLogs);
+    // A requeue is a unit's, and ends no task.
+    const done = execution === undefined ? 0 : execution.events.filter(e => e.type !== 'start' && e.type !== 'requeued').length;
+    const feed = execution === undefined || execution.state === null ? []
+        : live ? liveRows(execution, latestEvents, g).slice(-MAX_EVENT_ROWS)
+        : latestEvents.filter(opensLogs).map(event => eventRow(event, g));
     const tasks: TaskRowModel[] = status.tasks.map(task => {
         const cell = taskStatusCell(task.status, g);
         // The reason / pid / cached detail lives in the last column; only a failure's exit code / message stays inline.
@@ -394,6 +471,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
                 dependsOn: task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—',
                 inputs: inputs.length > 0 ? inputs.join(', ') : '—',
                 output: entry?.type ?? '—',
+                peak: task.peakBytes.type === 'some' ? formatSize(Number(task.peakBytes.value)) : '—',
             },
         };
     });
@@ -419,11 +497,11 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const rows: DashboardRow[] = [];
     let line = counts.length + 1;
     const panelAt = line;
-    const shown = events.slice(0, MAX_EVENT_ROWS);
-    shown.forEach((event, i) => {
-        if (opensLogs(event)) rows.push({ kind: 'logs', name: event.value.task, line: panelAt + 1 + i });
+    const shown = feed.slice(0, MAX_EVENT_ROWS);
+    shown.forEach((row, i) => {
+        if (row.logs) rows.push({ kind: 'logs', name: row.task, line: panelAt + 1 + i });
     });
-    line += 1 + shown.length + (events.length > shown.length ? 1 : 0) + 1;
+    line += 1 + shown.length + (feed.length > shown.length ? 1 : 0) + 1;
     const tasksAt = line;
     line += 2;
     status.tasks.forEach((task, i) => rows.push({ kind: 'task', name: task.name, line: line + i }));
@@ -432,7 +510,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     line += 2;
     inputNames.forEach((name, i) => rows.push({ kind: 'input', name, line: line + i }));
     line += Math.max(1, inputs.length);
-    return { ...empty, counts, live, done, events, latest, taskPlan, tasks, inputPlan, inputs, inputNames, rows, total: line, panelAt, tasksAt, inputsAt };
+    return { ...empty, counts, live, done, feed, latest, taskPlan, tasks, inputPlan, inputs, inputNames, rows, total: line, panelAt, tasksAt, inputsAt };
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +536,21 @@ function executionLines(model: DashboardModel, sel: DashboardRow | undefined, dc
     } else if (model.live) {
         title = 'EXECUTION';
         const head = execution.stopping ? b(`${g.square} STOPPING`, 'warn') : b(`${g.quarter} RUNNING`, 'info');
-        right = [head, d(` ${sep} started ${timeAgo(execution.state.startedAt, dctx.now)} ${sep} ${model.done} of ${tasksTotal} tasks ${sep} ${spin}`)];
+        // What the server's budget holds now, where it has one: `memory 9.4 of 14 GB`, the unit once when both share it.
+        const budget = execution.state.budget.type === 'some' ? execution.state.budget.value : null;
+        let room = '';
+        if (budget !== null) {
+            const memory = formatSize(Number(budget.memory));
+            const inUse = formatSize(Number(budget.memoryInUse));
+            const unit = memory.slice(memory.indexOf(' '));
+            room = ` ${sep} cores ${budget.coresInUse} of ${budget.cores} ${sep} memory ${inUse.endsWith(unit) ? inUse.slice(0, -unit.length) : inUse} of ${memory}`;
+        }
+        const age = ` ${sep} started ${timeAgo(execution.state.startedAt, dctx.now)}`;
+        const count = ` ${sep} ${model.done} of ${tasksTotal} tasks`;
+        const end = ` ${sep} ${spin}`;
+        // Short of room, the run's age gives way to the budget (each feed row carries its own age), then the budget to the age.
+        const detail = [age + count + room, count + room, age + count].find(text => lineWidth([t(` ${title} `), head, t(`${text}${end} `)]) <= width) ?? age + count;
+        right = [head, d(detail + end)];
     } else {
         const state = execution.state;
         const cell = executionStatusCell(state.status.type, g);
@@ -470,28 +562,27 @@ function executionLines(model: DashboardModel, sel: DashboardRow | undefined, dc
         right = [b(`${cell.glyph} ${cell.word}`, cell.tone), d(detail)];
     }
     lines.push(lrLine([t(' '), b(title)], [...right, t(' ')], width));
-    const shown = model.events.slice(0, MAX_EVENT_ROWS);
-    for (const event of shown) {
-        const cell = eventCell(event, g);
-        const logs = opensLogs(event);
-        const selected = logs && sel?.kind === 'logs' && sel.name === cell.task;
+    const shown = model.feed.slice(0, MAX_EVENT_ROWS);
+    for (const row of shown) {
+        const selected = row.logs && sel?.kind === 'logs' && sel.name === row.task;
         const left: Line = [
             t(' '),
             selected ? b(g.sel, 'brand') : t(' '),
-            t(padStart(ageBare(cell.timestamp, dctx.now), 4)),
+            t(padStart(ageBare(row.timestamp, dctx.now), 4)),
             t('  '),
-            b(cell.glyph, cell.tone),
-            t(padEnd(` ${cell.word}`, 13)),
-            selected ? b(cell.task) : t(cell.task),
+            b(row.cell.glyph, row.cell.tone),
+            t(padEnd(` ${row.cell.word}`, 13)),
+            selected ? b(row.task) : t(row.task),
         ];
+        if (row.place !== '') left.push(d(` ${sep} ${row.place}`));
         const detail: Line = [];
-        if (event.type === 'start') detail.push(d(`${spin} ${ageBare(cell.timestamp, dctx.now)}`));
-        else if (cell.detail !== '') detail.push(d(cell.detail));
-        if (logs) detail.push(t('     '), b(`${g.enter} logs`, 'brand'));
+        if (row.running) detail.push(d(`${spin} ${ageBare(row.timestamp, dctx.now)}`));
+        else if (row.cell.detail !== '') detail.push(d(row.cell.detail));
+        if (row.logs) detail.push(t('     '), b(`${g.enter} logs`, 'brand'));
         lines.push(lrLine(left, [...detail, t(' ')], width));
     }
-    if (model.events.length > shown.length) {
-        lines.push([t('   '), d(`… ${model.events.length - shown.length} more failed ${sep} /logs <task>`)]);
+    if (model.feed.length > shown.length) {
+        lines.push([t('   '), d(`… ${model.feed.length - shown.length} more failed ${sep} /logs <task>`)]);
     }
     return lines;
 }

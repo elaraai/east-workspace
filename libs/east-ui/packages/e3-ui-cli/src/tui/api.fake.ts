@@ -15,6 +15,7 @@
 
 import {
     ApiError,
+    type DataflowBudget,
     type DataflowOptions,
     type DataflowEvent,
     type DataflowExecutionState,
@@ -22,9 +23,11 @@ import {
     type ExecutionListItem,
     type ListEntry,
     type RepositoryStatus,
+    type SplitProgress,
     type TaskDetails,
     type TaskListItem,
     type TaskStatus,
+    type UnitWait,
     type WorkspaceInfo,
     type WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
@@ -66,6 +69,8 @@ export interface FakeTask {
     notIndexed?: boolean | undefined;
     /** Marks the output as too large to page (`dataset_too_large`). */
     tooLarge?: boolean | undefined;
+    /** The peak memory, in bytes, of the execution the task's status comes from. */
+    peakBytes?: number | undefined;
 }
 
 /** An input's fixture. */
@@ -83,6 +88,10 @@ export interface FakeExecution {
     startedAt: string;
     completedAt: string | null;
     events: DataflowEvent[];
+    /** The tasks and units waiting for room, which the poll serves while the run runs. */
+    waiting?: UnitWait[] | undefined;
+    /** Each split task's progress, which the poll serves while the run runs. */
+    splits?: SplitProgress[] | undefined;
 }
 
 /** A workspace's fixture. */
@@ -160,6 +169,8 @@ export class FakeApi implements Api {
     repo = 'default';
     /** The identity `whoami` would print. */
     identity: string | null = null;
+    /** The server's budget, which the poll and `dataflowBudget` serve; null for a server whose runners hold none. */
+    budget: DataflowBudget | null = null;
     private readonly stores = new Map<string, Stored>();
     private readonly runTimers: ReturnType<typeof setTimeout>[] = [];
 
@@ -314,6 +325,7 @@ export class FakeApi implements Api {
                 inputs: t.inputs,
                 output: this.outputPathOf(t),
                 dependsOn: t.dependsOn,
+                peakBytes: t.peakBytes !== undefined ? some(BigInt(t.peakBytes)) : none,
             }));
             const count = (pred: (t: FakeTask) => boolean) => BigInt(w.tasks.filter(pred).length);
             const dcount = (status: string) => BigInt(datasets.filter(d => d.status.type === status).length);
@@ -570,7 +582,17 @@ export class FakeApi implements Api {
                 }),
                 events: done.slice(offset),
                 totalEvents: BigInt(done.length),
+                budget: this.budget !== null ? some(this.budget) : none,
+                waiting: state.waiting ?? [],
+                splits: state.splits ?? [],
             } as DataflowExecutionState;
+        });
+    }
+
+    async dataflowBudget(ws: string): Promise<DataflowBudget | null> {
+        return this.call(`dataflowBudget ${ws}`, () => {
+            this.ws(ws);
+            return this.budget;
         });
     }
 

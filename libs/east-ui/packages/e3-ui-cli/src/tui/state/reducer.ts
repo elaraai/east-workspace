@@ -313,6 +313,8 @@ export function reduce(state: TuiState, action: Action): TuiState {
                 },
             };
         }
+        case 'data/budget':
+            return { ...state, data: { ...state.data, budget: { ...state.data.budget, [action.ws]: action.budget } } };
         case 'data/datasets':
             return { ...state, data: { ...state.data, datasets: { ...state.data.datasets, [action.ws]: action.entries } } };
         case 'data/taskList':
@@ -333,7 +335,7 @@ export function reduce(state: TuiState, action: Action): TuiState {
             return { ...state, data: { ...state.data, logs: nested(state.data.logs, action.ws, action.task, forTask) } };
         }
         case 'data/reset':
-            return { ...state, data: { ...state.data, status: {}, statusError: {}, execution: {}, datasets: {}, taskList: {}, taskDetails: {}, executions: {}, dataset: {}, logs: {} } };
+            return { ...state, data: { ...state.data, status: {}, statusError: {}, execution: {}, budget: {}, datasets: {}, taskList: {}, taskDetails: {}, executions: {}, dataset: {}, logs: {} } };
 
         // -- editing -------------------------------------------------------
         case 'edit/set':

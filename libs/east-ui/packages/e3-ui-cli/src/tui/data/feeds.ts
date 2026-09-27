@@ -8,11 +8,11 @@
  * the current view), so a feed runs only while a view that needs it is
  * mounted: `workspaceStatus` 1 s and the execution state 1 s (5 s idle) for
  * the open workspace, `workspaceList` 5 s once a repository is bound,
- * `repoList` 5 s on a bare origin, dataset types 5 s, task kinds and the
- * deployed state 30 s, per-workspace summaries 5 s in the workspaces view,
- * task details once, executions 5 s on the runs tab, the shown log stream
- * 1 s and stderr 5 s on every task tab (the Stderr tab's line count). Each
- * result becomes a
+ * `repoList` 5 s on a bare origin, dataset types 5 s, task kinds, the
+ * deployed state and the budget a run gets (`/run`'s confirmation) 30 s,
+ * per-workspace summaries 5 s in the workspaces view, task details once,
+ * executions 5 s on the runs tab, the shown log stream 1 s and stderr 5 s
+ * on every task tab (the Stderr tab's line count). Each result becomes a
  * `data/*` action; the connection pill is derived from the pollers after
  * every result and failure.
  *
@@ -249,6 +249,14 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 run: async () => {
                     const wsState = await api.workspaceGet(ws);
                     store.dispatch({ type: 'data/workspaceState', ws, state: wsState });
+                },
+            });
+            out.push({
+                key: `budget:${ws}`,
+                intervalMs: 30_000,
+                run: async () => {
+                    const budget = await api.dataflowBudget(ws);
+                    store.dispatch({ type: 'data/budget', ws, budget });
                 },
             });
         }

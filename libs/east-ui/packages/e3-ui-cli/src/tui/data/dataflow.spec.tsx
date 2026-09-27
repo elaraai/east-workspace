@@ -5,9 +5,10 @@
 
 /**
  * `/run` and `/stop` through the command box (mocks S06b, S18): the flag
- * hint row and the consequence line, the launch call with its options, the
- * started toast, the settling / running / stopping pills, the double-⏎
- * guard, the locked-workspace and remote-caveat toasts.
+ * hint row and the consequence line with the server's budget, the launch
+ * call with its options, the started toast, the settling / running /
+ * stopping pills, the double-⏎ guard, the locked-workspace and
+ * remote-caveat toasts.
  */
 
 import { test, describe, afterEach } from 'node:test';
@@ -88,6 +89,17 @@ describe('/run and /stop', () => {
         assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   r run   x stop   w workspaces/);
     });
 
+    test('the consequence line names the budget the server gives a run, once its feed has answered', async () => {
+        const api = fakeRepo();
+        api.budget = { cores: 8n, memory: BigInt(14 * 1024 ** 3), coresInUse: 0n, memoryInUse: 0n };
+        mounted = await mountApp({ api, feeds: true, view: dashboardView(), actions: await sixTasks(api) });
+        await mounted.waitFor(() => mounted!.store.getState().data.budget['main'] !== undefined);
+        await mounted.press('r');
+        assert.match(mounted.lines()[33]!, /^ › \/run _\s+run 6 tasks in main · 8 cores, 14 GB\s+⏎ run · esc/);
+        await mounted.type('--force');
+        assert.match(mounted.lines()[33]!, /^ › \/run --force_\s+run 6 tasks in main, ignoring the cache · 8 cores, 14 GB\s+⏎ run · esc/);
+    });
+
     test('a locked workspace: the title shows the holder and /run toasts it', async () => {
         const api = fakeRepo();
         const actions = await sixTasks(api);
@@ -111,7 +123,7 @@ describe('/run and /stop', () => {
         assert.match(mounted.lines()[33]!, /^ ›  ◐ no run in progress$/);
         assert.ok(!api.calls.includes('dataflowCancel main'));
         // Our poll says running, but this server process has no execution to cancel.
-        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], totalEvents: 0n };
+        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], totalEvents: 0n, budget: none, waiting: [], splits: [] };
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: running as never, events: [], startedAt: running.startedAt });
         await mounted.press('x');
         await mounted.press(KEY.enter);

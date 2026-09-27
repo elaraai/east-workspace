@@ -100,10 +100,13 @@ describe('parseCommand', () => {
 });
 
 describe('describe', () => {
-    const ctx = { workspace: 'main', taskCount: 6, running: false, dirty: 0 };
+    const ctx = { workspace: 'main', taskCount: 6, running: false, dirty: 0, budget: null };
     test('spells the /run consequence the design shows', () => {
         assert.deepEqual(describeCommand(ok('/run --force'), ctx), { text: 'run 6 tasks in main, ignoring the cache', keys: '⏎ run · esc' });
         assert.equal(describeCommand(ok('/run --filter fo*'), ctx).text, 'run tasks matching fo* in main');
+        // The server's budget, once it has answered.
+        assert.equal(describeCommand(ok('/run'), { ...ctx, budget: { cores: 8, memory: 14 * 1024 ** 3 } }).text, 'run 6 tasks in main · 8 cores, 14 GB');
+        assert.equal(describeCommand(ok('/run --force'), { ...ctx, budget: { cores: 1, memory: 512 * 1024 ** 2 } }).text, 'run 6 tasks in main, ignoring the cache · 1 core, 512 MB');
         assert.equal(describeCommand(ok('/run'), { ...ctx, running: true }).text, 'a run is already in progress');
         assert.equal(describeCommand(ok('/stop'), { ...ctx, running: true }).text, 'cancel the run in main');
         assert.equal(describeCommand(ok('/stop'), ctx).text, 'no run in progress');

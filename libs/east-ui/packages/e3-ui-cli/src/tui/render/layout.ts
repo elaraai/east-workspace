@@ -144,12 +144,24 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
     const medium = bp === 'medium';
     switch (table) {
         case 'tasks':
+            // The peak memory of each task's execution takes the right end of a wide table; NAME
+            // starts narrower, as it grows to the longest name.
+            if (!narrow && !medium) {
+                return [
+                    { key: 'name', title: 'NAME', width: 10, grow: 24 },
+                    { key: 'status', title: 'STATUS', width: 19 },
+                    { key: 'dependsOn', title: 'DEPENDS ON', width: 19 },
+                    { key: 'inputs', title: 'INPUTS', width: 17 },
+                    { key: 'output', title: 'OUTPUT', width: 21 },
+                    { key: 'size', title: 'SIZE · LAST RUN', width: 19 },
+                    { key: 'peak', title: 'PEAK', width: 0 },
+                ];
+            }
             return [
                 { key: 'name', title: 'NAME', width: 12, grow: 24 },
                 { key: 'status', title: 'STATUS', width: narrow ? 16 : 20 },
-                ...(narrow ? [] : [{ key: 'dependsOn', title: 'DEPENDS ON', width: medium ? 14 : 20 }]),
-                ...(narrow || medium ? [] : [{ key: 'inputs', title: 'INPUTS', width: 18 }]),
-                { key: 'output', title: 'OUTPUT', width: narrow || medium ? 16 : 26 },
+                ...(narrow ? [] : [{ key: 'dependsOn', title: 'DEPENDS ON', width: 14 }]),
+                { key: 'output', title: 'OUTPUT', width: 16 },
                 { key: 'size', title: 'SIZE · LAST RUN', width: 0 },
             ];
         case 'inputs':
@@ -181,6 +193,7 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
                 { key: 'status', title: 'STATUS', width: 12 },
                 { key: 'started', title: 'STARTED', width: 22 },
                 { key: 'duration', title: 'DURATION', width: 10 },
+                { key: 'peak', title: 'PEAK', width: 10 },
                 { key: 'exit', title: 'EXIT', width: 6 },
                 { key: 'inputs', title: 'INPUTS', width: narrow ? 0 : 14 },
                 ...(narrow ? [] : [{ key: 'note', title: '', width: 0 }]),

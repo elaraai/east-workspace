@@ -28,6 +28,7 @@ const STDOUT = Array.from({ length: 40 }, (_, i) => `[info] line ${i + 1}${i ===
 const STDERR = Array.from({ length: 12 }, (_, i) => `[warn] err ${i + 1}`).join('\n') + '\n';
 
 const tp = (...parts: string[]) => parts.map(p => variant('field', p)) as never;
+const GB = 1024 ** 3;
 
 function repo(): FakeApi {
     const api = fakeRepo();
@@ -37,10 +38,10 @@ function repo(): FakeApi {
         logs: { stdout: STDOUT, stderr: STDERR },
         executions: [
             // Two attempts under one inputs hash (a retry after a failure): both are rows.
-            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-07T18:10:00Z', completedAt: some('2026-09-07T18:10:31Z'), duration: some(31_000n), exitCode: some(0n) },
-            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('failed', null), startedAt: '2026-09-07T18:03:21Z', completedAt: some('2026-09-07T18:03:23Z'), duration: some(2_100n), exitCode: some(2n) },
-            { inputsHash: '4be1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbba9', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-08T11:42:10Z', completedAt: some('2026-09-08T11:42:48Z'), duration: some(38_400n), exitCode: some(0n) },
-            { inputsHash: 'e0d2cccccccccccccccccccccccccccccccccccccccccccccccccccccccccc77', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('error', null), startedAt: '2026-09-06T08:00:00Z', completedAt: none, duration: none, exitCode: none },
+            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-07T18:10:00Z', completedAt: some('2026-09-07T18:10:31Z'), duration: some(31_000n), exitCode: some(0n), peakBytes: some(BigInt(Math.round(2.8 * GB))) },
+            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('failed', null), startedAt: '2026-09-07T18:03:21Z', completedAt: some('2026-09-07T18:03:23Z'), duration: some(2_100n), exitCode: some(2n), peakBytes: some(BigInt(Math.round(1.2 * GB))) },
+            { inputsHash: '4be1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbba9', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-08T11:42:10Z', completedAt: some('2026-09-08T11:42:48Z'), duration: some(38_400n), exitCode: some(0n), peakBytes: some(BigInt(Math.round(2.9 * GB))) },
+            { inputsHash: 'e0d2cccccccccccccccccccccccccccccccccccccccccccccccccccccccccc77', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('error', null), startedAt: '2026-09-06T08:00:00Z', completedAt: none, duration: none, exitCode: none, peakBytes: none },
         ] as never,
     });
     api.task('main', {
@@ -142,17 +143,18 @@ describe('the task view — Stdout / Stderr', () => {
 });
 
 describe('the task view — Runs', () => {
-    test('lists runs newest first with status / started / duration / exit / inputs; ⏎ expands the input hashes (S11)', async () => {
+    test('lists runs newest first with status / started / duration / peak / exit / inputs; ⏎ expands the input hashes (S11)', async () => {
         mounted = await mountApp({ api: repo(), feeds: true, view: taskView('main', 'forecast', 'runs') });
         await mounted.waitFor(() => /4be1…a9/.test(mounted!.lines()[6] ?? ''));
         await mounted.waitFor(() => mounted!.store.getState().data.taskDetails['main']?.['forecast'] !== undefined);
         let lines = mounted.lines();
         assert.match(lines[2]!, /^ forecast    1 Output   2 Stdout   3 Stderr( \(12\))?  ▌4 Runs▐\s+DATA TASK · ● UP-TO-DATE · cached · inputs 4be1…a9$/);
-        assert.match(lines[5]!, /^  STATUS\s+STARTED\s+DURATION\s+EXIT\s+INPUTS\s*$/);
-        assert.match(lines[6]!, /^ ▌● success\s+2026-09-08 11:42:10\s+38\.4s\s+0\s+4be1…a9\s+← current\s*$/);
-        assert.match(lines[7]!, /^  ● success\s+2026-09-07 18:10:00\s+31\.0s\s+0\s+1c07…3f\s*$/);
-        assert.match(lines[8]!, /^  ✗ failed\s+2026-09-07 18:03:21\s+2\.1s\s+2\s+1c07…3f\s*$/);
-        assert.match(lines[9]!, /^  ◐ error\s+2026-09-06 08:00:00\s+—\s+—\s+e0d2…77\s*$/);
+        assert.match(lines[5]!, /^  STATUS\s+STARTED\s+DURATION\s+PEAK\s+EXIT\s+INPUTS\s*$/);
+        assert.match(lines[6]!, /^ ▌● success\s+2026-09-08 11:42:10\s+38\.4s\s+2\.9 GB\s+0\s+4be1…a9\s+← current\s*$/);
+        assert.match(lines[7]!, /^  ● success\s+2026-09-07 18:10:00\s+31\.0s\s+2\.8 GB\s+0\s+1c07…3f\s*$/);
+        // A failed attempt measured its peak too; an error never ran.
+        assert.match(lines[8]!, /^  ✗ failed\s+2026-09-07 18:03:21\s+2\.1s\s+1\.2 GB\s+2\s+1c07…3f\s*$/);
+        assert.match(lines[9]!, /^  ◐ error\s+2026-09-06 08:00:00\s+—\s+—\s+—\s+e0d2…77\s*$/);
         assert.match(lines[35]!, /^ ↑↓ move   ⏎ inputs   1 output  2 stdout  3 stderr\s+4 executions$/);
         await mounted.press(KEY.enter);
         lines = mounted.lines();
