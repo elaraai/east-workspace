@@ -8,15 +8,14 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve, type ServerType } from '@hono/node-server';
 import {
-  Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend, resolveBudget,
-  checkName, repositoryOpen,
+  Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, InMemoryTransferBackend, resolveBudget, checkName, repositoryOpen,
 } from '@elaraai/e3-core';
 import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
+import { createRepositoryGate, createSingleRepositoryGate } from './middleware/repository.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
-import { sendError, sendSuccessWithStatus, sendSuccess } from './beast2.js';
-import { StringType, NullType, variant, ArrayType, configureFramePool } from '@elaraai/east';
-import { errorToVariant, sendJsonError } from './errors.js';
+import { configureFramePool } from '@elaraai/east';
+import { createRepositoriesRoutes, createSingleRepositoryRoutes } from './routes/repositories.js';
 import { createPackageRoutes } from './routes/packages.js';
 import { createWorkspaceRoutes } from './routes/workspaces.js';
 import { createDatasetRoutes } from './routes/datasets.js';
@@ -231,192 +230,15 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     app.use('/api/repos/:repo/*', authMiddleware);
   }
 
-  // Single-repo mode: validate repo name and handle disabled operations
-  // Runs AFTER auth middleware (so unauthorized users get 401, not 404/405)
-  // Uses JSON error responses with HTTP error status codes because middleware
-  // cannot know the BEAST2 success type expected by the handler.
+  // The repositories the server serves, and the gate every request to one
+  // passes, mounted after the auth middleware and ahead of the repository
+  // routes
   if (isSingleRepoMode) {
-    // Block repo-level PUT (create) and DELETE (remove) in single-repo mode
-    app.put('/api/repos/:repo', (c) => {
-      return c.json({
-        error: 'method_not_allowed',
-        message: 'Repository creation is disabled in single-repo mode'
-      }, 405);
-    });
-
-    app.delete('/api/repos/:repo', (c) => {
-      const repo = c.req.param('repo');
-      if (repo === 'default') {
-        return c.json({
-          error: 'method_not_allowed',
-          message: 'Repository deletion is disabled in single-repo mode'
-        }, 405);
-      }
-      return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-    });
-
-    // Validate repo name for all sub-routes
-    app.use('/api/repos/:repo/*', async (c, next) => {
-      const repo = c.req.param('repo');
-      if (repo !== 'default') {
-        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-      await next();
-    });
-  }
-
-  // Validate repository exists and is accessible before processing requests (multi-repo mode only)
-  // In single-repo mode, this is handled by the middleware above
-  // Skip validation for PUT/DELETE on /api/repos/:repo (repo create/remove)
-  // Skip validation for /api/repos/:repo/delete/* (repo deletion status - repo may already be deleted)
-  // Uses JSON error responses with HTTP 404 because middleware cannot know
-  // the BEAST2 success type expected by the handler.
-  if (!isSingleRepoMode) {
-    app.use('/api/repos/:repo/*', async (c, next) => {
-      // Skip validation for repo create/remove operations at the repo level
-      // These operate on repos that may not exist yet (PUT) or are being deleted (DELETE)
-      const method = c.req.method;
-      const reqPath = c.req.path;
-      // Check if this is the base repo path (no subpath after repo name)
-      const repoPathMatch = reqPath.match(/^\/api\/repos\/[^/]+$/);
-      if (repoPathMatch && (method === 'PUT' || method === 'DELETE')) {
-        await next();
-        return;
-      }
-
-      // Skip validation for delete status endpoint (repo may already be deleted)
-      const deleteStatusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/delete\/[^/]+$/);
-      if (deleteStatusMatch) {
-        await next();
-        return;
-      }
-
-      const repo = c.req.param('repo')!;
-
-      // Check repo metadata for status. A repo whose metadata this e3 cannot
-      // read is refused naming the fix — send it, not a bare 500.
-      let metadata;
-      try {
-        metadata = await storage.repos.getMetadata(repo);
-      } catch (err) {
-        return sendJsonError(err);
-      }
-      if (!metadata) {
-        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-
-      // If repo is in 'deleting' state, treat as not found for most operations
-      // Exception: status endpoint shows 'deleting' state (but we still check repo exists above)
-      const statusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/status$/);
-      if (metadata.status.type === 'deleting' && !statusMatch) {
-        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-
-      // Opened as every way into a repository opens it: refused when this e3
-      // cannot read it, and upgraded in place when an older release wrote it.
-      // One being deleted is left as it is.
-      if (metadata.status.type !== 'deleting') {
-        try {
-          await repositoryOpen(storage, getRepoPath(repo));
-        } catch (err) {
-          return sendJsonError(err);
-        }
-      }
-
-      await next();
-    });
-  }
-
-  // GET /api/repos - List available repositories
-  app.get('/api/repos', async () => {
-    if (isSingleRepoMode) {
-      return sendSuccess(ArrayType(StringType), ['default']);
-    }
-    try {
-      const repos = await storage.repos.list();
-      return sendSuccess(ArrayType(StringType), repos);
-    } catch (err) {
-      return sendError(ArrayType(StringType), errorToVariant(err));
-    }
-  });
-
-  // PUT /api/repos/:repo - Create a new repository (multi-repo mode only)
-  // Note: Single-repo mode handler is registered earlier and takes precedence
-  if (!isSingleRepoMode) {
-    app.put('/api/repos/:repo', async (c) => {
-      const repo = c.req.param('repo');
-
-      try {
-        // Check if repo exists and is in 'deleting' state
-        const existing = await storage.repos.getMetadata(repo);
-        if (existing) {
-          if (existing.status.type === 'deleting') {
-            return sendError(StringType, variant('internal', { message: `Repository '${repo}' cleanup in progress, try later` }));
-          }
-          return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
-        }
-
-        await storage.repos.create(repo);
-        return sendSuccessWithStatus(StringType, repo, 201);
-      } catch (err) {
-        if (err instanceof RepoAlreadyExistsError) {
-          return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
-        }
-        return sendError(StringType, errorToVariant(err));
-      }
-    });
-
-    // DELETE /api/repos/:repo - Remove a repository (async, multi-repo mode only)
-    // Uses the resumable deletion pattern:
-    // 1. Mark repo as 'deleting' (atomic tombstone)
-    // 2. Delete refs synchronously (fast)
-    // 3. Delete objects in batches
-    // 4. Remove repo metadata
-    // Note: For cloud (e3-aws), step 3 would be async via GC
-    app.delete('/api/repos/:repo', async (c) => {
-      const repo = c.req.param('repo');
-
-      try {
-        // Check if repo exists
-        const existing = await storage.repos.getMetadata(repo);
-        if (!existing) {
-          return sendError(NullType, variant('repository_not_found', { repo }));
-        }
-
-        // If already deleting, return success (idempotent)
-        if (existing.status.type === 'deleting') {
-          return sendSuccess(NullType, null);
-        }
-
-        // 1. Atomically mark as 'deleting'
-        await storage.repos.setStatus(repo, 'deleting', 'active');
-
-        // 2. Delete refs synchronously (fast for local storage)
-        let cursor: string | undefined;
-        do {
-          const result = await storage.repos.deleteRefsBatch(repo, cursor);
-          cursor = result.status === 'continue' ? result.cursor : undefined;
-        } while (cursor);
-
-        // 3. Delete objects in batches (for local storage, this is synchronous)
-        cursor = undefined;
-        do {
-          const result = await storage.repos.deleteObjectsBatch(repo, cursor);
-          cursor = result.status === 'continue' ? result.cursor : undefined;
-        } while (cursor);
-
-        // 4. Remove repo metadata/directory
-        await storage.repos.remove(repo);
-
-        return sendSuccess(NullType, null);
-      } catch (err) {
-        if (err instanceof RepoNotFoundError) {
-          return sendError(NullType, variant('repository_not_found', { repo }));
-        }
-        return sendError(NullType, errorToVariant(err));
-      }
-    });
-
+    app.route('/api/repos', createSingleRepositoryRoutes());
+    app.use('/api/repos/:repo/*', createSingleRepositoryGate());
+  } else {
+    app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath));
+    app.route('/api/repos', createRepositoriesRoutes(storage));
   }
 
   // Mount repository-specific routes

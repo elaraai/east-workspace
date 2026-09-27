@@ -4,9 +4,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { none, variant } from '@elaraai/east';
+import { ArrayType, NullType, StringType, none, variant } from '@elaraai/east';
 import { RepositoryRecordType, type GcRequest } from '@elaraai/e3-types';
-import { packageList, repositoryOpen, workspaceList } from '@elaraai/e3-core';
+import { RepoAlreadyExistsError, RepoNotFoundError, packageList, repositoryOpen, workspaceList } from '@elaraai/e3-core';
 import type { RepoGcStore, StorageBackend } from '@elaraai/e3-core';
 import { sendSuccess, sendSuccessWithStatus, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
@@ -15,6 +15,96 @@ import {
   GcStartResultType,
   GcStatusResultType,
 } from '../types.js';
+
+/**
+ * The repositories a host keeps, by name.
+ *
+ * @param storage - Storage backend, whose `RepoStore` keeps the repositories
+ * @returns The response: the names, or the error
+ */
+export async function listRepositories(storage: StorageBackend): Promise<Response> {
+  try {
+    return sendSuccess(ArrayType(StringType), await storage.repos.list());
+  } catch (err) {
+    return sendError(ArrayType(StringType), errorToVariant(err));
+  }
+}
+
+/**
+ * Creates a repository, with its record naming this release and every
+ * upgrade this e3 knows, since a new repository is in their forms.
+ *
+ * @param storage - Storage backend, whose `RepoStore` keeps the repositories
+ * @param repo - The new repository's name
+ * @returns The response: 201 with its name; or the error, as for one that
+ *   exists, or whose removal is still being cleaned up
+ */
+export async function createRepository(storage: StorageBackend, repo: string): Promise<Response> {
+  try {
+    const existing = await storage.repos.getMetadata(repo);
+    if (existing) {
+      if (existing.status.type === 'deleting') {
+        return sendError(StringType, variant('internal', { message: `Repository '${repo}' cleanup in progress, try later` }));
+      }
+      return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
+    }
+
+    await storage.repos.create(repo);
+    return sendSuccessWithStatus(StringType, repo, 201);
+  } catch (err) {
+    if (err instanceof RepoAlreadyExistsError) {
+      return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
+    }
+    return sendError(StringType, errorToVariant(err));
+  }
+}
+
+/**
+ * Removes a repository, resumably: it is marked `deleting` first, so the
+ * repository gate treats it as gone from then on, and a removal asked again
+ * answers at once; then its refs and its objects are deleted a batch at a
+ * time, and last the repository itself.
+ *
+ * @param storage - Storage backend, whose `RepoStore` keeps the repositories
+ * @param repo - The repository's name
+ * @returns The response: null once it is removed, or the error
+ */
+export async function removeRepository(storage: StorageBackend, repo: string): Promise<Response> {
+  try {
+    const existing = await storage.repos.getMetadata(repo);
+    if (!existing) {
+      return sendError(NullType, variant('repository_not_found', { repo }));
+    }
+
+    // Being removed already: the removal that marked it finishes it.
+    if (existing.status.type === 'deleting') {
+      return sendSuccess(NullType, null);
+    }
+
+    await storage.repos.setStatus(repo, 'deleting', 'active');
+
+    let cursor: string | undefined;
+    do {
+      const result = await storage.repos.deleteRefsBatch(repo, cursor);
+      cursor = result.status === 'continue' ? result.cursor : undefined;
+    } while (cursor);
+
+    cursor = undefined;
+    do {
+      const result = await storage.repos.deleteObjectsBatch(repo, cursor);
+      cursor = result.status === 'continue' ? result.cursor : undefined;
+    } while (cursor);
+
+    await storage.repos.remove(repo);
+
+    return sendSuccess(NullType, null);
+  } catch (err) {
+    if (err instanceof RepoNotFoundError) {
+      return sendError(NullType, variant('repository_not_found', { repo }));
+    }
+    return sendError(NullType, errorToVariant(err));
+  }
+}
 
 /**
  * Get repository status.

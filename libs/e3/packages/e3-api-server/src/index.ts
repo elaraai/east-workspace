@@ -26,6 +26,9 @@ export * from './routes/index.js';
 // Export auth middleware
 export { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 
+// The gate every request to one repository passes
+export { createRepositoryGate, createSingleRepositoryGate } from './middleware/repository.js';
+
 // Export BEAST2 helpers for custom integrations
 export { sendSuccess, sendError, sendSuccessWithStatus, decodeBeast2, decodeBody } from './beast2.js';
 

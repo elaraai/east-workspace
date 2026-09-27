@@ -144,16 +144,21 @@ interface ServerConfig {
 ### Mounting the routes on another host
 
 The route factories are exported, so a host that runs e3 on its own backends
-mounts them over its own seams. The dataflow routes take the runner, the
-orchestrator that runs a repository's dataflows, and the state store it writes:
-a poll and a cancel read the latest run from that store, whichever instance
-answers them.
+mounts them over its own seams. The repositories' routes list, create and
+remove repositories through the storage backend's `RepoStore`, and the
+repository gate, mounted ahead of every repository's routes, checks that the
+repository exists and is not being removed, and opens it. The dataflow routes
+take the runner, the orchestrator that runs a repository's dataflows, and the
+state store it writes: a poll and a cancel read the latest run from that
+store, whichever instance answers them.
 
 ```typescript
 import { Hono } from 'hono';
-import { createExecutionRoutes } from '@elaraai/e3-api-server';
+import { createExecutionRoutes, createRepositoriesRoutes, createRepositoryGate } from '@elaraai/e3-api-server';
 
 const app = new Hono();
+app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath));
+app.route('/api/repos', createRepositoriesRoutes(storage));
 app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
   getRunner: (repo) => runnerFor(repo),
   getOrchestrator: (repo) => orchestratorFor(repo),
@@ -173,7 +178,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 |--------|----------|-------------|
 | GET | `/api/repos` | List available repositories (multi-repo mode) |
 | PUT | `/api/repos/:repo` | Create repository (multi-repo mode) |
-| DELETE | `/api/repos/:repo` | Delete repository (multi-repo mode, async) |
+| DELETE | `/api/repos/:repo` | Remove repository (multi-repo mode): marked as being removed first, so a request to it is refused from then on |
 | GET | `/api/repos/:repo/status` | Repository status (counts) |
 | POST | `/api/repos/:repo/gc` | Start garbage collection (async) |
 | GET | `/api/repos/:repo/gc/:id` | Get GC status |

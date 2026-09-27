@@ -3,6 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
+export { createRepositoriesRoutes, createSingleRepositoryRoutes } from './repositories.js';
 export { createRepositoryRoutes } from './repository.js';
 export { createPackageRoutes } from './packages.js';
 export { createWorkspaceRoutes } from './workspaces.js';
