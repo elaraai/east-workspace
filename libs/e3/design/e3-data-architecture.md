@@ -659,7 +659,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 | `$init` | none | written, the whole chain |
 
 **System commits** (`recordSystemCommit`) commit a given state as a named system commit, such as a cloud's `$rollback` and `$restore`, so that what the commit does to the slots is the commit protocol's.
-- **Names.** A system commit is named `$` and an identifier, never one of e3's own commits' names (`$init`, `$deploy`, `$reset`, `$reindex`, `$compact`).
+- **Names.** A system commit is named `$` and an identifier, never one of e3's own commits' names (`$init`, `$deploy`, `$reset`, `$reindex`, `$compact`). A mutation's name is an identifier, refused otherwise where it is declared, so no user commit takes a name beginning with `$`.
 - **A rollback** names the commit it goes back to. Migrations run forward only, so one past a `$migrate` or `$reset` commit is refused, walking back from the head. A `rekey` or `rows` step can keep the record's type, so the type alone cannot say a rollback passed one. A rollback to a commit a compaction has cut from the chain is refused too, since what that commit had applied is unknown.
 - **A restore** of a state from outside the history, such as a backup's, names the migrations that state had applied, which must be the record's.
 - **Type.** Either is refused a state whose type is not the record's, as a backstop.

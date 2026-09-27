@@ -136,6 +136,21 @@ describe('e3.record / e3.mutation.reduce', () => {
     assert.deepStrictEqual(Object.keys(package_('c', '1.0.0', increment, increment).records.counter.mutations), ['increment']);
   });
 
+  it('refuses a mutation name that is not an identifier, the names e3\'s own commits take among them', () => {
+    const counter = record('counter', IntegerType, 0n);
+    const tally = record('tally', DictType(StringType, IntegerType), new Map());
+    const reducer = East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by));
+    // A commit is named after its mutation, so '$reset' would read as a reset
+    // in the record's history; 'a.b' could not be addressed as record.mutation.
+    for (const name of ['$reset', '$migrate:x', 'set-status', 'a.b', '1st', '']) {
+      assert.throws(() => mutation.reduce(name, counter, reducer), /e3\.mutation\.reduce requires a name that is an identifier/, name);
+      assert.throws(() => mutation.edit(name, tally, reducer as never), /e3\.mutation\.edit requires a name that is an identifier/, name);
+      assert.throws(() => mutation.patch(tally, name), /e3\.mutation\.patch requires a name that is an identifier/, name);
+    }
+    assert.strictEqual(mutation.reduce('set_status', counter, reducer).name, 'set_status');
+    assert.strictEqual(mutation.patch(tally).name, 'patch');
+  });
+
   it('rejects an async reducer body at definition time', () => {
     const counter = record('counter', IntegerType, 0n);
     // Async bodies break CAS-retry safety; the typed overload rejects them at

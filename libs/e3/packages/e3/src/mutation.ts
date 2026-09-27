@@ -35,14 +35,27 @@ import { hasKeyedDelta } from './record-programs.js';
 import { checkPure, sameEastType } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
+/** A mutation's name is an identifier, as a migration's and an index's are: it
+ *  names the commits the mutation makes, beside e3's own, which begin with `$`,
+ *  and `e3 mutate` addresses it as `record.mutation`. */
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Refuses a mutation name that is not an identifier. */
+function checkName(surface: string, name: string): void {
+  if (!IDENTIFIER.test(name)) {
+    throw new Error(
+      `e3.${surface} requires a name that is an identifier, got '${name}' — it names the record's ` +
+      `commits beside e3's own, which begin with '$', and \`e3 mutate\` addresses it as record.mutation.`,
+    );
+  }
+}
+
 /** The shared guards: a synchronous, platform-free body whose leading
  *  parameter is the record's state. Returns the body's signature. */
 function checkBody(
   surface: string, name: string, rec: RecordDef, fn: { toIR(): unknown },
 ): { inputs: EastType[]; output: EastType } {
-  if (!name) {
-    throw new Error(`e3.${surface} requires a non-empty name`);
-  }
+  checkName(surface, name);
   checkPure(`e3.${surface} '${name}' body`, fn, {
     async: 'an async body implies platform IO, which the compare-and-swap retry loop cannot safely re-run against fresher state.',
     platform: 'the compare-and-swap retry loop re-runs the mutation, so a platform call makes the committed record non-deterministic across retries.',
@@ -96,7 +109,7 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type
  * @typeParam Args - The EXTRA positional parameter types (after the state)
- * @param name - Mutation name (unique within the record)
+ * @param name - Mutation name: an identifier, unique within the record
  * @param rec - The record this mutation writes
  * @param fn - The reducer `(state, ...args) => state`
  * @param config - Optional runner selection (known runtimes only, like e3.function)
@@ -185,7 +198,7 @@ function reduce(
  * @typeParam T - The owning record's state type (a Dict)
  * @typeParam Args - The EXTRA positional parameter types (between the state and the edit)
  * @typeParam E - The edit capability's struct type, `e3.mutation.editType(T)`
- * @param name - Mutation name (unique within the record)
+ * @param name - Mutation name: an identifier, unique within the record
  * @param rec - The record this mutation writes
  * @param fn - The body `(state, ...args, edit) => null`
  * @param config - Optional runner selection (known runtimes only)
@@ -273,7 +286,7 @@ function edit(
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type (a Dict or a Set)
  * @param rec - The record this mutation writes
- * @param name - Mutation name; defaults to `patch`
+ * @param name - Mutation name: an identifier; defaults to `patch`
  * @param config - Optional runner selection (known runtimes only)
  * @returns A MutationDef to pass to `e3.package`
  *
@@ -293,9 +306,7 @@ function patch(
   name: string = 'patch',
   config?: { runner?: FunctionRunner },
 ): MutationDef {
-  if (!name) {
-    throw new Error('e3.mutation.patch requires a non-empty name');
-  }
+  checkName('mutation.patch', name);
   const runner = config?.runner ?? DEFAULT_RUNNER;
   runnerToVariant(runner);
   checkKeyed('mutation.patch', name, rec);
