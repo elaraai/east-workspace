@@ -110,6 +110,8 @@ export interface PlanBodyRowProps {
     rowDrop: PlanRowDrop | undefined;
     /** The row's draft mark, when a draft of its entry changed it (#880). */
     draft: PlanDraftMark | undefined;
+    /** The row is the last visible member of an open group (#949). */
+    groupEnd: boolean;
     /** Focal-row extras (only ever passed to the focal row). */
     expandBody?: ReactNode;
     expandGutter?: ReactNode;
@@ -168,7 +170,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 export const PlanBodyRow = memo(function PlanBodyRow({
     v, h, styles, gridTemplate, hasChildren, derived,
     dispatch, focusRole, focusTag, axisMode,
-    showLinksControl, showExpandControl, partial, review, rowDrop, draft,
+    showLinksControl, showExpandControl, partial, review, rowDrop, draft, groupEnd,
     expandBody, expandGutter, bandHeight,
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
@@ -219,7 +221,8 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 height={h} depth={v.depth} collapsed={v.collapsed}
                 strip={derived.groupStrips.get(v.row.key)}
                 memberCount={derived.groupMembers.get(v.row.key)}
-                partial={partial === true && spansWindows(v.row)} diagnostic={diagnostic} grid={grid} />
+                partial={partial === true && spansWindows(v.row)} diagnostic={diagnostic} grid={grid}
+                groupEnd={groupEnd} />
         );
     }
 
@@ -264,6 +267,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             ? rowDrop : undefined,
         draft,
         grid,
+        groupEnd,
     } as const;
     // The per-kind SHELL differences — caret, toggle, emphasis, the chart's
     // gutter ticks. The plot content itself is one switch shared with the

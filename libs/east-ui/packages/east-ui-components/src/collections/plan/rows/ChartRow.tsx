@@ -35,7 +35,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, chakra } from "@chakra-ui/react";
 import { Area, Bar, LinePath } from "@visx/shape";
 import { curveLinear } from "@visx/curve";
 import { usePlanCursor, usePlanDispatch, usePlanScale } from "../context.js";
@@ -54,15 +54,16 @@ type Styles = Record<string, Record<string, unknown>>;
 
 const VW = 1000;                       // viewBox width units
 
-const INK = "var(--chakra-colors-fg-default)";
-const BRAND = "var(--chakra-colors-brand-600)";
-const WARN = "var(--chakra-colors-status-warn)";
-const BAND_FILL = "color-mix(in srgb, var(--chakra-colors-brand-600) 14%, transparent)";
-const REF_INK = "var(--chakra-colors-fg-subtle)";
-// Scatter marks wear the chart-accent purple — the canonical chart palette
-// (`tokens.colors.accent`, "chart palette only"), never a raw Chakra
-// palette stop (#617).
-const SCATTER = "var(--chakra-colors-accent-purple)";
+/**
+ * A stacked series' place in the chart palette (#949): series 1 is the brand
+ * (`--brand-d`), and every comparison series takes the chart accents in their
+ * fixed order — teal, purple, blue, orange — cycling past the fourth. The
+ * `chartMarks` recipe slot paints each by this number; a mark carries no
+ * colour of its own.
+ */
+function paletteOf(seriesIndex: number): number {
+    return seriesIndex === 0 ? 0 : ((seriesIndex - 1) % 4) + 1;
+}
 
 /** A chart's layout on one scale — its columns and its value domains. */
 interface ChartGeometry {
@@ -218,7 +219,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 svgMarks.push(
                     <Area<Placed<ChartBandPointValue>> key={`band-${li}`} data={placed} x={x}
                         y0={(q) => s(q.p.lo)} y1={(q) => s(q.p.hi)} defined={hasBounds} curve={curveLinear}
-                        fill={BAND_FILL} stroke="none" data-plan-mark="band" />,
+                        data-plan-mark="band" />,
                 );
                 return;
             }
@@ -233,9 +234,9 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 const y = (q: Placed<ChartPointValue>) => s(q.p.y);
                 svgMarks.push(
                     <Area<Placed<ChartPointValue>> key={`area-${li}`} data={placed} x={x} y0={base} y1={y}
-                        defined={hasY} curve={curveLinear} fill={BAND_FILL} stroke="none" data-plan-mark="area" />,
+                        defined={hasY} curve={curveLinear} data-plan-mark="area" />,
                     <LinePath<Placed<ChartPointValue>> key={`arealine-${li}`} data={placed} x={x} y={y}
-                        defined={hasY} curve={curveLinear} fill="none" stroke={BRAND} strokeWidth={1.5}
+                        defined={hasY} curve={curveLinear}
                         vectorEffect="non-scaling-stroke" data-plan-mark="area-line" />,
                 );
                 return;
@@ -248,15 +249,15 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 if (before.length > 0) {
                     svgMarks.push(
                         <LinePath<Placed<ChartPointValue>> key={`line-${li}-obs`} data={before} x={x} y={y}
-                            defined={hasY} curve={curveLinear} fill="none" stroke={BRAND} strokeWidth={1.5}
+                            defined={hasY} curve={curveLinear}
                             vectorEffect="non-scaling-stroke" data-plan-mark="line" />,
                     );
                 }
                 if (after.length > 0) {
                     svgMarks.push(
                         <LinePath<Placed<ChartPointValue>> key={`line-${li}-plan`} data={after} x={x} y={y}
-                            defined={hasY} curve={curveLinear} fill="none" stroke={BRAND} strokeWidth={1.5}
-                            strokeDasharray="4 3" vectorEffect="non-scaling-stroke" data-plan-mark="line-planned" />,
+                            defined={hasY} curve={curveLinear}
+                            vectorEffect="non-scaling-stroke" data-plan-mark="line-planned" />,
                     );
                 }
                 const breach = layer.value.breach.type === "some" ? layer.value.breach.value : undefined;
@@ -264,7 +265,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                     placed.forEach((q, pi) => {
                         if (!breached(q.p.y, breach) || q.f <= scale.renderMin || q.f >= scale.renderMax) return;
                         svgMarks.push(<circle key={`line-${li}-warn-${pi}`} cx={q.f * VW} cy={s(q.p.y)}
-                            r={2.5} fill={WARN} stroke="none" data-plan-mark="breach" />);
+                            r={2.5} data-plan-mark="breach" />);
                     });
                 }
                 return;
@@ -278,7 +279,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                     const f = scale.fracOf(p.t);
                     if (!Number.isFinite(p.y) || f <= scale.renderMin || f >= scale.renderMax) return;
                     svgMarks.push(<circle key={`sc-${li}-${pi}`} cx={f * VW} cy={s(p.y)}
-                        r={2.5} fill={SCATTER} stroke="none" data-plan-mark="scatter" />);
+                        r={2.5} data-plan-mark="scatter" />);
                 });
                 return;
             }
@@ -302,32 +303,30 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 const labelF = f0 < 0 && f1 > 0 ? 0 : f0;
                 return (
                     <Box key={`refband-${li}`}>
-                        <Box position="absolute" top={0} bottom={0} left={`${f0 * 100}%`} width={`${(f1 - f0) * 100}%`}
-                            background="color-mix(in srgb, var(--chakra-colors-fg) 4%, transparent)" zIndex={1}
-                            pointerEvents="none" data-plan-mark="refband"
+                        <Box css={styles.chartRefBand} left={`${f0 * 100}%`} width={`${(f1 - f0) * 100}%`}
+                            data-plan-mark="refband"
                             data-plan-frac={f0.toFixed(4)} data-plan-frac-end={f1.toFixed(4)} />
                         {label !== undefined && <Box css={styles.refLabel} left={`${labelF * 100}%`} top="1px">{label}</Box>}
                     </Box>
                 );
             })}
-            <svg width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none"
-                style={{ position: "absolute", inset: 0, zIndex: 3, display: "block", overflow: "visible" }}>
+            {/* Every mark's colour, stroke and dash is the `chartMarks`
+                recipe's, selected by the mark's own attributes (#949). */}
+            <chakra.svg css={styles.chartMarks} width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none">
                 <title>{summary}</title>
                 {columns.drawn.map((c, i) => {
                     const s = ys(c.side);
                     const yTop = s(c.hi);
                     const yBase = s(c.lo);
-                    const fill = c.warn ? WARN : c.seriesIndex > 0 ? INK : c.planned ? BRAND : INK;
                     return <Bar key={`col-${i}`} x={c.x0 * VW} y={Math.min(yTop, yBase)}
                         width={Math.max(1, (c.x1 - c.x0) * VW)} height={Math.max(0.5, Math.abs(yBase - yTop))}
-                        fill={fill} opacity={c.planned && !c.warn ? 0.5 : c.seriesIndex > 0 ? 0.75 : 0.85} rx={1}
-                        data-plan-mark="column" />;
+                        rx={1} data-plan-mark="column" data-planned={c.planned ? "" : undefined}
+                        data-series={paletteOf(c.seriesIndex)} data-warn={c.warn ? "" : undefined} />;
                 })}
                 {kind.layers.map((layer, li) => layer.type === "refLine" ? (
                     <line key={`ref-${li}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW}
                         y1={ys(layer.value.axis.type)(layer.value.y)} y2={ys(layer.value.axis.type)(layer.value.y)}
-                        stroke={REF_INK} strokeWidth={1} strokeDasharray="2 3" vectorEffect="non-scaling-stroke"
-                        data-plan-mark="refline" />
+                        vectorEffect="non-scaling-stroke" data-plan-mark="refline" />
                 ) : null)}
                 {svgMarks}
                 {kind.layers.map((layer, li) => {
@@ -335,15 +334,13 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                     const f = scale.fracOf(layer.value.t);
                     if (!(f > scale.renderMin && f < scale.renderMax)) return null;
                     return <circle key={`refdot-${li}`} cx={f * VW} cy={ys(layer.value.axis.type)(layer.value.y)}
-                        r={3} fill="var(--chakra-colors-bg-surface)" stroke={BRAND} strokeWidth={1.5}
-                        vectorEffect="non-scaling-stroke" data-plan-mark="refdot" />;
+                        r={3} vectorEffect="non-scaling-stroke" data-plan-mark="refdot" />;
                 })}
                 {breachRects.map((r, i) => (
                     <rect key={`breach-${i}`} x={r.x0 * VW} y={1} width={(r.x1 - r.x0) * VW} height={height - 2}
-                        fill="none" stroke={WARN} strokeWidth={1.5} strokeDasharray="3 2" vectorEffect="non-scaling-stroke"
-                        rx={2} data-plan-mark="breach-rect" />
+                        vectorEffect="non-scaling-stroke" rx={2} data-plan-mark="breach-rect" />
                 ))}
-            </svg>
+            </chakra.svg>
             {/* refLine / refDot mono labels (HTML, unstretched) — spark rows
                 are too shallow for them (the §1 mock shows bare ref rules);
                 taller charts clamp the label inside the plot box. */}
@@ -387,14 +384,20 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
  *  CELL, which is the row's height, and a focus-expanded row's cell is taller
  *  than its band (#591) — a percentage of the cell landed the ticks in the
  *  render. At rest cell and band coincide, so nothing moves. The scale is the
- *  plot's own (#743): columns, stacks and baselines included. */
+ *  plot's own (#743): columns, stacks and baselines included.
+ *
+ *  An axis that declares no ticks still labels its top when the row draws
+ *  columns on it (#949): a bar's height reads against its scale's max, and
+ *  without one it cannot be read at all. */
 export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue; styles: Styles; height: number }) {
     const { left: s } = useChartScales(kind, height);
     const words = usePlanWords();
     const left = kind.left.type === "some" ? kind.left.value : undefined;
     const fmt = useMemo(() => axisFormatter(left, words.locale), [left, words]);
-    const ticks = axisTicks(left);
-    if (left === undefined || ticks.length === 0) return null;
+    const declared = axisTicks(left);
+    const columns = kind.layers.some((l) => l.type === "column" && l.value.axis.type === "left");
+    const ticks = declared.length > 0 ? declared : columns ? [(s.domain() as [number, number])[1]] : [];
+    if (ticks.length === 0) return null;
     // The axis labels the plot's scale for the eye; the plot's own name says
     // its values (#819), so a reader skips these — they sit in the rowheader.
     return (

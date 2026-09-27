@@ -879,7 +879,8 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
             expect(from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
             expect(to.getTime()).toBe(last.getTime());
             expect(Number(handle.resultCount())).toBe(1);            // the 23:00Z row is the day before
-            expect(screen.getByText("JUN 29 → JUN 29")).toBeTruthy();
+            // The range's own bounds, joined by an en dash (#949).
+            expect(screen.getByText("JUN 29 – JUN 29")).toBeTruthy();
             expect(screen.getByText("Resolves to JUN 29, 2026")).toBeTruthy();
         });
 

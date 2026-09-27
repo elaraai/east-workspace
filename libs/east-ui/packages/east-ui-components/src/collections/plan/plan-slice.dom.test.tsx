@@ -160,13 +160,16 @@ describe("Plan resolution zoom (§3)", () => {
         expect(st.resolution.value.type).toBe("day");
         const r = st.range.value.value;
         expect(r.from.getTime()).toBe(W27.getTime());
-        // 12 columns preserved: the window zoomed from 12 weeks to 12 days.
-        expect((r.to.getTime() - r.from.getTime()) / 86_400_000).toBe(12);
+        // 12 columns preserved: the window zoomed from 12 weeks to 12 days —
+        // written closed, as every window is, so it ends the millisecond
+        // before the thirteenth day (#949).
+        expect(r.to.getTime() - r.from.getTime()).toBe(12 * 86_400_000 - 1);
     });
 });
 
-/** A slice-bound canvas whose brush strip spans a mocked 1000px track —
- *  its applied window W29..W33 inside the W27..W39 domain. */
+/** A slice-bound canvas whose brush strip spans a mocked 1300px track — the
+ *  horizon's thirteen whole weeks at 100px each (#949) — its applied window
+ *  W29..W33 at 200..600px. */
 const brushFixture = (key: string, axis?: unknown) => {
     initializeStore(new UIStore());
     const cfg = {
@@ -182,7 +185,8 @@ const brushFixture = (key: string, axis?: unknown) => {
         breakdown: none, search: none, visible: none, selectedIndex: none,
         resolution: some(variant("week", null)),
     };
-    // Data spans W27..W39 — a 12-week brushable domain (84 days).
+    // Data spans W27..W39, and the horizon is its WHOLE weeks: W27 to the
+    // end of W39, thirteen of them — the last row's week counts once.
     const handle = buildSliceHandle(key, cfg as never, initial as never,
         [{ at: W27 }, { at: W39 }] as never, none) as never as {
             read(): { range: { type: string; value: { value: { from: Date; to: Date } } } };
@@ -193,7 +197,7 @@ const brushFixture = (key: string, axis?: unknown) => {
     }), key);
     const track = container.querySelector("[data-brush-track]") as HTMLElement;
     Object.defineProperty(track, "getBoundingClientRect", {
-        value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+        value: () => ({ left: 0, top: 0, right: 1300, bottom: 32, width: 1300, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
     });
     return { container, track, range: () => handle.read().range.value.value, ranged: () => handle.read().range.type === "some" };
 };
@@ -201,38 +205,40 @@ const brushFixture = (key: string, axis?: unknown) => {
 describe("Plan horizon brush — per-step live application (§7 / #620)", () => {
     test("a SLIDE applies each snapped step to the slice — the canvas re-renders honestly mid-gesture", async () => {
         const { track, range } = brushFixture("plan-620-slide");
-        // Grab the window body (166.7px..500px on the mocked track) and
-        // slide +86px ≈ +1.03 weeks — the snapped draft steps one period,
+        // Grab the window body (200px..600px on the mocked track) and
+        // slide +110px ≈ +1.1 weeks — the snapped draft steps one period,
         // and that step is APPLIED (rAF-coalesced): the mid-gesture canvas
         // IS the draft window, so grid / ruler / geometry stay truthful
         // (the reverted transform preview slid stale DOM instead — #620).
-        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 });
-        fireEvent.pointerMove(track, { clientX: 386, pointerId: 1, buttons: 1 });
+        // The window `[W30, W34)` is written closed: it ends the millisecond
+        // before W34 (#949).
+        fireEvent.pointerDown(track, { clientX: 400, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 510, pointerId: 1, buttons: 1 });
         await waitFor(() => expect(range().from.toISOString()).toBe("2026-07-20T00:00:00.000Z"));
-        expect(range().to.toISOString()).toBe("2026-08-17T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-08-16T23:59:59.999Z");
 
         // Slide on to ≈ +2 weeks total and release — the commit lands the
         // same window the last step already applied.
-        fireEvent.pointerMove(track, { clientX: 467, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 610, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-08-23T23:59:59.999Z");
     });
 
     test("an edge RESIZE applies its snapped steps too — a live zoom, no transform anywhere", async () => {
         const { track, range } = brushFixture("plan-620-resize");
-        // Grab the HI handle (winTo = 500px on the mocked track) and drag it
+        // Grab the HI handle (winTo = 600px on the mocked track) and drag it
         // left one snapped week: the draft narrows W29..W33 → W29..W32 and
         // the step applies — the canvas re-lays at the narrower window, a
         // REAL zoom (columns re-derive; no scaled text, no hidden chrome).
-        fireEvent.pointerDown(track, { clientX: 500, pointerId: 1, buttons: 1 });
-        fireEvent.pointerMove(track, { clientX: 420, pointerId: 1, buttons: 1 });
-        await waitFor(() => expect(range().to.toISOString()).toBe("2026-08-03T00:00:00.000Z"));
+        fireEvent.pointerDown(track, { clientX: 600, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 510, pointerId: 1, buttons: 1 });
+        await waitFor(() => expect(range().to.toISOString()).toBe("2026-08-02T23:59:59.999Z"));
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
 
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-08-03T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-08-02T23:59:59.999Z");
     });
 });
 
@@ -242,8 +248,8 @@ describe("the window is stated, or the slice's — never the rows' (#822)", () =
     });
     /** A click on empty track, below the drag threshold — the brush's clear. */
     const clickEmptyTrack = (track: HTMLElement) => {
-        fireEvent.pointerDown(track, { clientX: 800, pointerId: 1, buttons: 1 });
-        fireEvent.pointerUp(track, { clientX: 801, pointerId: 1 });
+        fireEvent.pointerDown(track, { clientX: 900, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(track, { clientX: 901, pointerId: 1 });
     };
 
     test("the brush's clear falls back to a stated window", () => {

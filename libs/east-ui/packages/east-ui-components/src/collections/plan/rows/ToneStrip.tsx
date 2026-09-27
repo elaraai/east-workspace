@@ -32,6 +32,7 @@ import type { PlanInstantValue } from "../instant.js";
 import { maxOf, minOf } from "../reductions.js";
 import { cellName } from "../a11y.js";
 import { usePlanWords, type PlanWords } from "../words.js";
+import { heatLevel } from "./HeatRow.js";
 
 /** A tone block's value in words — the number, what its tone adds, or no data. */
 function toneWords(d: ToneDatum, w: PlanWords): string {
@@ -98,11 +99,10 @@ export function ToneStrip({ data, styles }: ToneStripProps) {
                         css={styles.toneCell}
                         data-tone={d.tone}
                         data-nodata={nodata ? "" : undefined}
+                        // The heat row's own steps (#949) — the recipe paints them.
+                        data-level={d.tone === undefined && !nodata ? heatLevel(depth) : undefined}
                         left={`calc(${b.x0 * 100}% + 1px)`}
                         width={`calc(${(b.x1 - b.x0) * 100}% - 2px)`}
-                        background={d.tone === undefined && !nodata
-                            ? `color-mix(in srgb, var(--chakra-colors-brand-600) ${Math.round(depth * 100)}%, transparent)`
-                            : undefined}
                     >
                         <VisuallyHidden>{cellName(scale, b, toneWords(d, words), words)}</VisuallyHidden>
                     </Box>

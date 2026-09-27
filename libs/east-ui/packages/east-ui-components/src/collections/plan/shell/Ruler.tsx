@@ -13,6 +13,7 @@
 import { Box } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
 import { usePlanWords } from "../words.js";
+import { GridSeparators } from "../rows/RowShell.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -51,20 +52,26 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, traili
     const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
     return (
         <Box css={styles.ruler} gridTemplateColumns={gridTemplate} data-slot="ruler">
-            <Box css={styles.brushCaption} borderRight="none">{caption}</Box>
+            {/* The gutter's rule runs down through the ruler as through every row. */}
+            <Box css={styles.brushCaption}>{caption}</Box>
             <Box position="relative" minWidth={0} overflow="clip">
                 <Box position="absolute" inset={0} display="grid" gridTemplateColumns={columns}>
                     {scale.buckets.map((b) => (
                         <Box key={b.index} css={styles.rulerTick} data-slot="rulerTick">{b.label}</Box>
                     ))}
-                    {scale.nowFrac !== undefined && (
-                        <>
-                            <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />
-                            <Box css={styles.nowChip} left={`${scale.nowFrac * 100}%`}
-                                transform={`translate(${chipAnchor(scale.nowFrac)}, -50%)`}>{words.m.now()}</Box>
-                        </>
-                    )}
                 </Box>
+                {/* The bucket lines and the now line are the ROWS' — the same
+                    elements, placed in a box of the plot's own geometry — so
+                    the header's lines are the rows' lines, pixel for pixel,
+                    however an edge rounds. */}
+                <GridSeparators styles={styles} />
+                {scale.nowFrac !== undefined && (
+                    <>
+                        <Box css={styles.nowLine} data-plan-now left={`${scale.nowFrac * 100}%`} />
+                        <Box css={styles.nowChip} data-plan-nowchip left={`${scale.nowFrac * 100}%`}
+                            transform={`translate(${chipAnchor(scale.nowFrac)}, -50%)`}>{words.m.now()}</Box>
+                    </>
+                )}
                 {cursorChipRef !== undefined && (
                     <Box ref={cursorChipRef} css={styles.cursorChip} top="50%"
                         data-plan-cursorchip style={{ display: "none" }} />

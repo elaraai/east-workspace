@@ -172,11 +172,10 @@ export function periodText(start: Date, res: PlanResolution, w: PlanWords = PLAN
 export interface PlanBucket {
     /** Bucket index (0-based). */
     index: number;
-    /** Bucket start instant (period-aligned except a clipped first bucket). */
+    /** Bucket start instant (period-aligned: the window widens to whole periods, #949). */
     start: PlanInstantValue;
-    /** Bucket end instant (exclusive; clipped to the window's max on the last
-     *  bucket). On an ordinal scale the bucket IS its value, so `end` names
-     *  the same value as `start`. */
+    /** Bucket end instant (exclusive). On an ordinal scale the bucket IS its
+     *  value, so `end` names the same value as `start`. */
     end: PlanInstantValue;
     /** Left edge as a window fraction (0–1). */
     x0: number;
@@ -210,12 +209,12 @@ export type PlanScaleSpec =
 export interface PlanScale {
     /** The axis kind this scale positions — every instant must ride it. */
     kind: PlanAxisKind;
-    /** The window `[min, max)` as instants (an ordinal window is the whole list —
-     *  `max` names its last value). */
+    /** The window `[min, max)` as instants, widened to whole periods (#949) —
+     *  an ordinal window is the whole list, `max` naming its last value. */
     window: { min: PlanInstantValue; max: PlanInstantValue };
     /** The concrete bucket resolution — a `time` scale only. */
     resolution: PlanResolution | undefined;
-    /** Bucket count (`n = window ÷ period`, clipped buckets included). */
+    /** Bucket count (`n = window ÷ period` — whole periods, #949). */
     n: number;
     /**
      * Set when the window holds more periods than {@link MAX_PLAN_BUCKETS}: the
@@ -431,13 +430,14 @@ function ordinalDomain(spec: Extract<PlanScaleSpec, { kind: "ordinal" }>): Domai
 /**
  * Build the shared scale for an axis spec.
  *
- * Buckets are the periods intersecting `[min, max)`: the first bucket's
- * `start` is clipped to `min` when the window is not period-aligned (its
- * `x0` is 0), and the last bucket's `end` is clipped to `max` — so an
- * aligned 12-week window yields exactly 12 equal columns, an unaligned window
- * narrower edge columns on the same continuous scale, and a `[1, 9)` number
- * window at step 1 eight columns labelled `1` … `8`. An ordinal scale is its
- * list: one bucket per value, labelled by it.
+ * The window widens OUTWARD to whole periods (#949): its start floors to the
+ * period containing it and its end rises to the next period edge, so every
+ * column is a whole period — a 12-week window at MONTH resolution draws whole
+ * months (June to September), never a two-day June sliver beside a
+ * two-thirds September. An aligned window is unchanged: a 12-week window at
+ * WEEK resolution is exactly 12 equal columns, and a `[1, 9)` number window
+ * at step 1 eight columns labelled `1` … `8`. An ordinal scale is its list:
+ * one bucket per value, labelled by it.
  *
  * @param spec - The axis kind with its resolved window / period / values
  * @returns The scale, or `undefined` for an empty/inverted window, a
@@ -448,8 +448,17 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         : spec.kind === "number" ? numberDomain(spec)
             : ordinalDomain(spec);
     if (dom === undefined) return undefined;
-    const { minN, maxN } = dom;
-    if (!Number.isFinite(minN) || !Number.isFinite(maxN) || maxN <= minN) return undefined;
+    if (!Number.isFinite(dom.minN) || !Number.isFinite(dom.maxN) || dom.maxN <= dom.minN) return undefined;
+    // Whole periods: floor the start, and lift an end that falls inside a
+    // period to that period's end. "Inside" is judged with a hair of
+    // tolerance, so a float step's edge (0.30000000000000004 for 3 × 0.1) is
+    // an edge, not a period's first sliver — and an end within it IS that
+    // edge: a window closed one float short of 9 (`rangeOf`) ends at 9, so a
+    // pan from it never carries the shortfall along.
+    const aligned = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+    const minN = dom.floor(dom.minN);
+    const maxFloor = dom.floor(dom.maxN);
+    const maxN = aligned(maxFloor, dom.maxN) ? maxFloor : dom.offset(maxFloor, 1);
     const span = maxN - minN;
 
     const toN = dom.toN;
@@ -474,7 +483,7 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
     let truncated = false;
     for (let k = 0; ; k++) {
         const start = dom.offset(base, k);
-        if (start >= maxN) break;
+        if (start >= maxN || aligned(start, maxN)) break;
         if (buckets.length >= MAX_PLAN_BUCKETS) { truncated = true; break; }
         const end = dom.offset(base, k + 1);
         const clippedStart = Math.max(start, minN);
@@ -583,10 +592,6 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         if (i >= 0) return buckets[i];
         const n = toN(t);
         if (!Number.isFinite(n)) return undefined;
-        // The pre-min sliver of an UNALIGNED window's first period belongs to
-        // the first (clipped) bucket — reachable only mid-pan, drawn in the
-        // clipped bucket's visible geometry.
-        if (n >= base && n < minN) return buckets[0];
         return overscan.find((o) => n >= o.n0 && n < o.n1)?.bucket;
     };
 

@@ -135,8 +135,8 @@ function ResolutionSeg({ options, active, onPick }: {
 }
 
 /**
- * Renders an East UI `Slice.Range` — a single pill showing the active window
- * (`AUG 14 → SEP 13 · 30d`); clicking opens the `Slice.Edit` picker with the
+ * Renders an East UI `Slice.Range` — a single chip showing the active window
+ * (`AUG 14 – SEP 13 · 30d`); clicking opens the `Slice.Edit` picker with the
  * presets, the compare-with row, and the resolved window. Reads `state.range` /
  * `state.compare` reactively; writes via `setRange` / `setCompare`.
  */
@@ -243,14 +243,18 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(false)}>Done</chakra.button>}
             trigger={
                 <Box css={chip({ tone: range !== undefined ? "brand" : "neutral", numeric: true })} cursor="pointer">
-                    {!framed && <FontAwesomeIcon icon={faCalendar} style={{ fontSize: "10px" }} />}
-                    <Box as="span">{win
-                        ? `${day(win.from)} → ${day(win.to)}`
+                    {!framed && <FontAwesomeIcon icon={faCalendar} data-chip-icon="" />}
+                    {/* The range's own bounds — both inclusive, as a slice
+                        range is — with an en dash between them (#949):
+                        numbers close up (`1–8`), dates stand apart
+                        (`JUN 29 – SEP 20`). */}
+                    <Box as="span" data-slice-range-label>{win
+                        ? `${day(win.from)} – ${day(win.to)}`
                         : numericWin
-                            ? `${numFmt(numericWin.from)} → ${numFmt(numericWin.to)}`
+                            ? `${numFmt(numericWin.from)}–${numFmt(numericWin.to)}`
                             : numericField ? "All" : "All time"}</Box>
-                    {dayCount !== undefined && <Box as="span" color="fg.muted">{`${dayCount}d`}</Box>}
-                    <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
+                    {dayCount !== undefined && <Box as="span" data-chip-meta="">{`${dayCount}d`}</Box>}
+                    <FontAwesomeIcon icon={faChevronDown} data-chip-caret="" />
                 </Box>
             }
         >

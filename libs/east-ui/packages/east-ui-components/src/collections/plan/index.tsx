@@ -107,7 +107,7 @@ import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
 import { usePlanWindow } from "./root/window.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
-import { usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
+import { groupEndsOf, usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
 import { PlanGapBand, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
 import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
@@ -575,12 +575,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
+    // Where each open group ends (#949) — its last visible member's rule.
+    const groupEnds = useMemo(() => groupEndsOf(body.items), [body.items]);
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial: transport?.partial, review, rowDrop, marks,
+        canExpand, expandBody, expandGutterBody, partial: transport?.partial, review, rowDrop, marks, groupEnds,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
-        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, review, rowDrop, marks]);
+        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, review, rowDrop, marks,
+        groupEnds]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.

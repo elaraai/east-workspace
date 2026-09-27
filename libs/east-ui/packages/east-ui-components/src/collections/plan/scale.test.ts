@@ -40,15 +40,30 @@ describe('planScale — time axis', () => {
             expect(dateOf(scale.buckets[6]!.end).toISOString()).toBe("2026-04-06T00:00:00.000Z");
         });
 
-        it('an unaligned window clips the edge buckets on the continuous scale', () => {
-            // Wednesday → Wednesday, two ISO weeks touched at each edge.
+        it('an unaligned window widens OUTWARD to whole periods — no column is a sliver (#949)', () => {
+            // Wednesday → Wednesday touches three ISO weeks; each is drawn whole.
             const scale = time("2026-07-01T00:00:00Z", "2026-07-15T00:00:00Z", "week");
             expect(scale.n).toBe(3);
-            expect(scale.buckets[0]!.x0).toBe(0);                    // clipped to min
-            expect(dateOf(scale.buckets[0]!.start).toISOString()).toBe("2026-07-01T00:00:00.000Z");
-            expect(scale.buckets[2]!.x1).toBe(1);                    // clipped to max
-            // The middle bucket is a full week of the 14-day span.
-            expect(scale.buckets[1]!.x1 - scale.buckets[1]!.x0).toBeCloseTo(7 / 14, 10);
+            expect(dateOf(scale.window.min).toISOString()).toBe("2026-06-29T00:00:00.000Z");
+            expect(dateOf(scale.window.max).toISOString()).toBe("2026-07-20T00:00:00.000Z");
+            expect(dateOf(scale.buckets[0]!.start).toISOString()).toBe("2026-06-29T00:00:00.000Z");
+            expect(dateOf(scale.buckets[2]!.end).toISOString()).toBe("2026-07-20T00:00:00.000Z");
+            for (const b of scale.buckets) expect(b.x1 - b.x0).toBeCloseTo(1 / 3, 10);
+            // A 12-week window at MONTH is whole months — June to September —
+            // never a two-day June sliver beside a two-thirds September.
+            const months = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "month");
+            expect(months.buckets.map(b => b.label)).toEqual(["JUN", "JUL", "AUG", "SEP"]);
+            expect(dateOf(months.window.min).toISOString()).toBe("2026-06-01T00:00:00.000Z");
+            expect(dateOf(months.window.max).toISOString()).toBe("2026-10-01T00:00:00.000Z");
+        });
+
+        it('a window closed a millisecond short of an edge ends at that edge — a slice range, read back', () => {
+            // The canvas writes `[W27, W39)` to a slice as the closed range
+            // ending at W39 − 1 ms (`rangeOf`); read back, it is the same twelve weeks.
+            const scale = time("2026-06-29T00:00:00Z", "2026-09-20T23:59:59.999Z", "week");
+            expect(scale.n).toBe(12);
+            expect(dateOf(scale.window.max).toISOString()).toBe("2026-09-21T00:00:00.000Z");
+            expect(scale.buckets[11]!.x1).toBe(1);
         });
     });
 
@@ -292,9 +307,11 @@ describe('planScale — time axis', () => {
             expect(scale.renderMax).toBeLessThan(1);
         });
 
-        it('an unaligned window maps the pre-min sliver to the clipped first bucket', () => {
-            // Wednesday-start window: the first period begins Mon 6-29.
+        it('an unaligned window starts on its first whole period — the week before it is overscan', () => {
+            // Wednesday-start window: the first period begins Mon 6-29, and it
+            // is a window bucket, not a sliver outside one (#949).
             const scale = time("2026-07-01T00:00:00Z", "2026-07-15T00:00:00Z", "week");
+            expect(scale.bucketOf(t("2026-06-30T00:00:00Z"))).toBe(0);
             expect(scale.renderBucketOf(t("2026-06-30T00:00:00Z"))).toBe(scale.buckets[0]);
             expect(scale.renderBucketOf(t("2026-06-25T00:00:00Z"))!.index).toBe(-1);
         });
@@ -361,17 +378,29 @@ describe('planScale — number axis (#631)', () => {
         expect(scale.fromNumber(7)).toEqual(n(7));
     });
 
-    it('an unaligned window clips the edge buckets; a fractional step does not drift', () => {
+    it('an unaligned window widens to whole steps (#949); a fractional step does not drift', () => {
         const scale = num(1.5, 4, 1);
-        expect(scale.n).toBe(3);                                    // [1.5,2) [2,3) [3,4)
-        expect(scale.buckets[0]!.x0).toBe(0);
+        expect(scale.n).toBe(3);                                    // [1,2) [2,3) [3,4)
+        expect(scale.window).toEqual({ min: n(1), max: n(4) });
+        expect(scale.buckets[0]!.start).toEqual(n(1));
         expect(scale.buckets[0]!.label).toBe("1");
-        expect(scale.buckets[1]!.x1 - scale.buckets[1]!.x0).toBeCloseTo(1 / 2.5, 10);
+        for (const b of scale.buckets) expect(b.x1 - b.x0).toBeCloseTo(1 / 3, 10);
         const fine = num(0, 1, 0.1);
         expect(fine.n).toBe(10);
         expect(fine.buckets[3]!.label).toBe("0.3");
         expect(fine.bucketOf(n(0.35))).toBe(3);
         expect(fine.bucketOf(n(0.9999))).toBe(9);
+    });
+
+    it('a window closed one float short of an edge ENDS at that edge — a pan from it carries no shortfall', () => {
+        // The canvas writes `[1, 9)` to a float field as the closed range
+        // ending at the next float below 9 (`rangeOf`); read back, the window
+        // is exactly `[1, 9)`, so the next pan starts from 9, not 8.999…
+        const short = 8.999999999999998;
+        const scale = num(1, short, 1);
+        expect(scale.n).toBe(8);
+        expect(scale.window).toEqual({ min: n(1), max: n(9) });
+        expect(scale.offset(scale.window.max, 1)).toEqual(n(10));
     });
 
     it('the now position is a window fraction; off-arm instants position nowhere', () => {

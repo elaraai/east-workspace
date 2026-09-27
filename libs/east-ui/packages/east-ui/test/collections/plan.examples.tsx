@@ -193,7 +193,7 @@ export const planTargetState = example({
             // (`Plan.ref("machines", "L1-M03")`), which is what `links`,
             // `popover` and `onSelect` speak — the §1 layout is the series list.
             const ops = $.const(new Map([
-                ["coverage", { kind: variant("kpi", { name: "COVERAGE", headline: "94.2%", pinned: true, points: coverage }) }],
+                ["coverage", { kind: variant("kpi", { name: "Coverage", headline: "94.2%", pinned: true, points: coverage }) }],
                 ["L1-M03", { kind: variant("machine", { cap: 120.0, status: some(variant("success", null)), detail: none,
                   jobs: [
                       { key: "set",  phase: "SET", batch: none, start: week(27n), end: week(28n), tonnes: none, state: variant("actual", null), alert: none },
@@ -241,7 +241,7 @@ export const planTargetState = example({
                     { key: "s4", from: week(34n), to: week(35n), hours: 48.0, state: variant("estimated", null) },
                     { key: "s5", from: week(36n), to: week(38n), hours: 56.0, state: variant("proposed", variant("recommended", null)) },
                 ] }) }],
-                ["milestones", { kind: variant("stream", { name: "MILESTONES", marks: [
+                ["milestones", { kind: variant("stream", { name: "Milestones", marks: [
                     { key: "kick", at: Plan.at.time(week(28n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
                     { key: "d1", at: Plan.at.time(week(31n)), kind: variant("decision", { applied: true }), icon: none, label: none },
                     { key: "rel", at: Plan.at.time(week(33n)), kind: variant("milestone", null), icon: none, label: some("REL 2.4") },
@@ -267,7 +267,7 @@ export const planTargetState = example({
                         Chart.refLine({ y: 100, label: "TARGET 100" }),
                     ],
                 }),
-                Plan.series.section(OpsRow, { key: "line1", title: "Line 1", meta: "8 rs · 82%" }, [
+                Plan.series.section(OpsRow, { key: "line1", title: "Line 1", meta: "3 rows · 82%" }, [
                     Plan.series.span(OpsRow, {
                         key: "machines", title: "Machines",
                         match: r => r.kind.hasTag("machine"),
@@ -289,12 +289,12 @@ export const planTargetState = example({
                         cells: r => Plan.heatCells(r.kind.unwrap("load").cells, { min: 0, max: 100, warnAt: 95 }),
                     }),
                 ]),
-                Plan.series.section(OpsRow, { key: "docks-in", title: "Docks · In", meta: "3 rs" }, [
+                Plan.series.section(OpsRow, { key: "docks-in", title: "Docks · In", meta: "1 row" }, [
                     Plan.series.buckets(OpsRow, {
                         key: "docks", title: "Docks",
                         match: r => r.kind.hasTag("dock"),
                         label: r => r.kind.unwrap("dock").name,
-                        value: _r => some("load/wk"),
+                        sub: _r => some("load/wk"),
                         events: r => r.kind.unwrap("dock").allocations.map((_$, a) =>
                             Plan.event({ key: a.key, at: a.at, state: a.state })),
                         markers: r => r.kind.unwrap("dock").markers,
@@ -320,11 +320,13 @@ export const planTargetState = example({
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
             // The §1 toolbar is SEEDED slice state: the applied window is the
-            // range chip (`JUN 29 → SEP 21 · 84d`), and two saved cohorts sit
+            // range chip (`JUN 29 – SEP 20 · 84d`), and two saved cohorts sit
             // beside the filter builder with `Late risk` active — their
-            // counts are live over the horizon fixture, never printed.
+            // counts are live over the horizon fixture, never printed. A slice
+            // range is CLOSED — both ends inclusive — so the twelve weeks
+            // W27–W38 end the millisecond before W39.
             const slice = $.let(Slice.bind([HorizonRow], "ex.plan.target", cfg, Slice.state({
-                range: some(variant("datetime", { from: week(27n), to: week(39n) })),
+                range: some(variant("datetime", { from: week(27n), to: week(39n).addMilliseconds(-1n) })),
                 cohorts: [
                     { id: "late", name: "Late risk", filters: [variant("string", { fieldId: "risk", op: variant("eq", "late") })] },
                     { id: "empty", name: "Empty", filters: [variant("float", { fieldId: "tonnes", op: variant("lte", 0.0) })] },
@@ -508,7 +510,7 @@ export const planVariants = example({
             // while a two-line gutter keeps its floor and a stacked table a
             // line per position — and the gutter sweep re-widths every label.
             const ops = $.const(new Map([
-                ["util", { ...base, series: "util", label: "UTIL %", points }],
+                ["util", { ...base, series: "util", label: "Util %", points }],
                 ["m03", { ...base, series: "mach", label: "L1-M03", sub: some("cap 120 t"),
                   jobs: [
                       { key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) },
@@ -531,7 +533,7 @@ export const planVariants = example({
                       { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
                       { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
                   ] }],
-                ["ms", { ...base, series: "ms", label: "MILESTONES",
+                ["ms", { ...base, series: "ms", label: "Milestones",
                   marks: [
                       { key: "k", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
                       { key: "a", at: Plan.at.time(week(34n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
@@ -598,7 +600,7 @@ export const planVariants = example({
                     marks: r => r.marks,
                 }),
                 // A section header, so the group-toggle callback has something to fire on.
-                Plan.series.section(OpsRow, { key: "line3", title: "Line 3", meta: "1 rs" }, [
+                Plan.series.section(OpsRow, { key: "line3", title: "Line 3", meta: "1 row" }, [
                     Plan.series.span(OpsRow, {
                         key: "gmach", title: "Grouped jobs",
                         match: r => r.series.equal("gmach"),
@@ -844,7 +846,7 @@ export const planSpanRows = example({
                 label: (_r, k) => k, id: true,
                 runs: r => jobRuns(r.jobs),
             }),
-            Plan.series.section(MachineRow, { key: "line2", title: "Line 2", meta: "1 rs" }, [
+            Plan.series.section(MachineRow, { key: "line2", title: "Line 2", meta: "1 row" }, [
                 Plan.series.span(MachineRow, {
                     key: "programs", title: "Programs",
                     match: r => r.series.equal("line2"),
@@ -920,7 +922,7 @@ export const planBucketRows = example({
         const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
         const DockRow = StructType({
             series: StringType, label: StringType,
-            sub: OptionType(StringType), value: OptionType(StringType),
+            sub: OptionType(StringType),
             lanes: ArrayType(Plan.Types.Lane),
             allocations: ArrayType(AllocRow),
             tiles: ArrayType(Plan.Types.BucketEvent),
@@ -937,12 +939,12 @@ export const planBucketRows = example({
             };
         }));
         const docks = $.const(new Map([
-            ["dock2", { series: "inbound", label: "Dock 2", sub: none, value: some("load/wk"),
+            ["dock2", { series: "inbound", label: "Dock 2", sub: some("load/wk"),
               lanes: [], allocations: inbound, tiles: [],
               markers: [{ at: Plan.at.time(week(29n)), lane: none, status: variant("warning", null), message: "capacity 90%" }] }],
             // The grammar showcase — tiles stored IN the element vocabulary
             // (plain `PlanBucketEventType` records; no builders in data).
-            ["dock5", { series: "outbound", label: "Dock 5", sub: some("day · am/pm"), value: none,
+            ["dock5", { series: "outbound", label: "Dock 5", sub: some("day · am/pm"),
               lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
               allocations: [],
               tiles: [
@@ -977,11 +979,11 @@ export const planBucketRows = example({
                 key: "inbound", title: "Inbound",
                 match: r => r.series.equal("inbound"),
                 label: r => r.label,
-                value: r => r.value,
+                sub: r => r.sub,
                 events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),
                 markers: r => r.markers,
             }),
-            Plan.series.section(DockRow, { key: "docks-out", title: "Docks · Out", meta: "1 rs" }, [
+            Plan.series.section(DockRow, { key: "docks-out", title: "Docks · Out", meta: "1 row" }, [
                 // Stored vocabulary records pass straight through.
                 Plan.series.buckets(DockRow, {
                     key: "outbound", title: "Outbound",
@@ -1051,12 +1053,12 @@ export const planChartRows = example({
         const ppm = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: i.multiply(37n).remainder(60n).toFloat().add(120.0) })));
         const band = $.let(East.Array.generate(12n, BandRow, (_$, i) => ({ week: week(i.add(27n)), lo: pcts.get(i).subtract(3.0), hi: pcts.get(i).add(3.0) })));
         const measures = $.const(new Map([
-            ["spark", { series: "spark", label: "COVERAGE", sub: none, value: some("94.2%"), points: coverage, extra: [], band: [] }],
-            ["cum", { series: "cum", label: "CUMULATIVE · t", sub: none, value: some("194 t"), points: cum, extra: [], band: [] }],
-            ["stacked", { series: "stacked", label: "OUTPUT · t", sub: some("t/wk"), value: none, points: out1, extra: out2, band: [] }],
-            ["ppm", { series: "ppm", label: "DEFECTS · ppm", sub: none, value: some("161"), points: ppm, extra: [], band: [] }],
-            ["refs", { series: "refs", label: "COVERAGE + REFS", sub: none, value: none, points: coverage, extra: [], band: [] }],
-            ["dual", { series: "dual", label: "OUT + COVERAGE", sub: none, value: none, points: out1, extra: coverage, band }],
+            ["spark", { series: "spark", label: "Coverage", sub: none, value: some("94.2%"), points: coverage, extra: [], band: [] }],
+            ["cum", { series: "cum", label: "Cumulative · t", sub: none, value: some("194 t"), points: cum, extra: [], band: [] }],
+            ["stacked", { series: "stacked", label: "Output · t", sub: some("t/wk"), value: none, points: out1, extra: out2, band: [] }],
+            ["ppm", { series: "ppm", label: "Defects · ppm", sub: none, value: some("161"), points: ppm, extra: [], band: [] }],
+            ["refs", { series: "refs", label: "Coverage + refs", sub: none, value: none, points: coverage, extra: [], band: [] }],
+            ["dual", { series: "dual", label: "Out + coverage", sub: none, value: none, points: out1, extra: coverage, band }],
         ]), DictType(StringType, ChartRow));
         const series = $.const([
             // Line — the KPI spark with a breach threshold; the caret opens
@@ -1110,7 +1112,7 @@ export const planChartRows = example({
             // The composed dual-axis chart under a section header; axes take
             // Chart.Root's vocabulary — domain / tickValues. Output columns
             // scale left; the coverage line + its band scale right.
-            Plan.series.section(ChartRow, { key: "quality", title: "Quality", meta: "1 rs" }, [
+            Plan.series.section(ChartRow, { key: "quality", title: "Quality", meta: "1 row" }, [
                 Plan.series.chart(ChartRow, {
                     key: "dual", title: "Dual",
                     match: r => r.series.equal("dual"),
@@ -1220,7 +1222,7 @@ export const planHeatRows = example({
                 sub: r => r.sub,
                 cells: r => Plan.weightCells(r.weights),
             }),
-            Plan.series.section(HeatRow, { key: "packing", title: "Packing", meta: "1 rs" }, [
+            Plan.series.section(HeatRow, { key: "packing", title: "Packing", meta: "1 row" }, [
                 Plan.series.heat(HeatRow, {
                     key: "segments", title: "Segments",
                     match: r => r.series.equal("segments"),
@@ -1530,8 +1532,8 @@ export const planFold = example({
                 ["book",  { ...base, series: "book",  label: "Booked", weights: booked }],
                 ["desp",  { ...base, series: "desp",  label: "Despatch t", weekly: tonnes }],
                 ["stock", { ...base, series: "stock", label: "Closing stock t", weekly: stock }],
-                ["out",   { ...base, series: "out",   label: "OUTPUT · t", points: output }],
-                ["cov",   { ...base, series: "cov",   label: "COVERAGE %", points: coverage }],
+                ["out",   { ...base, series: "out",   label: "Output · t", points: output }],
+                ["cov",   { ...base, series: "cov",   label: "Coverage %", points: coverage }],
             ]), DictType(StringType, OpsRow));
             const whole = $.const(Format.Number({ maximumFractionDigits: 0n }));
             const series = $.const([
@@ -1654,7 +1656,7 @@ export const planCardRows = example({
                     return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
                 }),
             }),
-            Plan.series.section(CrewRow, { key: "relief", title: "Relief pool", meta: "1 rs" }, [
+            Plan.series.section(CrewRow, { key: "relief", title: "Relief pool", meta: "1 row" }, [
                 Plan.series.cards(CrewRow, {
                     key: "pool", title: "Pool",
                     match: r => r.series.equal("pool"),
@@ -1701,7 +1703,7 @@ export const planEventRows = example({
             marks: ArrayType(Plan.Types.EventMark),
         });
         const streams = $.const(new Map([
-            ["ms", { series: "main", name: "MILESTONES", sub: none, value: some("5"), marks: [
+            ["ms", { series: "main", name: "Milestones", sub: none, value: some("5"), marks: [
                 { key: "kick", at: Plan.at.time(week(28n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
                 { key: "d1", at: Plan.at.time(week(31n)), kind: variant("decision", { applied: true }), icon: none, label: none },
                 { key: "rel", at: Plan.at.time(week(33n)), kind: variant("milestone", null),
@@ -1709,7 +1711,7 @@ export const planEventRows = example({
                 { key: "audit", at: Plan.at.time(week(35n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
                 { key: "d2", at: Plan.at.time(week(37n)), kind: variant("decision", { applied: false }), icon: none, label: some("×3") },
             ] }],
-            ["release", { series: "programs", name: "RELEASES", sub: some("6-wk cadence"), value: none, marks: [
+            ["release", { series: "programs", name: "Releases", sub: some("6-wk cadence"), value: none, marks: [
                 { key: "r1", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("2.3") },
                 { key: "r2", at: Plan.at.time(week(36n)), kind: variant("milestone", null), icon: none, label: some("2.4") },
             ] }],
@@ -1722,7 +1724,7 @@ export const planEventRows = example({
                 value: r => r.value,
                 marks: r => r.marks,
             }),
-            Plan.series.section(StreamRow, { key: "programs", title: "Programs", meta: "1 rs" }, [
+            Plan.series.section(StreamRow, { key: "programs", title: "Programs", meta: "1 row" }, [
                 Plan.series.events(StreamRow, {
                     key: "releases", title: "Releases",
                     match: r => r.series.equal("programs"),
@@ -1949,7 +1951,7 @@ export const planSeriesData = example({
                 ]),
             }),
             Plan.series.rows(Block, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
-                [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
+                [Plan.events({ key: "ms", label: "Milestones", id: true, marks: [
                     Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
                     Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
                 ] })]),
@@ -2010,7 +2012,7 @@ export const planLiteralRows = example({
                     // layout, so this block sits below the machines.
                     Plan.series.rows(MachineRow, { key: "works", title: "Planned works", subtitle: "literal rows" }, [
                         Plan.span({
-                            key: "shutdown", label: "SHUTDOWN", rollup: "union", rows: [
+                            key: "shutdown", label: "Shutdown", rollup: "union", rows: [
                                 Plan.span({ key: "elec", label: "Electrical", runs: [
                                     Plan.run({ key: "iso", start: week(33n), end: week(34n), label: "ISOLATE", state: "confirmed" }),
                                 ] }),
@@ -2174,7 +2176,7 @@ export const planLibraryDnd = example({
             // The keys are the entries' identities; the LAYOUT is the series
             // list below (#822).
             const ops = $.const(new Map([
-                ["util",      { ...base, pick: "util",     label: "UTIL %",   points }],
+                ["util",      { ...base, pick: "util",     label: "Util %",   points }],
                 // ONE asset, THREE views — the `views` series below gives each
                 // machine a jobs row, a utilisation chart and a tonnes table,
                 // from these channels; nothing about the row is duplicated.
@@ -2213,7 +2215,7 @@ export const planLibraryDnd = example({
                                     { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
                                     { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
                                 ] }],
-                ["ms",        { ...base, pick: "events",   label: "MILESTONES",
+                ["ms",        { ...base, pick: "events",   label: "Milestones",
                                 marks: [
                                     { key: "k", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
                                     { key: "a", at: Plan.at.time(week(34n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
@@ -2251,7 +2253,7 @@ export const planLibraryDnd = example({
                 // Literal one-off chrome — it names itself, so it can be
                 // switched off like anything else.
                 Plan.series.rows(OpsRow, { key: "chrome", title: "Section header", subtitle: "literal chrome" },
-                    [Plan.events({ key: "hdr", label: "PLAN", id: true })]),
+                    [Plan.events({ key: "hdr", label: "Plan", id: true })]),
                 Plan.series.chart(OpsRow, {
                     key: "util", title: "Utilisation", subtitle: "% per fortnight",
                     match: r => r.pick.equal("util"),
@@ -2516,7 +2518,7 @@ export const planRowDrop = example({
             // not show that the line is drawn per kind. The source is a LIVE
             // handle: the canvas reads it, and Apply writes the drafts back.
             const ops = $.let(State.bind([DictType(StringType, OpsRow)], "ex.plan.ops", new Map([
-                ["util",  { ...base, series: "util",  label: "UTIL %",     points }],
+                ["util",  { ...base, series: "util",  label: "Util %",     points }],
                 ["m03",   { ...base, series: "mach",  label: "L1-M03",
                             jobs: [{ key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: RUNNING }] }],
                 ["m04",   { ...base, series: "mach",  label: "L1-M04",
@@ -2531,7 +2533,7 @@ export const planRowDrop = example({
                             ] }],
                 ["crewA", { ...base, series: "crew",  label: "Crew A",
                             shifts: [{ key: "s1", from: week(27n), to: week(29n), label: "80h", state: CONFIRMED }] }],
-                ["ms",    { ...base, series: "strm",  label: "MILESTONES",
+                ["ms",    { ...base, series: "strm",  label: "Milestones",
                             marks: [{ key: "k", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") }] }],
                 // A section MEMBER — the header itself takes no drops, but the
                 // span row under it receives like any other span row.
@@ -3250,7 +3252,7 @@ export const planUiState = example({
             const series = $.const([
                 Plan.series.rows(LineGroup, { key: "kpi", title: "Coverage" }, [
                     Plan.chart({
-                        key: "coverage", label: "COVERAGE", id: true, height: "spark", expandable: true,
+                        key: "coverage", label: "Coverage", id: true, height: "spark", expandable: true,
                         layers: [Chart.Line(coverage, { x: p => p.week, y: p => p.pct })],
                     }),
                 ]),
@@ -3386,7 +3388,7 @@ export const planExpand = example({
             // A CHART row — the one kind whose marks are a VALUE scale. Its
             // plot, its gutter ticks and its ref-label gate answer to the band
             // the marks keep at the top, not to the grown row (#591).
-            ["COVERAGE", { series: "chart", label: "COVERAGE",
+            ["COVERAGE", { series: "chart", label: "Coverage",
               expand: some({ height: some("150px"), axis: variant("keep", null) }),
               jobs: noJobs, points: coverage, cells: noCells, nums: noNums, marks: noMarks }],
             // axis: keep — the grid and now-line run THROUGH the render.
@@ -3441,7 +3443,7 @@ export const planExpand = example({
                   { at: Plan.at.time(week(34n)), value: some(162.0), text: none, tone: none },
                   { at: Plan.at.time(week(35n)), value: some(144.0), text: none, tone: none },
               ] }],
-            ["MILESTONES", { series: "events", label: "MILESTONES",
+            ["MILESTONES", { series: "events", label: "Milestones",
               expand: some({ height: some("112px"), axis: variant("dim", null) }),
               jobs: noJobs, points: noPoints, cells: noCells, nums: noNums,
               marks: [
@@ -3647,8 +3649,10 @@ export const planNarrow = example({
                 at: week(i.divide(2n).add(27n)),
                 risk: i.remainder(3n).equal(0n).ifElse(() => "late", () => "on-time"),
             })));
+            // A slice range is CLOSED — both ends inclusive — so the twelve
+            // weeks W27–W38 end the millisecond before W39.
             const slice = $.let(Slice.bind([HorizonRow], "ex.plan.narrow", cfg, Slice.state({
-                range: some(variant("datetime", { from: week(27n), to: week(39n) })),
+                range: some(variant("datetime", { from: week(27n), to: week(39n).addMilliseconds(-1n) })),
                 cohorts: [{ id: "late", name: "Late risk", filters: [variant("string", { fieldId: "risk", op: variant("eq", "late") })] }],
                 activeCohorts: new Set(["late"]),
             }), horizon, none));
@@ -3658,7 +3662,7 @@ export const planNarrow = example({
                 // rows" card.
                 Plan.series.rows(LineGroup, { key: "kpi", title: "Coverage" }, [
                     Plan.chart({
-                        key: "coverage", label: "COVERAGE", id: true, value: "94.2%",
+                        key: "coverage", label: "Coverage", id: true, value: "94.2%",
                         height: "spark",
                         left: { domain: [80, 110], tickValues: [80, 100] },
                         layers: [
@@ -3736,20 +3740,20 @@ export const planNarrow = example({
  * through the element builders (`Plan.run({ start: j.start })`), a chart
  * layer's numeric x accessor lands its columns on the same arm, `Plan.tableCells`
  * reads a numeric `at`, and the heat cells stored as RECORDS spell it out with
- * `Plan.at.number`. The slice's range field is a float, so the horizon brush
- * and the range chip ride the slice's `float` arm exactly as they ride
- * `datetime` on a time axis; there is no resolution segment — `step` is the
- * declaration.
+ * `Plan.at.number`. The slice's range field is an integer day, so the horizon
+ * brush and the range chip ride the slice's `integer` arm exactly as they ride
+ * `datetime` on a time axis — a closed range, so the eight days `[1, 9)` read
+ * `1–8`; there is no resolution segment — `step` is the declaration.
  */
 export const planNumberAxis = example({
     keywords: [
         "Plan", "axis", "number", "numeric", "step", "Plan.axis.number", "Plan.at", "instant",
-        "day", "AM", "PM", "lanes", "buckets", "Planner", "plannerPoint", "brush", "float", "range",
+        "day", "AM", "PM", "lanes", "buckets", "Planner", "plannerPoint", "brush", "integer", "range", "inclusive",
         "format", "now", "typed axis", "#631", "raw",
     ],
-    description: "The number axis — day 1..8 at step 1 with AM/PM lanes (the retired Planner's plannerPoint), every row kind on the numeric scale, the horizon brush over the slice's float range",
+    description: "The number axis — day 1..8 at step 1 with AM/PM lanes (the retired Planner's plannerPoint), every row kind on the numeric scale, the horizon brush over the slice's integer range, read inclusive",
     fn: East.function([], UIComponentType, (_$) => {
-        const HorizonRow = StructType({ key: StringType, day: FloatType, line: StringType });
+        const HorizonRow = StructType({ key: StringType, day: IntegerType, line: StringType });
         const cfg = Slice.config(HorizonRow, {
             fields: { day: { label: "Day" }, line: { label: "Line" } },
             rangeFieldId: "day",
@@ -3763,7 +3767,7 @@ export const planNumberAxis = example({
             const PointRow = StructType({ day: FloatType, t: FloatType });
             const RawCell = StructType({ at: FloatType, value: OptionType(FloatType) });
             const OpsRow = StructType({
-                series: StringType, label: StringType, value: OptionType(StringType),
+                series: StringType, label: StringType, value: OptionType(StringType), sub: OptionType(StringType),
                 allocations: ArrayType(AllocRow), jobs: ArrayType(JobRow), shifts: ArrayType(ShiftRow),
                 marks: ArrayType(MarkRow), points: ArrayType(PointRow), tonnes: ArrayType(RawCell),
                 cells: ArrayType(Plan.Types.HeatCell),
@@ -3790,13 +3794,13 @@ export const planNumberAxis = example({
                 return { at: Plan.at.number(i.toFloat().add(1.0)), value: some(load), label: some(East.Float.printFixed(load, 0n)) };
             }));
             const base = {
-                value: none, allocations: noAllocs, jobs: noJobs, shifts: noShifts,
+                value: none, sub: none, allocations: noAllocs, jobs: noJobs, shifts: noShifts,
                 marks: noMarks, points: noPoints, tonnes: noTonnes, cells: noCells,
             };
             // The keys are the entries' identities; the series list below is
             // the layout.
             const ops = $.const(new Map([
-                ["dock2", { ...base, series: "dock", label: "Dock 2", value: some("load/day"), allocations: [
+                ["dock2", { ...base, series: "dock", label: "Dock 2", sub: some("load/day"), allocations: [
                     { key: "a1", day: 1.0, lane: "am", state: CONFIRMED },
                     { key: "a2", day: 1.0, lane: "pm", state: CONFIRMED },
                     { key: "a3", day: 2.0, lane: "am", state: CONFIRMED },
@@ -3805,7 +3809,7 @@ export const planNumberAxis = example({
                     { key: "a6", day: 6.0, lane: "pm", state: CONFIRMED },
                     { key: "a7", day: 8.0, lane: "am", state: PROPOSED },
                 ] }],
-                ["dock5", { ...base, series: "dock", label: "Dock 5", value: some("load/day"), allocations: [
+                ["dock5", { ...base, series: "dock", label: "Dock 5", sub: some("load/day"), allocations: [
                     { key: "b1", day: 2.0, lane: "pm", state: CONFIRMED },
                     { key: "b2", day: 4.0, lane: "am", state: CONFIRMED },
                     { key: "b3", day: 4.0, lane: "pm", state: PROPOSED },
@@ -3822,24 +3826,24 @@ export const planNumberAxis = example({
                     { key: "b231", label: "RUN · B-231", start: 5.0, end: 9.0, state: PROPOSED },
                 ] }],
                 ["load", { ...base, series: "load", label: "Line load", cells }],
-                ["out", { ...base, series: "out", label: "OUTPUT · t", value: some("612 t"), points }],
+                ["out", { ...base, series: "out", label: "Output · t", value: some("612 t"), points }],
                 ["desp", { ...base, series: "table", label: "Despatch t", tonnes }],
                 ["crewA", { ...base, series: "crew", label: "Crew A", shifts: [
                     { key: "s1", from: 1.0, to: 3.0, hours: 24.0, state: CONFIRMED },
                     { key: "s2", from: 3.0, to: 6.0, hours: 36.0, state: CONFIRMED },
                     { key: "s3", from: 6.0, to: 8.0, hours: 24.0, state: PROPOSED },
                 ] }],
-                ["ms", { ...base, series: "ms", label: "MILESTONES", marks: [
+                ["ms", { ...base, series: "ms", label: "Milestones", marks: [
                     { key: "kick", day: 2.0, label: "KICKOFF" },
                     { key: "rel", day: 6.0, label: "REL" },
                 ] }],
             ]), DictType(StringType, OpsRow));
             const series = $.const([
-                Plan.series.section(OpsRow, { key: "docks-in", title: "Docks · In", meta: "2 rs" }, [
+                Plan.series.section(OpsRow, { key: "docks-in", title: "Docks · In", meta: "2 rows" }, [
                     Plan.series.buckets(OpsRow, {
                         key: "dock", title: "Docks",
                         match: r => r.series.equal("dock"),
-                        label: r => r.label, value: r => r.value,
+                        label: r => r.label, sub: r => r.sub,
                         // The Planner's AM/PM lanes — sub-slots of each day column.
                         lanes: _r => [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm", label: "PM" })],
                         // `a.day` is a FloatType field — the builder wraps it to the number arm.
@@ -3890,15 +3894,17 @@ export const planNumberAxis = example({
                 }),
             ], ArrayType(Plan.Types.Series(OpsRow)));
             // The slice's horizon — twelve days of orders behind an eight-day
-            // window. Its range field is a FLOAT, so the brush, the range chip
-            // and the window keys write the slice's `float` arm.
+            // window. Its range field is an INTEGER day, so the brush, the
+            // range chip and the window keys write the slice's `integer` arm:
+            // a closed range, both ends inclusive — the eight days `[1, 9)`
+            // are `1–8`.
             const horizon = $.let(East.Array.generate(24n, HorizonRow, (_$, i) => ({
                 key: East.str`o${East.print(i.add(1n))}`,
-                day: i.divide(2n).toFloat().add(1.0),
+                day: i.divide(2n).add(1n),
                 line: i.remainder(2n).equal(0n).ifElse(() => "Line 1", () => "Line 2"),
             })));
             const slice = $.let(Slice.bind([HorizonRow], "ex.plan.number", cfg, Slice.state({
-                range: some(variant("float", { from: 1.0, to: 9.0 })),
+                range: some(variant("integer", { from: 1n, to: 8n })),
             }), horizon, none));
             // The declaration: `[1, 9)` ÷ 1 = eight day columns, the divider at 5.
             const axis = $.const(Plan.axis.number({
@@ -3910,10 +3916,7 @@ export const planNumberAxis = example({
                     data={ops}
                     series={series}
                     slice={{ slice, affordances: ["filter", "range", "brush", "summary"] }}
-                    footer={[
-                        { text: "8 DAYS · STEP 1 · NOW 5" },
-                        { text: "NUMBER AXIS", end: true },
-                    ]}
+                    footer={[{ text: "8 STEPS · NOW 5" }]}
                 />
             );
         }}</Reactive>);
@@ -3953,7 +3956,7 @@ export const planOrdinalAxis = example({
         const PointRow = StructType({ phase: StringType, n: FloatType });
         const RawCell = StructType({ at: StringType, value: OptionType(FloatType) });
         const OrderRow = StructType({
-            series: StringType, label: StringType, value: OptionType(StringType),
+            series: StringType, label: StringType, value: OptionType(StringType), sub: OptionType(StringType),
             jobs: ArrayType(JobRow), allocations: ArrayType(AllocRow), shifts: ArrayType(ShiftRow),
             marks: ArrayType(MarkRow), points: ArrayType(PointRow), counts: ArrayType(RawCell),
             cells: ArrayType(Plan.Types.HeatCell),
@@ -3982,7 +3985,7 @@ export const planOrdinalAxis = example({
             return { at: Plan.at.ordinal(PHASES.get(i)), value: some(load), label: some(East.Float.printFixed(load, 0n)) };
         }));
         const base = {
-            value: none, jobs: noJobs, allocations: noAllocs, shifts: noShifts,
+            value: none, sub: none, jobs: noJobs, allocations: noAllocs, shifts: noShifts,
             marks: noMarks, points: noPoints, counts: noCounts, cells: noCells,
         };
         const orders = $.const(new Map([
@@ -3995,7 +3998,7 @@ export const planOrdinalAxis = example({
                 { key: "intake", label: "INTAKE", start: "INTAKE", end: "INTAKE", state: ACTUAL },
                 { key: "build", label: "BUILD · B-221", start: "PREP", end: "PACK", state: PROPOSED },
             ] }],
-            ["bench", { ...base, series: "bench", label: "Bench 2", value: some("slots"), allocations: [
+            ["bench", { ...base, series: "bench", label: "Bench 2", sub: some("slots"), allocations: [
                 { key: "a1", phase: "PREP", state: CONFIRMED }, { key: "a2", phase: "BUILD", state: CONFIRMED },
                 { key: "a3", phase: "BUILD", state: PROPOSED }, { key: "a4", phase: "PACK", state: PROPOSED },
             ] }],
@@ -4006,7 +4009,7 @@ export const planOrdinalAxis = example({
                 { key: "s1", from: "INTAKE", to: "PREP", label: "prep crew", state: CONFIRMED },
                 { key: "s2", from: "BUILD", to: "SHIP", label: "+ finish crew", state: PROPOSED },
             ] }],
-            ["gates", { ...base, series: "gates", label: "GATES", marks: [
+            ["gates", { ...base, series: "gates", label: "Gates", marks: [
                 { key: "g1", phase: "QC", label: "HOLD", exception: true },
                 { key: "g2", phase: "SHIP", label: "RELEASE", exception: false },
             ] }],
@@ -4014,7 +4017,7 @@ export const planOrdinalAxis = example({
         const EXCEPTION = $.const(variant("exception", null), Plan.Types.EventMarkKind);
         const MILESTONE = $.const(variant("milestone", null), Plan.Types.EventMarkKind);
         const series = $.const([
-            Plan.series.section(OrderRow, { key: "order-block", title: "Orders", meta: "2 rs" }, [
+            Plan.series.section(OrderRow, { key: "order-block", title: "Orders", meta: "2 rows" }, [
                 Plan.series.span(OrderRow, {
                     key: "order", title: "Orders",
                     match: r => r.series.equal("order"),
@@ -4026,7 +4029,7 @@ export const planOrdinalAxis = example({
             Plan.series.buckets(OrderRow, {
                 key: "bench", title: "Benches",
                 match: r => r.series.equal("bench"),
-                label: r => r.label, value: r => r.value,
+                label: r => r.label, sub: r => r.sub,
                 events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.phase, state: a.state })),
             }),
             Plan.series.heat(OrderRow, {
@@ -4072,10 +4075,7 @@ export const planOrdinalAxis = example({
                 axis={axis}
                 data={orders}
                 series={series}
-                footer={[
-                    { text: "6 PHASES · ORDINAL AXIS" },
-                    { text: "NOW · BUILD", end: true },
-                ]}
+                footer={[{ text: "6 PHASES · NOW BUILD" }]}
             />
         );
     }),

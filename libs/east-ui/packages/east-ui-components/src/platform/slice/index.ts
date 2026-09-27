@@ -316,10 +316,15 @@ export function boundRangeDomain(key: string): { kind: "datetime" | "integer" | 
  *
  * @param key - the slice's store key
  * @param buckets - number of equal-width bins (callers default this)
+ * @param extent - The HALF-OPEN span to bin over, `[min, max)` on the domain's
+ *   own numbers — a value outside it counts in no bin. The Plan's horizon
+ *   passes the whole periods around the data (#949), so a value at the
+ *   domain's max counts in the period it falls in rather than piling into the
+ *   last bin beside its predecessor. Omitted, the bins span the closed domain.
  * @returns per-bucket row counts (all zeros when nothing matches), or
  *          `undefined` when the slice has no usable range domain
  */
-export function boundRangeHistogram(key: string, buckets: number): number[] | undefined {
+export function boundRangeHistogram(key: string, buckets: number, extent?: { min: number; max: number }): number[] | undefined {
     const bound = boundByKey.get(key);
     const domain = boundRangeDomain(key);
     if (bound === undefined || domain === undefined || buckets < 1) return undefined;
@@ -332,14 +337,19 @@ export function boundRangeHistogram(key: string, buckets: number): number[] | un
     const s = readState(key);
     const facetState = { ...s, range: none };
     const now = new Date();
-    const span = domain.max - domain.min;
+    const lo = extent?.min ?? domain.min;
+    const hi = extent?.max ?? domain.max;
+    const span = hi - lo;
     const counts = new Array<number>(buckets).fill(0);
     for (const r of boundRows(bound)) {
         if (!sliceMatches(facetState as never, bound.config, r as Row, now)) continue;
         const v = field.value.accessor(r);
         const n = v instanceof Date ? v.getTime() : Number(v);
         if (!Number.isFinite(n)) continue;
-        const idx = span <= 0 ? 0 : Math.min(buckets - 1, Math.floor(((n - domain.min) / span) * buckets));
+        // A half-open extent holds `[lo, hi)`; the closed domain holds its max,
+        // which lands in the last bin.
+        if (extent !== undefined && (n < lo || n >= hi)) continue;
+        const idx = span <= 0 ? 0 : Math.min(buckets - 1, Math.floor(((n - lo) / span) * buckets));
         if (idx >= 0) counts[idx]! += 1;
     }
     return counts;

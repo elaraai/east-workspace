@@ -88,7 +88,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
         return (
             <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" flexShrink="0">
                 {activeDim !== undefined && (
-                    <Box css={chip({ tone: "brand", numeric: true, shape: "pill" })}>
+                    <Box css={chip({ tone: "brand", numeric: true })}>
                         <Box as="span">{activeDim.label}</Box>
                         <chakra.button type="button" cursor="pointer" color="link" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
                     </Box>
@@ -100,7 +100,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                         label="Split by"
                         footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setPickOpen(false)}>Done</chakra.button>}
                         trigger={
-                            <Box css={chip({ tone: "dashed", numeric: true, shape: "pill" })} cursor="pointer">
+                            <Box css={chip({ tone: "dashed", numeric: true, caps: true })} cursor="pointer">
                                 <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                                 <Box as="span">dimension</Box>
                             </Box>

@@ -143,8 +143,10 @@ describe("actions run their own effects (#815)", () => {
         // Two writes rendered once in between at DAY over the 12-week window.
         expect(s.calls).toEqual({ write: 1, setRange: 0, setResolution: 0 });
         expect(s.state().resolution.value!.type).toBe("day");
-        // Zoomed keeping the column count: twelve days from the window's start.
-        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + 12 * DAY]);
+        // Zoomed keeping the column count: twelve days from the window's start,
+        // written closed as every window is — the millisecond before the
+        // thirteenth day (#949).
+        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + 12 * DAY - 1]);
         // The machine's state did not move — the slice is the window's truth.
         // The one notification is the live region's (#819).
         expect(c.getSnapshot().store).toBe(store);

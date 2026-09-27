@@ -385,7 +385,7 @@ export interface PlanDerived {
      *  its members' drawn heat cells (on the scale they share), or its declared
      *  cells folded. Absent for a plain band, or declared cells as they are. */
     groupStrips: ReadonlyMap<RowKey, HeatCellsValue>;
-    /** Direct-member count by group row key — the `"8 rs"` gutter meta.
+    /** Direct-member count by group row key — the `"8 rows"` gutter meta.
      *  Derived here like every other aggregate: the IR declares no count, so
      *  the meta is always the members the group has (#568). */
     groupMembers: ReadonlyMap<RowKey, number>;

@@ -20,7 +20,7 @@ import { planElementFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barQty", "rollBand", "port", "diamond", "chartTickLeft", "chartTickRight", "refLabel",
+    "bar", "barQty", "rollBand", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
@@ -41,19 +41,20 @@ export const elementsBase = {
         gap: "4px",
         padding: "0 7px",
         fontFamily: "mono",
-        fontSize: "10px",
+        fontSize: "11px",
         fontWeight: "semibold",
         whiteSpace: "nowrap",
         overflow: "hidden",
         boxSizing: "border-box",
         zIndex: 2,
         // The lifecycle axis (§4.3), shared (`states.ts`). A bar's resting
-        // looks: observed / executing is solid ink with paper text, confirmed
-        // a paper fill in a 1.5px solid brand ring. Its proposal sits on the
-        // brand tint and its removal on nothing.
+        // looks: observed / executing is the ONE committed fill (#949,
+        // production's brand-700) with paper text, confirmed a paper fill in
+        // a 1.5px solid brand ring. Its proposal sits on the brand tint and
+        // its removal on nothing.
         ...lifecycleStates({
-            obs: { background: "fg.default", color: "bg.surface" },
-            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1.5px {colors.brand.600}" },
+            obs: { background: "brand.emphasized", color: "bg.surface" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}" },
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "transparent", color: "fg.muted" },
         }),
@@ -80,9 +81,10 @@ export const elementsBase = {
         },
         ...planElementFocus,
     },
+    // A span's quantity — the label's own weight (#949: one weight per span).
     barQty: {
         opacity: 0.72,
-        fontWeight: "medium",
+        fontWeight: "semibold",
         flexShrink: 0,
     },
     // Parent rollup band — 12px, centred `×k · qty` caption.
@@ -96,31 +98,31 @@ export const elementsBase = {
         alignItems: "center",
         justifyContent: "center",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         whiteSpace: "nowrap",
         overflow: "hidden",
         zIndex: 2,
-        background: "color-mix(in srgb, {colors.fg.default} 82%, transparent)",
+        background: "color-mix(in srgb, {colors.brand.emphasized} 82%, transparent)",
         color: "bg.surface",
         "&[data-state='prop'], &[data-state='estimated']": {
             background: "{colors.brandTint}",
             color: "brand.fg",
             borderWidth: "1px",
             borderStyle: "dashed",
-            borderColor: "{colors.brand.600}",
+            borderColor: "{colors.brand.solid}",
         },
         "&[data-state='appr']": {
             background: "bg.surface",
             color: "fg.default",
-            boxShadow: "inset 0 0 0 1px {colors.brand.600}",
+            boxShadow: "inset 0 0 0 1px {colors.brand.solid}",
         },
         "&[data-state='rejected']": {
             background: "transparent",
             color: "fg.subtle",
             borderWidth: "1px",
             borderStyle: "dashed",
-            borderColor: "{colors.gray.400}",
+            borderColor: "border.strong",
         },
     },
     // Quantity in/out port glyph on a span row.
@@ -130,7 +132,7 @@ export const elementsBase = {
         height: "7px",
         borderRadius: "full",
         background: "bg.surface",
-        boxShadow: "inset 0 0 0 1.5px {colors.brand.600}",
+        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}",
         zIndex: 4,
         transform: "translate(-50%, -50%)",
         top: "50%",
@@ -144,9 +146,9 @@ export const elementsBase = {
         top: "50%",
         borderRadius: "1px",
         background: "bg.surface",
-        boxShadow: "inset 0 0 0 1.5px {colors.brand.600}, 0 0 0 2px {colors.bg.surface}",
+        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}, 0 0 0 2px {colors.bg.surface}",
         zIndex: 4,
-        "&[data-applied]": { background: "{colors.brand.600}" },
+        "&[data-applied]": { background: "{colors.brand.solid}" },
         // An EVENT-ROW decision mark (K7 — the diamond carries `data-mark`)
         // is 11px, the §8 sheet's "◇/◆ 11px rotate-45 r1"; a span row's
         // decision diamond on a run transition stays the 9px above.
@@ -159,12 +161,65 @@ export const elementsBase = {
         ...grab,
         ...planElementFocus,
     },
-    // ── Chart rows — axis ticks + ref labels (marks are SVG, data-coloured) ──
+    // ── Chart rows — the marks, axis ticks + ref labels ──
+    // A chart row's marks (#949): the svg fills the plot, and every mark's
+    // fill, stroke and dash is this slot's, selected by the mark's own
+    // attributes — series 1 in `brand.solid` (--brand-d, the chart rule), a
+    // forecast in a lighter mix of its own hue, a comparison series in the
+    // chart accents in their fixed order (teal → purple → blue → orange), a
+    // breach in warn. The renderer draws geometry only.
+    chartMarks: {
+        position: "absolute",
+        inset: 0,
+        zIndex: 3,
+        display: "block",
+        overflow: "visible",
+        "& [data-plan-mark='column']": { fill: "brand.solid" },
+        "& [data-plan-mark='column'][data-planned]": { fill: "color-mix(in srgb, {colors.brand.solid} 40%, {colors.bg.surface})" },
+        "& [data-plan-mark='column'][data-series='1']": { fill: "accent.teal" },
+        "& [data-plan-mark='column'][data-series='1'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.teal} 40%, {colors.bg.surface})" },
+        "& [data-plan-mark='column'][data-series='2']": { fill: "accent.purple" },
+        "& [data-plan-mark='column'][data-series='2'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.purple} 40%, {colors.bg.surface})" },
+        "& [data-plan-mark='column'][data-series='3']": { fill: "accent.blue" },
+        "& [data-plan-mark='column'][data-series='3'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.blue} 40%, {colors.bg.surface})" },
+        "& [data-plan-mark='column'][data-series='4']": { fill: "accent.orange" },
+        "& [data-plan-mark='column'][data-series='4'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.orange} 40%, {colors.bg.surface})" },
+        "& [data-plan-mark='column'][data-warn]": { fill: "{colors.status.warn}" },
+        "& [data-plan-mark='line'], & [data-plan-mark='line-planned'], & [data-plan-mark='area-line']": {
+            fill: "none",
+            stroke: "brand.solid",
+            strokeWidth: "1.5px",
+        },
+        "& [data-plan-mark='line-planned']": { strokeDasharray: "4 3" },
+        "& [data-plan-mark='band'], & [data-plan-mark='area']": {
+            fill: "color-mix(in srgb, {colors.brand.solid} 14%, transparent)",
+            stroke: "none",
+        },
+        "& [data-plan-mark='breach']": { fill: "{colors.status.warn}", stroke: "none" },
+        "& [data-plan-mark='breach-rect']": {
+            fill: "none",
+            stroke: "{colors.status.warn}",
+            strokeWidth: "1.5px",
+            strokeDasharray: "3 2",
+        },
+        "& [data-plan-mark='refline']": { stroke: "fg.subtle", strokeWidth: "1px", strokeDasharray: "2 3" },
+        "& [data-plan-mark='scatter']": { fill: "accent.purple", stroke: "none" },
+        "& [data-plan-mark='refdot']": { fill: "bg.surface", stroke: "brand.solid", strokeWidth: "1.5px" },
+    },
+    // A reference band — the paper wash under every mark, across its span.
+    chartRefBand: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        zIndex: 1,
+        pointerEvents: "none",
+        background: "color-mix(in srgb, {colors.fg} 4%, transparent)",
+    },
     chartTickLeft: {
         position: "absolute",
         right: "4px",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "9.5px",
         color: "fg.subtle",
         transform: "translateY(-50%)",
         pointerEvents: "none",
@@ -179,7 +234,7 @@ export const elementsBase = {
         position: "absolute",
         right: "3px",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "9.5px",
         color: "fg.subtle",
         transform: "translateY(-50%)",
         pointerEvents: "none",
@@ -188,7 +243,7 @@ export const elementsBase = {
     refLabel: {
         position: "absolute",
         fontFamily: "mono",
-        fontSize: "8px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.08em",
         color: "fg.subtle",
@@ -208,7 +263,7 @@ export const elementsBase = {
         alignItems: "center",
         gap: "6px",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.02em",
         color: "fg.default",
@@ -233,7 +288,7 @@ export const elementsBase = {
         width: "10px",
         height: "10px",
         borderRadius: "full",
-        background: "{colors.brand.600}",
+        background: "{colors.brand.solid}",
         transform: "translate(-50%, -50%)",
         top: "50%",
         zIndex: 3,
@@ -273,7 +328,7 @@ export const elementsBase = {
         transform: "translate(-50%, -50%)",
         fontSize: "12px",
         lineHeight: 1,
-        color: "{colors.brand.600}",
+        color: "{colors.brand.solid}",
         zIndex: 3,
         "&[data-kind='exception']": { color: "{colors.status.warn}" },
         // ── R4 ICONS (#591) ──
@@ -291,7 +346,7 @@ export const elementsBase = {
         top: "50%",
         transform: "translateY(-50%)",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.06em",
         color: "fg.muted",
@@ -338,7 +393,7 @@ export const elementsBase = {
         padding: "3px 8px",
         borderRadius: "3px",
         background: "bg.surface",
-        boxShadow: "inset 0 0 0 1.5px {colors.brand.600}, 0 4px 12px -4px color-mix(in srgb, {colors.fg} 30%, transparent)",
+        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}, 0 4px 12px -4px color-mix(in srgb, {colors.fg} 30%, transparent)",
         fontFamily: "mono",
         whiteSpace: "nowrap",
         pointerEvents: "none",
@@ -349,7 +404,7 @@ export const elementsBase = {
         color: "fg.default",
     },
     moveGhostSpan: {
-        fontSize: "9px",
+        fontSize: "9.5px",
         fontWeight: "medium",
         color: "brand.fg",
     },

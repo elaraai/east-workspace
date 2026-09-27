@@ -200,7 +200,7 @@ describe("one message table (#820)", () => {
         expect(words(ruler)).toContain("⟦W27");
         expect(words(ruler)).toContain("⟦NOW");
         // A group band: the author's label, then the derived meta.
-        expect(words(container.querySelector(`${rowSel("G", "data-plan-group")} [role='rowheader']`)!)).toEqual(["Line 1", "⟦3 rs"]);
+        expect(words(container.querySelector(`${rowSel("G", "data-plan-group")} [role='rowheader']`)!)).toEqual(["Line 1", "⟦3 rows"]);
         // A diagnostic row's reason.
         allMarked(words(container.querySelector("[data-plan-diagnostic]")!));
         // A run bar: the author's label, then the churn counter.
@@ -297,7 +297,7 @@ describe("one message table (#820)", () => {
             expect(words(tabs)).toEqual(["⟦Groups", "⟦1", "⟦Rows", "⟦2"]);
             // A group's section head: its label, then its meta; the rows in
             // no group, under the table's own heading.
-            expect(words(container.querySelector(rowSel("G", "data-plan-section"))!)).toEqual(["Line 1", "⟦1 rs"]);
+            expect(words(container.querySelector(rowSel("G", "data-plan-section"))!)).toEqual(["Line 1", "⟦1 row"]);
             allMarked(words(container.querySelector("[data-plan-section='other']")!));
             // Scoped to the group: the way back is the table's.
             fireEvent.click(container.querySelector(rowSel("G", "data-plan-section"))!);

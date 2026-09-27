@@ -36,6 +36,9 @@ export const rowsBase = {
         borderBottomWidth: "var(--plan-rule-h)",
         borderBottomColor: "border.subtle",
         background: "bg.surface",
+        // The last visible member of an open group (#949): a closing rule
+        // in the strong ink, so the rows after it read as outside it.
+        "&[data-group-end]": { borderBottomColor: "border.strong" },
         // A drafted row (#880) — the Sheet's marks: an 8 % warn wash while a
         // draft of its entry changed it, danger while a check refuses the
         // entry. Before the selection tint, which wins over both.
@@ -87,7 +90,7 @@ export const rowsBase = {
         "&[data-expanded]": {
             justifyContent: "flex-start",
             paddingTop: "11px",
-            borderRightColor: "color-mix(in srgb, {colors.brand.600} 30%, {colors.border.subtle})",
+            borderRightColor: "color-mix(in srgb, {colors.brand.solid} 30%, {colors.border.subtle})",
         },
     },
     plot: {
@@ -152,13 +155,13 @@ export const rowsBase = {
         // Read against the ACTIVE cell's own brand wash, not against the
         // bare row — the band only ever appears inside `[data-drop-active]`,
         // which is already tinted, so a faint fill disappears into it.
-        background: "color-mix(in srgb, {colors.brand.500} 30%, transparent)",
+        background: "color-mix(in srgb, {colors.brand.solid} 30%, transparent)",
         borderLeftWidth: "1.5px",
         borderRightWidth: "1.5px",
         borderTopWidth: "0",
         borderBottomWidth: "0",
         borderStyle: "dashed",
-        borderColor: "{colors.brand.600}",
+        borderColor: "{colors.brand.solid}",
         "[data-drop-active] &": { display: "block" },
     },
     // A moved element's span, printed in its landing band (#825) — what the
@@ -169,7 +172,7 @@ export const rowsBase = {
         left: "4px",
         transform: "translateY(-50%)",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         color: "brand.fg",
         background: "bg.surface",
@@ -179,23 +182,22 @@ export const rowsBase = {
         "&:empty": { display: "none" },
     },
     // ── Gutter vocabulary ──
+    // ONE voice for every row's name, whatever its kind (#949, the production
+    // Planner's `.planner-rh` name): mono 11.5 / 600 in the ink, tabular.
+    // The gap is the group band's, so a member's name starts where its
+    // group's label text does.
     gutterName: {
-        fontSize: "12.5px",
-        fontWeight: "medium",
+        fontFamily: "mono",
+        fontSize: "11.5px",
+        fontWeight: "semibold",
         color: "fg.default",
+        fontVariantNumeric: "tabular-nums",
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
         display: "flex",
         alignItems: "center",
-        gap: "5px",
-        // Mono row-id treatment (`.nm.id`).
-        "&[data-id]": {
-            fontFamily: "mono",
-            fontSize: "11.5px",
-            fontWeight: "semibold",
-            letterSpacing: "0.02em",
-        },
+        gap: "6px",
         // In a strip every name reads as an id — one 10px mono line is
         // all 16px can carry, and uniformity is what makes the stack
         // scannable.
@@ -208,10 +210,11 @@ export const rowsBase = {
             color: "fg.muted",
         },
     },
+    // The unit / sub-line slot (#949) — mono 10 / 400 in the label ink.
     gutterSub: {
         fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "medium",
+        fontSize: "10px",
+        fontWeight: "normal",
         color: "fg.subtle",
         marginTop: "1px",
         whiteSpace: "nowrap",
@@ -219,11 +222,14 @@ export const rowsBase = {
         textOverflow: "ellipsis",
         "&[data-ctx]": { display: "none" },
     },
+    // The value slot (#949) — mono 11.5 / 600, right-aligned, tabular.
     gutterValue: {
         fontFamily: "mono",
-        fontSize: "10.5px",
+        fontSize: "11.5px",
         fontWeight: "semibold",
         color: "fg.default",
+        fontVariantNumeric: "tabular-nums",
+        textAlign: "right",
         "&[data-ctx]": { display: "none" },
     },
     // The right-anchored gutter cluster — meta / value / status dot (§3).
@@ -238,12 +244,12 @@ export const rowsBase = {
         flexShrink: 0,
         paddingLeft: "8px",
     },
-    // `.pl-gut .meta` — mono 9.5/500 ink-4, box-centred in the right
-    // cluster (never baseline-aligned against the name).
+    // The unit slot in the right cluster — mono 10 / 400 in the label ink
+    // (#949), box-centred (never baseline-aligned against the name).
     gutterMeta: {
         fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "medium",
+        fontSize: "10px",
+        fontWeight: "normal",
         color: "fg.subtle",
         whiteSpace: "nowrap",
         "&[data-ctx]": { display: "none" },
@@ -253,7 +259,7 @@ export const rowsBase = {
         alignItems: "center",
         gap: "3px",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "10px",
         color: "fg.subtle",
         "& > i": { width: "7px", height: "7px", borderRadius: "1.5px", display: "inline-block" },
         "&[data-ctx]": { display: "none" },
@@ -337,7 +343,7 @@ export const rowsBase = {
     // The UPSTREAM / DOWNSTREAM / LINKED tag on gathered family rows.
     focusTag: {
         fontFamily: "mono",
-        fontSize: "8px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.08em",
         color: "brand.fg",
@@ -383,7 +389,7 @@ export const rowsBase = {
         fontSize: "10px",
         "& > span": {
             fontFamily: "mono",
-            fontSize: "8.5px",
+            fontSize: "9.5px",
             fontWeight: "semibold",
             letterSpacing: "0.06em",
         },
@@ -401,8 +407,14 @@ export const rowsBase = {
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
         "& svg": { display: "block", overflow: "visible" },
         // The band and its heads, in the brand.
-        "& [data-plan-ribbon-band]": { fill: "none", stroke: "{colors.brand.600}" },
-        "& [data-plan-ribbon-head]": { fill: "{colors.brand.600}", stroke: "none" },
+        "& [data-plan-ribbon-band]": { fill: "none", stroke: "{colors.brand.solid}" },
+        "& [data-plan-ribbon-head]": { fill: "{colors.brand.solid}", stroke: "none" },
+        // The off-window landing's fade (#949) — the brand, clear at one end
+        // and strongest at the window edge; the renderer only names each
+        // stop's end.
+        "& stop": { stopColor: "{colors.brand.solid}" },
+        "& stop[data-fade='clear']": { stopOpacity: 0 },
+        "& stop[data-fade='edge']": { stopOpacity: 0.3 },
         "& [data-plan-ribbon-ink]": {
             transition: "opacity 120ms",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
@@ -413,7 +425,7 @@ export const rowsBase = {
         // and grid (the stroke paints first).
         "& [data-plan-ribbon-caption]": {
             fontFamily: "mono",
-            fontSize: "8.5px",
+            fontSize: "9.5px",
             fontWeight: "semibold",
             fill: "fg.muted",
             paintOrder: "stroke",
@@ -429,7 +441,7 @@ export const rowsBase = {
             cursor: "pointer",
         },
         // The runs a lit ribbon joins — ringed in the brand.
-        "& [data-plan-linkend]": { fill: "none", stroke: "{colors.brand.600}", strokeWidth: "2px" },
+        "& [data-plan-linkend]": { fill: "none", stroke: "{colors.brand.solid}", strokeWidth: "2px" },
     },
     // The developer render region (R2) — fills the canvas below the
     // focused row (every other row hides for the focus); fades in once
@@ -494,6 +506,12 @@ export const rowsBase = {
         height: "var(--plan-strip-mark-h)",
         borderRadius: "1px",
         zIndex: 2,
+        // The value's depth, on the heat row's own steps (#949).
+        "&[data-level='0']": { background: "brandHeat.0" },
+        "&[data-level='1']": { background: "brandHeat.1" },
+        "&[data-level='2']": { background: "brandHeat.2" },
+        "&[data-level='3']": { background: "brandHeat.3" },
+        "&[data-level='4']": { background: "brandHeat.4" },
         "&[data-tone='neg']": { background: "{colors.status.neg}", opacity: 0.85 },
         "&[data-tone='warn']": { background: "{colors.status.warn}", opacity: 0.9 },
         "&[data-nodata]": {
@@ -513,16 +531,20 @@ export const rowsBase = {
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
         cursor: "pointer",
+        // A nested group's band can be the last member of the one around it.
+        "&[data-group-end]": { borderBottomColor: "border.strong" },
         ...planRowFocus,
     },
+    // A group's label (#949) — below the column header in the label order:
+    // 9.5 / 600, 0.16em, the label ink.
     groupName: {
         position: "relative",
         fontFamily: "mono",
-        fontSize: "10px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
-        letterSpacing: "0.12em",
+        letterSpacing: "0.16em",
         textTransform: "uppercase",
-        color: "fg.muted",
+        color: "fg.subtle",
         display: "flex",
         alignItems: "center",
         gap: "6px",
@@ -530,12 +552,12 @@ export const rowsBase = {
         whiteSpace: "nowrap",
         overflow: "hidden",
     },
-    // `.pl-gut .meta` on a group band — same 9.5/500 ink-4 as row metas;
+    // The unit slot on a group band — the row metas' 10 / 400 label ink;
     // the group name's uppercase/tracking must NOT leak into it.
     groupMeta: {
         fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "medium",
+        fontSize: "10px",
+        fontWeight: "normal",
         color: "fg.subtle",
         whiteSpace: "nowrap",
         textTransform: "none",

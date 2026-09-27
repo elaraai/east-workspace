@@ -257,7 +257,7 @@ describe("Plan paged source (P-c)", () => {
         // A section's members are its series' ENTRIES, which the source's
         // windows share out between them — the one parent whose rows can span
         // windows. Over the loaded windows its derived member count is an
-        // understatement, so it prints `~2 rs` and the band carries
+        // understatement, so it prints `~2 rows` and the band carries
         // `data-plan-partial` — the author's own `meta` is never rewritten,
         // since that is their text rather than a derivation.
         const line = sectionId("line");
@@ -279,7 +279,7 @@ describe("Plan paged source (P-c)", () => {
         await screen.findByText("R1");
         const band = partial.container.querySelector(sectionSel("line"))!;
         expect(band.getAttribute("data-plan-partial")).toBe("");
-        expect(band.textContent).toContain("~2 rs");
+        expect(band.textContent).toContain("~2 rows");
         cleanup();
 
         // Every element resident: the count is the section's, and final.
@@ -287,7 +287,7 @@ describe("Plan paged source (P-c)", () => {
         await screen.findByText("R1");
         const final = done.container.querySelector(sectionSel("line"))!;
         expect(final.getAttribute("data-plan-partial")).toBeNull();
-        expect(final.textContent).toContain("2 rs");
+        expect(final.textContent).toContain("2 rows");
         expect(final.textContent).not.toContain("~");
     });
 
@@ -335,8 +335,8 @@ describe("Plan paged source (P-c)", () => {
         // …and none of these parents says so, because none of them is.
         expect(c.querySelectorAll("[data-plan-group][data-plan-partial]")).toHaveLength(0);
         const pagedSaid = said(c);
-        expect(pagedSaid.g1).toContain("2 rs");
-        expect(pagedSaid.inner).toContain("1 rs");
+        expect(pagedSaid.g1).toContain("2 rows");
+        expect(pagedSaid.inner).toContain("1 row");
         expect(pagedSaid.rollup).toContain("×2 · 30 t");
         for (const text of [pagedSaid.g1, pagedSaid.g2, pagedSaid.inner, ...pagedSaid.rollup]) expect(text).not.toContain("~");
         cleanup();
@@ -556,7 +556,7 @@ describe("Plan paged source (P-c)", () => {
         // whether or not that window holds any of its members, so a section
         // can be resident with none of its members (#822: the one parent whose
         // members span windows). It must render — it is wayfinding — and it
-        // must not print `0 rs`, which would be a measured-looking claim about
+        // must not print `0 rows`, which would be a measured-looking claim about
         // rows that simply have not loaded.
         const w0 = [
             planRow("chrome", variant("group", { summary: variant("none", null) }),
@@ -577,8 +577,8 @@ describe("Plan paged source (P-c)", () => {
         const band = container.querySelector(sectionSel("chrome"));
         expect(band).toBeTruthy();
         expect(screen.getByText("Line 9")).toBeTruthy();
-        // No member count at all — not `0 rs`, and not `~0 rs`.
-        expect(band!.textContent).not.toMatch(/\d+\s*rs/);
+        // No member count at all — not `0 rows`, and not `~0 rows`.
+        expect(band!.textContent).not.toMatch(/\d+\s*rows?\b/);
         // And the canvas says its numbers are over a prefix.
         expect(band!.getAttribute("data-plan-partial")).toBe("");
     });

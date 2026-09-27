@@ -213,7 +213,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // A group card's head carries the strip's identity; its body IS the strip.
         const line2 = container.querySelector(rowSel("line2", "data-plan-groupcard"))!;
         expect(line2.textContent).toContain("Line 2");
-        expect(line2.textContent).toContain("1 rs");
+        expect(line2.textContent).toContain("1 row");
         expect(line2.textContent).toContain("98%");
         expect(line2.querySelector("[data-plan-cardbody='group']")).toBeTruthy();
     });
@@ -292,7 +292,9 @@ describe("Plan narrow layout (§10 / #570)", () => {
         fireEvent.pointerMove(list, { pointerId: 1, clientX: 174 });          // centroid −13
         fireEvent.pointerMove(list, { pointerId: 2, clientX: 214 });          // centroid −26 → one period
         expect(handle.read().range.value.value.from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
-        expect(handle.read().range.value.value.to.toISOString()).toBe("2026-09-28T00:00:00.000Z");
+        // A slice range is closed: the window `[W28, W40)` ends the
+        // millisecond before W40 (#949).
+        expect(handle.read().range.value.value.to.toISOString()).toBe("2026-09-27T23:59:59.999Z");
         // One finger alone never pans — page scroll stays vertical.
         fireEvent.pointerUp(list, { pointerId: 2, clientX: 214 });
         fireEvent.pointerMove(list, { pointerId: 1, clientX: 0 });
@@ -317,7 +319,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(container.querySelector("[data-plan-tab='groups']")).toBeTruthy();
         expect([...container.querySelectorAll("[data-plan-section]")].map((x) => testKeyOf(x.getAttribute("data-plan-section")!)))
             .toEqual(["line1", "other"]);
-        expect(container.querySelector(rowSel("line1", "data-plan-section"))!.textContent).toContain("2 rs");
+        expect(container.querySelector(rowSel("line1", "data-plan-section"))!.textContent).toContain("2 rows");
         expect([...container.querySelectorAll("[data-plan-card]")].map((c) => testKeyOf(c.getAttribute("data-plan-card")!)))
             .toEqual(["m1", "m2", "dock"]);
         // A section header scopes to its group…
@@ -425,16 +427,16 @@ describe("Plan narrow layout (§10 / #570)", () => {
             "plan-822-narrow-partial");
         // The strips make Groups the landing: one card per group.
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))).toBeTruthy());
-        expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))!.textContent).toContain("~2 rs");
+        expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))!.textContent).toContain("~2 rows");
         const strip = container.querySelector(rowSel("g1", "data-plan-groupcard"))!.textContent;
-        expect(strip).toContain("2 rs");
+        expect(strip).toContain("2 rows");
         expect(strip).not.toContain("~");
         // The Rows tab's section headers say the same.
         fireEvent.click(container.querySelector("[data-plan-tab='rows']")!);
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))).toBeTruthy());
-        expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))!.textContent).toContain("~2 rs");
+        expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))!.textContent).toContain("~2 rows");
         const header = container.querySelector(rowSel("g1", "data-plan-section"))!.textContent;
-        expect(header).toContain("2 rs");
+        expect(header).toContain("2 rows");
         expect(header).not.toContain("~");
     });
 

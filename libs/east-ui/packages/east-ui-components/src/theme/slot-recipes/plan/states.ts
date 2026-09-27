@@ -29,7 +29,7 @@ const SHARED: Record<Exclude<PlanLifecycleState, "obs" | "appr">, SystemStyleObj
         color: "brand.fg",
         borderWidth: "1.5px",
         borderStyle: "dashed",
-        borderColor: "{colors.brand.600}",
+        borderColor: "{colors.brand.solid}",
         fontStyle: "italic",
     },
     // proposed removal — warn-dashed, struck through.
@@ -54,7 +54,7 @@ const SHARED: Record<Exclude<PlanLifecycleState, "obs" | "appr">, SystemStyleObj
         color: "fg.subtle",
         borderWidth: "1px",
         borderStyle: "dashed",
-        borderColor: "{colors.gray.400}",
+        borderColor: "border.strong",
         textDecoration: "line-through",
     },
 };

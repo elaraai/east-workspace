@@ -43,6 +43,13 @@ export const cellsBase = {
                 "repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, {colors.fg} 7%, transparent) 3px 4px)",
         },
         "&[data-warn]": { boxShadow: "inset 0 0 0 1.5px {colors.status.warn}" },
+        // The cell's step on the design system's heat scale (#949) — five
+        // steps, one per mode each; `heatLabel` inks the value to match.
+        "&[data-level='0']": { background: "brandHeat.0" },
+        "&[data-level='1']": { background: "brandHeat.1" },
+        "&[data-level='2']": { background: "brandHeat.2" },
+        "&[data-level='3']": { background: "brandHeat.3" },
+        "&[data-level='4']": { background: "brandHeat.4" },
         // ── R2 VALUE → TONE STRIP — the reference case (#591) ──
         // A heat row IS the tone strip that chart and table collapse INTO,
         // so there is nothing to convert: drop the 3px inset and centre a
@@ -59,12 +66,20 @@ export const cellsBase = {
         },
         ...planElementFocus,
     },
+    // A heat value (#949) — 10.5px, in the ink its cell's heat step pairs
+    // with (`brandHeatInk`: at least 4.5:1 on that step, in both themes).
     heatLabel: {
         fontFamily: "mono",
-        fontSize: "9px",
+        fontSize: "10.5px",
         fontWeight: "semibold",
-        color: "fg.muted",
-        "&[data-flip]": { color: "bg.surface" },
+        fontVariantNumeric: "tabular-nums",
+        "&[data-level='0']": { color: "brandHeatInk.0" },
+        "&[data-level='1']": { color: "brandHeatInk.1" },
+        "&[data-level='2']": { color: "brandHeatInk.2" },
+        "&[data-level='3']": { color: "brandHeatInk.3" },
+        "&[data-level='4']": { color: "brandHeatInk.4" },
+        // No data: the em-dash on the hatch, in the label ink.
+        "&:not([data-level])": { color: "fg.subtle" },
         "&[data-ctx]": { display: "none" },
     },
     // The Matrix `.wbar`: a single left-anchored bar (no track) at the
@@ -75,10 +90,10 @@ export const cellsBase = {
         transform: "translateY(-50%)",
         height: "var(--plan-weight-h)",
         borderRadius: "2px",
-        background: "{colors.brand.600}",
+        background: "{colors.brand.solid}",
         zIndex: 2,
         "&[data-planned]": {
-            background: "color-mix(in srgb, {colors.brand.600} 45%, {colors.bg.surface})",
+            background: "color-mix(in srgb, {colors.brand.solid} 45%, {colors.bg.surface})",
         },
         ...planElementFocus,
     },
@@ -98,11 +113,25 @@ export const cellsBase = {
         alignItems: "center",
         justifyContent: "center",
         fontFamily: "mono",
-        fontSize: "8px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         color: "bg.surface",
         overflow: "hidden",
         whiteSpace: "nowrap",
+        // The fill names its meaning (the Matrix `.segbar` vocabulary on
+        // tokens, #949): slack is the 45° hatch and free the faint wash, both
+        // light enough that their label prints in the muted ink.
+        "&[data-fill='brand']":   { background: "brand.solid" },
+        "&[data-fill='success']": { background: "{colors.status.pos}" },
+        "&[data-fill='warning']": { background: "{colors.status.warn}" },
+        "&[data-fill='danger']":  { background: "{colors.status.neg}" },
+        "&[data-fill='info']":    { background: "{colors.status.info}" },
+        "&[data-fill='neutral']": { background: "fg.subtle" },
+        "&[data-fill='slack']": {
+            backgroundImage: "repeating-linear-gradient(45deg, transparent 0 3px, {colors.border.strong} 3px 4px)",
+            color: "fg.muted",
+        },
+        "&[data-fill='free']": { background: "color-mix(in srgb, {colors.fg} 5%, transparent)", color: "fg.muted" },
     },
     // ── Bucket rows (K2) — the Planner `.pcell` grid, verbatim ──
     // One washed sub-cell per bucket × lane; content (lane caption +
@@ -152,21 +181,22 @@ export const cellsBase = {
         flex: "none",
         borderRadius: "3px",
         fontFamily: "mono",
-        fontSize: "9px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         overflow: "hidden",
         whiteSpace: "nowrap",
         boxSizing: "border-box",
         padding: "0 5px",
         "& svg": { fontSize: "8px" },
-        // The lifecycle axis (§4.3), shared (`states.ts`). A tile rests as
-        // the muted ink ✓ chip; its other states sit on paper and take a
-        // tighter 2px radius, and a proposal's grip glyph dims.
+        // The lifecycle axis (§4.3), shared (`states.ts`). A tile at rest is
+        // the ONE committed fill (#949) ✓ chip; confirmed rests on paper in a
+        // solid brand ring, as a bar does; its other states take a tighter
+        // 2px radius, a proposal sits on the tint and its grip glyph dims.
         ...lifecycleStates({
-            obs: { background: "fg.muted", color: "bg.surface" },
-            appr: { background: "fg.muted", color: "bg.surface" },
+            obs: { background: "brand.emphasized", color: "bg.surface" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
             marked: { borderRadius: "2px" },
-            prop: { background: "bg.surface", "& svg": { opacity: 0.8 } },
+            prop: { background: "{colors.brandTint}", "& svg": { opacity: 0.8 } },
             propRemoved: { background: "bg.surface", color: "fg.muted" },
         }),
         "&[data-tone='warning']": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
@@ -207,7 +237,7 @@ export const cellsBase = {
     // The per-cell lane caption (`.bl`) — printed at each cell's left.
     laneLabel: {
         fontFamily: "mono",
-        fontSize: "8px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.06em",
         color: "fg.subtle",
@@ -251,13 +281,15 @@ export const cellsBase = {
         boxSizing: "border-box",
         zIndex: 2,
         padding: "0 9px",
-        // The lifecycle axis (§4.3), shared (`states.ts`). A chip rests on
-        // the brand tint in a 1px brand ring (the Roster `.shift`); its
-        // proposal and removal sit on paper, the removal in the warn ink.
+        // The lifecycle axis (§4.3), shared (`states.ts`). The tint means
+        // selected or dirty only (#949): a chip at rest is the ONE committed
+        // fill, confirmed rests on paper in a solid brand ring, a proposal
+        // sits on the tint in its dashed ring, and a removal on paper in the
+        // warn ink.
         ...lifecycleStates({
-            obs: { background: "{colors.brandTint}", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.600}" },
-            appr: { background: "{colors.brandTint}", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.600}" },
-            prop: { background: "bg.surface" },
+            obs: { background: "brand.emphasized", color: "bg.surface" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "bg.surface", color: "{colors.status.warn}" },
         }),
         // A chip that moves (#825) is picked up anywhere but its ends.
@@ -278,15 +310,16 @@ export const cellsBase = {
         },
         ...planElementFocus,
     },
-    // ── Table cells (K5) — the Table `.tcell` verbatim: right-aligned
-    //    mono numerals per bucket (renderer sets left/width per bucket);
-    //    footer = bold ink, header = caption-styled numerals ──
+    // ── Table cells (K5) — mono numerals per bucket, CENTRED in their
+    //    column as the ruler's ticks and the heat values are (#949); the
+    //    renderer sets left/width per bucket; footer = bold ink, header =
+    //    caption-styled numerals ──
     tableCellText: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
-        textAlign: "right",
-        paddingRight: "10px",
+        textAlign: "center",
+        padding: "0 4px",
         boxSizing: "border-box",
         overflow: "hidden",
         fontFamily: "mono",
@@ -298,13 +331,13 @@ export const cellsBase = {
         // Multi-series part layouts — side by side, or stacked lines.
         "&[data-split='horizontal']": {
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: "center",
             gap: "6px",
         },
         "&[data-split='vertical']": {
             display: "flex",
             flexDirection: "column",
-            alignItems: "flex-end",
+            alignItems: "center",
             gap: "1px",
             lineHeight: "var(--plan-table-line-h)",
         },
@@ -317,18 +350,18 @@ export const cellsBase = {
         // does; the row's `split` is a DESKTOP layout choice and the
         // mobile answer is one column.
         "[data-plan-narrow] &": {
-            paddingRight: "2px",
+            padding: "0 2px",
             fontSize: "9.5px",
             "&[data-split='horizontal']": {
                 flexDirection: "column",
-                alignItems: "flex-end",
+                alignItems: "center",
                 gap: "1px",
                 lineHeight: "var(--plan-table-line-h)",
             },
         },
         "[data-emphasis='footer'] &": { fontWeight: "semibold", color: "fg.default" },
         "[data-emphasis='header'] &": {
-            fontSize: "8.5px",
+            fontSize: "9.5px",
             fontWeight: "semibold",
             letterSpacing: "0.1em",
             textTransform: "uppercase",

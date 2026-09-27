@@ -80,18 +80,29 @@ export function ordinalIndexOf(axis: PlanAxisValue): ReadonlyMap<string, number>
 }
 
 /**
- * The bound slice's applied window on the axis's own domain — `[from, to]`
- * as numbers (epoch ms / values), or `undefined` when the slice carries no
- * literal range of the arm this axis reads: `datetime` for a time axis,
- * `float` / `integer` for a number axis, never for an ordinal one.
+ * The bound slice's applied window on the axis's own domain — the HALF-OPEN
+ * `[from, to)` the canvas draws, as numbers (epoch ms / values), or
+ * `undefined` when the slice carries no literal range of the arm this axis
+ * reads: `datetime` for a time axis, `float` / `integer` for a number axis,
+ * never for an ordinal one.
  *
  * @remarks
+ * A slice range is CLOSED — both ends inclusive (`Slice.Types.Range`) — so the
+ * read is the inverse of {@link rangeOf}, on the field's own lattice:
+ * - an `integer` range counts its values: `[1, 8]` is the eight steps
+ *   `[1, 9)`;
+ * - a `datetime` / `float` range is continuous: its end reads as the window's
+ *   end, and the scale's whole periods (`planScale`) carry a window the canvas
+ *   wrote — ending a millisecond, or one float, short of a period edge — back
+ *   to that edge. A range an author seeds ON an edge (`{ from: w27, to: w39 }`)
+ *   ends there.
+ *
  * Returns PRIMITIVES so a caller can key a memo on them. The decoded state is a
  * fresh object every read, so its `range` can never be a stable dependency.
  *
  * @param state - The decoded slice state, when a slice is bound
  * @param kind - The axis kind
- * @returns `[fromN, toN]` for a non-empty range of the matching arm, else `undefined`
+ * @returns `[fromN, toN)` for a non-empty range of the matching arm, else `undefined`
  */
 export function sliceWindowOf(state: SliceStateValue | undefined, kind: PlanAxisKind): readonly [number, number] | undefined {
     if (state === undefined || kind === "ordinal") return undefined;
@@ -108,7 +119,7 @@ export function sliceWindowOf(state: SliceStateValue | undefined, kind: PlanAxis
         to = r.value.to;
     } else if (r.type === "integer") {
         from = Number(r.value.from);
-        to = Number(r.value.to);
+        to = Number(r.value.to) + 1;
     } else {
         return undefined;
     }
@@ -143,29 +154,56 @@ export function rangeArmOf(
  * A slice range value for a window `[min, max)` on the given arm — a REAL
  * East variant value (`variant`), never a `{ type, value }` literal.
  *
+ * @remarks
+ * A slice range is CLOSED — both ends inclusive (`Slice.Types.Range`) — and
+ * the window is half-open, so the range ends at the LAST value before `max` on
+ * the field's own lattice: `max − 1` on an integer field, a millisecond before
+ * it on a datetime, the next float down on a float. The slice then keeps
+ * exactly the rows the canvas draws — a row at `max` sits in the period after
+ * the window, off the canvas, and no longer counts in its summary — and the
+ * range chip, which prints the stored bounds, reads an eight-step window as
+ * `1–8` (#949). {@link sliceWindowOf} reads it back.
+ *
  * @param arm - The range arm (see {@link rangeArmOf})
  * @param min - The window start (an instant on the axis's arm)
- * @param max - The window end
+ * @param max - The window end, exclusive
  * @returns The `SliceRangeType` value to hand `setRange`
  */
 export function rangeOf(arm: PlanRangeArm, min: PlanInstantValue, max: PlanInstantValue): SliceRangeValue {
     switch (arm) {
         case "datetime": {
             const from = min.type === "time" ? min.value : new Date(NaN);
-            const to = max.type === "time" ? max.value : new Date(NaN);
+            const to = max.type === "time" ? new Date(max.value.getTime() - 1) : new Date(NaN);
             return variant("datetime", { from, to }) as SliceRangeValue;
         }
         case "float": {
             const from = min.type === "number" ? min.value : NaN;
-            const to = max.type === "number" ? max.value : NaN;
+            const to = max.type === "number" ? nextDown(max.value) : NaN;
             return variant("float", { from, to }) as SliceRangeValue;
         }
         case "integer": {
             const from = min.type === "number" ? BigInt(Math.round(min.value)) : 0n;
-            const to = max.type === "number" ? BigInt(Math.round(max.value)) : 0n;
+            const to = max.type === "number" ? BigInt(Math.round(max.value)) - 1n : 0n;
             return variant("integer", { from, to }) as SliceRangeValue;
         }
     }
+}
+
+/**
+ * The largest double below `x` — the float lattice's value before an end, as
+ * {@link rangeOf} closes a window on a float field.
+ *
+ * @param x - The value
+ * @returns The next double down (`x` itself when it is not finite)
+ */
+function nextDown(x: number): number {
+    if (!Number.isFinite(x)) return x;
+    if (x === 0) return -Number.MIN_VALUE;
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, x);
+    const bits = view.getBigUint64(0);
+    view.setBigUint64(0, x > 0 ? bits - 1n : bits + 1n);
+    return view.getFloat64(0);
 }
 
 /** What {@link resolveScale} needs — the declaration and the slice's say. */

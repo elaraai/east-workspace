@@ -30,7 +30,7 @@ import { getSomeorUndefined } from "../../../utils.js";
 import { boundRangeDomain } from "../../../platform/slice/index.js";
 import { axisNow, axisStatesWindow, rangeArmOf, rangeOf, resolveScale, sliceWindowOf } from "../axis.js";
 import { resolutionInterval, type PlanResolution, type PlanScale } from "../scale.js";
-import type { PlanInstantValue } from "../instant.js";
+import { timeInstant, type PlanInstantValue } from "../instant.js";
 import { rowIdOfKey, type PlanRootValue } from "../model.js";
 import type { PlanEffect } from "../plan-state.js";
 
@@ -103,7 +103,8 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 if (scale === undefined || scale.kind !== "time" || scale.window.min.type !== "time") break;
                 // Zoom to the new resolution keeping the CURRENT column count
                 // (12 weeks showing → DAY shows 12 days), anchored at the window
-                // start on the new period edges — ONE write for both.
+                // start on the new period edges — ONE write for both, the
+                // window closed as every window write is (`rangeOf`).
                 const interval = resolutionInterval(eff.resolution as PlanResolution);
                 const from = interval.floor(scale.window.min.value);
                 const to = interval.offset(from, scale.n);
@@ -111,7 +112,7 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 slice.write({
                     ...state,
                     resolution: some(variant(eff.resolution, null)),
-                    range: some(variant("datetime", { from, to })),
+                    range: some(rangeOf("datetime", timeInstant(from), timeInstant(to))),
                 } as SliceStateValue);
                 break;
             }

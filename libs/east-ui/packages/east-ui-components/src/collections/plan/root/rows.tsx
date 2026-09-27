@@ -68,6 +68,9 @@ export interface PlanRowContext {
     rowDrop: PlanRowDrop | undefined;
     /** Each drafted row's mark, by key (#880) — a row reads its own. */
     marks: ReadonlyMap<RowKey, PlanDraftMark>;
+    /** The rows that close an open group — each the last visible member of
+     *  one (#949, `groupEndsOf`). */
+    groupEnds: ReadonlySet<RowKey>;
 }
 
 /**
@@ -115,6 +118,7 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
             review={ctx.review}
             rowDrop={ctx.rowDrop}
             draft={ctx.marks.get(v.row.key)}
+            groupEnd={ctx.groupEnds.has(v.row.key)}
             {...(isFocal && expandBody !== null ? {
                 // The author's render is its own part (#811): a throw while
                 // rendering it stays inside the focused row.

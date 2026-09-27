@@ -101,7 +101,8 @@ export interface PlanMessages extends EditingMessages {
     resolutionLabel: () => string;
     /** A time resolution's name — its segment and the narrow chip. */
     resolutionName: (p: { resolution: string }) => string;
-    /** The slice summary line — `6 of 36 · 2 narrowings`. */
+    /** The slice summary line — `6 of 36 rows · 2 filters` (#949: a plain
+     *  summary; every narrowing the slice holds counts as a filter). */
     summary: (p: { result: string; total: string; n: number; active: string }) => string;
     /** The badge on narrowing chrome that sees only the loaded prefix. */
     scopeBadge: () => string;
@@ -162,7 +163,7 @@ export interface PlanMessages extends EditingMessages {
     expandControl: () => string;
 
     // ── Rows and bands ─────────────────────────────────────────────────────
-    /** A group's derived member count — `8 rs`, or `~8 rs` while it covers only
+    /** A group's derived member count — `8 rows`, or `~8 rows` while it covers only
      *  the loaded windows (a top-level section on a paged canvas still
      *  loading — the one parent whose members span windows, #822). */
     groupMeta: (p: { n: number; count: string; partial: boolean }) => string;
@@ -239,7 +240,7 @@ export interface PlanMessages extends EditingMessages {
     backToAllRows: () => string;
     /** An empty row list. */
     noRows: () => string;
-    /** More groups to show — `3 more groups · 24 rs`. */
+    /** More groups to show — `3 more groups · 24 rows`. */
     moreGroups: (p: { n: number; count: string; members: string | undefined }) => string;
     /** More rows to show. */
     moreRows: (p: { n: number; count: string }) => string;
@@ -389,7 +390,7 @@ export const planMessages: PlanMessages = {
     resolutionLabel: () => "Resolution",
     resolutionName: ({ resolution }) => resolution.toUpperCase(),
     summary: ({ result, total, n, active }) =>
-        `${result} of ${total}${n > 0 ? ` · ${active} ${plural(n, "narrowing", "narrowings")}` : ""}`,
+        `${result} of ${total} rows${n > 0 ? ` · ${active} ${plural(n, "filter", "filters")}` : ""}`,
     scopeBadge: () => "loaded rows only",
     seriesButton: () => "Series",
     seriesLibrary: () => "Series library",
@@ -420,7 +421,7 @@ export const planMessages: PlanMessages = {
     linksControl: () => "Focus linked rows",
     expandControl: () => "Expand row",
 
-    groupMeta: ({ count, partial }) => `${partial ? "~" : ""}${count} rs`,
+    groupMeta: ({ n, count, partial }) => `${partial ? "~" : ""}${count} ${plural(n, "row", "rows")}`,
     hiddenRows: ({ n, count, what }) => `${count} hidden ${what}${n === 1 ? "" : "s"}`,
     bandLoading: ({ from, to }) => `Loading elements ${from}–${to}`,
     bandEarlier: ({ count }) => `${count} earlier elements — scroll to load`,

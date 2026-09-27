@@ -95,6 +95,47 @@ export function planBodyItems(
 }
 
 /**
+ * The rows that close an open group — each the last visible member of a
+ * parent drawn open (#949): it carries the group's closing rule, so the rows
+ * after it read as outside it.
+ *
+ * @remarks
+ * Walks the body in order with the depths of the parents still open. A row at
+ * or above an open parent's depth ends that parent at the row before it —
+ * when that row is one of its members (a parent with nothing visible under it
+ * closes nothing). Anything but a row (an unloaded band, a failed window, a
+ * links-focus gap) breaks the walk: a group whose members run into a band
+ * has no end on the canvas yet. The last row closes every parent still open.
+ *
+ * @param items - The body items, in order
+ * @returns The keys of the rows that end a group
+ */
+export function groupEndsOf(items: readonly PlanBodyItem[]): ReadonlySet<RowKey> {
+    const ends = new Set<RowKey>();
+    const open: number[] = [];
+    let last: VisibleRow | undefined;
+    const close = (depth: number) => {
+        while (open.length > 0 && open[open.length - 1]! >= depth) {
+            const parent = open.pop()!;
+            if (last !== undefined && last.depth > parent) ends.add(last.row.key);
+        }
+    };
+    for (const item of items) {
+        if (item.kind !== "row") {
+            open.length = 0;
+            last = undefined;
+            continue;
+        }
+        const v = item.row;
+        close(v.depth);
+        if (!v.collapsed) open.push(v.depth);
+        last = v;
+    }
+    close(-1);
+    return ends;
+}
+
+/**
  * The body items and their geometry.
  *
  * @param visible - The visible rows

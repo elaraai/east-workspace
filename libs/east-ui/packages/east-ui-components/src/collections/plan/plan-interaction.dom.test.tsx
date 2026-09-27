@@ -310,17 +310,21 @@ describe("Plan keyboard rungs (#569)", () => {
         const surface = container.querySelector('[tabindex="0"]')!;
         const range = () => handle.read().range.value.value;
 
+        // A slice range is closed, so each window `[a, b)` is written ending
+        // the millisecond before `b` (#949) — and read back whole, so a pan
+        // and its inverse land exactly where they began.
         fireEvent.keyDown(surface, { key: "[" });
         expect(range().from.toISOString()).toBe("2026-06-22T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-09-14T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-09-13T23:59:59.999Z");
         fireEvent.keyDown(surface, { key: "]" });
         expect(range().from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-09-20T23:59:59.999Z");
 
         // n re-derives the window on period edges with the same column count,
         // now (Aug 12 → its Monday, W33) a third of the way in.
         fireEvent.keyDown(surface, { key: "n" });
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-10-05T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-10-04T23:59:59.999Z");
     });
 
     test("without a slice the pan rungs idle — the declared window is not writable", () => {

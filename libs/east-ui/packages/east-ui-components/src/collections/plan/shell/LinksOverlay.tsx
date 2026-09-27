@@ -48,8 +48,6 @@ import { useElementHeight, useElementWidth } from "../use-element-height.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** The fade stops' ink — the band's (a gradient stop takes no class). */
-const BRAND = "var(--chakra-colors-brand-600)";
 /** How far beyond the band the hit area reaches, each side (px). */
 const HIT_REACH = 5;
 
@@ -157,14 +155,15 @@ export function LinksOverlay({
                     <defs>
                         {/* The off-window landing — strongest AT the window
                             edge, fading inward (the runoff grammar, reversed
-                            for an arrival from beyond the window). */}
+                            for an arrival from beyond the window). The stops
+                            name their end; the recipe paints them. */}
                         <linearGradient id={`${uid}-fade-right`} x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0" stopColor={BRAND} stopOpacity={0} />
-                            <stop offset="1" stopColor={BRAND} stopOpacity={0.3} />
+                            <stop offset="0" data-fade="clear" />
+                            <stop offset="1" data-fade="edge" />
                         </linearGradient>
                         <linearGradient id={`${uid}-fade-left`} x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0" stopColor={BRAND} stopOpacity={0.3} />
-                            <stop offset="1" stopColor={BRAND} stopOpacity={0} />
+                            <stop offset="0" data-fade="edge" />
+                            <stop offset="1" data-fade="clear" />
                         </linearGradient>
                     </defs>
                     {fades.map((b, i) => (

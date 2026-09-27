@@ -312,6 +312,24 @@ test("boundRangeHistogram buckets the range field self-excluding; other-field fi
     assert.deepEqual(boundRangeHistogram("hist", 3), [2, 0, 1]);
 });
 
+test("boundRangeHistogram over a half-open EXTENT counts each period once — the last value never doubles up (#949)", () => {
+    initializeStore(new UIStore());
+    const cfgD = {
+        fields: new Map<string, unknown>([["day", { type: "integer", value: { accessor: (r: { day: bigint }) => r.day } }]]),
+        rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
+    };
+    // Two rows a day for days 1..4: the domain is the CLOSED [1, 4].
+    buildSliceHandle("hist.extent", cfgD, initial, [1n, 1n, 2n, 2n, 3n, 3n, 4n, 4n].map((day) => ({ day })), none);
+    // Over the closed domain, three bins cannot hold four days: day 4 piles
+    // into the last bin beside day 3 — the Plan horizon's "step 11 taller".
+    assert.deepEqual(boundRangeHistogram("hist.extent", 3), [2, 2, 4]);
+    // Over its WHOLE periods, `[1, 5)`, each day is one bin, counted once.
+    assert.deepEqual(boundRangeHistogram("hist.extent", 4, { min: 1, max: 5 }), [2, 2, 2, 2]);
+    // The extent is half-open: a value at or past its max counts in no bin.
+    assert.deepEqual(boundRangeHistogram("hist.extent", 2, { min: 1, max: 3 }), [2, 2]);
+    assert.deepEqual(boundRangeHistogram("hist.extent", 2, { min: 3, max: 5 }), [2, 2]);
+});
+
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {
     initializeStore(new UIStore());
     // A search that actually narrows rows needs a real string-field accessor.

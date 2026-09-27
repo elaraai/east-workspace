@@ -137,6 +137,18 @@ export const semanticTokens = defineSemanticTokens({
             "4": { value: { base: "#2b4b55", _dark: "#83c7cc" } },
         },
 
+        /* The ink a label takes on each `brandHeat` step — at least 4.5:1 on
+         * that step in its own mode (#949): the deep ink on the light steps,
+         * paper on the darkest light step, and in dark the pale ink until the
+         * steps brighten past it. */
+        brandHeatInk: {
+            "0": { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
+            "1": { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
+            "2": { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
+            "3": { value: { base: "{colors.brand.900}", _dark: "{colors.brand.900}" } },
+            "4": { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
+        },
+
         /* Overlay tints — semi-transparent ink for backdrops + scroll thumbs.
          * Light mode anchors to brand-900 (cool, never warm); dark mode flips
          * the thumb/track to white ink (dark ink is invisible on dark). */

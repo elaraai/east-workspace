@@ -168,7 +168,7 @@ describe("Plan row-layer memoization (#616)", () => {
 });
 
 describe("Plan DOM scale (#616)", () => {
-    test("separator DOM is O(rows): ONE gradient element per row on a uniform axis", () => {
+    test("separator DOM is O(rows): ONE gradient element per row on a uniform axis — and the ruler's", () => {
         const { container } = renderPlan(planRoot([
             planRow("m1", spanKind([])),
             planRow("m2", spanKind([])),
@@ -177,7 +177,11 @@ describe("Plan DOM scale (#616)", () => {
         // 12 equal week buckets → one separator element per row, where the
         // per-edge divs were 11 per row (33 across this canvas, ~50k at
         // 100 rows × 500 hour buckets).
-        expect(container.querySelectorAll("[data-plan-gridsep]")).toHaveLength(3);
+        expect(container.querySelectorAll("[data-plan-row] [data-plan-gridsep]")).toHaveLength(3);
+        // The ruler draws its lines with the SAME element, so its edges are
+        // the rows' edges to the pixel (#949) — one more, not one per tick.
+        expect(container.querySelectorAll("[data-slot='ruler'] [data-plan-gridsep]")).toHaveLength(1);
+        expect(container.querySelectorAll("[data-plan-gridsep]")).toHaveLength(4);
     });
 
     test("bucket cells mount only where OCCUPIED; the empty wash is one band per lane", () => {

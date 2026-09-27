@@ -82,7 +82,8 @@ export interface ColumnGeometry {
     side: ChartSide;
     /** Beyond its layer's breach threshold. */
     warn: boolean;
-    /** After the now instant. */
+    /** At or after the now instant — a column that starts at now is the
+     *  period in progress, drawn to the right of the now line (#949). */
     planned: boolean;
     /** Its stack series' first-appearance index (0 for an unstacked column). */
     seriesIndex: number;
@@ -178,7 +179,7 @@ export function layoutColumns(layers: readonly ChartLayerValue[], scale: PlanSca
                 x1: bucket.x1 - inset,
                 lo, hi, value: v, side,
                 warn: breached(v, threshold),
-                planned: scale.nowFrac !== undefined && scale.fracOf(p.t) > scale.nowFrac,
+                planned: scale.nowFrac !== undefined && scale.fracOf(p.t) >= scale.nowFrac,
                 seriesIndex,
             });
         }

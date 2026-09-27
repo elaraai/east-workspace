@@ -62,7 +62,7 @@ export interface GroupRowProps {
     collapsed: boolean;
     /** The renderer-derived strip (`PlanDerived.groupStrips`) — see {@link groupStrip}. */
     strip?: HeatCellsValue | undefined;
-    /** Renderer-derived direct-member count — printed as the `"8 rs"` meta
+    /** Renderer-derived direct-member count — printed as the `"8 rows"` meta
      *  (the `groupMeta` message, #820) when the IR declares none (#568: the
      *  count is an aggregate like any other, so it is derived here rather than
      *  baked into the row). */
@@ -70,7 +70,7 @@ export interface GroupRowProps {
     /** Whether the derived numbers cover only the windows that have landed —
      *  a top-level section band on a paged canvas still loading, the one
      *  parent whose members span windows (`spansWindows`, #822). The count
-     *  prints `~8 rs` and the band carries `data-plan-partial` (#567 D9). The
+     *  prints `~8 rows` and the band carries `data-plan-partial` (#567 D9). The
      *  author's own `meta` is never rewritten: it is their text, not a
      *  derivation. */
     partial?: boolean | undefined;
@@ -80,10 +80,13 @@ export interface GroupRowProps {
     diagnostic?: PlanRowDiagnostic | undefined;
     /** The band's grid plumbing (#819) — `usePlanGridRow`. */
     grid: PlanGridRow;
+    /** The band is the last visible member of the open group around it — it
+     *  carries that group's closing rule (#949). */
+    groupEnd?: boolean | undefined;
 }
 
 /** One group band — full-width strip on the shared template. */
-export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, strip, memberCount, partial, diagnostic, grid }: GroupRowProps) {
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, strip, memberCount, partial, diagnostic, grid, groupEnd }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
@@ -113,6 +116,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             // The height the model laid the band out at (#817).
             data-plan-h={height}
             data-collapsed={collapsed ? "" : undefined}
+            data-group-end={groupEnd === true ? "" : undefined}
             data-plan-partial={partial === true ? "" : undefined}
             onClick={() => dispatch({ t: "group.toggle", key: row.key })}
         >
@@ -120,16 +124,16 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                 <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
                     <FontAwesomeIcon icon={faCaretDown} />
                 </Box>
-                <Box as="span" overflow="hidden" textOverflow="ellipsis" minWidth={0}>{row.gutter.label}</Box>
+                <Box as="span" overflow="hidden" textOverflow="ellipsis" minWidth={0} data-plan-gutter="label">{row.gutter.label}</Box>
                 {/* The mock's `.grow` anatomy: meta / dot / value cluster
                     pushed to the gutter's RIGHT edge by the flex spacer —
                     never inline beside the name. */}
                 {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
                     <Box css={styles.gutterRight}>
-                        {meta !== undefined && <Box as="span" css={styles.groupMeta}>{meta}</Box>}
+                        {meta !== undefined && <Box as="span" css={styles.groupMeta} data-plan-gutter="meta">{meta}</Box>}
                         {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
                             role="img" aria-label={statusText(statusTone, words)} />}
-                        {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
+                        {value !== undefined && <Box as="span" css={styles.gutterValue} data-plan-gutter="value">{value}</Box>}
                     </Box>
                 )}
             </Box>
@@ -145,7 +149,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                             onCellClick={() => dispatch({ t: "group.toggle", key: row.key })} />
                     </PlanPartBoundary>
                 )}
-                {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
+                {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-now left={`${scale.nowFrac * 100}%`} />}
             </Box>
         </Box>
     );

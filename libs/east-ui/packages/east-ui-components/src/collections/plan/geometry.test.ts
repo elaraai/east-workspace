@@ -68,6 +68,7 @@ describe("the Plan geometry table (#817)", () => {
         expect(slot("segmentTrack").height).toBe(v("segment"));
         expect(slot("toolbar").minHeight).toBe(v("toolbar"));
         expect(slot("brushRow").height).toBe(v("brush"));
+        expect(slot("horizonLens").height).toBe(v("lens"));
         expect(slot("ruler").height).toBe(v("ruler"));
         expect(slot("narrowRuler").height).toBe(v("ruler"));
         expect(slot("footer").minHeight).toBe(v("footer"));
@@ -80,10 +81,13 @@ describe("the Plan geometry table (#817)", () => {
         expect(planSlotRecipe.defaultVariants).toBeUndefined();
     });
 
-    test("dense tightens the shared row and the bars in it; every other height holds", () => {
+    test("dense tightens the shared row, the heat row with it and the bars in it; every other height holds", () => {
         const differ = (Object.keys(PLAN_GEOMETRY.default) as (keyof PlanGeometry)[])
             .filter((key) => PLAN_GEOMETRY.default[key] !== PLAN_GEOMETRY.dense[key]);
-        expect(differ.sort()).toEqual(["bar", "row"]);
+        expect(differ.sort()).toEqual(["bar", "heatRow", "row"]);
+        // A heat row is the standard single-line row at either density (#949).
+        expect(PLAN_GEOMETRY.default.heatRow).toBe(PLAN_GEOMETRY.default.row);
+        expect(PLAN_GEOMETRY.dense.heatRow).toBe(PLAN_GEOMETRY.dense.row);
         expect(planGeometry(true)).toBe(PLAN_GEOMETRY.dense);
         expect(planGeometry(false)).toBe(PLAN_GEOMETRY.default);
     });

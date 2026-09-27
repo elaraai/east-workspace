@@ -5,11 +5,12 @@
 
 /**
  * Heat rows (`Plan Spec.md` §4·K4) — the Matrix cell recipes quantised onto
- * the shared scale: colour-depth heat cells (`color-mix` ramp, label flips to
- * paper past 50%, 45° no-data hatch, ≥ warn threshold ring), booked-vs-free
- * weight bars (planned ⇒ pale), and weighted segment compositions. Cell depth
- * is data-driven (the sanctioned dynamic exception); everything enumerable
- * lives on the `plan` recipe slots.
+ * the shared scale: heat cells on the design system's five `brandHeat` steps
+ * (#949 — the cell's value prints in the ink its step pairs with, at least
+ * 4.5:1 in both themes), 45° no-data hatch, ≥ warn threshold ring,
+ * booked-vs-free weight bars (planned ⇒ pale), and weighted segment
+ * compositions. The renderer names each cell's STEP and each segment's FILL
+ * as data attributes; every colour lives on the `plan` recipe slots.
  *
  * Group summary strips (§5) are exactly the `heat` arm rendered by
  * {@link HeatCells} — GroupRow delegates here.
@@ -39,21 +40,10 @@ import { getSomeorUndefined } from "../../../utils.js";
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 
-/** MatrixFill tag → segment fill (the Matrix vocabulary on tokens; slack is
- *  the 45° hatch, free the faint wash — the spec `.segbar` fills verbatim). */
-const SEGMENT_FILL: Record<string, string> = {
-    brand:   "var(--chakra-colors-brand-600)",
-    success: "var(--chakra-colors-status-pos)",
-    warning: "var(--chakra-colors-status-warn)",
-    danger:  "var(--chakra-colors-status-neg)",
-    info:    "var(--chakra-colors-status-info)",
-    neutral: "var(--chakra-colors-fg-subtle)",
-    slack:   "repeating-linear-gradient(45deg, transparent 0 3px, var(--chakra-colors-border-strong) 3px 4px)",
-    free:    "color-mix(in srgb, var(--chakra-colors-fg) 5%, transparent)",
-};
-
-/** Segment fills that read dark enough for paper-coloured in-bar labels. */
-const SEGMENT_DARK = new Set(["brand", "success", "warning", "danger", "info", "neutral"]);
+/** The `brandHeat` step a depth in `[0, 1]` falls on — five steps. */
+export function heatLevel(depth: number): number {
+    return Math.max(0, Math.min(4, Math.round(depth * 4)));
+}
 
 export type HeatCellsProps = {
     /** R2 context strip (#591) — render this row's marks at strip size. */
@@ -145,18 +135,20 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                         : v !== undefined && format !== undefined ? w.value(v, format) : undefined;
                     const warned = v !== undefined && warn !== undefined && v >= warn;
                     const words = heatValueText(v, label, warned, w);
+                    // Its step on the `brandHeat` scale — the recipe paints it,
+                    // and inks its value to match.
+                    const level = v === undefined ? undefined : heatLevel(depth);
                     return (
                         <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}
                             data-plan-bucket={box.bucket.index}
                             {...cellAttrs(c.at, box.bucket, words)}
                             data-nodata={v === undefined ? "" : undefined}
                             data-warn={warned ? "" : undefined}
+                            data-level={level}
                             left={box.left} width={box.width}
-                            background={v === undefined ? undefined
-                                : `color-mix(in srgb, var(--chakra-colors-brand-700) ${Math.round(depth * 88)}%, var(--chakra-colors-bg-surface))`}
                             onClick={clickCell(c.at)}
                         >
-                            <Box as="span" css={styles.heatLabel} data-flip={depth > 0.5 ? "" : undefined} data-ctx={ctxAttr}
+                            <Box as="span" css={styles.heatLabel} data-level={level} data-ctx={ctxAttr} data-plan-heat-label
                                 aria-hidden={element ? undefined : "true"}>
                                 {v === undefined ? "–" : label}
                             </Box>
@@ -217,8 +209,8 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                             return (
                                 <Box key={j} css={styles.segmentPart}
                                     width={`${share * 100}%`}
-                                    background={SEGMENT_FILL[fillTag] ?? SEGMENT_FILL.neutral}
-                                    color={SEGMENT_DARK.has(fillTag) ? undefined : "var(--chakra-colors-fg-muted)"}
+                                    // The fill names its meaning; the recipe paints it.
+                                    data-fill={fillTag}
                                     aria-hidden={element ? undefined : "true"}
                                 >
                                     {share > 0.14 ? label : undefined}

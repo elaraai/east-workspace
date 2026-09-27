@@ -8,7 +8,7 @@
  * carry the §4.3 truth table on `data-state` (+ `data-stuck` /
  * `data-runoff`), rollup bands their `×k · qty` caption, the ruler its ISO
  * week ticks + NOW chip, group strips toggle their subtree in place, heat
- * cells carry `data-nodata` / `data-warn` / label flip, bucket tiles wear
+ * cells carry `data-nodata` / `data-warn` / `data-level`, bucket tiles wear
  * the same truth table with lanes / markers, table numerals their tones +
  * derived subtotals + row emphasis, cards chips the lifecycle looks, and
  * event rows their kind glyphs.
@@ -224,11 +224,11 @@ describe("Plan group strips (§5)", () => {
     test("a group toggles its subtree in place and shows the member meta", () => {
         const { container } = renderPlan(planRoot([
             planRow("line1", variant("group", { summary: variant("none", null) }),
-                { gutter: gutter("LINE 1", { meta: "2 rs" }) }),
+                { gutter: gutter("LINE 1", { meta: "2 rows" }) }),
             planRow("m1", spanKind([]), { parent: "line1" }),
             planRow("m2", spanKind([]), { parent: "line1" }),
         ]));
-        expect(screen.getByText("2 rs")).toBeTruthy();
+        expect(screen.getByText("2 rows")).toBeTruthy();
         expect(container.querySelector(rowSel("m1"))).toBeTruthy();
         fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);
         expect(container.querySelector(rowSel("m1"))).toBeNull();
@@ -264,7 +264,7 @@ describe("Plan group strips (§5)", () => {
 });
 
 describe("Plan heat rows (§4·K4)", () => {
-    test("heat cells: depth labels, ≥ warnAt ring, no-data hatch, past-50% flip", () => {
+    test("heat cells: depth labels, ≥ warnAt ring, no-data hatch, an ink per level (#949)", () => {
         const { container } = renderPlan(planRoot([
             planRow("l1", variant("heat", {
                 cells: heatArm([
@@ -275,9 +275,15 @@ describe("Plan heat rows (§4·K4)", () => {
                 aggregate: none, scale: none,
             })),
         ]));
-        expect(screen.getByText("30")).toBeTruthy();
+        // A cell and its value carry one LEVEL — 0–4 by depth on the scale —
+        // and the recipe inks each level for ≥ 4.5:1 against its own fill, so
+        // the value reads at every depth (a 50% flip left 3.3:1 either side).
+        const cool = screen.getByText("30");
+        expect(cool.getAttribute("data-level")).toBe("1");
+        expect(cool.parentElement!.getAttribute("data-level")).toBe("1");
         const hot = screen.getByText("96");
-        expect(hot.hasAttribute("data-flip")).toBe(true);
+        expect(hot.getAttribute("data-level")).toBe("4");
+        expect(hot.parentElement!.getAttribute("data-level")).toBe("4");
         expect(hot.closest("[data-warn]")).toBeTruthy();
         expect(container.querySelector("[data-nodata]")).toBeTruthy();
         expect(screen.getByText("–")).toBeTruthy();

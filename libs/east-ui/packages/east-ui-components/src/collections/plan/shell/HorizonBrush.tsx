@@ -4,12 +4,17 @@
  */
 
 /**
- * The horizon strip (32px, `Plan Spec.md` §7) — the shared brush strip at
- * horizon density over the bound slice's FULL range domain: gutter caption
- * (`HORIZON · 26 WK`), self-excluding row-count histogram, the applied window
- * as a full brush selection, and the now tick. Editing the window here is
- * editing the slice's Range — commits route through the machine
- * (`brush.commit` → `slice.setRange`), which never stores a window itself.
+ * The horizon strip (`Plan Spec.md` §7) — the shared brush strip at horizon
+ * density over the bound slice's FULL range domain, in whole periods around
+ * its data: gutter caption (`HORIZON · 26 WK`), self-excluding row-count
+ * histogram (one bar per period, #949), the applied window as a full brush
+ * selection, and the now tick. Editing the window here is editing the slice's
+ * Range — commits route through the machine (`brush.commit` →
+ * `slice.setRange`), which never stores a window itself.
+ *
+ * The strip is an OVERVIEW on its own scale, so it never reads as the grid's
+ * (#949): a lens under it joins the window it selected to the plot's edges —
+ * the grid below is that window, magnified.
  *
  * Renders only when a slice is bound with a range domain of the AXIS's arm
  * (#631): a `datetime` domain on a time axis, a `float` / `integer` domain on
@@ -20,7 +25,7 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, chakra } from "@chakra-ui/react";
 import { some, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
@@ -29,23 +34,18 @@ import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rangeArmOf, rangeOf } from "../axis.js";
 import type { PlanInstantValue } from "../instant.js";
-import type { PlanResolution } from "../scale.js";
 import type { PlanHorizonUnit } from "../messages.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
-/** A time resolution's span in ms — what the caption counts the horizon in
- *  (`HORIZON · 26 WK`; the words are the message table's, #820). */
-const UNIT_MS: Record<PlanResolution, number> = {
-    hour: 3_600_000,
-    day: 86_400_000,
-    week: 7 * 86_400_000,
-    month: 30 * 86_400_000,
-    quarter: 91 * 86_400_000,
-    year: 365 * 86_400_000,
-};
+/** The lens's viewBox width — its lines' x in these units, stretched to the plot. */
+const LENS_W = 1000;
+
+/** How many periods the horizon counts at most — a guard on the walk that
+ *  counts them; the histogram caps its bars far below this. */
+const MAX_PERIODS = 100_000;
 
 export interface HorizonBrushProps {
     styles: Styles;
@@ -55,7 +55,7 @@ export interface HorizonBrushProps {
     now: PlanInstantValue | undefined;
 }
 
-/** The 32px horizon band — caption gutter cell + the shared brush strip. */
+/** The horizon band — caption gutter cell + the shared brush strip + its lens. */
 export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
@@ -95,28 +95,41 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
         scale.kind === "time" ? domain.kind === "datetime"
             : scale.kind === "number" ? domain.kind !== "datetime"
                 : false);
-    // One histogram bucket per period across the domain (the §2 mock: 26
-    // weekly bars over a 26-week horizon), clamped to sanity. A period, in
-    // domain units, is one scale offset from the window's start.
-    const periodN = scale.toNumber(scale.offset(scale.window.min, 1)) - scale.toNumber(scale.window.min);
-    const buckets = fits && domain !== undefined && periodN > 0
-        ? Math.max(8, Math.min(64, Math.round((domain.max - domain.min) / periodN)))
-        : 0;
+    // The horizon in WHOLE periods around the data (#949): from the start of
+    // the period the first value falls in to the end of the period the last
+    // one falls in. Every period then counts once — the last value never
+    // piles into the final bar beside the one before it — and the caption
+    // counts periods, not the gaps between them.
+    const extent = useMemo(() => {
+        if (!fits || domain === undefined) return undefined;
+        const first = scale.floor(scale.fromNumber(domain.min));
+        const end = scale.offset(scale.floor(scale.fromNumber(domain.max)), 1);
+        const lo = scale.toNumber(first);
+        const hi = scale.toNumber(end);
+        if (!(hi > lo)) return undefined;
+        let periods = 0;
+        for (let t = first; scale.toNumber(t) < hi && periods <= MAX_PERIODS; t = scale.offset(t, 1)) periods += 1;
+        return { lo, hi, periods };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the domain's bounds are primitives; the object is new per read
+    }, [fits, domain?.min, domain?.max, scale]);
+    // One histogram bar per period (the §2 mock: 26 weekly bars over a
+    // 26-week horizon), capped for a very long horizon.
+    const buckets = extent !== undefined ? Math.max(1, Math.min(64, extent.periods)) : 0;
     const counts = useMemo(
-        () => (fits && buckets > 0 ? boundRangeHistogram(slice.key, buckets) : undefined),
+        () => (extent !== undefined && buckets > 0 ? boundRangeHistogram(slice.key, buckets, { min: extent.lo, max: extent.hi }) : undefined),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the histogram's dependency: it re-derives when the STORE moves (#611)
-        [slice.key, buckets, domain?.min, domain?.max, fits, sliceVersion],
+        [slice.key, buckets, extent, sliceVersion],
     );
-    if (!fits || domain === undefined || periodN <= 0) return null;
+    if (extent === undefined || domain === undefined) return null;
 
-    const span = domain.max - domain.min;
+    const span = extent.hi - extent.lo;
     const clamp = (f: number) => Math.max(0, Math.min(1, f));
-    const winFrom = clamp((scale.toNumber(scale.window.min) - domain.min) / span);
-    const winTo = clamp((scale.toNumber(scale.window.max) - domain.min) / span);
+    const winFrom = clamp((scale.toNumber(scale.window.min) - extent.lo) / span);
+    const winTo = clamp((scale.toNumber(scale.window.max) - extent.lo) / span);
     const nowN = now !== undefined ? scale.toNumber(now) : NaN;
-    const nowFrac = Number.isFinite(nowN) ? (nowN - domain.min) / span : undefined;
-    const fromFraction = (f: number): PlanInstantValue => scale.fromNumber(domain.min + clamp(f) * span);
-    const toFrac = (t: PlanInstantValue): number => clamp((scale.toNumber(t) - domain.min) / span);
+    const nowFrac = Number.isFinite(nowN) ? (nowN - extent.lo) / span : undefined;
+    const fromFraction = (f: number): PlanInstantValue => scale.fromNumber(extent.lo + clamp(f) * span);
+    const toFrac = (t: PlanInstantValue): number => clamp((scale.toNumber(t) - extent.lo) / span);
     // Resolution-edge snapping: the draft and the committed window land on
     // period boundaries of the ACTIVE resolution (a whole step on a number
     // axis), at least one period wide. The scale's OWN `snap` / `offset` —
@@ -132,11 +145,11 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
         const [a, b] = snapPair(f0, f1);
         return { from: toFrac(a), to: toFrac(b) };
     };
-    // The caption spans the DOMAIN (the whole brushable horizon), not the
-    // applied window — `HORIZON · 26 WK` over a 12-week window; on a number
-    // axis the count is in steps.
+    // The caption spans the whole brushable horizon, not the applied window
+    // — `HORIZON · 26 WK` over a 12-week window; on a number axis the count
+    // is in steps — and counts its PERIODS.
     const unit: PlanHorizonUnit = scale.kind === "time" ? (scale.resolution ?? "week") : "step";
-    const periods = Math.max(1, Math.round(span / (unit === "step" ? periodN : UNIT_MS[unit])));
+    const periods = extent.periods;
     const caption = words.m.horizon({ n: periods, count: words.number(periods), unit });
     // Every write speaks the slice field's arm (#631): `datetime` on a time
     // axis; `float` / `integer` per the field on a number axis — an Integer
@@ -179,8 +192,8 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
                     nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}
                     // The strip and its tallest bar are the canvas geometry
-                    // (#817) — the §7 sheet's 32px band, bars inset within it.
-                    height={geometry.brush}
+                    // (#817) — the band less its lens, bars inset within it.
+                    height={geometry.brush - geometry.lens}
                     barHeight={geometry.brushBar}
                     snapWindow={snapWindow}
                     // Snap AGAIN on the instants themselves so float round-trips
@@ -204,6 +217,18 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
                     }}
                     onClear={() => { cancelStep(); dispatch({ t: "brush.clear" }); }}
                 />
+                {/* The lens (#949): from the window's edges on the strip's own
+                    scale down to the plot's edges — the grid below is this
+                    window, magnified. Geometry only; the recipe draws it. */}
+                <chakra.svg css={styles.horizonLens} viewBox={`0 0 ${LENS_W} ${geometry.lens}`}
+                    preserveAspectRatio="none" aria-hidden="true" data-plan-lens="">
+                    {winTo > winFrom && (
+                        <>
+                            <line x1={winFrom * LENS_W} y1={0} x2={0} y2={geometry.lens} vectorEffect="non-scaling-stroke" />
+                            <line x1={winTo * LENS_W} y1={0} x2={LENS_W} y2={geometry.lens} vectorEffect="non-scaling-stroke" />
+                        </>
+                    )}
+                </chakra.svg>
             </Box>
         </Box>
     );

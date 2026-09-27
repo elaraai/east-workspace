@@ -40,8 +40,9 @@ import type { PlanDraftMark } from "../use-plan-editing.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Indent per nesting level (px) — the §4 nested figures. */
-export const INDENT_PX = 30;
+/** Indent per nesting level (px) — a caret (14px) and its gap (6px), so a
+ *  member's name starts exactly where its group's label text does (#949). */
+export const INDENT_PX = 20;
 
 /**
  * The plot's bucket-column separators, O(1) DOM per row (#616).
@@ -157,6 +158,9 @@ export interface RowShellProps {
     /** `aria-expanded` (#819): whether its section, chart or expand render is
      *  open — absent for a row with nothing to open. */
     expandedState?: boolean | undefined;
+    /** The row is the last visible member of an open group — it carries the
+     *  group's closing rule (#949). */
+    groupEnd?: boolean | undefined;
     children: ReactNode;
 }
 
@@ -165,7 +169,7 @@ export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, gutterOverlay, noGrid,
     controls, focusTag, axisMode, ctx, decision, drop, draft, children,
-    expandBody, expandGutter, bandHeight, grid, expandedState,
+    expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd,
 }: RowShellProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -392,6 +396,7 @@ export function RowShell({
             // the rendered height to it, kind by kind (#817).
             data-plan-h={height}
             data-selected={selected ? "" : undefined}
+            data-group-end={groupEnd === true ? "" : undefined}
             data-emphasis={emphasis}
             data-ctx={ctxAttr}
             data-expanded={expandedAttr}
@@ -415,13 +420,13 @@ export function RowShell({
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
                     : undefined}
             >
-                <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr}>
+                <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-plan-gutter="name">
                     {caret !== undefined && (
                         <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
                             <FontAwesomeIcon icon={faCaretDown} />
                         </Box>
                     )}
-                    <Box as="span" overflow="hidden" textOverflow="ellipsis" minWidth={0}>{gutter.label}</Box>
+                    <Box as="span" overflow="hidden" textOverflow="ellipsis" minWidth={0} data-plan-gutter="label">{gutter.label}</Box>
                     {/* The links-focus family tag (R1) — settles in after the
                         gather choreography. */}
                     {focusTag !== undefined && (
@@ -432,8 +437,8 @@ export function RowShell({
                         inline after the flex spacer so the label truncates. */}
                     {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
                         <Box css={styles.gutterRight}>
-                            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr}>{meta}</Box>}
-                            {value !== undefined && <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr}>{value}</Box>}
+                            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
+                            {value !== undefined && <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-plan-gutter="value">{value}</Box>}
                             {/* The dot's colour IS the status — its name says it (#819). */}
                             {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
                                 data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />}
@@ -462,7 +467,7 @@ export function RowShell({
                         </Box>
                     )}
                 </Box>
-                {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr}>{sub}</Box>}
+                {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-plan-gutter="sub">{sub}</Box>}
                 {gutter.swatches.length > 0 && (
                     <Box display="flex" gap="7px" marginTop="1px">
                         {gutter.swatches.map((s, i) => (
@@ -528,7 +533,7 @@ export function RowShell({
                     `[data-plan-cursor]` (#609): a pointermove writes a style,
                     renders nothing. Strips carry no hairline. */}
                 {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
-                {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />}
+                {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-axisline data-plan-now left={`${scale.nowFrac * 100}%`} />}
             </Box>
             {decision}
         </Box>

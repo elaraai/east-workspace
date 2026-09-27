@@ -234,8 +234,8 @@ export const narrowBase = {
         // the entry. Before the selection tint, which wins over both.
         "&[data-draft]": { background: "color-mix(in oklch, {colors.status.warn} 8%, {colors.bg.surface})" },
         "&[data-invalid]": { background: "color-mix(in oklch, {colors.status.neg} 8%, {colors.bg.surface})" },
-        "&[data-selected]": { background: "{colors.brandTint}", borderColor: "color-mix(in srgb, {colors.brand.600} 40%, {colors.border.subtle})" },
-        "&[data-expanded]": { borderColor: "{colors.brand.600}" },
+        "&[data-selected]": { background: "{colors.brandTint}", borderColor: "color-mix(in srgb, {colors.brand.solid} 40%, {colors.border.subtle})" },
+        "&[data-expanded]": { borderColor: "brand.solid" },
     },
     narrowCardHead: {
         display: "flex",
@@ -300,7 +300,7 @@ export const narrowBase = {
         pointerEvents: "none",
         zIndex: 5,
     },
-    // `9 MORE GROUPS · 378 RS` — the load-more card.
+    // `9 MORE GROUPS · 378 ROWS` — the load-more card.
     narrowMore: {
         fontFamily: "mono",
         fontSize: "10px",

@@ -150,7 +150,7 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
                 );
             })}
             {rest.length > 0 && (
-                <Box as="span" css={chip({ tone: "dashed", shape: "pill" })}>
+                <Box as="span" css={chip({ tone: "dashed" })}>
                     <Box as="span" width="14px" height="0" borderTopWidth="2px" borderStyle="dashed" borderColor="fg.muted" />
                     <Box as="span" fontWeight="bold" color="fg.muted">Others</Box>
                     <Box as="span" fontVariantNumeric="tabular-nums" color="fg.subtle">{`${pct(restTotal)} · ${words.number(rest.length)} series`}</Box>

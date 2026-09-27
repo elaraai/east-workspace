@@ -268,6 +268,10 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
     };
     const ticks = (container: HTMLElement) =>
         [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
+    /** A window `[a, b)` written as the slice's CLOSED float range ends one
+     *  float short of `b` (`rangeOf`) — so a row at `b`, in the next step, is
+     *  not counted in the window (#949). */
+    const endsJustBelow = (to: number, b: number) => to < b && b - to < 1e-12;
 
     test("a number axis rules 1 … 8 with the NOW divider, mounts no resolution segment, and brushes the slice's FLOAT range live", async () => {
         const handle = numberSlice("plan.631.brush", [1, 12]);
@@ -279,28 +283,29 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         expect(screen.getByText("NOW")).toBeTruthy();
         // `step` is the declaration — there is no unit to switch.
         expect(container.querySelector("[data-slot='seg']")).toBeNull();
-        // The horizon spans the DOMAIN (days 1..12 = 11 steps), not the window.
-        expect(screen.getByText("HORIZON · 11 STEPS")).toBeTruthy();
+        // The horizon spans the DOMAIN, not the window, in WHOLE steps: days
+        // 1..12 are twelve steps, `[1, 13)` (#949).
+        expect(screen.getByText("HORIZON · 12 STEPS")).toBeTruthy();
         const track = container.querySelector("[data-brush-track]") as HTMLElement;
         Object.defineProperty(track, "getBoundingClientRect", {
-            value: () => ({ left: 0, top: 0, right: 1100, bottom: 32, width: 1100, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+            value: () => ({ left: 0, top: 0, right: 1200, bottom: 32, width: 1200, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
         });
-        // The applied window 1..9 spans the first 8/11 of the track (0..800px).
+        // The applied window 1..9 spans the first 8/12 of the track (0..800px).
         // Grab its body at 400 and slide +100px = one step: the draft snaps to
-        // 2..10 and is APPLIED — as the slice's `float` arm.
+        // 2..10 and is APPLIED — as the slice's `float` arm, closed.
         fireEvent.pointerDown(track, { clientX: 400, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 500, pointerId: 1, buttons: 1 });
         await waitFor(() => expect(handle.read().range.value.value.from).toBe(2));
         expect(handle.read().range.value.type).toBe("float");
-        expect(handle.read().range.value.value.to).toBe(10);
+        expect(endsJustBelow(handle.read().range.value.value.to, 10)).toBe(true);
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(handle.read().range.value.value.from).toBe(2);
-        expect(handle.read().range.value.value.to).toBe(10);
+        expect(endsJustBelow(handle.read().range.value.value.to, 10)).toBe(true);
         // The canvas followed: the ruler now reads 2 … 9.
         expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
     });
 
-    test("[ / ] and n write a number axis's window as the slice's float arm", () => {
+    test("[ / ] and n write a number axis's window as the slice's float arm — closed, and read back whole", () => {
         const handle = numberSlice("plan.631.keys", [1, 12]);
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: numberAxis, slice: some({ slice: handle, affordances: [] }),
@@ -310,15 +315,48 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         fireEvent.keyDown(surface, { key: "]" });
         expect(range().type).toBe("float");
         expect(range().value.from).toBe(2);
-        expect(range().value.to).toBe(10);
+        expect(endsJustBelow(range().value.to, 10)).toBe(true);
+        // Each pan starts from the window READ BACK — whole steps, so a
+        // round trip lands exactly where it began, with no shortfall carried.
         fireEvent.keyDown(surface, { key: "[" });
         expect(range().value.from).toBe(1);
-        expect(range().value.to).toBe(9);
+        expect(endsJustBelow(range().value.to, 9)).toBe(true);
+        expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
         // n re-derives the window on step edges with the same column count,
         // now (5) a third of the way in: 5 − ⌊8/3⌋ = 3 → [3, 11).
         fireEvent.keyDown(surface, { key: "n" });
         expect(range().value.from).toBe(3);
-        expect(range().value.to).toBe(11);
+        expect(endsJustBelow(range().value.to, 11)).toBe(true);
+    });
+
+    test("an INTEGER field's window is written closed on whole values — `[1, 9)` is `1–8` — and read back whole", () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["day", variant("integer", { label: "Day", accessor: (r: { day: bigint }) => r.day, format: none })],
+            ]),
+            rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            // The eight days 1 … 8, as an author seeds them: both ends inclusive.
+            range: some(variant("integer", { from: 1n, to: 8n })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const handle = buildSliceHandle("plan.949.integer", cfg as never, initial as never,
+            Array.from({ length: 12 }, (_u, i) => ({ day: BigInt(i + 1) })) as never, none) as never as {
+                read(): { range: { value: { type: string; value: { from: bigint; to: bigint } } } };
+            };
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            axis: variant("number", { window: none, step: 1, now: some(5), format: none }),
+            slice: some({ slice: handle, affordances: [] }),
+        }), "plan-949-integer");
+        // `1–8` is eight columns — the slice's closed range IS the grid.
+        expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        expect(handle.read().range.value.type).toBe("integer");
+        expect(handle.read().range.value.value).toEqual({ from: 2n, to: 9n });
+        expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
     });
 
     test("an ordinal axis rules its values with NOW on the named phase; the brush never mounts and the window keys idle", () => {

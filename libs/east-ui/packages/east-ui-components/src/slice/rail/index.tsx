@@ -285,7 +285,7 @@ export function SliceRailCluster({ slice, affordanceKinds, align = "start" }: Sl
     const activeCount = activeNarrowingCount(state);
 
     const countChip = (key: string, icon: IconDefinition, text: string, active: boolean): ReactNode => (
-        <Box key={key} as="span" css={chip({ tone: active ? "brand" : "neutral", numeric: true, shape: "pill" })} cursor="pointer" flexShrink={0}>
+        <Box key={key} as="span" css={chip({ tone: active ? "brand" : "neutral", numeric: true })} cursor="pointer" flexShrink={0}>
             <FontAwesomeIcon icon={icon} style={{ fontSize: "9px" }} />
             <Box as="span" whiteSpace="nowrap">{text}</Box>
         </Box>
@@ -311,7 +311,7 @@ export function SliceRailCluster({ slice, affordanceKinds, align = "start" }: Sl
         const icon = descriptors[0]?.icon ?? faFilter;
         if (rung >= maxRung) {
             return (
-                <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true, shape: "pill" })} cursor="pointer" flexShrink={0}
+                <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true })} cursor="pointer" flexShrink={0}
                     title={labels.length > 0 ? labels.join(" · ") : "Slice"} data-rail-rung="icon">
                     <FontAwesomeIcon icon={icon} style={{ fontSize: "9px" }} />
                 </Box>

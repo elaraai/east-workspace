@@ -68,11 +68,16 @@ export interface PlanGeometry {
     weight: number;
     /** A segment track. */
     segment: number;
-    /** The chrome bands: toolbar, horizon brush, ruler, footer. */
+    /** The chrome bands: toolbar, horizon brush (its strip and its lens),
+     *  ruler, footer. */
     toolbar: number;
     brush: number;
     ruler: number;
     footer: number;
+    /** The horizon's lens under its strip (#949) — the connectors from the
+     *  window it selected down to the plot's edges. The strip is the band
+     *  less this. */
+    lens: number;
     /** The horizon brush's tallest histogram bar (the strip less its insets). */
     brushBar: number;
     /** A narrow group card's strip body. */
@@ -86,22 +91,23 @@ const DEFAULT: PlanGeometry = {
     row: 32, rule: 1, rowStacked: 42,
     group: 26, groupStrip: 28,
     chartSpark: 32, chartExpanded: 88,
-    heatRow: 28, heatInset: 3, heatCellMin: 16,
+    // A heat row is a single-line row like any other (#949).
+    heatRow: 32, heatInset: 3, heatCellMin: 16,
     rail: 11, gap: 22, strip: 16, stripMark: 7,
     tableLine: 11, tablePad: 6,
     laneCell: 22, laneGap: 2, lanePad: 3,
     bar: 20, rollBar: 12,
     tile: 16, chip: 18, weight: 20, segment: 20,
-    toolbar: 44, brush: 32, ruler: 28, footer: 28, brushBar: 23,
+    toolbar: 44, brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 23,
     narrowStrip: 24,
     failedBandMin: 64,
 };
 
-/** The two densities' tables. Dense tightens the shared row and the bars
- *  that sit in it; everything else keeps its size. */
+/** The two densities' tables. Dense tightens the shared row — the heat row
+ *  with it — and the bars that sit in it; everything else keeps its size. */
 export const PLAN_GEOMETRY: Readonly<Record<"default" | "dense", Readonly<PlanGeometry>>> = {
     default: DEFAULT,
-    dense: { ...DEFAULT, row: 24, bar: 16 },
+    dense: { ...DEFAULT, row: 24, heatRow: 24, bar: 16 },
 };
 
 /**

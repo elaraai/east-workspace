@@ -21,7 +21,7 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 /** The slots this part styles. */
 export const shellSlots = [
     "root", "toolbar", "toolbarGroup", "toolbarTrailing", "toolbarLibraryCount", "brushRow",
-    "brushCaption", "ruler", "rulerTick", "nowChip", "footer", "footerItem", "focusBar",
+    "brushCaption", "horizonLens", "ruler", "rulerTick", "nowChip", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
     "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry", "nowLine",
     "cursorLine", "cursorChip", "elementOverlay",
@@ -68,7 +68,7 @@ export const shellBase = {
     // The `N of M` in the library popover's head — the brand marks it as a
     // live count of what is showing, not a static caption.
     toolbarLibraryCount: {
-        color: "{colors.brand.700}",
+        color: "brand.fg",
         fontWeight: "bold",
     },
     // ── Horizon brush band (32px): caption in the gutter, strip in the plot ──
@@ -80,9 +80,11 @@ export const shellBase = {
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
     },
+    // The gutter caption of a header band — the ruler's, the horizon's — in
+    // the header row's one style (#949): mono 10 / 600, uppercase, label ink.
     brushCaption: {
         fontFamily: "mono",
-        fontSize: "9px",
+        fontSize: "10px",
         fontWeight: "semibold",
         letterSpacing: "0.12em",
         textTransform: "uppercase",
@@ -94,6 +96,17 @@ export const shellBase = {
         borderRightColor: "border.subtle",
         whiteSpace: "nowrap",
         overflow: "hidden",
+    },
+    // The horizon's lens (#949): two hairlines from the window the strip has
+    // selected, on the strip's own scale, down to the plot's edges — the grid
+    // below is that window, magnified, so the two scales never read as one.
+    horizonLens: {
+        display: "block",
+        width: "100%",
+        height: "var(--plan-lens-h)",
+        overflow: "visible",
+        pointerEvents: "none",
+        "& line": { stroke: "border.strong", strokeWidth: "1px" },
     },
     // ── Ruler (28px): tick band under the brush, sticky with the header ──
     ruler: {
@@ -115,32 +128,37 @@ export const shellBase = {
         // clips for the same reason — see `plot`.)
         overflow: "clip",
     },
+    // A tick — the header row's one style (#949): mono 10 / 600, uppercase,
+    // the label ink, as the gutter caption beside it.
     rulerTick: {
         fontFamily: "mono",
         fontSize: "10px",
-        fontWeight: "medium",
+        fontWeight: "semibold",
+        textTransform: "uppercase",
         color: "fg.subtle",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        borderRightWidth: "1px",
-        borderRightColor: "border.subtle",
         whiteSpace: "nowrap",
         overflow: "hidden",
         minWidth: 0,
         position: "relative",
+        // No border: the ruler's bucket lines are the rows' own separators
+        // (`GridSeparators`, drawn over the ticks), so the two can never sit
+        // a pixel apart.
     },
-    // The NOW chip in the ruler — mono 8.5/600, ink pill (the §1 mock).
+    // The NOW chip in the ruler — mono 9.5 / 600 on the one committed fill
+    // (#949: the label floor, one dark fill).
     nowChip: {
         position: "absolute",
         top: "50%",
         transform: "translate(-50%, -50%)",
         fontFamily: "mono",
-        fontSize: "8.5px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.08em",
         color: "bg.surface",
-        background: "fg.default",
+        background: "brand.emphasized",
         borderRadius: "2px",
         padding: "1px 4px",
         zIndex: 7,
@@ -331,7 +349,7 @@ export const shellBase = {
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
         fontFamily: "mono",
-        fontSize: "9px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.06em",
         textTransform: "uppercase",
@@ -352,7 +370,7 @@ export const shellBase = {
     // The failed window's Retry — a mono pill in the band's caption.
     windowRetry: {
         fontFamily: "mono",
-        fontSize: "9px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         letterSpacing: "0.08em",
         textTransform: "uppercase",
@@ -378,7 +396,7 @@ export const shellBase = {
         bottom: 0,
         width: 0,
         borderLeftWidth: "1.5px",
-        borderLeftColor: "{colors.brand.600}",
+        borderLeftColor: "{colors.brand.solid}",
         pointerEvents: "none",
         zIndex: 7,
         "[data-axis='dim'] &": { opacity: 0.4 },
@@ -404,7 +422,7 @@ export const shellBase = {
         position: "absolute",
         transform: "translateX(-50%)",
         fontFamily: "mono",
-        fontSize: "9px",
+        fontSize: "9.5px",
         fontWeight: "semibold",
         color: "bg.surface",
         background: "fg.default",

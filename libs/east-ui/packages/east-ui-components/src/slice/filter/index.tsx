@@ -29,8 +29,8 @@ export interface EastChakraSliceFilterProps {
 
 /**
  * Renders an East UI `Slice.Filter`. **Compact** (in a `Slice.Frame` eyebrow):
- * one row of as many brand pills as fit with remove `×`, a `+N more` pill opening a
- * `Slice.Edit` list, and a dashed `+ filter` pill opening the builder popover.
+ * one row of as many brand chips as fit with remove `×`, a `+N more` chip opening a
+ * `Slice.Edit` list, and a dashed `+ FILTER` chip opening the builder popover.
  * **Focused** (standalone): the same chip rail plus a `SHOWING N {unit}` footer
  * (result **of** total). The add-filter builder always lives in a `Slice.Edit`
  * popover, so opening it never re-flows the surface.
@@ -91,7 +91,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             label={<>{"Edit · "}<Box as="span" css={edit.clauseField}>{pred.value.fieldId}</Box></>}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Cancel</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "brand", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer" flexShrink={0}>
+                <Box css={chip({ tone: "brand", numeric: true })} cursor="pointer" flexShrink={0}>
                     <Box as="span" whiteSpace="nowrap">{formatPredicate(pred, words)}</Box>
                     <chakra.button type="button" cursor="pointer" color="link" flexShrink="0" onClick={e => { e.stopPropagation(); slice.removeFilter(BigInt(i)); }} aria-label="Remove filter">×</chakra.button>
                 </Box>
@@ -111,7 +111,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             size="lg"
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Done</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "dashed", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer">
+                <Box css={chip({ tone: "dashed", numeric: true, caps: true })} cursor="pointer" data-slice-add="filter">
                     <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                     <Box as="span">{compact ? "filter" : "add filter"}</Box>
                 </Box>
@@ -175,7 +175,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                                     </>
                                 )}
                             trigger={
-                                <Box css={chip({ tone: "more", numeric: true, shape: "pill" })} cursor="pointer">
+                                <Box css={chip({ tone: "more", numeric: true })} cursor="pointer">
                                     <Box as="span">{`+${measuring ? filters.length : overflow} more`}</Box>
                                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
                                 </Box>

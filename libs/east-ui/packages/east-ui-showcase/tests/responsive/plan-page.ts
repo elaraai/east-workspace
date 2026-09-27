@@ -27,9 +27,9 @@ export const rowSel = (series: string, ...path: string[]): string =>
 
 /** Open one example's page and return its entry (the virtualized doc row
  *  holding its anchor and its live canvas) — a Plan example unless another
- *  examples file is named. */
-export async function openExample(page: Page, name: string, file = "collections/plan"): Promise<Locator> {
-    await page.goto(`/#${file}/${name}`);
+ *  examples file is named, in the light theme unless another is named. */
+export async function openExample(page: Page, name: string, file = "collections/plan", theme: "light" | "dark" = "light"): Promise<Locator> {
+    await page.goto(`/?theme=${theme}#${file}/${name}`);
     await page.waitForSelector("header", { timeout: 20_000 });
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${file}/${name}"]`) });

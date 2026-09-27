@@ -475,7 +475,7 @@ describe("a parent sits whole in its window (#823)", () => {
     test("a line of forty machines reads on a partial paged canvas exactly as it does inline — its count, its strip, its bands", async () => {
         const inline = renderPlan(buildLines(false), "plan-823-line-inline");
         const expected = said(inline.container);
-        expect(expected.strip).toContain("40 rs");
+        expect(expected.strip).toContain("40 rows");
         expect(expected.bands.length).toBeGreaterThan(0);
         cleanup();
         // Windows past the third stay in flight, so the paged canvas is and
