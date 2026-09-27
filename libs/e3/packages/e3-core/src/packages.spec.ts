@@ -28,26 +28,11 @@ import { workspaceDeploy } from './workspaces.js';
 import { computeHash } from './objects.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, zipEqual } from './test-helpers.js';
+import {
+  createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, withRelease, writeZip, zipEqual,
+} from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
-
-/** Writes a zip of the given entries, in the given order. */
-async function writeZip(zipPath: string, entries: Iterable<readonly [string, Buffer]>): Promise<string> {
-  const zip = new yazl.ZipFile();
-  for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
-  await new Promise<void>((resolve, reject) => {
-    zip.outputStream.pipe(createWriteStream(zipPath)).on('close', resolve).on('error', reject);
-    zip.end();
-  });
-  return zipPath;
-}
-
-/** A zip's entries with its release entry naming `release`, placed last; none when `release` is null. */
-function withRelease(entries: Map<string, Buffer>, release: string | null): Array<readonly [string, Buffer]> {
-  const rest = [...entries].filter(([name]) => name !== 'release.beast2');
-  return release === null ? rest : [...rest, ['release.beast2', Buffer.from(encodeBeast2For(StringType)(release))]];
-}
 
 /** Every file under a directory, by its path, with a hash of its bytes. */
 function filesUnder(dir: string): Map<string, string> {

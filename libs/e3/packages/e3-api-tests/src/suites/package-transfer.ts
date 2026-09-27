@@ -12,6 +12,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readZipEntries, withRelease, writeZip } from '@elaraai/e3-core/test';
 
 import {
   packageList,
@@ -135,6 +137,23 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
           return true;
         }
       );
+    });
+
+    it('refuses on import a zip a newer e3 exported, naming that release, and imports nothing', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const zipPath = await createPackageZip(ctx.tempDir, 'newer-pkg', '1.0.0');
+      const newer = await writeZip(join(ctx.tempDir, 'newer.zip'), withRelease(await readZipEntries(zipPath), '999.0.0'));
+
+      await assert.rejects(
+        () => packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(newer), opts),
+        (err: unknown) => {
+          assert.ok(err instanceof Error, `Expected Error, got ${err}`);
+          assert.match(err.message, /e3 999\.0\.0 exported it, and this e3 is \S+ — import it with e3 999\.0\.0 or a newer one/);
+          return true;
+        }
+      );
+      assert.deepStrictEqual(await packageList(ctx.config.baseUrl, ctx.repoName, opts), []);
     });
 
     it('import of corrupted zip fails', async (t) => {
