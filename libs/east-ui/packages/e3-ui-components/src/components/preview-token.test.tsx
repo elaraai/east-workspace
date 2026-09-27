@@ -68,10 +68,14 @@ describe("a rotated token", () => {
 
     test("reaches PagedDatasetPreview's next page", async () => {
         const RowsType = ArrayType(IntegerType);
-        vi.mocked(datasetGetPage).mockImplementation(async (_url, _repo, _ws, _path, { offset, limit }) => ({
-            data: encodeBeast2For(RowsType)(Array.from({ length: limit }, (_, i) => BigInt(offset + i))),
-            totalElements: 1000, totalBytes: 8000, totalExact: true, segmentCount: 2, offset, count: limit, hash: "3".repeat(64),
-        } as DatasetPage));
+        vi.mocked(datasetGetPage).mockImplementation(async (_url, _repo, _ws, _path, asked) => {
+            if (!("offset" in asked)) throw new Error(`the preview asked for a segment, where it reads element windows: ${JSON.stringify(asked)}`);
+            const { offset, limit } = asked;
+            return {
+                data: encodeBeast2For(RowsType)(Array.from({ length: limit }, (_, i) => BigInt(offset + i))),
+                totalElements: 1000, totalBytes: 8000, totalExact: true, segmentCount: 2, offset, count: limit, hash: "3".repeat(64),
+            } as DatasetPage;
+        });
         const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         const preview = (token: string) => inProviders(client,
             <PagedDatasetPreview apiUrl={API} repo="default" workspace="w" path="rows" type={toEastTypeValue(RowsType)}
