@@ -16,7 +16,6 @@ import yauzl from 'yauzl';
 import yazl from 'yazl';
 import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import {
-  DataflowRunType,
   EnvironmentSpecType,
   RecordIndexObjectType,
   environmentSpecObjectHashes,
@@ -59,8 +58,10 @@ export interface PackageImportOptions {
  * Import a package from a .zip file into the repository.
  *
  * Writes the zip's objects to the store and its package ref,
- * `packages/<name>/<version>.beast2`, to the repository, with the run and
- * executions a workspace's export carries.
+ * `packages/<name>/<version>.beast2`, to the repository, with the executions a
+ * workspace's export carries, so the cache serves the outputs they made. A
+ * run's record in the zip is not filed: it belongs to the repository the run
+ * ran in.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -158,18 +159,11 @@ export async function packageImport(
         continue;
       }
 
-      // Handle dataflow runs: dataflows/<workspace>/<runId>.beast2
+      // A run's record, dataflows/<workspace>/<runId>.beast2, which an export
+      // no longer writes. It names a workspace of the repository the run ran
+      // in: filed here under that name, it joined the history of a workspace
+      // that is another, or of none, which gc never prunes.
       if (fileName.startsWith('dataflows/')) {
-        const parts = fileName.split('/');
-        if (parts.length === 3 && parts[2]!.endsWith('.beast2')) {
-          const workspace = parts[1]!;
-
-          // Decode and write the dataflow run
-          const data = await getData();
-          const decoder = decodeBeast2For(DataflowRunType);
-          const run = decoder(data);
-          await storage.refs.dataflowRunWrite(repo, workspace, run);
-        }
         continue;
       }
 

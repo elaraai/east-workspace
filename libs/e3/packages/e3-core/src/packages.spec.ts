@@ -112,35 +112,51 @@ describe('packages', () => {
       assert.strictEqual(result1.version, result2.version);
     });
 
-    it('refuses an execution or a run a zip names by a hash or an id not of the form e3 writes', async () => {
-      // Each becomes a path: an execution's by its entries' names, and a run's
-      // by the id its record holds.
+    it('refuses an execution a zip names by a hash not of the form e3 writes', async () => {
+      // An execution's entries' names become its path.
       const zipPath = join(tempDir, 'named.zip');
       await e3.export(e3.package('named', '1.0.0') as any, zipPath);
-      const entries = await readZipEntries(zipPath);
       const executionId = '0190a0b0-5555-7000-8000-000000000000';
       const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
         executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
       }));
-      const run = encodeBeast2For(DataflowRunType)({
-        runId: 'not-a-run-id', workspaceName: 'main', packageRef: 'named@1.0.0', startedAt: new Date(0), completedAt: none,
+      const crafted = join(tempDir, 'crafted.zip');
+      const zip = new yazl.ZipFile();
+      for (const [name, bytes] of await readZipEntries(zipPath)) zip.addBuffer(bytes, name);
+      zip.addBuffer(Buffer.from(status), `executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`);
+      await new Promise<void>((resolve, reject) => {
+        zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
+        zip.end();
+      });
+      await assert.rejects(packageImport(storage, testRepo, crafted), /is not a task hash/);
+    });
+
+    it('files no run a zip carries, however it is named: a run\'s history stays where it ran', async () => {
+      // An older e3's workspace export carried its current run's record, which
+      // an import filed under the exporting workspace's name — a workspace of
+      // this repository's that is another, or none, which gc never prunes.
+      const zipPath = join(tempDir, 'runs.zip');
+      await e3.export(e3.package('runs', '1.0.0') as any, zipPath);
+      const run = (runId: string) => encodeBeast2For(DataflowRunType)({
+        runId, workspaceName: 'main', packageRef: 'runs@1.0.0', startedAt: new Date(0), completedAt: none,
         status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
         summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
       });
-      for (const [entry, data, refusal] of [
-        [`executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`, status, /is not a task hash/],
-        ['dataflows/main/not-a-run-id.beast2', run, /is not a run id/],
-      ] as const) {
-        const crafted = join(tempDir, 'crafted.zip');
-        const zip = new yazl.ZipFile();
-        for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
-        zip.addBuffer(Buffer.from(data), entry);
-        await new Promise<void>((resolve, reject) => {
-          zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
-          zip.end();
-        });
-        await assert.rejects(packageImport(storage, testRepo, crafted), refusal);
-      }
+      const runId = '0190a0b0-6666-7000-8000-000000000000';
+      const crafted = join(tempDir, 'with-runs.zip');
+      const zip = new yazl.ZipFile();
+      for (const [name, bytes] of await readZipEntries(zipPath)) zip.addBuffer(bytes, name);
+      zip.addBuffer(Buffer.from(run(runId)), `dataflows/main/${runId}.beast2`);
+      zip.addBuffer(Buffer.from(run('not-a-run-id')), 'dataflows/main/not-a-run-id.beast2');
+      await new Promise<void>((resolve, reject) => {
+        zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
+        zip.end();
+      });
+
+      const result = await packageImport(storage, testRepo, crafted);
+      assert.strictEqual(result.name, 'runs');
+      assert.deepStrictEqual(await storage.refs.dataflowRunList(testRepo, 'main'), []);
+      assert.ok(!existsSync(join(testRepo, 'dataflows', 'main')), 'nothing is filed under the workspace name');
     });
 
     it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {
