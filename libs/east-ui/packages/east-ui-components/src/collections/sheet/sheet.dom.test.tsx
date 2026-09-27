@@ -626,7 +626,8 @@ const HELD_JOBS: ValueTypeOf<typeof JobType>[] = Array.from({ length: 8_000 }, (
 /** The State key a held source's reads track: a write to it is the source's channel saying something moved. */
 const HELD_KEY = "sheet-held-source";
 const encodeMove = encodeBeast2For(IntegerType);
-const HeldSource = Paged.Types.Source(ArrayType(JobType));
+/** A PINNED source: it names the revision its windows are served at, and the sheet edits it. */
+const HeldSource = Paged.Types.PinnedSource(ArrayType(JobType));
 /**
  * The held Sheet, built by its own factory over the source it is called
  * with. Two author callbacks read the `code` of the row above, which has no
@@ -750,13 +751,13 @@ function heldSheet(n: number) {
         return variant("applied", { revision: some(`rev-${state.revision}`) });
     };
     const built = East.compile(heldProgram, getRegisteredPlatformImplementations())(source) as ValueTypeOf<typeof UIComponentType>;
-    if (built.type !== "Sheet" || built.value.rows.type !== "paged") throw new Error("Expected a paged Sheet");
+    if (built.type !== "Sheet" || built.value.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
     const root = built.value;
     const served = built.value.rows.value;
     const value = {
         ...root,
         // The renderer is handed the broken row as it draws it; the factory's own reads see it whole.
-        rows: variant("paged", { ...served, page: (offset: bigint, limit: bigint) => {
+        rows: variant("pinned", { ...served, page: (offset: bigint, limit: bigint) => {
             const window = served.page(offset, limit);
             return window.type === "some" ? some(window.value.map((row) => (row.id === state.broken ? brokenRow(row) : row))) : window;
         } }),

@@ -49,6 +49,7 @@ import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type 
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { useTablePagedRows, type TablePagedSourceValue, type TableRowValue } from "./use-paged-rows.js";
+import { windowedSourceOf } from "../windowed-source.js";
 import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
 /* Touch (#351): 36px tap halo on the 24px row expander, the size the header's
@@ -1962,10 +1963,10 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     // Resolved HERE, once, so `TableCore` sees one row space whichever arm the
     // author used. Table is positional, so a window is an array of mapped rows
     // and windows concatenate; the Plan's keyed windows merge by key. Neither
-    // component sniffs the other's shape — the contract carries it.
-    const rowsArm = props.value.rows;
-    const pagedSource: TablePagedSourceValue | undefined =
-        rowsArm.type === "paged" ? rowsArm.value : undefined;
+    // component sniffs the other's shape — the contract carries it. Either
+    // windowed arm reads the same: the Table asks for its prefix afresh on
+    // every evaluation, so a pinned source's move re-reads it.
+    const pagedSource: TablePagedSourceValue | undefined = windowedSourceOf(props.value.rows);
     const paged = useTablePagedRows(pagedSource);
     // Inline rows are pure data: key them on the value's DATA identity, so a
     // closure-only change keeps the row space — and every state keyed on it —

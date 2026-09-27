@@ -70,6 +70,7 @@ import {
 } from "../plan-state.js";
 import type { ResidencyOptions } from "../window-residency.js";
 import { PLAN_PAGE_SIZE, type PlanViewport } from "../use-plan-paging.js";
+import { windowedSourceOf } from "../../windowed-source.js";
 import type { PlanSearch } from "../use-seek.js";
 import {
     NOT_PERSISTED, sameAnchor, sameKey, sameList, sameToggle,
@@ -480,7 +481,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
      *  nothing here: a window measures an unseeded declared collapse as the
      *  collapse its seed will be. */
     function syncHeights(): void {
-        if (value === undefined || value.rows.type !== "paged") return;
+        if (value === undefined || value.rows.type === "inline") return;
         const expand = store.ui.focus?.kind === "expand" ? store.ui.focus.key : undefined;
         const dense = denseOf(value);
         const m = measuredUnder;
@@ -757,7 +758,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             return;
         }
         // Not on the canvas: a paged row may yet land; an inline one will not.
-        if (value.rows.type !== "paged") {
+        if (value.rows.type === "inline") {
             focusRequest = undefined;
             return;
         }
@@ -852,7 +853,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 value = next;
                 data = nextData;
                 bound = getSomeorUndefined(next.ui);
-                const src = next.rows.type === "paged" ? next.rows.value : undefined;
+                const src = windowedSourceOf(next.rows);
                 seek.setSeek(src !== undefined && src.seek.type === "some" ? src.seek.value : undefined);
                 paging.setSource(src);
                 // Which rows draw as diagnostics is the axis kind's to say:
@@ -1009,7 +1010,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 }
                 if (items.length === 0) return;
                 const at = items.findIndex((it) => bodyItemKey(it) === saved.key);
-                if (at < 0 && value?.rows.type === "paged" && saved.window !== null) {
+                if (at < 0 && value !== undefined && value.rows.type !== "inline" && saved.window !== null) {
                     // A paged canvas may simply not have loaded the row yet:
                     // open its block at the window it came from before calling
                     // it gone — a rebase, not a walk.

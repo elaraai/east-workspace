@@ -249,7 +249,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     useEffect(() => controller.connect(), [controller]);
 
     // ── The rows: inline, or the paged source's resident ones (§3.8) ──────
-    const paged = data.rows.type === "paged";
+    // Either windowed arm — `paged`, or `pinned` naming its snapshot.
+    const paged = data.rows.type !== "inline";
     // The inline arm is the canvas's BLOCKS (#823), one after another — the
     // stream's order is the render order (#822) — keyed for the canvas once
     // per decoded array.
@@ -359,7 +360,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     // with its element's key (#822). The control is keyed on the search's
     // epoch: a new source revision drops the matches it holds, which index the
     // previous snapshot (#821).
-    const seekable = data.rows.type === "paged" && data.rows.value.seek.type === "some";
+    const seekable = data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const search = useMemo<PlanSearch | undefined>(
         () => (seekable ? { ...controller.search, resetKey: String(seek.epoch) } : undefined),
         [seekable, controller, seek.epoch]);

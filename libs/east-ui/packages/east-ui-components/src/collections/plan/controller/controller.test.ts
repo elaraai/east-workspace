@@ -40,11 +40,14 @@ function planRow(key: string, kind: unknown = span(), parent?: string, series?: 
     } as unknown as PlanWireRow;
 }
 
-/** A decoded root — the inline stream unless a paged source is given;
- *  callbacks as the decoder hands them over (plain functions inside `some`). */
+/** A decoded root — the inline stream unless a paged source is given, on the
+ *  `pinned` arm when the source names its revision and the `paged` arm when it
+ *  names none; callbacks as the decoder hands them over (plain functions
+ *  inside `some`). */
 function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}): PlanRootValue {
+    const src = opts.source as object | undefined;
     return {
-        rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        rows: src !== undefined ? variant("revision" in src ? "pinned" : "paged", blocksSource(src)) : variant("inline", oneBlock(rows)),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -615,8 +618,6 @@ describe("a bound ui state (#824)", () => {
                 const w = Number(/g(\d+)/u.exec(q.value)?.[1] ?? "0");
                 return some({ found: true, row: BigInt(w * PLAN_PAGE_SIZE), count: 1n });
             }),
-            revision: () => none,
-            refresh: () => null,
         };
     }
 
@@ -675,8 +676,6 @@ describe("the source's channels (#815)", () => {
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
-            revision: () => none,
-            refresh: () => null,
         };
         const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
         return { tracker, source, state, fire };
@@ -805,8 +804,6 @@ describe("a new source revision (#821)", () => {
             page: () => some(viewRows),
             total: () => some(BigInt(elements.length)),
             seek: some(() => some({ found: true, row: 2n, count: 1n })),
-            revision: () => none,
-            refresh: () => null,
         };
         const { c } = show(root([], { source }));
         await c.search.find({ key: '"e2"' });
@@ -871,8 +868,6 @@ describe("a key search is a request, served once (#574)", () => {
                 const w = Number(/g(\d+)/u.exec(q.value)?.[1] ?? "0");
                 return some({ found: true, row: BigInt(w * PLAN_PAGE_SIZE), count: 1n });
             }),
-            revision: () => none,
-            refresh: () => null,
         };
     }
 
@@ -919,8 +914,6 @@ describe("paged heights follow the canvas (#823)", () => {
             },
             total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
             seek: none,
-            revision: () => none,
-            refresh: () => null,
         };
     }
     const headOf = (c: PlanController) => c.getSnapshot().paging.blocks[0]!.head!;

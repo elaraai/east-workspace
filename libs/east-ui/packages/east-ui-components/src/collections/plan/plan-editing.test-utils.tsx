@@ -12,10 +12,11 @@
  * - inline, over a `State.bind` handle written through the `onUpdate`
  *   adapter — the host renders again with its latest value, as a `Reactive`
  *   would ({@link EditingCanvas.confirm});
- * - paged, over a source whose windows, total, revision and refresh are
- *   platform calls into a {@link PressStore} — its `onApply` commits a new
- *   revision, which the source serves once refreshed to it and the refreshed
- *   read has landed ({@link EditingCanvas.confirm}).
+ * - paged, over a PINNED source — the only windowed kind a canvas edits —
+ *   whose windows, total, revision and refresh are platform calls into a
+ *   {@link PressStore}: its `onApply` commits a new revision, which the source
+ *   serves once refreshed to it and the refreshed read has landed
+ *   ({@link EditingCanvas.confirm}).
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded
  * and kept, every apply request's bytes kept, and the real callback answers.
@@ -317,7 +318,7 @@ const STATE_KEY = "plan-880.presses";
 
 /** How a test's canvas is built. */
 export interface CanvasOptions {
-    /** Where the rows come from — inline, or a paged source. */
+    /** Where the rows come from — inline, or a paged source (a pinned one: it names its snapshot). */
     arm: "inline" | "paged";
     /** The axis kind (default `"time"`). */
     axis?: "time" | "number" | "ordinal";
@@ -380,7 +381,7 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
         : East.function([], UIComponentType, ($) => {
             const source = $.const({
                 id: "plan-880-presses", page: PAGE, total: TOTAL, seek: none, revision: REVISION, refresh: REFRESH,
-            }, Paged.Types.Source(Presses));
+            }, Paged.Types.PinnedSource(Presses));
             const onApply = $.const(APPLY);
             return Plan.Root({
                 axis, data: source, series, ...chrome,

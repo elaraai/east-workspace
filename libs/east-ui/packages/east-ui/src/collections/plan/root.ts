@@ -597,13 +597,11 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
     if (input.mode === "auto" && input.onApply === undefined && input.onUpdate === undefined) {
         throw new Error("Plan: editing.mode \"auto\" applies each ready gesture at once — it needs onApply or onUpdate to apply it with");
     }
-    if (resolved.kind === "paged" && input.onApply !== undefined) {
-        const fields = (Expr.type(resolved.source as unknown as Expr) as StructType).fields;
-        if (fields["revision"] === undefined || fields["refresh"] === undefined) {
-            throw new Error(
-                "Plan: editing a paged source needs its revision and refresh — a batch is checked against the revision it " +
-                "began at, and the drafts retire once the source reads back at the revision it committed");
-        }
+    if (resolved.kind !== "inline" && !resolved.pinned && input.onApply !== undefined) {
+        throw new Error(
+            "Plan: editing a paged source needs its revision and refresh — a pinned source (Data.bindPaged's handle, " +
+            "Paged.pinned): a batch is checked against the revision it began at, and the drafts retire once the source " +
+            "reads back at the revision it committed");
     }
 
     // An entry's id is its key's text — the first segment of its rows' paths:

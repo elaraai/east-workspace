@@ -12,6 +12,7 @@
 
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Sheet } from "@elaraai/east-ui/internal";
+import type { WindowedSourceValue } from "../windowed-source.js";
 
 /** The decoded Sheet root. */
 export type SheetRootValue = ValueTypeOf<typeof Sheet.Types.Root>;
@@ -67,7 +68,7 @@ export type SheetSuggestValue = ValueTypeOf<typeof Sheet.Types.Suggest>;
 export type SheetProviderValue = ValueTypeOf<typeof Sheet.Types.Provider>;
 /** One row proposer on the wire. */
 export type SheetProposerValue = ValueTypeOf<typeof Sheet.Types.Proposer>;
-/** The decoded `paged` arm — the source at the sheet's own row collection. */
-export type SheetPagedSourceValue = Extract<SheetRootValue["rows"], { type: "paged" }>["value"];
+/** The decoded windowed arm — `paged`, or `pinned` with its revision and refresh — the source at the sheet's own row collection. */
+export type SheetPagedSourceValue = WindowedSourceValue<SheetRootValue["rows"]>;
 /** One saved view — a slice-state snapshot plus the lens's context and reveals (B§8). */
 export type SheetViewValue = ValueTypeOf<typeof Sheet.Types.View>;

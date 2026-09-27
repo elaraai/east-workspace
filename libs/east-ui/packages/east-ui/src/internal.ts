@@ -119,8 +119,8 @@ export {
 export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, cohortGroupOf, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
-// Row-source contract (#567) — `Paged.of` for the paged-arm specs.
-export { Paged, PagedSourceType, RowSourceType, type PagedSource, type RowSource, resolveRowSource, buildRowSource } from "./contracts/source.js";
+// Row-source contract (#567) — `Paged.of` / `Paged.pinned` for the windowed-arm specs.
+export { Paged, PagedSourceType, PinnedSourceType, RowSourceType, type PagedSource, type PinnedSource, type RowSource, resolveRowSource, buildRowSource } from "./contracts/source.js";
 export { PickStateType, PickItemType, PickBindType, PickPanelType } from "./contracts/pick.js";
 export { Pick } from "./pick/index.js";
 export {

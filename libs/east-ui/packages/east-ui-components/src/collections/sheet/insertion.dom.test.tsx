@@ -139,7 +139,8 @@ test("a keyed source offers Add row, uses canonical key order and emits no order
             ["a", { id: "a", task: "First", qty: 1n, hidden: "keep a" }],
             ["z", { id: "z", task: "Last", qty: 2n, hidden: "keep z" }],
         ]), DictType(StringType, Row));
-        return Sheet.Root(Paged.of("keyed-insertion", data), { task: Sheet.column.text(Row) }, {
+        // Pinned: an edited paged source names the snapshot its batches are checked against.
+        return Sheet.Root(Paged.pinned("keyed-insertion", data), { task: Sheet.column.text(Row) }, {
             newRowId: East.function([], StringType, () => "0-new"),
         });
     }).toIR().compile(StateImpl);

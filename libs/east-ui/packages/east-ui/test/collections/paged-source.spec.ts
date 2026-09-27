@@ -6,7 +6,7 @@
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, equalFor, variant, some, none } from "@elaraai/east";
+import { ArrayType, DictType, East, FunctionType, IntegerType, OptionType, RecursiveType, StringType, StructType, equalFor, variant, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Plan, Table } from "@elaraai/east-ui/internal";
 import { buildRowSource, resolveRowSource } from "../../src/contracts/source.js";
@@ -316,12 +316,8 @@ describeEast("Row-source contract (#567)", (test) => {
                 return piece;
             }));
         const knownTotal = $.const(East.function([], OptionType(IntegerType), (_$) => some(50n)));
-        // A source that cannot name its snapshot says so (`none`), and has
-        // nothing to refresh to.
-        const noRevision = $.const(East.function([], OptionType(StringType), (_$) => none));
-        const noRefresh = $.const(East.function([OptionType(StringType)], NullType, (_$) => null));
         const src = $.let(
-            { id: "slow", page: firstPieceOnly, total: knownTotal, seek: none, revision: noRevision, refresh: noRefresh },
+            { id: "slow", page: firstPieceOnly, total: knownTotal, seek: none },
             Paged.Types.Source(ArrayType(Row)),
         );
         const table = $.let(Table.Root(src, ["id", "n"]));
@@ -343,12 +339,24 @@ describe("Paged.of refusals (#829)", () => {
     });
 });
 
-describe("Paged source lifecycle — revision and refresh (#744, #821)", () => {
+describe("Paged sources and their snapshots — paged and pinned (#744, #821)", () => {
     const Row = StructType({ id: StringType, nested: ArrayType(IntegerType) });
     const Rows = ArrayType(Row);
-    const capture = East.function([Rows], Paged.Types.Source(Rows), (_$, rows) => Paged.of("snapshot", rows));
 
-    hostTest("Paged.of detaches nested mutable input and refuses an unrelated revision", () => {
+    hostTest("Paged.of detaches nested mutable input, and names no snapshot — the released shape", () => {
+        const capture = East.function([Rows], Paged.Types.Source(Rows), (_$, rows) => Paged.of("snapshot", rows));
+        const input = [{ id: "a", nested: [1n] }];
+        const source = East.compile(capture, [])(input);
+        input[0]!.nested.push(2n);
+        input.push({ id: "b", nested: [] });
+        assert.deepEqual(source.page(0n, 10n), some([{ id: "a", nested: [1n] }]));
+        assert.deepEqual(source.total(), some(1n));
+        // `id`, `page`, `total`, `seek`: what exported UIs carry, and nothing more.
+        assert.deepEqual(Object.keys(source).sort(), ["id", "page", "seek", "total"]);
+    });
+
+    hostTest("Paged.pinned detaches nested mutable input and refuses an unrelated revision", () => {
+        const capture = East.function([Rows], Paged.Types.PinnedSource(Rows), (_$, rows) => Paged.pinned("snapshot", rows));
         const input = [{ id: "a", nested: [1n] }];
         const source = East.compile(capture, [])(input);
         input[0]!.nested.push(2n);
@@ -358,37 +366,46 @@ describe("Paged source lifecycle — revision and refresh (#744, #821)", () => {
         assert.deepEqual(source.revision(), some("snapshot"));
         source.refresh(none);
         source.refresh(some("snapshot"));
-        assert.throws(() => source.refresh(some("other")), /immutable snapshot/);
+        assert.throws(() => source.refresh(some("other")), /Paged\.pinned: an immutable snapshot/);
         assert.deepEqual(source.revision(), some("snapshot"));
     });
 
-    hostTest("mapped row sources keep the handle's id and forward lifecycle methods with their original closure", () => {
+    hostTest("a pinned source builds the `pinned` arm, its id kept and its lifecycle forwarded with the handle's closures", () => {
         const program = East.function([Rows], Paged.Types.RowSource(Rows), ($, rows) => {
-            const source = $.let(Paged.of("snapshot", rows));
+            const source = $.let(Paged.pinned("snapshot", rows));
             return buildRowSource(resolveRowSource(source, "fixture"), Rows, r => r as never);
         });
         const value = East.compile(program, [])([{ id: "a", nested: [1n] }]);
-        assert.equal(value.type, "paged");
-        if (value.type !== "paged") return;
+        assert.equal(value.type, "pinned");
+        if (value.type !== "pinned") return;
         // The id names the logical source; what `make` serves is told apart by
         // comparing the derived source whole (#809), not by a signed id (#822).
         assert.equal(value.value.id, "snapshot");
         assert.deepEqual(value.value.revision(), some("snapshot"));
         assert.throws(() => value.value.refresh(some("other")), /immutable snapshot/);
+        assert.deepEqual(value.value.page(0n, 10n), some([{ id: "a", nested: [1n] }]));
     });
 
-    hostTest("a legacy producer normalizes to read-only lifecycle without inventing a revision", () => {
+    hostTest("a source that names no snapshot builds the `paged` arm — nothing invented for it", () => {
         const program = East.function([Rows], Paged.Types.RowSource(Rows), ($, rows) => {
-            const current = $.let(Paged.of("legacy", rows));
-            const legacy = $.let({ id: current.id, page: current.page, total: current.total, seek: current.seek });
-            return buildRowSource(resolveRowSource(legacy, "fixture"), Rows, r => r as never);
+            const source = $.let(Paged.of("released", rows));
+            return buildRowSource(resolveRowSource(source, "fixture"), Rows, r => r as never);
         });
         const value = East.compile(program, [])([]);
         assert.equal(value.type, "paged");
         if (value.type !== "paged") return;
-        assert.deepEqual(value.value.revision(), none);
-        assert.throws(() => value.value.refresh(none), /legacy source cannot refresh/);
+        assert.deepEqual(Object.keys(value.value).sort(), ["id", "page", "seek", "total"]);
         assert.deepEqual(value.value.page(0n, 10n), some([]));
+    });
+
+    hostTest("a source with only one of revision and refresh is refused, naming what it has", () => {
+        const pinned = Paged.pinned("half", East.value([], Rows));
+        const halfOf = (keep: "revision" | "refresh") => East.value(
+            keep === "revision"
+                ? { id: pinned.id, page: pinned.page, total: pinned.total, seek: pinned.seek, revision: pinned.revision }
+                : { id: pinned.id, page: pinned.page, total: pinned.total, seek: pinned.seek, refresh: pinned.refresh });
+        assert.throws(() => resolveRowSource(halfOf("revision"), "Table"), /Table: a paged source names its snapshot with both .* this one has only `revision`/);
+        assert.throws(() => resolveRowSource(halfOf("refresh"), "Table"), /this one has only `refresh`/);
     });
 });
 

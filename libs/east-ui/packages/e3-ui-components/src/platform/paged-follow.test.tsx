@@ -128,7 +128,8 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
 
 /** The Plan root over the bound handle — its `page` mapped to the canvas's
  *  blocks (one block of the machines' rows, #823), its identity, total,
- *  revision and refresh the handle's own. */
+ *  revision and refresh the handle's own: the `pinned` arm, the one a canvas
+ *  follows from one snapshot to the next. */
 function planOver(handle: Record<string, unknown>): PlanRootValue {
     const bound = handle as {
         id: string;
@@ -150,7 +151,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
         refresh: bound.refresh,
     };
     return {
-        rows: variant("paged", source),
+        rows: variant("pinned", source),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -200,8 +201,8 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
 
 /** A Sheet as an author writes it — a text column over the bound machines,
  *  the handle its input — so the rows reach the renderer through the Sheet's
- *  own derived source. */
-const sheetProgram = East.function([Paged.Types.Source(Machines)], UIComponentType, (_$, machines) =>
+ *  own derived source, pinned as `Data.bindPaged`'s handle is. */
+const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], UIComponentType, (_$, machines) =>
     Sheet.Root(machines, { label: Sheet.column.text(Machine, { header: "Label" }) }, { blanks: 0 }));
 
 /** The Sheet root over the bound handle. */

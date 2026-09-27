@@ -900,6 +900,12 @@ describe("Sheet refusals", () => {
     hostTest("onUpdate on a paged source is refused", () => {
         assert.throws(() => Sheet.Root(Paged.of("p", rows, { key: r => r.id }), { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop }), /onUpdate/);
     });
+    hostTest("editing paged rows needs a pinned source — one that names the snapshot a batch is checked against", () => {
+        const onApply = East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
+        assert.throws(() => Sheet.Root(Paged.of("p", rows, { key: r => r.id }), { task: Sheet.column.text(JobType) }, { id: "id", onApply }),
+            /Sheet: editing paged rows needs a pinned source/);
+        assert.doesNotThrow(() => Sheet.Root(Paged.pinned("p", rows, { key: r => r.id }), { task: Sheet.column.text(JobType) }, { id: "id", onApply }));
+    });
     hostTest("an undeclared register is refused", () => {
         assert.throws(() => Sheet.Root(rows, { task: Sheet.column.reference(JobType, "sites") }, { id: "id" }), /register "sites"/);
     });

@@ -265,13 +265,13 @@ export const pagedSourceBlocks = example({
     inputs: [],
 });
 
-/** The immutable fixture lifecycle, matching mutable producers' method shape. */
+/** A pinned fixture — `Paged.pinned` — with a dataset handle's lifecycle over one snapshot. */
 export const pagedSnapshotRevision = example({
-    keywords: ["Paged", "of", "revision", "refresh", "snapshot", "immutable"],
-    description: "Read a fixture snapshot revision and refresh it at the same token. Mutable sources use refresh(none) to discover current content or refresh(some(hash)) to install an acknowledged write; a Paged.of fixture retains its immutable snapshot.",
+    keywords: ["Paged", "pinned", "revision", "refresh", "snapshot", "immutable", "PinnedSource", "fixture", "editing"],
+    description: "A PINNED in-memory source — `Paged.pinned` names its snapshot, as a dataset's handle does, so it is the fixture a view that edits or follows its source takes. Its revision is its id, for good: refresh(none) and refresh(some(id)) keep it, and any other target throws, since an in-memory source cannot move. A bound source refreshes to none to find its current content, or to some(hash) to move to a write it confirmed",
     fn: East.function([], UIComponentType, $ => {
         const rows = $.const([{ id: "r1", quantity: 2.0 }], ArrayType(StructType({ id: StringType, quantity: FloatType })));
-        const source = $.let(Paged.of("orders:fixture-1", rows));
+        const source = $.let(Paged.pinned("orders:fixture-1", rows));
         $(source.refresh(none));
         $(source.refresh(some("orders:fixture-1")));
         return <Text>{East.str`Snapshot: ${source.revision().unwrap("some")}`}</Text>;

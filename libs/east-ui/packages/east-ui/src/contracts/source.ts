@@ -12,8 +12,9 @@
  * positional surface, a `Dict<String, Row>` for a keyed one (#568). east-ui
  * declares the shape; whoever can actually fetch windows produces a value of
  * it. `Data.bindPaged` in `@elaraai/e3-ui` is the production implementation
- * (dataset windows over an e3 workspace) and {@link Paged.of} is the in-memory
- * one; neither is named here, and **nothing in this file imports e3**.
+ * (dataset windows over an e3 workspace) and {@link Paged.of} /
+ * {@link Paged.pinned} are the in-memory ones; e3 is never named here, and
+ * **nothing in this file imports e3**.
  *
  * # Why a variant, not a narrow struct
  *
@@ -47,6 +48,7 @@ import {
     StringType,
     StructType,
     VariantType,
+    isTypeEqual,
     variant,
     some,
     none,
@@ -182,10 +184,11 @@ export type SeekQueryType = typeof SeekQueryType;
  * window on a read at least two seconds later), and an authoring error — a
  * dataset that cannot be paged — keeps throwing. `seek` follows the same rule.
  *
- * @property revision - Coherent snapshot shared by pages, total and seek; none
- *   while discovering it, or on a legacy immutable-id source.
- * @property refresh - Install an exact revision (some(hash)), or discover the
- *   current snapshot (none), invalidating windows, total and seek together.
+ * A paged source names no snapshot, so a component reads each of its windows
+ * once: the same `id` serves the same rows for as long as the component holds
+ * it. A source whose content moves under one id — a dataset the view follows,
+ * a source the view writes — is a {@link PinnedSourceType}, which names the
+ * snapshot its windows, total and searches belong to.
  *
  * @typeParam C - The collection type one window carries.
  * @param c - The collection type value.
@@ -195,7 +198,7 @@ export type SeekQueryType = typeof SeekQueryType;
  *   compares every function as EQUAL, so a struct of nothing but closures is
  *   indistinguishable from any other — without this field a memoized component
  *   never re-renders when the source is swapped, and a window cache cannot key
- *   itself. The id names the logical source; revision names its snapshot.
+ *   itself. Two sources with the same `id` must serve the same rows.
  * @property page - `(offset, limit)` → that window's elements as a value of the
  *   collection type; `none` while in flight, an EMPTY collection at exhaustion,
  *   and possibly fewer than `limit` elements before it (see above). Throws when
@@ -210,8 +213,6 @@ export const PagedSourceType = <C extends EastType>(c: C) => StructType({
     page:  FunctionType([IntegerType, IntegerType], OptionType(c)),
     total: FunctionType([], OptionType(IntegerType)),
     seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
-    revision: FunctionType([], OptionType(StringType)),
-    refresh: FunctionType([OptionType(StringType)], NullType),
 });
 
 /**
@@ -228,6 +229,55 @@ export const PagedSourceType = <C extends EastType>(c: C) => StructType({
  */
 export type PagedSource<C extends EastType> = ExprType<ReturnType<typeof PagedSourceType<C>>>;
 
+/**
+ * A {@link PagedSourceType} that names its SNAPSHOT — the contract a component
+ * follows through changes to the source's content, and the one it edits.
+ *
+ * @remarks
+ * Every window, the total and every search belong to one snapshot, the
+ * source's `revision`, so rows from two snapshots never sit side by side. When
+ * the revision moves — the data was written, `refresh` was asked for — a
+ * component reads its windows again at the new one, and the rows it had stand
+ * in until each lands: the view never empties between two snapshots of its
+ * data (#821). An edit is checked against the snapshot it was drafted on, and
+ * the drafts retire once the source reads back at the snapshot the write made
+ * (#880) — which is why the Sheet and the Plan edit a paged source only
+ * through this contract.
+ *
+ * `Data.bindPaged` in `@elaraai/e3-ui` returns one, its revision the dataset's
+ * content hash, and {@link Paged.pinned} is the in-memory one.
+ *
+ * @typeParam C - The collection type one window carries.
+ * @param c - The collection type value.
+ * @returns The concrete `StructType` of a pinned source over `c`.
+ *
+ * @property id - The logical source's identity, as {@link PagedSourceType}'s;
+ *   the rows it serves are its current revision's.
+ * @property page - As {@link PagedSourceType}'s, at the current revision.
+ * @property total - As {@link PagedSourceType}'s, at the current revision.
+ * @property seek - As {@link PagedSourceType}'s, at the current revision.
+ * @property revision - The snapshot the source serves; `none` while it is
+ *   being found. A reader re-fires when the source moves to another.
+ * @property refresh - Move the source: `some(hash)` to that snapshot — after a
+ *   write the view confirmed — or `none` to the one the source holds now.
+ */
+export const PinnedSourceType = <C extends EastType>(c: C) => StructType({
+    id:       StringType,
+    page:     FunctionType([IntegerType, IntegerType], OptionType(c)),
+    total:    FunctionType([], OptionType(IntegerType)),
+    seek:     OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh:  FunctionType([OptionType(StringType)], NullType),
+});
+
+/**
+ * The TypeScript type of a {@link PinnedSourceType} over collection type `C` —
+ * the pinned sibling of {@link PagedSource}.
+ *
+ * @typeParam C - The collection type one window carries.
+ */
+export type PinnedSource<C extends EastType> = ExprType<ReturnType<typeof PinnedSourceType<C>>>;
+
 // ============================================================================
 // The row-source variant — what components actually store
 // ============================================================================
@@ -236,11 +286,17 @@ export type PagedSource<C extends EastType> = ExprType<ReturnType<typeof PagedSo
  * How a component's rows arrive: inline, or from a windowed source.
  *
  * @remarks
- * Both arms speak the same COLLECTION type — inline is the whole of it, paged
- * is a window of it — so a keyed source (a Sheet's `Dict<String, Row>`), a
- * positional one (a Table's `Array<Row>`) and a composite one (the Plan's
- * blocks, one row stream per series) share one vocabulary without any shape
- * leaking into the arm names (#568).
+ * Every arm speaks the same COLLECTION type — inline is the whole of it, the
+ * windowed arms a window of it — so a keyed source (a Sheet's
+ * `Dict<String, Row>`), a positional one (a Table's `Array<Row>`) and a
+ * composite one (the Plan's blocks, one row stream per series) share one
+ * vocabulary without any shape leaking into the arm names (#568).
+ *
+ * The two windowed arms differ in one thing: whether the source names its
+ * snapshot. `paged` is the released arm — exported UIs carry it, so it never
+ * changes — and a component reads each of its windows once; `pinned` names the
+ * revision its windows belong to, which is what lets a component follow the
+ * source as its content changes, and edit it.
  *
  * @typeParam C - The collection type.
  * @param c - The collection type value.
@@ -248,11 +304,34 @@ export type PagedSource<C extends EastType> = ExprType<ReturnType<typeof PagedSo
  *
  * @property inline - The whole collection, already in hand.
  * @property paged - A {@link PagedSourceType} fetched a window at a time.
+ * @property pinned - A {@link PinnedSourceType} — windows at a named snapshot, followed from one to the next.
  */
-export const RowSourceType = <C extends EastType>(c: C) => VariantType({
+export const RowSourceType = <C extends EastType>(c: C): RowSourceType<C> => VariantType({
     inline: c,
     paged:  PagedSourceType(c),
+    pinned: PinnedSourceType(c),
 });
+
+/**
+ * The East type {@link RowSourceType} builds over collection type `C`, as a
+ * named interface.
+ *
+ * @remarks
+ * An interface is a symbol, so the declaration emitter names it wherever a
+ * component's type carries a row source, instead of writing the collection
+ * type out once per arm — which keeps `UIComponentType`'s declaration within
+ * the length TypeScript will serialize (TS7056; see `UIComponentNode`).
+ *
+ * @typeParam C - The collection type.
+ */
+export interface RowSourceType<C extends EastType> extends VariantType {
+    /** The arms, by name — {@link RowSourceType}'s three. */
+    readonly cases: {
+        readonly inline: C;
+        readonly paged: ReturnType<typeof PagedSourceType<C>>;
+        readonly pinned: ReturnType<typeof PinnedSourceType<C>>;
+    };
+}
 
 /**
  * The TypeScript type of a {@link RowSourceType} over collection type `C`.
@@ -296,10 +375,15 @@ export type RowSourceInput<C extends EastType> =
  * `keyType` is what a keyed component checks: the Plan requires a `Dict`
  * (any key type, #822) because a row's id starts with its entry's key, so an
  * unkeyed source is refused rather than silently re-keyed (#568).
+ *
+ * `pinned` says whether a windowed source names its snapshot — `revision` and
+ * `refresh`, as {@link PinnedSourceType} has them — and so builds the `pinned`
+ * arm: the one a component follows through changes to the source, and the
+ * only one the Sheet and the Plan edit.
  */
 export type ResolvedRowSource =
     | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; live?: ExprType<StructType> }
-    | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined }
+    | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; pinned: boolean }
     | {
         kind: "ordered";
         source: ExprType<StructType>;
@@ -309,6 +393,8 @@ export type ResolvedRowSource =
         keyType: EastType;
         /** The order key the window is sorted by, off the element's `ik`. */
         orderKeyType: EastType;
+        /** Whether the source names its snapshot — `revision` and `refresh`. */
+        pinned: boolean;
     };
 
 /** A resolved WINDOWED source — `paged`, or an `ordered` index window. */
@@ -367,6 +453,37 @@ function keyTypeOf(t: EastType | undefined): EastType | undefined {
     return undefined;
 }
 
+/** The members a {@link PinnedSourceType} adds to a paged source, at their types. */
+const SNAPSHOT_MEMBERS = {
+    revision: FunctionType([], OptionType(StringType)),
+    refresh:  FunctionType([OptionType(StringType)], NullType),
+};
+
+/**
+ * Whether a windowed source names its snapshot — `revision` and `refresh`,
+ * both, at {@link PinnedSourceType}'s types.
+ *
+ * @param fields - The source's struct fields
+ * @param label - Component name for the error message
+ * @returns Whether the source is pinned
+ * @throws Error when the source has one of the two without the other, or
+ *   either at another type — it would build neither arm faithfully
+ */
+function namesSnapshot(fields: Record<string, EastType>, label: string): boolean {
+    const revision = fields["revision"];
+    const refresh = fields["refresh"];
+    if (revision === undefined && refresh === undefined) return false;
+    if (revision !== undefined && refresh !== undefined
+        && isTypeEqual(revision, SNAPSHOT_MEMBERS.revision) && isTypeEqual(refresh, SNAPSHOT_MEMBERS.refresh)) {
+        return true;
+    }
+    const found = revision === undefined ? "only `refresh`" : refresh === undefined ? "only `revision`" : "them at other types";
+    throw new Error(
+        `${label}: a paged source names its snapshot with both \`revision: () → Option<String>\` and ` +
+        `\`refresh: (Option<String>) → Null\`, as Data.bindPaged's handle and Paged.pinned do — this one has ${found}`,
+    );
+}
+
 /**
  * Classify a component's rows prop at BUILD time — the one dispatch every
  * collection shares, so no component re-sniffs shapes of its own.
@@ -374,7 +491,9 @@ function keyTypeOf(t: EastType | undefined): EastType | undefined {
  * Accepted shapes, in order:
  * - a collection expression / value (`Array<R>`, `Dict<K, V>`, `Set<R>`) ⇒ `inline`;
  * - a struct carrying `page` + `total` ⇒ `paged` (a {@link PagedSourceType},
- *   or anything structurally matching it — `Data.bindPaged`'s handle);
+ *   or anything structurally matching it), marked `pinned` when it also
+ *   carries `revision` + `refresh` (a {@link PinnedSourceType} —
+ *   `Data.bindPaged`'s handle, `Paged.pinned`);
  * - a struct carrying `read` ⇒ a whole-value bind handle, which resolves by
  *   CALLING `read()` and recursing. The call becomes part of the surrounding
  *   East expression, so it is evaluated inside the component's reactive render
@@ -407,6 +526,8 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
                 `(an Array, Dict or Set) — got ${JSON.stringify(page)}`,
             );
         }
+        // A source that names its snapshot builds the `pinned` arm.
+        const pinned = namesSnapshot(fields, label);
         // An ORDERED window: positional, but every row carries its own key.
         // Recognised by the element's shape rather than announced by a flag,
         // so a source that serves index entries needs no second vocabulary.
@@ -414,12 +535,12 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
         if (entry !== null) {
             return {
                 kind: "ordered", source: expr as unknown as ExprType<StructType>,
-                collectionType, elementType, keyType: entry.key, orderKeyType: entry.ik,
+                collectionType, elementType, keyType: entry.key, orderKeyType: entry.ik, pinned,
             };
         }
         return {
             kind: "paged", source: expr as unknown as ExprType<StructType>,
-            collectionType, elementType, keyType: keyTypeOf(collectionType),
+            collectionType, elementType, keyType: keyTypeOf(collectionType), pinned,
         };
     }
     if (fields !== undefined && fields["read"] !== undefined) {
@@ -478,6 +599,11 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
  * concatenate; dicts and sets union, their pieces being disjoint and ascending)
  * and `make` runs once over the whole window. Each piece stays its own request,
  * so a runtime caches them at the size the source chose to serve.
+ *
+ * A source that names its snapshot (`resolved.pinned`, a
+ * {@link PinnedSourceType}) builds the `pinned` arm, its `revision` and
+ * `refresh` carried through as they are; any other builds `paged`, which has
+ * neither. The derived `page` is the same either way.
  */
 export function buildRowSource<Out extends EastType>(
     resolved: ResolvedRowSource,
@@ -494,8 +620,9 @@ export function buildRowSource<Out extends EastType>(
     // `ordered` and `paged` build the same value: by the time `make` has run,
     // the rows are the component's own shape, and whatever the entry carried —
     // its key, its order key — is in there because the component's `make` put
-    // it there. The distinction is a BUILD-time one, which is why there is no
-    // third arm here for a renderer to match on.
+    // it there. The distinction is a BUILD-time one, which is why `ordered`
+    // has no arm of its own for a renderer to match on. What picks the arm is
+    // whether the source names its snapshot.
     const handle = pagedHandleOf(resolved);
     // Erased locally: the window type is `Out`, but TS cannot see through the
     // generic to unify `Option<Out>`'s arms — the East type is what types it.
@@ -523,16 +650,15 @@ export function buildRowSource<Out extends EastType>(
     const seek = fields["seek"] !== undefined
         ? handle.seek
         : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
-    const revision = fields["revision"] !== undefined
-        ? handle.revision
-        : East.function([], OptionType(StringType), () => none);
-    const refresh = fields["refresh"] !== undefined
-        ? handle.refresh
-        : East.function([OptionType(StringType)], NullType, $ => {
-            $.error("Paged: this legacy source cannot refresh — provide revision and refresh methods for mutable editing");
-        });
+    if (!resolved.pinned) {
+        return East.value(
+            variant("paged", { id, page, total: handle.total, seek }) as never,
+            sourceType,
+        ) as RowSource<Out>;
+    }
+    const snapshot = resolved.source as unknown as ExprType<StructType<typeof SNAPSHOT_MEMBERS>>;
     return East.value(
-        variant("paged", { id, page, total: handle.total, seek, revision, refresh }) as never,
+        variant("pinned", { id, page, total: handle.total, seek, revision: snapshot.revision, refresh: snapshot.refresh }) as never,
         sourceType,
     ) as RowSource<Out>;
 }
@@ -544,8 +670,6 @@ function pagedHandleOf(resolved: ResolvedWindowedSource) {
         page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
         total: FunctionType<[], OptionType<IntegerType>>;
         seek: OptionType<FunctionType<[SeekQueryType], OptionType<SeekRangeType>>>;
-        revision: FunctionType<[], OptionType<StringType>>;
-        refresh: FunctionType<[OptionType<StringType>], NullType>;
     }>>;
 }
 
@@ -680,12 +804,13 @@ export interface PagedOfOptions<R extends EastType> {
  * the same shape and the same order a keyed dataset's windows arrive in, which
  * is what a keyed component (the Plan) requires of its source (#568).
  *
- * @typeParam R - The row type (array form) / the value type (dict form).
- * `Paged.of` captures an immutable copy at creation. Give changed content a
- * new id: this fixture's revision is `some(id)`. Refreshing with `none` or
- * that same token keeps the snapshot; another target throws.
+ * The source captures an immutable copy of the collection when it is created,
+ * so no window drifts with the input: changed content is a new source, under a
+ * new id. A view that edits its source, or follows it from one snapshot to the
+ * next, takes {@link Paged.pinned}.
  *
- * @param id - Unique snapshot identity (see {@link PagedSourceType}).
+ * @typeParam R - The row type (array form) / the value type (dict form).
+ * @param id - Comparable identity for this source (see {@link PagedSourceType}).
  * @param collection - The whole collection — an `Array<R>` or a `Dict<String, R>`.
  * @param options - {@link PagedOfOptions} — `key` (array form only) enables `seek`;
  *   `pageLimit` trims every window, as a server bounding its pages does.
@@ -698,9 +823,6 @@ export interface PagedOfOptions<R extends EastType> {
  * // real rows and a window's key range is a canvas key range.
  * const units = $.const(new Map([["UNIT-001", { … }]]), DictType(StringType, UnitRow));
  * const source = $.const(Paged.of("units", units));
- * // The lifecycle is shared with mutable sources; fixtures retain this token.
- * $(source.refresh(some("units")));
- * const revision = $.let(source.revision()); // some("units")
  * // A paged canvas declares its window — fitting the axis to a partial
  * // prefix would re-fit it on every landed window (#567 D8).
  * const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
@@ -725,24 +847,119 @@ function createPagedOf(
     // `C`, so neither overload's return is assignable to a common one. The
     // overloads above are what callers see.
 ): any {
+    return createInMemory(id, collection, options, false);
+}
+
+/**
+ * Build an in-memory {@link PinnedSourceType} — {@link Paged.of} naming its
+ * snapshot, for a fixture a view edits or follows.
+ *
+ * @remarks
+ * The snapshot is the id, for good: `revision()` reads `some(id)`, a `refresh`
+ * to `none` or to the id keeps it, and a refresh to any other snapshot throws —
+ * an in-memory source cannot move, so a write it is told about is one it never
+ * saw. Everything else is {@link Paged.of}'s: the captured copy, the windows,
+ * the total, `seek` and `pageLimit`.
+ *
+ * @typeParam R - The row type (array form) / the value type (dict form).
+ * @param id - The source's identity, and its one snapshot.
+ * @param collection - The whole collection — an `Array<R>` or a `Dict<String, R>`.
+ * @param options - {@link PagedOfOptions}, as {@link Paged.of} takes them.
+ * @returns A `PinnedSourceType` at the collection it was given.
+ * @throws {Error} When `pageLimit` is not a positive integer.
+ *
+ * @example
+ * ```tsx
+ * const rows = $.const([{ id: "r1", quantity: 2.0 }], ArrayType(OrderRow));
+ * const source = $.let(Paged.pinned("orders:fixture-1", rows));
+ * // A dataset handle's lifecycle, over one snapshot that never moves.
+ * $(source.refresh(none));
+ * $(source.refresh(some("orders:fixture-1")));
+ * return <Text>{East.str`Snapshot: ${source.revision().unwrap("some")}`}</Text>;
+ * ```
+ */
+function createPagedPinned<R extends EastType>(
+    id: SubtypeExprOrValue<StringType>,
+    rows: SubtypeExprOrValue<ArrayType<R>>,
+    options?: PagedOfOptions<R>,
+): PinnedSource<ArrayType<R>>;
+function createPagedPinned<V extends EastType>(
+    id: SubtypeExprOrValue<StringType>,
+    entries: SubtypeExprOrValue<DictType<StringType, V>>,
+    options?: Pick<PagedOfOptions<V>, "pageLimit">,
+): PinnedSource<DictType<StringType, V>>;
+function createPagedPinned(
+    id: SubtypeExprOrValue<StringType>,
+    collection: SubtypeExprOrValue<EastType>,
+    options?: PagedOfOptions<EastType>,
+    // Erased for the reason `createPagedOf`'s is.
+): any {
+    return createInMemory(id, collection, options, true);
+}
+
+/**
+ * The in-memory source over a collection — {@link Paged.of}'s, or, `pinned`,
+ * {@link Paged.pinned}'s.
+ *
+ * @param id - The source's identity
+ * @param collection - The whole collection
+ * @param options - {@link PagedOfOptions}
+ * @param pinned - Whether the source names its snapshot
+ * @returns The source, at the collection it was given
+ * @throws {Error} When `pageLimit` is not a positive integer
+ */
+function createInMemory(
+    id: SubtypeExprOrValue<StringType>,
+    collection: SubtypeExprOrValue<EastType>,
+    options: PagedOfOptions<EastType> | undefined,
+    pinned: boolean,
+): ExprType<StructType> {
     const pageLimit = options?.pageLimit;
     if (pageLimit !== undefined && !(Number.isInteger(pageLimit) && pageLimit > 0)) {
-        throw new Error(`Paged.of: \`pageLimit\` must be a positive integer — the most elements one window serves (got ${pageLimit})`);
+        throw new Error(`${pinned ? "Paged.pinned" : "Paged.of"}: \`pageLimit\` must be a positive integer — the most elements one window serves (got ${pageLimit})`);
     }
     const collectionExpr = East.value(collection as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
     const collectionType = Expr.type(collectionExpr) as EastType;
     const keyed = collectionType.type === "Dict";
+    const sourceType: EastType = pinned ? PinnedSourceType(collectionType) : PagedSourceType(collectionType);
     // Evaluate the input once when creating the source, then detach nested
     // mutable values. Page and seek closures share that captured snapshot;
     // passing a live read expression cannot make later pages drift. The copy
     // is beast v2: v1 writes neither a recursive type nor a function, and an
     // entry may be either (a Plan's entries, #822).
-    const capture = East.function([StringType, collectionType], PagedSourceType(collectionType), ($, snapshotId, input) => {
+    const capture = East.function([StringType, collectionType], sourceType, ($, snapshotId, input) => {
         const snapshot = $.const(East.Blob.encodeBeast(input, "v2").decodeBeast(collectionType, "v2"), collectionType);
-        return keyed ? keyedPagedOf(snapshotId, snapshot, pageLimit)
-            : arrayPagedOf(snapshotId, snapshot as ExprType<ArrayType<EastType>>, options);
+        return keyed ? keyedPagedOf(snapshotId, snapshot, pageLimit, pinned)
+            : arrayPagedOf(snapshotId, snapshot as ExprType<ArrayType<EastType>>, options, pinned);
     });
-    return East.value(capture)(id, collectionExpr);
+    return East.value(capture)(id, collectionExpr) as ExprType<StructType>;
+}
+
+/**
+ * An in-memory source's lifecycle when it is pinned: its one snapshot is its
+ * id. Built as real `East.function`s over the id, never spliced.
+ *
+ * @param id - The source's identity — its snapshot
+ * @returns `revision` and `refresh`, at {@link PinnedSourceType}'s types
+ */
+function fixedSnapshot(id: SubtypeExprOrValue<StringType>) {
+    const revision = East.function([], OptionType(StringType), ($) => {
+        const snapshot = $.const(id, StringType);
+        return some(snapshot);
+    });
+    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
+        const snapshot = $.const(id, StringType);
+        $.match(target, {
+            some: ($2, hash) => {
+                $2.if(hash.notEqual(snapshot), ($3) => {
+                    $3.error("Paged.pinned: an immutable snapshot — create a source with the requested snapshot id");
+                });
+            },
+            none: () => {},
+        });
+        return null;
+    });
+    return { revision, refresh };
 }
 
 /**
@@ -765,13 +982,14 @@ function servedLimitFn(pageLimit: number | undefined): ExprType<FunctionType<[In
 /**
  * The KEYED in-memory source — dict windows in canonical key order, with
  * `seek` derived from the keys themselves (a keyed collection needs no key
- * accessor: it already is one).
+ * accessor: it already is one). `pinned` adds its {@link fixedSnapshot}.
  */
 function keyedPagedOf(
     id: SubtypeExprOrValue<StringType>,
     collection: ExprType<EastType>,
     pageLimit: number | undefined,
-): PagedSource<EastType> {
+    pinned: boolean,
+): ExprType<StructType> {
     const all = collection as unknown as ExprType<DictType<StringType, EastType>>;
     const valueType: EastType = (Expr.type(all) as DictType<StringType, EastType>).value;
     const dictType = DictType(StringType, valueType);
@@ -869,27 +1087,20 @@ function keyedPagedOf(
         });
     });
     const seek = some(find);
-    const revision = East.function([], OptionType(StringType), $ => some($.const(id, StringType)));
-    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
-        $.match(target, {
-            some: ($2, hash) => {
-                $2.if(hash.notEqual($2.const(id, StringType)), $3 => {
-                    $3.error("Paged.of: immutable snapshot — create a source with the requested snapshot id");
-                });
-            },
-            none: () => {},
-        });
-        return null;
-    });
-    return East.value({ id, page, total, seek, revision, refresh }, PagedSourceType(dictType)) as unknown as PagedSource<EastType>;
+    const members = { id, page, total, seek };
+    return (pinned
+        ? East.value({ ...members, ...fixedSnapshot(id) }, PinnedSourceType(dictType))
+        : East.value(members, PagedSourceType(dictType))) as unknown as ExprType<StructType>;
 }
 
-/** The POSITIONAL in-memory source — array windows in stream order. */
+/** The POSITIONAL in-memory source — array windows in stream order.
+ *  `pinned` adds its {@link fixedSnapshot}. */
 function arrayPagedOf(
     id: SubtypeExprOrValue<StringType>,
     rows: ExprType<ArrayType<EastType>>,
-    options?: PagedOfOptions<EastType>,
-): PagedSource<EastType> {
+    options: PagedOfOptions<EastType> | undefined,
+    pinned: boolean,
+): ExprType<StructType> {
     const all = rows;
     const rowType: EastType = (Expr.type(all) as ArrayType<EastType>).value;
     const rowsType = ArrayType(rowType);
@@ -986,24 +1197,17 @@ function arrayPagedOf(
     // Two-step cast (the `Data.bindPaged` idiom): the members are built
     // against the row type recovered from the expression, which TS sees as the
     // erased `EastType` rather than the caller's `R`. The East-side type —
-    // `PagedSourceType(rowsType)` — is what actually types the value.
-    const revision = East.function([], OptionType(StringType), $ => some($.const(id, StringType)));
-    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
-        $.match(target, {
-            some: ($2, hash) => {
-                $2.if(hash.notEqual($2.const(id, StringType)), $3 => {
-                    $3.error("Paged.of: immutable snapshot — create a source with the requested snapshot id");
-                });
-            },
-            none: () => {},
-        });
-        return null;
-    });
-    return East.value({ id, page, total, seek, revision, refresh }, PagedSourceType(rowsType)) as unknown as PagedSource<EastType>;
+    // `PagedSourceType(rowsType)`, or `PinnedSourceType(rowsType)` — is what
+    // actually types the value.
+    const members = { id, page, total, seek };
+    return (pinned
+        ? East.value({ ...members, ...fixedSnapshot(id) }, PinnedSourceType(rowsType))
+        : East.value(members, PagedSourceType(rowsType))) as unknown as ExprType<StructType>;
 }
 
 /**
- * The `Paged` namespace — building a {@link PagedSourceType} without a server.
+ * The `Paged` namespace — building a {@link PagedSourceType} or a
+ * {@link PinnedSourceType} without a server.
  *
  * @remarks
  * The contract itself is what components consume; this namespace is the
@@ -1013,15 +1217,19 @@ function arrayPagedOf(
 export const Paged = {
     /** Build an in-memory paged source over a collection already in hand. */
     of: createPagedOf,
+    /** Build an in-memory PINNED source — `of`, naming its one snapshot, for a fixture a view edits or follows. */
+    pinned: createPagedPinned,
     /** East types — the contract, for `$.const` / `$.let` annotations. */
     Types: {
         /** A windowed row source over a collection type. */
         Source: PagedSourceType,
+        /** A windowed row source that names its snapshot, over a collection type. */
+        PinnedSource: PinnedSourceType,
         /** Where a key query landed in a source's row order. */
         SeekRange: SeekRangeType,
         /** A key query — exact literal, String prefix, leading struct fields, or a range. */
         SeekQuery: SeekQueryType,
-        /** How a component's rows arrive (inline / paged), at a collection type. */
+        /** How a component's rows arrive (inline / paged / pinned), at a collection type. */
         RowSource: RowSourceType,
     },
 } as const;

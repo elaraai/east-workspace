@@ -92,6 +92,7 @@ export {
 export {
     SeekRangeType, SeekQueryType,
     PagedSourceType, type PagedSource,
+    PinnedSourceType, type PinnedSource,
     RowSourceType, type RowSource,
     type PagedSourceLike, type RowSourceInput, type ResolvedRowSource,
     resolveRowSource, buildRowSource,

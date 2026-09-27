@@ -84,9 +84,10 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         throw new Error("Sheet: onUpdate requires data={liveHandle} so each batch reads the latest collection — pass the handle itself or provide onApply");
     }
     if (input.applyMode === "auto" && input.onApply === undefined && input.onUpdate === undefined) throw new Error("Sheet: applyMode auto requires onApply or a live onUpdate binding");
-    if (source.kind === "paged" && input.onApply !== undefined) {
-        const fields = (Expr.type(source.source) as StructType).fields;
-        if (fields.revision === undefined || fields.refresh === undefined) throw new Error("Sheet: mutable paged editing requires revision and refresh with committed-revision acknowledgement — provide both lifecycle methods");
+    if (source.kind !== "inline" && !source.pinned && input.onApply !== undefined) {
+        throw new Error("Sheet: editing paged rows needs a pinned source — one that names its snapshot with revision and refresh " +
+            "(Data.bindPaged's handle, Paged.pinned): a batch is checked against the snapshot it was drafted on, and the drafts " +
+            "retire once the rows read back at the snapshot it wrote");
     }
     const live = source.kind === "inline" ? source.live : undefined;
     const reader = live !== undefined ? live.read as ExprType<FunctionType<[], typeof rowsType>> : undefined;

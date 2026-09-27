@@ -473,7 +473,8 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  *
  * @remarks
  * `id` is required on a positional source. `onUpdate` is refused on the
- * paged arm; use onApply with a revision-aware source. A `Dict` inline is refused: a sorted map would
+ * paged arm; edit paged rows with onApply over a pinned source — one that names
+ * its snapshot (`Data.bindPaged`, `Paged.pinned`). A `Dict` inline is refused: a sorted map would
  * sit rows in key order, not the planner's.
  *
  * With `group` (#740) the rows are GROUPS: `columns` are declared over the

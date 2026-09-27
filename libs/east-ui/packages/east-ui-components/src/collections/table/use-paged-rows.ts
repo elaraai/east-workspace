@@ -28,10 +28,11 @@ import type { ValueTypeOf } from "@elaraai/east";
 import { Table } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { planWindows, type RowRange } from "../paged-window-store.js";
+import type { WindowedSourceValue } from "../windowed-source.js";
 
 type TableRootValue = ValueTypeOf<typeof Table.Types.Root>;
-/** The decoded `paged` arm — the source at the Table's own row collection. */
-export type TablePagedSourceValue = Extract<TableRootValue["rows"], { type: "paged" }>["value"];
+/** The decoded windowed arm — `paged`, or `pinned` — the source at the Table's own row collection. */
+export type TablePagedSourceValue = WindowedSourceValue<TableRootValue["rows"]>;
 /** One decoded table row — its cells by column key, its depth in the data's
  *  tree, and whether it starts collapsed (#954). */
 export type TableRowValue = ValueTypeOf<typeof Table.Types.Row>;

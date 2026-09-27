@@ -77,11 +77,13 @@
  *
  * # A revision change keeps the rows (#821)
  *
- * The rows cached for a source belong to its `revision()`. When the revision
- * moves, the resident windows are read again at the new one, and until each
- * lands the rows it had stand in: the canvas never empties between two
- * snapshots of its data. The geometry stays too — the ledgers' measured
- * heights and their total, until the new snapshot's total says otherwise.
+ * The rows cached for a PINNED source belong to its `revision()`. When the
+ * revision moves, the resident windows are read again at the new one, and
+ * until each lands the rows it had stand in: the canvas never empties between
+ * two snapshots of its data. The geometry stays too — the ledgers' measured
+ * heights and their total, until the new snapshot's total says otherwise. A
+ * `paged` source names no snapshot: its rows are its id's for as long as the
+ * canvas holds it.
  *
  * @packageDocumentation
  */
@@ -480,12 +482,13 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             // The snapshot first: every window below is read at it, and its
             // channel re-fires this read when it moves. A source that cannot
             // say which snapshot it serves has failed as a whole (#811) — its
-            // windows then say so each, where their rows would be.
+            // windows then say so each, where their rows would be. A `paged`
+            // source names none.
             let current = revision;
             let sourceError: string | undefined;
             try {
-                const r = src.revision();
-                current = r.type === "some" ? r.value : undefined;
+                const r = src.revision?.();
+                current = r?.type === "some" ? r.value : undefined;
             } catch (err) {
                 console.error("[Plan] paged source revision failed:", err);
                 sourceError = readFailure(err);

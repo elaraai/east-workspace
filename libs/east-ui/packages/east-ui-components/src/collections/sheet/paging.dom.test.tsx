@@ -297,6 +297,18 @@ describe("sheet paging — an unreadable source", () => {
 
 
 describe("sheet paging — content revisions", () => {
+    test("a source that names no snapshot — the `paged` arm — serves its id's rows for good: read again, it is asked for no window", async () => {
+        const { value, asked } = source(450);
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(latest?.exhausted).toBe(true));
+        const reads = asked.length;
+        const first = latest!.rows[0];
+        rerender(<Harness src={{ ...value }} />);
+        expect(asked).toHaveLength(reads);
+        expect(latest!.rows[0]).toBe(first);
+        expect(latest!.loading).toBe(false);
+    });
+
     test("a same-size update replaces resident rows without changing source identity", async () => {
         const base = source(450);
         const { rerender } = render(<Harness src={{ ...base.value, revision: () => some("A") }} />);

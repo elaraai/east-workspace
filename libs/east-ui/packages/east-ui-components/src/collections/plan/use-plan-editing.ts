@@ -43,6 +43,7 @@ import type { DragEventValue } from "../../dnd/drag-layer";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
 import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./use-plan-paging.js";
+import { windowedSourceOf } from "../windowed-source.js";
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 
@@ -178,7 +179,7 @@ function entryValueOf(version: EntryVersion<PlanEntryRef> | undefined): { value:
 export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     const { value, data, rows, origin, storageKey } = args;
     const editing = value.editing.type === "some" ? value.editing.value : undefined;
-    const paged = value.rows.type === "paged" ? value.rows.value : undefined;
+    const paged = windowedSourceOf(value.rows);
     const entryTypeValue = editing?.entryType;
     const codec = useMemo(() => (entryTypeValue === undefined ? undefined : {
         encode: encodeBeast2For(entryTypeValue),
@@ -260,15 +261,20 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     }, [editing, codec]);
 
     // ── The paged source a reconcile reads ───────────────────────────────
+    // Only a PINNED source names the revision a session's base is (#880): an
+    // unpinned one leaves the session without a base, so no gesture drafts —
+    // and the factory refuses such a source an apply.
     const source = useMemo<EditSource<PlanEntryRef> | undefined>(() => {
         if (editing === undefined || paged === undefined) return undefined;
+        const { revision, refresh } = paged;
+        if (revision === undefined || refresh === undefined) return undefined;
         return {
             page: (offset, count) => {
                 const ids = editing.entryIds(offset, count);
                 return ids.type === "some" ? some(ids.value.map((id): PlanEntryRef => ({ id }))) : none;
             },
-            revision: () => paged.revision(),
-            refresh: (revision) => paged.refresh(revision),
+            revision: () => revision(),
+            refresh: (target) => refresh(target),
             seek: paged.seek,
         };
     }, [editing, paged]);
@@ -338,11 +344,11 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             // windows again, the rows it has standing in until they land.
             revision: () => {
                 const l = latest.current;
-                const r = l.src?.revision() ?? none;
+                const r = l.src?.revision?.() ?? none;
                 if (l.drafts.drafts.size === 0) return r;
                 return some(`${r.type === "some" ? r.value : ""}#drafts-${l.drafts.version}`);
             },
-            refresh: (revision) => latest.current.src?.refresh(revision) ?? null,
+            refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
             seek: paged.seek.type === "some"
                 ? some((query) => {
                     const s = latest.current.src?.seek;
@@ -353,14 +359,15 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         wrapperOf.current = { src: paged, wrapped: next };
         return next;
     }, [paged, editing]);
+    // The wrapper rides the source's own arm: a pinned source stays pinned.
     const shownData = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...data, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...data, rows: variant("paged", wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...data, rows: variant(data.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"] };
         return data;
     }, [data, inlineBlocks, wrapped]);
     const shownValue = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...value, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...value, rows: variant("paged", wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...value, rows: variant(value.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"] };
         return value;
     }, [value, inlineBlocks, wrapped]);
 

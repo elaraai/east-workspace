@@ -136,11 +136,11 @@ test("paged deletion retires only after its exact committed revision and a loade
     let revision = "r0";
     let loaded = true;
     const compile = East.function([], UIComponentType, ($) => {
-        const source = $.const(Paged.of("delete-source", East.value(rows, ArrayType(Row))));
+        const source = $.const(Paged.pinned("delete-source", East.value(rows, ArrayType(Row))));
         return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])) });
     }).toIR().compile([]);
     const result = compile();
-    if (result.type !== "Sheet" || result.value.rows.type !== "paged") throw new Error("Expected paged Sheet");
+    if (result.type !== "Sheet" || result.value.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
     const root = result.value;
     const apply = East.compile(Sheet.apply(Row, "id"), []);
     const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(Row));

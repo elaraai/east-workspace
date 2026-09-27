@@ -95,6 +95,7 @@ import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEdito
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { useSheetEditing, type LocalLayer } from "./use-editing.js";
+import { windowedSourceOf } from "../windowed-source.js";
 import { HistoryBar, type HistoryAction } from "../../editing/HistoryBar.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { SheetToolbar, type SheetToolbarTabs } from "./Toolbar.js";
@@ -447,7 +448,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const inflight = useRef(new InFlight());
 
     // ── The row source: inline rows, or the paged driver ──────────────────
-    const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
+    // Either windowed arm: `paged`, or `pinned` naming its snapshot — the one
+    // the driver follows through changes, and the session edits.
+    const pagedSource = windowedSourceOf(value.rows);
     const decodedRows = useMemo<readonly SheetRowValue[] | undefined>(
         () => (data.rows.type === "inline" ? (data.rows.value as readonly SheetRowValue[]) : undefined),
         [data.rows],

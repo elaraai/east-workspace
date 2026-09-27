@@ -55,7 +55,7 @@ export interface SheetEditingResult {
  * Bind decoded callbacks and retain unresolved requests through remounts.
  *
  * @param editing - The decoded editing declaration
- * @param source - The paged source, on the paged arm
+ * @param source - The windowed source — a session edits it only when it is pinned
  * @param rows - The source's resident rows
  * @param positions - Each resident row's source position — a failed window before it does not move it (#853)
  * @param storageKey - The view's key
@@ -64,8 +64,16 @@ export interface SheetEditingResult {
  */
 export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string): SheetEditingResult {
     const ready = useMemo(() => authorReadiness(editing, rows, positions, source !== undefined), [editing, rows, positions, source]);
+    // Only a PINNED source names the revision a session's base is (#880): an
+    // unpinned one leaves the session without a base, so nothing is drafted —
+    // and the factory refuses such a source an apply.
+    const pinned = useMemo(() => {
+        if (source === undefined) return undefined;
+        const { revision, refresh } = source;
+        return revision !== undefined && refresh !== undefined ? { ...source, revision, refresh } : undefined;
+    }, [source]);
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, source, rows, positions, storageKey, { idOf: sheetRowId, ready });
+        useEditSession<SheetRowValue>(editing, pinned, rows, positions, storageKey, { idOf: sheetRowId, ready });
 
     /** Aggregate the renderer's writes into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin) => {

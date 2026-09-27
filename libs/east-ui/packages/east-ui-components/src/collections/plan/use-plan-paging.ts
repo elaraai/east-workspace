@@ -17,9 +17,11 @@
 import type { PlanBand, PlanRootValue } from "./model.js";
 import { elementsIn } from "./window-ledger.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
+import type { WindowedSourceValue } from "../windowed-source.js";
 
-/** The decoded `paged` arm — the derived source at the canvas's blocks (#823). */
-export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
+/** The decoded windowed arm — `paged`, or `pinned` with its revision and
+ *  refresh — the derived source at the canvas's blocks (#823). */
+export type PlanPagedSourceValue = WindowedSourceValue<PlanRootValue["rows"]>;
 
 /** Source elements per window — the IR's, since its editing session reads an
  *  entry back from the very window the canvas paged it in (#880). */

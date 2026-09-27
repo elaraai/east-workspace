@@ -389,7 +389,7 @@ describe("the lens on a grouped sheet", () => {
     });
 });
 
-/** A paged source of `n` plans, one line each, keyed by an id that sorts as it streams. */
+/** A pinned paged source of `n` plans — a bound dataset the planner edits —, one line each, keyed by an id that sorts as it streams. */
 function buildPagedPlans(n: number): SheetRootValue {
     const count = BigInt(n);
     const sourceId = `sheet_grouped_paged_${n}`;
@@ -399,7 +399,7 @@ function buildPagedPlans(n: number): SheetRootValue {
             id: East.str`P${i.add(1000n)}`, name: East.str`Plan ${i}`, owner: "", status: "", total: 0.0,
             lines: [{ start: none, task: East.str`Task ${i}`, qty: none, status: "" }],
         }, PlanType)), ArrayType(PlanType));
-        const source = $.const(Paged.of(sourceId, plans, { key: (p) => p.id }));
+        const source = $.const(Paged.pinned(sourceId, plans, { key: (p) => p.id }));
         return Sheet.Root(source, {
             task: Sheet.column.text(LineType, { header: "Task" }),
         }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) });
@@ -804,11 +804,11 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         try {
             // Every window the source is asked for, by its first element.
             const root = buildPagedPlans(2_000);
-            if (root.rows.type !== "paged") throw new Error("a paged sheet");
+            if (root.rows.type !== "pinned") throw new Error("a pinned sheet");
             const source = root.rows.value;
             const asked = new Set<number>();
             const page: SheetPagedSourceValue["page"] = (offset, count) => { asked.add(Number(offset)); return source.page(offset, count); };
-            const ui = mount({ ...root, rows: variant("paged", { ...source, page }) });
+            const ui = mount({ ...root, rows: variant("pinned", { ...source, page }) });
             await waitFor(() => expect(ui.container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 2,000"), { timeout: 15_000 });
             // The page's top wants windows 0–2, and nothing else is read.
             expect([...asked].sort((a, b) => a - b)).toEqual([0, 200, 400]);

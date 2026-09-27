@@ -31235,14 +31235,17 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
       "suite": "",
-      "test": "Read a fixture snapshot revision and refresh it at the same token. Mutable sources use refresh(none) to discover current content or refresh(some(hash)) to install an acknowledged write; a Paged.of fixture retains its immutable snapshot.",
+      "test": "A PINNED in-memory source — `Paged.pinned` names its snapshot, as a dataset's handle does, so it is the fixture a view that edits or follows its source takes. Its revision is its id, for good: refresh(none) and refresh(some(id)) keep it, and any other target throws, since an in-memory source cannot move. A bound source refreshes to none to find its current content, or to some(hash) to move to a write it confirmed",
       "keywords": [
         "Paged",
-        "of",
+        "pinned",
         "revision",
         "refresh",
         "snapshot",
-        "immutable"
+        "immutable",
+        "PinnedSource",
+        "fixture",
+        "editing"
       ],
       "imports": [
         "import {",
@@ -31252,7 +31255,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// Read a fixture snapshot revision and refresh it at the same token. Mutable sources use refresh(none) to discover current content or refresh(some(hash)) to install an acknowledged write; a Paged.of fixture retains its immutable snapshot.\n// inputs: []\nEast.function([], UIComponentType, $ => {\n        const rows = $.const([{ id: \"r1\", quantity: 2.0 }], ArrayType(StructType({ id: StringType, quantity: FloatType })));\n        const source = $.let(Paged.of(\"orders:fixture-1\", rows));\n        $(source.refresh(none));\n        $(source.refresh(some(\"orders:fixture-1\")));\n        return <Text>{East.str`Snapshot: ${source.revision().unwrap(\"some\")}`}</Text>;\n    })"
+      "source": "// A PINNED in-memory source — `Paged.pinned` names its snapshot, as a dataset's handle does, so it is the fixture a view that edits or follows its source takes. Its revision is its id, for good: refresh(none) and refresh(some(id)) keep it, and any other target throws, since an in-memory source cannot move. A bound source refreshes to none to find its current content, or to some(hash) to move to a write it confirmed\n// inputs: []\nEast.function([], UIComponentType, $ => {\n        const rows = $.const([{ id: \"r1\", quantity: 2.0 }], ArrayType(StructType({ id: StringType, quantity: FloatType })));\n        const source = $.let(Paged.pinned(\"orders:fixture-1\", rows));\n        $(source.refresh(none));\n        $(source.refresh(some(\"orders:fixture-1\")));\n        return <Text>{East.str`Snapshot: ${source.revision().unwrap(\"some\")}`}</Text>;\n    })"
     },
     {
       "id": "east-ui:pagination.examples.tsx:paginationBasic",
