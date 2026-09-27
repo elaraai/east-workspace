@@ -19,6 +19,8 @@
  * Refusals map to the three screens: not a repository (`repoGet` /
  * `repoStatus` fail), not logged in (`getValidToken` throws — the box
  * prefills `/login <origin>`), unreachable (the probe exhausts its retries).
+ * A repository this e3 cannot open — an older e3's, or one a newer e3
+ * upgraded — shows why and the fix on the error screen.
  *
  * @packageDocumentation
  */
@@ -71,7 +73,8 @@ export type Target =
  *
  * @param target - The argument
  * @returns The classification
- * @throws {SessionRefusal} `not-repo` when a local path is not a repository
+ * @throws {SessionRefusal} `not-repo` when a local path is not a repository,
+ *   and `error`, naming why and the fix, when it is one this e3 cannot open
  */
 export function parseTarget(target: string): Target {
     if (/^https?:\/\//.test(target)) {
@@ -85,7 +88,8 @@ export function parseTarget(target: string): Target {
     try {
         const location = parseRepoLocationSync(target);
         if (location.type === 'local') return { kind: 'local', path: location.path };
-    } catch {
+    } catch (err) {
+        if ((err as { name?: string }).name === 'RepoLayoutError') throw new SessionRefusal({ kind: 'error', message: describeError(err) });
         throw new SessionRefusal({ kind: 'not-repo', target: target === '.' ? path.resolve('.') : target });
     }
     throw new SessionRefusal({ kind: 'not-repo', target });

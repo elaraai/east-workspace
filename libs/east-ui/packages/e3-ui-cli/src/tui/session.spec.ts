@@ -88,6 +88,17 @@ describe('parseTarget', () => {
             err instanceof SessionRefusal && err.refusal.kind === 'not-repo' && err.refusal.target === path.join(scratch, 'nope'));
     });
 
+    test('a repository this e3 cannot open refuses naming why, and the fix', () => {
+        // An older e3's repository: its directories, and no repository record.
+        const older = path.join(scratch, 'older');
+        fs.mkdirSync(older);
+        repoInit(older);
+        fs.rmSync(path.join(older, 'repository.beast2'));
+        assert.throws(() => parseTarget(older), (err: unknown) =>
+            err instanceof SessionRefusal && err.refusal.kind === 'error' &&
+            err.refusal.message === `the repository at ${older} has no repository record: an older e3 wrote it — re-create it: deploy again and import its data again`);
+    });
+
     test('https://host/repos/<repo> and a bare origin', () => {
         assert.deepEqual(parseTarget('https://e3.example.com/repos/demo'), { kind: 'remote', origin: 'https://e3.example.com', repo: 'demo' });
         assert.deepEqual(parseTarget('https://e3.example.com/repos/demo/workspaces/main'), { kind: 'remote', origin: 'https://e3.example.com', repo: 'demo' });
