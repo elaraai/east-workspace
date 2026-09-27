@@ -30,9 +30,9 @@ const de = formatters("de-DE");
 const localDay = (d: Date): string => new Intl.DateTimeFormat("en-US", { day: "numeric" }).format(d);
 
 describe.each([
-    { tz: "America/Los_Angeles", moved: EARLY, localDayOf: "28" },
-    { tz: "Pacific/Kiritimati", moved: LATE, localDayOf: "30" },
-])("dates are UTC — TZ=$tz (#850)", ({ tz, moved, localDayOf }) => {
+    { tz: "America/Los_Angeles", moved: EARLY, localDayOf: "28", east: "2026-06-29T01:30:00.000" },
+    { tz: "Pacific/Kiritimati", moved: LATE, localDayOf: "30", east: "2026-06-29T23:30:00.000" },
+])("dates are UTC — TZ=$tz (#850)", ({ tz, moved, localDayOf, east }) => {
     beforeEach(() => { vi.stubEnv("TZ", tz); });
     afterEach(() => { vi.unstubAllEnvs(); });
 
@@ -46,8 +46,8 @@ describe.each([
         expect(formatConstraint(deadline, undefined, undefined, de).value).toBe("29. Juni");
     });
 
-    test("a diff leaf's DateTime prints its exact UTC instant", () => {
-        expect(formatLeafValue(toEastTypeValue(DateTimeType), moved, de)).toBe(moved.toISOString());
+    test("a diff leaf's DateTime prints its exact UTC instant, as East prints it", () => {
+        expect(formatLeafValue(toEastTypeValue(DateTimeType), moved, de)).toBe(east);
     });
 
     test("a journal row's weekday is its UTC day, and its effect is in the locale", () => {
@@ -80,16 +80,18 @@ describe("numbers (#850)", () => {
         expect(formatConstraint(load, between, undefined, de)).toEqual({ lever: "load", op: "between", value: "0,5 – 1,25" });
     });
 
-    test("a diff leaf: an integer as stored, a float in the locale", () => {
+    test("a diff leaf: an integer as East prints it, a float as East prints it in the locale's decimal separator", () => {
         const integer = toEastTypeValue(IntegerType);
         const float = toEastTypeValue(FloatType);
         expect(formatLeafValue(integer, 2026n, de)).toBe("2026");
         expect(formatLeafValue(integer, 1234567n, en)).toBe("1234567");
         expect(formatLeafValue(float, 42, en)).toBe("42.0");
         expect(formatLeafValue(float, 42, de)).toBe("42,0");
-        expect(formatLeafValue(float, 1234.567, en)).toBe("1,234.57");
-        expect(formatLeafValue(float, 1234.567, de)).toBe("1.234,57");
-        expect(formatLeafValue(float, 0.12345, en)).toBe("0.1235");
+        expect(formatLeafValue(float, 1234.567, en)).toBe("1234.567");
+        expect(formatLeafValue(float, 1234.567, de)).toBe("1234,567");
+        // Every digit: a change past the fourth decimal stays visible.
+        expect(formatLeafValue(float, 0.12345, en)).toBe("0.12345");
+        expect(formatLeafValue(float, 0.12346, en)).toBe("0.12346");
     });
 
     test("the experiment speaks a number whole, else to one decimal; a value that rounds to zero is unsigned", () => {

@@ -40,7 +40,7 @@
  */
 
 import { useLocale } from "@react-aria/i18n";
-import { variant, some, none, printFor, FloatType, type ValueTypeOf } from "@elaraai/east";
+import { variant, some, none, printFor, FloatType, IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { tokenizeDateTimeFormat, formatDateTime, parseDateTimeFormatted } from "@elaraai/east/internal";
 import type { Chart, CurrencyCodeLiteral, CurrencyCodeType, TickFormatType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../utils.js";
@@ -290,6 +290,10 @@ const DEFAULT_LOCALE = new Intl.NumberFormat().resolvedOptions().locale;
  *  {@link Formatters.float}. */
 const printFloat = printFor(FloatType);
 
+/** East's own Integer printer — every digit, never grouped — behind
+ *  {@link Formatters.bare}'s Integer arm. */
+const printInteger = printFor(IntegerType);
+
 /** Every date a component prints is a UTC instant's. */
 function utcFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
     return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" });
@@ -334,7 +338,7 @@ function build(locale: string): Formatters {
         locale,
         separators: { group, decimal },
         number: (n) => plain.format(n),
-        bare: (n) => (typeof n === "bigint" ? n.toString() : String(n).replace(".", decimal)),
+        bare: (n) => (typeof n === "bigint" ? printInteger(n) : String(n).replace(".", decimal)),
         float: (n) => printFloat(n).replace(".", decimal),
         percent: (fraction) => pct.format(fraction),
         compact: (n) => compact.format(n),

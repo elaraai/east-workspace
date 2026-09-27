@@ -24,6 +24,7 @@
 import {
     type EastTypeValue,
     type PatchLeafOp,
+    type PatchVisitor,
     walkPatch,
     pathToString,
     pathDisplay,
@@ -35,6 +36,9 @@ import {
 
 export type LeafOp = PatchLeafOp;
 
+/** One leaf as East's walker reports it. */
+type LeafEvent = Parameters<PatchVisitor["leaf"]>[0];
+
 /** A leaf change — one user-visible before/after pair. */
 export interface LeafNode {
     kind: "leaf";
@@ -43,9 +47,14 @@ export interface LeafNode {
     /** Last segment, for display. */
     label: string;
     op: LeafOp;
-    leafType: EastTypeValue | null;
-    before: any;
-    after: any;
+    /** The leaf's East type — the walker always knows it. */
+    leafType: LeafEvent["type"];
+    /** The value before the change, a value of `leafType` — `undefined` for
+     *  an insert. */
+    before: LeafEvent["before"];
+    /** The value after the change, a value of `leafType` — `undefined` for a
+     *  delete. */
+    after: LeafEvent["after"];
     /** Set when the patch's expectation at this leaf disagrees with the
      *  actual base value (overlay-mode drift). When present, the row should
      *  render a warning badge with `actual` so the user can see what the
@@ -106,13 +115,13 @@ function leafDisplayLabel(seg: { kind: string; key?: string } & Record<string, u
  * the patch is unchanged (no events fire).
  *
  * @param typeValue - Runtime EastTypeValue of the value being patched.
- * @param patch     - The patch (`PatchTypeOf<T>`).
+ * @param patch     - The patch (`PatchTypeOf<T>`), as East's walker takes it.
  * @param rootLabel - Display label for the root node (the renderer fills in
  *   the binding name here).
  */
 export function walkPatchToTree(
     typeValue: EastTypeValue,
-    patch: any,
+    patch: Parameters<typeof walkPatch>[1],
     rootLabel: string,
 ): DiffNode | null {
     // Stack of in-progress group nodes. Top of stack is the current parent.

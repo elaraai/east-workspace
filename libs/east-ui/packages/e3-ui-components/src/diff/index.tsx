@@ -83,7 +83,7 @@ import {
     type GroupNode,
 } from "./walker.js";
 import { formatLeafValue, formatBindingLabel } from "./format.js";
-import { isPrimitiveLeafType, formatManualDraft, parseManualDraft } from "./manual.js";
+import { isPrimitiveLeafType, formatManualDraft, parseManualDraft, type ManualValue } from "./manual.js";
 
 // =============================================================================
 // Types — pulled from the IR carrier so this stays in sync.
@@ -284,7 +284,7 @@ function deriveBindings(
 
         const sourceType = types.sourceType;
         const patchType  = types.patchType;
-        const label      = formatBindingLabel(sourcePath as ReadonlyArray<unknown>);
+        const label      = formatBindingLabel(sourcePath);
         const decodeSource = decodeBeast2For(sourceType);
 
         // ----- Resolve the userPatch (the in-flight change) -------------
@@ -557,11 +557,17 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
     );
 });
 
+/** What a side of a conflict shows when its change leaves the leaf no value —
+ *  a delete. */
+const REMOVED = "(removed)";
+
 interface ConflictRowProps {
     row: LeafNode;
     depth: number;
     bindingPathStr: string;
-    serverValue: any;
+    /** The server's value at this leaf — a value of `row.leafType`, or
+     *  `undefined` where the server's change leaves none. */
+    serverValue: unknown;
     resolution: Resolution | undefined;
     /** Stable handler — receives the binding pathStr and the leaf path. */
     onResolve: (bindingPathStr: string, leafPath: string, r: Resolution) => void;
@@ -570,14 +576,14 @@ interface ConflictRowProps {
 
 const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serverValue, resolution, onResolve, metrics }: ConflictRowProps) {
     const words = useFormatters();
-    const yoursStr  = formatLeafValue(row.leafType, row.after, words);
-    const theirsStr = formatLeafValue(row.leafType, serverValue, words);
+    const yoursStr  = row.after === undefined ? REMOVED : formatLeafValue(row.leafType, row.after, words);
+    const theirsStr = serverValue === undefined ? REMOVED : formatLeafValue(row.leafType, serverValue, words);
     const isYours   = resolution?.type === "keepA";
     const isTheirs  = resolution?.type === "keepB";
     const isManual  = resolution?.type === "manual";
     const handleKeepA  = useCallback(() => onResolve(bindingPathStr, row.path, { type: "keepA" }), [onResolve, bindingPathStr, row.path]);
     const handleKeepB  = useCallback(() => onResolve(bindingPathStr, row.path, { type: "keepB" }), [onResolve, bindingPathStr, row.path]);
-    const handleManual = useCallback((value: any) => onResolve(bindingPathStr, row.path, { type: "manual", value }), [onResolve, bindingPathStr, row.path]);
+    const handleManual = useCallback((value: ManualValue) => onResolve(bindingPathStr, row.path, { type: "manual", value }), [onResolve, bindingPathStr, row.path]);
     const supportsManual = isPrimitiveLeafType(row.leafType);
     return (
         <Box
@@ -632,7 +638,7 @@ const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serv
                     <ManualOption
                         selected={isManual}
                         leafType={row.leafType}
-                        value={isManual ? (resolution as { type: "manual"; value: any }).value : row.after}
+                        value={resolution?.type === "manual" ? resolution.value : row.after}
                         onChange={handleManual}
                     />
                 )}
@@ -699,9 +705,10 @@ function ManualOption({
     selected, leafType, value, onChange,
 }: {
     selected: boolean;
-    leafType: EastTypeValue | null;
-    value: any;
-    onChange: (next: any) => void;
+    leafType: EastTypeValue;
+    /** A value of `leafType`, or `undefined` where the change leaves none. */
+    value: unknown;
+    onChange: (next: ManualValue) => void;
 }) {
     return (
         <Box
@@ -734,9 +741,10 @@ function ManualOption({
 function ManualEditor({
     leafType, value, onChange,
 }: {
-    leafType: EastTypeValue | null;
-    value: any;
-    onChange: (next: any) => void;
+    leafType: EastTypeValue;
+    /** A value of `leafType`, or `undefined` where the change leaves none. */
+    value: unknown;
+    onChange: (next: ManualValue) => void;
 }) {
     const [draft, setDraft] = useState<string>(() => formatManualDraft(leafType, value));
     // Sync if the upstream selected value changes externally (e.g. user
@@ -745,14 +753,12 @@ function ManualEditor({
         setDraft(formatManualDraft(leafType, value));
     }, [leafType, value]);
 
-    const fire = useCallback((parsed: any) => {
+    const fire = useCallback((parsed: ManualValue) => {
         queueMicrotask(() => onChange(parsed));
     }, [onChange]);
 
-    if (!leafType) return null;
-
     if (leafType.type === "Boolean") {
-        const checked = !!value;
+        const checked = value === true;
         return (
             <Box
                 as="button"

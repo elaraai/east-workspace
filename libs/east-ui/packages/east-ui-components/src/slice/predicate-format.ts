@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { isEastSet, type ValueTypeOf } from "@elaraai/east";
+import { BooleanType, IntegerType, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { formatters, type Formatters } from "../format/index.js";
 
@@ -21,46 +21,75 @@ const OP_GLYPH: Record<string, string> = {
 /** Set previews show at most this many members before collapsing to `+N`. */
 const SET_PREVIEW_MAX = 3;
 
-/** Render the typed value carried by a predicate's op variant. Set values
- *  preview the first {@link SET_PREVIEW_MAX} members then collapse the rest
- *  into a `+N` tail — a 100-member `in` set must stay a legible chip. A value
- *  is data, so a number prints bare — every digit, never grouped, with the
- *  locale's decimal separator (a year stays `2026`, never `2,026`) — and a
- *  date prints its UTC day in the locale (#850). */
-function formatValue(v: unknown, f: Formatters): string {
-    if (v === null || v === undefined) return "";
-    if (isEastSet(v)) {
-        const members = [...v].map((m) => formatValue(m, f));
-        if (members.length <= SET_PREVIEW_MAX) return members.join(", ");
-        return `${members.slice(0, SET_PREVIEW_MAX).join(", ")} +${f.number(members.length - SET_PREVIEW_MAX)}`;
+/** East's own printers for the Integer and Boolean values a predicate carries. */
+const printInteger = printFor(IntegerType);
+const printBoolean = printFor(BooleanType);
+
+/** A set's members in the set's own order: the first {@link SET_PREVIEW_MAX},
+ *  then a `+N` tail — a 100-member `in` set must stay a legible chip. */
+function preview<V>(members: Iterable<V>, print: (member: V) => string, f: Formatters): string {
+    const all = [...members];
+    const shown = all.slice(0, SET_PREVIEW_MAX).map(print).join(", ");
+    return all.length <= SET_PREVIEW_MAX ? shown : `${shown} +${f.number(all.length - SET_PREVIEW_MAX)}`;
+}
+
+/**
+ * The value a predicate's op carries, as chip text. The predicate's family
+ * and op name the value's East type, so each prints through its own type: an
+ * Integer and a Boolean as East prints them, a Float as East prints it in the
+ * locale's decimal separator (#850), a date as its UTC day in the locale, a
+ * string as itself. An op that carries no value (`isEmpty`) prints nothing.
+ */
+function formatOpValue(pred: PredicateValue, f: Formatters): string {
+    switch (pred.type) {
+        case "string": {
+            const op = pred.value.op;
+            switch (op.type) {
+                case "in":
+                case "notIn":
+                    return preview(op.value, (member) => member, f);
+                case "isEmpty":
+                case "isNotEmpty":
+                    return "";
+                default:
+                    return op.value;
+            }
+        }
+        case "integer": {
+            const op = pred.value.op;
+            return op.type === "in" ? preview(op.value, printInteger, f) : printInteger(op.value);
+        }
+        case "float":
+            return f.float(pred.value.op.value);
+        case "datetime": {
+            const op = pred.value.op;
+            return op.type === "between"
+                ? `${f.numericDate(op.value.from)} – ${f.numericDate(op.value.to)}`
+                : f.numericDate(op.value);
+        }
+        case "boolean":
+            return printBoolean(pred.value.op.value);
     }
-    if (v instanceof Date) return f.numericDate(v);
-    if (typeof v === "bigint" || typeof v === "number") return f.bare(v);
-    if (typeof v === "object") {
-        const r = v as { from?: unknown; to?: unknown };
-        if ("from" in r && "to" in r) return `${formatValue(r.from, f)} – ${formatValue(r.to, f)}`;
-    }
-    return String(v);
 }
 
 /**
  * `{ fieldId, glyph, value }` parts of a predicate, for tonally-styled rendering.
  *
  * @param pred - The predicate
- * @param f - The formatters its dates print with — a component passes
- *   `useFormatters()`; the runtime's default locale when omitted
+ * @param f - The formatters its numbers and dates print with — a component
+ *   passes `useFormatters()`; the runtime's default locale when omitted
  * @returns The parts
  */
 export function predicateParts(pred: PredicateValue, f: Formatters = formatters()): { fieldId: string; glyph: string; value: string } {
     const { fieldId, op } = pred.value;
-    return { fieldId, glyph: OP_GLYPH[op.type] ?? op.type, value: formatValue(op.value, f) };
+    return { fieldId, glyph: OP_GLYPH[op.type] ?? op.type, value: formatOpValue(pred, f) };
 }
 
 /**
  * `{fieldId} {glyph} {value}` — e.g. `sessions ≥ 10`.
  *
  * @param pred - The predicate
- * @param f - The formatters its dates print with (see {@link predicateParts})
+ * @param f - The formatters its numbers and dates print with (see {@link predicateParts})
  * @returns The text
  */
 export function formatPredicate(pred: PredicateValue, f: Formatters = formatters()): string {
