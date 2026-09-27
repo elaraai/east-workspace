@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1175,
+    "totalEntries": 1176,
     "totalFiles": 195,
     "packages": {
       "east": 551,
@@ -11,7 +11,7 @@
       "east-ui": 347,
       "e3-ui": 40,
       "e3": 13,
-      "e3-ui-cli": 7,
+      "e3-ui-cli": 8,
       "e3-create": 5
     }
   },
@@ -41679,10 +41679,13 @@
         "remote",
         "task",
         "input",
-        "e3-ui"
+        "e3-ui",
+        "records",
+        "budget",
+        "--memory"
       ],
       "imports": [],
-      "source": "# The terminal UI is the default command (no browser needed):\ne3-ui                                    # $E3_REPO, then the current directory\ne3-ui ./my-repo main                     # a workspace's dashboard: task/dataset status, the last or live run, tasks + inputs\ne3-ui ./my-repo main --task forecast     # straight to a task (1 Output · 2 Logs · 3 Runs); --input <name> opens an input\ne3-ui https://e3.example.com/repos/demo  # remote — after: e3-ui auth login https://e3.example.com\ne3-ui https://e3.example.com             # a bare origin: the repositories list\ne3-ui --no-mouse --ascii ./my-repo       # keyboard only, box-drawing off\n\n# Without a TTY (a script, CI) it refuses with exit 1 — use the scriptable commands:\ne3 workspace status ./my-repo main\ne3 dataset get ./my-repo main.forecast -f json",
+      "source": "# The terminal UI is the default command (no browser needed):\ne3-ui                                    # $E3_REPO, then the current directory\ne3-ui ./my-repo main                     # a workspace's dashboard: task/dataset status, the last or live run, the tasks, inputs and records\ne3-ui ./my-repo main --task forecast     # straight to a task (1 Output · 2 Stdout · 3 Stderr · 4 Runs); --input <name> opens an input\ne3-ui https://e3.example.com/repos/demo  # remote — after: e3-ui auth login https://e3.example.com\ne3-ui https://e3.example.com             # a bare origin: the repositories list\ne3-ui --no-mouse --ascii ./my-repo       # keyboard only, box-drawing off\ne3-ui -j 8 --memory 16G ./my-repo        # a local repository's embedded server runs under this budget (default: E3_JOBS / E3_MEMORY)\n\n# Without a TTY (a script, CI) it refuses with exit 1 — use the scriptable commands:\ne3 workspace status ./my-repo main\ne3 dataset get ./my-repo main.forecast -f json",
       "languages": [
         "typescript"
       ]
@@ -41710,11 +41713,41 @@
         "keys",
         "vim",
         "mouse",
-        "logs",
-        "follow"
+        "follow",
+        "/record",
+        "/index",
+        "stdout",
+        "stderr",
+        "logs"
       ],
       "imports": [],
-      "source": "# / opens the command box (Tab completes, ⏎ runs, esc cancels); plain text fuzzy-jumps anywhere.\n/task forecast        /input params        /workspace staging        /repo https://host/repos/x\n/run --force          /run --filter fore* --jobs 2               /stop        (r and x prefill them)\n/logs forecast stderr /runs forecast\n/find \"k0150\"         /find k015 (prefix)   /find Bakery|2025-09 (struct-key fields)   /goto 620000   /goto 50%\n/save                 (writes <ws>.<name>.beast2 — or <ws>.<task>.<stream>.log on the Logs tab; --force overwrites)\n/tag monthly          /add region          /remove          /apply          /discard          (editing an input)\n/refresh              /help                /about           /quit\n\n# Keys: ↑↓ j k move · pgup pgdn ^u ^d · gg G · ⏎ → open · esc ⌫ back · 1 2 3 4 tabs · ? help · q quit\n#   value tree: → l expand-or-next · ← h collapse-or-parent · ⏎ space toggle · ⇧← collapse deep · n N next/prev match · s save\n#   logs:       ↑↓ scroll (pauses follow) · G end · F follow · o e stdout/stderr · s save · c copy (OSC 52)\n#   inputs:     e edit · a add · x remove · t tag/set · ⏎ apply all · esc discard (in an editor: ⏎ commit · esc cancel · space toggles a boolean)\n#   mouse:      wheel scrolls the pane under the cursor · click selects (on ▸ toggles) · drag the scrollbar thumb · click tabs / crumbs / pills",
+      "source": "# / opens the command box (Tab completes, ⏎ runs, esc cancels); plain text fuzzy-jumps anywhere.\n/task forecast        /input params        /record plans        /workspace staging        /repo https://host/repos/x\n/run --force          /run --filter fore*        /stop        (r and x prefill them; the run goes under the server's budget)\n/logs forecast stderr /runs forecast\n/find \"k0150\"         /find k015 (prefix)   /find Bakery|2025-09 (struct-key fields)   /goto 620000   /goto 50%\n/index by_owner       /index primary        (a record: page through an index, or its rows again)\n/save                 (writes <ws>.<name>.beast2 — or <ws>.<task>.<stream>.log on a Stdout / Stderr tab; --force overwrites)\n/tag monthly          /add region          /remove          /apply          /discard          (editing an input)\n/refresh              /help                /about           /quit\n\n# Keys: ↑↓ j k move · pgup pgdn ^u ^d · gg G · ⏎ → open · esc ⌫ back · 1 2 3 … tabs · ? help · q quit\n#   value tree: → l expand-or-next · ← h collapse-or-parent · ⏎ space toggle · ⇧← collapse deep · n N next/prev match · s save\n#   stdout / stderr: ↑↓ scroll (pauses follow) · G end · F follow · s save · c copy (OSC 52)\n#   inputs:     e edit · a add · x remove · t tag/set · ⏎ apply all · esc discard (in an editor: ⏎ commit · esc cancel · space toggles a boolean)\n#   mouse:      wheel scrolls the pane under the cursor · click selects (on ▸ toggles) · drag the scrollbar thumb · click tabs / crumbs / pills",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3-ui-cli:static:tui-records",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "e3-ui (terminal UI)",
+      "test": "Look at a record in the terminal: its rows, one of its indexes, and its commits",
+      "keywords": [
+        "e3-ui-cli",
+        "tui",
+        "record",
+        "records",
+        "index",
+        "history",
+        "commits",
+        "mutation",
+        "/record",
+        "/index",
+        "RECORDS"
+      ],
+      "imports": [],
+      "source": "# The dashboard's RECORDS table lists each record's rows, size, indexes and newest commit;\n# ⏎ on a row, /record <name>, /dataset .records.<name> or a fuzzy jump opens the record view:\n/record plans          # 1 State: the rows as a read-only paged value tree · 2 History: the commits, newest first\n/index by_owner        # page through an index instead — an entry per index key, opening to the row\n/find alice            # searches the key of the index shown (the rows' key under /index primary)\n/index primary         # back to the rows\n/save                  # writes the record's rows as .beast2, from either\n\n# Records are written only through their mutations: the view is read-only.\n#   e3 mutate <repo> plans.reassign <args…> -w main · e3 history <repo> plans -w main",
       "languages": [
         "typescript"
       ]

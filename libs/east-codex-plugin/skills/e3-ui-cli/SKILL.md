@@ -1,11 +1,11 @@
 ---
 name: e3-ui-cli
-description: "Browse an e3 repository in the terminal, and render east-ui / e3-ui components to PNG. Use when: (1) Opening an e3 repository interactively — `e3-ui [repo] [workspace]` (a local path, `https://host/repos/(repo)`, or a bare origin) shows a workspace dashboard (task / dataset status, the last or live dataflow run), task views (a lazily paged value tree of the output with /find and /goto, logs with tail-follow, the run history, a ui() task's manifest), editable inputs with a commit bar, and `/run` / `/stop`, all driven by a command box with completion, vim-style keys and the mouse, (2) Signing in to a remote e3 server for the terminal UI (`e3-ui auth login|logout|status|token|whoami` — the same device flow and store as `e3 auth`), (3) Screenshotting an east-ui component or e3-ui decision surface with `e3-ui shot` — from a .ts/.tsx source file, serialized .beast2/.json IR, or a live e3 task's computed output, (4) Rendering ONE… See the detailed scope below."
+description: "Browse an e3 repository in the terminal, and render east-ui / e3-ui components to PNG. Use when: (1) Opening an e3 repository interactively — `e3-ui [repo] [workspace]` (a local path, `https://host/repos/(repo)`, or a bare origin) shows a workspace dashboard (task / dataset status, the last or live dataflow run with the budget it runs under, units waiting for room and requeued, each task's peak memory), task views (a lazily paged value tree of the output with /find and /goto, stdout and stderr with tail-follow, the run history, a ui() task's manifest), editable inputs with a commit bar, records (their rows, through any of their indexes, and their commits, read-only), and `/run` / `/stop`, all driven by a command box with completion, vim-style keys and the mouse, (2) Signing in to a remote e3 server for the terminal UI (`e3-ui auth login|logout|status|token|whoami` — the same device flow and store as `e3 auth`), (3)… See the detailed scope below."
 ---
 
 ## Detailed skill scope
 
-Browse an e3 repository in the terminal, and render east-ui / e3-ui components to PNG. Use when: (1) Opening an e3 repository interactively — `e3-ui [repo] [workspace]` (a local path, `https://host/repos/<repo>`, or a bare origin) shows a workspace dashboard (task / dataset status, the last or live dataflow run), task views (a lazily paged value tree of the output with /find and /goto, logs with tail-follow, the run history, a ui() task's manifest), editable inputs with a commit bar, and `/run` / `/stop`, all driven by a command box with completion, vim-style keys and the mouse, (2) Signing in to a remote e3 server for the terminal UI (`e3-ui auth login|logout|status|token|whoami` — the same device flow and store as `e3 auth`), (3) Screenshotting an east-ui component or e3-ui decision surface with `e3-ui shot` — from a .ts/.tsx source file, serialized .beast2/.json IR, or a live e3 task's computed output, (4) Rendering ONE example from a `*.examples.ts(x)` file (`--from-source <file> -e <exampleName>`) or EVERY renderable UI export in a project (`e3-ui shots`), (5) Setting up or troubleshooting the headless browser on a server or CI (`e3-ui install-browser`, `e3-ui doctor`), (6) Rendering PNGs from Node with renderToPng / renderTaskToPng / capture.
+Browse an e3 repository in the terminal, and render east-ui / e3-ui components to PNG. Use when: (1) Opening an e3 repository interactively — `e3-ui [repo] [workspace]` (a local path, `https://host/repos/<repo>`, or a bare origin) shows a workspace dashboard (task / dataset status, the last or live dataflow run with the budget it runs under, units waiting for room and requeued, each task's peak memory), task views (a lazily paged value tree of the output with /find and /goto, stdout and stderr with tail-follow, the run history, a ui() task's manifest), editable inputs with a commit bar, records (their rows, through any of their indexes, and their commits, read-only), and `/run` / `/stop`, all driven by a command box with completion, vim-style keys and the mouse, (2) Signing in to a remote e3 server for the terminal UI (`e3-ui auth login|logout|status|token|whoami` — the same device flow and store as `e3 auth`), (3) Screenshotting an east-ui component or e3-ui decision surface with `e3-ui shot` — from a .ts/.tsx source file, serialized .beast2/.json IR, or a live e3 task's computed output, (4) Rendering ONE example from a `*.examples.ts(x)` file (`--from-source <file> -e <exampleName>`) or EVERY renderable UI export in a project (`e3-ui shots`), (5) Setting up or troubleshooting the headless browser on a server or CI (`e3-ui install-browser`, `e3-ui doctor`), (6) Rendering PNGs from Node with renderToPng / renderTaskToPng / capture.
 
 # e3-ui CLI (@elaraai/e3-ui-cli)
 
@@ -80,25 +80,27 @@ is never started and Ink is never loaded.
 |---|---|
 | **Repositories** (bare origin) | NAME · WORKSPACES · PACKAGES · OBJECTS · LAST DEPLOY; `⏎` binds one |
 | **Workspaces** | NAME · STATE · PACKAGE · TASKS (`● 4  ◐ 1  ✗ 1`) · LAST RUN; `⏎` opens the dashboard |
-| **Dashboard** | TASKS / DATASETS counts + the accounted bar, the last execution (its failures) or the live event feed, the tasks and inputs tables; `⏎` opens the task / input / a failed task's logs |
-| **Task** `1 Output · 2 Stdout · 3 Stderr · 4 Runs (· 5 Reads)` | the output as a value tree (paged in 500-row windows for collections, whole ≤ 200 KB otherwise, with the *no output* / *too large* / *not indexed* states), each log stream with tail-follow (the Stderr tab shows its line count), the run history, a `ui()` task's manifest |
+| **Dashboard** | TASKS / DATASETS counts + the accounted bar, the last execution (its failures) or the live event feed, the tasks table (with each task's PEAK memory), the inputs table and, when the workspace holds records, the RECORDS table (rows · size · indexes · newest commit); `⏎` opens the task / input / record / a failed task's logs. While a run is live the panel shows the scheduler: the cores and memory the server's budget holds, a split task's progress (`forecast · 3 of 8 pieces`), each unit waiting for room (what it needs, what is free) and each unit the guard stopped and requeued |
+| **Task** `1 Output · 2 Stdout · 3 Stderr · 4 Runs (· 5 Reads)` | the output as a value tree (a collection paged in pages of 128 KiB of stored bytes or 16 rows, whichever is more, at most 500 rows; anything else whole up to 200 KB; with the *no output* / *too large* / *not indexed* states; a row of more than 12 fields, or a row that is a collection, starts collapsed), each log stream with tail-follow (the Stderr tab shows its line count), every run with its peak memory, a `ui()` task's manifest |
 | **Input** | the same tree, editable: `e` edit a leaf, `a` add, `x` remove, `t` tag / set; the commit bar sums the pending ops, `⏎ APPLY` writes them, `esc DISCARD`; a value changed on the server while editing raises a banner (`⏎` reloads and re-applies) |
+| **Record** `1 State · 2 History` | the rows as a read-only paged value tree — or, after `/index <name>`, one of its indexes: an entry per index key, opening to the row (joined when the index projects nothing) — and the commits newest first, 100 a page, e3's own (`$deploy`, `$compact`, …) muted. Written only through its mutations (`e3 mutate`), never here |
 | **Help** `?` | a tab per page — only the commands and keys that work where you are |
 
 ### The command box
 
 `/` opens it; `Tab` completes; `⏎` runs; `esc` cancels. Plain text without
-`/` fuzzy-jumps to any workspace, task, input or dataset. Every command shows
+`/` fuzzy-jumps to any workspace, task, input, record or dataset. Every command shows
 its consequence before `⏎` (`run 6 tasks in main, ignoring the cache`); a
 confirmation is the same command re-run with `--force`.
 
 | Command | Effect |
 |---|---|
-| `/task <name>` · `/input <name>` · `/dataset <path>` | open a task / input / dataset (`.inputs.x`, `.tasks.x.output`) |
+| `/task <name>` · `/input <name>` · `/record <name>` · `/dataset <path>` | open a task / input / record / dataset (`.inputs.x`, `.tasks.x.output`, `.records.x`) |
 | `/workspace <name>` · `/workspaces` · `/repos` · `/repo <path\|url>` | switch workspace · the lists · open another repository |
 | `/run [--force] [--filter <glob>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them); it runs under the server's budget — for a local repository, the embedded server's `-j` / `--memory` |
 | `/logs <task> [stderr]` · `/runs <task>` | a task's stdout (or stderr) / run history |
 | `/find <key>` · `/goto <row\|N%>` · `/save [file] [--force]` | in a value tree: exact `"key"`, prefix, or struct-key fields `a\|b`; jump by row or percent; write the `.beast2` bytes (`.log` for logs) |
+| `/index <name>` · `/index primary` | in a record: page through one of its indexes, where `/find` searches the index's key and `/goto` counts its entries; or its rows again |
 | `/tag <name>` · `/add [key]` · `/remove [--force]` · `/apply` · `/discard [--then "<cmd>"]` · `/reload` | editing an input |
 | `/login <url>` · `/refresh` · `/help` · `/about` · `/quit [--force]` | the device-flow login · poll every feed now · … |
 
@@ -136,9 +138,10 @@ screen. Below 60×16 the app refuses; 80–99 columns tightens the tables,
 
 ```
 Look at / operate a repository
-├─ Interactively (status, runs, outputs, logs, inputs) → e3-ui [repo] [workspace]   (the terminal UI)
+├─ Interactively (status, runs, outputs, logs, inputs, records) → e3-ui [repo] [workspace]   (the terminal UI)
 │   ├─ a remote server                                  → e3-ui auth login <url>, then e3-ui https://host/repos/<repo>
 │   ├─ a specific task or input                         → --task <name> / --input <name>
+│   ├─ a record, through an index                       → /record <name>, then /index <name> (read-only; mutate with e3 mutate)
 │   └─ no TTY (a script, CI)                            → e3 workspace status · e3 dataset get (the UI refuses)
 └─ As an image of a UI component                        → e3-ui shot / shots (below)
 
@@ -282,6 +285,8 @@ owns the terminal. Scripts use `e3 workspace status`, `e3 dataset get` and
 e3-ui ./repo main        # then r ⏎ (or /run --force ⏎); x ⏎ cancels
 # Look at a task's output, then its logs, then its runs:
 e3-ui ./repo main --task forecast     # 1 Output · 2 Stdout · 3 Stderr · 4 Runs; /find k015 · /goto 50% · s save
+# A record: its rows, an index, its commits:
+e3-ui ./repo main        # then /record plans ⏎ · /index by_owner ⏎ · /find alice ⏎ · 2 (History)
 # Fix an input value in place:
 e3-ui ./repo main --input params      # e → type → ⏎ → ⏎ APPLY (the commit bar) ; esc discards
 # A remote repository:

@@ -970,7 +970,7 @@ Built in three parts, in this order (decided 2026-09-27):
    - the CLI's own hints, which name `e3 logs` in the list of a workspace's tasks and in its usage error;
    - a split task named so in the CLI's help and comments, and in e3-core's comments, which still said "partitioned task";
    - the SDK's README, whose API list names four functions, given the rest in a line each, pointing to `USAGE.md`.
-2. **The e3-ui-cli skill** and the plugin's static TUI entries.
+2. **The e3-ui-cli skill** and the plugin's static TUI entries, with the e3-ui-cli README, whose features, screens and commands name no records either (decided 2026-09-27).
 3. **The design docs:** this document, the review and the five above.
 
 ### Stage 8 — e3-cloud
