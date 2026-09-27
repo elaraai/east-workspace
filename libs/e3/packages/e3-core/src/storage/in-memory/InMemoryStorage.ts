@@ -22,7 +22,8 @@ import type {
   LogChunk,
   RepositoryUpgrade,
 } from '../interfaces.js';
-import { InMemoryRepoStore } from './InMemoryRepoStore.js';
+import { completeUtf8Length } from '../utf8.js';
+import { InMemoryRepoStore, type InMemoryRepositoryRecords } from './InMemoryRepoStore.js';
 
 /**
  * In-memory implementation of ObjectStore for testing.
@@ -136,7 +137,7 @@ class InMemoryObjectStore implements ObjectStore {
  * In-memory implementation of RefStore for testing.
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryRefStore implements RefStore {
+class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   // repository records keyed by repo
   private repositories = new Map<string, RepositoryRecord>();
   private packages = new Map<string, Map<string, string>>();
@@ -383,6 +384,23 @@ class InMemoryRefStore implements RefStore {
     this.getDataflowRuns(repo).delete(key);
   }
 
+  drop(repo: string): number {
+    let dropped = this.repositories.delete(repo) ? 1 : 0;
+    for (const records of [this.packages, this.workspaces, this.executions, this.dataflowRuns]) {
+      dropped += records.get(repo)?.size ?? 0;
+      records.delete(repo);
+    }
+    for (const records of [this.owners, this.plans, this.adoptions]) {
+      for (const key of [...records.keys()]) {
+        if (key.startsWith(`${repo}/`)) {
+          records.delete(key);
+          dropped++;
+        }
+      }
+    }
+    return dropped;
+  }
+
   clear(): void {
     this.repositories.clear();
     this.packages.clear();
@@ -404,7 +422,7 @@ class InMemoryRefStore implements RefStore {
  * - Shared locks fail if an exclusive holder exists
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryLockService implements LockService {
+class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
   // Track exclusive locks (at most one per resource)
   private exclusiveLocks = new Map<string, LockState>();
   // Track shared lock count per resource
@@ -495,6 +513,19 @@ class InMemoryLockService implements LockService {
     return true;
   }
 
+  drop(repo: string): number {
+    let dropped = 0;
+    for (const locks of [this.exclusiveLocks, this.sharedLockCounts]) {
+      for (const key of [...locks.keys()]) {
+        if (key.startsWith(`${repo}:`)) {
+          locks.delete(key);
+          dropped++;
+        }
+      }
+    }
+    return dropped;
+  }
+
   clear(): void {
     this.exclusiveLocks.clear();
     this.sharedLockCounts.clear();
@@ -503,10 +534,14 @@ class InMemoryLockService implements LockService {
 
 /**
  * In-memory implementation of LogStore for testing.
+ *
+ * A log is kept as its UTF-8 bytes and read a window of bytes at a time, as a
+ * local log file is: a window stops short of a character its end would split,
+ * unless it reaches the log's end.
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryLogStore implements LogStore {
-  private logs = new Map<string, string>();
+class InMemoryLogStore implements LogStore, InMemoryRepositoryRecords {
+  private logs = new Map<string, Uint8Array>();
 
   private makeLogKey(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: string): string {
     return `${repo}:${taskHash}:${inputsHash}:${executionId}:${stream}`;
@@ -521,8 +556,12 @@ class InMemoryLogStore implements LogStore {
     data: string
   ): Promise<void> {
     const key = this.makeLogKey(repo, taskHash, inputsHash, executionId, stream);
-    const existing = this.logs.get(key) ?? '';
-    this.logs.set(key, existing + data);
+    const existing = this.logs.get(key) ?? new Uint8Array(0);
+    const added = new TextEncoder().encode(data);
+    const log = new Uint8Array(existing.length + added.length);
+    log.set(existing);
+    log.set(added, existing.length);
+    this.logs.set(key, log);
   }
 
   async read(
@@ -533,18 +572,19 @@ class InMemoryLogStore implements LogStore {
     stream: 'stdout' | 'stderr',
     options?: { offset?: number; limit?: number }
   ): Promise<LogChunk> {
-    const key = this.makeLogKey(repo, taskHash, inputsHash, executionId, stream);
-    const content = this.logs.get(key) ?? '';
+    const log = this.logs.get(this.makeLogKey(repo, taskHash, inputsHash, executionId, stream));
+    if (log === undefined) {
+      return { data: '', offset: 0, size: 0, totalSize: 0, complete: true };
+    }
     const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? content.length - offset;
-    const data = content.slice(offset, offset + limit);
-
+    const window = log.subarray(offset, offset + (options?.limit ?? 65536));
+    const size = offset + window.length >= log.length ? window.length : completeUtf8Length(window) || window.length;
     return {
-      data,
+      data: new TextDecoder().decode(window.subarray(0, size)),
       offset,
-      size: data.length,
-      totalSize: content.length,
-      complete: offset + data.length >= content.length,
+      size,
+      totalSize: log.length,
+      complete: offset + size >= log.length,
     };
   }
 
@@ -552,6 +592,17 @@ class InMemoryLogStore implements LogStore {
     for (const stream of ['stdout', 'stderr']) {
       this.logs.delete(this.makeLogKey(repo, taskHash, inputsHash, executionId, stream));
     }
+  }
+
+  drop(repo: string): number {
+    let dropped = 0;
+    for (const key of [...this.logs.keys()]) {
+      if (key.startsWith(`${repo}:`)) {
+        this.logs.delete(key);
+        dropped++;
+      }
+    }
+    return dropped;
   }
 
   clear(): void {
@@ -563,7 +614,7 @@ class InMemoryLogStore implements LogStore {
  * In-memory implementation of DatasetRefStore for testing.
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryDatasetRefStore implements DatasetRefStore {
+class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryRecords {
   // Key: "repo:ws:path" -> ref plus its current revision token.
   private refs = new Map<string, { ref: DatasetRef; revision: string }>();
   // Monotonic counter minting opaque revision tokens. Distinct per write, so a
@@ -638,6 +689,17 @@ class InMemoryDatasetRefStore implements DatasetRefStore {
     }
   }
 
+  drop(repo: string): number {
+    let dropped = 0;
+    for (const key of [...this.refs.keys()]) {
+      if (key.startsWith(`${repo}:`)) {
+        this.refs.delete(key);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   clear(): void {
     this.refs.clear();
   }
@@ -670,7 +732,7 @@ export class InMemoryStorage implements StorageBackend {
     this.locks = new InMemoryLockService();
     this.logs = new InMemoryLogStore();
     this.datasets = new InMemoryDatasetRefStore();
-    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades);
+    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades, [this.refs, this.datasets, this.logs, this.locks]);
   }
 
   async validateRepository(repo: string): Promise<void> {

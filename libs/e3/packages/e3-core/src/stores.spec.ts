@@ -1,0 +1,58 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under BSL 1.1. See LICENSE for details.
+ */
+
+/**
+ * The stores' contract suites over e3-core's own backends: a local repository
+ * and the in-memory backend, and the repository lifecycle over a directory of
+ * local repositories and over the in-memory backend.
+ */
+
+import { describe } from 'node:test';
+import { join } from 'node:path';
+import {
+  datasetRefStoreTests, lockServiceTests, logStoreTests, objectStoreTests, refStoreTests, repoStoreTests,
+  type BackendSetup, type RepositoriesSetup,
+} from './contract/index.js';
+import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
+import { LocalStorage } from './storage/local/LocalBackend.js';
+import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
+
+const BACKENDS: [string, BackendSetup][] = [
+  ['over a local repository', async (t) => {
+    const repo = createTestRepo();
+    t.after(() => removeTestRepo(repo));
+    return { storage: new LocalStorage(), repo };
+  }],
+  ['over the in-memory backend', async () => {
+    const storage = new InMemoryStorage();
+    await storage.repos.create('created');
+    return { storage, repo: 'created' };
+  }],
+];
+
+const REPOSITORIES: [string, RepositoriesSetup][] = [
+  ['over a directory of local repositories', async (t) => {
+    const reposDir = createTempDir();
+    t.after(() => removeTempDir(reposDir));
+    return { storage: new LocalStorage(reposDir), repoOf: (name) => join(reposDir, name) };
+  }],
+  ['over the in-memory backend', async () => ({ storage: new InMemoryStorage(), repoOf: (name) => name })],
+];
+
+for (const [name, setup] of BACKENDS) {
+  describe(name, () => {
+    objectStoreTests(setup);
+    refStoreTests(setup);
+    datasetRefStoreTests(setup);
+    lockServiceTests(setup);
+    logStoreTests(setup);
+  });
+}
+
+for (const [name, setup] of REPOSITORIES) {
+  describe(name, () => {
+    repoStoreTests(setup);
+  });
+}

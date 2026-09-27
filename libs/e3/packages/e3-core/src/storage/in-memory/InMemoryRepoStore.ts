@@ -48,12 +48,27 @@ export interface InMemoryObjectCatalogue {
 }
 
 /**
+ * A store of the in-memory backend's, which drops what it keeps of a
+ * repository when the repository is removed.
+ */
+export interface InMemoryRepositoryRecords {
+  /**
+   * Drops everything the store keeps of a repository.
+   *
+   * @param repo - Repository identifier
+   * @returns How many records it dropped
+   */
+  drop(repo: string): number;
+}
+
+/**
  * In-memory implementation of RepoStore for testing.
  *
  * Stores all data in memory maps. Useful for unit tests
  * where filesystem access is not needed. gc runs over it as over any backend:
  * its root scans read the backend's ref stores, and its object scan the
- * backend's objects.
+ * backend's objects. A repository removed goes whole — its records, logs,
+ * locks and objects — as a local repository's directory does.
  *
  * All methods are synchronous but return Promises to match the interface.
  */
@@ -68,12 +83,15 @@ export class InMemoryRepoStore implements RepoStore {
    * @param objects - The objects gc's object scan lists and deletes
    * @param upgrades - The backend's own upgrades, which a created repository's
    *   record names
+   * @param records - The stores that drop what they keep of a repository
+   *   removed: its refs, dataset refs, logs and locks
    */
   constructor(
     private readonly refs: RefStore,
     private readonly datasets: DatasetRefStore,
     private readonly objects: InMemoryObjectCatalogue,
     private readonly upgrades: readonly RepositoryUpgrade[],
+    private readonly records: readonly InMemoryRepositoryRecords[],
   ) {}
 
   // ===========================================================================
@@ -137,6 +155,9 @@ export class InMemoryRepoStore implements RepoStore {
   }
 
   async remove(repo: string): Promise<void> {
+    // Whatever the batches left goes with it.
+    await this.deleteRefsBatch(repo);
+    await this.deleteObjectsBatch(repo);
     this.repos.delete(repo);
   }
 
@@ -144,14 +165,15 @@ export class InMemoryRepoStore implements RepoStore {
   // Batched Deletion
   // ===========================================================================
 
-  async deleteRefsBatch(_repo: string, _cursor?: string): Promise<BatchResult> {
-    // In-memory doesn't have refs to delete
-    return { status: 'done', deleted: 0 };
+  async deleteRefsBatch(repo: string, _cursor?: string): Promise<BatchResult> {
+    const deleted = this.records.reduce((sum, store) => sum + store.drop(repo), 0);
+    return { status: 'done', deleted };
   }
 
-  async deleteObjectsBatch(_repo: string, _cursor?: string): Promise<BatchResult> {
-    // In-memory doesn't have objects to delete
-    return { status: 'done', deleted: 0 };
+  async deleteObjectsBatch(repo: string, _cursor?: string): Promise<BatchResult> {
+    const hashes = this.objects.gcEntries(repo).map(({ hash }) => hash);
+    this.objects.gcDelete(repo, hashes);
+    return { status: 'done', deleted: hashes.length };
   }
 
   // ===========================================================================

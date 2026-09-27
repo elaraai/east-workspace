@@ -176,22 +176,28 @@ describe('InMemoryRepoStore', () => {
   });
 
   describe('deleteRefsBatch', () => {
-    it('returns done immediately (no-op for in-memory)', async () => {
+    it('deletes every record of the repository in one batch, counting them', async () => {
       await store.create('my-repo');
+      await storage.refs.packageWrite('my-repo', 'pkg', '1.0.0', 'a'.repeat(64));
+      await storage.logs.append('my-repo', 'b'.repeat(64), 'c'.repeat(64), 'id', 'stdout', 'a log');
       const result = await store.deleteRefsBatch('my-repo');
 
       assert.strictEqual(result.status, 'done');
-      assert.strictEqual(result.deleted, 0);
+      assert.strictEqual(result.deleted, 3, 'its record, its package ref and its log');
+      assert.strictEqual(await storage.refs.repositoryRead('my-repo'), null);
     });
   });
 
   describe('deleteObjectsBatch', () => {
-    it('returns done immediately (no-op for in-memory)', async () => {
+    it('deletes every object of the repository in one batch, counting them', async () => {
       await store.create('my-repo');
+      await storage.objects.write('my-repo', new Uint8Array([1]));
+      await storage.objects.write('my-repo', new Uint8Array([2]));
       const result = await store.deleteObjectsBatch('my-repo');
 
       assert.strictEqual(result.status, 'done');
-      assert.strictEqual(result.deleted, 0);
+      assert.strictEqual(result.deleted, 2);
+      assert.strictEqual(await storage.objects.count('my-repo'), 0);
     });
   });
 
