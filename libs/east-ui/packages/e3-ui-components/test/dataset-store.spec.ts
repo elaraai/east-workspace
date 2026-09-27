@@ -18,6 +18,7 @@ import {
     ReactiveDatasetCache,
     datasetCacheKey,
     datasetPathToString,
+    type DatasetApi,
 } from "../src/platform/dataset-store.js";
 import { createMockDatasetApi } from "./fixtures/mock-dataset-api.js";
 import { createFakeClock, flushMicrotasks, settle } from "./fixtures/fake-clock.js";
@@ -543,7 +544,7 @@ describe("ReactiveDatasetCache — setRefetchInterval", () => {
         const { cache, clock } = newCache();
         cache.setRefetchInterval(ws, policyPath, 100);
         cache.setRefetchInterval(ws, policyPath, 100);
-        // No second timer; the path Set dedupes.
+        // No second timer: the path counts its two watchers.
         assert.equal(clock.intervals.length, 1);
     });
 
@@ -579,6 +580,40 @@ describe("ReactiveDatasetCache — write triggers poll", () => {
         await cache.write(ws, policyPath, bytes(1));
         await settle();
         assert.equal(api.calls.workspaceStatus.length, 0);
+    });
+});
+
+describe("ReactiveDatasetCache — refresh", () => {
+    test("a refresh during a poll that read the status before the change polls again, and sees it", async () => {
+        const api = createMockDatasetApi();
+        // A held poll reads the status when it is made, and answers once released.
+        const held: { next: boolean; release?: () => void } = { next: false };
+        const slow: DatasetApi = {
+            ...api,
+            async workspaceStatus(workspace) {
+                const answer = await api.workspaceStatus(workspace);
+                if (held.next) {
+                    held.next = false;
+                    await new Promise<void>((resolve) => { held.release = resolve; });
+                }
+                return answer;
+            },
+        };
+        const clock = createFakeClock();
+        const cache = new ReactiveDatasetCache({ workspace: ws }, slow, clock);
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 100);
+        await settle();
+
+        held.next = true;
+        clock.tickAll();                                  // a poll reads hash-A
+        await settle();
+        api.seed(ws, policyPath, bytes(2), "hash-B");     // a record commit lands
+        const refreshed = cache.refresh(ws);
+        held.release!();
+        await refreshed;
+        await settle();
+        assert.deepEqual(cache.read(ws, policyPath), bytes(2));
     });
 });
 
@@ -824,6 +859,22 @@ describe("ReactiveDatasetCache — clearRefetchInterval (finding #5)", () => {
         assert.equal(clock.intervals.length, 1); // schedule still watched
         cache.clearRefetchInterval(ws, schedulePath);
         assert.equal(clock.intervals.length, 0); // poller torn down
+    });
+
+    test("a path two views watch stays polled until both have cleared it", async () => {
+        const { cache, clock, api } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 100); // view A
+        cache.setRefetchInterval(ws, policyPath, 100); // view B
+        await settle();
+        cache.clearRefetchInterval(ws, policyPath);    // A unmounts
+        assert.equal(clock.intervals.length, 1, "B still polls");
+        api.seed(ws, policyPath, bytes(2), "hash-B");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(cache.read(ws, policyPath), bytes(2), "B hears the change");
+        cache.clearRefetchInterval(ws, policyPath);    // B unmounts
+        assert.equal(clock.intervals.length, 0);
     });
 
     test("clearing an unknown workspace/path is a no-op", () => {
