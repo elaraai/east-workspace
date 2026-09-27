@@ -22,8 +22,9 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
-import { toEastTypeValue, type EastType } from '@elaraai/east';
-import { FuncBindHandleType } from '@elaraai/e3-ui/internal';
+import { isTypeValueEqual, toEastTypeValue, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { FuncBindHandleType, type FuncErrorType, type FuncStatusType } from '@elaraai/e3-ui/internal';
+import { useDataStable } from '@elaraai/east-ui-components';
 import {
     defaultFuncRuntime,
     funcChannelKey,
@@ -31,10 +32,10 @@ import {
 } from '../platform/index.js';
 
 /** Lifecycle of the most recent call on a bound function's channel. */
-export type FuncStatus = 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type FuncStatus = ValueTypeOf<FuncStatusType>['type'];
 
 /** A failed call's detail (the runner's outcome + captured output tails). */
-export interface FuncCallError { kind: string; message: string; stdout: string; stderr: string }
+export type FuncCallError = ValueTypeOf<FuncErrorType>;
 
 /** What {@link useFuncCall} returns for one bound function. */
 export interface FuncCall<R> {
@@ -50,13 +51,26 @@ export interface FuncCall<R> {
     error: FuncCallError | null;
 }
 
-type RawHandle = {
-    call: (...a: unknown[]) => null;
-    read: () => { type: 'some' | 'none'; value: unknown };
-    status: () => { type: FuncStatus };
-    pending: () => boolean;
-    error: () => { type: 'some' | 'none'; value: unknown };
-};
+/** A bound function's call handle, as the runtime builds it. */
+type FuncHandle = ValueTypeOf<ReturnType<typeof FuncBindHandleType<EastType[], EastType>>>;
+
+/** A bound function's signature: its parameter types (`null` until the row
+ *  type is known) and its return type. */
+interface Signature { inputs: EastType[] | null; output: EastType }
+
+/** Whether two types are one East type — East's own type equality. */
+function sameType(a: EastType, b: EastType): boolean {
+    return isTypeValueEqual(toEastTypeValue(a), toEastTypeValue(b));
+}
+
+/** Whether two signatures name the same East types. */
+function sameSignature(a: Signature, b: Signature): boolean {
+    const ai = a.inputs;
+    const bi = b.inputs;
+    return sameType(a.output, b.output) && (ai === null || bi === null
+        ? ai === bi
+        : ai.length === bi.length && ai.every((t, i) => sameType(t, bi[i]!)));
+}
 
 const IDLE: FuncCall<never> = { call: () => {}, result: null, status: 'idle', pending: false, error: null };
 
@@ -80,20 +94,18 @@ export function useFuncCall<R>(
     const workspace = getReactiveDatasetCache().getConfig().workspace ?? '';
     const ready = !!name && !!inputs && workspace !== '';
 
-    // A structural key over the signature so the handle memo only rebuilds when
-    // the signature actually changes (inputs/output are fresh objects each
-    // render, but their type *values* are stable).
-    const sigKey = useMemo(
-        () => (ready ? JSON.stringify([inputs!.map(t => toEastTypeValue(t)), toEastTypeValue(output)]) : ''),
-        [ready, inputs, output],
-    );
+    // The signature, held while it names the same East types — the inputs and
+    // output are fresh objects each render, but the types they name are stable,
+    // so the handle is rebuilt only when the signature really changes.
+    const signature = useDataStable<Signature>({ inputs, output }, sameSignature);
 
-    const handle = useMemo<RawHandle | null>(() => {
-        if (!ready) return null;
-        const handleType = toEastTypeValue(FuncBindHandleType(inputs!, output));
-        return defaultFuncRuntime.buildHandle(handleType, name!) as RawHandle;
+    const handle = useMemo<FuncHandle | null>(() => {
+        if (!ready || signature.inputs === null) return null;
+        const handleType = toEastTypeValue(FuncBindHandleType(signature.inputs, signature.output));
+        return defaultFuncRuntime.buildHandle(handleType, name!) as FuncHandle;
+        // A new workspace is a new channel: rebuild the handle over it.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ready, name, workspace, sigKey]);
+    }, [ready, name, workspace, signature]);
 
     const channelKey = ready ? funcChannelKey(workspace, name!) : '';
     const version = useSyncExternalStore(
@@ -116,10 +128,7 @@ export function useFuncCall<R>(
             status = handle.status().type;
             pending = handle.pending();
             const err = handle.error();
-            if (err.type === 'some') {
-                const v = err.value as { kind?: { type?: string }; message?: string; stdout?: string; stderr?: string };
-                error = { kind: v.kind?.type ?? 'failed', message: v.message ?? '', stdout: v.stdout ?? '', stderr: v.stderr ?? '' };
-            }
+            if (err.type === 'some') error = err.value;
         } catch {
             // Workspace not yet resolvable — treat as idle.
         }

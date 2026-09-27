@@ -7,7 +7,7 @@ import { memo, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFilter } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf, some, none } from "@elaraai/east";
+import { IntegerType, type ValueTypeOf, none, parseFor, printFor, some } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
@@ -25,8 +25,12 @@ export interface EastChakraSliceBreakdownProps {
 }
 
 const DEFAULT_LIMIT = 5;
-/** Top-N cut options offered by the roll-up `<select>`; "all" clears the limit. */
+/** Top-N cut options offered by the roll-up `<select>`, each an Integer as East
+ *  prints it; "all" clears the limit. */
 const LIMIT_OPTIONS = ["5", "10", "25", "all"] as const;
+/** The limit as the select's option spells it, and the pick read back. */
+const printLimit = printFor(IntegerType);
+const readLimit = parseFor(IntegerType);
 
 /**
  * Renders an East UI `Slice.Breakdown` — dimension chips (active one
@@ -122,7 +126,9 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     }
     const setLimit = (v: string) => {
         if (active === undefined) return;
-        slice.setBreakdown(some({ fieldId: active, limit: v === "all" ? none : some(BigInt(v)) }));
+        // A top-N option reads as the Integer it prints; "all" reads as none.
+        const read = readLimit(v);
+        slice.setBreakdown(some({ fieldId: active, limit: read.success ? some(read.value) : none }));
     };
 
     const topN = limit !== undefined ? Number(limit) : DEFAULT_LIMIT;
@@ -232,7 +238,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                         <Box as="span" css={styles.footerLabel}>ROLL-UP</Box>
                         <chakra.select
                             css={{ ...selectCss, cursor: "pointer" }}
-                            value={limit !== undefined ? limit.toString() : "all"}
+                            value={limit !== undefined ? printLimit(limit) : "all"}
                             onChange={e => setLimit(e.target.value)}
                             aria-label="Roll-up limit"
                         >

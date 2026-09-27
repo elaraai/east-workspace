@@ -19,7 +19,8 @@ import type { ReactNode } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import {
-    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, StringType, StructType, type ValueTypeOf,
+    ArrayType, DateTimeType, East, FloatType, IntegerType, LiteralValueType, NullType, StringType, StructType,
+    decodeBeast2For, encodeBeast2For, none, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Chart, Deck, Format, Numeric, Sheet, Stat, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
@@ -27,6 +28,7 @@ import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../platform/registry.js";
 import { EastChakraComponent } from "../component.js";
+import { EastChakraStat, type StatValue } from "../display/stat/index.js";
 import { EastChakraSliceSummary, type SliceSummaryValue } from "../slice/summary/index.js";
 import { SheetFooter } from "../collections/sheet/Footer.js";
 import { SheetBandRow, SheetGapRow } from "../collections/sheet/Rows.js";
@@ -64,6 +66,21 @@ function texts(root: Element): string[] {
 /** Timezones either side of UTC; a renderer reading local time would move the day in one of them. */
 const TIMEZONES = ["UTC", "Pacific/Kiritimati", "America/Los_Angeles"];
 
+/** The Stat's codecs, built once: the type carries the whole component tree,
+ *  so each build costs hundreds of milliseconds. */
+const encodeStat = encodeBeast2For(Stat.Types.Stat);
+const decodeStat = decodeBeast2For(Stat.Types.Stat);
+
+/** A Stat as the renderer receives one, decoded from East's own encoding —
+ *  its value any `LiteralValueType` case (`Stat.Root`'s TypeScript API takes
+ *  only numbers and strings, but the East type carries every literal). */
+function statOf(literal: ValueTypeOf<typeof LiteralValueType>): StatValue {
+    return decodeStat(encodeStat({
+        label: "Value", value: literal, format: none, helpText: none, baseline: none, delta: none, info: none,
+        indicator: none, density: none, style: none,
+    }));
+}
+
 // ── Fixtures, at module scope ───────────────────────────────────────────────
 
 /** 1,234 rows — the pager counts them. */
@@ -81,6 +98,11 @@ const SALES = [
 const LineType = StructType({ id: StringType, name: StringType, rate: FloatType });
 const LINES = [{ id: "a", name: "Line A", rate: 1234567 }];
 
+/** Stats whose values `Stat.Root` cannot take — decoded once, here. */
+const BOOLEAN_STAT = statOf(variant("Boolean", true));
+const BLOB_STAT = statOf(variant("Blob", new Uint8Array([0x0a, 0xff])));
+const DATETIME_STAT = statOf(variant("DateTime", SALES[0]!.at));
+
 // ── Numbers: Numeric and Stat ───────────────────────────────────────────────
 
 describe("numbers (#850)", () => {
@@ -94,6 +116,28 @@ describe("numbers (#850)", () => {
         const { container } = component(compile(East.function([], UIComponentType, (_$) =>
             Stat.Root({ label: "Output", value: 1234567, format: Format.Compact() }))), "fmt-stat");
         expect(texts(container)).toContain("1,2\u00a0Mio.");
+    });
+
+    test("an undeclared Integer Stat keeps every digit \u2014 past 2^53, where a JavaScript number would round", () => {
+        const { container } = component(compile(East.function([], UIComponentType, (_$) =>
+            Stat.Root({ label: "Rows", value: 9007199254740993n }))), "fmt-stat-int");
+        expect(texts(container)).toContain("9.007.199.254.740.993");
+    });
+
+    test("a Boolean or a Blob Stat reads as East prints it", () => {
+        expect(texts(german(<EastChakraStat value={BOOLEAN_STAT} storageKey="fmt-stat-bool" />).container)).toContain("true");
+        cleanup();
+        expect(texts(german(<EastChakraStat value={BLOB_STAT} storageKey="fmt-stat-blob" />).container)).toContain("0x0aff");
+    });
+});
+
+describe.each(TIMEZONES)("an undeclared DateTime Stat \u2014 TZ=%s (#850)", (tz) => {
+    beforeEach(() => { vi.stubEnv("TZ", tz); });
+    afterEach(() => { vi.unstubAllEnvs(); });
+
+    test("prints its UTC day, never the epoch milliseconds", () => {
+        const { container } = german(<EastChakraStat value={DATETIME_STAT} storageKey={`fmt-stat-date-${tz}`} />);
+        expect(texts(container)).toContain("29.6.2026");
     });
 });
 

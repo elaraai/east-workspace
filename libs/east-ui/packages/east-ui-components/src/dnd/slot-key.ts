@@ -19,7 +19,7 @@
  * @packageDocumentation
  */
 
-import { DateTimeType, FloatType, parseFor } from "@elaraai/east";
+import { DateTimeType, FloatType, parseFor, printFor } from "@elaraai/east";
 
 /** A coordinate's spelling as a slot key, and its reading back. */
 export interface SlotCodec<T> {
@@ -31,20 +31,22 @@ export interface SlotCodec<T> {
 
 const parseDateTimeSlot = parseFor(DateTimeType);
 const parseFloatSlot = parseFor(FloatType);
+const printDateTimeSlot = printFor(DateTimeType);
+const printFloatSlot = printFor(FloatType);
 
 /**
  * Encode a datetime instant as a drag-grammar slot key.
  *
  * @remarks
- * East's `parse(DateTimeType)` rejects `toISOString()`'s trailing `Z` (East
- * DateTimes are implicitly UTC), and the documented contract is that a temporal
- * target's slot parses as an East DateTime — so the slot carries the Z-less ISO
- * form. Callers snap the instant to their own grid FIRST; this only spells it.
+ * The documented contract is that a temporal target's slot parses as an East
+ * DateTime, so the slot is the instant as East prints it — the UTC ISO form
+ * without a `Z`, which East's parser reads back. Callers snap the instant to
+ * their own grid FIRST; this only spells it.
  *
  * @param d - The already-snapped instant
  * @returns The slot key (`"2026-07-06T00:00:00.000"`)
  */
-export const toEastDateTimeSlot = (d: Date): string => d.toISOString().slice(0, -1);
+export const toEastDateTimeSlot = (d: Date): string => printDateTimeSlot(d);
 
 /** A datetime's slot key — the Z-less ISO instant, read as East reads it (`slot.parse(DateTimeType)`). */
 export const dateTimeSlot: SlotCodec<Date> = {
@@ -55,9 +57,10 @@ export const dateTimeSlot: SlotCodec<Date> = {
     },
 };
 
-/** A number's slot key — its decimal form, read as East reads it (`slot.parse(FloatType)`). */
+/** A number's slot key — the Float as East prints it, read as East reads it
+ *  (`slot.parse(FloatType)`), so every Float round-trips (`-0.0` included). */
 export const numberSlot: SlotCodec<number> = {
-    encode: (n) => String(n),
+    encode: (n) => printFloatSlot(n),
     decode: (slot) => {
         const parsed = parseFloatSlot(slot);
         return parsed.success ? parsed.value : undefined;

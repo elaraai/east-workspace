@@ -41,7 +41,7 @@ import { TreePathType, type TreePath } from "@elaraai/e3-types";
 import { formatters, type Formatters } from "@elaraai/east-ui-components";
 
 import { formatBindingLabel, formatLeafValue } from "./format.js";
-import { collectLeaves, walkPatchToTree, type LeafNode } from "./walker.js";
+import { collectLeaves, walkPatchToTree, type DiffNode, type GroupNode, type LeafNode } from "./walker.js";
 
 const en = formatters("en-US");
 const de = formatters("de-DE");
@@ -51,10 +51,15 @@ function stored<T extends EastType>(type: T, value: ValueTypeOf<T>): ValueTypeOf
     return decodeBeast2For(type)(encodeBeast2For(type)(value));
 }
 
+/** The change from `before` to `after` as a tree, walked as the Diff walks it. */
+function treeOf<T extends EastType>(type: T, before: ValueTypeOf<T>, after: ValueTypeOf<T>): DiffNode | null {
+    const leafType = toEastTypeValue(type);
+    return walkPatchToTree(leafType, diffFor(leafType)(stored(type, before), stored(type, after)), "binding");
+}
+
 /** The leaves of the change from `before` to `after`, walked as the Diff walks them. */
 function leavesOf<T extends EastType>(type: T, before: ValueTypeOf<T>, after: ValueTypeOf<T>): LeafNode[] {
-    const leafType = toEastTypeValue(type);
-    const tree = walkPatchToTree(leafType, diffFor(leafType)(stored(type, before), stored(type, after)), "binding");
+    const tree = treeOf(type, before, after);
     return tree === null ? [] : collectLeaves(tree);
 }
 
@@ -171,5 +176,36 @@ describe("formatBindingLabel", () => {
         const path: TreePath = [variant("field", "inputs"), variant("field", "sales")];
         expect(formatBindingLabel(stored(TreePathType, path))).toBe("sales");
         expect(formatBindingLabel(stored(TreePathType, [variant("field", "work orders")]))).toBe("work orders");
+    });
+});
+
+describe("walkPatchToTree — a Dict key's label is the key as East reads it back", () => {
+    const Rates = DictType(StringType, StructType({ rate: FloatType }));
+
+    /** The group a one-entry change opens under the root. */
+    function entryOf(key: string): GroupNode {
+        const root = treeOf(Rates, new Map([[key, { rate: 1 }]]), new Map([[key, { rate: 2 }]]));
+        expect(root?.kind).toBe("group");
+        const entry = (root as GroupNode).children[0];
+        expect(entry?.kind).toBe("group");
+        return entry as GroupNode;
+    }
+
+    test("a String key shows without its quotes; its path keeps East's printed form", () => {
+        const entry = entryOf("Mech A");
+        expect(entry.label).toBe("Mech A");
+        expect(entry.path).toBe('{"Mech A"}');
+        expect(entry.children.map((c) => c.label)).toEqual(["rate"]);
+    });
+
+    test("a quote or a backslash in a String key reads back as itself", () => {
+        expect(entryOf('Berth "North"').label).toBe('Berth "North"');
+        expect(entryOf("C:\\yard").label).toBe("C:\\yard");
+    });
+
+    test("a key of another type shows as East prints it", () => {
+        const leaf = onlyLeaf(DictType(IntegerType, FloatType), new Map([[7n, 1]]), new Map([[7n, 2]]));
+        expect(leaf.label).toBe("7");
+        expect(leaf.path).toBe("{7}");
     });
 });

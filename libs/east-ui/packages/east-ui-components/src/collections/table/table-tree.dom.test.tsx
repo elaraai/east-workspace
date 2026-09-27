@@ -27,9 +27,10 @@ import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, East, FloatType, IntegerType, StringType, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    ArrayType, DictType, East, FloatType, IntegerType, SortedMap, StringType,
+    compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Table, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Table, Text, UIComponentType, type TableAggregateLiteral } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
@@ -48,6 +49,7 @@ afterEach(cleanup);
 type UIValue = ValueTypeOf<typeof UIComponentType>;
 type Cell = ValueTypeOf<typeof Table.Types.Cell>;
 type Row = ValueTypeOf<typeof Table.Types.Row>;
+type Column = ValueTypeOf<typeof Table.Types.Column>;
 
 // ── Fixtures, at module scope ───────────────────────────────────────────────
 
@@ -65,6 +67,35 @@ const whereOf = East.compile(
 
 const printPath = printFor(ArrayType(IntegerType));
 
+/** `<text>` — footer content, a compiled East function. */
+const textOf = East.compile(
+    East.function([StringType], UIComponentType, (_$, s) => Text.Root(s)),
+    getRegisteredPlatformImplementations(),
+) as (s: string) => UIValue;
+
+type FooterCell = ValueTypeOf<typeof Table.Types.FooterCell>;
+const FooterRowType = DictType(StringType, Table.Types.FooterCell);
+const encodeFooterRow = encodeBeast2For(FooterRowType);
+const decodeFooterRow = decodeBeast2For(FooterRowType);
+const compareStrings = compareFor(StringType);
+
+/** A footer row as the renderer receives it: decoded from East's own encoding. */
+function footerRow(cells: Record<string, FooterCell>): ValueTypeOf<typeof FooterRowType> {
+    return decodeFooterRow(encodeFooterRow(new SortedMap(Object.entries(cells), compareStrings)));
+}
+
+/** A footer cell showing `text`, over `colSpan` columns. */
+function footerCell(text: string, colSpan?: bigint): FooterCell {
+    return { content: textOf(text), colSpan: colSpan === undefined ? none : some(colSpan), rowSpan: none };
+}
+
+/** A review config with every verb off — the quiet dot needs none. */
+const REVIEW: ValueTypeOf<typeof Table.Types.Review> = {
+    columnLabel: "Decision", summary: none,
+    onApprove: none, onReject: none,
+    onApproveAll: none, onRejectAll: none, onRerun: none, rerunLabel: "Rerun",
+};
+
 /** One decoded wire row. */
 function row(cells: Record<string, Cell>, depth = 0n, collapsed = false): Row {
     return { cells: new Map(Object.entries(cells)), depth, collapsed };
@@ -75,7 +106,7 @@ const int = (n: bigint): Cell => variant("Integer", n) as Cell;
 const flt = (n: number): Cell => variant("Float", n) as Cell;
 
 /** A decoded column with no `render`: the table prints its cells (#874). */
-function column(key: string, type: typeof StringType | typeof IntegerType | typeof FloatType, extra: Record<string, unknown> = {}) {
+function column(key: string, type: typeof StringType | typeof IntegerType | typeof FloatType, extra: Partial<Column> = {}): Column {
     return {
         key,
         dataType: toEastTypeValue(type),
@@ -90,7 +121,7 @@ function column(key: string, type: typeof StringType | typeof IntegerType | type
 }
 
 /** A decoded Table root: every option off unless given. */
-function tableRoot(rows: Row[], columns: unknown[], options: Record<string, unknown> = {}): TableRootValue {
+function tableRoot(rows: Row[], columns: Column[], options: Partial<TableRootValue> = {}): TableRootValue {
     return {
         rows: variant("inline", rows),
         columns,
@@ -103,7 +134,7 @@ function tableRoot(rows: Row[], columns: unknown[], options: Record<string, unkn
         review: none, reviewStatus: none, reviewApproval: none,
         slice: none, style: none,
         ...options,
-    } as unknown as TableRootValue;
+    };
 }
 
 function renderTable(value: TableRootValue, key: string) {
@@ -212,6 +243,24 @@ describe("a row reference is the row's pre-order index, under sorting and pagina
         // The anchor alone, then all three: B's pre-order index (0) lies
         // outside the other two's (1, 2), and is selected all the same.
         expect(changes.map((c) => [...c].sort())).toEqual([[shown[0] === "C" ? 1n : 2n], [0n, 1n, 2n]]);
+    });
+
+    test("after a sort, a row's review dot stays with the row", () => {
+        const { container } = renderTable(tableRoot(BCA, NAME_V, {
+            review: some(REVIEW),
+            // B, row 0, is flagged; the others are clean.
+            reviewStatus: some((i: bigint) => (i === 0n ? some(variant("danger", null)) : none)),
+        }), "tree-identity-review");
+        const statusOf = (name: string) =>
+            rowNamed(container, name).querySelector('[data-slot="decisionCol"]')!.getAttribute("data-status");
+        expect(["A", "B", "C"].map(statusOf)).toEqual([null, "danger", null]);
+
+        fireEvent.click(container.querySelector('[aria-label="Sort by v"]')!);
+        expect(firstCells(container)[0]).not.toBe("B");
+        expect(["A", "B", "C"].map(statusOf)).toEqual([null, "danger", null]);
+        // The dot is drawn on the flagged row alone.
+        expect(rowNamed(container, "B").querySelector('[data-slot="statusDot"]')).not.toBeNull();
+        expect(rowNamed(container, "A").querySelector('[data-slot="statusDot"]')).toBeNull();
     });
 
     test("with pagination, clicks and the expanded detail receive the index over the whole data", async () => {
@@ -378,7 +427,7 @@ const COMPOSED = [
     row({ name: str("p1"), s: int(10n), m: flt(6), lo: int(4n), hi: int(4n), n: str("z") }, 1n),
     row({ name: str("p2"), s: int(4n), m: flt(3), lo: int(8n), hi: int(8n), n: str("w") }, 1n),
 ];
-const agg = (tag: string) => ({ aggregate: some(variant(tag, null)) });
+const agg = (tag: TableAggregateLiteral): Partial<Column> => ({ aggregate: some(variant(tag, null)) });
 const COMPOSED_COLUMNS = [
     column("name", StringType),
     column("s", IntegerType, agg("sum")),
@@ -407,6 +456,27 @@ describe("a parent's subtotals compose bottom-up (#954)", () => {
         expect(marks("q1")).toEqual([false, false, false, false, false, false]);
     });
 
+    test("a parent with nothing beneath a column shows Null there, and no subtotal over it counts it", () => {
+        // E's one child has no `s`, `m` or `hi` — so E shows Null in each — and
+        // G's subtotals leave E out: a sum of Integers stays an Integer, a mean
+        // averages the one child that shows a number, a max picks a number.
+        const rows = [
+            row({ name: str("G"), s: int(0n), m: flt(0), hi: int(0n) }, 0n),
+            row({ name: str("E"), s: int(0n), m: flt(0), hi: int(0n) }, 1n),
+            row({ name: str("e1") }, 2n),
+            row({ name: str("g1"), s: int(4n), m: flt(4), hi: int(4n) }, 1n),
+        ];
+        const columns = [
+            column("name", StringType),
+            column("s", IntegerType, agg("sum")),
+            column("m", FloatType, agg("mean")),
+            column("hi", IntegerType, agg("max")),
+        ];
+        const { container } = renderTable(tableRoot(rows, columns), "tree-subtotal-null");
+        expect(cellsOf(rowNamed(container, "E"))).toEqual(["E", "null", "null", "null"]);
+        expect(cellsOf(rowNamed(container, "G"))).toEqual(["G", "4", "4.0", "4"]);
+    });
+
     test("a subtotal draws through the column's render, which sees it as the cell", () => {
         const sumOf = East.compile(
             East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) =>
@@ -429,10 +499,29 @@ describe("a parent's subtotals compose bottom-up (#954)", () => {
             seek: none,
         };
         const columns = [column("name", StringType), column("s", IntegerType, agg("sum"))];
-        const value = { ...tableRoot([], columns), rows: variant("paged", source) } as unknown as TableRootValue;
+        const value = tableRoot([], columns, { rows: variant("paged", source) });
         const { container, findByText } = renderTable(value, "tree-paged");
         await findByText("P");
         expect(firstCells(container)).toEqual(["P", "p1", "p2"]);
         expect(cellsOf(rowNamed(container, "P"))).toEqual(["P", "9"]);
+    });
+});
+
+// ── Footer ───────────────────────────────────────────────────────────────────
+
+/** A single footer, and one more footer row whose cell spans both columns —
+ *  decoded once, here: a footer cell carries a component. */
+const FOOTER = footerRow({ name: footerCell("Total"), v: footerCell("6") });
+const FOOTER_ROWS = [footerRow({ name: footerCell("All rows", 2n) })];
+
+describe("the footer", () => {
+    test("the single footer draws first, then each footer row; a cell spans its colSpan's columns", () => {
+        const { container } = renderTable(tableRoot(BCA, NAME_V, {
+            footer: some(FOOTER),
+            footerRows: some(FOOTER_ROWS),
+        }), "tree-footer");
+        const rows = [...container.querySelectorAll("tfoot tr")]
+            .map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent ?? ""));
+        expect(rows).toEqual([["Total", "6"], ["All rows"]]);
     });
 });

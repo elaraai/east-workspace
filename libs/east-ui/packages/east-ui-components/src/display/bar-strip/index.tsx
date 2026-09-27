@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { FloatType, compareFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { BarStrip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
@@ -13,6 +13,8 @@ import { useDensity } from "../../contracts/density";
 import { useFormatters } from "../../format/index.js";
 
 const barStripEqual = equivalentFor(BarStrip.Types.BarStrip);
+/** East's order over the rows' Float values — a NaN sorts last. */
+const compareFloats = compareFor(FloatType);
 
 /** East BarStrip value type. */
 export type BarStripValue = ValueTypeOf<typeof BarStrip.Types.BarStrip>;
@@ -56,18 +58,16 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
     const styles = useSlotRecipe({ key: "barStrip" })({ thickness, density });
 
     const items = useMemo(() => {
-        let arr = [...value.items] as typeof value.items;
-        if (sortTag === "asc") arr.sort((a, b) => Number(a.value) - Number(b.value));
-        else if (sortTag === "desc") arr.sort((a, b) => Number(b.value) - Number(a.value));
-        if (maxItems !== undefined) arr = arr.slice(0, Number(maxItems));
-        return arr;
+        const arr = [...value.items];
+        if (sortTag === "asc") arr.sort((a, b) => compareFloats(a.value, b.value));
+        else if (sortTag === "desc") arr.sort((a, b) => compareFloats(b.value, a.value));
+        return maxItems !== undefined ? arr.slice(0, Number(maxItems)) : arr;
     }, [value, sortTag, maxItems]);
 
     const peakValue = useMemo(() => {
         let m = 0;
         for (const it of items) {
-            const v = Number(it.value);
-            if (v > m) m = v;
+            if (it.value > m) m = it.value;
         }
         return m === 0 ? 1 : m;
     }, [items]);
@@ -79,7 +79,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
                 const fillColor = getSomeorUndefined(item.color)
                     ?? (toneTag ? TONE_FILL[toneTag] : undefined);
                 const trailing = getSomeorUndefined(item.trailing);
-                const percent = `${((Number(item.value) / peakValue) * 100).toFixed(2)}%`;
+                const percent = `${((item.value / peakValue) * 100).toFixed(2)}%`;
 
                 return (
                     <Box key={i} css={styles.row}>
@@ -91,7 +91,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
                         </Box>
                         {showValues && (
                             <Box as="span" css={styles.value} color={valueColor}>
-                                {words.number(Number(item.value))}
+                                {words.number(item.value)}
                             </Box>
                         )}
                         {trailing && (

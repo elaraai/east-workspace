@@ -4,42 +4,24 @@
  */
 
 import { Box, Text, Badge } from '@chakra-ui/react';
-import type { EastTypeValue } from '@elaraai/east';
+import { printFor, type EastTypeValue } from '@elaraai/east';
 
 export interface EastValueViewerProps {
     type: EastTypeValue;
     value: unknown;
 }
 
-// Format a primitive value for display
+// A primitive value as East prints it — every digit of an Integer, a Float's
+// `.0` and `-0.0`, a String quoted and escaped, a DateTime's UTC instant to
+// the millisecond — save a Blob, shown by its size rather than every byte.
 function formatPrimitive(type: EastTypeValue, value: unknown): string {
-    switch (type.type) {
-        case 'Null':
-            return 'null';
-        case 'Boolean':
-            return value ? 'true' : 'false';
-        case 'Integer':
-            return String(value);
-        case 'Float': {
-            const num = value as number;
-            if (Number.isNaN(num)) return 'NaN';
-            if (!Number.isFinite(num)) return num > 0 ? 'Infinity' : '-Infinity';
-            return String(num);
-        }
-        case 'String':
-            return `"${value}"`;
-        case 'DateTime':
-            return (value as Date).toISOString();
-        case 'Blob':
-            return `Blob[${(value as Uint8Array).length} bytes]`;
-        default:
-            return String(value);
-    }
+    if (type.type === 'Blob') return `Blob[${(value as Uint8Array).length} bytes]`;
+    return printFor(type)(value);
 }
 
 // Check if a type is a primitive (renders inline without nesting)
 function isPrimitive(type: EastTypeValue): boolean {
-    return ['Null', 'Boolean', 'Integer', 'Float', 'String', 'DateTime', 'Blob', 'Never'].includes(type.type);
+    return ['Null', 'Boolean', 'Integer', 'Float', 'String', 'DateTime', 'Blob'].includes(type.type);
 }
 
 // Get a short type label for display

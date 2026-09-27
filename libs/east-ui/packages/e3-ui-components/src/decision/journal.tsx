@@ -20,10 +20,8 @@ import { type ValueTypeOf } from '@elaraai/east';
 import { DecisionJournal } from '@elaraai/e3-ui/internal';
 import { implementUIComponent, getSomeorUndefined, ClauseChip, useFormatters, type Formatters } from '@elaraai/east-ui-components';
 
-import type { TreePath } from '@elaraai/e3-types';
-import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
 import { useDecisionHandle, type Judgement, type Verdict } from './handle-runtime.js';
-import { normalizeTypeValue, type TypeNode } from './lever-editor.js';
+import { useConstraintContract } from './contract.js';
 import { formatConstraint } from './constraint-format.js';
 
 type DecisionJournalValue = ValueTypeOf<typeof DecisionJournal.Component.schema>;
@@ -63,15 +61,7 @@ const EastChakraDecisionJournal = memo(function EastChakraDecisionJournal({ valu
 
     const handle = useDecisionHandle(value.handle);
     const heading = getSomeorUndefined(value.heading) ?? 'Decision journal';
-    const cache = getReactiveDatasetCache();
-    const workspace = cache.getConfig().workspace ?? '';
-    const leverPayloads = useMemo<Record<string, TypeNode>>(() => {
-        const judgements = getBindingTypes(workspace, value.handle.judgements.source as TreePath);
-        if (!judgements?.sourceType) return {};
-        const root = normalizeTypeValue(judgements.sourceType);
-        const constraint = root.value?.fields?.['constraints']?.value;
-        return constraint?.type === 'Variant' ? (constraint.cases ?? {}) : {};
-    }, [workspace, value.handle]);
+    const contract = useConstraintContract(value.handle);
 
     const entries = useMemo(() => handle.journal ?? [], [handle.journal]);
 
@@ -140,8 +130,7 @@ const EastChakraDecisionJournal = memo(function EastChakraDecisionJournal({ valu
                         {j.constraints.length > 0 && (
                             <Box display="flex" gap="12px" flexWrap="wrap">
                                 {j.constraints.map((c, k) => {
-                                    const tag = (c as unknown as { type: string }).type;
-                                    const f = formatConstraint(c, leverPayloads[tag], undefined, words);
+                                    const f = formatConstraint(c, contract, undefined, words);
                                     return <ClauseChip key={k} field={f.lever} op={f.op} value={f.value} />;
                                 })}
                             </Box>

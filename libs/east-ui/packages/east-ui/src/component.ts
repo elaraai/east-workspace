@@ -186,8 +186,7 @@ import { SliceLegendType } from "./slice/legend/types.js";
 import { SliceBreakdownPickerType } from "./slice/breakdown/types.js";
 import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
-import { SliceBindType, SliceBrushStyleType, SliceChromeType, SlicePersistType } from "./platform/slice/index.js";
-import { SliceAffordanceType } from "./contracts/slice-affordances.js";
+import { SliceChromeType, SliceRailType } from "./platform/slice/index.js";
 import { PickBindType, PickPanelType } from "./contracts/pick.js";
 import { IconType } from "./display/icon/types.js";
 
@@ -772,13 +771,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
      * that never wraps, compressing along the chip ladder, with the sectioned
      * `Slice.Edit` popover as its only expansion. `persist` opts the slice's
      * state into localStorage / sessionStorage / URL persistence (#168).
+     * `Slice.Types.Rail` names it, so the renderer derives its value type.
      */
-    SliceRail: StructType({
-        slice: SliceBindType,
-        affordances: ArrayType(SliceAffordanceType),
-        persist: OptionType(SlicePersistType),
-        brush: OptionType(SliceBrushStyleType),
-    }),
+    SliceRail: SliceRailType,
 
     /**
      * PickPanel — the library of a component's declared things (#590): one row

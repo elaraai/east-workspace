@@ -19,7 +19,8 @@ import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import {
-    ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, printFor, type ValueTypeOf,
+    ArrayType, BlobType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType,
+    printFor, type ValueTypeOf,
 } from "@elaraai/east";
 import { Format, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
@@ -74,14 +75,28 @@ const TABLE = East.compile(East.function([], UIComponentType, ($) => {
     }, { virtualization: false, tree: { children: (r) => r.lines } });
 }), getRegisteredPlatformImplementations())() as UIValue;
 
+/** A digest — a Blob, which no column prints as a number — and a note that is
+ *  Null. Neither is a primitive field, so each column reads it through a
+ *  value function. */
+const DigestRow = StructType({ name: StringType, digest: BlobType, note: NullType });
+const DIGESTS = [{ name: "a", digest: new Uint8Array([0x0a, 0xff]), note: null }];
+const DIGEST_TABLE = East.compile(East.function([], UIComponentType, ($) => {
+    const rows = $.const(DIGESTS, ArrayType(DigestRow));
+    return Table.Root(rows, {
+        name: { header: "Name" },
+        digest: { header: "Digest", value: (d) => d },
+        note: { header: "Note", value: (n) => n },
+    }, { virtualization: false });
+}), getRegisteredPlatformImplementations())() as UIValue;
+
 /** A euro amount as `Intl` prints it in a locale — the oracle for the fee column. */
 const eur = (locale: string, n: number): string => new Intl.NumberFormat(locale, { style: "currency", currency: "EUR" }).format(n);
 
-function renderIn(locale: string) {
+function renderIn(locale: string, value: UIValue = TABLE) {
     return render(
         <ChakraProvider value={system}>
             <I18nProvider locale={locale}>
-                <EastChakraComponent value={TABLE} storageKey={`table-cells-${locale}`} />
+                <EastChakraComponent value={value} storageKey={`table-cells-${locale}`} />
             </I18nProvider>
         </ChakraProvider>,
     );
@@ -127,5 +142,17 @@ describe("a Table cell prints itself in the viewer's language (#874)", () => {
         // The same text the factory's default printed: a whole float keeps its `.0`.
         expect(memberRows(container)[0]![4]).toBe("1234.0");
         expect(groupTotals(container)).toEqual(["2,234.5", "2"]);
+    });
+});
+
+describe("a cell that is no number or string prints as East prints it (#874)", () => {
+    test("a Blob prints its bytes, and a Null prints null, in any language", () => {
+        for (const locale of ["en-US", "de-DE"]) {
+            const { container, unmount } = renderIn(locale, DIGEST_TABLE);
+            const cells = [...container.querySelectorAll("tbody tr td")].map((td) => td.textContent ?? "");
+            expect(cells).toEqual(["a", printFor(BlobType)(DIGESTS[0]!.digest), printFor(NullType)(null)]);
+            expect(cells.slice(1)).toEqual(["0x0aff", "null"]);
+            unmount();
+        }
     });
 });

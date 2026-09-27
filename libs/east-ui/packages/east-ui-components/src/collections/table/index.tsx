@@ -31,11 +31,10 @@ import {
     type RowSelectionState,
     type ExpandedState,
 } from "@tanstack/react-table";
-import { compareFor, equalFor, equivalentFor, printFor, variant, FloatType, OptionType, type ValueTypeOf } from "@elaraai/east";
+import { compareFor, equalFor, equivalentFor, printFor, variant, BlobType, BooleanType, DateTimeType, FloatType, NullType, OptionType, type ValueTypeOf } from "@elaraai/east";
 import { Table, ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
-import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
@@ -187,7 +186,8 @@ function subtotalsOf(tree: TableTree, aggregates: ReadonlyMap<string, string>): 
                 // A leaf counts 1; a parent its own count.
                 let n = 0n;
                 for (const child of row.subRows) {
-                    n += child.subRows.length === 0 ? 1n : ((drawn(child, key)?.value as bigint | undefined) ?? 0n);
+                    const shown = child.subRows.length === 0 ? undefined : drawn(child, key);
+                    n += shown === undefined ? 1n : shown.type === "Integer" ? shown.value : 0n;
                 }
                 cells.set(key, variant("Integer", n) as TableCellValue);
                 continue;
@@ -213,7 +213,6 @@ export interface ColumnSort {
 declare module '@tanstack/react-table' {
     /* eslint-disable @typescript-eslint/no-unused-vars */
     interface ColumnMeta<TData, TValue> {
-        print?: (value: unknown) => string;
         columnKey?: string;
         width?: string | undefined;
         minWidth?: string | undefined;
@@ -296,18 +295,27 @@ const treeSubRows = (row: TreeRow): TreeRow[] => row.subRows;
 /** One decoded table cell — a LiteralValue variant ({ type, value }). */
 type TableCellVariant = ValueTypeOf<typeof Table.Types.Cell>;
 
+/** A cell that holds a number — an Integer or a Float. */
+type NumberCell = Extract<TableCellVariant, { type: "Integer" | "Float" }>;
+
 /** East's own order over cells: by kind, then by the kind's values (#954). */
 const compareCell = compareFor(Table.Types.Cell);
 const compareFloat = compareFor(FloatType);
 
-/** A number cell's value as a Float — how an Integer meets a Float. */
-function asFloat(cell: TableCellVariant): number {
-    return typeof cell.value === "bigint" ? Number(cell.value) : (cell.value as number);
-}
+/** How East prints the cells a column prints as they are (#874). */
+const printBoolean = printFor(BooleanType);
+const printDateTime = printFor(DateTimeType);
+const printBlob = printFor(BlobType);
+const printNull = printFor(NullType);
 
 /** Whether a cell holds a number. */
-function isNumberCell(cell: TableCellVariant): boolean {
+function isNumberCell(cell: TableCellVariant): cell is NumberCell {
     return cell.type === "Integer" || cell.type === "Float";
+}
+
+/** A number cell's value as a Float — how an Integer meets a Float. */
+function asFloat(cell: NumberCell): number {
+    return cell.type === "Integer" ? Number(cell.value) : cell.value;
 }
 
 /**
@@ -328,17 +336,23 @@ function compareDrawn(a: TableCellVariant, b: TableCellVariant): number {
  * (`count` counts leaves, in {@link subtotalsOf}.)
  */
 function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVariant {
-    if (cells.length === 0) return variant("Null", null) as TableCellVariant;
+    // A parent with nothing beneath it shows Null: no value, so no aggregate
+    // over its siblings counts it.
+    const shown = cells.filter((c) => c.type !== "Null");
+    if (shown.length === 0) return variant("Null", null) as TableCellVariant;
     if (tag === "sum" || tag === "mean") {
         // Factory-validated: sum/mean columns are Integer or Float.
-        if (tag === "sum" && cells.every((c) => c.type === "Integer")) {
-            return variant("Integer", cells.reduce((sum, c) => sum + (c.value as bigint), 0n)) as TableCellVariant;
+        const numbers = shown.filter(isNumberCell);
+        if (numbers.length === 0) return variant("Null", null) as TableCellVariant;
+        const integers = numbers.flatMap((c) => (c.type === "Integer" ? [c.value] : []));
+        if (tag === "sum" && integers.length === numbers.length) {
+            return variant("Integer", integers.reduce((sum, n) => sum + n, 0n)) as TableCellVariant;
         }
-        const sum = cells.reduce((acc, c) => acc + asFloat(c), 0);
-        return variant("Float", tag === "mean" ? sum / cells.length : sum) as TableCellVariant;
+        const sum = numbers.reduce((acc, c) => acc + asFloat(c), 0);
+        return variant("Float", tag === "mean" ? sum / numbers.length : sum) as TableCellVariant;
     }
-    let best = cells[0]!;
-    for (const c of cells) {
+    let best = shown[0]!;
+    for (const c of shown) {
         const order = compareCell(c, best);
         if (tag === "min" ? order < 0 : order > 0) best = c;
     }
@@ -348,18 +362,21 @@ function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVari
 /** A cell's text when its column has no `render` (#874): a number through the
  *  column's declared `format`, else every digit, never grouped, with the
  *  viewer's decimal separator (`1234.5`, `1234,5` in German; a year stays
- *  `2026`); a string as it is; anything else as East prints it (`print`, the
- *  column's East printer) \u2014 what East's own string interpolation shows. */
-function cellText(cell: TableCellVariant, format: TickFormatOpt, words: Formatters, print: ((value: unknown) => string) | undefined): string {
+ *  `2026`); a string as it is; anything else as East prints it \u2014 what
+ *  East's own string interpolation shows. */
+function cellText(cell: TableCellVariant, format: TickFormatOpt, words: Formatters): string {
     switch (cell.type) {
         case "Integer": return format !== undefined
-            ? words.value(Number(cell.value as bigint), format)
-            : words.bare(cell.value as bigint);
+            ? words.value(Number(cell.value), format)
+            : words.bare(cell.value);
         case "Float": return format !== undefined
-            ? words.value(cell.value as number, format)
-            : words.float(cell.value as number);
-        case "String": return cell.value as string;
-        default: return print?.(cell.value) ?? "";
+            ? words.value(cell.value, format)
+            : words.float(cell.value);
+        case "String": return cell.value;
+        case "Boolean": return printBoolean(cell.value);
+        case "DateTime": return printDateTime(cell.value);
+        case "Blob": return printBlob(cell.value);
+        case "Null": return printNull(cell.value);
     }
 }
 
@@ -559,10 +576,8 @@ const TableCore = function TableCore({
     // `expandedContent` convention).
     const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
     const hasReview = review !== undefined;
-    const reviewStatusFn = useMemo(() => getSomeorUndefined(value.reviewStatus) as
-        ((rowIndex: bigint) => { type: "some" | "none"; value: unknown }) | undefined, [value.reviewStatus]);
-    const reviewApprovalFn = useMemo(() => getSomeorUndefined(value.reviewApproval) as
-        ((rowIndex: bigint) => ApprovalOptionValue) | undefined, [value.reviewApproval]);
+    const reviewStatusFn = useMemo(() => getSomeorUndefined(value.reviewStatus), [value.reviewStatus]);
+    const reviewApprovalFn = useMemo(() => getSomeorUndefined(value.reviewApproval), [value.reviewApproval]);
     const reviewVerdicts = useMemo<ReviewVerdicts>(
         () => ({ rows: sourceRows, verdicts: sourceRows.map((_row: TableRowValue, i: number) => reviewApprovalFn?.(BigInt(i))) }),
         [sourceRows, reviewApprovalFn],
@@ -586,16 +601,14 @@ const TableCore = function TableCore({
     // the row's own cell — so a sort orders parents by what they show (#954).
     const columns = useMemo<ColumnDef<TreeRow, TableCellValue | undefined>[]>(() => {
         return value.columns.map((col) => {
-            const print = printFor(col.valueType);
-
             // Extract width values from column config
             const width = getSomeorUndefined(col.width);
             const minWidth = getSomeorUndefined(col.minWidth);
             const maxWidth = getSomeorUndefined(col.maxWidth);
             // Without a `render`, the cell prints itself — through the
             // column's `format` for a number (#874).
-            const renderFn = getSomeorUndefined(col.render) as ColumnRenderFn | undefined;
-            const format = getSomeorUndefined(col.format) as TickFormatOpt;
+            const renderFn = getSomeorUndefined(col.render);
+            const format = getSomeorUndefined(col.format);
 
             return columnHelper.accessor(
                 (row) => subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key),
@@ -619,7 +632,6 @@ const TableCore = function TableCore({
                     size: parseSize(width, 150),
                     maxSize: parseSize(maxWidth, 400),
                     meta: {
-                        print: print as any,
                         columnKey: col.key,
                         width,
                         minWidth,
@@ -666,15 +678,10 @@ const TableCore = function TableCore({
     //      (controlled-component pattern, see `useEffect` below)
     //   2. honours `mode` (single / multiple / range) when toggling
     //   3. calls the East-side `onChange` with the new index list
-    const selectionConfig = getSomeorUndefined(value.selection) as undefined | {
-        mode: { type: "single" | "multiple" | "range" };
-        // `selected` and `onChange` live on the IR as plain types (not
-        // wrapped in OptionType) — both required when selection is
-        // defined.
-        selected: bigint[];
-        onChange: (idxs: bigint[]) => null;
-    };
-    const selectionMode = selectionConfig?.mode?.type;
+    // `selected` and `onChange` live on the IR as plain types (not wrapped in
+    // OptionType) — both required when selection is defined.
+    const selectionConfig = getSomeorUndefined(value.selection);
+    const selectionMode = selectionConfig?.mode.type;
     const selectionSelected = selectionConfig?.selected;
     const selectionOnChange = selectionConfig?.onChange;
 
@@ -844,14 +851,9 @@ const TableCore = function TableCore({
     // the renderer slices `rows` to the current page on the JS side
     // and renders a small pager beneath the table. Virtualization
     // remains active but only across the page slice.
-    const paginationConfig = getSomeorUndefined(value.pagination) as undefined | {
-        pageSize: bigint;
-        page: bigint;
-        // `onPageChange` lives on the IR as a plain `FunctionType` (not
-        // wrapped in OptionType) — it's required when pagination is
-        // defined.
-        onPageChange: (page: bigint) => null;
-    };
+    // `onPageChange` lives on the IR as a plain `FunctionType` (not wrapped in
+    // OptionType) — it's required when pagination is defined.
+    const paginationConfig = getSomeorUndefined(value.pagination);
     const pageSize = paginationConfig ? Number(paginationConfig.pageSize) : undefined;
     // Page index is 0-based per the IR (`TablePaginationType.page` doc).
     const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
@@ -1625,8 +1627,7 @@ const TableCore = function TableCore({
                                     // decisionCol (quiet status dot + Approve/Reject pair),
                                     // acting on the row's pre-order index.
                                     if (cell.column.id === REVIEW_COLUMN_ID && reviewController !== undefined) {
-                                        const dotTag = (reviewStatusFn?.(rowIndex) as { type: string; value: { type?: string } | null } | undefined);
-                                        const statusTag = dotTag?.type === "some" ? (dotTag.value as { type: string }).type : undefined;
+                                        const statusTag = reviewStatusFn === undefined ? undefined : getSomeorUndefined(reviewStatusFn(rowIndex))?.type;
                                         return (
                                             <ChakraTable.Cell
                                                 key={cell.id}
@@ -1757,7 +1758,7 @@ const TableCore = function TableCore({
                                         >
                                             {lead}
                                             <Text css={tableCustomSlots.cellText}>
-                                                {isCount ? words.number(cellValue.value as bigint) : cellText(cellValue, meta?.format, words, meta?.print)}
+                                                {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : cellText(cellValue, meta?.format, words)}
                                             </Text>
                                         </ChakraTable.Cell>
                                     );
@@ -1784,7 +1785,7 @@ const TableCore = function TableCore({
                                         padding="3"
                                     >
                                         <EastChakraComponent
-                                            value={detail as Parameters<typeof EastChakraComponent>[0]["value"]}
+                                            value={detail}
                                             storageKey={detailKey}
                                         />
                                     </Box>
@@ -1801,10 +1802,10 @@ const TableCore = function TableCore({
                     cell carries `content?: UIComponent` and `colSpan?: number`. */}
                 {(() => {
                     const singleFooter = getSomeorUndefined(value.footer);
-                    const multiFooterRows = getSomeorUndefined(value.footerRows);
-                    const footerRows: Array<Map<string, { content: any; colSpan: any }>> = [];
-                    if (singleFooter) footerRows.push(singleFooter as any);
-                    if (multiFooterRows) for (const r of multiFooterRows) footerRows.push(r as any);
+                    const footerRows = [
+                        ...(singleFooter !== undefined ? [singleFooter] : []),
+                        ...(getSomeorUndefined(value.footerRows) ?? []),
+                    ];
                     if (footerRows.length === 0) return null;
                     return (
                         <ChakraTable.Footer style={{ display: "block" }}>
@@ -1818,7 +1819,7 @@ const TableCore = function TableCore({
                                 for (let i = 0; i < value.columns.length; i++) {
                                     if (skip > 0) { skip--; continue; }
                                     const colKey = value.columns[i]!.key;
-                                    const cellEntry = rowMap.get?.(colKey);
+                                    const cellEntry = rowMap.get(colKey);
                                     const span = cellEntry ? Number(getSomeorUndefined(cellEntry.colSpan) ?? 1n) : 1;
                                     skip = span - 1;
                                     const widthVar = Array.from({ length: span }, (_, k) =>
@@ -1857,9 +1858,9 @@ const TableCore = function TableCore({
                                     const content = cellEntry?.content;
                                     cells.push(
                                         <ChakraTable.Cell key={`${rowIdx}-${colKey}`} css={tableSlotStyles.cell} style={cellStyle}>
-                                            {content ? (
+                                            {content !== undefined ? (
                                                 <EastChakraComponent
-                                                    value={content as Parameters<typeof EastChakraComponent>[0]["value"]}
+                                                    value={content}
                                                     storageKey={`${storageKey}.footer.${rowIdx}.${colKey}`}
                                                 />
                                             ) : null}
@@ -1951,9 +1952,8 @@ const TableCore = function TableCore({
  * narrows its own data.
  */
 export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTableProps) {
-    const chrome = getSomeorUndefined(props.value.slice as never) as
-        { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined;
-    const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
+    const chrome = getSomeorUndefined(props.value.slice);
+    const slice = chrome?.slice;
     useSliceReactivity(slice?.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
     // The footer's counts, in the app's locale (#850).
@@ -1973,7 +1973,7 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     // intact (#809). A paged source keeps its fresh closures above.
     const dataRows = useDataStable(props.value, tableRootDataEqual).rows;
     const rows = useMemo(
-        () => (dataRows.type === "inline" ? (dataRows.value as TableRowValue[]) : paged.rows),
+        () => (dataRows.type === "inline" ? dataRows.value : paged.rows),
         [dataRows, paged.rows],
     );
     // The pager pages TOP-LEVEL rows, each with its subtree (#954).
@@ -2002,15 +2002,13 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const state = slice.read();
     const configuredKinds = chrome.affordances.map(a => a.type);
     const affordanceKinds = railAffordanceKinds(configuredKinds, state);
-    const total = Number(slice.totalCount() as bigint);
-    const result = Number(slice.resultCount() as bigint);
+    const total = Number(slice.totalCount());
+    const result = Number(slice.resultCount());
     const pct = total > 0 ? Math.round((1 - result / total) * 100) : 0;
 
     // With pagination enabled the pager joins the chrome footer (count left,
     // pager right) — one band, not two.
-    const paginationConfig = getSomeorUndefined(props.value.pagination) as undefined | {
-        pageSize: bigint; page: bigint; onPageChange?: (page: bigint) => void;
-    };
+    const paginationConfig = getSomeorUndefined(props.value.pagination);
     const pageSize = paginationConfig ? Number(paginationConfig.pageSize) : 0;
     const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
     const totalPages = paginationConfig ? Math.max(1, Math.ceil(topLevelRows / pageSize)) : 1;

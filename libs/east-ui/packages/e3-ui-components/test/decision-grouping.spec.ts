@@ -6,43 +6,39 @@
 /**
  * Unit tests for the `DecisionQueue` grouping fold (issue #291) — section
  * order, per-section roll-ups, the routine section's bulk flag, custom
- * accessor facets, and the flat (`none`) degenerate case.
+ * accessor facets, and the flat (`none`) degenerate case — and for the queue's
+ * order. Rows are real `DecisionType` values, decoded from East's own
+ * encoding as the queue holds them.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { variant, none } from "@elaraai/east";
-import { URGENCY_GROUP_LABEL, buildGroups, type GroupOption } from "../src/decision/grouping.js";
+import { decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { DecisionType } from "@elaraai/e3-ui/internal";
+import { URGENCY_GROUP_LABEL, buildGroups, compareByUrgency, type GroupOption } from "../src/decision/grouping.js";
 import type { Decision } from "../src/decision/types.js";
+
+const encodeDecision = encodeBeast2For(DecisionType);
+const decodeDecision = decodeBeast2For(DecisionType);
+
+/** A decision as the queue holds it: decoded from East's own encoding, every
+ *  optional field absent unless given. */
+function decision(d: Pick<Decision, "id" | "kind" | "urgency" | "value"> & Partial<Decision>): Decision {
+    return decodeDecision(encodeDecision({
+        title: d.id, deadline: none, format: none, valueAxis: none, summary: none, downside: none,
+        confidence: none, detail: none, stakes: none, prompts: [], levers: [], evidence: [], alternatives: [],
+        ...d,
+    }));
+}
 
 /** Rows in the order the queue feeds them: urgency-sorted. */
 const ROWS = [
-    {
-        id: "a", kind: "roster", title: "a", urgency: variant("overdue", null), value: 80000,
-        deadline: none, format: none, valueAxis: none, summary: none, downside: none,
-        confidence: none, detail: none, stakes: none, prompts: [], levers: [], evidence: [], alternatives: [],
-    },
-    {
-        id: "b", kind: "reorder", title: "b", urgency: variant("overdue", null), value: 42000,
-        deadline: none, format: none, valueAxis: none, summary: none, downside: none,
-        confidence: none, detail: none, stakes: none, prompts: [], levers: [], evidence: [], alternatives: [],
-    },
-    {
-        id: "c", kind: "reorder", title: "c", urgency: variant("due", null), value: 128000,
-        deadline: none, format: none, valueAxis: none, summary: none, downside: none,
-        confidence: none, detail: none, stakes: none, prompts: [], levers: [], evidence: [], alternatives: [],
-    },
-    {
-        id: "d", kind: "roster", title: "d", urgency: variant("routine", null), value: 1200,
-        deadline: none, format: none, valueAxis: none, summary: none, downside: none,
-        confidence: none, detail: none, stakes: none, prompts: [], levers: [], evidence: [], alternatives: [],
-    },
-    {
-        id: "e", kind: "forecast", title: "e", urgency: variant("routine", null), value: 2,
-        deadline: none, format: none, valueAxis: none, summary: none, downside: none,
-        confidence: none, detail: none, stakes: none, prompts: [], levers: [], evidence: [], alternatives: [],
-    },
-] as unknown as Decision[];
+    decision({ id: "a", kind: "roster", urgency: variant("overdue", null), value: 80000 }),
+    decision({ id: "b", kind: "reorder", urgency: variant("overdue", null), value: 42000 }),
+    decision({ id: "c", kind: "reorder", urgency: variant("due", null), value: 128000 }),
+    decision({ id: "d", kind: "roster", urgency: variant("routine", null), value: 1200 }),
+    decision({ id: "e", kind: "forecast", urgency: variant("routine", null), value: 2 }),
+];
 
 const urgencyOption: GroupOption = { key: "urgency", label: "Urgency" };
 const kindOption: GroupOption = { key: "kind", label: "Kind" };
@@ -96,4 +92,31 @@ test("the none option is the flat degenerate case: one unlabelled section", () =
     assert.equal(groups[0]!.label, "");
     assert.equal(groups[0]!.decisions.length, ROWS.length);
     assert.equal(groups[0]!.bulk, false);
+});
+
+test("the queue orders by urgency, then the nearest deadline — none last — then the greater value", () => {
+    const at = (h: number) => some(new Date(Date.UTC(2026, 5, 29, h)));
+    const rows = [
+        decision({ id: "routine", kind: "k", urgency: variant("routine", null), value: 9e9 }),
+        decision({ id: "due-none", kind: "k", urgency: variant("due", null), value: 1 }),
+        decision({ id: "due-16", kind: "k", urgency: variant("due", null), value: 1, deadline: at(16) }),
+        decision({ id: "due-09-small", kind: "k", urgency: variant("due", null), value: 5, deadline: at(9) }),
+        decision({ id: "due-09-big", kind: "k", urgency: variant("due", null), value: 50, deadline: at(9) }),
+        decision({ id: "overdue", kind: "k", urgency: variant("overdue", null), value: 0 }),
+    ];
+    assert.deepEqual([...rows].sort(compareByUrgency).map(d => d.id),
+        ["overdue", "due-09-big", "due-09-small", "due-16", "due-none", "routine"]);
+});
+
+test("values tie-break as East orders Floats — a NaN takes one place, and the order is the same whatever order rows arrive in", () => {
+    const rows = [
+        decision({ id: "one", kind: "k", urgency: variant("due", null), value: 1 }),
+        decision({ id: "unknown", kind: "k", urgency: variant("due", null), value: NaN }),
+        decision({ id: "two", kind: "k", urgency: variant("due", null), value: 2 }),
+    ];
+    // Greatest first; East orders NaN above every number.
+    const expected = ["unknown", "two", "one"];
+    for (const order of [[0, 1, 2], [2, 1, 0], [1, 0, 2], [0, 2, 1]]) {
+        assert.deepEqual(order.map(i => rows[i]!).sort(compareByUrgency).map(d => d.id), expected);
+    }
 });

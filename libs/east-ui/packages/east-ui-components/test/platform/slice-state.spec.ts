@@ -55,7 +55,7 @@ test("clearFilters clears the range narrowing but LEAVES the legend whitelist (v
     buildSliceHandle("r", cfg, initial, [{ id: "a" }, { id: "b" }], none);
 
     call("slice_set_visible", "r", some(new Set(["a"])));     // presentation — not a narrowing
-    call("slice_add_filter", "r", { type: "string", value: { fieldId: "id", op: { type: "eq", value: "a" } } });
+    call("slice_add_filter", "r", variant("string", { fieldId: "id", op: variant("eq", "a") }));
     assert.equal(call("slice_active_count", "r"), 1n);        // only the filter counts (visible doesn't)
 
     call("slice_clear_filters", "r");
@@ -328,6 +328,31 @@ test("boundRangeHistogram over a half-open EXTENT counts each period once — th
     // The extent is half-open: a value at or past its max counts in no bin.
     assert.deepEqual(boundRangeHistogram("hist.extent", 2, { min: 1, max: 3 }), [2, 2]);
     assert.deepEqual(boundRangeHistogram("hist.extent", 2, { min: 3, max: 5 }), [2, 2]);
+});
+
+test("slice_cohort_counts is an East Dict — its cohorts iterate in East's key order, not the order they were defined", () => {
+    initializeStore(new UIStore());
+    buildSliceHandle("cc.order", cfg, initial, [{ id: "a" }, { id: "b" }], none);
+    call("slice_define_cohort", "cc.order", { id: "zeta", name: "Zeta", group: none, filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+    call("slice_define_cohort", "cc.order", { id: "alpha", name: "Alpha", group: none, filters: [] });
+
+    const counts = call("slice_cohort_counts", "cc.order") as Map<string, bigint>;
+    assert.deepEqual([...counts.keys()], ["alpha", "zeta"]);
+    assert.equal(counts.get("alpha"), 2n);
+    assert.equal(counts.get("zeta"), 1n);
+});
+
+test("the brush domain reads each range value by the field's kind — a value of another type is not on it", () => {
+    initializeStore(new UIStore());
+    const intCfg = {
+        fields: new Map([["qty", { type: "integer", value: { accessor: (r: { qty: unknown }) => r.qty } }]]),
+        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
+    };
+    // An untyped row with a String where the Integer field belongs: `Number("50")`
+    // used to stretch the domain to 50.
+    buildSliceHandle("dom.kind", intCfg, initial, [{ qty: 5n }, { qty: 20n }, { qty: "50" }, { qty: undefined }], none);
+    assert.deepEqual(boundRangeDomain("dom.kind"), { kind: "integer", min: 5, max: 20 });
+    assert.deepEqual(boundRangeHistogram("dom.kind", 3), [1, 0, 1]);
 });
 
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {

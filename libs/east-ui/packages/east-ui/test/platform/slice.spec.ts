@@ -19,9 +19,15 @@ import {
     BooleanType,
     StructType,
     ArrayType,
+    SortedSet,
+    compareFor,
+    decodeBeast2For,
+    encodeBeast2For,
+    equalFor,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { type ExprType } from "@elaraai/east";
-import { Slice, SliceApplyImpl, sliceBreakdown, sliceFields, sliceFieldText, sliceMatches, sliceSeries } from "@elaraai/east-ui/internal";
+import { Slice, SliceApplyImpl, readSliceGroupKey, sliceBreakdown, sliceFields, sliceFieldText, sliceGroupKey, sliceMatches, slicePredicateMatches, sliceSeries } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
@@ -1242,6 +1248,19 @@ describeEast("Slice", (test) => {
         $(Assert.equal(bd.get(0n).key, "2023-06-01T00:00:00.000Z"));
     });
 
+    test("apply.breakdown: a float breakdown key is the Float as East prints it — -0.0 and 0.0 are two groups", $ => {
+        const RowType = StructType({ x: FloatType });
+        const cfg = $.let(Slice.config(RowType, { fields: { x: { label: "X" } }, breakdownFieldIds: ["x"] }));
+        const state = $.const(Slice.state({ breakdown: some({ fieldId: "x", limit: none }) }));
+        const data = $.const([{ x: 42.0 }, { x: 42.0 }, { x: 0.0 }, { x: -0.0 }], ArrayType(RowType));
+        const bd = $.let(Slice.apply.breakdown([RowType], state, cfg, data), ArrayType(Slice.Types.BreakdownGroup));
+        $(Assert.equal(bd.length(), 3n));
+        $(Assert.equal(bd.get(0n).key, "42.0"));
+        $(Assert.equal(bd.get(0n).count, 2n));
+        $(Assert.equal(bd.get(1n).key, "0.0"));
+        $(Assert.equal(bd.get(2n).key, "-0.0"));
+    });
+
     test("apply.breakdown: a non-positive top-N limit means 'no limit' (no collapse into one 'other' bucket)", $ => {
         const RowType = StructType({ region: StringType });
         const cfg = $.let(Slice.config(RowType, { fields: { region: { label: "Region" } }, breakdownFieldIds: ["region"] }));
@@ -1546,6 +1565,94 @@ pureTest("sliceSeries applies the top-N limit roll-up identically to sliceBreakd
     const onlyOther = sliceSeries(visibleState, engineConfig, rows, "day", "sessions", now);
     nodeAssert.equal(onlyOther.length, 1);
     nodeAssert.equal(onlyOther[0]!.key, "other");
+});
+
+// ===========================================================================
+// Group keys are spelled and read through East — a facet gesture (Slice.Legend,
+// Slice.Breakdown) reads a group's key back into the value it names.
+// ===========================================================================
+
+pureTest("a group key spells a value as East does, and reads back to the same East value", () => {
+    const equalInstants = equalFor(DateTimeType);
+    const instant = new Date(Date.UTC(2026, 0, 2, 3, 4, 5, 6));
+    // A String as itself; an Integer and a Boolean as East prints them; a
+    // DateTime as its ISO-8601 UTC instant.
+    nodeAssert.equal(sliceGroupKey("EU"), "EU");
+    nodeAssert.equal(sliceGroupKey(9007199254740993n), "9007199254740993");
+    nodeAssert.equal(sliceGroupKey(false), "false");
+    nodeAssert.equal(sliceGroupKey(instant), "2026-01-02T03:04:05.006Z");
+    // A Float as East prints it — so -0.0 and 0.0, two East values, key apart.
+    nodeAssert.equal(sliceGroupKey(42), "42.0");
+    nodeAssert.equal(sliceGroupKey(-0), "-0.0");
+    nodeAssert.equal(sliceGroupKey(0), "0.0");
+    // Each key reads back to the value it names.
+    nodeAssert.equal(readSliceGroupKey("string", sliceGroupKey("EU")), "EU");
+    nodeAssert.equal(readSliceGroupKey("integer", sliceGroupKey(9007199254740993n)), 9007199254740993n);
+    nodeAssert.equal(readSliceGroupKey("boolean", sliceGroupKey(false)), false);
+    nodeAssert.ok(equalInstants(readSliceGroupKey("datetime", sliceGroupKey(instant))!, instant));
+});
+
+pureTest("a key that is not its kind's spelling names no value — where BigInt and new Date would read one", () => {
+    nodeAssert.equal(readSliceGroupKey("integer", ""), undefined);                          // BigInt("") is 0n
+    nodeAssert.equal(readSliceGroupKey("integer", "0x10"), undefined);                      // BigInt("0x10") is 16n
+    nodeAssert.equal(readSliceGroupKey("integer", "9223372036854775808"), undefined);       // past 64 bits
+    nodeAssert.equal(readSliceGroupKey("boolean", "True"), undefined);
+    nodeAssert.equal(readSliceGroupKey("datetime", "2026-01-02"), undefined);               // a date alone
+    nodeAssert.equal(readSliceGroupKey("datetime", "2026-01-02T03:04:05.006"), undefined);  // no zone: new Date reads local time
+});
+
+// ===========================================================================
+// One clause, tested as the engine tests it — exported, so a surface that
+// narrows by a Slice clause outside a bound slice (the Experiment's population)
+// narrows exactly as the Slice does. Clauses are decoded from East's own
+// encoding, as a surface holds them.
+// ===========================================================================
+
+type Clause = ValueTypeOf<typeof Slice.Types.Predicate>;
+const encodeClause = encodeBeast2For(Slice.Types.Predicate);
+const decodeClause = decodeBeast2For(Slice.Types.Predicate);
+const clause = (c: Clause): Clause => decodeClause(encodeClause(c));
+
+pureTest("a clause compares as East does — every digit of an Integer, a DateTime's bounds inclusive", () => {
+    const big = 9007199254740993n;
+    // As floats the two are one number, so a float comparison cannot order them.
+    nodeAssert.equal(Number(big), Number(big - 1n));
+    nodeAssert.equal(slicePredicateMatches(clause(variant("integer", { fieldId: "n", op: variant("gt", big - 1n) })), { n: big }), true);
+    nodeAssert.equal(slicePredicateMatches(clause(variant("integer", { fieldId: "n", op: variant("lte", big - 1n) })), { n: big }), false);
+
+    const from = new Date(Date.UTC(2026, 0, 1));
+    const to = new Date(Date.UTC(2026, 0, 31));
+    const between = clause(variant("datetime", { fieldId: "at", op: variant("between", { from, to }) }));
+    nodeAssert.equal(slicePredicateMatches(between, { at: new Date(from) }), true);
+    nodeAssert.equal(slicePredicateMatches(between, { at: new Date(to) }), true);
+    nodeAssert.equal(slicePredicateMatches(between, { at: new Date(to.getTime() + 1) }), false);
+    nodeAssert.equal(slicePredicateMatches(clause(variant("datetime", { fieldId: "at", op: variant("before", to) })), { at: from }), true);
+    nodeAssert.equal(slicePredicateMatches(clause(variant("datetime", { fieldId: "at", op: variant("after", to) })), { at: from }), false);
+});
+
+pureTest("a String clause: membership in its East Set, and every text operator", () => {
+    const holds = (op: ValueTypeOf<typeof Slice.Types.StringOp>, s: string): boolean =>
+        slicePredicateMatches(clause(variant("string", { fieldId: "s", op })), { s });
+    const regions = new SortedSet(["EU", "US"], compareFor(StringType));
+    nodeAssert.equal(holds(variant("in", regions), "US"), true);
+    nodeAssert.equal(holds(variant("notIn", regions), "US"), false);
+    nodeAssert.equal(holds(variant("contains", "ort"), "North"), true);
+    nodeAssert.equal(holds(variant("startsWith", "No"), "North"), true);
+    nodeAssert.equal(holds(variant("endsWith", "No"), "North"), false);
+    nodeAssert.equal(holds(variant("matches", "^N.*h$"), "North"), true);
+    nodeAssert.equal(holds(variant("matches", "("), "North"), false);        // a half-typed pattern narrows to nothing
+    nodeAssert.equal(holds(variant("isEmpty", null), "  "), true);
+    nodeAssert.equal(holds(variant("isNotEmpty", null), "  "), false);
+});
+
+pureTest("a value of another type, or a field the row lacks, never satisfies a clause", () => {
+    const five = clause(variant("integer", { fieldId: "n", op: variant("eq", 5n) }));
+    nodeAssert.equal(slicePredicateMatches(five, { n: 5n }), true);
+    nodeAssert.equal(slicePredicateMatches(five, { n: 5 }), false);           // a Float is no Integer
+    nodeAssert.equal(slicePredicateMatches(five, { m: 5n }), false);          // no `n`
+    const shipped = clause(variant("boolean", { fieldId: "b", op: variant("is", true) }));
+    nodeAssert.equal(slicePredicateMatches(shipped, { b: true }), true);
+    nodeAssert.equal(slicePredicateMatches(shipped, { b: "true" }), false);
 });
 
 // ===========================================================================

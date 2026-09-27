@@ -10,7 +10,7 @@ import { findIconDefinition, library } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faBullseye, faCaretRight, faChevronLeft, faChevronRight, faExpand, faEye, faEyeSlash, faHand, faLayerGroup, faLink, faLock, faLockOpen, faMinus, faUpDownLeftRight, faObjectGroup, faObjectUngroup, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { equalFor, equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { Schematic, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
+import { Schematic, type UIComponentType } from "@elaraai/east-ui/internal";
 import type { IconName } from "@fortawesome/fontawesome-common-types";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -313,9 +313,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // Optional Slice chrome — a full-width top-edge rail (replaces the built-in
     // navigator search; #128). The narrowing itself is fed upstream via
     // `Slice.rows` into `items`, the same "chrome only" model Table/Chart use.
-    const sliceChrome = getSomeorUndefined(value.slice) as
-        { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined;
-    const sliceHandle = sliceChrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
+    const sliceChrome = getSomeorUndefined(value.slice);
+    const sliceHandle = sliceChrome?.slice;
     // The version bumps only when the slice is mutated — used below to rebuild the
     // slice chrome ONLY on slice changes, never on the per-frame camera re-render.
     const sliceVersion = useSliceReactivity(sliceHandle?.key);
@@ -504,7 +503,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 // flag the write so the frameFit effect doesn't fire a competing
                 // flyTo when the resulting frameSig change lands (#173).
                 if (ctx.selectZoomFocus) selectionDrivenFitRef.current = true;
-                ctx.sliceHandle.write(sliceWithSelection(cur, ctx.sliceSelectField, [...next].sort()));
+                ctx.sliceHandle.write(sliceWithSelection(cur, ctx.sliceSelectField, next));
             }
         }
     }, []);
@@ -2524,7 +2523,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                         style={{
                                             left: 0, top: 0,
                                             transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
-                                            ...(typeof width === "number" ? { width: cardWidthCss(width) } : {}),
+                                            ...(width !== undefined ? { width: cardWidthCss(width) } : {}),
                                             ...(cardOpacity < 1 ? { opacity: cardOpacity } : {}),
                                             ...(isExcludedCard && excludedDesaturate ? { filter: "grayscale(1)" } : {}),
                                             ...(isLockedCard ? { pointerEvents: "none" as const } : {}),

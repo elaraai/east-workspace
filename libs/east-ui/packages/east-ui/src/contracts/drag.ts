@@ -27,16 +27,17 @@ import {
 // | Roster  | person key       | day key (e.g. `"wed"`)                        |
 // | Board   | area key         | shift key                                     |
 // | Blend   | target key       | `"alloc"` (synthetic single slot)             |
-// | Plan    | the row id's canonical text (#822) | the pointed-at bucket's START instant, per the axis kind (#631): `time` ⇒ the Z-less ISO instant; `number` ⇒ the bucket start as a decimal; `ordinal` ⇒ the value |
+// | Plan    | the row id's canonical text (#822) | the pointed-at bucket's START instant, per the axis kind (#631): `time` ⇒ the Z-less ISO instant; `number` ⇒ the bucket start as East prints a Float; `ordinal` ⇒ the value |
 //
 // The composite rule: if a target's slot subdivides, the sub-slot key is
 // appended with `":"` — the same composite key the renderer uses to index its
 // cells. (No current target subdivides: the Plan reports the bucket START
 // instant and leaves lane placement to the receiving series.) Axis coordinates
-// that are not strings (numbers, datetimes) are printed canonically: numbers
-// via their decimal form (`slot.parse(FloatType)`), datetimes as the snapped
-// ISO-8601 instant (`slot.parse(DateTimeType)`); an ordinal slot IS the value.
-// Hosts map keys straight back to their source data.
+// that are not strings (numbers, datetimes) are printed as East prints them: a
+// number as a Float (`12.0`, read back with `slot.parse(FloatType)`), a
+// datetime as the snapped UTC instant (`2026-07-06T00:00:00.000`, read back
+// with `slot.parse(DateTimeType)`); an ordinal slot IS the value. Hosts map
+// keys straight back to their source data.
 //
 // The Plan prints every slot through the shared codecs
 // (`east-ui-components/src/dnd/slot-key.ts`, composed per axis arm in

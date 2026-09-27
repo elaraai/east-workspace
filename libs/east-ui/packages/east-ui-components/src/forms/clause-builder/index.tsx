@@ -24,7 +24,23 @@
 
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
-import { some, none, variant, isEastSet } from "@elaraai/east";
+import {
+    BooleanType,
+    DateTimeType,
+    FloatType,
+    IntegerType,
+    StringType,
+    defaultValue,
+    isEastSet,
+    lessFor,
+    none,
+    parseFor,
+    printFor,
+    some,
+    toEastTypeValue,
+    variant,
+    type EastType,
+} from "@elaraai/east";
 import { useDensity } from "../../contracts/density.js";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { EastChakraSelect } from "../select/index.js";
@@ -33,6 +49,18 @@ import { EastChakraTagsInput } from "../tags-input/index.js";
 
 /** The primitive kinds a clause field can have. */
 export type ClauseKind = "string" | "integer" | "float" | "datetime" | "boolean";
+
+/** Each clause kind's East type — what a control of that kind produces. */
+const KIND_TYPE = {
+    string: StringType,
+    integer: IntegerType,
+    float: FloatType,
+    datetime: DateTimeType,
+    boolean: BooleanType,
+} as const satisfies Record<ClauseKind, EastType>;
+
+const readInteger = parseFor(IntegerType);
+const printInteger = printFor(IntegerType);
 
 /** One authorable field: id (the clause's subject), display label, kind, and
  *  optional autocomplete hints for the set / string value controls (#131). */
@@ -103,57 +131,49 @@ function selectValue(
 /** A set-op value merged with the TagsInput's in-flight text (#194): text a
  *  user typed or picked from the suggestions but never Enter-committed into a
  *  tag still counts — validity and submit both see it. */
-function withPending(tags: unknown, pending: string): unknown[] {
-    const arr = tags as unknown[];
+function withPending(tags: unknown, pending: string): string[] {
+    const arr = tags as string[];
     const p = pending.trim();
     return p !== "" ? [...arr, p] : arr;
+}
+
+/** A value of `kind` for a control to start from: East's default for the
+ *  kind's type, except a date, which opens on now rather than East's epoch. */
+function initialFor(kind: ClauseKind): unknown {
+    return kind === "datetime" ? new Date() : defaultValue(KIND_TYPE[kind]);
 }
 
 function emptyValue(kind: ClauseKind, input: ClauseOpSpec["input"]): unknown {
     if (input === "set") return [] as string[];
     if (input === "none") return null;
-    if (input === "range") {
-        if (kind === "integer") return { min: 0n, max: 0n };
-        if (kind === "datetime") return { min: new Date(), max: new Date() };
-        return { min: 0, max: 0 };
-    }
-    if (kind === "integer") return 0n;
-    if (kind === "float") return 0;
-    if (kind === "datetime") return new Date();
-    if (kind === "boolean") return false;
-    return "";
+    if (input === "range") return { min: initialFor(kind), max: initialFor(kind) };
+    return initialFor(kind);
 }
 
 /**
  * Why the in-progress value cannot produce a meaningful clause, or `undefined`
  * when it can. Drives the submit button's `disabled` + the inline hint so a
- * click is never a silent no-op (#164). Values here are the raw JS values the
- * controls produce (string / bigint / number / Date / string[] / {min,max}),
- * not decoded East values.
+ * click is never a silent no-op (#164). A single or range value is a value of
+ * the kind's East type, as its typed control produces it; a set's entries are
+ * the TagsInput's strings (a seed's members arrive as East prints them).
  */
 function invalidReason(kind: ClauseKind, input: ClauseOpSpec["input"], value: unknown): string | undefined {
     if (input === "none") return undefined;
     if (input === "set") {
-        // Entries are strings from the TagsInput, but an edit seed may carry
-        // typed members (bigints from an integer in-set) — stringify, never
-        // assume (`bigint.trim` is not a function).
-        const entries = (value as unknown[]).map(s => String(s).trim()).filter(Boolean);
+        const entries = (value as string[]).map(s => s.trim()).filter(Boolean);
         if (entries.length === 0) return "Enter at least one value.";
-        if (kind === "integer" && !entries.some(e => { try { BigInt(e); return true; } catch { return false; } })) {
+        // East reads each entry: a whole number in 64-bit range.
+        if (kind === "integer" && !entries.some(e => readInteger(e).success)) {
             return "Enter at least one whole number.";
         }
         return undefined;
     }
     if (input === "range") {
+        // East's order over the kind's type — a start past its end is refused.
         const { min, max } = value as { min: unknown; max: unknown };
-        const inverted = min instanceof Date && max instanceof Date
-            ? min.getTime() > max.getTime()
-            : (typeof min === "bigint" && typeof max === "bigint") || (typeof min === "number" && typeof max === "number")
-                ? min > max
-                : false;
-        return inverted ? "Start must not exceed end." : undefined;
+        return lessFor(toEastTypeValue(KIND_TYPE[kind]))(max, min) ? "Start must not exceed end." : undefined;
     }
-    if (kind === "string" && String(value ?? "").trim() === "") return "Enter a value.";
+    if (kind === "string" && (value as string).trim() === "") return "Enter a value.";
     return undefined;
 }
 
@@ -182,10 +202,12 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     // control's payload identity-stable per field/op (and remounting on
     // field/op change via `key`) means typing never round-trips through a
     // parent re-render — which would reset the control mid-edit.
-    // A Set seed becomes the TagsInput's string entries regardless of member
-    // type (bigints round-trip back through the consumer's submit conversion).
+    // A Set seed becomes the TagsInput's string entries: an Integer member as
+    // East prints it (the consumer's submit reads it back through East).
     const seedValue = initial !== undefined
-        ? (isEastSet(initial.value) ? [...initial.value].map(v => String(v)) : initial.value)
+        ? (isEastSet(initial.value)
+            ? [...initial.value].map(member => (kind === "integer" ? printInteger(member as bigint) : member as string))
+            : initial.value)
         : emptyValue(kind, input);
     const valRef = useRef<unknown>(seedValue);
     // Validity mirrors valRef for the submit button + hint. Commits call
@@ -229,7 +251,7 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
         if (invalidReason(kind, input, effective) !== undefined) return;
         let value: unknown = effective;
         if (input === "set") {
-            value = [...new Set((effective as unknown[]).map(s => String(s).trim()).filter(Boolean))];
+            value = [...new Set((effective as string[]).map(s => s.trim()).filter(Boolean))];
         }
         onSubmit({ fieldId: field.id, kind, op: op.tag, value });
     };
@@ -255,7 +277,7 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
                     // picker's Custom inputs keep full datetime precision.)
                     return <EastChakraDateTimeInput key={key} value={{ value: val as Date, precision: some(variant("date", null)), onChange: some(onChange), style: inputStyle } as never} />;
                 default:
-                    return <EastChakraStringInput key={key} value={{ value: String(val ?? ""), onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraStringInput key={key} value={{ value: (val as string | undefined) ?? "", onChange: some(onChange), style: inputStyle } as never} />;
             }
         };
         const range = v as { min?: unknown; max?: unknown } | undefined;
@@ -298,7 +320,7 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
                 key={controlKey}
                 ariaLabel="Value"
                 value={selectValue(
-                    String(valRef.current),
+                    valRef.current === true ? "true" : "false",
                     [{ value: "true", label: "true" }, { value: "false", label: "false" }],
                     v => { commit(v === "true"); },
                     controlSize,

@@ -49,9 +49,14 @@
 
 import {
     some, none, variant,
-    equalFor, lessFor, lessEqualFor, greaterFor, greaterEqualFor, isValueOf,
+    equalFor, lessFor, lessEqualFor, greaterFor, greaterEqualFor, isValueOf, parseFor, printFor,
     StringType, IntegerType, FloatType, DateTimeType, BooleanType,
+    type ValueTypeOf,
 } from "@elaraai/east";
+import { formatDateTime, parseDateTimeFormatted, tokenizeDateTimeFormat } from "@elaraai/east/internal";
+import type {
+    SliceBooleanOpType, SliceDateTimeOpType, SliceFloatOpType, SliceIntegerOpType, SlicePredicateType, SliceStringOpType,
+} from "./index.js";
 
 // Module-scope comparators — East-typed, instantiated once. Routing every
 // op through these gives correct NaN / total-order / BigInt semantics.
@@ -74,9 +79,12 @@ const eqBoolean   = equalFor(BooleanType);
 // Predicate dispatch — outer variant = type family; inner struct = fieldId + op
 // ---------------------------------------------------------------------------
 
-interface PredicateBody {
-    readonly fieldId: string;
-    readonly op: variant;
+/** One filter clause, decoded — derived from its East type, never mirrored. */
+type SlicePredicateValue = ValueTypeOf<SlicePredicateType>;
+
+/** A tag outside the East type — only a malformed value carries one. */
+function unknownTag(what: string, x: never): never {
+    throw new Error(`unknown ${what}: ${(x as variant).type}`);
 }
 
 // Each matcher VALIDATES the row value against the predicate family's East type
@@ -87,84 +95,89 @@ interface PredicateBody {
 // crashing (`BigInt(3.5)`, `new Date(7n)`) or mis-coercing (`String(undefined)`
 // → "undefined"). The comparators still come from East's `comparison.ts`.
 
-function matchStringOp(op: variant, value: unknown): boolean {
+function matchStringOp(op: ValueTypeOf<SliceStringOpType>, value: unknown): boolean {
     if (!isValueOf(value, StringType)) return false;
-    const v = value as string;
+    const v = value as ValueTypeOf<StringType>;
     switch (op.type) {
-        case "eq":       return eqString(v, op.value as string);
-        case "neq":      return !eqString(v, op.value as string);
-        case "in":       return (op.value as Set<string>).has(v);
-        case "notIn":    return !(op.value as Set<string>).has(v);
-        case "contains": return v.includes(op.value as string);
+        case "eq":       return eqString(v, op.value);
+        case "neq":      return !eqString(v, op.value);
+        case "in":       return op.value.has(v);
+        case "notIn":    return !op.value.has(v);
+        case "contains": return v.includes(op.value);
         // A half-typed regex in a live filter must narrow to nothing, not crash.
-        case "matches":  { try { return new RegExp(op.value as string).test(v); } catch { return false; } }
-        case "startsWith": return v.startsWith(op.value as string);
-        case "endsWith":   return v.endsWith(op.value as string);
+        case "matches":  { try { return new RegExp(op.value).test(v); } catch { return false; } }
+        case "startsWith": return v.startsWith(op.value);
+        case "endsWith":   return v.endsWith(op.value);
         // Presence ops treat whitespace-only as empty (#171).
         case "isEmpty":    return v.trim() === "";
         case "isNotEmpty": return v.trim() !== "";
-        default: throw new Error(`unknown string op: ${op.type}`);
+        default: return unknownTag("string op", op);
     }
 }
 
-function matchIntegerOp(op: variant, value: unknown): boolean {
+function matchIntegerOp(op: ValueTypeOf<SliceIntegerOpType>, value: unknown): boolean {
     if (!isValueOf(value, IntegerType)) return false;
-    const v = value as bigint;
+    const v = value as ValueTypeOf<IntegerType>;
     switch (op.type) {
-        case "eq":  return  eqInteger(v, op.value as bigint);
-        case "neq": return !eqInteger(v, op.value as bigint);
-        case "lt":  return  ltInteger(v, op.value as bigint);
-        case "lte": return lteInteger(v, op.value as bigint);
-        case "gt":  return  gtInteger(v, op.value as bigint);
-        case "gte": return gteInteger(v, op.value as bigint);
-        case "in":  return (op.value as Set<bigint>).has(v);
-        default: throw new Error(`unknown integer op: ${op.type}`);
+        case "eq":  return  eqInteger(v, op.value);
+        case "neq": return !eqInteger(v, op.value);
+        case "lt":  return  ltInteger(v, op.value);
+        case "lte": return lteInteger(v, op.value);
+        case "gt":  return  gtInteger(v, op.value);
+        case "gte": return gteInteger(v, op.value);
+        case "in":  return op.value.has(v);
+        default: return unknownTag("integer op", op);
     }
 }
 
-function matchFloatOp(op: variant, value: unknown): boolean {
+function matchFloatOp(op: ValueTypeOf<SliceFloatOpType>, value: unknown): boolean {
     if (!isValueOf(value, FloatType)) return false;
-    const v = value as number;
-    const d = op.value as number;
+    const v = value as ValueTypeOf<FloatType>;
     switch (op.type) {
-        case "lt":  return  ltFloat(v, d);
-        case "lte": return lteFloat(v, d);
-        case "gt":  return  gtFloat(v, d);
-        case "gte": return gteFloat(v, d);
-        default: throw new Error(`unknown float op: ${op.type}`);
+        case "lt":  return  ltFloat(v, op.value);
+        case "lte": return lteFloat(v, op.value);
+        case "gt":  return  gtFloat(v, op.value);
+        case "gte": return gteFloat(v, op.value);
+        default: return unknownTag("float op", op);
     }
 }
 
-function matchDateTimeOp(op: variant, value: unknown): boolean {
+function matchDateTimeOp(op: ValueTypeOf<SliceDateTimeOpType>, value: unknown): boolean {
     if (!isValueOf(value, DateTimeType)) return false;
-    const v = value as Date;
+    const v = value as ValueTypeOf<DateTimeType>;
     switch (op.type) {
-        case "before": return ltDateTime(v, op.value as Date);
-        case "after":  return gtDateTime(v, op.value as Date);
-        case "between": {
-            const { from, to } = op.value as { from: Date; to: Date };
-            return lteDateTime(from, v) && lteDateTime(v, to);
-        }
-        default: throw new Error(`unknown datetime op: ${op.type}`);
+        case "before": return ltDateTime(v, op.value);
+        case "after":  return gtDateTime(v, op.value);
+        case "between": return lteDateTime(op.value.from, v) && lteDateTime(v, op.value.to);
+        default: return unknownTag("datetime op", op);
     }
 }
 
-function matchBooleanOp(op: variant, value: unknown): boolean {
-    if (op.type !== "is") throw new Error(`unknown boolean op: ${op.type}`);
-    if (!isValueOf(value, BooleanType)) return false;
-    return eqBoolean(value as boolean, op.value as boolean);
+function matchBooleanOp(op: ValueTypeOf<SliceBooleanOpType>, value: unknown): boolean {
+    // `is` is the one Boolean operator.
+    return isValueOf(value, BooleanType) && eqBoolean(value as ValueTypeOf<BooleanType>, op.value);
 }
 
-function predicateMatches(pred: variant, row: Record<string, unknown>): boolean {
-    const body = pred.value as PredicateBody;
-    const fieldValue = row[body.fieldId];
+/**
+ * Whether a row satisfies one Slice filter clause — the engine's own test, the
+ * one every `filters` clause and cohort narrows by: the row's value at the
+ * clause's field, checked against the clause family's East type (`isValueOf`)
+ * and compared with East's comparators. A value of another type, or a field
+ * the row lacks, never satisfies it.
+ *
+ * @param pred - The clause
+ * @param row - The row — a struct value, keyed by field id
+ * @returns Whether the row satisfies the clause
+ */
+export function slicePredicateMatches(pred: SlicePredicateValue, row: Record<string, unknown>): boolean {
+    const fieldValue = row[pred.value.fieldId];
     switch (pred.type) {
-        case "string":   return matchStringOp(body.op, fieldValue);
-        case "integer":  return matchIntegerOp(body.op, fieldValue);
-        case "float":    return matchFloatOp(body.op, fieldValue);
-        case "datetime": return matchDateTimeOp(body.op, fieldValue);
-        case "boolean":  return matchBooleanOp(body.op, fieldValue);
-        default: throw new Error(`unknown predicate family: ${pred.type}`);
+        case "string":   return matchStringOp(pred.value.op, fieldValue);
+        case "integer":  return matchIntegerOp(pred.value.op, fieldValue);
+        case "float":    return matchFloatOp(pred.value.op, fieldValue);
+        case "datetime": return matchDateTimeOp(pred.value.op, fieldValue);
+        case "boolean":  return matchBooleanOp(pred.value.op, fieldValue);
+        default: return unknownTag("predicate family", pred);
     }
 }
 
@@ -237,7 +250,7 @@ interface ConfigLike {
 interface CohortLike {
     readonly id: string;
     readonly name: string;
-    readonly filters: ReadonlyArray<variant>;
+    readonly filters: ReadonlyArray<SlicePredicateValue>;
     /** `option<string>` — the cohort's family; absent on a state built before the field existed. */
     readonly group?: variant;
 }
@@ -250,7 +263,7 @@ export function cohortGroupOf(cohort: { readonly group?: variant | undefined }):
 
 interface StateLike {
     readonly range: variant;
-    readonly filters: ReadonlyArray<variant>;
+    readonly filters: ReadonlyArray<SlicePredicateValue>;
     readonly cohorts: ReadonlyArray<CohortLike>;
     readonly activeCohorts: Set<string>;
     readonly breakdown: variant;
@@ -312,7 +325,7 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
     }
     // Filters — all AND-ed
     for (const f of state.filters) {
-        if (!predicateMatches(f, row)) return false;
+        if (!slicePredicateMatches(f, row)) return false;
     }
     // Active cohorts — a standalone cohort's filters AND into the chain; the
     // active members of a GROUP are alternatives (the row passes the group when
@@ -321,7 +334,7 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
     for (const cohortId of state.activeCohorts) {
         const cohort = state.cohorts.find(c => eqString(c.id, cohortId));
         if (!cohort) continue;
-        const matched = cohort.filters.every(f => predicateMatches(f, row));
+        const matched = cohort.filters.every(f => slicePredicateMatches(f, row));
         const group = cohortGroupOf(cohort);
         if (group === undefined) {
             if (!matched) return false;
@@ -356,20 +369,85 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
 }
 
 // ---------------------------------------------------------------------------
-// breakdownKey — stringified row value at the active breakdown's field
+// Group keys — a row value's text, spelled and read through East
 // ---------------------------------------------------------------------------
 
-/** Stable, locale/timezone-independent group key for a row value — Dates encode
- *  as ISO (matching `sliceSeries`' `xKey`) so a `visible` whitelist captured under
- *  one timezone still matches the same instant under another (#120 bug-hunt). */
-function breakdownKeyOf(value: unknown): string {
-    return value instanceof Date ? value.toISOString() : String(value);
+/** A DateTime group key's spelling: the ISO-8601 UTC instant with its `Z`, so a
+ *  key never depends on a timezone — a `visible` whitelist captured under one
+ *  timezone still matches the same instant under another (#120 bug-hunt). */
+const GROUP_KEY_INSTANT = tokenizeDateTimeFormat("YYYY-MM-DDTHH:mm:ss.SSSZ");
+const printIntegerKey = printFor(IntegerType);
+const printFloatKey   = printFor(FloatType);
+const printBooleanKey = printFor(BooleanType);
+const readIntegerKey  = parseFor(IntegerType);
+const readBooleanKey  = parseFor(BooleanType);
+
+/**
+ * The group key a row value falls under — the stable text that names its
+ * breakdown group, its chart series and its chart x position — as East spells
+ * the value: a String is its own key; an Integer, Float or Boolean is spelled
+ * as East prints it; a DateTime is its ISO-8601 UTC instant, through East's
+ * datetime format. The engine's rows are untyped, so the value's East type is
+ * read with `isValueOf`, as the matchers read theirs. A value of none of those
+ * types — an absent field, or a field that is not a primitive — keys as
+ * JavaScript spells it.
+ *
+ * @param value - The row's value at the keyed field
+ * @returns The group key
+ */
+export function sliceGroupKey(value: unknown): string {
+    if (isValueOf(value, StringType))   return value as ValueTypeOf<StringType>;
+    if (isValueOf(value, DateTimeType)) return formatDateTime(value as ValueTypeOf<DateTimeType>, GROUP_KEY_INSTANT);
+    if (isValueOf(value, IntegerType))  return printIntegerKey(value as ValueTypeOf<IntegerType>);
+    if (isValueOf(value, FloatType))    return printFloatKey(value as ValueTypeOf<FloatType>);
+    if (isValueOf(value, BooleanType))  return printBooleanKey(value as ValueTypeOf<BooleanType>);
+    return String(value);
+}
+
+/** The value a group key names, by the keyed field's primitive kind. */
+export interface SliceGroupKeyValues {
+    string:   ValueTypeOf<StringType>;
+    integer:  ValueTypeOf<IntegerType>;
+    boolean:  ValueTypeOf<BooleanType>;
+    datetime: ValueTypeOf<DateTimeType>;
+}
+
+/**
+ * The value a group key names for a field of the given kind — the inverse of
+ * {@link sliceGroupKey}, read through East: a String key is the value itself,
+ * an Integer or Boolean key is read by East's parser, and a DateTime key by
+ * East's datetime format. A Float field has no reading: its groups have no
+ * equality predicate to pin.
+ *
+ * @param kind - The keyed field's primitive kind
+ * @param key - The group key
+ * @returns The value; `undefined` when the key does not read as one
+ */
+export function readSliceGroupKey<K extends keyof SliceGroupKeyValues>(kind: K, key: string): SliceGroupKeyValues[K] | undefined {
+    switch (kind) {
+        case "string":
+            return key as SliceGroupKeyValues[K];
+        case "integer": {
+            const read = readIntegerKey(key);
+            return read.success ? read.value as SliceGroupKeyValues[K] : undefined;
+        }
+        case "boolean": {
+            const read = readBooleanKey(key);
+            return read.success ? read.value as SliceGroupKeyValues[K] : undefined;
+        }
+        case "datetime": {
+            const read = parseDateTimeFormatted(key, GROUP_KEY_INSTANT);
+            return read.success ? read.value as SliceGroupKeyValues[K] : undefined;
+        }
+        default:
+            return undefined;
+    }
 }
 
 function sliceBreakdownKey(state: StateLike, _config: ConfigLike, row: Record<string, unknown>): variant {
     if (state.breakdown.type !== "some") return none;
     const { fieldId } = state.breakdown.value as { fieldId: string };
-    return some(breakdownKeyOf(row[fieldId]));
+    return some(sliceGroupKey(row[fieldId]));
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +523,7 @@ export function sliceBreakdown(
     const counts = new Map<string, number>();
     for (const row of data) {
         if (!sliceMatches(state, config, row, now)) continue;
-        const key = breakdownKeyOf(row[bd.fieldId]);
+        const key = sliceGroupKey(row[bd.fieldId]);
         counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return orderedGroups(counts, bd.limit).map(g => ({ key: g.key, count: BigInt(g.count), color: g.color }));
@@ -454,7 +532,7 @@ export function sliceBreakdown(
 // ---------------------------------------------------------------------------
 // series — pivot narrowed data into coloured multi-series long format. Groups
 // by the active breakdown dimension with the SAME group identity (stable
-// breakdownKeyOf keys), order, colours, and top-N `other` roll-up as
+// sliceGroupKey keys), order, colours, and top-N `other` roll-up as
 // `sliceBreakdown` — legend chips and chart series must correspond one-to-one
 // (#162). Aggregates `valueField` per x in data order.
 // ---------------------------------------------------------------------------
@@ -467,17 +545,19 @@ export function sliceSeries(
     valueField: string,
     now: Date,
 ): Array<{ key: string; color: string; points: Array<{ x: variant; value: number; size: typeof none; color: typeof none }> }> {
-    // x key — same stable encoding as breakdown group keys (ISO for Dates) so a
-    // renderer time scale can parse them back; other kinds stringify.
-    const xKey = (row: Record<string, unknown>): string => breakdownKeyOf(row[xField]);
+    // x key — the same stable spelling as breakdown group keys, so points
+    // aggregate per x value (one instant, whichever Date object carries it).
+    const xKey = (row: Record<string, unknown>): string => sliceGroupKey(row[xField]);
     // Typed x coordinate (band category / linear number / time date) for the
     // chart's ChartXType; the renderer derives the scale from the arm. Keyed by
-    // xKey so points aggregate per x while keeping the original typed value.
+    // xKey so points aggregate per x while keeping the original typed value. The
+    // arm follows the value's East type, read as the matchers read theirs.
     const xCoord = (row: Record<string, unknown>): variant => {
         const xv = row[xField];
-        if (xv instanceof Date) return variant("time", xv);
-        if (typeof xv === "number" || typeof xv === "bigint") return variant("number", Number(xv));
-        return variant("category", String(xv));
+        if (isValueOf(xv, DateTimeType)) return variant("time", xv as ValueTypeOf<DateTimeType>);
+        if (isValueOf(xv, IntegerType))  return variant("number", Number(xv as ValueTypeOf<IntegerType>));
+        if (isValueOf(xv, FloatType))    return variant("number", xv as ValueTypeOf<FloatType>);
+        return variant("category", sliceGroupKey(xv));
     };
     const coords = new Map<string, variant>();
     if (state.breakdown.type !== "some") {
@@ -496,13 +576,13 @@ export function sliceSeries(
     const bd = state.breakdown.value as { fieldId: string; limit: variant };
     const counts = new Map<string, number>();
     // key → (x → summed value); both Maps preserve insertion (data) order. The
-    // group key uses breakdownKeyOf — the SAME stable encoding sliceBreakdown
-    // uses (ISO for Dates) — so the legend's `visible` whitelist (which stores
-    // group keys) actually matches the series keys (#162).
+    // group key uses sliceGroupKey — the SAME stable spelling sliceBreakdown
+    // uses — so the legend's `visible` whitelist (which stores group keys)
+    // actually matches the series keys (#162).
     const byKey = new Map<string, Map<string, number>>();
     for (const row of data) {
         if (!sliceMatches(state, config, row, now)) continue;
-        const key = breakdownKeyOf(row[bd.fieldId]);
+        const key = sliceGroupKey(row[bd.fieldId]);
         const xk = xKey(row);
         if (!coords.has(xk)) coords.set(xk, xCoord(row));
         const v = Number(row[valueField] ?? 0);

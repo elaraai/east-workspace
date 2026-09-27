@@ -35,8 +35,10 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { Box, Text, Menu, Portal, Spinner, useRecipe, useSlotRecipe } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowDown, faArrowUp, faCheck, faChevronDown, faPlus, faTriangleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { fromEastTypeValue, variant, some, none, equivalentFor, isEastSet, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
+import { fromEastTypeValue, variant, some, none, equivalentFor, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
+import { slicePredicateMatches } from '@elaraai/east-ui';
 import { Experiment } from '@elaraai/e3-ui/internal';
+import type { TreePath } from '@elaraai/e3-types';
 import {
     implementUIComponent,
     SlicePredicateBuilder, SliceEditPopover, formatPredicate,
@@ -94,8 +96,8 @@ function kindOfTypeValue(t: EastTypeValue): Column['kind'] {
 }
 
 /** Recover the bound dataset's columns from the binding registry (Table-style). */
-function useColumns(workspace: string, source: unknown): { columns: Column[]; rowArrayType: EastType | null } {
-    const types = source ? getBindingTypes(workspace, source as never) : undefined;
+function useColumns(workspace: string, source: TreePath): { columns: Column[]; rowArrayType: EastType | null } {
+    const types = getBindingTypes(workspace, source);
     return useMemo(() => {
         const st = types?.sourceType;
         if (!st || st.type !== 'Array') return { columns: [], rowArrayType: null };
@@ -110,29 +112,14 @@ function useColumns(workspace: string, source: unknown): { columns: Column[]; ro
 
 // ---------------------------------------------------------------------------
 // UI-side population filter — population is NOT part of the config contract; the
-// FilterRail predicates narrow the rows here, before the experiment call. Safe
-// by construction: an op we don't model keeps the row (never silently drops).
+// FilterRail predicates narrow the rows here, before the experiment call. The
+// clauses are Slice's (its builder writes them, its chips print them), so a row
+// is in the population exactly when the Slice engine would keep it: every
+// clause holds, compared as East compares.
 // ---------------------------------------------------------------------------
-type Pred = { value: { fieldId: string; op: { type: string; value: unknown } } };
-function rowMatchesAll(row: Record<string, unknown>, preds: PredicateValue[]): boolean {
-    return preds.every(p => {
-        const { fieldId, op } = (p as unknown as Pred).value;
-        const v = row[fieldId];
-        const ov = op.value;
-        switch (op.type) {
-            case 'eq': case 'is': return v === ov;
-            case 'neq': return v !== ov;
-            case 'lt': return num(v) != null && num(ov) != null ? num(v)! < num(ov)! : true;
-            case 'lte': return num(v) != null && num(ov) != null ? num(v)! <= num(ov)! : true;
-            case 'gt': return num(v) != null && num(ov) != null ? num(v)! > num(ov)! : true;
-            case 'gte': return num(v) != null && num(ov) != null ? num(v)! >= num(ov)! : true;
-            case 'in': return isEastSet(ov) ? ov.has(v) : true;
-            case 'notIn': return isEastSet(ov) ? !ov.has(v) : true;
-            default: return true; // between / before / after / contains / matches — keep (modelled UI-side later)
-        }
-    });
+function inPopulation(row: Record<string, unknown>, population: readonly PredicateValue[]): boolean {
+    return population.every(p => slicePredicateMatches(p, row));
 }
-const num = (x: unknown): number | null => (typeof x === 'number' ? x : typeof x === 'bigint' ? Number(x) : null);
 
 // ---------------------------------------------------------------------------
 // Small presentational helpers (text-style / layer-style based).
@@ -271,7 +258,7 @@ export interface EastChakraExperimentProps {
 const experimentValueEqual = equivalentFor(Experiment.Component.schema);
 
 const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastChakraExperimentProps) {
-    const v = value as unknown as ValueTypeOf<typeof Experiment.Types.Payload>;
+    const v = value;
 
     // Recipes — acquired once (the call-once / spread-slot idiom).
     const button = useRecipe({ key: 'button' });
@@ -284,15 +271,15 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const words = useFormatters();
 
     const workspace = getReactiveDatasetCache().getConfig().workspace ?? '';
-    const data = useBindingValue<Record<string, unknown>[]>(v.data as never);
-    const journalBind = useBindingValue<JournalRowValue[]>(v.journal.type === 'some' ? (v.journal.value as never) : null);
+    const data = useBindingValue<Record<string, unknown>[]>(v.data);
+    const journalBind = useBindingValue<JournalRowValue[]>(v.journal.type === 'some' ? v.journal.value : null);
     const meta = getSomeorUndefined(v.columnMeta);
     const subject = getSomeorUndefined(v.subject) ?? SUBJECT_DEFAULT;
     const readonly = getSomeorUndefined(v.readonly) ?? false;
     // The questions — a read-only bound list. Each entry is self-contained (its
     // `spec` + optional precomputed `result`/`design`); selecting one seeds the
     // working config below. The list itself is never mutated by the UI.
-    const configsBind = useBindingValue<ConfigurationValue[]>(v.configs as never);
+    const configsBind = useBindingValue<ConfigurationValue[]>(v.configs);
     const configs = useMemo(() => configsBind.value ?? [], [configsBind.value]);
     const [currentConfigId, setCurrentConfigId] = useState<string | undefined>(undefined);
     // Resolve the selected entry by id (resilient to a removed / relabelled entry —
@@ -344,7 +331,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const population = localPop;
     const filteredRows = useMemo(() => {
         if (!data.value) return null;
-        return population.length ? data.value.filter(r => rowMatchesAll(r, population)) : data.value;
+        return population.length ? data.value.filter(r => inPopulation(r, population)) : data.value;
     }, [data.value, population]);
 
     // Filterable fields for the Slice predicate builder.
@@ -684,8 +671,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             Advanced
                         </Box>
                         <Box px="4.5" pb="3.5" pt="0.5">
-                            <Segmented label="How to compare" help="adv_method" left="regression" right="reweighting" active={vs.method === 'reweighting' ? 'right' : 'left'} readonly={readonly} onPick={s => editConfig({ ...config, method: some(s === 'right' ? variant('propensity_score_weighting', { weighting_scheme: none }) : variant('linear_regression', null)) } as unknown as ConfigValue)} />
-                            <Segmented label="Answer for" help="adv_estimand" left="all" right="only treated" active={vs.target === 'treated' ? 'right' : 'left'} readonly={readonly} onPick={s => editConfig({ ...config, estimand: some(variant(s === 'right' ? 'att' : 'ate', null)) } as unknown as ConfigValue)} last />
+                            <Segmented label="How to compare" help="adv_method" left="regression" right="reweighting" active={vs.method === 'reweighting' ? 'right' : 'left'} readonly={readonly} onPick={s => editConfig({ ...config, method: some(s === 'right' ? variant('propensity_score_weighting', { weighting_scheme: none }) : variant('linear_regression', null)) })} />
+                            <Segmented label="Answer for" help="adv_estimand" left="all" right="only treated" active={vs.target === 'treated' ? 'right' : 'left'} readonly={readonly} onPick={s => editConfig({ ...config, estimand: some(variant(s === 'right' ? 'att' : 'ate', null)) })} last />
                         </Box>
                     </Box>
                 </Box>
@@ -1183,7 +1170,7 @@ function FilterRail({ fields, population, onChange, chip, button, readonly, subj
         <Box display="flex" flexWrap="wrap" gap="1.5" alignItems="center">
             {population.map((pred, i) => (
                 <SliceEditPopover key={i} open={open === i} onOpenChange={o => setOpen(o ? i : null)}
-                    label={<>{'Edit · '}<Box as="span" fontFamily="mono" color="brand.fg">{(pred as { value: { fieldId: string } }).value.fieldId}</Box></>}
+                    label={<>{'Edit · '}<Box as="span" fontFamily="mono" color="brand.fg">{pred.value.fieldId}</Box></>}
                     footActions={done}
                     trigger={
                         <Box css={chip({ tone: 'brand', numeric: true, shape: 'rounded' })} cursor="pointer" flexShrink={0}>

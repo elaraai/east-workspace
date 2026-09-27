@@ -6,7 +6,7 @@
 import { memo, useCallback, useState, useEffect, useMemo } from "react";
 import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
 import { Time } from "@internationalized/date";
-import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { TimeRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
@@ -20,9 +20,10 @@ export interface EastChakraTimeRangeInputProps {
     value: TimeRangeInputValue;
 }
 
-/** Convert minutes-since-midnight to a `Time` from `@internationalized/date`. */
-function minutesToTime(minutes: bigint | number): Time {
-    const m = typeof minutes === "bigint" ? Number(minutes) : minutes;
+/** Convert minutes-since-midnight — an East Integer — to a `Time` from
+ *  `@internationalized/date`. */
+function minutesToTime(minutes: ValueTypeOf<IntegerType>): Time {
+    const m = Number(minutes);
     const clamped = ((m % 1440) + 1440) % 1440;
     return new Time(Math.floor(clamped / 60), clamped % 60, 0);
 }

@@ -21,17 +21,18 @@
 
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Text, chakra, useRecipe } from '@chakra-ui/react';
-import { none, some, variant } from '@elaraai/east';
-import { EastChakraSelect, getSomeorUndefined, useFormatters, type Formatters, type TickFormatOpt } from '@elaraai/east-ui-components';
+import { FloatType, compareFor, none, some, variant } from '@elaraai/east';
+import { EastChakraSelect, getSomeorUndefined, useFormatters, type Formatters } from '@elaraai/east-ui-components';
 
 import type { UseDecisionHandleResult, Judgement, ConstraintValue } from './handle-runtime.js';
-import { LeverEditor, leverPayloadEditable, type TypeNode } from './lever-editor.js';
+import { LeverEditor, leverPayloadEditable } from './lever-editor.js';
+import type { ConstraintContract } from './contract.js';
 import { formatConstraint } from './constraint-format.js';
 import type { Decision } from './types.js';
 
 /** A decision value through its declared format, in the app's locale (#850). */
 function fmt(words: Formatters, d: Decision, n: number, showSign = false): string {
-    return words.value(n, getSomeorUndefined(d.format) as TickFormatOpt, showSign);
+    return words.value(n, getSomeorUndefined(d.format), showSign);
 }
 
 const caption = { textStyle: 'caption.eyebrow', color: 'fg.muted' } as const;
@@ -87,7 +88,7 @@ export const EvidenceFacet = memo(function EvidenceFacet({ decision, children }:
 // Options — the ranked stack with zero-anchored bars.
 // =============================================================================
 
-interface RankedOption {
+export interface RankedOption {
     rank: number;
     label: string;
     value: number;
@@ -97,9 +98,18 @@ interface RankedOption {
     recommended: boolean;
 }
 
-function rankOptions(d: Decision): RankedOption[] {
+const compareValues = compareFor(FloatType);
+
+/**
+ * The Options facet's stack: the recommendation first, then its alternatives,
+ * the greater value first — values compared as East compares them.
+ *
+ * @param d - The decision
+ * @returns The ranked options
+ */
+export function rankOptions(d: Decision): RankedOption[] {
     const alternatives = [...d.alternatives]
-        .sort((a, b) => b.value - a.value)
+        .sort((a, b) => compareValues(b.value, a.value))
         .map(a => ({
             label: a.label,
             value: a.value,
@@ -234,11 +244,12 @@ const ANSWERS = [
 export interface JudgementFacetProps {
     decision: Decision;
     handle: UseDecisionHandleResult;
-    /** Contract case name → payload type, walked off the judgements binding. */
-    leverPayloads: Record<string, TypeNode>;
+    /** The solution's constraint contract, walked off the judgements binding;
+     *  `undefined` until its type is registered. */
+    contract: ConstraintContract | undefined;
 }
 
-export const JudgementFacet = memo(function JudgementFacet({ decision, handle, leverPayloads }: JudgementFacetProps) {
+export const JudgementFacet = memo(function JudgementFacet({ decision, handle, contract }: JudgementFacetProps) {
     const words = useFormatters();
     const button = useRecipe({ key: 'button' });
     const input = useRecipe({ key: 'input' });
@@ -252,11 +263,12 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
     }, [knowledge, stagedKnowledge, handle, decision.id]);
 
     const levers = useMemo(
-        () => decision.levers.filter(l => leverPayloadEditable(leverPayloads[l.case])),
-        [decision.levers, leverPayloads],
+        () => decision.levers.filter(l => leverPayloadEditable(contract?.payloads.get(l.case))),
+        [decision.levers, contract],
     );
     const [leverCase, setLeverCase] = useState(levers[0]?.case ?? '');
     const activeLever = levers.find(l => l.case === leverCase) ?? levers[0];
+    const activePayload = activeLever === undefined ? undefined : contract?.payloads.get(activeLever.case);
 
     const gate = handle.commitStateFor(decision.id);
     const gateHint = gate?.type === 'gated'
@@ -317,8 +329,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                     {judgement.constraints.length > 0 && (
                         <Box display="flex" gap="12px" flexWrap="wrap">
                             {judgement.constraints.map((c, i) => {
-                                const tag = (c as unknown as { type: string }).type;
-                                const f = formatConstraint(c, leverPayloads[tag], decision.levers, words);
+                                const f = formatConstraint(c, contract, decision.levers, words);
                                 return (
                                     <Text key={i} as="span" fontFamily="mono" fontSize="11px">
                                         <Text as="span" color="accent.brand" fontWeight="semibold">{f.lever}</Text>{' '}
@@ -329,7 +340,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                             })}
                         </Box>
                     )}
-                    {activeLever !== undefined && (
+                    {activeLever !== undefined && activePayload !== undefined && (
                         <Box display="flex" alignItems="center" gap="8px" flexWrap="wrap">
                             {levers.length > 1 ? (
                                 <Box flexShrink={0} css={{ '& [data-scope=select][data-part=root]': { width: 'auto', minWidth: '160px' } }}>
@@ -351,7 +362,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                                 <LeverEditor
                                     key={activeLever.case}
                                     leverCase={activeLever.case}
-                                    payload={leverPayloads[activeLever.case]!}
+                                    payload={activePayload}
                                     onInject={onInject}
                                 />
                             </Box>

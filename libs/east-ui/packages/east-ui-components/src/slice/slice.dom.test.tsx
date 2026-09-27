@@ -19,16 +19,21 @@ import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none, equalFor } from "@elaraai/east";
+import {
+    IntegerType, OptionType, SetType, SortedSet, StringType,
+    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { buildSliceHandle } from "../platform/slice/index.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";
+import { EastChakraSliceBreakdown } from "./breakdown/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
-import { EastChakraSliceRail, affordanceDescriptor } from "./rail/index.js";
+import { EastChakraSliceRail, affordanceDescriptor, rangeBounds, rangeOfWindow } from "./rail/index.js";
 import { railAffordanceKinds } from "./rail-kinds.js";
 import { EastChakraSliceRange } from "./range/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
@@ -36,6 +41,13 @@ import { EastChakraSliceSummary } from "./summary/index.js";
 
 /** Structural predicate equality — the same comparator the real impl uses. */
 const predEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
+
+/** East's equality over Integer and String sets, and East's order for their
+ *  members: a built set is an East Set, which iterates in that order. */
+const equalIntegerSets = equalFor(SetType(IntegerType));
+const compareIntegers = compareFor(IntegerType);
+const equalStringSets = equalFor(SetType(StringType));
+const compareStrings = compareFor(StringType);
 
 /** Minimal `SliceBind` closure over mutable JS state — mirrors the runtime
  *  impl. `derived` overrides the data-derived stubs (groups, fields, …) for
@@ -263,7 +275,9 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(filters.length).toBe(1);
         expect(filters[0].type).toBe("integer");
         expect(filters[0].value.op.type).toBe("in");
-        expect(filters[0].value.op.value).toEqual(new Set([10n, 20n]));  // "abc" dropped
+        const members = filters[0].value.op.value;
+        expect(equalIntegerSets(members, new SortedSet([10n, 20n], compareIntegers))).toBe(true);  // "abc" dropped
+        expect([...members]).toEqual([10n, 20n]);                                                   // in East's order
     });
 
     // Regression (crashed live in the showcase): OPENING the edit builder for
@@ -286,7 +300,9 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         const filters = slice.read().filters;
         expect(filters.length).toBe(1);
         expect(filters[0].value.op.type).toBe("in");
-        expect(filters[0].value.op.value).toEqual(new Set([10n, 20n, 30n, 40n, 50n]));  // typed again
+        const members = filters[0].value.op.value;
+        expect(equalIntegerSets(members, new SortedSet([10n, 20n, 30n, 40n, 50n], compareIntegers))).toBe(true);  // typed again
+        expect([...members]).toEqual([10n, 20n, 30n, 40n, 50n]);
     });
 
     test("editing a datetime 'between' clause seeds the min–max date pair without crashing", async () => {
@@ -558,19 +574,21 @@ describe("Slice.Legend — the facet bar (#188): in-set multi-select over self-e
         let filters = slice.read().filters;
         expect(filters.length).toBe(1);
         expect(filters[0].value.op.type).toBe("in");
-        expect(filters[0].value.op.value).toEqual(new Set(["EU"]));
+        expect(equalStringSets(filters[0].value.op.value, new SortedSet(["EU"], compareStrings))).toBe(true);
 
-        // Second selection ORs within the field — never an impossible AND.
+        // Second selection ORs within the field — never an impossible AND —
+        // into an East Set, which iterates in East's order.
         fireEvent.click(screen.getByLabelText("Filter to NA"));
         filters = slice.read().filters;
         expect(filters.length).toBe(1);
-        expect(filters[0].value.op.value).toEqual(new Set(["EU", "NA"]));
+        expect(equalStringSets(filters[0].value.op.value, new SortedSet(["EU", "NA"], compareStrings))).toBe(true);
+        expect([...filters[0].value.op.value]).toEqual(["EU", "NA"]);
 
         // Un-clicking removes a member; the options never disappeared (facet
         // items come from facetGroups, still all rendered).
         expect(screen.getByLabelText("Filter to APAC")).toBeTruthy();
         fireEvent.click(screen.getByLabelText("Filter to EU"));
-        expect(slice.read().filters[0].value.op.value).toEqual(new Set(["NA"]));
+        expect(equalStringSets(slice.read().filters[0].value.op.value, new SortedSet(["NA"], compareStrings))).toBe(true);
 
         // Emptying the selection drops the managed filter entirely.
         fireEvent.click(screen.getByLabelText("Filter to NA"));
@@ -618,6 +636,24 @@ describe("Slice.Legend — the facet bar (#188): in-set multi-select over self-e
         expect(screen.queryByLabelText("Filter to EU")).not.toBeNull();
         expect(screen.queryByLabelText("Filter to other")).toBeNull();  // synthetic bucket — inert
         expect(screen.getByText("other")).toBeTruthy();                 // …but still shown
+    });
+});
+
+describe("Slice.Breakdown — the roll-up limit is an East Integer, printed and read by East", () => {
+    const equalBreakdowns = equalFor(OptionType(Slice.Types.Breakdown));
+
+    test("the select shows the limit as East prints it; a pick writes the Integer East reads, and 'all' writes none", () => {
+        const slice = fakeSlice({ breakdown: some({ fieldId: "region", limit: some(25n) }) });
+        ui(<EastChakraSliceBreakdown value={{ slice, density: some(variant("focused", null)) } as never} />);
+
+        const select = screen.getByLabelText("Roll-up limit") as HTMLSelectElement;
+        expect(select.value).toBe("25");
+
+        fireEvent.change(select, { target: { value: "10" } });
+        expect(equalBreakdowns(slice.read().breakdown, some({ fieldId: "region", limit: some(10n) }))).toBe(true);
+
+        fireEvent.change(select, { target: { value: "all" } });
+        expect(equalBreakdowns(slice.read().breakdown, some({ fieldId: "region", limit: none }))).toBe(true);
     });
 });
 
@@ -718,6 +754,37 @@ describe("Slice.Rail brush — formatted axis + count histogram, rich by default
 
         expect(screen.queryByText(/\$/)).toBeNull();
         expect(container.querySelectorAll("[data-brush-bar]").length).toBe(0);
+    });
+});
+
+describe("Slice.Rail brush — the window's bounds follow the applied range's arm", () => {
+    /** A range as the store holds it: decoded from East's own encoding. */
+    const stored = (range: ValueTypeOf<typeof Slice.Types.Range>) =>
+        decodeBeast2For(Slice.Types.Range)(encodeBeast2For(Slice.Types.Range)(range));
+
+    test("a range of the field's kind gives its bounds on the domain's numbers", () => {
+        const from = new Date("2025-03-01T00:00:00Z");
+        const to = new Date("2025-03-28T00:00:00Z");
+        expect(rangeBounds(stored(variant("datetime", { from, to })), "datetime")).toEqual({ from: from.getTime(), to: to.getTime() });
+        expect(rangeBounds(stored(variant("integer", { from: 200n, to: 400n })), "integer")).toEqual({ from: 200, to: 400 });
+        expect(rangeBounds(stored(variant("float", { from: 0.25, to: 0.75 })), "float")).toEqual({ from: 0.25, to: 0.75 });
+    });
+
+    test("a preset has no literal bounds, and an arm that is not the field's kind (inert in the engine) draws no window", () => {
+        expect(rangeBounds(stored(variant("datetimePreset", variant("last7d", null))), "datetime")).toBeUndefined();
+        expect(rangeBounds(stored(variant("integer", { from: 0n, to: 100n })), "datetime")).toBeUndefined();
+        expect(rangeBounds(stored(variant("datetime", { from: new Date(0), to: new Date(1) })), "integer")).toBeUndefined();
+    });
+
+    test("a brushed window writes the range in the field's kind — an Integer field gets the whole Integers it spans", () => {
+        const equalRanges = equalFor(Slice.Types.Range);
+        const from = new Date("2025-03-01T00:00:00Z");
+        const to = new Date("2025-03-28T00:00:00Z");
+        expect(equalRanges(rangeOfWindow("datetime", from.getTime(), to.getTime()), stored(variant("datetime", { from, to })))).toBe(true);
+        expect(equalRanges(rangeOfWindow("integer", 199.4, 400.2), stored(variant("integer", { from: 199n, to: 401n })))).toBe(true);
+        expect(equalRanges(rangeOfWindow("float", 0.25, 0.75), stored(variant("float", { from: 0.25, to: 0.75 })))).toBe(true);
+        // …and reads back as the window it spans.
+        expect(rangeBounds(rangeOfWindow("integer", 200, 400), "integer")).toEqual({ from: 200, to: 400 });
     });
 });
 

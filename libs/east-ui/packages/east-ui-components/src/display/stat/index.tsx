@@ -7,7 +7,7 @@ import { memo, useMemo } from "react";
 import { Stat as ChakraStat, type StatRootProps, HStack, Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
-import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { BlobType, BooleanType, NullType, equivalentFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Stat } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
@@ -15,6 +15,11 @@ import { useDensity } from "../../contracts/density";
 import { useFormatters } from "../../format/index.js";
 
 const statEqual = equivalentFor(Stat.Types.Stat);
+
+/** A value with no number or date to format, as East prints it. */
+const printBoolean = printFor(BooleanType);
+const printNull = printFor(NullType);
+const printBlob = printFor(BlobType);
 
 /** East Stat value type. */
 export type StatValue = ValueTypeOf<typeof Stat.Types.Stat>;
@@ -67,23 +72,30 @@ export const EastChakraStat = memo(function EastChakraStat({ value, storageKey }
     const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
     const density = localDensity ?? inheritedDensity;
 
-    // The value is a scalar `LiteralValueType` variant; numeric tags run
-    // through the shared formatter in the app's locale (#850), strings render
-    // verbatim.
+    // The value is a scalar `LiteralValueType` variant. Numbers and dates run
+    // through the shared formatter in the app's locale (#850) — an Integer
+    // keeps every digit unless a declared format needs a number, and an
+    // undeclared date prints its UTC day; strings render verbatim; the rest
+    // as East prints them.
     const words = useFormatters();
     const formattedValue = useMemo(() => {
-        const v = value.value as { type: string; value: unknown };
+        const literal = value.value;
         const formatOpt = getSomeorUndefined(value.format);
-        switch (v.type) {
+        switch (literal.type) {
             case "Float":
+                return words.value(literal.value, formatOpt);
             case "Integer":
-                return words.value(Number(v.value as number | bigint), formatOpt);
+                return formatOpt === undefined ? words.number(literal.value) : words.value(Number(literal.value), formatOpt);
             case "DateTime":
-                return words.value(new Date(v.value as Date).getTime(), formatOpt);
+                return formatOpt === undefined ? words.numericDate(literal.value) : words.value(literal.value.getTime(), formatOpt);
             case "String":
-                return v.value as string;
-            default:
-                return String(v.value);
+                return literal.value;
+            case "Boolean":
+                return printBoolean(literal.value);
+            case "Null":
+                return printNull(literal.value);
+            case "Blob":
+                return printBlob(literal.value);
         }
     }, [value.value, value.format, words]);
 

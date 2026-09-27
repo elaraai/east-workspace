@@ -24,7 +24,10 @@
 import {
     type EastTypeValue,
     type PatchLeafOp,
+    type PatchPathSegment,
     type PatchVisitor,
+    StringType,
+    parseFor,
     walkPatch,
     pathToString,
     pathDisplay,
@@ -88,22 +91,22 @@ export function collectLeaves(node: DiffNode, into: LeafNode[] = []): LeafNode[]
     return into;
 }
 
+const readString = parseFor(StringType);
+
 /**
- * Display label for the last path segment. For "key" segments produced by
- * Dict / Set traversal, the underlying east walker uses `printFor(elemType)`
- * which JSON-quotes strings (`"foo"`) so the path identity round-trips
- * unambiguously. The label is for *display only* — strip the surrounding
- * quotes so the user sees `foo` instead of `"foo"`. Path identity (used as
- * a resolution-map key) stays quoted via `pathToString`.
+ * Display label for the last path segment. A "key" segment (Dict / Set
+ * traversal) is the key as East prints it — a String key quoted (`"foo"`),
+ * so the path identity round-trips unambiguously. The label is for *display
+ * only*: a String key shows as East reads it back (`foo`); any other key, and
+ * a string East cannot read back, shows as printed. Path identity (used as a
+ * resolution-map key) stays the printed form via `pathToString`.
  */
-function leafDisplayLabel(seg: { kind: string; key?: string } & Record<string, unknown>): string {
-    if (seg.kind === "key" && typeof seg.key === "string"
-        && seg.key.length >= 2 && seg.key.startsWith('"') && seg.key.endsWith('"')) {
-        // JSON-style string key — show the inner without round-trip quotes.
-        try { return JSON.parse(seg.key) as string; }
-        catch { /* fall through */ }
+function leafDisplayLabel(seg: PatchPathSegment): string {
+    if (seg.kind === "key") {
+        const read = readString(seg.key);
+        if (read.success) return read.value;
     }
-    return pathDisplay(seg as Parameters<typeof pathDisplay>[0]);
+    return pathDisplay(seg);
 }
 
 // =============================================================================

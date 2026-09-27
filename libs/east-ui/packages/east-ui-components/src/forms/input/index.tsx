@@ -5,7 +5,7 @@
 
 import { memo, useMemo, useCallback, useState, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
 import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, Box } from "@chakra-ui/react";
-import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, parseFor, printFor, FloatType, IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
@@ -29,6 +29,13 @@ import {
     TimeSegment,
 } from "./date";
 
+/** East's own printers and parsers for the numbers the inputs edit: a value
+ *  shows as East prints it, and an entry becomes an East value only when East
+ *  reads it — an Integer in 64-bit range, a Float in East's grammar. */
+const printInteger = printFor(IntegerType);
+const readInteger = parseFor(IntegerType);
+const printFloat = printFor(FloatType);
+const readFloat = parseFor(FloatType);
 
 const stringInputEqual = equivalentFor(Input.Types.String);
 const stringInputDataEqual = equalFor(Input.Types.String);
@@ -148,7 +155,7 @@ function numberStyleProps(styleOpt: StringInputValue["style"]): Partial<NumberIn
  */
 export function toChakraIntegerInput(value: IntegerInputValue): NumberInputRootProps {
     return {
-        value: value.value.toString(),
+        value: printInteger(value.value),
         min: getSomeorUndefined(value.min) !== undefined ? Number(getSomeorUndefined(value.min)) : undefined,
         max: getSomeorUndefined(value.max) !== undefined ? Number(getSomeorUndefined(value.max)) : undefined,
         step: getSomeorUndefined(value.step) !== undefined ? Number(getSomeorUndefined(value.step)) : 1,
@@ -200,14 +207,10 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
         // Always update local state so partial inputs ("-", "") render while typing
         setProps(prev => ({ ...prev, value: raw }));
         if (onChangeFn) {
-            // Only fire East callback for fully-parsed integers
-            if (raw === "" || raw === "-") return;
-            try {
-                const parsed = BigInt(raw);
-                queueMicrotask(() => onChangeFn(parsed));
-            } catch {
-                // Invalid integer, don't call onChange
-            }
+            // Only an entry East reads as an Integer fires the callback — a
+            // partial one ("", "-") or one past 64 bits waits.
+            const read = readInteger(raw);
+            if (read.success) queueMicrotask(() => onChangeFn(read.value));
         }
     }, [onChangeFn]);
 
@@ -255,7 +258,7 @@ export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps
     const precision = getSomeorUndefined(value.precision);
     const displayValue = precision !== undefined
         ? value.value.toFixed(Number(precision))
-        : value.value.toString();
+        : printFloat(value.value);
 
     return {
         value: displayValue,
@@ -288,12 +291,10 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
         // Always update local state so partial inputs ("-", ".", "-.") render while typing
         setProps(prev => ({ ...prev, value: raw }));
         if (onChangeFn) {
-            // Only fire East callback for fully-parsed floats
-            if (raw === "" || raw === "-" || raw === "." || raw === "-.") return;
-            const parsed = parseFloat(raw);
-            if (!Number.isNaN(parsed)) {
-                queueMicrotask(() => onChangeFn(parsed));
-            }
+            // Only an entry East reads as a Float fires the callback — a
+            // partial one ("", "-", ".", "1e") waits.
+            const read = readFloat(raw);
+            if (read.success) queueMicrotask(() => onChangeFn(read.value));
         }
     }, [onChangeFn]);
 
@@ -386,7 +387,7 @@ export interface ChakraDateTimeInputProps {
  * Use with useMemo for performance optimization.
  */
 export function toChakraDateTimeInput(value: DateTimeInputValue): ChakraDateTimeInputProps {
-    const dateValue = value.value instanceof Date ? value.value : new Date(value.value);
+    const dateValue = value.value;
     return {
         calendarDate: dateToCalendarDate(dateValue),
         timeValue: dateToTime(dateValue),

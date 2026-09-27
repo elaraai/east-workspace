@@ -39,11 +39,13 @@ import {
     type ValueTypeOf,
     encodeBeast2For,
     decodeBeast2For,
-    equalFor,
+    isTypeValueEqual,
+    none,
+    some,
     toEastTypeValue,
     variant,
 } from "@elaraai/east";
-import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
+import { type PlatformFunction } from "@elaraai/east/internal";
 import { funcBindPlatformFn, FuncBindPrimitives, FuncStatusType, FuncErrorType } from "@elaraai/e3-ui/internal";
 import {
     workspaceFunctionList,
@@ -98,8 +100,8 @@ export function createDefaultFunctionApi(
         async call(workspace, fn, req) {
             return workspaceFunctionCall(apiUrl, repo, workspace, fn, {
                 args: req.args,
-                runner: variant("none", null),
-                limits: variant("none", null),
+                runner: none,
+                limits: none,
             }, opts());
         },
     };
@@ -110,9 +112,7 @@ export function createDefaultFunctionApi(
 // =============================================================================
 
 type FuncError = ValueTypeOf<FuncErrorType>;
-type FuncStatusTag = "idle" | "running" | "succeeded" | "failed" | "cancelled";
-
-const eastTypeEqual = equalFor(EastTypeType) as (a: EastTypeValue, b: EastTypeValue) => boolean;
+type FuncStatusTag = ValueTypeOf<FuncStatusType>["type"];
 
 /** A handle's signature, recovered from the instantiated handle type. */
 interface FuncHandleSignature {
@@ -303,9 +303,11 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
                 stderr: "",
             };
         }
+        // East's type equality: a recursive type's wrapper ids are the server's
+        // on one side and this process's on the other, and name the same type.
         const inputsMatch = deployed.inputTypes.length === sig.inputs.length
-            && deployed.inputTypes.every((t, i) => eastTypeEqual(t as EastTypeValue, sig.inputs[i]!));
-        const outputMatches = eastTypeEqual(deployed.outputType as EastTypeValue, sig.output);
+            && deployed.inputTypes.every((t, i) => isTypeValueEqual(t, sig.inputs[i]!));
+        const outputMatches = isTypeValueEqual(deployed.outputType, sig.output);
         if (!inputsMatch || !outputMatches) {
             const message = `signature mismatch for "${name}": bound (${sig.inputs.length} inputs) disagrees with the deployed package`;
             return {
@@ -401,7 +403,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
             FuncBindPrimitives.read.implement((_outputType: EastTypeValue) => (nameArg: unknown) => {
                 const { key, entry } = channel(nameArg as string);
                 runtime.track(key);
-                return entry.result !== undefined ? variant("some", entry.result) : variant("none", null);
+                return entry.result !== undefined ? some(entry.result) : none;
             }),
             FuncBindPrimitives.status.implement((nameArg: unknown) => {
                 const { key, entry } = channel(nameArg as string);
@@ -412,8 +414,8 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
                 const { key, entry } = channel(nameArg as string);
                 runtime.track(key);
                 return entry.status === "failed" && entry.error !== undefined
-                    ? variant("some", entry.error)
-                    : variant("none", null);
+                    ? some(entry.error)
+                    : none;
             }),
             FuncBindPrimitives.pending.implement((nameArg: unknown) => {
                 const { key, entry } = channel(nameArg as string);

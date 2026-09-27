@@ -5,9 +5,10 @@
 
 /**
  * The Plan's drag-grammar slot keys (#631) — a bucket's start instant as a
- * `CellRefType.slot`, per the axis arm, and read back: `time` ⇒ the Z-less ISO
- * instant (`slot.parse(DateTimeType)`), `number` ⇒ the decimal form
- * (`slot.parse(FloatType)`), `ordinal` ⇒ the value itself. Composed from the
+ * `CellRefType.slot`, per the axis arm, and read back: `time` ⇒ the instant
+ * as East prints it, the Z-less UTC ISO form (`slot.parse(DateTimeType)`),
+ * `number` ⇒ the Float as East prints it (`slot.parse(FloatType)`),
+ * `ordinal` ⇒ the value itself. Composed from the
  * drag layer's shared codecs, so the Plan spells its slots as every
  * axis-bearing target does (#608 moved it here: the layer knows no Plan type).
  *

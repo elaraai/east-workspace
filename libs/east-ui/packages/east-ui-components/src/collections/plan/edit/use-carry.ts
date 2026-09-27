@@ -31,6 +31,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { none, some, variant } from "@elaraai/east";
 import type { DragEventValue, DropVeto } from "../../../dnd/drag-layer";
+import { equalInstants } from "../instant.js";
 import type { PlanRowValue, VisibleRow } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanScale } from "../scale.js";
@@ -58,12 +59,6 @@ export interface PlanMoveRequest {
 /** What a gesture did — moved the element, or only one of its ends. */
 export type PlanMoveOrigin = { kind: "move" } | { kind: "resize"; edge: "start" | "end" };
 
-/** Two instants alike. */
-function same(a: PlanSpan["start"], b: PlanSpan["start"]): boolean {
-    if (a.type !== b.type) return false;
-    return a.type === "time" ? a.value.getTime() === (b.value as Date).getTime() : a.value === b.value;
-}
-
 /**
  * Whether a landing is where the element already is — nothing to write.
  *
@@ -72,7 +67,7 @@ function same(a: PlanSpan["start"], b: PlanSpan["start"]): boolean {
  * @returns Whether nothing moved
  */
 export function unmoved(movable: PlanMovable, to: PlanProposal): boolean {
-    return to.rowKey === movable.rowKey && same(to.span.start, movable.span.start) && same(to.span.end, movable.span.end);
+    return to.rowKey === movable.rowKey && equalInstants(to.span.start, movable.span.start) && equalInstants(to.span.end, movable.span.end);
 }
 
 /**
@@ -85,8 +80,8 @@ export function unmoved(movable: PlanMovable, to: PlanProposal): boolean {
  */
 export function originOf(movable: PlanMovable, to: PlanProposal): PlanMoveOrigin {
     if (!movable.resize || to.rowKey !== movable.rowKey) return { kind: "move" };
-    const startMoved = !same(to.span.start, movable.span.start);
-    const endMoved = !same(to.span.end, movable.span.end);
+    const startMoved = !equalInstants(to.span.start, movable.span.start);
+    const endMoved = !equalInstants(to.span.end, movable.span.end);
     if (startMoved && !endMoved) return { kind: "resize", edge: "start" };
     if (endMoved && !startMoved) return { kind: "resize", edge: "end" };
     return { kind: "move" };

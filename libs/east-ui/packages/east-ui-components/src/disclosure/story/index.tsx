@@ -44,7 +44,6 @@ type StoryStepValue = ValueTypeOf<typeof Story.Types.Step>;
 type StoryProgressValue = ValueTypeOf<typeof Story.Types.Progress>;
 type UIComponentValue = ValueTypeOf<typeof UIComponentType>;
 type ActiveBinding = ValueTypeOf<typeof Story.Types.ActiveBinding>;
-type ProgressBinding = ValueTypeOf<typeof Story.Types.ProgressBinding>;
 
 // Pre-define equality functions at module level
 const storyEqual = equivalentFor(Story.Types.Story);
@@ -87,19 +86,18 @@ let warnedNonStepChild = false;
 function extractSteps(children: UIComponentValue[]): ExtractedStep[] {
     const steps: ExtractedStep[] = [];
     for (const child of children) {
-        const tagged = child as unknown as { type: string; value: unknown };
-        if (tagged.type === "StoryStep") {
-            const step = tagged.value as StoryStepValue;
+        if (child.type === "StoryStep") {
+            const step = child.value;
             steps.push({
                 id: step.id,
                 eyebrow: getSomeorUndefined(step.eyebrow),
                 title: getSomeorUndefined(step.title),
-                stage: getSomeorUndefined(step.stage) as UIComponentValue | undefined,
-                body: step.body as UIComponentValue[],
+                stage: getSomeorUndefined(step.stage),
+                body: step.body,
             });
         } else if (!warnedNonStepChild) {
             warnedNonStepChild = true;
-            console.warn(`Story: skipping non-StoryStep child (got '${tagged.type}'). Story children should be Story.Step components.`);
+            console.warn(`Story: skipping non-StoryStep child (got '${child.type}'). Story children should be Story.Step components.`);
         }
     }
     return steps;
@@ -380,7 +378,7 @@ export interface EastChakraStoryProps {
  * progress spine, and the sticky stage holding the active keyframe.
  */
 export const EastChakraStory = memo(function EastChakraStory({ value, storageKey }: EastChakraStoryProps) {
-    const steps = useMemo(() => extractSteps(value.steps as UIComponentValue[]), [value.steps]);
+    const steps = useMemo(() => extractSteps(value.steps), [value.steps]);
     const total = steps.length;
 
     const style = getSomeorUndefined(value.style);
@@ -395,8 +393,8 @@ export const EastChakraStory = memo(function EastChakraStory({ value, storageKey
     const staticActiveId = getSomeorUndefined(value.activeStep);
     const isStatic = staticActiveId !== undefined;
 
-    const activeBinding = useMemo(() => getSomeorUndefined(value.active), [value.active]) as ActiveBinding | undefined;
-    const progressBinding = useMemo(() => getSomeorUndefined(value.progress), [value.progress]) as ProgressBinding | undefined;
+    const activeBinding = useMemo(() => getSomeorUndefined(value.active), [value.active]);
+    const progressBinding = useMemo(() => getSomeorUndefined(value.progress), [value.progress]);
     const onStepEnterFn = useMemo(() => getSomeorUndefined(value.onStepEnter), [value.onStepEnter]);
     const onStepExitFn = useMemo(() => getSomeorUndefined(value.onStepExit), [value.onStepExit]);
 
@@ -749,8 +747,8 @@ export const EastChakraStoryStep = memo(function EastChakraStoryStep({ value, st
         id: value.id,
         eyebrow: getSomeorUndefined(value.eyebrow),
         title: getSomeorUndefined(value.title),
-        stage: getSomeorUndefined(value.stage) as UIComponentValue | undefined,
-        body: value.body as UIComponentValue[],
+        stage: getSomeorUndefined(value.stage),
+        body: value.body,
     }), [value]);
     return (
         <StoryStepBlock
@@ -781,7 +779,7 @@ export interface EastChakraStoryProgressProps {
  */
 export const EastChakraStoryProgress = memo(function EastChakraStoryProgress({ value }: EastChakraStoryProgressProps) {
     const count = Number(value.count);
-    const binding = useMemo(() => getSomeorUndefined(value.active), [value.active]) as ActiveBinding | undefined;
+    const binding = useMemo(() => getSomeorUndefined(value.active), [value.active]);
     const bound = useActiveBindingValue(binding);
 
     // Internal fallback state when unbound (the chrome is still browsable)

@@ -33,8 +33,10 @@ import {
     variant,
     some,
     none,
-    isEastSet,
-    isEastDict,
+    StructType,
+    EastTypeValueType,
+    canonicalTypeValue,
+    printFor,
     type ValueTypeOf,
     type EastTypeValue,
 } from '@elaraai/east';
@@ -115,23 +117,13 @@ function viewFor(binding: DiffBindingValue): BindHandle {
     return defaultBindRuntime.buildBindHandle(types.sourceType, source, patch, binding.mode.type);
 }
 
-/** Stable JSON for descriptor values (bigint / Date / Set / Map safe). */
-function stableStringify(v: unknown): string {
-    return JSON.stringify(v, (_k, x) => {
-        if (typeof x === 'bigint') return `${x}n`;
-        if (x instanceof Date) return x.toISOString();
-        if (isEastSet(x)) return [...x].sort();
-        if (isEastDict(x)) return [...x.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-        return x;
-    });
-}
+/** East's text for a handle's binding descriptors — the plain data its
+ *  compiled methods capture — so equal descriptors key one cache entry. */
+const printDescriptors = printFor(StructType({ decisions: ArrayType(DiffBindingType), judgements: DiffBindingType }));
 
-/** djb2 — short, stable, good enough for key identity. */
-function hashString(s: string): string {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-    return (h >>> 0).toString(36);
-}
+/** East's text for a type value; a contract's recursive ids are renamed
+ *  canonically first, so equal contracts print alike however they were built. */
+const printTypeValue = printFor(EastTypeValueType);
 
 // =============================================================================
 // Host helpers (issue #106) — shared by the primitive impls and the slice rows
@@ -191,20 +183,6 @@ function removeFromOwningView(decisions: DiffBindingValue[], caseId: string): vo
 // =============================================================================
 
 const decisionHandleCache = new Map<string, Record<string, unknown>>();
-
-/** Cycle-safe structural token for a constraint type value (by-name contracts
- *  may be recursive), so the cache never serves methods compiled for a
- *  different contract `C`. */
-function typeToken(tv: EastTypeValue): string {
-    const seen = new WeakSet<object>();
-    return JSON.stringify(tv, (_k, v) => {
-        if (typeof v === 'object' && v !== null) {
-            if (seen.has(v)) return '<cyc>';
-            seen.add(v);
-        }
-        return typeof v === 'bigint' ? `${v}n` : v;
-    });
-}
 
 function compileDecisionMethods(
     constraintType: EastTypeValue,
@@ -284,7 +262,10 @@ function buildDecisionHandle(
         return entries.sort((a, b) => at(b) - at(a));
     };
 
-    const cacheKey = `${hashString(stableStringify({ decisions, judgements }))}|${typeToken(cType)}`;
+    // Keyed by the descriptors and the contract `C`, both as East prints them,
+    // so the cache never serves methods compiled for other bindings or another
+    // contract.
+    const cacheKey = `${printDescriptors({ decisions, judgements })}|${printTypeValue(canonicalTypeValue(cType))}`;
     let methods = decisionHandleCache.get(cacheKey);
     if (methods === undefined) {
         methods = compileDecisionMethods(cType, decisions, judgements, selectionKey);

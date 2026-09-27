@@ -45,7 +45,7 @@ import { faFilter, faLayerGroup, faUsers, faMagnifyingGlass, faCalendar, faChevr
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { boundRangeDomain, boundRangeHistogram, enableSlicePersistence, type SlicePersistMode } from "../../platform/slice";
+import { boundRangeDomain, boundRangeHistogram, enableSlicePersistence } from "../../platform/slice";
 import { railAffordanceKinds } from "../rail-kinds.js";
 // Function-declaration import across the rail ↔ charts module cycle is safe
 // (hoisted; charts/spec imports SliceRailCluster from here the same way).
@@ -380,15 +380,11 @@ export function SliceRailCluster({ slice, affordanceKinds, align = "start" }: Sl
     return <Toolbar items={items} />;
 }
 
+/** East Slice.Rail value type. */
+export type SliceRailValue = ValueTypeOf<typeof Slice.Types.Rail>;
+
 export interface EastChakraSliceRailProps {
-    value: {
-        slice: unknown;
-        affordances: ReadonlyArray<{ type: string }>;
-        persist: { type: "some"; value: { type: SlicePersistMode } } | { type: "none"; value: null };
-        brush:
-            | { type: "some"; value: { axis: { type: string; value: boolean | null }; count: { type: string; value: boolean | null }; buckets: { type: string; value: bigint | null } } }
-            | { type: "none"; value: null };
-    };
+    value: SliceRailValue;
 }
 
 /** Resolved brush-strip presentation (#190) — rich by default. */
@@ -396,6 +392,47 @@ interface BrushStyle { axis: boolean; count: boolean; buckets: number; }
 
 /** Default histogram resolution. */
 const BRUSH_BUCKETS = 32;
+
+/**
+ * A range's bounds on the brush domain's own numbers — epoch ms for a
+ * datetime, the value for an integer or a float — read off the range's arm.
+ * `undefined` for a preset, which has no literal bounds, and for an arm that
+ * is not the range field's kind: the engine leaves such a range inert, so it
+ * draws no window.
+ *
+ * @param range - The applied range
+ * @param kind - The range field's kind ({@link boundRangeDomain})
+ * @returns The window's bounds, or `undefined` when it has none to draw
+ */
+export function rangeBounds(range: ValueTypeOf<typeof Slice.Types.Range>, kind: "datetime" | "integer" | "float"): { from: number; to: number } | undefined {
+    if (range.type !== kind) return undefined;
+    switch (range.type) {
+        case "datetime": return { from: range.value.from.getTime(), to: range.value.to.getTime() };
+        case "integer":  return { from: Number(range.value.from), to: Number(range.value.to) };
+        case "float":    return { from: range.value.from, to: range.value.to };
+        default:         return undefined;
+    }
+}
+
+/**
+ * The range a brushed window writes, in the arm of the range field's kind — a
+ * datetime window as its instants, an integer window widened to the whole
+ * Integers it spans, a float window as it is. The inverse of
+ * {@link rangeBounds}: an arm of another kind would be inert in the engine,
+ * which reads a range only in its field's own kind (#167).
+ *
+ * @param kind - The range field's kind
+ * @param lo - The window's lower bound, on the domain's own numbers
+ * @param hi - The window's upper bound
+ * @returns The range to set
+ */
+export function rangeOfWindow(kind: "datetime" | "integer" | "float", lo: number, hi: number): ValueTypeOf<typeof Slice.Types.Range> {
+    switch (kind) {
+        case "datetime": return variant("datetime", { from: new Date(lo), to: new Date(hi) });
+        case "integer":  return variant("integer", { from: BigInt(Math.floor(lo)), to: BigInt(Math.ceil(hi)) });
+        case "float":    return variant("float", { from: lo, to: hi });
+    }
+}
 
 /**
  * The standalone rail's brush strip — a track over the range field's full
@@ -417,14 +454,13 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
     if (domain === undefined || domain.max <= domain.min) return null;
 
     const span = domain.max - domain.min;
-    const applied = getSomeorUndefined(slice.read().range) as
-        { type: string; value: { from: Date | number; to: Date | number } } | undefined;
-    const toMs = (v: Date | number) => (v instanceof Date ? v.getTime() : Number(v));
-    const winFrom = applied !== undefined ? Math.max(0, (toMs(applied.value.from) - domain.min) / span) : 0;
-    const winTo = applied !== undefined ? Math.min(1, (toMs(applied.value.to) - domain.min) / span) : 1;
-    // A grabbable window needs literal bounds — a `datetimePreset` arm has
-    // none (its fractions come out NaN), so it renders as no window.
-    const winValid = applied !== undefined && Number.isFinite(winFrom) && Number.isFinite(winTo);
+    // A grabbable window needs literal bounds of the field's kind — a preset
+    // has none, so it renders as no window.
+    const applied = getSomeorUndefined(slice.read().range);
+    const bounds = applied !== undefined ? rangeBounds(applied, domain.kind) : undefined;
+    const winFrom = bounds !== undefined ? Math.max(0, (bounds.from - domain.min) / span) : 0;
+    const winTo = bounds !== undefined ? Math.min(1, (bounds.to - domain.min) / span) : 1;
+    const winValid = bounds !== undefined && Number.isFinite(winFrom) && Number.isFinite(winTo);
     const fromFraction = (f: number) => domain.min + Math.max(0, Math.min(1, f)) * span;
 
     // Density histogram (#190) — self-excluding row counts per bucket,
@@ -433,9 +469,9 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
 
     // Formatted axis labels (#190) — the range field's declared `format`
     // wins; else the kind default (datetime → a UTC date, numeric → number).
-    const rangeFieldId = (getSomeorUndefined(slice.rangeFieldId() as never) ?? undefined) as string | undefined;
-    const fieldFormat = rangeFieldId !== undefined
-        ? getSomeorUndefined((slice.fields().find(f => f.fieldId === rangeFieldId) as { format?: never } | undefined)?.format as never) as TickFormat | undefined
+    const rangeFieldId = getSomeorUndefined(slice.rangeFieldId());
+    const fieldFormat: TickFormat | undefined = rangeFieldId !== undefined
+        ? getSomeorUndefined(slice.fields().find(f => f.fieldId === rangeFieldId)?.format)
         : undefined;
     const fmt = tickFormatter(fieldFormat, domain.kind === "datetime" ? "time" : "linear", locale);
     const axisLabel = (f: number) => {
@@ -443,15 +479,8 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
         return fmt(domain.kind === "datetime" ? new Date(v) : v);
     };
     const commit = (fromFrac: number, toFrac: number) => {
-        const lo = fromFraction(fromFrac);
-        const hi = fromFraction(toFrac);
-        // The arm must match the range field's TRUE kind — an Integer field
-        // needs bigint bounds or the range is inert (isValueOf guard, #167).
-        slice.setRange(some(domain.kind === "datetime"
-            ? variant("datetime", { from: new Date(lo), to: new Date(hi) })
-            : domain.kind === "integer"
-                ? variant("integer", { from: BigInt(Math.floor(lo)), to: BigInt(Math.ceil(hi)) })
-                : variant("float", { from: lo, to: hi })));
+        // The arm matches the range field's TRUE kind (#167).
+        slice.setRange(some(rangeOfWindow(domain.kind, fromFraction(fromFrac), fromFraction(toFrac))));
     };
     const trackHeight = style.count ? 28 : 18;
 
@@ -489,12 +518,12 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
  */
 export const EastChakraSliceRail = memo(function EastChakraSliceRail({ value }: EastChakraSliceRailProps) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
-    const slice = value.slice as ValueTypeOf<typeof Slice.Types.Bind>;
+    const { slice } = value;
     useSliceReactivity(slice.key);
     // Opt-in persistence (#168): hydrate once on mount from the chosen store
     // (localStorage / sessionStorage / URL param), then every mutation
     // debounce-writes back. Keyed by the slice key; registration is once-only.
-    const persistMode = value.persist.type === "some" ? value.persist.value.type : undefined;
+    const persistMode = getSomeorUndefined(value.persist)?.type;
     useEffect(() => {
         if (persistMode !== undefined) enableSlicePersistence(slice.key, persistMode);
     }, [slice.key, persistMode]);
@@ -506,12 +535,12 @@ export const EastChakraSliceRail = memo(function EastChakraSliceRail({ value }: 
     // Explicit only (#187) — the legend renders when listed, never implicitly.
     const legendEnabled = configuredKinds.includes("legend");
     // Brush presentation (#190) — rich by default; opt out per option.
-    // (Optional-chained: fabricated host payloads may predate the field.)
-    const brushOpts = value.brush?.type === "some" ? value.brush.value : undefined;
+    const brushOpts = getSomeorUndefined(value.brush);
+    const buckets = getSomeorUndefined(brushOpts?.buckets);
     const brushStyle: BrushStyle = {
-        axis:    (brushOpts?.axis.type === "some" ? brushOpts.axis.value as boolean : undefined) ?? true,
-        count:   (brushOpts?.count.type === "some" ? brushOpts.count.value as boolean : undefined) ?? true,
-        buckets: brushOpts?.buckets.type === "some" ? Number(brushOpts.buckets.value as bigint) : BRUSH_BUCKETS,
+        axis:    getSomeorUndefined(brushOpts?.axis) ?? true,
+        count:   getSomeorUndefined(brushOpts?.count) ?? true,
+        buckets: buckets !== undefined ? Number(buckets) : BRUSH_BUCKETS,
     };
     return (
         <Box css={styles.railStack}>

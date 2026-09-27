@@ -6,10 +6,10 @@
 import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
-import { match, equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
+import { DateTimeType, FloatType, match, equivalentFor, none, parseFor, printFor, some, type ValueTypeOf } from "@elaraai/east";
+import { Chart, Slice as SliceInternal, SliceChromeType } from "@elaraai/east-ui/internal";
 import { formatters, formatPattern, parsePattern, tickFormatOf, useFormatters } from "../../format/index.js";
-import { SliceRailCluster } from "../../slice/rail";
+import { SliceRailCluster, rangeOfWindow } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { EastChakraSliceLegend } from "../../slice/legend";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
@@ -40,16 +40,38 @@ type SeriesMark = ValueTypeOf<typeof T.SeriesMark>;
 type Margin = { top: number; right: number; bottom: number; left: number };
 export type ScaleKind = "band" | "linear" | "time";
 
+const printNumberKey = printFor(FloatType);
+const printInstantKey = printFor(DateTimeType);
+const readNumberKey = parseFor(FloatType);
+const readInstantKey = parseFor(DateTimeType);
+
 /**
  * A stable string key for a typed x coordinate — the band category as-is, a
- * stringified number, or an ISO date. Used for the band domain, hover matching,
- * and as the parse input for the `time` / `linear` scales (round-trip-exact).
+ * number or an instant as East prints it: the spelling the Chart factory
+ * gives a `rule`'s `at` (`East.print`), so a rule lands on its coordinate.
+ * Used for the band domain and hover matching, and read back with East's
+ * parser for the `time` / `linear` scales ({@link numberOfKey},
+ * {@link instantOfKey}).
  */
 const xKeyOf = (x: XCoord): string => match(x, {
     category: s => s,
-    number: n => String(n),
-    time: d => d.toISOString(),
+    number: n => printNumberKey(n),
+    time: d => printInstantKey(d),
 });
+
+/** The number a `linear` key names, as East reads a printed Float — `NaN`
+ *  for a key that is no Float. */
+function numberOfKey(key: string): number {
+    const read = readNumberKey(key);
+    return read.success ? read.value : NaN;
+}
+
+/** The instant a `time` key names, as East reads a printed DateTime — an
+ *  invalid Date for a key that is no DateTime. */
+function instantOfKey(key: string): Date {
+    const read = readInstantKey(key);
+    return read.success ? read.value : new Date(NaN);
+}
 
 /** A whole-layer style read off a `series` node and threaded to its marks. */
 interface LayerStyle {
@@ -185,10 +207,13 @@ export function parseDatePattern(pattern: string, text: string): Date | undefine
     return parsePattern(pattern, text);
 }
 
-/** A tick value as the instant a date arm prints — a `Date`, an epoch-ms
- *  number, or the ISO key a band / time domain carries. */
+/** A tick value as the instant a date arm prints — a time scale's `Date`
+ *  tick, an epoch-ms number, or a key a band / time domain carries (East's
+ *  spelling, {@link instantOfKey}). The scales hand these over untyped. */
 function instantOf(v: unknown): Date {
-    return v instanceof Date ? v : typeof v === "number" ? new Date(v) : new Date(String(v));
+    if (v instanceof Date) return v;
+    if (typeof v === "number") return new Date(v);
+    return instantOfKey(String(v));
 }
 
 /**
@@ -353,7 +378,7 @@ function walkY(node: Spec, side: "left" | "right", consider: (v: number) => void
             const y1 = getSomeorUndefined(a.y1); const y2 = getSomeorUndefined(a.y2);
             if (y1 !== undefined) consider(y1); if (y2 !== undefined) consider(y2);
         },
-        rule: r => { if (side === "left") match(r.axis, { y: () => consider(Number(r.at)), x: () => undefined }); },
+        rule: r => { if (side === "left") match(r.axis, { y: () => consider(numberOfKey(r.at)), x: () => undefined }); },
     }, undefined);
 }
 
@@ -579,7 +604,7 @@ function RuleMark({ value }: { value: ValueTypeOf<typeof T.Rule> }): ReactNode {
     // a measure rule is vertical, a domain rule horizontal.
     return match(value.axis, {
         y: () => {
-            const pos = y(Number(value.at));
+            const pos = y(numberOfKey(value.at));
             return horizontal
                 ? <Line from={{ x: pos, y: 0 }} to={{ x: pos, y: innerH }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />
                 : <Line from={{ x: 0, y: pos }} to={{ x: innerW, y: pos }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />;
@@ -826,7 +851,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             // along a linear x, so the bottom axis formats as `linear`.
             const horizontal = match(f.yScale, { band: () => true, linear: () => false, time: () => false });
             const xKind: ScaleKind = horizontal ? "linear" : match(f.xScale, { band: () => "band" as const, linear: () => "linear" as const, time: () => "time" as const });
-            const xNum = (s: string) => xKind === "time" ? new Date(s).getTime() : Number(s);
+            const xNum = (s: string) => xKind === "time" ? instantOfKey(s).getTime() : numberOfKey(s);
 
             const series: Series[] = [];
             for (const c of f.children) collectSeries(c, series);
@@ -941,14 +966,14 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                     if (bottomDomain) { [lo, hi] = bottomDomain; }
                     else { const step = n > 1 ? (xMax - xMin) / (n - 1) : (xMax || 1); lo -= step / 2; hi += step / 2; }
                     bandWidth = (innerW / n) * 0.7;
-                    xTickValues = xDomain.map(k => xKind === "time" ? new Date(k) : Number(k));
+                    xTickValues = xDomain.map(k => xKind === "time" ? instantOfKey(k) : numberOfKey(k));
                     if (xKind === "time") {
                         const xt = scaleTime({ domain: [new Date(lo), new Date(hi)], range: [0, innerW] });
-                        cxKey = key => xt(new Date(key));
+                        cxKey = key => xt(instantOfKey(key));
                         xAxisScale = xt as AxisScale;
                     } else {
                         const xl = scaleLinear<number>({ domain: [lo, hi], range: [0, innerW] });
-                        cxKey = key => xl(Number(key));
+                        cxKey = key => xl(numberOfKey(key));
                         xAxisScale = xl as AxisScale;
                     }
                     yAxisScale = y as AxisScale;
@@ -976,6 +1001,13 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                     });
                 };
                 const focusX = tooltipData?.x;
+                // The focused key as the tooltip's heading: a date or a number
+                // in the app's locale (#850), a band category as itself — a
+                // horizontal frame's keys are its band's.
+                const keyLabel = (key: string): string =>
+                    horizontal || xKind === "band" ? key
+                        : xKind === "time" ? words.numericDate(instantOfKey(key))
+                            : words.number(numberOfKey(key));
 
                 return (
                     <Box position="relative" ref={containerRef}>
@@ -1045,7 +1077,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                             // Table column header at z-index 2) paints over it.
                             <TooltipInPortal left={tooltipLeft} top={tooltipTop} style={{ position: "absolute", pointerEvents: "none", zIndex: style.tooltipZIndex }}>
                                 <Box background="bg.surface" borderWidth="1px" borderColor="border.strong" borderRadius="4px" boxShadow="md" paddingX="10px" paddingY="8px" fontFamily="mono" fontSize="10.5px" color="fg" display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="120px">
-                                    <Box as="span" fontWeight="semibold" letterSpacing="0.04em" color="fg.muted">{xKind === "time" ? words.numericDate(new Date(tooltipData.x)) : tooltipData.x}</Box>
+                                    <Box as="span" fontWeight="semibold" letterSpacing="0.04em" color="fg.muted">{keyLabel(tooltipData.x)}</Box>
                                     {tooltipData.rows.map((rw, i) => (
                                         <Box key={i} display="flex" alignItems="center" gap="{spacing.2}">
                                             <Box as="span" width="9px" height="9px" borderRadius="2px" background={rw.color} flexShrink="0" />
@@ -1100,14 +1132,22 @@ export interface EastVisxChartProps {
 
 const chartEqual = equivalentFor(T.Spec);
 
+/** The applied range as East prints it — the brush's identity. */
+const printRange = printFor(SliceInternal.Types.Range);
+
+/** A range field kind the brush can write a range arm for. */
+function brushableKind(kind: string | undefined): kind is "datetime" | "integer" | "float" {
+    return kind === "datetime" || kind === "integer" || kind === "float";
+}
+
 /**
  * Slice chrome around a chart frame — the rail above the plot, the
  * colour-matched legend below it when a breakdown is active, and (with the
  * `brush` affordance listed) the drag-to-range brush wired to `setRange`.
  * Chrome only: the layers' data was fed explicitly upstream.
  */
-function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unknown; affordances: ReadonlyArray<{ type: string }> } }): ReactNode {
-    const slice = chrome.slice as ValueTypeOf<typeof SliceInternal.Types.Bind>;
+function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: ValueTypeOf<typeof SliceChromeType> }): ReactNode {
+    const { slice } = chrome;
     useSliceReactivity(slice.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
 
@@ -1117,28 +1157,23 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unkno
     // not rail chips.
     const railKinds = railAffordanceKinds(configuredKinds, state).filter(k => k !== "brush" && k !== "legend");
 
-    // Brush: enabled by the affordance; the range arm (datetime vs float)
-    // follows the slice's range field kind.
+    // Brush: enabled by the affordance; the range arm follows the slice's
+    // range field kind — an arm of another kind is inert in the engine (#167).
     const brushEnabled = configuredKinds.includes("brush");
-    const rangeFieldId = getSomeorUndefined(slice.rangeFieldId() as never) as string | undefined;
-    const rangeKind = brushEnabled && rangeFieldId !== undefined
-        ? (slice.fields() as ReadonlyArray<{ fieldId: string; kind: string }>).find(f => f.fieldId === rangeFieldId)?.kind
+    const rangeFieldId = getSomeorUndefined(slice.rangeFieldId());
+    const fieldKind = brushEnabled && rangeFieldId !== undefined
+        ? slice.fields().find(f => f.fieldId === rangeFieldId)?.kind
         : undefined;
+    const rangeKind = brushableKind(fieldKind) ? fieldKind : undefined;
     const onBrushEnd = useCallback((range: { from: number; to: number } | null) => {
         if (range === null) { slice.setRange(none); return; }
-        if (rangeKind === "datetime") {
-            slice.setRange(some(variant("datetime", { from: new Date(range.from), to: new Date(range.to) })));
-        } else {
-            slice.setRange(some(variant("float", { from: range.from, to: range.to })));
-        }
+        if (rangeKind !== undefined) slice.setRange(some(rangeOfWindow(rangeKind, range.from, range.to)));
     }, [slice, rangeKind]);
     // Remount the brush whenever the applied range changes: visx Brush holds
     // its selection in pixel state, which goes stale once the new range
     // re-narrows the data + x-scale.
     const rangeVal = getSomeorUndefined(state.range);
-    const brushKey = rangeVal === undefined
-        ? "none"
-        : JSON.stringify(rangeVal, (_k, v) => typeof v === "bigint" ? v.toString() : v instanceof Date ? v.toISOString() : v);
+    const brushKey = rangeVal === undefined ? "none" : printRange(rangeVal);
 
     // The legend mounts ONLY when the `legend` affordance is listed (#187) —
     // like every other chrome piece. Composing an external <Slice.Legend>
@@ -1168,10 +1203,7 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unkno
 
 /** Renders an East `ChartSpec` (visx-primitive tree). The root is a `frame`. */
 export const EastVisxChart = memo(function EastVisxChart({ value, brush, onBrushEnd, brushKey }: EastVisxChartProps) {
-    const chrome = value.type === "frame"
-        ? (getSomeorUndefined((value.value as unknown as { slice: never }).slice) as
-            { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined)
-        : undefined;
+    const chrome = value.type === "frame" ? getSomeorUndefined(value.value.slice) : undefined;
     if (chrome !== undefined) return <SliceChromeFrame node={value} chrome={chrome} />;
     return <Frame node={value} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} />;
 }, (a, b) => chartEqual(a.value, b.value) && a.brush === b.brush && a.onBrushEnd === b.onBrushEnd && a.brushKey === b.brushKey);

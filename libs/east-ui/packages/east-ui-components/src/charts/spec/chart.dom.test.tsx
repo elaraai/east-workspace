@@ -19,10 +19,11 @@
  * zero-width measurement under jsdom.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import { East, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { Chart } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { EastVisxChart } from "./index.js";
 
@@ -33,11 +34,14 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 const ui = (node: React.ReactElement) => render(<ChakraProvider value={system}>{node}</ChakraProvider>);
 afterEach(cleanup);
 
+/** A chart point, as the renderer decodes it. */
+type Point = ValueTypeOf<typeof Chart.Spec.Types.Point>;
+
 /** A categorical-x point `{ x, value, size, color }`. */
-const pt = (x: string, value: number) => ({ x: variant("category", x), value, size: none, color: none });
+const pt = (x: string, value: number): Point => ({ x: variant("category", x), value, size: none, color: none });
 
 /** A coloured series `{ key, color, points }`. */
-const series = (key: string, color: string, points: ReturnType<typeof pt>[]) => ({ key, color, points });
+const series = (key: string, color: string, points: Point[]) => ({ key, color, points });
 
 /** A `line` series node with optional per-layer `opacity` / `legend` / `tooltip`. */
 const lineNode = (data: ReturnType<typeof series>[], opts: { opacity?: number; legend?: boolean; tooltip?: boolean } = {}) =>
@@ -516,6 +520,78 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         expect(Number(rule.getAttribute("x1"))).toBeCloseTo(264, 3);
         expect(Number(rule.getAttribute("x1"))).toBeCloseTo(Number(rule.getAttribute("x2")), 3);
         expect(Math.abs(Number(rule.getAttribute("y2")) - Number(rule.getAttribute("y1")))).toBeCloseTo(208, 3);
+    });
+});
+
+describe("Chart renderer — a rule lands on its coordinate: x keys are spelled as East prints them", () => {
+    /** A `rule` exactly as the Chart factory builds it — `Chart.refLine`'s
+     *  node, evaluated, so its `at` is the factory's own spelling. */
+    const factoryRule = (x: number | Date): unknown =>
+        East.compile(East.function([], Chart.Spec.Types.Spec, () => Chart.refLine({ x }).node), [])();
+
+    /** A bar point at a typed x coordinate. */
+    const at = (x: Point["x"], value: number): Point => ({ x, value, size: none, color: none });
+
+    /** A frame over an x scale of the given kind. */
+    const xFrame = (xScale: "band" | "time", children: unknown[]) =>
+        variant("frame", {
+            height: 240,
+            width: some(400),
+            margin: some({ top: 8, right: 8, bottom: 24, left: 40 }),
+            xScale: variant(xScale, null),
+            yScale: variant("linear", null),
+            yScale2: none,
+            tooltip: none,
+            legend: none,
+            slice: none,
+            children,
+        });
+
+    /** The free-standing rule's x, and each bar's centre x. */
+    const geometry = (container: HTMLElement) => {
+        const rules = [...container.querySelectorAll("line.visx-line:not(.visx-axis-line)")];
+        expect(rules.length).toBe(1);
+        const centres = [...container.querySelectorAll("rect.visx-bar")]
+            .map(b => Number(b.getAttribute("x")) + Number(b.getAttribute("width")) / 2)
+            .sort((a, b) => a - b);
+        return { ruleX: Number(rules[0]!.getAttribute("x1")), centres };
+    };
+
+    test("a refLine at a number on a band of numbers sits on that band", () => {
+        const node = xFrame("band", [
+            barNode([series("Qty", "teal.solid", [at(variant("number", 10), 1), at(variant("number", 42), 2)])]),
+            factoryRule(42),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const { ruleX, centres } = geometry(container);
+        expect(ruleX).toBeCloseTo(centres[1]!, 3);
+    });
+
+    describe("in a timezone west of UTC", () => {
+        beforeEach(() => { vi.stubEnv("TZ", "America/Los_Angeles"); });
+        afterEach(() => { vi.unstubAllEnvs(); });
+
+        test("the process really is in Los Angeles (JavaScript reads a Z-less instant as local time)", () => {
+            expect(new Date("2026-01-02T00:00:00.000").getUTCHours()).toBe(8);
+        });
+
+        test("a refLine at an instant on a time axis sits at that UTC instant", () => {
+            const jan1 = new Date(Date.UTC(2026, 0, 1));
+            const jan3 = new Date(Date.UTC(2026, 0, 3));
+            const node = xFrame("time", [
+                barNode([series("Qty", "teal.solid", [at(variant("time", jan1), 1), at(variant("time", jan3), 2)])]),
+                factoryRule(new Date(Date.UTC(2026, 0, 2))),
+                axisNode("axisBottom"),
+                axisNode("axisLeft"),
+            ]);
+            const { container } = ui(<EastVisxChart value={node as never} />);
+            const { ruleX, centres } = geometry(container);
+            // 2 January is midway between the two bars — read as local time it
+            // would sit eight hours later.
+            expect(ruleX).toBeCloseTo((centres[0]! + centres[1]!) / 2, 3);
+        });
     });
 });
 

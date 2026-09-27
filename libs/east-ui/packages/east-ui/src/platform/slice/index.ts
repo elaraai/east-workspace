@@ -1229,6 +1229,24 @@ export const SliceChromeType = StructType({
 /** Type alias for {@link SliceChromeType}. */
 export type SliceChromeType = typeof SliceChromeType;
 
+/**
+ * A standalone `Slice.Rail` — the `SliceRail` arm of `UIComponentType`: the
+ * slice chrome as its own strip, with the rail-only options.
+ *
+ * @property slice       - The bound slice every affordance writes to
+ * @property affordances - The affordances the rail mounts, in order
+ * @property persist     - Where the slice's state persists (#168); `none` = in memory only
+ * @property brush       - The brush strip's presentation (#190); `none` = the rich default
+ */
+export const SliceRailType = StructType({
+    slice:       SliceBindType,
+    affordances: ArrayType(SliceAffordanceType),
+    persist:     OptionType(SlicePersistType),
+    brush:       OptionType(SliceBrushStyleType),
+});
+/** Type alias for {@link SliceRailType}. */
+export type SliceRailType = typeof SliceRailType;
+
 // ============================================================================
 // slice_apply_* — pure narrowing engine (no state, no React)
 //
@@ -1433,6 +1451,7 @@ export const Slice = {
         Density:        SliceDensityType,
         PartitionRow:   SlicePartitionRowType,
         Resolution:     TimeResolutionType,
+        Rail:           SliceRailType,
     },
 
     /**

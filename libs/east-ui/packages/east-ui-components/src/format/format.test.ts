@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { East, FloatType, equalFor, printFor, type ExprType } from "@elaraai/east";
+import { DateTimeType, East, FloatType, equalFor, printFor, type ExprType } from "@elaraai/east";
 import { Chart, Format } from "@elaraai/east-ui";
 import { formatters, formatPattern, parsePattern, tickFormatOf, type TickFormatOpt, type ValueFormat } from "./index.js";
 import { formatTick } from "../typography/numeric/format-tick.js";
@@ -148,7 +148,8 @@ describe("formatTick and tickFormatter delegate to the one interpreter", () => {
 
     test("an undeclared axis: a time axis prints the locale's numeric date in UTC, a band its keys, a linear axis the plain number", () => {
         expect(tickFormatter(undefined, "time", "de-DE")(LATE)).toBe("29.6.2026");
-        expect(tickFormatter(undefined, "time", "en-US")(LATE.toISOString())).toBe("6/29/2026");
+        // A time key is the instant as East prints it — the chart's own spelling.
+        expect(tickFormatter(undefined, "time", "en-US")(printFor(DateTimeType)(LATE))).toBe("6/29/2026");
         expect(tickFormatter(undefined, "band", "de-DE")("Q1")).toBe("Q1");
         expect(tickFormatter(undefined, "linear", "de-DE")(1234.5)).toBe("1.234,5");
     });

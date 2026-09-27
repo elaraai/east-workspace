@@ -13,9 +13,12 @@
  * @packageDocumentation
  */
 
-import { variant, type ValueTypeOf } from "@elaraai/east";
+import { SortedSet, StringType, compareFor, variant, type ValueTypeOf } from "@elaraai/east";
 import type RBush from "rbush";
 import { Slice as SliceInternal, Schematic } from "@elaraai/east-ui/internal";
+
+/** East's order over the selected keys — the managed clause's set is an East Set. */
+const compareStrings = compareFor(StringType);
 
 type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
 /** Decoded slice value types are DERIVED from the East types (never hand-rolled). */
@@ -36,7 +39,7 @@ export function isSelectionClause(f: SlicePredicateValue, fieldId: string): bool
 /** The key set currently held by the managed `in` clause on `fieldId` (empty if none). */
 export function managedSelectionSet(filters: readonly SlicePredicateValue[], fieldId: string): ReadonlySet<string> {
     for (const f of filters) {
-        if (isSelectionClause(f, fieldId)) return (f.value.op.value as ReadonlySet<string>);
+        if (f.type === "string" && f.value.fieldId === fieldId && f.value.op.type === "in") return f.value.op.value;
     }
     return EMPTY_STRING_SET;
 }
@@ -50,23 +53,24 @@ export function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): b
 
 /**
  * Splice the managed selection `in` clause into a slice state: replace it in
- * place (preserving order), append it if absent, or drop it when `sortedKeys`
- * is empty — leaving every other filter / range / cohort untouched. Keys
- * arrive pre-sorted so the built Set is canonical (the store's blobEqual
- * dedup is order-sensitive).
+ * place (preserving order), append it if absent, or drop it when `keys` is
+ * empty — leaving every other filter / range / cohort untouched. The clause's
+ * set is an East Set, in East's order whatever order the keys come in, so the
+ * state written is canonical (the store's blobEqual dedup compares bytes).
  *
  * @param state - the decoded slice state to splice into (not mutated)
  * @param fieldId - the field the managed `in` clause targets
- * @param sortedKeys - the selected keys, pre-sorted; empty ⇒ remove the clause
+ * @param keys - the selected keys, in any order; none ⇒ remove the clause
  * @returns a new state with only the managed clause changed
  */
-export function sliceWithSelection(state: SliceStateValue, fieldId: string, sortedKeys: readonly string[]): SliceStateValue {
+export function sliceWithSelection(state: SliceStateValue, fieldId: string, keys: Iterable<string>): SliceStateValue {
     const idx = state.filters.findIndex(f => isSelectionClause(f, fieldId));
+    const selected = new SortedSet(keys, compareStrings);
     let filters: SlicePredicateValue[];
-    if (sortedKeys.length === 0) {
+    if (selected.size === 0) {
         filters = idx < 0 ? [...state.filters] : state.filters.filter((_, j) => j !== idx);
     } else {
-        const clause = variant("string", { fieldId, op: variant("in", new Set(sortedKeys)) }) as SlicePredicateValue;
+        const clause: SlicePredicateValue = variant("string", { fieldId, op: variant("in", selected) });
         if (idx < 0) filters = [...state.filters, clause];
         else { filters = [...state.filters]; filters[idx] = clause; }
     }

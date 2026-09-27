@@ -8,7 +8,8 @@
  *
  * The lever names a case of the solution's constraint contract (a by-name
  * `VariantType`); this editor derives its controls from that case's payload
- * type, read off the judgements binding's registered type:
+ * East type, read off the judgements binding's registered type
+ * ({@link constraintContractOf}):
  *
  * - variant of ops over primitives (`atMost` / `between {min,max}` / …) —
  *   an op select plus typed input(s);
@@ -22,7 +23,7 @@
 
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Box, chakra, useRecipe } from '@chakra-ui/react';
-import { none, some, variant } from '@elaraai/east';
+import { NullType, defaultValue, none, some, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
 import {
     EastChakraSelect,
     EastChakraStringInput,
@@ -34,83 +35,46 @@ import {
 import type { ConstraintValue } from './handle-runtime.js';
 import { OP_WORDS } from './constraint-format.js';
 
-/** Minimal structural view of an East runtime type object. */
-export interface TypeNode {
-    type: string;
-    cases?: Record<string, TypeNode>;
-    fields?: Record<string, TypeNode>;
-    key?: TypeNode;
-    value?: TypeNode;
-}
+/** A struct's fields or a variant's cases, as East types. */
+type Members = ReadonlyArray<{ name: string; type: EastTypeValue }>;
 
 const PRIMITIVES = new Set(['String', 'Integer', 'Float', 'DateTime', 'Boolean']);
 
+/** What an op the payload does not have edits — nothing. */
+const NULL_TYPE = toEastTypeValue(NullType);
+
+/** The value an input of `type` starts from: East's default for it
+ *  ({@link defaultValue}), except a DateTime, which opens on now rather than
+ *  East's epoch — per field, for a struct. */
+function emptyFor(type: EastTypeValue): unknown {
+    if (type.type === 'DateTime') return new Date();
+    if (type.type === 'Struct') return Object.fromEntries((type.value as Members).map(f => [f.name, emptyFor(f.type)]));
+    return defaultValue(type);
+}
+
 /**
- * Normalize a registered binding type to {@link TypeNode}. Platform type
- * arguments arrive as decoded `EastTypeValue` variants
- * (`{type:'Struct', value:[{name,type}…]}`); runtime `EastType` objects use
- * the flattened shape (`{type:'Struct', fields:{…}}`). Accept both.
+ * Whether the editor can edit a lever's payload: a bare primitive, a struct
+ * of primitives, or an op variant whose case payloads are primitives or
+ * structs of primitives.
+ *
+ * @param payload - The contract case's payload type; `undefined` when the
+ *   contract is not known yet
+ * @returns Whether the lever gets an editor
  */
-export function normalizeTypeValue(tv: unknown): TypeNode {
-    const n = tv as { type: string; value?: unknown; cases?: unknown; fields?: unknown; key?: unknown };
-    if (n.cases !== undefined || n.fields !== undefined) {
-        // Runtime-object form — already TypeNode-shaped; normalize children.
-        const out: TypeNode = { type: n.type };
-        if (n.cases) out.cases = Object.fromEntries(Object.entries(n.cases as Record<string, unknown>).map(([k, v]) => [k, normalizeTypeValue(v)]));
-        if (n.fields) out.fields = Object.fromEntries(Object.entries(n.fields as Record<string, unknown>).map(([k, v]) => [k, normalizeTypeValue(v)]));
-        if (n.key) out.key = normalizeTypeValue(n.key);
-        if (n.value !== undefined && (n.type === 'Array' || n.type === 'Dict')) out.value = normalizeTypeValue(n.value);
-        return out;
-    }
-    switch (n.type) {
-        case 'Struct':
-            return { type: 'Struct', fields: Object.fromEntries((n.value as { name: string; type: unknown }[]).map(f => [f.name, normalizeTypeValue(f.type)])) };
-        case 'Variant':
-            return { type: 'Variant', cases: Object.fromEntries((n.value as { name: string; type: unknown }[]).map(f => [f.name, normalizeTypeValue(f.type)])) };
-        case 'Array':
-            return { type: 'Array', value: normalizeTypeValue(n.value) };
-        case 'Dict': {
-            const d = n.value as { key: unknown; value: unknown };
-            return { type: 'Dict', key: normalizeTypeValue(d.key), value: normalizeTypeValue(d.value) };
-        }
-        case 'Recursive': {
-            // Unwrap one level when the wrapper carries an inner type.
-            const w = n.value as { type?: string; value?: { inner?: unknown } };
-            if (w?.type === 'wrapper' && w.value?.inner) return normalizeTypeValue(w.value.inner);
-            return { type: n.type };
-        }
-        default:
-            return { type: n.type };
-    }
-}
-
-function emptyFor(node: TypeNode): unknown {
-    switch (node.type) {
-        case 'Integer': return 0n;
-        case 'Float': return 0;
-        case 'DateTime': return new Date();
-        case 'Boolean': return false;
-        case 'String': return '';
-        case 'Struct': return Object.fromEntries(Object.entries(node.fields ?? {}).map(([k, f]) => [k, emptyFor(f)]));
-        default: return null;
-    }
-}
-
-/** Editable shapes: bare primitive, struct of primitives, or an op variant
- *  whose case payloads are primitives / structs of primitives. */
-export function leverPayloadEditable(node: TypeNode | undefined): boolean {
-    if (!node) return false;
-    if (PRIMITIVES.has(node.type)) return true;
-    if (node.type === 'Struct') return Object.values(node.fields ?? {}).every(f => PRIMITIVES.has(f.type));
-    if (node.type === 'Variant') return Object.values(node.cases ?? {}).every(c => PRIMITIVES.has(c.type) || (c.type === 'Struct' && Object.values(c.fields ?? {}).every(f => PRIMITIVES.has(f.type))));
+export function leverPayloadEditable(payload: EastTypeValue | undefined): boolean {
+    if (payload === undefined) return false;
+    const primitive = (t: EastTypeValue) => PRIMITIVES.has(t.type);
+    const structOfPrimitives = (t: EastTypeValue) => t.type === 'Struct' && (t.value as Members).every(f => primitive(f.type));
+    if (primitive(payload) || structOfPrimitives(payload)) return true;
+    if (payload.type === 'Variant') return (payload.value as Members).every(c => primitive(c.type) || structOfPrimitives(c.type));
     return false;
 }
 
 export interface LeverEditorProps {
     /** The contract case name this lever injects. */
     leverCase: string;
-    /** The case's payload type, walked off the judgements binding type. */
-    payload: TypeNode;
+    /** The case's payload type, from the solution's contract. */
+    payload: EastTypeValue;
     onInject: (constraint: ConstraintValue) => void;
 }
 
@@ -120,9 +84,11 @@ export function LeverEditor({ leverCase, payload, onInject }: LeverEditorProps) 
     const button = useRecipe({ key: 'button' });
 
     const isOpVariant = payload.type === 'Variant';
-    const ops = useMemo(() => (isOpVariant ? Object.keys(payload.cases ?? {}) : []), [isOpVariant, payload]);
+    const ops = useMemo(() => (payload.type === 'Variant' ? (payload.value as Members).map(c => c.name) : []), [payload]);
     const [opTag, setOpTag] = useState(ops[0] ?? '');
-    const active: TypeNode = isOpVariant ? (payload.cases?.[opTag] ?? { type: 'Null' }) : payload;
+    const active: EastTypeValue = payload.type === 'Variant'
+        ? ((payload.value as Members).find(c => c.name === opTag)?.type ?? NULL_TYPE)
+        : payload;
 
     // Typed controls own their in-progress state; commits land in a ref so
     // typing never re-renders this component (the Ark NumberInput resets if
@@ -134,8 +100,8 @@ export function LeverEditor({ leverCase, payload, onInject }: LeverEditorProps) 
         valRef.current = emptyFor(active);
     }
 
-    const primitiveInput = (node: TypeNode, key: string, get: () => unknown, set: (v: unknown) => void): ReactNode => {
-        switch (node.type) {
+    const primitiveInput = (type: EastTypeValue, key: string, get: () => unknown, set: (v: unknown) => void): ReactNode => {
+        switch (type.type) {
             case 'Integer':
                 return <EastChakraIntegerInput key={key} value={{ value: get() as bigint, onChange: some(set), style: inputStyle } as never} />;
             case 'Float':
@@ -148,7 +114,7 @@ export function LeverEditor({ leverCase, payload, onInject }: LeverEditorProps) 
                         key={key}
                         ariaLabel={key}
                         value={{
-                            value: some(String(get())),
+                            value: some(get() === true ? 'true' : 'false'),
                             items: [{ value: 'true', label: 'true', disabled: none }, { value: 'false', label: 'false', disabled: none }],
                             placeholder: none, multiple: none, disabled: none,
                             onChange: some((v: string) => set(v === 'true')), onChangeMultiple: none, onOpenChange: none,
@@ -156,18 +122,22 @@ export function LeverEditor({ leverCase, payload, onInject }: LeverEditorProps) 
                         } as never}
                     />
                 );
+            case 'String':
+                return <EastChakraStringInput key={key} value={{ value: get() as string, onChange: some(set), style: inputStyle } as never} />;
             default:
-                return <EastChakraStringInput key={key} value={{ value: String(get() ?? ''), onChange: some(set), style: inputStyle } as never} />;
+                // A type the editor does not edit (an op whose case carries
+                // no value) has no input.
+                return null;
         }
     };
 
     const valueControls = useMemo<ReactNode>(() => {
         const k = keyRef.current;
         if (active.type === 'Struct') {
-            return Object.entries(active.fields ?? {}).map(([field, node]) => (
+            return (active.value as Members).map(({ name: field, type }) => (
                 <Box key={`${k}.${field}`} display="flex" alignItems="center" gap="6px" minW={0}>
                     <Box as="span" textStyle="caption.eyebrow" color="fg.subtle" flexShrink={0}>{field}</Box>
-                    {primitiveInput(node, `${k}.${field}.in`,
+                    {primitiveInput(type, `${k}.${field}.in`,
                         () => (valRef.current as Record<string, unknown>)[field],
                         v => { (valRef.current as Record<string, unknown>)[field] = v; })}
                 </Box>

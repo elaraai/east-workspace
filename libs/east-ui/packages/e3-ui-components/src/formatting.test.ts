@@ -11,11 +11,15 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { DateTimeType, FloatType, IntegerType, none, some, toEastTypeValue, variant } from "@elaraai/east";
+import {
+    DateTimeType, DictType, FloatType, IntegerType, StringType, StructType, VariantType,
+    decodeBeast2For, encodeBeast2For, none, some, toEastTypeValue, variant,
+    type EastType, type ValueTypeOf,
+} from "@elaraai/east";
+import { Experiment, judgementInputType } from "@elaraai/e3-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import { formatConstraint } from "./decision/constraint-format.js";
-import type { ConstraintValue } from "./decision/handle-runtime.js";
-import type { TypeNode } from "./decision/lever-editor.js";
+import { constraintContractOf, type ConstraintContract } from "./decision/contract.js";
 import { formatLeafValue } from "./diff/format.js";
 import { deriveView, fmt, signed, type ConfigValue, type JournalRowValue } from "./experiment/derive.js";
 
@@ -25,6 +29,26 @@ const EARLY = new Date(Date.UTC(2026, 5, 29, 1, 30));
 const LATE = new Date(Date.UTC(2026, 5, 29, 23, 30));
 const en = formatters("en-US");
 const de = formatters("de-DE");
+
+/** A value as the surface holds it: decoded from East's own encoding. */
+function stored<T extends EastType>(type: T, value: ValueTypeOf<T>): ValueTypeOf<T> {
+    return decodeBeast2For(type)(encodeBeast2For(type)(value));
+}
+
+/** A solution's contract as the chips read it: off a judgements dataset's type. */
+function contractOf(contract: EastType): ConstraintContract {
+    return constraintContractOf(toEastTypeValue(DictType(StringType, judgementInputType(contract))))!;
+}
+
+/** A contract whose levers carry a bare date, an op over a Float, a bare
+ *  Integer, and a range. */
+const Levers = VariantType({
+    deadline: DateTimeType,
+    budget: VariantType({ atMost: FloatType }),
+    year: IntegerType,
+    load: VariantType({ between: StructType({ min: FloatType, max: FloatType }) }),
+});
+const levers = contractOf(Levers);
 
 /** The day of the month in the process's timezone — what a local reading prints. */
 const localDay = (d: Date): string => new Intl.DateTimeFormat("en-US", { day: "numeric" }).format(d);
@@ -41,9 +65,9 @@ describe.each([
     });
 
     test("a constraint's date prints its UTC month and day, in the app's locale", () => {
-        const deadline = variant("deadline", moved) as unknown as ConstraintValue;
-        expect(formatConstraint(deadline, undefined, undefined, en)).toEqual({ lever: "deadline", op: "·", value: "Jun 29" });
-        expect(formatConstraint(deadline, undefined, undefined, de).value).toBe("29. Juni");
+        const deadline: ValueTypeOf<typeof Levers> = variant("deadline", moved);
+        expect(formatConstraint(deadline, levers, undefined, en)).toEqual({ lever: "deadline", op: "·", value: "Jun 29" });
+        expect(formatConstraint(deadline, levers, undefined, de).value).toBe("29. Juni");
     });
 
     test("a diff leaf's DateTime prints its exact UTC instant, as East prints it", () => {
@@ -51,33 +75,34 @@ describe.each([
     });
 
     test("a journal row's weekday is its UTC day, and its effect is in the locale", () => {
-        const config = {
-            treatment: "curing", outcome: "strength", common_causes: [], method: none, estimand: none, categorical: none,
-        } as unknown as ConfigValue;
-        const row = {
+        const config: ConfigValue = stored(Experiment.Types.Config, {
+            treatment: "curing", outcome: "strength", common_causes: [], categorical: none,
+            method: none, estimand: none, refute: none, dose_feature: none, min_overlap: none,
+            min_treatment_variation: none, bootstrap: none, random_state: none, strong_overlap: none,
+            evalue_floor: none, expected_sign: none,
+        });
+        const [row]: JournalRowValue[] = stored(Experiment.Types.Journal, [{
             config, adjusted: some(5.25), naive: 1.0, verdict: variant("causal", null),
             committed_by: "analyst", committed_at: moved, preset: none,
-        } as unknown as JournalRowValue;
+        }]);
         // Three days on: within the week, so the row says its weekday.
         const now = new Date(Date.UTC(2026, 6, 2, 12, 0));
-        const german = deriveView(config, config, [], null, [row], undefined, 0, now, undefined, de);
+        const german = deriveView(config, config, [], null, [row!], undefined, 0, now, undefined, de);
         expect(german.journal?.[0]?.when).toBe("Mo");
         expect(german.journal?.[0]?.effect).toBe("+5,3");
-        expect(deriveView(config, config, [], null, [row], undefined, 0, now, undefined, en).journal?.[0]?.when).toBe("Mon");
+        expect(deriveView(config, config, [], null, [row!], undefined, 0, now, undefined, en).journal?.[0]?.when).toBe("Mon");
     });
 });
 
 describe("numbers (#850)", () => {
     test("a constraint's number is data: every digit, never grouped, the locale's decimal separator", () => {
-        const atMost: TypeNode = { type: "Variant", cases: { atMost: { type: "Float" } } };
-        const budget = variant("budget", variant("atMost", 12000.5)) as unknown as ConstraintValue;
-        expect(formatConstraint(budget, atMost, undefined, en)).toEqual({ lever: "budget", op: "at most", value: "12000.5" });
-        expect(formatConstraint(budget, atMost, undefined, de).value).toBe("12000,5");
-        const year = variant("year", 2026n) as unknown as ConstraintValue;
-        expect(formatConstraint(year, undefined, undefined, de).value).toBe("2026");
-        const between: TypeNode = { type: "Variant", cases: { between: { type: "Struct", fields: { min: { type: "Float" }, max: { type: "Float" } } } } };
-        const load = variant("load", variant("between", { min: 0.5, max: 1.25 })) as unknown as ConstraintValue;
-        expect(formatConstraint(load, between, undefined, de)).toEqual({ lever: "load", op: "between", value: "0,5 – 1,25" });
+        const budget: ValueTypeOf<typeof Levers> = variant("budget", variant("atMost", 12000.5));
+        expect(formatConstraint(budget, levers, undefined, en)).toEqual({ lever: "budget", op: "at most", value: "12000.5" });
+        expect(formatConstraint(budget, levers, undefined, de).value).toBe("12000,5");
+        const year: ValueTypeOf<typeof Levers> = variant("year", 2026n);
+        expect(formatConstraint(year, levers, undefined, de).value).toBe("2026");
+        const load: ValueTypeOf<typeof Levers> = variant("load", variant("between", { min: 0.5, max: 1.25 }));
+        expect(formatConstraint(load, levers, undefined, de)).toEqual({ lever: "load", op: "between", value: "0,5 – 1,25" });
     });
 
     test("a diff leaf: an integer as East prints it, a float as East prints it in the locale's decimal separator", () => {

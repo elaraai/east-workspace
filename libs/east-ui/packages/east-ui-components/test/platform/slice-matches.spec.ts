@@ -118,3 +118,8 @@ test("autoDeriveFieldHints: skips null / undefined values", () => {
 test("autoDeriveFieldHints: empty rows → empty", () => {
     assert.deepEqual(autoDeriveFieldHints([], (r: any) => r.c), []);
 });
+
+test("autoDeriveFieldHints: a value that is not a String is no hint — never its JavaScript spelling", () => {
+    const rows = [{ c: "A" }, { c: 5 }, { c: 7n }, { c: true }, { c: "B" }];
+    assert.deepEqual(autoDeriveFieldHints(rows, (r: any) => r.c), ["A", "B"]);
+});

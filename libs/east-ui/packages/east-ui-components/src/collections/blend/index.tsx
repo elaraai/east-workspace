@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faThumbtack, faTrashCan } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, equivalentFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { FloatType, equalFor, equivalentFor, parseFor, printFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Blend } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DropCellOptions, type DropVeto } from "../../dnd/drag-layer";
@@ -45,6 +45,12 @@ function stateAttr(state: BlendAllocationValue["state"]): string {
 /** A compare row's difference: its sign always, three decimals at most. */
 const DELTA: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(3n), signDisplay: none });
 
+/** An allocation's amount — a Float — as its draft spells it, and the draft
+ *  read back as East reads a Float. */
+const printAmount = printFor(FloatType);
+const readAmount = parseFor(FloatType);
+const equalAmounts = equalFor(FloatType);
+
 // ============================================================================
 // Allocation row
 // ============================================================================
@@ -66,8 +72,8 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
     const draggable = proposed && !alloc.pinned;
     // Amounts and shares, in the app's locale (#850).
     const words = useFormatters();
-    const [draft, setDraft] = useState(String(alloc.amount));
-    useEffect(() => { setDraft(String(alloc.amount)); }, [alloc.amount]);
+    const [draft, setDraft] = useState(printAmount(alloc.amount));
+    useEffect(() => { setDraft(printAmount(alloc.amount)); }, [alloc.amount]);
 
     const from = useMemo(
         () => ({ surface, row: targetKey, slot: "alloc", event: alloc.source }),
@@ -78,12 +84,15 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
     // with Space / Enter (a key pressed in its amount input never is).
     const drag = useDragEventChip(from, ghost, !draggable, alloc.label);
 
+    // The draft commits a finite, non-negative Float East reads in it; an
+    // emptied or unreadable draft names no amount — never 0 — and shows the
+    // amount again.
     const commitDraft = useCallback(() => {
-        const next = Number(draft);
-        if (Number.isFinite(next) && next >= 0 && next !== alloc.amount && onAmount) {
-            onAmount(alloc.source, next);
+        const read = readAmount(draft);
+        if (read.success && Number.isFinite(read.value) && read.value >= 0 && !equalAmounts(read.value, alloc.amount) && onAmount) {
+            onAmount(alloc.source, read.value);
         } else {
-            setDraft(String(alloc.amount));
+            setDraft(printAmount(alloc.amount));
         }
     }, [draft, alloc.amount, alloc.source, onAmount]);
 
@@ -374,7 +383,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
             if (ma === undefined && mb === undefined) return [];
             const na = ma !== undefined ? getSomeorUndefined(ma.numeric) : undefined;
             const nb = mb !== undefined ? getSomeorUndefined(mb.numeric) : undefined;
-            const delta = typeof na === "number" && typeof nb === "number"
+            const delta = na !== undefined && nb !== undefined
                 ? words.value(nb - na, DELTA, true)
                 : "—";
             return [{

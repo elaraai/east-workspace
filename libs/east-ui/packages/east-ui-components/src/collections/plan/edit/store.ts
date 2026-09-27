@@ -21,7 +21,7 @@
  */
 
 import { createContext, useContext } from "react";
-import type { PlanInstantValue } from "../instant.js";
+import { equalInstants } from "../instant.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
@@ -78,15 +78,9 @@ export interface PlanSaid {
     readonly seq: number;
 }
 
-/** Two instants alike — the same arm and value. */
-function sameInstant(a: PlanInstantValue, b: PlanInstantValue): boolean {
-    if (a.type !== b.type) return false;
-    return a.type === "time" ? a.value.getTime() === (b.value as Date).getTime() : a.value === b.value;
-}
-
-/** Two proposals alike. */
+/** Two proposals alike — the same row, and extents East calls equal. */
 function sameProposal(a: PlanProposal | null, b: PlanProposal): boolean {
-    return a !== null && a.rowKey === b.rowKey && sameInstant(a.span.start, b.span.start) && sameInstant(a.span.end, b.span.end);
+    return a !== null && a.rowKey === b.rowKey && equalInstants(a.span.start, b.span.start) && equalInstants(a.span.end, b.span.end);
 }
 
 /**
