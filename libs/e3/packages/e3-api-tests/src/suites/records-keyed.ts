@@ -11,7 +11,7 @@
  * segments, written through all three forms — each form described, each
  * commit landing with the delta it wrote, a stale patch refused by key with
  * nothing written — and read as its rows, and through its index in the
- * index's own order.
+ * index's own order, where a key search takes the index's key.
  *
  * It pins results, not costs. Content-defined cutting gives an equal value the
  * same manifest, so a backend that rewrote the whole state on every write
@@ -35,11 +35,13 @@ import {
   packageImport,
   workspaceCreate,
   workspaceDeploy,
+  datasetFindKey,
   datasetGet,
   datasetGetPage,
   workspaceRecordDescribe,
   workspaceRecordMutate,
   workspaceRecordHistory,
+  type DatasetFindQuery,
 } from '@elaraai/e3-api-client';
 
 import type { TestContext } from '../context.js';
@@ -177,6 +179,20 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
       assert.equal(window.length, 5);
       assert.ok(window.every((entry) => entry.ik.status === 'late'),
         'every `late` entry precedes every `ok` one, whatever their primary keys');
+    });
+
+    it('searches through the index by the index\'s own key', async (t) => {
+      const ctx = await withRecord(t);
+      const opts = await ctx.opts();
+      const find = async (query: DatasetFindQuery): Promise<{ found: boolean; row: number; count: number }> => {
+        const { found, row, count } = await datasetFindKey(ctx.config.baseUrl, ctx.repoName, WS, plansPath, query, opts);
+        return { found, row, count };
+      };
+      // Every third plan is late, due on its own number, and the late ones sort first.
+      const late = Number((ROWS + 2n) / 3n);
+      assert.deepEqual(await find({ prefix: 'o', index: 'by_status' }), { found: true, row: late, count: Number(ROWS) - late });
+      assert.deepEqual(await find({ fields: ['"late"'], index: 'by_status' }), { found: true, row: 0, count: late });
+      assert.deepEqual(await find({ key: '(status="late", due=9)', index: 'by_status' }), { found: true, row: 3, count: 1 });
     });
   });
 }

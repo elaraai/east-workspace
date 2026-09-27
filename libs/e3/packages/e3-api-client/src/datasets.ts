@@ -413,7 +413,10 @@ export async function datasetGetPage(
  *
  *  `index` searches one of a record's secondary indexes instead of the
  *  record itself, so the rows the answer names are the index's — the same
- *  row space an index page serves. */
+ *  row space an index page serves. The key, prefix and fields forms then
+ *  address the index key, the `keyType` the record's signature names, and an
+ *  exact key matches every entry under it; a range bounds the index
+ *  collection's flattened key, `ik`'s fields first. */
 export type DatasetFindQuery = (
   | { key: string }
   | { prefix: string }
@@ -431,7 +434,8 @@ export interface DatasetFindResult {
    *  order, the same row space {@link datasetGetPage} element windows
    *  serve. */
   row: number;
-  /** Number of matched rows (1/0 for an exact key). */
+  /** Number of matched rows (1/0 for an exact key; through an index, every
+   *  entry under it). */
   count: number;
   /** Content hash of the source object — cache key for the result. */
   hash: string;

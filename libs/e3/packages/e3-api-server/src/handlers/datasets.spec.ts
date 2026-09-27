@@ -33,7 +33,7 @@ import {
   BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, decodeCollectionManifest, indexCollectionType, indexWindowType,
 } from '@elaraai/e3-types';
 import { ResponseType } from '../types.js';
-import { findDatasetKey, getDataset, getDatasetPage, setDataset } from './datasets.js';
+import { findDatasetKey, getDataset, getDatasetPage, setDataset, type DatasetFindQuery } from './datasets.js';
 
 /**
  * ~`byteLength` bytes of high-entropy ASCII, deterministic across runs.
@@ -767,17 +767,24 @@ describe('findDatasetKey — struct keys', () => {
 
 const PlanRowType = StructType({ due: IntegerType, title: StringType });
 const PlansType = DictType(StringType, PlanRowType);
+/** The `by_status` index's key, which many rows share. */
+const PlanStatusKeyType = StructType({ status: StringType, week: IntegerType });
 const plansPath = [variant('field', 'records'), variant('field', 'plans')];
 type PlanRow = ValueTypeOf<typeof PlanRowType>;
 
 /**
  * Seeds a deployed workspace holding an indexed record: `n` plans keyed
- * `p-000000…`, and a `by_due` index whose order scatters them — `due` is a
+ * `p-000000…`, and two indexes. `by_due`'s order scatters them — `due` is a
  * permutation of the rows, so consecutive index entries land in unrelated
- * primary segments. The index object carries only what a read resolves
- * (its key and projection types); no program runs here.
+ * primary segments. `by_status` keys each row by a status and a week its
+ * `due` picks, so a key is a run of rows: for `n` a multiple of 30, a third
+ * of them per status, `done` then `late` then `open`, and a tenth of a
+ * status's per week. An index object carries only what a read resolves (its
+ * key and projection types); no program runs here.
  */
-async function seedIndexedRecord(storage: InMemoryStorage, n: number): Promise<{ rows: SortedMap<string, PlanRow>; primarySegments: string[] }> {
+async function seedIndexedRecord(
+  storage: InMemoryStorage, n: number,
+): Promise<{ rows: SortedMap<string, PlanRow>; primarySegments: string[]; statusSegments: string[] }> {
   await storage.repos.create(REPO);
   const rows = new SortedMap<string, PlanRow>(
     Array.from({ length: n }, (_, i) => [`p-${String(i).padStart(6, '0')}`,
@@ -794,8 +801,24 @@ async function seedIndexedRecord(storage: InMemoryStorage, n: number): Promise<{
     keyType: toEastTypeValue(IntegerType), valueType: toEastTypeValue(StringType),
     buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [] }),
   }));
+  const StatusEntryType = StructType({ ik: PlanStatusKeyType, k: StringType });
+  type StatusEntry = ValueTypeOf<typeof StatusEntryType>;
+  const statusEntries = new SortedMap<StatusEntry, string>(
+    [...rows].map(([k, row]) => [
+      { ik: { status: ['done', 'late', 'open'][Number(row.due % 3n)]!, week: row.due % 10n }, k }, row.title,
+    ] as [StatusEntry, string]),
+    compareFor(StatusEntryType));
+  const statusIndex = await datasetWrite(storage, REPO, statusEntries, indexCollectionType(StringType, PlanStatusKeyType, StringType));
+  const statusDeclaration = await storage.objects.write(REPO, encodeBeast2For(RecordIndexObjectType)({
+    keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
+    keyType: toEastTypeValue(PlanStatusKeyType), valueType: toEastTypeValue(StringType),
+    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [] }),
+  }));
   const state = await writeRecordState(storage, REPO, {
-    primary, indexes: new Map([['by_due', { manifest: index, index: declaration }]]),
+    primary, indexes: new Map([
+      ['by_due', { manifest: index, index: declaration }],
+      ['by_status', { manifest: statusIndex, index: statusDeclaration }],
+    ]),
   });
   const structure = variant('struct', new Map([
     ['records', variant('struct', new Map([
@@ -813,7 +836,7 @@ async function seedIndexedRecord(storage: InMemoryStorage, n: number): Promise<{
   })));
   await storage.datasets.write(REPO, WS, 'records/plans', variant('value', { hash: state, versions: new Map() }));
   const manifest = decodeCollectionManifest(await storage.objects.read(REPO, primary));
-  return { rows, primarySegments: manifest.entries.map((entry) => entry.hash) };
+  return { rows, primarySegments: manifest.entries.map((entry) => entry.hash), statusSegments: await segmentsOf(storage, statusIndex) };
 }
 
 describe('getDatasetPage (index reads)', () => {
@@ -869,5 +892,53 @@ describe('getDatasetPage (index reads)', () => {
     objects.read = read;
     assert.equal(response.status, 200, await response.clone().text());
     assert.deepEqual(touched, [], 'a covering read is the index alone');
+  });
+});
+
+describe('findDatasetKey (through an index)', () => {
+  it('takes the index key: an exact key is every entry under it, and a prefix or leading fields a run of them', async () => {
+    const storage = new InMemoryStorage();
+    const { statusSegments } = await seedIndexedRecord(storage, 12_000);
+    assert.ok(statusSegments.length > 3, `the index spans segments, got ${statusSegments.length}`);
+    const byStatus = async (query: DatasetFindQuery): Promise<{ found: boolean; row: number; count: number }> =>
+      findJson(await findDatasetKey(storage, REPO, WS, plansPath, { ...query, index: 'by_status' }));
+
+    // `done` is rows 0..3999, `late` 4000..7999 and `open` 8000..11999, and
+    // a status's weeks are 400 rows apiece.
+    assert.deepEqual(await byStatus({ key: '(status="late", week=3)' }), { found: true, row: 5200, count: 400 });
+    assert.deepEqual(await byStatus({ key: '(status="late", week=12)' }), { found: false, row: 8000, count: 0 });
+    assert.deepEqual(await byStatus({ fields: ['"late"'] }), { found: true, row: 4000, count: 4000 });
+    assert.deepEqual(await byStatus({ fields: ['"late"', '3'] }), { found: true, row: 5200, count: 400 });
+    // A prefix types ahead on the index key's first field.
+    assert.deepEqual(await byStatus({ prefix: 'l' }), { found: true, row: 4000, count: 4000 });
+    // A range still bounds the collection's flattened key, `ik`'s fields first.
+    assert.deepEqual(await byStatus({ from: ['"late"', '3'], to: ['"late"', '5'] }), { found: true, row: 5200, count: 800 });
+
+    // `due` is a permutation, so each of its keys is one entry, at the row of its own value.
+    assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, plansPath, { key: '42', index: 'by_due' })),
+      { found: true, row: 42, count: 1 });
+  });
+
+  it('refuses a form the index key cannot take, naming the index, and an index the record does not declare', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const refusal = async (query: DatasetFindQuery): Promise<{ status: number; error: { type: string; message: string } }> => {
+      const response = await findDatasetKey(storage, REPO, WS, plansPath, query);
+      return { status: response.status, ...await response.json() as { error: { type: string; message: string } } };
+    };
+
+    // A prefix continues the index key's own fields, never the collection's `ik`.
+    const intPrefix = await refusal({ fields: ['"late"'], prefix: '3', index: 'by_status' });
+    assert.equal(intPrefix.status, 400);
+    assert.match(intPrefix.error.message, /prefix continues key field 'week', which is Integer, not String/);
+    assert.match((await refusal({ prefix: '4', index: 'by_due' })).error.message,
+      /prefix search needs String keys; the keys of index 'by_due' are Integer/);
+    // The collection's own key is not the index's.
+    assert.equal((await refusal({ key: '(ik=42, k="p-000042")', index: 'by_due' })).error.type, 'key_parse_error');
+
+    const missing = await refusal({ key: '42', index: 'nope' });
+    assert.equal(missing.status, 404);
+    assert.equal(missing.error.type, 'index_not_found');
+    assert.match(missing.error.message, /has no index 'nope' — it has by_due, by_status/);
   });
 });

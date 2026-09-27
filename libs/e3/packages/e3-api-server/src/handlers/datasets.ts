@@ -610,7 +610,9 @@ export interface DatasetFindQuery {
   prefix?: string;
   fields?: string[];
   /** Search one of a record's secondary indexes instead of the record itself.
-   *  The rows the answer names are then the index's, in index order. */
+   *  The rows the answer names are then the index's, in index order, and the
+   *  key, prefix and fields forms address the index key (`ik`), the key the
+   *  record's signature names: an exact one matches every entry under it. */
   index?: string;
   /** Lower bound: `.east` literals of a leading prefix of the key's FLATTENED
    *  field path, nested structs recursed in declaration order. For an index
@@ -687,7 +689,8 @@ function boundPredicate(leaves: KeyField[], values: unknown[]): (key: unknown) =
  * straight into the paged preview's scroll position. The search
  * binary-searches the manifest's segment fences (each segment's first key)
  * with the key type's East comparator, then decodes at most the one owning
- * segment (exact key) or the two edge segments (prefix range).
+ * segment (exact key) or the two edge segments (a range — which is what an
+ * exact key is through an index: every entry under it).
  *
  * Responds with JSON `{ found, row, count }`: `row` is the match's global
  * element index (for a prefix, the range's first row; for a miss, the
@@ -725,6 +728,7 @@ export async function findDatasetKey(
       ? status.datasetType
       : toEastTypeValue(status.datasetType as never);
     let searchHash = status.hash;
+    const indexed = query.index !== undefined;
     if (query.index !== undefined) {
       const refPath = treePath.map((seg) => seg.value).join('/');
       const resolved = await resolveRecordIndex(storage, repoPath, workspace, refPath, status.hash, query.index);
@@ -744,6 +748,17 @@ export async function findDatasetKey(
     const keyTypeValue: EastTypeValue = kind === 'Dict'
       ? (typeValue.value as { key: EastTypeValue; value: EastTypeValue }).key
       : typeValue.value as EastTypeValue;
+    // Through an index, the key, prefix and fields forms address the index key
+    // `ik` — the key a client holds, as the record's signature names it — not
+    // the collection's `{ik, k}`, which pairs it with each row's own key. The
+    // collection sorts by `ik` first, so a predicate over it is monotone over
+    // the collection's order. The range form bounds the collection's
+    // flattened key, which begins inside `ik`.
+    const formKeyType: EastTypeValue = indexed
+      ? (keyTypeValue.value as { name: string; type: EastTypeValue }[]).find((f) => f.name === 'ik')!.type
+      : keyTypeValue;
+    const formKey = indexed ? (k: unknown): unknown => (k as { ik: unknown }).ik : (k: unknown): unknown => k;
+    const keysNoun = indexed ? `the keys of index '${query.index}'` : "this dataset's keys";
 
     const fields = query.fields !== undefined && query.fields.length > 0 ? query.fields : undefined;
     const ranged = (query.from !== undefined && query.from.length > 0) || (query.to !== undefined && query.to.length > 0);
@@ -778,12 +793,12 @@ export async function findDatasetKey(
     if (lowerBound instanceof Response) return lowerBound;
     const upperBound = parseBound('to', query.to);
     if (upperBound instanceof Response) return upperBound;
-    const structMeta = keyTypeValue.type === 'Struct'
-      ? keyTypeValue.value as { name: string; type: EastTypeValue }[]
+    const structMeta = formKeyType.type === 'Struct'
+      ? formKeyType.value as { name: string; type: EastTypeValue }[]
       : null;
     if (fields !== undefined) {
       if (structMeta === null) {
-        return pageError('bad_request', `Leading-field search addresses Struct keys; this dataset's keys are ${keyTypeValue.type}`);
+        return pageError('bad_request', `Leading-field search addresses Struct keys; ${keysNoun} are ${formKeyType.type}`);
       }
       if (fields.length > structMeta.length) {
         return pageError('bad_request', `Key has ${structMeta.length} fields, got ${fields.length}`);
@@ -803,25 +818,25 @@ export async function findDatasetKey(
       const prefixIdx = fieldValues.length;
       const prefixFieldType = structMeta !== null
         ? (prefixIdx < structMeta.length ? structMeta[prefixIdx]!.type : undefined)
-        : keyTypeValue;
+        : formKeyType;
       if (prefixFieldType === undefined) {
         return pageError('bad_request', `All ${structMeta!.length} key fields are exact — nothing left for a prefix`);
       }
       if (prefixFieldType.type !== 'String') {
         return pageError('bad_request', structMeta !== null
           ? `prefix continues key field '${structMeta[prefixIdx]!.name}', which is ${prefixFieldType.type}, not String`
-          : `prefix search needs String keys; this dataset's keys are ${keyTypeValue.type}`);
+          : `prefix search needs String keys; ${keysNoun} are ${formKeyType.type}`);
       }
     }
     let keyValue: unknown;
     if (query.key !== undefined) {
-      const parsed = parseFor(keyTypeValue)(query.key);
+      const parsed = parseFor(formKeyType)(query.key);
       if (!parsed.success) {
         return pageError('key_parse_error', parsed.error);
       }
       keyValue = parsed.value;
     }
-    const cmp = compareFor(keyTypeValue);
+    const cmp = compareFor(formKeyType);
 
     const objectSize = searchHash === status.hash
       ? status.size ?? (await storage.objects.stat(repoPath, status.hash)).size
@@ -893,10 +908,18 @@ export async function findDatasetKey(
       count = Math.max(0, upper.row - lower.row);
       found = count > 0;
     } else if (query.key !== undefined) {
-      const at = await locate((k) => cmp(k, keyValue) >= 0);
-      found = at.hasKey && cmp(at.key, keyValue) === 0;
-      row = at.row;
-      count = found ? 1 : 0;
+      const at = await locate((k) => cmp(formKey(k), keyValue) >= 0);
+      if (indexed) {
+        // An index holds an entry per row under a key, so a key is a run.
+        const past = await locate((k) => cmp(formKey(k), keyValue) > 0);
+        row = at.row;
+        count = past.row - at.row;
+        found = count > 0;
+      } else {
+        found = at.hasKey && cmp(at.key, keyValue) === 0;
+        row = at.row;
+        count = found ? 1 : 0;
+      }
     } else {
       // Range query — a String prefix, or a struct key's exact leading
       // fields with an optional prefix on the next field. Both predicates
@@ -910,8 +933,9 @@ export async function findDatasetKey(
       if (structMeta !== null) {
         const fieldCmps = structMeta.map((f) => compareFor(f.type));
         const lead = (k: unknown): number => {
+          const key = formKey(k) as Record<string, unknown>;
           for (let j = 0; j < fieldValues.length; j++) {
-            const c = fieldCmps[j]!((k as Record<string, unknown>)[structMeta[j]!.name], fieldValues[j]);
+            const c = fieldCmps[j]!(key[structMeta[j]!.name], fieldValues[j]);
             if (c !== 0) return c;
           }
           return 0;
@@ -925,20 +949,20 @@ export async function findDatasetKey(
           const prefixCmp = fieldCmps[prefixIdx]!;
           lowerPred = (k) => {
             const c = lead(k);
-            return c !== 0 ? c > 0 : prefixCmp((k as Record<string, unknown>)[prefixName], prefix) >= 0;
+            return c !== 0 ? c > 0 : prefixCmp((formKey(k) as Record<string, unknown>)[prefixName], prefix) >= 0;
           };
           upperPred = (k) => {
             const c = lead(k);
             if (c !== 0) return c > 0;
-            const field = (k as Record<string, unknown>)[prefixName] as string;
+            const field = (formKey(k) as Record<string, unknown>)[prefixName] as string;
             return prefixCmp(field, prefix) > 0 && !field.startsWith(prefix);
           };
         }
       } else {
         // Scalar String keys — validation guarantees the prefix is set here.
         const scalarPrefix = prefix!;
-        lowerPred = (k) => cmp(k, scalarPrefix) >= 0;
-        upperPred = (k) => cmp(k, scalarPrefix) > 0 && !(k as string).startsWith(scalarPrefix);
+        lowerPred = (k) => cmp(formKey(k), scalarPrefix) >= 0;
+        upperPred = (k) => cmp(formKey(k), scalarPrefix) > 0 && !(formKey(k) as string).startsWith(scalarPrefix);
       }
       const lower = await locate(lowerPred);
       const upper = await locate(upperPred);

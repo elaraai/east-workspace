@@ -915,6 +915,7 @@ Changes:
 - A redeploy can change a record's mutations without a commit that moves its state, and the dataset list names the state's hash, so the TUI reads a record's signature again when the workspace's package changes.
 - The History tab may read before the dataset list has named the record, so its first page does not wait on the records the list names.
 - At 80 columns the RECORDS table clipped the newest commit's age. NAME starts at 10 cells, as the tasks table's does, and grows to the longest name.
+- **A key search through an index takes the index's key** (decided 2026-09-27; the probe found it). The server searched an index's own collection, keyed by `{ik, k}`, so a key or a prefix from a client, which holds the index key the signature names, was addressed to `{ik, k}`: `/find site-50` over an index keyed by `{site, id}` was refused, and an exact key could not parse. No test searched through an index. With `index`, the key, prefix and fields forms address the index key, and an exact key matches every entry under it; the range form still bounds the collection's flattened key, which begins inside `ik`.
 
 Built in two parts, in this order:
 1. **The fixes:** units marked in execution records, the dataset list's size, `/save` streaming, pages of at least 16 rows, wide records collapsed, and the layout.
@@ -922,7 +923,7 @@ Built in two parts, in this order:
 
 Acceptance:
 - A split task's history lists its own executions only, through e3-core and the API, and its Runs tab marks the task's own run current.
-- The probe over the same repository: the tables name each input's stored size; `/save` of the 589 MiB input grows the process by a few segments, not by the value; the first window of 32 KB rows, sixty rows and a page, takes five requests; a 150-column row is one line; and a record's table row, state, history and index pages show.
+- The probe over the same repository: the tables name each input's stored size; `/save` of the 589 MiB input grows the process by a few segments, not by the value; the first window of 32 KB rows, sixty rows and a page, takes five requests; a 150-column row is one line; and a record's table row, state, history and index pages show, and a key search through its index finds the key.
 
 ### Stage 6 — Automatic parallelism (e3 SDK)
 
