@@ -4,9 +4,10 @@
  */
 
 /**
- * The guard, end to end (the e3 data plan's stage 5 acceptance): with
- * `--memory` below what the units need at once, a run completes, writes the
- * outputs a run with room writes, and stays under the budget plus one unit.
+ * The guard, end to end, as `design/e3-data-architecture.md` describes it:
+ * with `--memory` below what the units need at once, a run completes, writes
+ * the outputs a run with room writes, and stays under the budget plus one
+ * unit.
  *
  * Two split tasks each hold a known amount of memory in every piece. A run
  * with room measures a unit's peak, `P`. The run under test then has a budget

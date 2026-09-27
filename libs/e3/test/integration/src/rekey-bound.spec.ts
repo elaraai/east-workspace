@@ -4,10 +4,10 @@
  */
 
 /**
- * The re-key's memory bound, end to end (the e3 data plan's §6, and stage 4's
- * acceptance): a `streamTask` over a partitioned Array of nested rows emits
- * them to a `dict` under keys unrelated to their order, and the dict's `merge`
- * folds equal keys. It runs on every runner on PATH, at two input sizes.
+ * The re-key's memory bound, end to end, as `design/e3-data-architecture.md`
+ * states it: a `streamTask` over a partitioned Array of nested rows emits them
+ * to a `dict` under keys unrelated to their order, and the dict's `merge` folds
+ * equal keys. It runs on every runner on PATH, at two input sizes.
  *
  * Each key is emitted twice, once for a row in the first half of the input and
  * once for a row in the second, so equal keys fold across pieces. The `merge`
