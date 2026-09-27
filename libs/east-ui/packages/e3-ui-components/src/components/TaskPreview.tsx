@@ -79,4 +79,7 @@ export const TaskPreview = memo(function TaskPreview({
             </Box>
         </Box>
     );
-}, (prev, next) => prev.task === next.task && prev.repo === next.repo && prev.workspace === next.workspace && prev.bare === next.bare);
+}, (prev, next) => prev.task === next.task && prev.apiUrl === next.apiUrl && prev.repo === next.repo
+    && prev.workspace === next.workspace && prev.bare === next.bare
+    // A rotated token re-renders the preview, or its reads keep the old one.
+    && prev.requestOptions?.token === next.requestOptions?.token);

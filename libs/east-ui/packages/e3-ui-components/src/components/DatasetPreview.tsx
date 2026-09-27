@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Flex, Text } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
@@ -136,15 +136,39 @@ export const DatasetPreview = memo(function DatasetPreview({
     const queryClient = useQueryClient();
     const decoded = valueQuery.data?.decoded;
 
-    const write = useCallback(async (next: unknown) => {
-        if (workspace == null || path == null || type === undefined) return;
+    // The value the last edit wrote, until it has loaded. An edit made before
+    // then applies to it: applied to the value on screen, which the edit before
+    // has already moved on from, it would write that edit away.
+    const edited = useRef<{ value: unknown } | null>(null);
+    const writing = useRef(0);
+    const writes = useRef<Promise<void>>(Promise.resolve());
+    useEffect(() => { if (writing.current === 0) edited.current = null; }, [decoded]);
+
+    const write = useCallback((next: unknown): Promise<void> => {
+        if (workspace == null || path == null || type === undefined) return Promise.resolve();
         const treePath = path.split('.').filter(Boolean).map((p) => variant('field', p));
         const data = encodeBeast2For(type as never)(next as never);
-        await setMutation.mutateAsync({ path: treePath, data });
-        // Refetch the status only — the new content hash it returns re-keys the
-        // value query, which loads the new value (kept smooth by placeholderData
-        // above). Invalidating the value query too would refetch the stale hash.
-        await queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
+        edited.current = { value: next };
+        writing.current++;
+        // One write at a time, in the order they were made, so the last edit's
+        // value is the one the dataset keeps.
+        const run = writes.current.then(async () => {
+            await setMutation.mutateAsync({ path: treePath, data });
+            // Refetch the status only — the new content hash it returns re-keys
+            // the value query, which loads the new value (kept smooth by
+            // placeholderData above). Invalidating the value query too would
+            // refetch the stale hash.
+            await queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
+        });
+        writes.current = run.catch(() => undefined);
+        return run
+            .catch((err: unknown) => {
+                // A write that failed wrote nothing: the next edit applies to
+                // the dataset's value.
+                edited.current = null;
+                throw err;
+            })
+            .finally(() => { writing.current--; });
     }, [apiUrl, repo, workspace, path, type, setMutation, queryClient]);
 
     // Inline key search (#520): the same control as the paged preview, with
@@ -195,12 +219,13 @@ export const DatasetPreview = memo(function DatasetPreview({
     const treeValue = useMemo<ValueTreeValue | null>(() => {
         if (type === undefined || decoded === undefined) return null;
         const root = ValueTree.materialize(type, decoded);
+        const base = (): unknown => (edited.current !== null ? edited.current.value : decoded);
         const wire = editable
             ? {
-                onEdit: some((p: ValueTreeStepValue[], leaf: ValueTreeLeafValue) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'edit', leaf }))),
-                onInsert: some((p: ValueTreeStepValue[]) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'insert' }))),
-                onRemove: some((p: ValueTreeStepValue[]) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'remove' }))),
-                onTag: some((p: ValueTreeStepValue[], tag: string) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'tag', tag }))),
+                onEdit: some((p: ValueTreeStepValue[], leaf: ValueTreeLeafValue) => write(ValueTree.applyEdit(type, base(), p, { kind: 'edit', leaf }))),
+                onInsert: some((p: ValueTreeStepValue[]) => write(ValueTree.applyEdit(type, base(), p, { kind: 'insert' }))),
+                onRemove: some((p: ValueTreeStepValue[]) => write(ValueTree.applyEdit(type, base(), p, { kind: 'remove' }))),
+                onTag: some((p: ValueTreeStepValue[], tag: string) => write(ValueTree.applyEdit(type, base(), p, { kind: 'tag', tag }))),
             }
             : { onEdit: none, onInsert: none, onRemove: none, onTag: none };
         return { root, ...wire, style: some({ height: some('100%'), maxHeight: none, openDepth: none, toolbar: some(true) }) } as unknown as ValueTreeValue;
@@ -244,8 +269,13 @@ export const DatasetPreview = memo(function DatasetPreview({
         );
     }
 
+    // The error first: a load that failed has no data, and would otherwise
+    // show as loading forever.
+    if (valueQuery.error) {
+        const { message, details } = formatApiError(valueQuery.error);
+        return <StatusDisplay variant="error" title="Load failed" message={message} details={details ?? formatError(valueQuery.error)} />;
+    }
     if (valueQuery.isLoading || !valueQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
-    if (valueQuery.error) return <StatusDisplay variant="error" title="Decode failed" message={valueQuery.error.message} />;
 
     // Collection roots show their entry count beside the byte size — the
     // same header the paged view renders, so small and large datasets read
