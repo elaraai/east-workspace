@@ -21,8 +21,8 @@
  * - **A collection delivery is split into segment objects.** It is read a
  *   segment at a time and taken in through the store's door, never held whole,
  *   so a new delivery that differs from the last in a few rows shares every
- *   other segment with it, and what a partitioned task carves of it is
- *   unchanged. Any other value is taken in as the object the file is, by a
+ *   other segment with it, and a task split over it re-runs only the pieces
+ *   around those rows. Any other value is taken in as the object the file is, by a
  *   link, a reflink or one kernel copy.
  * - **An unchanged delivery is not read twice.** The store remembers each
  *   delivery's SHA-256 and the manifest it became, so adopting the same bytes

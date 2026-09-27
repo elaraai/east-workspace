@@ -4,16 +4,16 @@
  */
 
 /**
- * e3 logs command - View execution logs for workspace tasks
+ * e3 task logs and e3 task list commands - View execution logs for workspace tasks
  *
  * Usage:
- *   e3 logs . ws                    # List tasks in workspace
- *   e3 logs . ws.taskName           # Show the last 200 lines
- *   e3 logs . ws.taskName -n 50     # Show the last 50 lines
- *   e3 logs . ws.taskName --all     # Show the whole log
- *   e3 logs . ws.taskName --follow  # Follow log output
- *   e3 logs . --execution <taskHash>/<inputsHash>/<executionId>
- *                                   # One execution's logs, e.g. a partition unit
+ *   e3 task list . ws                    # List tasks in workspace
+ *   e3 task logs . ws.taskName           # Show the last 200 lines
+ *   e3 task logs . ws.taskName -n 50     # Show the last 50 lines
+ *   e3 task logs . ws.taskName --all     # Show the whole log
+ *   e3 task logs . ws.taskName --follow  # Follow log output
+ *   e3 task logs . --execution <taskHash>/<inputsHash>/<executionId>
+ *                                        # One execution's logs, e.g. a split task's unit
  */
 
 import {
@@ -64,7 +64,7 @@ export interface ExecutionRef {
 
 /**
  * Parse an `--execution` reference: `<taskHash>/<inputsHash>/<executionId>`,
- * the ids a partitioned task's log names each of its units by.
+ * the ids a split task's log names each of its units by.
  *
  * @param ref - The option value
  * @returns The execution's ids
@@ -144,7 +144,7 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
   }
 
   console.log('');
-  console.log(`Use "e3 logs . ${ws}.<taskName>" to view logs.`);
+  console.log(`Use "e3 task logs . ${ws}.<taskName>" to view logs.`);
 }
 
 
@@ -440,7 +440,7 @@ async function listWorkspaceTasksRemote(
   }
 
   console.log('');
-  console.log(`Use "e3 logs <repo> ${ws}.<taskName>" to view logs.`);
+  console.log(`Use "e3 task logs <repo> ${ws}.<taskName>" to view logs.`);
 }
 
 /** Convert a remote LogChunk (bigint fields) to LogData. */
@@ -456,7 +456,7 @@ function toLogData(chunk: Awaited<ReturnType<typeof taskLogsRemote>>): LogData {
 
 /**
  * View execution logs for workspace tasks, or — with `execution` — the logs
- * of one execution named by its ids, such as a unit of a partitioned task.
+ * of one execution named by its ids, such as a unit of a split task.
  */
 export async function logsCommand(
   repoArg: string,
@@ -493,7 +493,7 @@ export async function logsCommand(
     }
 
     if (!pathSpec) {
-      exitError('Usage: e3 logs <repo> <ws> or e3 logs <repo> <ws.taskName>');
+      exitError('Usage: e3 task logs <repo> <ws.taskName>, or e3 task logs <repo> --execution <taskHash>/<inputsHash>/<executionId>');
     }
 
     // Parse the path: ws or ws.taskName

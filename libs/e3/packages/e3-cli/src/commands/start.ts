@@ -4,13 +4,13 @@
  */
 
 /**
- * e3 start command - Execute tasks in a workspace
+ * e3 dataflow run command - Execute tasks in a workspace
  *
  * Usage:
- *   e3 start . my-workspace
- *   e3 start . my-workspace --jobs 2 --memory 8G
- *   e3 start . my-workspace --force
- *   e3 start https://server/repos/myrepo my-workspace
+ *   e3 dataflow run . my-workspace
+ *   e3 dataflow run . my-workspace --jobs 2 --memory 8G
+ *   e3 dataflow run . my-workspace --force
+ *   e3 dataflow run https://server/repos/myrepo my-workspace
  */
 
 import { join } from 'node:path';
@@ -71,7 +71,7 @@ export async function startCommand(
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'remote') refuseRemoteBudget(options);
     // A local run's budget: the cores and memory its runner processes take,
-    // across the dataflow's tasks and the units of its partitioned tasks.
+    // across the dataflow's tasks and the units of its split tasks.
     const budget = location.type === 'local' ? commandBudget(options) : null;
 
     console.log(`Starting tasks in workspace: ${ws}`);
@@ -131,7 +131,7 @@ export async function startCommand(
 
 interface LocalExecuteOptions {
   /** The run's budget: the cores and memory its runner processes take, tasks
-   *  and partition units alike. */
+   *  and the units of split tasks alike. */
   budget: Budget;
   force?: boolean;
   verbose?: boolean;
@@ -403,7 +403,7 @@ function printSummary(summary: Summary): void {
 }
 
 function printFailedTasks(tasks: TaskCompletedCallback[]): void {
-  // Stderr, not stdout — `e3 dataflow start` exits non-zero in this branch,
+  // Stderr, not stdout — `e3 dataflow run` exits non-zero in this branch,
   // so the failure summary belongs on the error stream where callers (CI
   // scripts, fuzz harness, anything that asserts on exit code) look for
   // diagnostics. Was the source of empty "start failed:" messages in the

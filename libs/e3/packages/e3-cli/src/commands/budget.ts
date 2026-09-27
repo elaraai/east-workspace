@@ -5,8 +5,8 @@
 
 /**
  * The budget of a command that runs units: the cores and the memory its
- * runner processes take from — a dataflow's tasks and the units of its
- * partitioned tasks, a function call, a mutation, an index build.
+ * runner processes take from — a dataflow's tasks and the units of its split
+ * tasks, a function call, a mutation, an index build.
  */
 
 import { configureFramePool } from '@elaraai/east';

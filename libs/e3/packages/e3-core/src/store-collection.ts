@@ -9,8 +9,8 @@
  * A collection dataset is a manifest naming segment objects, cut by the current
  * rule and written under the canonical header for its type — the bytes the
  * Writer writes for the value, whichever way the value arrived. Every writer of
- * one hands its collection here as sources in order: a task's output, a
- * partitioned task's assembly, a record's commit, a delivered file, an upload.
+ * one hands its collection here as sources in order: a task's output, a split
+ * task's assembly, a record's commit, a delivered file, an upload.
  * The door writes the segment objects and the manifest, and returns the
  * manifest's hash, the dataset's content address.
  *
@@ -116,8 +116,9 @@ export type CollectionSource =
  *
  * For a Set or a Dict the sources must ascend together: each source's own
  * elements are checked, and a source that starts before the previous one ends
- * is the caller's to refuse, as the partitioned splice does. An empty list of
- * sources stores the empty collection.
+ * is the caller's to prevent, as a split task's assembly does by merging the
+ * parts whose key ranges overlap first. An empty list of sources stores the
+ * empty collection.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
