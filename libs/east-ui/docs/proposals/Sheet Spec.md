@@ -1317,7 +1317,7 @@ sheet/
   lens.ts                ~150   hits from the slice narrowing (the slice engine's `sliceMatches`), context bands, reveals, step escalation
   clipboard.ts           ~120   export / paste matrix
   *.test.ts                     the pure modules' input → output tables (date · quantity · candidates · clipboard · model)
-  Toolbar.tsx            ~150   tabs · context switch · match count · the slice rail cluster (search / filter / cohort) · scope badge
+  Toolbar.tsx            ~150   tabs · context switch · match count · the slice rail (search / filter / cohort) · scope badge — a row of the shared toolbar (#952)
   Header.tsx             ~100   two-line sticky header
   Rows.tsx               ~250   virtualised rows, gutter (numbers, ✓ × → buttons), bands, proposal rows
   cells/Cell.tsx         ~200   scalar cell by kind: text / mono / num + unit / enum dot / stamped / ghost / proposal hatch / next-target
@@ -1338,7 +1338,8 @@ theme/slot-recipes/sheet.ts ~300 the B§11 vocabulary as recipe slots, light + d
 Reused, not rebuilt: `collections/virtual-rows.tsx` (mixed-height rows — link
 cells wrap), the Plan's `paged-window-store.ts` / `window-ledger` / `window-residency`
 / `window-reader` / `use-seek` and the `key-search` component, `slice/use-slice-reactivity`
-+ `SliceRailCluster` for the rail and the slice engine (`sliceMatches` in east-ui's `platform/slice/impl.ts`) for the lens,
++ the shared toolbar (`src/toolbar/`) with the rail's items (`useSliceToolbarItems`, #952) for the
+rail and the slice engine (`sliceMatches` in east-ui's `platform/slice/impl.ts`) for the lens,
 `contracts/density`, `parseCssSize`, the FA solid set, `formatTick` for quantity
 display, `formatDatePattern` (East date tokens, UTC) for dates.
 
@@ -1586,24 +1587,33 @@ lens. The key search on the paged arm (`use-seek.ts`) mounts whenever the source
 declares `seek`, replaces the rail's `search`, and lands the ring on the matched
 position once its window is resident; the k-th match IS the row at `range.row + k`.
 
-**The toolbar under width pressure (P6 review).** One row, always — nothing
-wraps and nothing scrolls. The rail gives way first: its ladder folds
-affordances into summary chips, then one chip naming its contents, then the
-icon alone (a new terminal rung; every rung opens the slice editor popover).
-The flex layout enforces that by construction: the rail group takes the
-leftover (`flex: 1 1 0`) over a `min-content` floor, the cluster's `contain:
-inline-size` keeps the rail's content out of that floor, and the tabs strip
-shrinks only past it. Then the tabs fold their trailing members into a `+n`
-menu (`foldTabs` — the active tab is always kept, taking the last visible
-slot). At the strip's floor (the whole-sheet tab · the active tab · `+n` ·
-`+ TAB`) it reports through `SheetTabsFoldContext`, and the toolbar climbs its
-own ladder one rung per report, moving the strip's measure key after each so
-the ladder settles before paint: `data-tight` 1 drops the count line, 2 the
-context label, 3 the `+ TAB` label and the whole-sheet count, 4 caps the tab
-names at 72 px, 5 drops the context switch. Growth resets both ladders once
-the width has settled (the rail's rule); the count or the context switch
-coming or going resets the toolbar's. The Plan's toolbar keeps its one row
-too: its cluster's floor is the icon rung.
+**The toolbar under width pressure (P6 review; #952).** One row, always —
+nothing wraps and nothing scrolls. The toolbar is a row of the shared toolbar
+(`src/toolbar/`), which folds all its items on one ladder: each item has
+forms, widest first, and each step between two forms a rank. The rail gives
+way first (its ranks, 0–7): the filter's trailing clause chips fold into
+`+M more`, the affordances into summary chips, then one chip naming the
+rail's contents, then the icon alone (every one opens the slice editor
+popover). The sheet's own steps rank after it:
+1. the tabs fold their trailing members into a `+n` menu, one at a time
+   (`foldTabs` — the active tab is always kept, taking the last visible slot);
+2. the count line goes;
+3. the context switch drops its label;
+4. the strip drops the `+ TAB` label and the whole-sheet count
+   (`data-strip="compact"`);
+5. the tab names cap at 72 px (`capped`);
+6. last, the strip closes up and drops every count (`closed`), and the
+   context switch goes.
+
+The toolbar measures each form it renders and chooses from those widths
+before paint; a form it has not measured yet is tried and corrected in the
+same pass, so no intermediate configuration is ever painted. The row takes
+its width from its container and each item keeps its own, so the
+configuration is a function of the width, however the width was reached —
+the old ladders, each measuring by trying on screen and resetting on growth,
+repainted every rung on a 3 px resize and could rest on different
+configurations at the same width. The Plan's toolbar is a row of the same
+toolbar, its own items folding after its rail.
 
 **A phone (P6 review).** The sheet is a spreadsheet on a phone, not a card
 list: the grid scrolls sideways under a gutter that stays put (`position:

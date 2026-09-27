@@ -90,14 +90,14 @@ import { insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest,
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry } from "./Rows.js";
-import { SheetTabs, type SheetTabView } from "./Tabs.js";
+import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { useSheetEditing, type LocalLayer } from "./use-editing.js";
 import { HistoryBar, type HistoryAction } from "../../editing/HistoryBar.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
-import { SheetToolbar } from "./Toolbar.js";
+import { SheetToolbar, type SheetToolbarTabs } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
@@ -2077,28 +2077,38 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         return { folded: groups.length > 0 && groups.every((row) => foldedOf(row)), count: groups.length, noun, onFoldAll };
     }, [group, noun, rows, foldedOf, onFoldAll]);
     const hasQuery = sliceState !== undefined && sliceState.search.type === "some" && sliceState.search.value.trim() !== "";
-    const tabsNode = slice !== undefined
-        ? (
-            <SheetTabs
-                styles={styles}
-                views={tabViews}
-                wholeCount={wholeCount}
-                active={ui.tabs.active}
-                dirty={dirty}
-                hasQuery={hasQuery}
-                renaming={ui.tabs.renaming}
-                renameVal={ui.tabs.renameVal}
-                onSwitch={onTabSwitch}
-                onCreate={onTabCreate}
-                onClose={onTabClose}
-                onRenameStart={onTabRenameStart}
-                onRenameChange={onTabRenameChange}
-                onRenameCommit={onTabRenameCommit}
-                onRenameCancel={onTabRenameCancel}
-                onReorder={onTabReorder}
-                panelId={gridId}
-            />
-        )
+    // The view tabs, as the toolbar folds them (#952): the strip in each of
+    // its forms, how far it can fold, and what it shows — so a change of it
+    // has the strip measured again.
+    const tabsVersion = `${tabViews.map((v) => `${v.id}:${v.name}:${v.count}`).join("|")}|${wholeCount}|${ui.tabs.active ?? ""}|${dirty}|${hasQuery}`;
+    const tabs: SheetToolbarTabs | undefined = slice !== undefined
+        ? {
+            maxFold: tabViews.length - (tabViews.some((v) => v.id === ui.tabs.active) ? 1 : 0),
+            version: tabsVersion,
+            held: ui.tabs.renaming !== null,
+            render: (fold: SheetTabsFold) => (
+                <SheetTabs
+                    styles={styles}
+                    views={tabViews}
+                    wholeCount={wholeCount}
+                    active={ui.tabs.active}
+                    dirty={dirty}
+                    hasQuery={hasQuery}
+                    renaming={ui.tabs.renaming}
+                    renameVal={ui.tabs.renameVal}
+                    fold={fold}
+                    onSwitch={onTabSwitch}
+                    onCreate={onTabCreate}
+                    onClose={onTabClose}
+                    onRenameStart={onTabRenameStart}
+                    onRenameChange={onTabRenameChange}
+                    onRenameCommit={onTabRenameCommit}
+                    onRenameCancel={onTabRenameCancel}
+                    onReorder={onTabReorder}
+                    panelId={gridId}
+                />
+            ),
+        }
         : undefined;
     // A grouped sheet counts LINES: the matches, and the context shown around them in the groups that show — and
     // each loose row (#846) as a row of its own.
@@ -2815,7 +2825,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     affordances={affordances}
                     count={count}
                     partial={transport !== undefined && !exhausted}
-                    tabs={tabsNode}
+                    tabs={tabs}
                     context={lensOn ? { value: ui.lens.context, onChange: onContext } : undefined}
                     search={seek.search}
                     onSearchKey={onSearchKey}

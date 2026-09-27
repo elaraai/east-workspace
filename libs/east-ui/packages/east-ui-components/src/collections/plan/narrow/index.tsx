@@ -82,7 +82,8 @@ import type { PlanUiView } from "../root/view.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { feedTwoFingerPan, newTwoFingerPan } from "./pan.js";
 import { NarrowRowCard } from "./cards.js";
-import { NarrowRuler, ResolutionChip } from "./chrome.js";
+import { NarrowRuler } from "./chrome.js";
+import { SegMenu } from "../shell/Toolbar.js";
 import { useListDemand, type PlanNarrowPaging } from "./demand.js";
 import { allDataRows, dataRowsUnder, peakOf, summaryArm } from "./lists.js";
 
@@ -475,6 +476,8 @@ export function PlanNarrow({
     // the count without offering to seek (#811).
     const narrowDiagnostics = diagnostics !== undefined ? { ...diagnostics, onSeekSkipped: undefined } : undefined;
     const sliceChips = slice !== undefined && (railKinds.length > 0 || resolutions.length > 0);
+    // The resolution segment's one-chip form — the wide toolbar's, folded (#952).
+    const resolutionItems = resolutions.map((r) => ({ key: r, label: words.m.resolutionName({ resolution: r }) }));
 
     return (
         <Tabs.Root asChild value={activeTab} onValueChange={(d) => setTab(d.value as NarrowTab)}
@@ -484,7 +487,7 @@ export function PlanNarrow({
                     <Box css={styles.narrowChips} data-slot="narrowChips">
                         {slice !== undefined && railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
                         {slice !== undefined && resolutions.length > 0 && (
-                            <ResolutionChip resolution={resolution} resolutions={resolutions}
+                            <SegMenu label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
                                 onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
                         )}
                         {hasDiagnostics(narrowDiagnostics) && <PlanDiagnosticChips diagnostics={narrowDiagnostics} styles={styles} />}

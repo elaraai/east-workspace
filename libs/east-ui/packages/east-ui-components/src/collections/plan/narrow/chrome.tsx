@@ -4,16 +4,16 @@
  */
 
 /**
- * The narrow layout's shared ruler and its resolution chip (split out of
- * `narrow/index.tsx`, #815).
+ * The narrow layout's shared ruler (split out of `narrow/index.tsx`, #815).
+ * Its resolution chip is the toolbar's `SegMenu` (#952): the one-chip menu
+ * the wide toolbar's segments fold into.
  *
  * @packageDocumentation
  */
 
 import { useLayoutEffect, useRef, useState } from "react";
-import { Box, Menu as ChakraMenu, Portal, useRecipe } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
-import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -78,35 +78,5 @@ export function NarrowRuler({ styles }: { styles: Styles }) {
                 {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
             </Box>
         </Box>
-    );
-}
-
-/** The `Week` chip — the resolution segment's narrow form (a slice write). */
-export function ResolutionChip({ resolution, resolutions, onPick }: {
-    resolution: string;
-    resolutions: ReadonlyArray<string>;
-    onPick: (r: string) => void;
-}) {
-    const chip = useRecipe({ key: "chip" });
-    const words = usePlanWords();
-    return (
-        <ChakraMenu.Root onSelect={(d) => onPick(d.value)}>
-            <ChakraMenu.Trigger asChild>
-                <Box as="button" css={chip({ tone: "neutral", numeric: true })} data-slot="narrowResolution"
-                    aria-label={words.m.resolutionLabel()}>
-                    {words.m.resolutionName({ resolution })}
-                    <Box as="span" opacity={0.6} fontSize="9px">{"▾"}</Box>
-                </Box>
-            </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
-                        {resolutions.map((r) => (
-                            <ChakraMenu.Item key={r} value={r}>{words.m.resolutionName({ resolution: r })}</ChakraMenu.Item>
-                        ))}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
-        </ChakraMenu.Root>
     );
 }

@@ -20,7 +20,7 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const shellSlots = [
-    "root", "toolbar", "toolbarGroup", "toolbarTrailing", "toolbarLibraryCount", "brushRow",
+    "root", "toolbar", "toolbarLibraryCount", "brushRow",
     "brushCaption", "horizonLens", "ruler", "rulerTick", "nowChip", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
     "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry", "nowLine",
@@ -37,33 +37,17 @@ export const shellBase = {
         minWidth: 0,
         fontVariantNumeric: "tabular-nums",
     },
-    // ── Toolbar (44px): slice chrome + grain/resolution segments ──
+    // ── Toolbar (44px): the band the shared toolbar's row lies in (#952) —
+    // slice chrome, the grain/resolution segments, the summary, the library
+    // and the history bar, folded on one ladder ──
     toolbar: {
         minHeight: "var(--plan-toolbar-h)",
         display: "flex",
         alignItems: "center",
-        gap: "10px",
         padding: "0 12px",
         background: "bg.surface",
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
-    },
-    toolbarGroup: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "8px",
-        minWidth: 0,
-        flexShrink: 0,
-    },
-    // The right-edge cluster — the summary line and the library trigger.
-    // Both are trailing chrome, so ONE auto margin pushes the group rather
-    // than each child claiming the edge and fighting over it.
-    toolbarTrailing: {
-        display: "flex",
-        alignItems: "center",
-        gap: "{spacing.2}",
-        marginLeft: "auto",
-        minWidth: 0,
     },
     // The `N of M` in the library popover's head — the brand marks it as a
     // live count of what is showing, not a static caption.

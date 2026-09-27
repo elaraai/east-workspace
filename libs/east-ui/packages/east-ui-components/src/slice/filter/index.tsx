@@ -25,6 +25,10 @@ type PredicateValue = ValueTypeOf<typeof Slice.Types.Predicate>;
 
 export interface EastChakraSliceFilterProps {
     value: SliceFilterValue;
+    /** Compact only: how many trailing clause chips fold into `+N more`, as
+     *  the shared toolbar decides it (#952) — it folds them as forms of its
+     *  one ladder. Absent, the chips fold to fit the row by their own measure. */
+    foldChips?: number | undefined;
 }
 
 /**
@@ -35,7 +39,7 @@ export interface EastChakraSliceFilterProps {
  * (result **of** total). The add-filter builder always lives in a `Slice.Edit`
  * popover, so opening it never re-flows the surface.
  */
-export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value }: EastChakraSliceFilterProps) {
+export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value, foldChips }: EastChakraSliceFilterProps) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
@@ -56,8 +60,13 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
 
     // Compact eyebrow is one row that never wraps/clips — Priority+ overflow: as
     // many clause chips as fit, the rest collapse into `+N more`. The hook
-    // measures the rendered chips once per resize / count change (see its doc).
-    const { rowRef, visibleCount, measuring } = useOverflowCount(filters.length);
+    // measures the rendered chips once per resize / count change (see its doc)
+    // — unless the shared toolbar decides the fold (`foldChips`, #952).
+    const controlled = foldChips !== undefined;
+    const ownFold = useOverflowCount(filters.length, !controlled);
+    const rowRef = ownFold.rowRef;
+    const visibleCount = controlled ? Math.max(0, filters.length - foldChips) : ownFold.visibleCount;
+    const measuring = !controlled && ownFold.measuring;
 
     // null = closed; "add" = add-builder; "more" = overflow list; "save" =
     // save-as-cohort form; a number = editing the clause at that index.

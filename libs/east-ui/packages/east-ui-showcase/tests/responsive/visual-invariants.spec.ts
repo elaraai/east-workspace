@@ -484,3 +484,270 @@ test.describe("Visual invariants — the Table, on touch", () => {
         await expect(controls).toHaveCSS("opacity", "0.6");
     });
 });
+
+/**
+ * Every host with a slice rail (#952), by an example that mounts it, and the
+ * viewport widths it is swept across — each host's own range: the Plan's wide
+ * layout holds down to 850px (below it the showcase's column is under its
+ * narrow breakpoint), its resolution folding into its menu under 900; its
+ * narrow layout is `planNarrow`'s phone-width box.
+ */
+const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
+    { name: "Plan", route: "collections/plan/planTargetState", widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: () => PLAN_LADDER },
+    { name: "Plan (narrow)", route: "collections/plan/planNarrow", widths: [1600, 1200, 900], nudge: [1200] },
+    { name: "Sheet", route: "collections/sheet/sheetLens", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
+    { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
+    { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Slice.Rail", route: "slice/slice/sliceRail", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Flowchart", route: "collections/flowchart/flowchartPlant", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Schematic", route: "collections/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+];
+
+/** What the toolbar says it folded: each item's form of its forms (`data-toolbar-state`). */
+type ToolbarState = ReadonlyMap<string, { form: number; forms: number }>;
+
+/** A host's own fold steps after its rail, in order — `[item, form]`, applied once the item is at that form. */
+type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
+
+/** The Plan's own order (the user's decision, #952): the summary shortens to
+ *  its count, the resolution then the grain segment fold into their menus,
+ *  and last the summary hides. */
+const PLAN_LADDER: ReadonlyArray<readonly [string, number]> = [["summary", 1], ["resolution", 1], ["grain", 1], ["summary", 2]];
+
+/** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
+ *  count goes, the context label, the strip's `+ TAB` label and whole-sheet
+ *  count, its names cap, and last it closes up and the context switch goes. */
+function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
+    const tabs = state.get("tabs");
+    const maxFold = tabs === undefined ? 0 : tabs.forms - 4;
+    return [
+        ...Array.from({ length: maxFold }, (_x, k) => ["tabs", k + 1] as const),
+        ["count", 1], ["context", 1], ["tabs", maxFold + 1], ["tabs", maxFold + 2], ["tabs", maxFold + 3], ["context", 2],
+    ];
+}
+
+/** The first toolbar in an example: the shared toolbar's row, or (before it) a host's own band. */
+const TOOLBAR = "[data-toolbar], [data-slot='toolbar'], [data-slot='narrowChips'], [data-flowchart-eyebrow]";
+
+/** One sample of what a toolbar painted: its row's width, and what it showed. */
+interface Painted { row: number; sig: string }
+
+/** What the toolbar checks keep in the page ({@link installToolbarProbe}, {@link startPainting}). */
+interface ToolbarWindow {
+    /** What an example's first toolbar shows, as one string: its text, and how
+     *  many of its elements draw — a fold that only swaps an icon still changes it. */
+    __toolbarSig: (root: Element) => string;
+    /** The width of the example's shared toolbar row, or -1 when it has none. */
+    __toolbarRow: (root: Element) => number;
+    __painted: Painted[];
+    __paintFrame: number;
+    __paintObserver: ResizeObserver;
+}
+
+/** Installs the readers every toolbar check shares, before the page's own scripts run. */
+async function installToolbarProbe(page: Page): Promise<void> {
+    await page.addInitScript((sel: string) => {
+        const w = window as unknown as ToolbarWindow;
+        w.__toolbarSig = (root) => {
+            const bar = root.querySelector(sel);
+            if (bar === null) return "no toolbar";
+            const drawn = [...bar.querySelectorAll("*")].filter((el) => el.getClientRects().length > 0).length;
+            return `${(bar as HTMLElement).innerText.replace(/\s+/g, " ").trim()}|${drawn}`;
+        };
+        w.__toolbarRow = (root) => root.querySelector("[data-toolbar]")?.getBoundingClientRect().width ?? -1;
+    }, TOOLBAR);
+}
+
+/** A catalog example's entry, its toolbar in view. */
+async function openToolbarHost(page: Page, route: string, width: number): Promise<Locator> {
+    await installToolbarProbe(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/#${route}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator(TOOLBAR).first()).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+/** Until the toolbar has shown the same thing for 20 frames in a row — longer
+ *  than any ladder's wait before it relaxes, so a late relax is seen. */
+async function toolbarAtRest(entry: Locator): Promise<string> {
+    return entry.evaluate(async (root) => {
+        const w = window as unknown as ToolbarWindow;
+        const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        let last = w.__toolbarSig(root);
+        let same = 0;
+        for (let i = 0; i < 600 && same < 20; i++) {
+            await frame();
+            const now = w.__toolbarSig(root);
+            same = now === last ? same + 1 : 0;
+            last = now;
+        }
+        return last;
+    });
+}
+
+/**
+ * Samples what the toolbar paints, until {@link stopPainting}: as each frame
+ * begins, and as its row's resize is delivered. The sampler's observer is
+ * younger than the toolbar's own, so it is delivered after it — it reads what
+ * that frame will paint, the toolbar having answered the width. A frame begun
+ * while a resize is still to be delivered (its row not at the width last
+ * delivered) paints only after the toolbar has answered, so that sample is
+ * dropped.
+ */
+async function startPainting(entry: Locator): Promise<void> {
+    await entry.evaluate((root) => {
+        const w = window as unknown as ToolbarWindow;
+        const take = (): Painted => ({ row: w.__toolbarRow(root), sig: w.__toolbarSig(root) });
+        let delivered = Number.NaN;
+        w.__painted = [];
+        w.__paintObserver = new ResizeObserver(() => {
+            const s = take();
+            delivered = s.row;
+            w.__painted.push(s);
+        });
+        const row = root.querySelector("[data-toolbar]");
+        if (row !== null) w.__paintObserver.observe(row);
+        const tick = () => {
+            const s = take();
+            if (Math.abs(s.row - delivered) <= 0.5) w.__painted.push(s);
+            w.__paintFrame = requestAnimationFrame(tick);
+        };
+        w.__paintFrame = requestAnimationFrame(tick);
+    });
+}
+
+/** Stops {@link startPainting}, returning what it sampled. */
+async function stopPainting(entry: Locator): Promise<Painted[]> {
+    return entry.evaluate(() => {
+        const w = window as unknown as ToolbarWindow;
+        cancelAnimationFrame(w.__paintFrame);
+        w.__paintObserver.disconnect();
+        return w.__painted;
+    });
+}
+
+/** `data-toolbar-state` (`key=form/forms;…`), read. */
+function parseState(text: string): ToolbarState {
+    return new Map(text.split(";").filter((p) => p !== "").map((part) => {
+        const [key, of] = part.split("=");
+        const [form, forms] = of!.split("/").map(Number);
+        return [key!, { form: form!, forms: forms! }] as const;
+    }));
+}
+
+/** `data-toolbar-ladder` (`key>form …`, every step in the order it applies), read. */
+function parseLadder(text: string): Array<readonly [string, number]> {
+    return text.split(" ").filter((s) => s !== "").map((step) => {
+        const [key, form] = step.split(">");
+        return [key!, Number(form)] as const;
+    });
+}
+
+test.describe("Visual invariants — toolbars", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "swept at the desktop project's widths");
+
+    for (const host of TOOLBAR_HOSTS) {
+        test(`${host.name}: a toolbar never paints a fold it does not rest on — a 3px resize shows the configuration before it or after it, nothing between`, async ({ page }) => {
+            test.setTimeout(120_000);
+            const entry = await openToolbarHost(page, host.route, host.nudge[0]!);
+            const bad: string[] = [];
+            for (const width of host.nudge) {
+                await page.setViewportSize({ width, height: 900 });
+                await toolbarAtRest(entry);
+                // Sample the toolbar every frame while the width moves by 3px and back, three times.
+                await startPainting(entry);
+                for (let k = 0; k < 3; k++) {
+                    await page.setViewportSize({ width: width + 3, height: 900 });
+                    await toolbarAtRest(entry);
+                    await page.setViewportSize({ width, height: 900 });
+                    await toolbarAtRest(entry);
+                }
+                const distinct = [...new Set((await stopPainting(entry)).map((p) => p.sig))];
+                if (distinct.length > 2) bad.push(`at ${width}px: ${distinct.length} configurations painted — ${distinct.map((d) => d.slice(0, 60)).join(" ⟶ ")}`);
+            }
+            expect(bad).toEqual([]);
+        });
+
+        test(`${host.name}: the toolbar's configuration is a function of its width — the first frame at a width paints what it rests on, the same however it got there, one row that fits, folding further as it narrows, on its host's ladder`, async ({ page }) => {
+            test.setTimeout(120_000);
+            const entry = await openToolbarHost(page, host.route, host.widths[0]!);
+            const byWidth = new Map<number, string>();
+            const bad = new Set<string>();
+            const down = [...host.widths];
+            const up = [...host.widths].reverse();
+            // Down, up, and across — each width reached from both sides and from far away.
+            const order = [...down, ...up, down[down.length - 1]!, down[0]!, down[Math.floor(down.length / 2)]!];
+            const folds: { row: number; folds: number }[] = [];
+            for (const width of order) {
+                await startPainting(entry);
+                await page.setViewportSize({ width, height: 900 });
+                const sig = await toolbarAtRest(entry);
+                const painted = await stopPainting(entry);
+                const seen = byWidth.get(width);
+                if (seen !== undefined && seen !== sig) bad.add(`at ${width}px: "${seen.slice(0, 70)}" one time, "${sig.slice(0, 70)}" another`);
+                byWidth.set(width, sig);
+                const read = await entry.evaluate((root) => {
+                    const bar = root.querySelector("[data-toolbar]");
+                    if (bar === null) return undefined;
+                    const box = bar.getBoundingClientRect();
+                    const clipped = [...bar.querySelectorAll("[data-toolbar-item] *")].filter((el) => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && (r.right > box.right + 0.5 || r.left < box.left - 0.5);
+                    }).map((el) => (el.textContent ?? "").trim().slice(0, 20));
+                    return {
+                        row: box.width,
+                        folds: Number(bar.getAttribute("data-toolbar-folds")),
+                        state: bar.getAttribute("data-toolbar-state") ?? "",
+                        ladder: bar.getAttribute("data-toolbar-ladder") ?? "",
+                        clipped: [...new Set(clipped)].slice(0, 4),
+                    };
+                });
+                if (read === undefined) { bad.add(`at ${width}px: no shared toolbar`); continue; }
+                // Every frame painted at this width — the first one too — shows what it rests on.
+                const wrong = [...new Set(painted.filter((p) => Math.abs(p.row - read.row) <= 0.5 && p.sig !== sig).map((p) => p.sig))];
+                if (wrong.length > 0) bad.add(`at ${width}px: painted ${wrong.map((s) => `"${s.slice(0, 60)}"`).join(", ")} before resting on "${sig.slice(0, 60)}"`);
+                if (read.clipped.length > 0) bad.add(`at ${width}px: clipped at the row's edge — ${read.clipped.join(", ")}`);
+                folds.push({ row: read.row, folds: read.folds });
+                // What it folded is a prefix of its ladder: each item at the form
+                // the ladder's first `folds` steps put it.
+                const state = parseState(read.state);
+                const ladder = parseLadder(read.ladder);
+                const prefix = ladder.slice(0, read.folds);
+                for (const [key, { form }] of state) {
+                    const want = prefix.filter(([k]) => k === key).length;
+                    if (form !== want) bad.add(`at ${width}px: ${key} at form ${form}, where the ladder's first ${read.folds} steps put it at ${want}`);
+                }
+                // The ladder itself: the host's own steps in their order, and
+                // every step of its rail before them.
+                if (host.ladder !== undefined) {
+                    const at = host.ladder(state).filter(([key]) => state.has(key))
+                        .map(([key, form]) => ({ step: `${key}→${form}`, i: ladder.findIndex(([k, f]) => k === key && f === form) }));
+                    at.forEach((s, j) => {
+                        const before = at[j - 1];
+                        if (s.i < 0) bad.add(`the ladder has no ${s.step}`);
+                        else if (before !== undefined && before.i >= 0 && s.i < before.i) bad.add(`the ladder folds ${s.step} before ${before.step}`);
+                    });
+                    const first = Math.min(...at.map((s) => s.i).filter((i) => i >= 0));
+                    ladder.forEach(([key, form], i) => {
+                        if ((host.rail ?? []).includes(key) && i > first) bad.add(`the ladder folds the rail's ${key}→${form} after the host's ${ladder[first]!.join("→")}`);
+                    });
+                }
+            }
+            // Monotone: a narrower row never folds less than a wider one.
+            const sorted = [...folds].sort((a, b) => b.row - a.row);
+            sorted.forEach((f, i) => {
+                const wider = sorted[i - 1];
+                if (wider !== undefined && wider.row > f.row + 0.5 && f.folds < wider.folds) {
+                    bad.add(`a ${f.row.toFixed(0)}px row folds ${f.folds} steps, fewer than the ${wider.row.toFixed(0)}px row's ${wider.folds}`);
+                }
+            });
+            expect([...bad]).toEqual([]);
+        });
+    }
+});

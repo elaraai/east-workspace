@@ -19,26 +19,34 @@
  * and `+ TAB` are buttons beside the tablist; a tab's × is the pointer's,
  * and Delete is the keyboard's.
  *
- * Under width pressure the strip never scrolls: it measures itself (the
- * rail's ladder) and folds its trailing tabs — the active one always
- * kept — into a `+n` menu that switches to the tab picked. At its floor
- * (the whole-sheet tab, the active tab, `+n`, `+ TAB`) it reports whether
- * it still overflows through {@link SheetTabsFoldContext}, and the toolbar
- * climbs its own ladder.
+ * Under width pressure the strip never scrolls. The toolbar folds it, as
+ * forms of its one ladder (#952): its trailing tabs fold — the active one
+ * always kept — into a `+n` menu that switches to the tab picked; then, as
+ * the row needs, the strip drops its `+ TAB` label and the whole-sheet
+ * count, caps its names, and closes up ({@link SheetTabsFold}).
  */
 
-import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { foldTabs } from "./lens.js";
-import { SheetTabsFoldContext } from "./fold-context.js";
 import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
 /** The whole-sheet tab's key among the tabs. */
 const ALL = "all";
+
+/** The strip's form, as the toolbar folds it (#952). */
+export interface SheetTabsFold {
+    /** How many trailing tabs fold into the `+n` menu — the active tab never does. */
+    folded: number;
+    /** Past its fold, how far the strip closes up: `compact` drops the
+     *  `+ TAB` label and the whole-sheet count, `capped` caps the tab names
+     *  at 72px as well, `closed` closes the gaps and drops every count. */
+    strip?: "compact" | "capped" | "closed" | undefined;
+}
 
 /** One tab's facts. */
 export interface SheetTabView {
@@ -65,6 +73,8 @@ export interface SheetTabsProps {
     renameVal: string;
     /** The element the tabs switch — the sheet's grid (`aria-controls`). */
     panelId?: string | undefined;
+    /** The strip's form, as the toolbar folds it — nothing folded by default. */
+    fold?: SheetTabsFold | undefined;
     onSwitch: (id: string | null) => void;
     onCreate: () => void;
     onClose: (id: string) => void;
@@ -77,7 +87,7 @@ export interface SheetTabsProps {
 
 /** Renders the tab strip. */
 export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
-    const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId } = props;
+    const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId, fold } = props;
     const menuStyles = useSlotRecipe({ key: "menu" })() as unknown as Styles;
     // The tabs' words and counts, in the app's locale (#850, #861).
     const words = useSheetWords();
@@ -92,54 +102,8 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
         }
     }, [renaming]);
 
-    // The fold ladder: when the strip overflows its box, one more tab folds
-    // into the `+n` menu — synchronously, before paint, until it fits. A
-    // width change re-measures; growth resets to nothing folded once the
-    // width has settled (the rail's rule, so a resize never strobes). At
-    // the floor the strip reports instead, and the toolbar's ladder takes
-    // over; its `measureKey` moves per rung, so the strip measures again.
-    const fold = useContext(SheetTabsFoldContext);
-    const stripRef = useRef<HTMLDivElement | null>(null);
-    const [folded, setFolded] = useState(0);
-    // Bumped by the resize observer, so the measurement below re-runs on every width change.
-    const [tick, bump] = useState(0);
-    const maxFold = views.length - (views.some((v) => v.id === active) ? 1 : 0);
-    useLayoutEffect(() => {
-        const el = stripRef.current;
-        if (el === null) return;
-        const overflowing = el.scrollWidth > el.clientWidth + 1;
-        if (overflowing && folded < maxFold) { setFolded((f) => Math.min(f + 1, maxFold)); return; }
-        fold?.onOverflow(overflowing);
-    }, [folded, maxFold, tick, fold]);
-    useLayoutEffect(() => {
-        const el = stripRef.current;
-        if (el === null || typeof ResizeObserver === "undefined") return;
-        let width = el.clientWidth;
-        let settle: number | undefined;
-        const ro = new ResizeObserver(() => {
-            if (el.clientWidth === width) return;
-            const grew = el.clientWidth > width;
-            width = el.clientWidth;
-            bump((n) => n + 1);
-            if (!grew) return;
-            if (settle !== undefined) window.clearTimeout(settle);
-            settle = window.setTimeout(() => { settle = undefined; setFolded(0); bump((n) => n + 1); }, 200);
-        });
-        ro.observe(el);
-        return () => { ro.disconnect(); if (settle !== undefined) window.clearTimeout(settle); };
-    }, []);
-    // The views changed (a tab added, closed, renamed): measure again from
-    // nothing folded. Not on mount — the measure above runs there anyway, and
-    // a reset would cancel its first fold before it could re-measure.
-    const signature = views.map((v) => `${v.id}:${v.name}`).join("|");
-    const seenSignature = useRef(signature);
-    useLayoutEffect(() => {
-        if (seenSignature.current === signature) return;
-        seenSignature.current = signature;
-        setFolded(0);
-        bump((n) => n + 1);
-    }, [signature]);
-    const { visible, hidden } = foldTabs(views, active, folded);
+    // The fold the toolbar chose: the trailing tabs in the `+n` menu (#952).
+    const { visible, hidden } = foldTabs(views, active, fold?.folded ?? 0);
 
     // The tablist's keys (#860). The tabs in order, the whole sheet first; the
     // one tab stop is the active tab.
@@ -207,7 +171,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
         props.onRenameCommit();
     };
     return (
-        <Box ref={stripRef} css={styles.tabs} data-slot="tabs" data-folded={hidden.length > 0 ? hidden.length : undefined}>
+        <Box css={styles.tabs} data-slot="tabs" data-folded={hidden.length > 0 ? hidden.length : undefined} data-strip={fold?.strip}>
             <Box css={styles.tabList} data-slot="tabList" role="tablist" aria-label={m.tabList()}>
                 <Box
                     ref={tabRef(ALL)}

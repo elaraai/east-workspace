@@ -157,13 +157,13 @@ test.describe("Plan toolbar segments (#632)", () => {
         await expect(grain.getByRole("radio", { name: "RESOURCE" })).toBeChecked();
         const layout = () => toolbar.evaluate((bar) => {
             const box = (el: Element | null) => (el === null ? null : el.getBoundingClientRect());
-            const grainEl = bar.querySelector("[data-plan-seg='grain']")!;
-            const resolutionEl = bar.querySelector("[data-plan-seg='resolution']")!;
-            const cluster = box(bar.querySelector("[data-slot='toolbarCluster']"));
-            // The range pill is the cluster between the two strips.
-            const range = box(grainEl.nextElementSibling);
-            const g = box(grainEl)!;
-            const r = box(resolutionEl)!;
+            // The toolbar's items (#952): the rail's cluster, the grain strip,
+            // the range cluster between the two strips, the resolution strip.
+            const item = (key: string) => box(bar.querySelector(`[data-toolbar-item='${key}']`));
+            const cluster = item("cluster");
+            const range = item("range");
+            const g = item("grain")!;
+            const r = item("resolution")!;
             const heights = [...bar.querySelectorAll("[data-plan-seg]")].map((s) => ({
                 strip: s.getBoundingClientRect().height,
                 segments: [...s.querySelectorAll("[role='radio']")].map((b) => b.getBoundingClientRect().height),

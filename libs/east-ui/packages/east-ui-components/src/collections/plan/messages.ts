@@ -104,6 +104,9 @@ export interface PlanMessages extends EditingMessages {
     /** The slice summary line — `6 of 36 rows · 2 filters` (#949: a plain
      *  summary; every narrowing the slice holds counts as a filter). */
     summary: (p: { result: string; total: string; n: number; active: string }) => string;
+    /** The summary line shortened to its count — `6 of 36` — what a toolbar
+     *  short of room keeps of it (#952). */
+    summaryShort: (p: { result: string; total: string }) => string;
     /** The badge on narrowing chrome that sees only the loaded prefix. */
     scopeBadge: () => string;
     /** The series library button's text, and its popover's heading. */
@@ -391,6 +394,7 @@ export const planMessages: PlanMessages = {
     resolutionName: ({ resolution }) => resolution.toUpperCase(),
     summary: ({ result, total, n, active }) =>
         `${result} of ${total} rows${n > 0 ? ` · ${active} ${plural(n, "filter", "filters")}` : ""}`,
+    summaryShort: ({ result, total }) => `${result} of ${total}`,
     scopeBadge: () => "loaded rows only",
     seriesButton: () => "Series",
     seriesLibrary: () => "Series library",

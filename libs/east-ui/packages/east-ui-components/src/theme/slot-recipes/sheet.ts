@@ -119,7 +119,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "frame", "card", "body",
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
-        "toolbar", "toolbarRailGroup", "toolbarCluster", "toolbarCount", "toolbarBadge",
+        "toolbar", "toolbarRail", "toolbarCount", "toolbarBadge",
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
@@ -217,15 +217,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
         body: {
             paddingBottom: "120px",
         },
-        // ONE row, always: nothing wraps and nothing scrolls. The rail group
-        // takes whatever is left after the tabs, the context switch and the
-        // count, and folds its rail to fit — down to the icon, which is the
-        // group's floor. Only past that floor do the tabs shrink (and fold
-        // into their `+n` menu); at their own floor they report, and the
-        // toolbar climbs its ladder (`data-tight`): 1 drops the count, 2 the
-        // context label, 3 the `+ TAB` label and the whole-sheet count, 4
-        // caps the tab names, 5 drops the context switch, closes the strip
-        // up and drops every count.
+        // ONE row, always: nothing wraps and nothing scrolls. The band holds
+        // the shared toolbar's row (#952), which folds on one ladder: the
+        // rail to its icon first, then the tabs into their `+n` menu, then
+        // the count, the context label, the `+ TAB` label and the
+        // whole-sheet count (the strip's `data-strip="compact"`), the tab
+        // names (`capped`), and last the context switch, the strip closing
+        // up and dropping every count (`closed`).
         // `clip`, not `hidden`: a scroll container's minimum height is 0,
         // and in a fixed-height frame the column flex would squash the row.
         toolbar: {
@@ -241,28 +239,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             overflow: "clip",
             flexShrink: "0",
         },
-        // Basis 0 and a `min-content` floor: the group is the leftover's
-        // taker, never a claimant — the flex algorithm hands it the slack
-        // and takes from the tabs only once the group is at its floor.
-        toolbarRailGroup: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: "{spacing.3}",
-            flex: "1 1 0",
-            minWidth: "min-content",
-        },
-        // Inline-size containment: the rail's content never inflates the
-        // group's floor (a nested `min-width: auto` would carry every chip
-        // up), so the floor is the icon's width. The rail fills the box and
-        // hugs its end; past 640px the box stops growing.
-        toolbarCluster: {
-            display: "flex",
-            flex: "1 1 0",
-            // The icon rung's trigger: the pill, its gap, the chevron.
-            minWidth: "52px",
-            maxWidth: "640px",
-            contain: "inline-size",
+        // The rail's forms, each wrapped so the tabs can claim the keys its
+        // search box takes — a wrapper that lays out nothing of its own.
+        toolbarRail: {
+            display: "contents",
         },
         toolbarCount: {
             fontFamily: "mono",
@@ -286,7 +266,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             whiteSpace: "nowrap",
         },
-        // The strip never scrolls: it folds its trailing tabs into a `+n` menu.
+        // The strip never scrolls: the toolbar folds its trailing tabs into a
+        // `+n` menu, then closes it up (`data-strip`, #952).
         tabs: {
             display: "flex",
             alignItems: "stretch",
@@ -295,7 +276,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             flex: "0 1 auto",
             overflow: "hidden",
             // The toolbar's last rung: the strip closes up and its counts go.
-            "[data-tight='5'] &": { gap: "10px" },
+            "&[data-strip='closed']": { gap: "10px" },
         },
         // The tabs themselves — the tablist (#860), apart from `+n` and `+ TAB`,
         // which are buttons beside it — spaced as the strip spaces them.
@@ -304,7 +285,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "stretch",
             gap: "16px",
             flex: "none",
-            "[data-tight='5'] &": { gap: "10px" },
+            "[data-strip='closed'] &": { gap: "10px" },
         },
         tab: {
             display: "inline-flex",
@@ -337,13 +318,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             maxWidth: "200px",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            "[data-tight='4'] &, [data-tight='5'] &": { maxWidth: "72px" },
+            "[data-strip='capped'] &, [data-strip='closed'] &": { maxWidth: "72px" },
         },
         tabCount: {
             color: "fg.subtle",
             fontWeight: "500",
             // The whole-sheet tab's count is the first thing a tight toolbar drops from the strip; at the last rung every count goes.
-            "[data-tight='3'] [data-tab='all'] &, [data-tight='4'] [data-tab='all'] &, [data-tight='5'] &": { display: "none" },
+            "[data-strip='compact'] [data-tab='all'] &, [data-strip='capped'] [data-tab='all'] &, [data-strip='closed'] &": { display: "none" },
         },
         tabDot: {
             width: "5px",
@@ -391,8 +372,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _hover: { borderColor: "brand.solid", color: "brand.solid" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
             _coarse: { height: "32px", paddingX: "10px" },
-            // Icon-only from the toolbar's third rung; the title still says what it does.
-            "[data-tight='3'] &, [data-tight='4'] &, [data-tight='5'] &": { gap: "0", paddingX: "5px", "& > [data-slot=tabAddLabel]": { display: "none" } },
+            // Icon-only once the strip closes up at all; the title still says what it does.
+            "[data-strip] &": { gap: "0", paddingX: "5px", "& > [data-slot=tabAddLabel]": { display: "none" } },
         },
         tabMore: {
             display: "inline-flex",
@@ -449,8 +430,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.sm}",
             background: "bg.surface",
             _coarse: { height: "32px" },
-            // The toolbar's last rung: the tabs keep the row.
-            "[data-tight='5'] &": { display: "none" },
         },
         // the label and the options share ONE line box (the
         // same font size, a 20 px line, no vertical padding) so their

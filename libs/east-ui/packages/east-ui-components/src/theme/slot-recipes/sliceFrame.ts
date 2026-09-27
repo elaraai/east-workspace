@@ -15,6 +15,13 @@
  *     the container that houses a slice consumer: a fixed-height one-row eyebrow
  *     (affordances left / meta right, never wraps), an unpadded body slot, and a
  *     derived-count footer. Matches `design/slice.html#slice-frame`.
+ *   - The rail's clusters (`railCluster` / `railAffordance` / `railTrigger`,
+ *     #952) — one form of a cluster as the shared toolbar renders it: the live
+ *     affordances, then the folded ones' trigger — and the sectioned editor
+ *     that trigger opens (`railSections` / `railSection` /
+ *     `railSectionCaption` / `railSectionBody`, its head's `railActiveCount`).
+ *     The standalone `Slice.Rail` stacks its row (`railRow`) over its brush
+ *     strip (`brushStack`) and legend in `railStack`.
  *
  * @packageDocumentation
  */
@@ -27,6 +34,9 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "root", "header", "eyebrow", "meta", "body", "footer", "footerLabel", "footerAction",
         "frameEyebrow", "frameEyebrowControls", "frameEyebrowMeta",
         "frameAffordanceIcon",
+        "railCluster", "railAffordance", "railTrigger",
+        "railSections", "railSection", "railSectionCaption", "railSectionBody", "railActiveCount",
+        "railStack", "railRow", "brushStack",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
         "searchPill", "searchKbd", "searchClear",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
@@ -138,6 +148,78 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             flexShrink: "0",
             color: "fg.subtle",
+            fontSize: "10px",
+        },
+        // One form of a rail cluster (#952): its live affordances, each behind
+        // its family icon, then the trigger the folded ones collapse into.
+        railCluster: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "{spacing.3}",
+            flex: "none",
+        },
+        railAffordance: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "{spacing.1.5}",
+            flexShrink: "0",
+        },
+        // The folded families' trigger — their summary chips (one terminal
+        // chip, or the icon alone, as the cluster folds further) and a caret.
+        railTrigger: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "{spacing.1.5}",
+            flexShrink: "0",
+            cursor: "pointer",
+            "& [data-rail-caret]": { fontSize: "8px", opacity: 0.6 },
+        },
+        // The sectioned editor the trigger opens: every family, flat, under its caption.
+        railSections: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.3}",
+        },
+        railSection: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.1.5}",
+        },
+        railSectionCaption: {
+            textStyle: "caption.eyebrow",
+            color: "fg.subtle",
+        },
+        railSectionBody: {
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "{spacing.1.5}",
+            minWidth: "0",
+        },
+        // The editor head's `N active` — a live count of what narrows.
+        railActiveCount: {
+            color: "brand.fg",
+            fontWeight: "bold",
+        },
+        // The standalone `Slice.Rail`: its one row, over the brush strip and
+        // the legend when they are listed.
+        railStack: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.1.5}",
+            minWidth: "0",
+        },
+        railRow: {
+            display: "flex",
+            alignItems: "center",
+            minWidth: "0",
+        },
+        // The rail's brush strip over its formatted scale.
+        brushStack: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "2px",
+            minWidth: "0",
         },
         frameBody: {
             // The consumer renders here; the frame supplies no padding so the
