@@ -8,7 +8,7 @@ export { createPackageRoutes } from './packages.js';
 export { createWorkspaceRoutes } from './workspaces.js';
 export { createDatasetRoutes } from './datasets.js';
 export { createTaskRoutes } from './tasks.js';
-export { createExecutionRoutes } from './executions.js';
+export { createExecutionRoutes, type DataflowSeams } from './executions.js';
 export { createObjectRoutes } from './objects.js';
 export { createTransferRoutes, type TransferRouteOptions } from './transfer.js';
 export { createPackageTransferRoutes } from './package-transfer.js';

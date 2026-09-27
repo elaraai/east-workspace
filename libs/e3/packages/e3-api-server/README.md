@@ -141,6 +141,26 @@ interface ServerConfig {
 }
 ```
 
+### Mounting the routes on another host
+
+The route factories are exported, so a host that runs e3 on its own backends
+mounts them over its own seams. The dataflow routes take the runner, the
+orchestrator that runs a repository's dataflows, and the state store it writes:
+a poll and a cancel read the latest run from that store, whichever instance
+answers them.
+
+```typescript
+import { Hono } from 'hono';
+import { createExecutionRoutes } from '@elaraai/e3-api-server';
+
+const app = new Hono();
+app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
+  getRunner: (repo) => runnerFor(repo),
+  getOrchestrator: (repo) => orchestratorFor(repo),
+  getStateStore: (repo) => stateStoreFor(repo),
+}));
+```
+
 ## API Endpoints
 
 All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
@@ -241,8 +261,8 @@ The full protocol is in
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight in this server, the tasks and units waiting for room and each split task's progress |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a server that runs no dataflow) |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/logs/:task` | Read task logs |

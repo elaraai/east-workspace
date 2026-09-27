@@ -29,6 +29,7 @@ import { createPackageTransferRoutes } from './routes/package-transfer.js';
 import { createDataEndpoints } from './routes/data.js';
 import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes } from './routes/functions.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
+import { localDataflow } from './local-dataflow.js';
 
 export type { AuthConfig } from './middleware/auth.js';
 export type { OidcConfig } from './auth/index.js';
@@ -457,8 +458,12 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));
 
-  // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
-  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, getRunner, { width: budget.cores, budget }));
+  // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*,
+  // run, polled and cancelled through each repository's local orchestrator
+  // and the state store it writes
+  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
+    getRunner, ...localDataflow(), width: budget.cores, budget,
+  }));
 
   // Object routes: /api/repos/:repo/objects/:hash — a large object is answered
   // by download URL, as a dataset is

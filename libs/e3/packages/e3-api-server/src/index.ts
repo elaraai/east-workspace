@@ -20,6 +20,9 @@ export { resolveBudget, type BudgetSettings } from '@elaraai/e3-core';
 // Export handlers for Lambda reuse
 export * from './handlers/index.js';
 
+// The route factories, which another host mounts with seams of its own
+export * from './routes/index.js';
+
 // Export auth middleware
 export { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 

@@ -507,7 +507,7 @@ A lock is shared or exclusive, on a resource. It records what took it and who ho
 
 ### 3.17 The API's data contracts
 
-e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. Three of its contracts belong to this layer: how a large value goes up, how a collection comes down, and whose budget a run gets.
+e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. The contracts of it that belong to this layer are how a large value goes up, how a collection comes down, whose budget a run gets, and the seams a host runs a dataflow through.
 
 #### Dataset transfer
 
@@ -582,7 +582,11 @@ Pages (`?page=true`) are decoded on the server from the segments they touch, and
 
 #### The budget
 
-A request carries no parallelism. The server runs every dataflow, function call, mutation and index build it serves under one budget of cores and memory (§3.8), set by `e3-api-server -j` and `--memory`. `GET …/dataflow/budget` answers it. `GET …/dataflow/execution` answers the budget in use beside a run's state and a window of its events, and, while the run is in flight in that server, the units waiting for room and each split task's progress.
+A request carries no parallelism. The server runs every dataflow, function call, mutation and index build it serves under one budget of cores and memory (§3.8), set by `e3-api-server -j` and `--memory`. `GET …/dataflow/budget` answers it. `GET …/dataflow/execution` answers the budget in use beside a run's state and a window of its events, and, while the run is in flight, the units waiting for room and each split task's progress, as the orchestrator running it answers them.
+
+#### The dataflow's seams
+
+The dataflow routes (`createExecutionRoutes`) run, poll and cancel a run through the seams their host gives them (`DataflowSeams`): the runner, the orchestrator that runs a repository's dataflows, and the state store it writes. A poll and a cancel read the workspace's latest run from the state store, so whichever instance answers them finds it; the orchestrator answers the run's waits and split progress, and cancels it. A local server's seams are a `LocalOrchestrator` over a `FileStateStore` for each repository it serves. A cloud's orchestrator runs its dataflows on its own compute and keeps their state in its own store. The server exports its route factories, so a host mounts them over its own seams, as it gives gc's and the deploy's job stores (§3.13, §3.18).
 
 ### 3.18 Record migrations
 

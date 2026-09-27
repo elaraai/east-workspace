@@ -9,17 +9,17 @@ import {
   workspaceStatus,
   executionFindCurrent,
   executionReadLog,
-  WorkspaceLockError,
   ExecutionNotFoundError,
   coreEventToApiEvent,
   coreStatusToApiStatus,
   type WorkspaceStatusResult as CoreWorkspaceStatusResult,
   type DatasetStatusInfo as CoreDatasetStatusInfo,
   type TaskStatusInfo as CoreTaskStatusInfo,
+  type DataflowExecutionState as CoreDataflowExecutionState,
   type DataflowExecutionStatus,
   type OrchestratorExecutionStatus,
 } from '@elaraai/e3-core';
-import type { Budget, StorageBackend, TaskRunner } from '@elaraai/e3-core';
+import type { Budget, DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRunner } from '@elaraai/e3-core';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -33,15 +33,6 @@ import {
   type TaskStatusInfo,
   type DataflowExecutionState,
 } from '../types.js';
-import {
-  getOrchestrator,
-  getStateStore,
-  setActiveExecution,
-  getActiveExecution,
-  getLatestExecution,
-  getExecutionStartTime,
-  clearActiveExecution,
-} from '../orchestrator-manager.js';
 
 /**
  * Convert core DatasetStatusInfo to API type.
@@ -174,52 +165,45 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  * Start dataflow execution (non-blocking).
  *
  * Returns 202 Accepted immediately and runs execution in background.
- * Creates execution state that can be polled via getDataflowExecution().
+ * The run's state, which the orchestrator keeps in its state store, is what
+ * getDataflowExecution() polls.
  *
  * @param storage - Storage backend
+ * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
  * @param workspace - The workspace whose dataflow runs
  * @param options - The runner the run's tasks and units run on, which holds
- *   the server's budget; the tasks and units the loop keeps in flight; and
- *   the run's force, filter and verbosity
+ *   the server's budget; the tasks and units the loop keeps in flight, the
+ *   orchestrator's own default when absent; and the run's force, filter and
+ *   verbosity
  * @returns 202 once the run has started, or the error that stopped it
  */
 export async function startDataflow(
   storage: StorageBackend,
+  orchestrator: DataflowOrchestrator,
   repoPath: string,
   workspace: string,
-  options: { runner: TaskRunner; width: number; force: boolean; filter?: string; verbose?: boolean }
+  options: { runner: TaskRunner; width?: number; force: boolean; filter?: string; verbose?: boolean }
 ): Promise<Response> {
   try {
-    const orchestrator = getOrchestrator(repoPath);
-
     // Start execution via orchestrator (acquires lock internally). The loop
     // keeps `width` tasks and units in flight, and the runner decides which
     // of them spawn.
     const handle = await orchestrator.start(storage, repoPath, workspace, {
       runner: options.runner,
-      width: options.width,
+      ...(options.width !== undefined && { width: options.width }),
       force: options.force,
       filter: options.filter,
       verbose: options.verbose,
     });
 
-    // Track as active execution for this workspace
-    setActiveExecution(repoPath, workspace, handle);
-
-    // Set up completion handler to clear active execution
-    orchestrator.wait(handle).then(() => {
-      clearActiveExecution(repoPath, workspace);
-    }).catch(() => {
-      clearActiveExecution(repoPath, workspace);
-    });
+    // How the run ends is in its state, which a poll reads: its end is
+    // awaited only so that a failure is never an unhandled rejection.
+    void orchestrator.wait(handle).catch(() => {});
 
     // Return immediately with 202 Accepted
     return sendSuccessWithStatus(NullType, null, 202);
   } catch (err) {
-    if (err instanceof WorkspaceLockError) {
-      return sendError(NullType, errorToVariant(err));
-    }
     return sendError(NullType, errorToVariant(err));
   }
 }
@@ -309,12 +293,15 @@ export async function getTaskLogs(
 /**
  * Get dataflow execution state (for polling).
  *
- * Returns the current execution state including events for progress tracking.
- * Supports offset/limit for paginating events. While the run is in flight in
- * this server, it carries the tasks and units waiting for room and each split
- * task's progress, which the loop keeps in memory; and it carries the server's
- * budget when it has one.
+ * Returns the state of the workspace's latest run, as the state store keeps
+ * it, including events for progress tracking: the run in flight, whichever
+ * process runs it, or the last to end. Supports offset/limit for paginating
+ * events. While the run is in flight, it carries the tasks and units waiting
+ * for room and each split task's progress, which the orchestrator running it
+ * keeps in memory; and it carries the server's budget when it has one.
  *
+ * @param stateStore - The store the repository's runs keep their state in
+ * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
  * @param workspace - The workspace
  * @param options - The window of events to serve
@@ -322,23 +309,19 @@ export async function getTaskLogs(
  * @returns The execution state, or `execution_not_found`
  */
 export async function getDataflowExecution(
+  stateStore: ExecutionStateStore,
+  orchestrator: DataflowOrchestrator,
   repoPath: string,
   workspace: string,
   options: { offset?: number; limit?: number } = {},
   budget?: Budget
 ): Promise<Response> {
-  const stateStore = getStateStore(repoPath);
-
-  // Find the latest execution for this workspace
-  const handle = await getLatestExecution(repoPath, workspace);
-  if (!handle) {
-    return sendError(DataflowExecutionStateType, variant('execution_not_found', {
-      task: workspace,
-    }));
+  let coreState: CoreDataflowExecutionState | null;
+  try {
+    coreState = await stateStore.readLatest(repoPath, workspace);
+  } catch (err) {
+    return sendError(DataflowExecutionStateType, errorToVariant(err));
   }
-
-  // Read execution state
-  const coreState = await stateStore.read(repoPath, workspace, handle.id);
   if (!coreState) {
     return sendError(DataflowExecutionStateType, variant('execution_not_found', {
       task: workspace,
@@ -441,9 +424,9 @@ export async function getDataflowExecution(
       break;
   }
 
-  // Calculate duration
-  const startTime = getExecutionStartTime(repoPath, workspace, handle.id);
-  const duration = startTime ? Date.now() - startTime : 0;
+  // The run's duration, from its own times: until now while it runs
+  const endTime = coreState.completedAt.type === 'some' ? coreState.completedAt.value.getTime() : Date.now();
+  const duration = endTime - coreState.startedAt.getTime();
 
   // Build summary if not running
   let summary: DataflowExecutionState['summary'];
@@ -464,16 +447,15 @@ export async function getDataflowExecution(
     ? some(coreState.completedAt.value.toISOString())
     : none;
 
-  // The waits and each split task's progress, while the run is in flight here:
-  // nothing stores them, so a run that has ended, or that another process
-  // runs, has none.
+  // The waits and each split task's progress, while the run is in flight:
+  // nothing stores them, so the orchestrator answers them where it runs the
+  // run, and a run that has ended, or that it does not hold, has none.
   let live: OrchestratorExecutionStatus | null = null;
-  const active = getActiveExecution(repoPath, workspace);
-  if (active !== null && active.id === handle.id) {
+  if (coreState.status === 'running') {
     try {
-      live = await getOrchestrator(repoPath).getStatus(active);
+      live = await orchestrator.getStatus({ id: coreState.id, repo: repoPath, workspace });
     } catch {
-      // Ended since it was looked up: nothing is waiting.
+      // Ended since it was read: nothing is waiting.
     }
   }
 
@@ -505,23 +487,30 @@ export function getDataflowBudget(budget: Budget | undefined): Response {
 }
 
 /**
- * Cancel a running dataflow execution.
+ * Cancel a running dataflow execution: the workspace's latest run, when its
+ * state says it is running.
+ *
+ * @param stateStore - The store the repository's runs keep their state in
+ * @param orchestrator - The orchestrator that runs the repository's dataflows
+ * @param repoPath - The repository's path
+ * @param workspace - The workspace
+ * @returns The response: null once the run is cancelled, or why it is not
  */
 export async function cancelDataflow(
+  stateStore: ExecutionStateStore,
+  orchestrator: DataflowOrchestrator,
   repoPath: string,
   workspace: string
 ): Promise<Response> {
   try {
-    const orchestrator = getOrchestrator(repoPath);
-    const execution = getActiveExecution(repoPath, workspace);
-
-    if (!execution) {
+    const state = await stateStore.readLatest(repoPath, workspace);
+    if (state === null || state.status !== 'running') {
       return sendError(NullType, variant('internal', {
         message: 'No active execution for this workspace',
       }));
     }
 
-    await orchestrator.cancel(execution);
+    await orchestrator.cancel({ id: state.id, repo: repoPath, workspace });
 
     return sendSuccess(NullType, null);
   } catch (err) {
