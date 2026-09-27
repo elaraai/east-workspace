@@ -23,6 +23,7 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { openExample, rowSel } from "./plan-page";
+import { settled } from "./settle";
 
 /** A box on the page, in CSS px. */
 interface Box { x: number; y: number; width: number }
@@ -387,4 +388,99 @@ test.describe("Visual invariants — the Plan", () => {
             expect(read.stops).toEqual([{ color: read.brand, opacity: "0" }, { color: read.brand, opacity: "0.3" }]);
         });
     }
+});
+
+/** Every Table example — each draws its headers' pin / sort controls. */
+const TABLES = [
+    "tableBasic", "tableRichColumns", "tableFrozen", "tableGroupedColumns", "tablePnl",
+    "tableNumberFormats", "tableVariants", "tablePaginated", "tableExpandable", "tableReview",
+];
+
+/** A Table example's entry, at rest with its first header cell in view. */
+async function openTable(page: Page, name: string): Promise<Locator> {
+    await page.goto(`/#collections/table/${name}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#collections/table/${name}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("th").first()).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+test.describe("Visual invariants — the Table", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
+
+    for (const name of TABLES) {
+        test(`${name}: a header's pin and sort sit side by side on one line, inside it`, async ({ page }) => {
+            const entry = await openTable(page, name);
+            // The controls hide by opacity, never by layout, so their boxes
+            // are real at rest — a pinned or sorted column shows them anyway.
+            const bad = await entry.evaluate((root) => {
+                const out: string[] = [];
+                let seen = 0;
+                for (const th of root.querySelectorAll("th")) {
+                    const controls = [...th.querySelectorAll("button[aria-label^='Pin'], button[aria-label^='Unpin'], button[aria-label^='Sort']")];
+                    if (controls.length === 0) continue;
+                    seen += 1;
+                    const head = th.getBoundingClientRect();
+                    const label = (th.textContent ?? "").trim().slice(0, 24);
+                    const boxes = controls.map((c) => c.getBoundingClientRect());
+                    boxes.forEach((b, i) => {
+                        if (b.top < head.top - 0.5 || b.bottom > head.bottom + 0.5) {
+                            out.push(`"${label}": control ${i} spills out of its header (${b.top.toFixed(1)}–${b.bottom.toFixed(1)} in ${head.top.toFixed(1)}–${head.bottom.toFixed(1)})`);
+                        }
+                        if (i > 0 && (Math.abs(b.top - boxes[0]!.top) > 0.5 || b.left < boxes[i - 1]!.right - 0.5)) {
+                            out.push(`"${label}": control ${i} is not beside control ${i - 1} on one line (${b.left.toFixed(1)},${b.top.toFixed(1)} after ${boxes[i - 1]!.right.toFixed(1)},${boxes[0]!.top.toFixed(1)})`);
+                        }
+                    });
+                }
+                if (seen === 0) out.push("no header carries a pin or sort control");
+                return out;
+            });
+            expect(bad).toEqual([]);
+        });
+    }
+
+    test("tableBasic: a header's controls and resize grip rest hidden, and show while it is hovered or holds focus", async ({ page }) => {
+        const entry = await openTable(page, "tableBasic");
+        const th = entry.locator("th", { has: page.locator("[data-slot='columnControls']:not([data-active])") })
+            .filter({ has: page.locator("[data-slot='columnResizer']") }).first();
+        await expect(th).toHaveCount(1);
+        const controls = th.locator("[data-slot='columnControls']");
+        const grip = () => th.locator("[data-slot='columnResizer']").evaluate((el) => getComputedStyle(el, "::before").opacity);
+        await page.mouse.move(0, 0);
+        await expect(controls).toHaveCSS("opacity", "0");
+        await expect.poll(grip).toBe("0");
+        await th.hover();
+        await expect(controls).toHaveCSS("opacity", "1");
+        await expect.poll(grip).toBe("1");
+        await page.mouse.move(0, 0);
+        await expect(controls).toHaveCSS("opacity", "0");
+        // Keyboard focus inside the header shows them too.
+        await th.getByRole("button", { name: /^Pin / }).focus();
+        await expect(controls).toHaveCSS("opacity", "1");
+    });
+
+    test("tableFrozen: a pinned column's controls show at rest, its pin upright; an unpinned pin tilts", async ({ page }) => {
+        const entry = await openTable(page, "tableFrozen");
+        await page.mouse.move(0, 0);
+        const pinned = entry.locator("th", { has: page.getByRole("button", { name: /^Unpin / }) }).first();
+        await expect(pinned).toHaveCount(1);
+        await expect(pinned.locator("[data-slot='columnControls']")).toHaveCSS("opacity", "1");
+        await expect(pinned.getByRole("button", { name: /^Unpin / }).locator("svg")).toHaveCSS("transform", "none");
+        const loose = entry.getByRole("button", { name: /^Pin / }).first().locator("svg");
+        await expect(loose).toHaveCSS("transform", /^matrix\(0\.7071\d*, 0\.7071\d*, -0\.7071\d*, 0\.7071\d*, 0, 0\)$/);
+    });
+});
+
+test.describe("Visual invariants — the Table, on touch", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch viewport");
+
+    test("tableBasic: where nothing hovers, a header's controls rest at reduced emphasis", async ({ page }) => {
+        const entry = await openTable(page, "tableBasic");
+        expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "the viewport cannot hover").toBe(true);
+        const controls = entry.locator("[data-slot='columnControls']:not([data-active])").first();
+        await expect(controls).toHaveCount(1);
+        await expect(controls).toHaveCSS("opacity", "0.6");
+    });
 });

@@ -49,8 +49,8 @@ import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { useTablePagedRows, type TablePagedSourceValue } from "./use-paged-rows.js";
 import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
-/* Touch (#351): 36px tap halo on the 24px pin/sort/expander controls (36,
- * not 44 — the controls sit adjacent; full halos would swallow each other). */
+/* Touch (#351): 36px tap halo on the 24px row expander, the size the header's
+ * pin / sort controls carry in the table recipe (#951). */
 const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
 
 // The memo compares closures too (#809) — a column `render` or a click
@@ -373,8 +373,9 @@ const TableCore = function TableCore({
     // come from the theme rather than per-site inline literals.
     const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize });
     // Chakra generates the "table" slot union from ITS built-in table recipe,
-    // so our custom slots — the groupHead family (#317) and the printed
-    // cell's `cellText` (#874) — need a wider view of the result.
+    // so our custom slots — the groupHead family (#317), the printed cell's
+    // `cellText` (#874) and the header's content, controls and resize grip
+    // (#951) — need a wider view of the result.
     const tableGroupSlotStyles = tableSlotStyles as unknown as Record<string, React.CSSProperties>;
 
     // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
@@ -1231,10 +1232,9 @@ const TableCore = function TableCore({
                                         css={tableSlotStyles.columnHeader}
                                         bg={headerBackground}
                                         color={headerColor}
-                                        // Reveal the pin / sort controls only on header-cell
-                                        // hover; an actively pinned / sorted column keeps them
-                                        // visible (handled by the controls' own opacity below).
-                                        _hover={{ bg: headerBackground ?? 'bg.muted', "& .col-controls": { opacity: 1 }, "& .col-resizer::before": { opacity: 1 } }}
+                                        // The header washes on hover; its controls and resize
+                                        // grip show by the table recipe's own rules (#951).
+                                        _hover={{ bg: headerBackground ?? 'bg.muted' }}
                                         transition="background 0.2s"
                                         style={{
                                             width: `var(--header-${header.id}-size)`,
@@ -1261,77 +1261,50 @@ const TableCore = function TableCore({
                                         }}
                                         position={isPinned && !gutterActive ? "sticky" : "relative"}
                                     >
-                                        <HStack justify="space-between" align="center" width="100%" pr={centerInGutter ? "0" : (enableColumnResizing ? "4px" : "0")}>
+                                        <Box css={tableGroupSlotStyles.columnHeaderContent} data-resizable={enableColumnResizing && !centerInGutter ? "" : undefined}>
                                             {/* Inherit the columnHeader slot's mono/10px/0.16em/uppercase/
                                                 fg.subtle — a bare span so the recipe governs the type,
                                                 not a competing textStyle. */}
-                                            <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1" textAlign={centerInGutter ? "center" : undefined}>
+                                            <Box as="span" css={tableGroupSlotStyles.columnHeaderLabel} data-align={centerInGutter ? "center" : undefined}>
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                                             </Box>
-                                            <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center" display={centerInGutter ? "none" : undefined}
-                                                // Hover parity (#351): no hover ⇒ controls stay
-                                                // visible at reduced emphasis instead of invisible.
-                                                css={{
-                                                    opacity: isPinned || isSorted ? 1 : 0,
-                                                    "@media (hover: none)": { opacity: isPinned || isSorted ? 1 : 0.6 },
-                                                }}
-                                                transition="opacity 0.15s">
-                                                {/* Pin toggle — always visible */}
-                                                <Box
-                                                    as="button"
-                                                    aria-label={isPinned ? `Unpin ${header.id}` : `Pin ${header.id}`}
-                                                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleColumnPin(header.id); }}
-                                                    color={isPinned ? "fg.default" : "fg.muted"}
-                                                    _hover={{ color: "fg.default", bg: "bg.emphasized" }}
-                                                    transition="color 0.15s"
-                                                    cursor="pointer"
-                                                    display="flex"
-                                                    alignItems="center"
-                                                    justifyContent="center"
-                                                    w="24px" h="24px" css={coarseControlHalo}
-                                                    borderRadius="sm"
-                                                >
-                                                    <FontAwesomeIcon icon={faThumbtack} style={{ width: '10px', height: '10px', transform: isPinned ? undefined : 'rotate(45deg)' }} />
-                                                </Box>
-                                                {/* Sort button */}
-                                                {header.column.getCanSort() && (
-                                                    <Box
-                                                        as="button"
-                                                        aria-label={`Sort by ${header.id}`}
-                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); header.column.toggleSorting(undefined, enableMultiSort); }}
-                                                        color={isSorted ? "fg.default" : "fg.muted"}
-                                                        _hover={{ color: "fg.default", bg: "bg.emphasized" }}
-                                                        cursor="pointer"
-                                                        display="flex"
-                                                        alignItems="center"
-                                                        justifyContent="center"
-                                                        w="24px" h="24px" css={coarseControlHalo}
-                                                        borderRadius="sm"
-                                                        position="relative"
+                                            {!centerInGutter && (
+                                                <Box css={tableGroupSlotStyles.columnControls} data-slot="columnControls" data-active={isPinned || isSorted ? "" : undefined}>
+                                                    <chakra.button
+                                                        type="button"
+                                                        css={tableGroupSlotStyles.columnControl}
+                                                        data-control="pin"
+                                                        data-active={isPinned ? "" : undefined}
+                                                        aria-label={isPinned ? `Unpin ${header.id}` : `Pin ${header.id}`}
+                                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleColumnPin(header.id); }}
                                                     >
-                                                        <FontAwesomeIcon icon={icon} style={{ width: '10px', height: '10px' }} />
-                                                        {isSorted && sortIndex && enableMultiSort && (
-                                                            <Text fontSize="7px" fontWeight="bold" color="fg.muted" lineHeight="1" position="absolute" top="4px" right="4px">
-                                                                {sortIndex}
-                                                            </Text>
-                                                        )}
-                                                    </Box>
-                                                )}
-                                            </HStack>
-                                        </HStack>
+                                                        <FontAwesomeIcon icon={faThumbtack} />
+                                                    </chakra.button>
+                                                    {header.column.getCanSort() && (
+                                                        <chakra.button
+                                                            type="button"
+                                                            css={tableGroupSlotStyles.columnControl}
+                                                            data-control="sort"
+                                                            data-active={isSorted ? "" : undefined}
+                                                            aria-label={`Sort by ${header.id}`}
+                                                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); header.column.toggleSorting(undefined, enableMultiSort); }}
+                                                        >
+                                                            <FontAwesomeIcon icon={icon} />
+                                                            {isSorted && sortIndex && enableMultiSort && (
+                                                                <Box as="span" css={tableGroupSlotStyles.columnSortIndex}>{sortIndex}</Box>
+                                                            )}
+                                                        </chakra.button>
+                                                    )}
+                                                </Box>
+                                            )}
+                                        </Box>
                                         {enableColumnResizing && header.column.getCanResize() && (
+                                            // Spec resize grip (.mx-bar .seg .resize-handle), hidden
+                                            // at rest so the static header matches the bare `.dt`.
                                             <Box
-                                                className="col-resizer"
-                                                position="absolute" right="0" top="0" bottom="0" width="6px" cursor="ew-resize" bg="transparent"
-                                                _hover={{ _before: { opacity: 1, bg: 'fg.muted' } }}
-                                                transition="all 0.2s" zIndex={10}
+                                                css={tableGroupSlotStyles.columnResizer}
+                                                data-slot="columnResizer"
                                                 onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()}
-                                                // Spec resize grip (.mx-bar .seg .resize-handle): full-height
-                                                // 6px ew-resize hit-zone with a 1px line spanning the middle
-                                                // 40% (top/bottom 30%). Hidden at rest so the static header
-                                                // matches the bare `.dt`; revealed on header-cell hover via
-                                                // the ColumnHeader `_hover`, like the pin/sort controls.
-                                                _before={{ content: '""', position: 'absolute', right: '2px', top: '30%', bottom: '30%', width: '1px', bg: 'bg.emphasized', opacity: 0, transition: 'opacity 0.2s' }}
                                             />
                                         )}
                                     </ChakraTable.ColumnHeader>
