@@ -267,8 +267,15 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         this.workspace = workspace;
     }
 
-    /** Tear down the adapter and all record state. */
-    clear(): void {
+    /**
+     * Tear down the adapter and all record state.
+     *
+     * @param api - Clear only while this is the installed adapter, so a
+     *   provider tearing down after another installed its own leaves that one
+     *   in place
+     */
+    clear(api?: RecordApi): void {
+        if (api !== undefined && this.api !== api) return;
         this.api = null;
         this.cache = null;
         this.workspace = null;
@@ -593,9 +600,13 @@ export function initializeRecordApi(api: RecordApi, cache: ReactiveDatasetCacheI
     defaultRecordRuntime.initialize(api, cache, workspace);
 }
 
-/** Tear down the record API adapter and all record state. */
-export function clearRecordApi(): void {
-    defaultRecordRuntime.clear();
+/**
+ * Tear down the record API adapter and all record state.
+ *
+ * @param api - Clear only while this is the installed adapter
+ */
+export function clearRecordApi(api?: RecordApi): void {
+    defaultRecordRuntime.clear(api);
 }
 
 /** Global, manifest-unscoped `Record.bind` impl + its backing primitives.

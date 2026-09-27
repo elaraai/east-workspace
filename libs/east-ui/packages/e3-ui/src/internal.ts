@@ -32,7 +32,7 @@ export {
     type IndexWindowType,
     type BindPagedIndexOptions,
     bindPagedPlatformFn,
-    bindPagedIndexPlatformFn,
+    bindPagedPinnedPlatformFn,
     DataPagedPrimitives,
 } from './bind/data.js';
 export {

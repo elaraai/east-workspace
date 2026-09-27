@@ -40,7 +40,7 @@ export {
     type IndexWindowType,
     type BindPagedIndexOptions,
     bindPagedPlatformFn,
-    bindPagedIndexPlatformFn,
+    bindPagedPinnedPlatformFn,
 } from './bind/data.js';
 export {
     Func,

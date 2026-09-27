@@ -85,9 +85,11 @@ Task → What do you need?
     │   └─ Staged mode             → { mode: 'staged' } + .commit() / .discard()
     │
     ├─ Read a collection too large to hold whole — Data.bindPaged(dataset, options?)
-    │   ├─ One window              → .page(offset, limit)  (none = in flight; some([]) = exhausted)
+    │   ├─ One window              → .page(offset, limit)  (none = in flight; some([]) = exhausted; a failure throws)
     │   ├─ Total elements          → .total()
     │   ├─ Key search              → .seek(query)          (none for an Array source)
+    │   ├─ The snapshot it serves  → .revision()           (the content hash; re-fires when it moves)
+    │   ├─ Show a confirmed write  → .refresh(none)        (or .refresh(some(hash)))
     │   └─ Through a record's index → { index: byStatus, join?: true }
     │       rows arrive in the INDEX's order as `{ik, key, value, row}`
     │
@@ -160,9 +162,23 @@ value you can diff or stage.
 
 | Method | Meaning |
 |---|---|
-| `.page(offset, limit)` | one window; `none` while in flight, `some([])` at exhaustion |
+| `.page(offset, limit)` **❗** | one window; `none` while in flight, `some([])` at exhaustion; a failed fetch throws its reason |
 | `.total()` | the source's element count, once any window has landed |
-| `.seek(query)` | where a key query lands in the source's row order; `none` for an Array source, which has no key order to search |
+| `.seek(query)` **❗** | where a key query lands in the source's row order; `none` for an Array source, which has no key order to search |
+| `.revision()` | `Option<String>` — the snapshot every window and search is read from: the dataset's content hash (a record's state hash through an index); `none` while it is found or while the dataset has no value |
+| `.refresh(target)` | move the source: `some(hash)` to that snapshot, `none` to the dataset's current one; returns at once |
+
+Every window, total and search belongs to ONE snapshot, so rows from two
+snapshots never sit side by side. The source follows its dataset: when a
+dataflow run or another user's write changes it, the source moves to the new
+snapshot, and the windows still on screen are fetched again from it — `page`
+reads `none` for each until it lands, so a view holds its last frame while
+`revision()` has changed. Call `refresh` from an event handler after a write the
+view confirmed, to show it without waiting for the move. A failed fetch throws
+rather than reading `none`, so wrap the read in `$.try` to render the failure;
+a read a couple of seconds later fetches it again. A request that can never
+succeed — a dataset that is not a collection, an index the record does not
+declare — keeps throwing until the source moves.
 
 **Through a record's index** (`options.index`) the window is the INDEX's order
 rather than the record's, and each row carries what a view needs to render

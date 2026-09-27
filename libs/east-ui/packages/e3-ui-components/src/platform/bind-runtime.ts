@@ -267,8 +267,14 @@ export class BindRuntime {
         this.cache = cache;
     }
 
-    /** Clear the active cache and drop any queued writes. */
-    clearCache(): void {
+    /**
+     * Clear the active cache and drop any queued writes.
+     *
+     * @param cache - Clear only while this is the active cache, so a provider
+     *   tearing down after another installed its own leaves that one in place
+     */
+    clearCache(cache?: ReactiveDatasetCacheInterface): void {
+        if (cache !== undefined && this.cache !== cache) return;
         this.cache = null;
         this.clearPendingWrites();
         this.handleCache.clear();
@@ -917,10 +923,14 @@ export function initializeReactiveDatasetCache(cache: ReactiveDatasetCacheInterf
     defaultBindRuntime.initializeCache(cache);
 }
 
-/** Clear the active cache singleton — called on unmount or test teardown.
- *  Also drops any queued writes that captured the old cache. */
-export function clearReactiveDatasetCache(): void {
-    defaultBindRuntime.clearCache();
+/**
+ * Clear the active cache singleton — called on unmount or test teardown. Also
+ * drops any queued writes that captured the old cache.
+ *
+ * @param cache - Clear only while this is the active cache
+ */
+export function clearReactiveDatasetCache(cache?: ReactiveDatasetCacheInterface): void {
+    defaultBindRuntime.clearCache(cache);
 }
 
 export function enableBindingTracking(): Set<string> {

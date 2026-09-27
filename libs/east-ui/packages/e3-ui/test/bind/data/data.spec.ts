@@ -17,6 +17,7 @@ describeEast("Data", (test) => {
         dataBindStagedFloat: ex.dataBindStagedFloat,
         dataBindStagedVariants: ex.dataBindStagedVariants,
         dataBindPagedPlan: ex.dataBindPagedPlan,
+        dataBindPagedRevision: ex.dataBindPagedRevision,
         dataBindPagedIndex: ex.dataBindPagedIndex,
     });
 
@@ -80,6 +81,26 @@ describeEast("Data", (test) => {
             }), StringType);
             void count;
             return Stat.Root({ label: "Rows", value: shown });
+        })));
+        $(Assert.equal(root.unwrap().getTag(), "ReactiveComponent"));
+    });
+
+    test("Data.bindPaged exposes revision + refresh: the snapshot it reads, and a move to another", $ => {
+        const Row = StructType({ id: StringType, v: FloatType });
+        const rows = e3.input("paged_revision_rows", ArrayType(Row), variant("value", []));
+        const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
+            const paged = $.let(Data.bindPaged(rows));
+            // revision() is Option<String>; refresh(target) takes one and returns Null.
+            const revision = $.let(paged.revision(), OptionType(StringType));
+            const refresh = $.const(East.function([], NullType, $ => {
+                $(paged.refresh(revision));
+            }));
+            void refresh;
+            const shown = $.let(revision.match({
+                some: (_$, hash) => hash,
+                none: _$ => East.str`finding`,
+            }), StringType);
+            return Stat.Root({ label: "Snapshot", value: shown });
         })));
         $(Assert.equal(root.unwrap().getTag(), "ReactiveComponent"));
     });

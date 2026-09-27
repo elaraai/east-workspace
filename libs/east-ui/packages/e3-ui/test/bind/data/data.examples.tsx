@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
 import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
@@ -383,6 +383,33 @@ export const dataBindPagedPlan = example({
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
             return <Plan axis={axis} data={paged} series={series} />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const dataBindPagedRevision = example({
+    keywords: [
+        "Data", "bindPaged", "paged", "revision", "refresh", "snapshot", "content hash", "hash", "pinned",
+        "follow", "move", "write", "confirmed", "Button", "Reactive",
+    ],
+    description: "Show which snapshot a paged source reads, and move it after a write — `revision()` is the dataset's content hash every window and search is pinned to (`none` while it is found), so rows from two snapshots never sit side by side; the source follows the dataset on its own, and `refresh(none)` moves it to the dataset's current content at once, from a click after a write the view confirmed",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const paged = $.let(Data.bindPaged(opsInput));
+            const snapshot = $.let(paged.revision().match({
+                some: (_$, hash) => hash,
+                none: _$ => East.str`finding…`,
+            }), StringType);
+            const refresh = $.const(East.function([], NullType, $ => {
+                $(paged.refresh(none));
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Stat label="Snapshot" value={snapshot} />
+                    <Button variant="outline" onClick={refresh}>Refresh</Button>
+                </VStack>
+            );
         }}</Reactive>
     )),
     inputs: [],
