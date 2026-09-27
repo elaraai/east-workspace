@@ -85,30 +85,6 @@ export function decodeRecordCommit(data: Uint8Array): RecordCommit {
 }
 
 /**
- * A mutation: the write half of the function machinery (CQRS — `e3.function`
- * is the read/query half). A mutation is a pure East reducer
- * `(State, ...Args) => State` run where the data is, in a compare-and-swap
- * retry loop. Its output type IS the owning record's type, so — unlike a
- * {@link FunctionObjectType} — there is no separate `outputType` field.
- */
-export const MutationObjectType = StructType({
-  /** Hash of the encoded EastIR bundle (encodeEastIR), like a function's bodyIr. */
-  bodyIr: StringType,
-  /** The EXTRA positional parameter types after the state parameter. */
-  argTypes: ArrayType(EastTypeType),
-  /** Author-chosen runtime the mutation's unit runs on. */
-  runner: RunnerType,
-  /** Which write form this is — see {@link MutationForm}. */
-  form: StringType,
-  /** Hash of the generated program's IR bundle: the one thing that actually
-   *  runs, whatever the form. For the `patch` form `bodyIr` names it too,
-   *  there being no author body. */
-  programIr: StringType,
-});
-export type MutationObjectType = typeof MutationObjectType;
-export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
-
-/**
  * How a mutation says what it changed.
  *
  * - `reduce` — `(State, …Args) => State`, the original surface. Its body and
@@ -123,8 +99,44 @@ export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
  *   edit from a view sends. On a record with no index a patch of per-key
  *   changes runs nothing at all, the only write whose cost is independent of
  *   the record's size.
+ *
+ * @remarks
+ * A variant, so a mutation object decodes only with one of these: a form this
+ * e3 does not know is refused where the object is read, not run as another.
  */
-export type MutationForm = 'reduce' | 'edit' | 'patch';
+export const MutationFormType = VariantType({
+  edit: NullType,
+  patch: NullType,
+  reduce: NullType,
+});
+export type MutationFormType = typeof MutationFormType;
+
+/** A {@link MutationFormType} by its name, as the SDK's definitions carry it. */
+export type MutationForm = ValueTypeOf<typeof MutationFormType>['type'];
+
+/**
+ * A mutation: the write half of the function machinery (CQRS — `e3.function`
+ * is the read/query half). A mutation is a pure East reducer
+ * `(State, ...Args) => State` run where the data is, in a compare-and-swap
+ * retry loop. Its output type IS the owning record's type, so — unlike a
+ * {@link FunctionObjectType} — there is no separate `outputType` field.
+ */
+export const MutationObjectType = StructType({
+  /** Hash of the encoded EastIR bundle (encodeEastIR), like a function's bodyIr. */
+  bodyIr: StringType,
+  /** The EXTRA positional parameter types after the state parameter. */
+  argTypes: ArrayType(EastTypeType),
+  /** Author-chosen runtime the mutation's unit runs on. */
+  runner: RunnerType,
+  /** Which write form this is — see {@link MutationFormType}. */
+  form: MutationFormType,
+  /** Hash of the generated program's IR bundle: the one thing that actually
+   *  runs, whatever the form. For the `patch` form `bodyIr` names it too,
+   *  there being no author body. */
+  programIr: StringType,
+});
+export type MutationObjectType = typeof MutationObjectType;
+export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
 
 const decodeCurrentMutation = decodeBeast2For(MutationObjectType);
 
@@ -189,6 +201,33 @@ export type RecordIndexObjectType = typeof RecordIndexObjectType;
 export type RecordIndexObject = ValueTypeOf<typeof RecordIndexObjectType>;
 
 /**
+ * How a migration says what it changes.
+ *
+ * - `value` — `(Old) => New`, the whole state: one unit, whose runner opens the
+ *   state lazily, so it costs what the body reads.
+ * - `rows` — a Dict's rows, `(K, V1) => V2` with the keys unchanged, or an
+ *   Array's elements, `(T1) => T2` in order: a task split over the state, a
+ *   piece at a time.
+ * - `rekey` — a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a
+ *   Set's elements, `(T1) => T2`: the same split task, whose pieces' outputs
+ *   merge by key. Two rows landing on one key fail, naming it; two elements
+ *   landing on one are one element.
+ *
+ * @remarks
+ * A variant, so a migration object decodes only with one of these: a deploy
+ * never runs a step of a form it does not know as another.
+ */
+export const MigrationFormType = VariantType({
+  rekey: NullType,
+  rows: NullType,
+  value: NullType,
+});
+export type MigrationFormType = typeof MigrationFormType;
+
+/** A {@link MigrationFormType} by its name, as the SDK's definitions carry it. */
+export type MigrationForm = ValueTypeOf<typeof MigrationFormType>['type'];
+
+/**
  * A migration: one step of a record's declared chain, which a deploy runs over
  * a workspace's state that has not applied it.
  *
@@ -201,8 +240,8 @@ export type RecordIndexObject = ValueTypeOf<typeof RecordIndexObjectType>;
  * edited.
  */
 export const MigrationObjectType = StructType({
-  /** Which form this is — see {@link MigrationForm}. */
-  form: StringType,
+  /** Which form this is — see {@link MigrationFormType}. */
+  form: MigrationFormType,
   /** The record's type before the step. */
   from: EastTypeType,
   /** The record's type after it. */
@@ -218,21 +257,6 @@ export const MigrationObjectType = StructType({
 });
 export type MigrationObjectType = typeof MigrationObjectType;
 export type MigrationObject = ValueTypeOf<typeof MigrationObjectType>;
-
-/**
- * How a migration says what it changes.
- *
- * - `value` — `(Old) => New`, the whole state: one unit, whose runner opens the
- *   state lazily, so it costs what the body reads.
- * - `rows` — a Dict's rows, `(K, V1) => V2` with the keys unchanged, or an
- *   Array's elements, `(T1) => T2` in order: a task split over the state, a
- *   piece at a time.
- * - `rekey` — a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a
- *   Set's elements, `(T1) => T2`: the same split task, whose pieces' outputs
- *   merge by key. Two rows landing on one key fail, naming it; two elements
- *   landing on one are one element.
- */
-export type MigrationForm = 'value' | 'rows' | 'rekey';
 
 const decodeCurrentMigration = decodeBeast2For(MigrationObjectType);
 

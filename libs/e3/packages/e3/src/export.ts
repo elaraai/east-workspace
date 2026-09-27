@@ -393,7 +393,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         bodyIr,
         argTypes: mdef.argTypes.map((t) => toEastTypeValue(t)),
         runner: runnerToVariant(mdef.runner),
-        form: mdef.form,
+        form: variant(mdef.form, null),
         programIr,
       };
       const mutHash = addObject(zipfile, Buffer.from(mutationEncoder(mutObject)));
@@ -429,7 +429,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       const irObject = (bundle: EastIR<any, any>): string =>
         addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, step.runner))));
       const migrationObject: MigrationObject = {
-        form: step.form,
+        form: variant(step.form, null),
         from: toEastTypeValue(step.from),
         to: toEastTypeValue(step.to),
         bodyIr: irObject(step.body),

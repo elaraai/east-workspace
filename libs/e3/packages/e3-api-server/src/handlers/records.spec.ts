@@ -67,7 +67,7 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
     bodyIr: bodyIrHash,
     argTypes: [toEastTypeValue(IntegerType)],
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
-    form: 'reduce',
+    form: variant('reduce', null),
     programIr: '',
   }));
   const recHash = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({

@@ -224,12 +224,12 @@ export async function planRecordDeployments(
 /** The output a migration step's task writes: the new state whole, or the
  *  output kind its program emits into. */
 function stepOutput(step: MigrationObject): TaskOutputKind {
-  if (step.form === 'value') return variant('value', null);
+  if (step.form.type === 'value') return variant('value', null);
   switch (step.to.type) {
     case 'Dict': return variant('dict', { merge: none });
     case 'Array': return variant('array', null);
     case 'Set': return variant('set', null);
-    default: throw new Error(`a ${step.form} migration writes a Dict, an Array or a Set, not ${describe(step.to)}`);
+    default: throw new Error(`a ${step.form.type} migration writes a Dict, an Array or a Set, not ${describe(step.to)}`);
   }
 }
 
@@ -277,9 +277,9 @@ export async function runRecordMigrations(
     for (const { name, object } of deployment.steps) {
       const taskHash = await storage.objects.write(repo, encodeTaskObject({
         kind: TASK_OBJECT_KIND,
-        body: variant('east', { program: object.form === 'value' ? object.bodyIr : object.programIr }),
+        body: variant('east', { program: object.form.type === 'value' ? object.bodyIr : object.programIr }),
         runner: object.runner,
-        inputs: [{ path: [], partition: object.form === 'value' ? none : some({ by: [] }) }],
+        inputs: [{ path: [], partition: object.form.type === 'value' ? none : some({ by: [] }) }],
         output: { path: [], kind: stepOutput(object) },
         role: variant('data', null),
         environment: none,
