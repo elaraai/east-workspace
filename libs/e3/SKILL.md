@@ -768,7 +768,10 @@ and an edit to an applied step's body is not detected.
 with a record that cannot be kept as it is: `migrate` (the default), `fail`
 (run no migration, and refuse), or `reset` (reset it to the package's initial
 value, with a `$reset` commit). `--plan` prints what the deploy would do to
-each record and index, and writes nothing. The steps run before the deploy
+each record and index, and writes nothing: from a zip or a source it imports
+nothing, reading the package from the zip where it is, and a server, which
+plans only a package it holds, refuses one — `e3 package import` the zip, then
+plan the package by name. The steps run before the deploy
 writes, so a failed step leaves the workspace as it was, and a deploy run again
 is served the steps that finished from the execution cache while their code has
 not moved. `e3 watch` fails on a type change, naming `--schema=reset`.

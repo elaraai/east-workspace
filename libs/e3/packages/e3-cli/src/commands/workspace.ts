@@ -17,6 +17,7 @@ import {
   workspaceStatus,
   packageImport,
   packageRead,
+  packageZipOpen,
   LocalStorage,
   WorkspaceExistsError,
   type WorkspaceStatusResult,
@@ -25,6 +26,7 @@ import {
   type RecordIndexPlan,
   type RecordPlan,
   type SchemaPolicy,
+  type StorageBackend,
 } from '@elaraai/e3-core';
 import {
   workspaceCreate as workspaceCreateRemote,
@@ -92,6 +94,10 @@ export const workspaceCommand = {
    * what it does with a record it cannot keep as it is, `--allow-drop-records`
    * lets it drop one the package no longer declares, and `--plan` says it all
    * and writes nothing. A server runs the deploy as a job, which this polls.
+   *
+   * A plan from a zip or a source imports nothing: locally it reads the package
+   * from the zip where it is, and a server, which plans only a package it
+   * holds, is refused one, naming the import that comes first.
    */
   async deploy(
     repoArg: string,
@@ -126,6 +132,15 @@ export const workspaceCommand = {
 
       // --from-source mode: bundle the TS source into a package, then import + deploy
       if (options.fromSource) {
+        // Refused before the source is bundled: the zip it becomes is gone
+        // once the command ends, so the refusal cannot name it.
+        if (target.plan && location.type === 'remote') {
+          exitError(
+            `--plan writes nothing, and a server plans only a package it holds: export ${options.fromSource}'s package ` +
+            `to a zip with e3.export, import it with \`e3 package import ${repoArg} <zip>\`, then plan with ` +
+            `\`e3 workspace deploy ${repoArg} ${ws} <name>@<version> --plan\``,
+          );
+        }
         await deployFromSource(target, options.fromSource, options.functions ?? []);
         return;
       }
@@ -494,9 +509,11 @@ function deployReporter(target: DeployTarget): {
 
 /**
  * Deploy an imported package to a LOCAL workspace, saying what the deploy
- * decides for each record and index; with `--plan`, only saying it.
+ * decides for each record and index; with `--plan`, only saying it. A plan's
+ * package may be read through a view of a zip, which the repository does not
+ * hold.
  */
-async function deployLocal(target: DeployTarget, storage: LocalStorage, repoPath: string, name: string, version: string): Promise<void> {
+async function deployLocal(target: DeployTarget, storage: StorageBackend, repoPath: string, name: string, version: string): Promise<void> {
   const report = deployReporter(target);
   await workspaceDeploy(storage, repoPath, target.ws, name, version, {
     resolveFileSources: !target.skipFileSources,
@@ -669,12 +686,38 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
 }
 
 /**
- * Import a zip, ensure the workspace exists, and deploy.
+ * Import a zip, ensure the workspace exists, and deploy; with `--plan`, say
+ * what the deploy would do, and import nothing.
  *
  * Used by `workspace deploy --from-zip` and `--from-source`.
+ *
+ * @remarks
+ * A plan writes nothing, so it imports nothing. Locally it reads the package
+ * from the zip where it is, through a view of the repository with the zip laid
+ * over it, and creates no workspace: it plans every record of a missing one as
+ * minted. A server plans only a package it holds, so a plan against one is
+ * refused, naming the import that comes first.
  */
 async function deployFromZip(target: DeployTarget, zipPath: string): Promise<void> {
-  const { location, ws, progress } = target;
+  const { location, repoArg, ws, progress } = target;
+  if (target.plan) {
+    const zip = await packageZipOpen(zipPath);
+    try {
+      if (location.type === 'remote') {
+        throw new Error(
+          `--plan writes nothing, and a server plans only a package it holds: import ${zipPath} with ` +
+          `\`e3 package import ${repoArg} ${zipPath}\`, then plan with ` +
+          `\`e3 workspace deploy ${repoArg} ${ws} ${zip.name}@${zip.version} --plan\``,
+        );
+      }
+      progress.phase(`read ${zip.name}@${zip.version} (${zip.objectCount} objects), importing nothing`);
+      await deployLocal(target, zip.view(new LocalStorage()), location.path, zip.name, zip.version);
+    } finally {
+      zip.close();
+    }
+    return;
+  }
+
   let name: string;
   let version: string;
   let packageHash: string;
@@ -690,14 +733,10 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     objectCount = result.objectCount;
     step.done(`imported ${name}@${version} (${objectCount} objects)`);
 
-    // A plan creates no workspace: it plans every record of a missing one as
-    // minted.
-    if (!target.plan) {
-      try {
-        await workspaceCreate(storage, location.path, ws);
-      } catch (err) {
-        if (!(err instanceof WorkspaceExistsError)) throw err;
-      }
+    try {
+      await workspaceCreate(storage, location.path, ws);
+    } catch (err) {
+      if (!(err instanceof WorkspaceExistsError)) throw err;
     }
     await deployLocal(target, storage, location.path, name, version);
   } else {
@@ -733,12 +772,10 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     objectCount = Number(result.objectCount);
     step.done(`imported ${name}@${version} (${objectCount} objects)`);
 
-    if (!target.plan) {
-      try {
-        await workspaceCreateRemote(location.baseUrl, location.repo, ws, { token: location.token });
-      } catch (err) {
-        if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
-      }
+    try {
+      await workspaceCreateRemote(location.baseUrl, location.repo, ws, { token: location.token });
+    } catch (err) {
+      if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
     }
     await deployRemote(target, name, version);
   }
@@ -747,7 +784,7 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     console.log(`Imported ${name}@${version}`);
     console.log(`  Package hash: ${packageHash.slice(0, 12)}...`);
     console.log(`  Objects: ${objectCount}`);
-    if (!target.plan) console.log(`Deployed to workspace: ${ws}`);
+    console.log(`Deployed to workspace: ${ws}`);
   }
 }
 

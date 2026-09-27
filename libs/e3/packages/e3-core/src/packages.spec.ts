@@ -9,25 +9,42 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { createWriteStream, existsSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import yazl from 'yazl';
 import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { DataflowRunType, ExecutionStatusType } from '@elaraai/e3-types';
+import { DataflowRunType, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
 import {
   packageImport,
+  packageZipOpen,
   packageExport,
   packageRemove,
   packageList,
   packageResolve,
   packageRead,
 } from './packages.js';
+import { workspaceDeploy } from './workspaces.js';
+import { computeHash } from './objects.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, zipEqual } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
+
+/** Every file under a directory, by its path, with a hash of its bytes. */
+function filesUnder(dir: string): Map<string, string> {
+  const files = new Map<string, string>();
+  const walk = (at: string): void => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else files.set(path, computeHash(readFileSync(path)));
+    }
+  };
+  walk(dir);
+  return files;
+}
 
 describe('packages', () => {
   let testRepo: string;
@@ -175,6 +192,94 @@ describe('packages', () => {
       await assert.rejects(packageImport(storage, testRepo, older), (err: unknown) =>
         err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
       assert.deepStrictEqual(await packageList(storage, testRepo), []);
+    });
+  });
+
+  describe('packageZipOpen', () => {
+    it('reads a package from a zip where it is, as an import would leave the repository, and writes nothing', async () => {
+      const OrderType = StructType({ status: StringType });
+      const orders = e3.record('orders', DictType(StringType, OrderType), new Map([['o-1', { status: 'open' }]]));
+      const byStatus = e3.recordIndex('by_status', orders, {
+        key: East.function([StringType, OrderType], StringType, ($, _id, order) => order.status),
+      });
+      const zipPath = join(tempDir, 'orders.zip');
+      await e3.export(e3.package('orders', '1.0.0', orders, byStatus), zipPath);
+      const imported = createTestRepo();
+      try {
+        const expected = await packageImport(storage, imported, zipPath);
+        const before = filesUnder(testRepo);
+
+        const zip = await packageZipOpen(zipPath);
+        try {
+          assert.deepStrictEqual([zip.name, zip.version, zip.packageHash, zip.objectCount],
+            ['orders', '1.0.0', expected.packageHash, expected.objectCount]);
+          const view = zip.view(storage);
+          assert.strictEqual(await packageResolve(view, testRepo, 'orders', '1.0.0'), expected.packageHash);
+          for (const hash of await storage.objects.list(imported)) {
+            const read = Buffer.from(await view.objects.read(testRepo, hash));
+            assert.ok(read.equals(Buffer.from(await storage.objects.read(imported, hash))), `object ${hash} reads as imported`);
+          }
+
+          // A deploy's plan reads the package, its record and index objects
+          // and the record's initial value through the view.
+          const records: RecordPlan[] = [];
+          const indexes: RecordIndexPlan[] = [];
+          await workspaceDeploy(view, testRepo, 'main', 'orders', '1.0.0', {
+            plan: true, onRecordPlan: (plan) => records.push(plan), onRecordIndex: (plan) => indexes.push(plan),
+          });
+          assert.deepStrictEqual(records.map((plan) => [plan.record, plan.action.type]), [['records/orders', 'mint']]);
+          assert.deepStrictEqual(indexes.map((plan) => [plan.record, plan.index, plan.action.type]), [['records/orders', 'by_status', 'build']]);
+
+          await assert.rejects(view.objects.write(testRepo, new Uint8Array([1])), /^Error: a view of a package zip writes nothing, and was asked to write an object$/);
+          await assert.rejects(view.refs.packageWrite(testRepo, 'orders', '1.0.0', expected.packageHash), /was asked to write a package ref$/);
+          await assert.rejects(view.datasets.write(testRepo, 'main', 'records/orders', variant('unassigned', null)), /was asked to write a dataset ref$/);
+        } finally {
+          zip.close();
+        }
+        assert.deepStrictEqual(filesUnder(testRepo), before, 'the repository is as it was');
+      } finally {
+        removeTestRepo(imported);
+      }
+    });
+
+    it('refuses what an import refuses, and an object that is not the bytes its name hashes', async () => {
+      const zipPath = join(tempDir, 'refused.zip');
+      await e3.export(e3.package('refused', '1.0.0', e3.input('note', StringType, variant('value', 'kept'))), zipPath);
+      const entries = await readZipEntries(zipPath);
+      const ref = 'packages/refused/1.0.0.beast2';
+      const packageHash = decodeBeast2For(StringType)(entries.get(ref)!);
+      const rewritten = async (file: string, entryOf: (name: string, bytes: Buffer) => [string, Buffer] | null): Promise<string> => {
+        const zip = new yazl.ZipFile();
+        for (const [name, bytes] of entries) {
+          const entry = entryOf(name, bytes);
+          if (entry !== null) zip.addBuffer(entry[1], entry[0]);
+        }
+        await new Promise<void>((resolve, reject) => {
+          zip.outputStream.pipe(createWriteStream(join(tempDir, file))).on('close', resolve).on('error', reject);
+          zip.end();
+        });
+        return join(tempDir, file);
+      };
+
+      const refless = await rewritten('refless.zip', (name, bytes) => name === ref ? null : [name, bytes]);
+      await assert.rejects(packageZipOpen(refless), (err: unknown) =>
+        err instanceof PackageInvalidError && err.message === 'Invalid package: missing package ref');
+
+      const older = await rewritten('older.zip', (name, bytes) => name === ref ? ['packages/refused/1.0.0', Buffer.from(`${packageHash}\n`)] : [name, bytes]);
+      await assert.rejects(packageZipOpen(older), (err: unknown) =>
+        err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
+
+      // Opening reads no object, so the zip opens; the object is refused when
+      // it is read.
+      const packageEntry = `objects/${packageHash.slice(0, 2)}/${packageHash.slice(2)}.beast2`;
+      const swapped = await rewritten('swapped.zip', (name, bytes) => name === packageEntry ? [name, Buffer.from('another object')] : [name, bytes]);
+      const zip = await packageZipOpen(swapped);
+      try {
+        await assert.rejects(packageRead(zip.view(storage), testRepo, 'refused', '1.0.0'), (err: unknown) =>
+          err instanceof PackageInvalidError && err.message === `Invalid package: its object ${packageHash} holds the bytes of another`);
+      } finally {
+        zip.close();
+      }
     });
   });
 

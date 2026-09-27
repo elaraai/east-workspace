@@ -64,7 +64,10 @@ package's chain does not start with, is refused, and so is a record the
 package no longer declares, unless `--allow-drop-records`. `--schema fail`
 runs no migration and refuses instead; `--schema reset` resets such a record to
 the package's initial value, with a `$reset` commit. `--plan` prints the plan
-and writes nothing.
+and writes nothing. From a zip or a source it imports nothing: it reads the
+package from the zip where it is. A server plans only a package it holds, so
+there it is refused: `e3 package import` the zip, then plan the package by
+name.
 
 ### Datasets
 

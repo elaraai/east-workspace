@@ -80,6 +80,7 @@ export {
 // Package operations
 export {
   packageImport,
+  packageZipOpen,
   packageExport,
   packageRemove,
   packageList,
@@ -88,6 +89,7 @@ export {
   packageRead,
   type PackageImportResult,
   type PackageImportOptions,
+  type PackageZip,
   type PackageExportResult,
 } from './packages.js';
 

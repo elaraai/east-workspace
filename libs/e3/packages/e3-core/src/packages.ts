@@ -33,6 +33,7 @@ import {
   PackageInvalidError,
 } from './errors.js';
 import { readManifest } from './dataset-open.js';
+import { computeHash } from './objects.js';
 import { readRecordState } from './records.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -131,15 +132,12 @@ export async function packageImport(
       }
 
       // The package ref, packages/<name>/<version>.beast2, as a repository
-      // keeps one. An older e3 wrote it as text, without the extension.
+      // keeps one.
       if (fileName.startsWith('packages/')) {
-        const parts = fileName.split('/');
-        if (parts.length === 3) {
-          if (!parts[2]!.endsWith('.beast2')) {
-            throw new PackageInvalidError('an older e3 exported it — export it again with the current one');
-          }
-          packageName = parts[1]!;
-          packageVersion = parts[2]!.slice(0, -'.beast2'.length);
+        const ref = packageRefOf(fileName);
+        if (ref !== null) {
+          packageName = ref.name;
+          packageVersion = ref.version;
           packageHash = decodeBeast2For(StringType)(await getData());
           await storage.refs.packageWrite(repo, packageName, packageVersion, packageHash);
         }
@@ -208,6 +206,181 @@ export async function packageImport(
     packageHash,
     objectCount,
   };
+}
+
+/**
+ * A package zip opened where it is: its package ref, and its objects, each
+ * read from the zip when it is asked for.
+ */
+export interface PackageZip {
+  /** The package's name, as the zip's package ref names it. */
+  readonly name: string;
+  /** The package's version, as the zip's package ref names it. */
+  readonly version: string;
+  /** The package object's hash, which the package ref holds. */
+  readonly packageHash: string;
+  /** How many objects the zip holds. */
+  readonly objectCount: number;
+  /**
+   * A storage backend that reads as `storage` would once the package was
+   * imported, and writes nothing.
+   *
+   * @remarks
+   * The zip's package ref and objects are read from the zip, each object
+   * checked against the hash that names it, and everything else from
+   * `storage`. Every write is refused, and so is a garbage collection, so
+   * whatever reads through it, such as a deploy's plan, leaves the repository
+   * as it was. Its locks are `storage`'s own, so a plan through it takes the
+   * workspace's lock as any plan does.
+   *
+   * @param storage - The repository's storage backend
+   * @returns The backend to read through
+   */
+  view(storage: StorageBackend): StorageBackend;
+  /** Closes the zip. Nothing reads from it, or through a view of it, after. */
+  close(): void;
+}
+
+/**
+ * Open a package zip where it is, to read the package without importing it.
+ *
+ * @remarks
+ * Reads the zip's directory and its package ref, and no object: a view reads
+ * an object when it is asked for one, so a caller holds no more of the zip
+ * than it reads. A deploy's plan reads the package object, its record,
+ * migration and index objects, and its initial values.
+ *
+ * @param zipPath - Path to the .zip package file
+ * @returns The zip, open; the caller closes it
+ * @throws {PackageInvalidError} When the zip holds no package ref, or an older
+ *   e3 exported it, as {@link packageImport} refuses it
+ */
+export async function packageZipOpen(zipPath: string): Promise<PackageZip> {
+  const zipfile = await openZip(zipPath, false);
+  const entries = new Map<string, ZipEntry>();
+  let ref: { name: string; version: string; hash: string } | undefined;
+  try {
+    for await (const entry of iterateZipEntries(zipfile)) {
+      const named = packageRefOf(entry.fileName);
+      if (named !== null) {
+        ref = { ...named, hash: decodeBeast2For(StringType)(await entry.getData()) };
+        continue;
+      }
+      const object = /^objects\/([0-9a-f]{2})\/([0-9a-f]{62})\.beast2$/.exec(entry.fileName);
+      if (object !== null) entries.set(`${object[1]}${object[2]}`, entry);
+    }
+    if (ref === undefined) throw new PackageInvalidError('missing package ref');
+  } catch (err) {
+    zipfile.close();
+    throw err;
+  }
+  const { name, version, hash: packageHash } = ref;
+
+  // An object the zip holds, checked against the hash that names it; null for
+  // one it does not.
+  const readObject = async (hash: string): Promise<Uint8Array | null> => {
+    const entry = entries.get(hash);
+    if (entry === undefined) return null;
+    const data = await entry.getData();
+    if (computeHash(data) !== hash) throw new PackageInvalidError(`its object ${hash} holds the bytes of another`);
+    return data;
+  };
+
+  const view = (storage: StorageBackend): StorageBackend => {
+    const refuse = (what: string) => (): Promise<never> =>
+      Promise.reject(new Error(`a view of a package zip writes nothing, and was asked to ${what}`));
+    const { objects, refs, logs, repos, datasets } = storage;
+    return {
+      objects: {
+        write: refuse('write an object'),
+        writeStream: refuse('write an object'),
+        adoptFile: refuse('adopt a file'),
+        read: async (repo, hash) => (await readObject(hash)) ?? objects.read(repo, hash),
+        readRange: async (repo, hash, offset, length) => {
+          const data = await readObject(hash);
+          return data === null ? objects.readRange(repo, hash, offset, length) : data.subarray(offset, offset + length);
+        },
+        materialize: async (repo, hash, destPath, options) => {
+          const data = await readObject(hash);
+          if (data === null) return objects.materialize(repo, hash, destPath, options);
+          await fs.writeFile(destPath, data);
+        },
+        exists: async (repo, hash) => entries.has(hash) || objects.exists(repo, hash),
+        stat: async (repo, hash) => {
+          const entry = entries.get(hash);
+          return entry === undefined ? objects.stat(repo, hash) : { size: entry.size };
+        },
+        list: async (repo) => [...new Set([...await objects.list(repo), ...entries.keys()])],
+        count: async (repo) => new Set([...await objects.list(repo), ...entries.keys()]).size,
+      },
+      refs: {
+        packageList: async (repo) => [
+          ...(await refs.packageList(repo)).filter((p) => p.name !== name || p.version !== version),
+          { name, version },
+        ],
+        packageResolve: async (repo, pkgName, pkgVersion) =>
+          pkgName === name && pkgVersion === version ? packageHash : refs.packageResolve(repo, pkgName, pkgVersion),
+        packageWrite: refuse('write a package ref'),
+        packageRemove: refuse('remove a package ref'),
+        workspaceList: refs.workspaceList.bind(refs),
+        workspaceRead: refs.workspaceRead.bind(refs),
+        workspaceWrite: refuse('write a workspace'),
+        workspaceRemove: refuse('remove a workspace'),
+        executionGet: refs.executionGet.bind(refs),
+        executionWrite: refuse('write an execution'),
+        executionDelete: refuse('delete an execution'),
+        executionListIds: refs.executionListIds.bind(refs),
+        executionGetLatest: refs.executionGetLatest.bind(refs),
+        executionList: refs.executionList.bind(refs),
+        executionListForTask: refs.executionListForTask.bind(refs),
+        executionListLatest: refs.executionListLatest.bind(refs),
+        executionOwnerWrite: refuse('write an execution\'s owner'),
+        executionOwnerRead: refs.executionOwnerRead.bind(refs),
+        executionPlanWrite: refuse('write an execution\'s plan'),
+        executionPlanRead: refs.executionPlanRead.bind(refs),
+        adoptionWrite: refuse('write an adoption'),
+        adoptionRead: refs.adoptionRead.bind(refs),
+        dataflowRunGet: refs.dataflowRunGet.bind(refs),
+        dataflowRunWrite: refuse('write a run'),
+        dataflowRunList: refs.dataflowRunList.bind(refs),
+        dataflowRunGetLatest: refs.dataflowRunGetLatest.bind(refs),
+        dataflowRunDelete: refuse('delete a run'),
+      },
+      locks: storage.locks,
+      logs: {
+        append: refuse('append to a log'),
+        read: logs.read.bind(logs),
+        remove: refuse('remove a log'),
+      },
+      repos: {
+        list: repos.list.bind(repos),
+        exists: repos.exists.bind(repos),
+        getMetadata: repos.getMetadata.bind(repos),
+        create: refuse('create a repository'),
+        setStatus: refuse('set a repository\'s status'),
+        remove: refuse('remove a repository'),
+        deleteRefsBatch: refuse('delete refs'),
+        deleteObjectsBatch: refuse('delete objects'),
+        gcScanPackageRoots: refuse('collect garbage'),
+        gcScanWorkspaceRoots: refuse('collect garbage'),
+        gcScanExecutionRoots: refuse('collect garbage'),
+        gcScanObjects: refuse('collect garbage'),
+        gcDeleteObjects: refuse('collect garbage'),
+      },
+      datasets: {
+        read: datasets.read.bind(datasets),
+        write: refuse('write a dataset ref'),
+        readVersioned: datasets.readVersioned.bind(datasets),
+        writeIf: refuse('write a dataset ref'),
+        list: datasets.list.bind(datasets),
+        remove: refuse('remove a dataset ref'),
+        removeAll: refuse('remove a workspace\'s dataset refs'),
+      },
+      validateRepository: storage.validateRepository.bind(storage),
+    };
+  };
+
+  return { name, version, packageHash, objectCount: entries.size, view, close: () => zipfile.close() };
 }
 
 /**
@@ -542,15 +715,40 @@ export async function packageExport(
 
 interface ZipEntry {
   fileName: string;
+  /** The entry's size once inflated. */
+  size: number;
   getData(): Promise<Buffer>;
 }
 
 /**
- * Open a zip file for reading
+ * The package a zip entry is the ref of: `packages/<name>/<version>.beast2`,
+ * as a repository keeps one.
+ *
+ * @param fileName - The entry's name
+ * @returns The package's name and version, or null when the entry is no ref
+ * @throws {PackageInvalidError} When the entry is a ref as an older e3 wrote
+ *   it, as text without the extension
  */
-function openZip(zipPath: string): Promise<yauzl.ZipFile> {
+function packageRefOf(fileName: string): { name: string; version: string } | null {
+  const parts = fileName.split('/');
+  if (parts[0] !== 'packages' || parts.length !== 3) return null;
+  if (!parts[2]!.endsWith('.beast2')) {
+    throw new PackageInvalidError('an older e3 exported it — export it again with the current one');
+  }
+  return { name: parts[1]!, version: parts[2]!.slice(0, -'.beast2'.length) };
+}
+
+/**
+ * Open a zip file for reading
+ *
+ * @param zipPath - The zip's path
+ * @param autoClose - Whether the zip closes once its entries have been
+ *   iterated; one whose entries are read later is kept open, and its caller
+ *   closes it
+ */
+function openZip(zipPath: string, autoClose = true): Promise<yauzl.ZipFile> {
   return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+    yauzl.open(zipPath, { lazyEntries: true, autoClose }, (err, zipfile) => {
       if (err) return reject(err);
       if (!zipfile) return reject(new Error('No zipfile'));
       resolve(zipfile);
@@ -624,7 +822,7 @@ async function* iterateZipEntries(
       });
     };
 
-    yield { fileName: entry.fileName, getData };
+    yield { fileName: entry.fileName, size: entry.uncompressedSize, getData };
 
     // Read next entry
     zipfile.readEntry();
