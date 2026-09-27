@@ -12,3 +12,4 @@
 export type { BackendContext, BackendSetup } from './setup.js';
 export { gcTests } from './gc.js';
 export { repositoryRecordTests } from './repository-record.js';
+export { workspaceStatusTests } from './workspace-status.js';

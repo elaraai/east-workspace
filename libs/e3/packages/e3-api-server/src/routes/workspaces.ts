@@ -21,6 +21,7 @@ import {
 } from '../handlers/workspaces.js';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExportRequestType } from '../types.js';
+import type { GetRunner } from './functions.js';
 
 /**
  * Workspace routes, mounted at `/api/repos/:repo/workspaces`.
@@ -30,12 +31,15 @@ import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExport
  * @param transferBackend - Files and dispatches the jobs a deploy and an
  *   asynchronous export run as. A deploy job runs its migrations and index
  *   builds on the runner the backend was given.
+ * @param getRunner - The runner a repository's tasks run on, which the status
+ *   asks whether an execution recorded running can still finish
  * @returns The routes
  */
 export function createWorkspaceRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
+  getRunner: GetRunner,
 ) {
   const app = new Hono();
 
@@ -67,7 +71,7 @@ export function createWorkspaceRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-    return getWorkspaceStatus(storage, repoPath, ws);
+    return getWorkspaceStatus(storage, getRunner(repoPath), repoPath, ws);
   });
 
   // DELETE /api/repos/:repo/workspaces/:ws - Remove a workspace

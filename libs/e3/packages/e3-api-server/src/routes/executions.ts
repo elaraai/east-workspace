@@ -25,18 +25,21 @@ import type { GetRunner } from './functions.js';
  *
  * @param storage - Storage backend
  * @param getRepoPath - A repository's path from its name
- * @param dataflow - How the server runs a dataflow: the runner its tasks and
- *   units run on, the tasks and units the loop keeps in flight, and the
- *   budget the runner holds, which the poll and the budget route serve.
- *   Without it the server starts no dataflow and serves no budget: a host
- *   that runs them elsewhere, as e3-cloud does, mounts these routes for the
- *   rest.
+ * @param getRunner - The runner a repository's tasks and units run on, which
+ *   the status also asks whether an execution recorded running can still
+ *   finish
+ * @param dataflow - How the server runs a dataflow: the tasks and units the
+ *   loop keeps in flight, and the budget the runner holds, which the poll and
+ *   the budget route serve. Without it the server starts no dataflow and
+ *   serves no budget: a host that runs them elsewhere, as e3-cloud does,
+ *   mounts these routes for the rest.
  * @returns The routes
  */
 export function createExecutionRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
-  dataflow?: { getRunner: GetRunner; width: number; budget?: Budget },
+  getRunner: GetRunner,
+  dataflow?: { width: number; budget?: Budget },
 ) {
   const app = new Hono();
 
@@ -53,7 +56,7 @@ export function createExecutionRoutes(
     const filter = body.filter.type === 'some' ? body.filter.value : undefined;
 
     return startDataflow(storage, repoPath, ws, {
-      runner: dataflow.getRunner(repoPath),
+      runner: getRunner(repoPath),
       width: dataflow.width,
       force: body.force,
       filter,
@@ -66,7 +69,7 @@ export function createExecutionRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-    return getDataflowStatus(storage, repoPath, ws);
+    return getDataflowStatus(storage, getRunner(repoPath), repoPath, ws);
   });
 
   // GET /api/repos/:repo/workspaces/:ws/dataflow/graph - Get dependency graph

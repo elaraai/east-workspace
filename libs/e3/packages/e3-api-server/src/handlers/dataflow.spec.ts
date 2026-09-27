@@ -6,9 +6,9 @@
 /**
  * The dataflow routes run a dataflow on the runner the server injects, which
  * holds its budget, and serve that budget: an embedder that runs dataflows
- * elsewhere, as e3-cloud does, mounts them without one, and they start none
- * and serve no budget. And a server's budget settings that do not resolve
- * refuse the server.
+ * elsewhere, as e3-cloud does, mounts them without the dataflow option, and
+ * they start none and serve no budget. And a server's budget settings that do
+ * not resolve refuse the server.
  */
 
 import { describe, it } from 'node:test';
@@ -23,9 +23,9 @@ import { createServer } from '../server.js';
 import { DataflowBudgetType, DataflowRequestType, ResponseType } from '../types.js';
 
 describe('dataflow routes', () => {
-  it('start no dataflow when mounted without a runner', async () => {
+  it('start no dataflow when mounted by a host that runs them elsewhere', async () => {
     const app = new Hono();
-    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo'));
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', () => new MockTaskRunner()));
     const response = await app.request('/api/repos/r/workspaces/main/dataflow', {
       method: 'POST',
       headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
@@ -46,8 +46,7 @@ describe('dataflow routes', () => {
     const budget = new Budget({ cores: 3, memory: 4 * 1024 ** 3 });
     const held = await budget.acquire({ memory: 1024 ** 3 });
     const withBudget = new Hono();
-    withBudget.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
-      getRunner: () => new MockTaskRunner(),
+    withBudget.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', () => new MockTaskRunner(), {
       width: budget.cores,
       budget,
     }));
@@ -55,7 +54,7 @@ describe('dataflow routes', () => {
     held.release();
 
     const without = new Hono();
-    without.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo'));
+    without.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', () => new MockTaskRunner()));
     assert.deepEqual(await budgetOf(without), variant('success', none));
   });
 });

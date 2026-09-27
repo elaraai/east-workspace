@@ -23,7 +23,7 @@ import {
   packageResolve,
   PackageNotFoundError,
 } from '@elaraai/e3-core';
-import type { StorageBackend, WorkspaceDeployStore } from '@elaraai/e3-core';
+import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import { WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
@@ -105,14 +105,22 @@ export async function getWorkspace(
 
 /**
  * Get comprehensive workspace status.
+ *
+ * @param storage - Storage backend
+ * @param runner - The runner the repository's tasks run on, which says
+ *   whether an execution recorded running can still finish
+ * @param repoPath - Repository identifier
+ * @param name - Workspace name
+ * @returns The response: the status, or the error
  */
 export async function getWorkspaceStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repoPath: string,
   name: string
 ): Promise<Response> {
   try {
-    const status = await workspaceStatus(storage, repoPath, name);
+    const status = await workspaceStatus(storage, runner, repoPath, name);
     // Convert numbers to bigints for BEAST2 serialization
     const result = {
       workspace: status.workspace,

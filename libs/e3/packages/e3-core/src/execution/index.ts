@@ -12,6 +12,7 @@ export {
   type TaskExecuteOptions,
   type TaskResult,
   type TaskRunner,
+  type RunningExecution,
   type SplitUnit,
   type UnitRequeue,
 } from './interfaces.js';

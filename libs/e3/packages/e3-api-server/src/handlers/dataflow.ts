@@ -226,14 +226,22 @@ export async function startDataflow(
 
 /**
  * Get workspace status (for polling).
+ *
+ * @param storage - Storage backend
+ * @param runner - The runner the repository's tasks run on, which says
+ *   whether an execution recorded running can still finish
+ * @param repoPath - The repository's path
+ * @param workspace - The workspace
+ * @returns The response: the status, or the error
  */
 export async function getDataflowStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repoPath: string,
   workspace: string
 ): Promise<Response> {
   try {
-    const result = await workspaceStatus(storage, repoPath, workspace);
+    const result = await workspaceStatus(storage, runner, repoPath, workspace);
     return sendSuccess(WorkspaceStatusResultType, convertWorkspaceStatus(result));
   } catch (err) {
     return sendError(WorkspaceStatusResultType, errorToVariant(err));

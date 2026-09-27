@@ -21,7 +21,7 @@ import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTa
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue } from './interfaces.js';
+import type { RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue } from './interfaces.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { storeDatasetFile } from '../store-collection.js';
@@ -173,6 +173,20 @@ export class LocalTaskRunner implements TaskRunner {
       onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
     }));
+  }
+
+  /**
+   * Whether an execution recorded `running` can still finish: its runner
+   * process is alive, or the orchestrator recorded as its owner is
+   * ({@link runningCanFinish}).
+   */
+  async executionAlive(
+    storage: StorageBackend,
+    taskHash: string,
+    inputsHash: string,
+    running: RunningExecution
+  ): Promise<boolean> {
+    return (await runningCanFinish(storage, this.repo, taskHash, inputsHash, running)) === true;
   }
 
   async runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
@@ -396,26 +410,50 @@ export async function probeExecutionCache(
 }
 
 /**
- * Rewrites a `running` record as `interrupted` when its execution can no
- * longer finish: the runner has exited and so has the orchestrator recorded as
- * its owner, so nothing will ever write its outcome.
+ * Whether an execution recorded `running` can still finish.
  *
- * A live owner means the orchestrator is between the runner's exit and the
- * record's write (it hashes the output there), so the record is left alone;
- * so is a record with no owner sidecar.
+ * @remarks
+ * It can while its runner process is alive, or while the orchestrator recorded
+ * as its owner is: an owner outlives its runner between the runner's exit and
+ * the record's write, where it hashes the output. It cannot once both have
+ * exited, since nothing will ever write its outcome. With the runner gone and
+ * no owner recorded, nothing says which.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param taskHash - Hash of the task object
+ * @param inHash - Combined inputs hash
+ * @param running - The execution's `running` record
+ * @returns `true` when it can, `false` when it cannot, and `null` when its
+ *   runner has exited and no owner is recorded
+ */
+async function runningCanFinish(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  inHash: string,
+  running: RunningExecution
+): Promise<boolean | null> {
+  if (await isProcessAlive(Number(running.pid), Number(running.pidStartTime), running.bootId)) return true;
+  const owner = await storage.refs.executionOwnerRead(repo, taskHash, inHash, running.executionId);
+  if (owner === null) return null;
+  return isProcessAlive(Number(owner.pid), Number(owner.pidStartTime), owner.bootId);
+}
+
+/**
+ * Rewrites a `running` record as `interrupted` when its execution can no
+ * longer finish ({@link runningCanFinish}): its runner and the orchestrator
+ * recorded as its owner have both exited, so nothing will ever write its
+ * outcome. A record with no owner sidecar is left alone.
  */
 async function repairInterruptedExecution(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inHash: string,
-  running: Extract<ExecutionStatus, { type: 'running' }>['value']
+  running: RunningExecution
 ): Promise<void> {
-  const pid = Number(running.pid);
-  if (await isProcessAlive(pid, Number(running.pidStartTime), running.bootId)) return;
-  const owner = await storage.refs.executionOwnerRead(repo, taskHash, inHash, running.executionId);
-  if (owner === null) return;
-  if (await isProcessAlive(Number(owner.pid), Number(owner.pidStartTime), owner.bootId)) return;
+  if ((await runningCanFinish(storage, repo, taskHash, inHash, running)) !== false) return;
   const status: ExecutionStatus = variant('interrupted', {
     executionId: running.executionId,
     inputHashes: running.inputHashes,

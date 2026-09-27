@@ -315,7 +315,7 @@ export const workspaceCommand = {
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
-        status = await workspaceStatus(storage, location.path, ws);
+        status = await workspaceStatus(storage, new LocalTaskRunner(location.path), location.path, ws);
       } else {
         const remoteStatus = await workspaceStatusRemote(location.baseUrl, location.repo, ws, { token: location.token });
         // Convert remote status to local format

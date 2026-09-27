@@ -9,9 +9,9 @@
  * A mechanism another backend needs reaches storage, locks and compute only
  * through the interfaces a backend implements, so a shared module never
  * imports the local backend, nor reaches into the machine's filesystem on a
- * repository's behalf. The modules that may are listed below, each with why;
- * an entry that no longer needs its exception fails too, so the list only
- * shrinks.
+ * repository's behalf, nor judges a process alive on the host that answers.
+ * The modules that may are listed below, each with why; an entry that no
+ * longer needs its exception fails too, so the list only shrinks.
  */
 
 import { describe, it } from 'node:test';
@@ -74,6 +74,11 @@ const isLocalBackend = (specifier: string): boolean => /(^|\/)storage\/local\/|^
 /** Whether a specifier names the filesystem or the OS. */
 const isFileSystem = (specifier: string): boolean => /^(node:)?(fs|fs\/promises|os)$/.test(specifier);
 
+/** Whether a source judges a pid alive, which only the host running the
+ *  process can. */
+const judgesProcessAlive = (file: string): boolean =>
+  /\b(?:isProcessAlive|processExited)\s*\(/.test(readFileSync(join(SRC, file), 'utf8'));
+
 describe('the seams shared code goes through', () => {
   it('no shared module imports the local backend', () => {
     const reaching = sources()
@@ -87,6 +92,13 @@ describe('the seams shared code goes through', () => {
       .filter((file) => !within(file, [...LOCAL, ...TEST_SUPPORT]) && !(file in FILE_SYSTEM))
       .filter((file) => imports(file).some(isFileSystem));
     assert.deepEqual(reaching, [], 'these use the filesystem: go through the storage interfaces, or say why here');
+  });
+
+  it('no shared module judges a process alive on the host that answers', () => {
+    const judging = sources()
+      .filter((file) => !within(file, [...LOCAL, ...TEST_SUPPORT]))
+      .filter(judgesProcessAlive);
+    assert.deepEqual(judging, [], 'these judge a pid alive where they run: ask the runner (TaskRunner.executionAlive) or the lock service (LockService.isHolderAlive)');
   });
 
   it('every exception is still one', () => {

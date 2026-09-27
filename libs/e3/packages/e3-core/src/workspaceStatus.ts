@@ -28,7 +28,6 @@ import {
   executionGetLatest,
   inputsHash,
 } from './executions.js';
-import { isProcessAlive } from './execution/processHelpers.js';
 import { workspaceGetDatasetHash } from './trees.js';
 import {
   WorkspaceNotFoundError,
@@ -36,6 +35,7 @@ import {
   lockStateToHolderInfo,
   type LockHolderInfo,
 } from './errors.js';
+import type { TaskRunner } from './execution/interfaces.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 // =============================================================================
@@ -60,7 +60,7 @@ export type TaskStatus =
   | { type: 'in-progress'; pid?: number; startedAt?: string }  // Currently executing
   | { type: 'failed'; exitCode: number; completedAt?: string }  // Last execution failed (non-zero exit)
   | { type: 'error'; message: string; completedAt?: string }    // Last execution had internal error
-  | { type: 'stale-running'; pid?: number; startedAt?: string };  // Marked running but process dead
+  | { type: 'stale-running'; pid?: number; startedAt?: string };  // Marked running, but can no longer finish
 
 /**
  * Information about a dataset in the status report.
@@ -182,7 +182,12 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
  * This is a read-only operation that does not modify workspace state
  * and does not require acquiring a lock.
  *
+ * A task whose execution is recorded running is in progress while the runner
+ * says the execution can still finish ({@link TaskRunner.executionAlive}), and
+ * stale once it cannot: the runner that started it knows, wherever it runs.
+ *
  * @param storage - Storage backend
+ * @param runner - The runner the workspace's tasks run on
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
  * @param ws - Workspace name
  * @returns Complete status report
@@ -191,6 +196,7 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
  */
 export async function workspaceStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repo: string,
   ws: string
 ): Promise<WorkspaceStatusResult> {
@@ -261,6 +267,7 @@ export async function workspaceStatus(
     [...taskNodes].map(async ([taskName, node]) => {
       const computed = await computeTaskStatus(
         storage,
+        runner,
         repo,
         ws,
         node,
@@ -393,6 +400,7 @@ function collectDatasetPaths(
  */
 async function computeTaskStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repo: string,
   ws: string,
   node: TaskNode,
@@ -401,7 +409,7 @@ async function computeTaskStatus(
   _taskIsStale: Map<string, boolean>
 ): Promise<{ status: TaskStatus; peakBytes?: number }> {
   // First, check if execution is in progress
-  const inProgressStatus = await checkInProgress(storage, repo, node.hash);
+  const inProgressStatus = await checkInProgress(storage, runner, repo, node.hash);
   if (inProgressStatus) {
     return { status: inProgressStatus };
   }
@@ -453,9 +461,7 @@ async function computeTaskStatus(
   // Check the execution status type
   switch (execStatus.type) {
     case 'running': {
-      // Execution was marked as running - check if process is still alive
-      // For now, just report it (process liveness check is done in checkInProgress)
-      // If we reach here, checkInProgress didn't find it, so it might be stale
+      // checkInProgress asked the runner, which says it can no longer finish
       return {
         status: {
           type: 'stale-running',
@@ -526,11 +532,11 @@ async function computeTaskStatus(
 /**
  * Check if an execution is currently in progress for a task.
  *
- * Looks for a 'running' execution status that is still alive.
- * Only returns in-progress if the process is actually running.
+ * Looks for a 'running' execution status the runner says can still finish.
  */
 async function checkInProgress(
   storage: StorageBackend,
+  runner: TaskRunner,
   repo: string,
   taskHash: string
 ): Promise<TaskStatus | null> {
@@ -539,25 +545,19 @@ async function checkInProgress(
   // N+1 that made status requests O(repo history) on remote backends.)
   const latest = await storage.refs.executionListLatest(repo, taskHash);
 
-  for (const { status } of latest) {
+  for (const { inputsHash: inHash, status } of latest) {
     // A split task's units are recorded under its hash too; while they run,
     // the task's own execution is recorded running, from when it started.
     if (status.type === 'running' && !status.value.unit) {
-      // Found a running execution - verify process is actually alive
-      const pid = Number(status.value.pid);
-      const pidStartTime = Number(status.value.pidStartTime);
-      const bootId = status.value.bootId;
-
-      const alive = await isProcessAlive(pid, pidStartTime, bootId);
-      if (alive) {
+      if (await runner.executionAlive(storage, taskHash, inHash, status.value)) {
         return {
           type: 'in-progress',
-          pid,
+          pid: Number(status.value.pid),
           startedAt: status.value.startedAt.toISOString(),
         };
       }
-      // Process is dead - this is a stale running status, skip it
-      // (it will be reported as stale-running if it's the current inputs)
+      // It can no longer finish: reported stale-running if it is the
+      // execution of the current inputs
     }
   }
 
