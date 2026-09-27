@@ -15,6 +15,7 @@ import {
     FloatType,
     DateTimeType,
     ArrayType,
+    DictType,
     FunctionType,
     LiteralValueType,
 } from "@elaraai/east";
@@ -95,17 +96,19 @@ export type TableSelectionModeType = typeof TableSelectionModeType;
 export type TableSelectionModeLiteral = "single" | "multiple" | "range";
 
 // ============================================================================
-// Row grouping (#317)
+// Nested rows (#954)
 // ============================================================================
 
 /**
- * Aggregate applied to a column's member cell values on a group header row.
+ * The subtotal a column shows on a PARENT row (#954) — composed bottom-up
+ * over what the parent's children show: a leaf child its own value, a parent
+ * child its own subtotal.
  *
- * @property sum - Numeric sum of the member values (Integer / Float columns)
- * @property mean - Numeric mean of the member values (Integer / Float columns)
- * @property min - Minimum member value (native ordering)
- * @property max - Maximum member value (native ordering)
- * @property count - Number of member rows
+ * @property sum - The sum of the children's values (Integer / Float columns)
+ * @property mean - The mean of the children's values — a mean of means where children are parents (Integer / Float columns)
+ * @property min - The least of the children's values (native ordering)
+ * @property max - The greatest of the children's values (native ordering)
+ * @property count - How many leaf rows lie beneath the parent (a leaf child counts 1, a parent child its own count)
  */
 export const TableAggregateType = VariantType({
     sum: NullType,
@@ -120,21 +123,52 @@ export type TableAggregateType = typeof TableAggregateType;
 /** String-literal shorthand for {@link TableAggregateType}. */
 export type TableAggregateLiteral = "sum" | "mean" | "min" | "max" | "count";
 
-/**
- * One row-grouping level (#317) — the printed group key per data row
- * (parallel to the Table's `rows` array) plus the level's default collapse
- * state. Nested levels stack in `groupBy` order; the renderer folds the
- * sorted row model into group-headed segments from these keys.
- *
- * @property keys - Per data row, this level's printed group key (parallel to `rows`)
- * @property collapsed - Whether groups at this level start collapsed
- */
-export const TableGroupLevelType = StructType({
-    keys: ArrayType(StringType),
+const TableRowTypeImpl = StructType({
+    cells: DictType(StringType, LiteralValueType),
+    depth: IntegerType,
     collapsed: BooleanType,
 });
+type TableRowTypeImpl = typeof TableRowTypeImpl;
 
-export type TableGroupLevelType = typeof TableGroupLevelType;
+/**
+ * One row of a Table as the renderer receives it (#954) — the row's cells,
+ * and where it sits in the data's tree.
+ *
+ * @remarks
+ * A Table's rows arrive in PRE-ORDER: each parent, then its subtree — the
+ * rows after it with a greater `depth`, up to the next row at its depth or
+ * shallower. A flat table's rows are all at depth 0. A row's position in
+ * this order is its `rowIndex`, the index every row reference carries.
+ *
+ * Declared through an interface: the Table arm of `UIComponentType` spells
+ * this type, and a structural type there would serialize into every
+ * declaration that names the component (the `TickFormatType` rule, #874).
+ *
+ * @property cells - The row's cells by column key (sortable primitives)
+ * @property depth - How deep the row sits — 0 for a top-level row
+ * @property collapsed - Whether the row starts collapsed (a parent's; a leaf's is false)
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface TableRowType extends TableRowTypeImpl {}
+
+/** One row of a Table as the renderer receives it — see the interface above. */
+export const TableRowType: TableRowType = TableRowTypeImpl;
+
+/**
+ * The Table's own row COLLECTION — its rows in pre-order (#954).
+ *
+ * @remarks
+ * Table is POSITIONAL: its rows have no identity field, so the collection is
+ * an `Array` and a row is addressed by its index in it. That is the
+ * counterpart to the Plan's keyed row stream (#568), and the reason the
+ * row-source contract is parameterised on the COLLECTION rather than the row
+ * (#576) — one vocabulary, two differently-shaped components. A paged source
+ * pages the author's TOP-LEVEL rows, each with its whole subtree, and each
+ * window arrives flattened to this collection.
+ */
+export const TableRowsCollectionType = ArrayType(TableRowType);
+/** Type alias for {@link TableRowsCollectionType}. */
+export type TableRowsCollectionType = typeof TableRowsCollectionType;
 
 
 // ============================================================================
@@ -150,12 +184,22 @@ export type PrimitiveEastType = BooleanType | IntegerType | FloatType | StringTy
 /**
  * Context passed to a column render function at render time.
  *
- * @property rowIndex - The row index (0-based)
+ * @remarks
+ * `rowIndex` is the row's position in the data's pre-order walk (#954) — a
+ * parent, then its subtree; for a flat table, its index in the data. `path`
+ * leads to the row through the tree: `[i]` for the i-th top-level row, `[i, j]`
+ * for its j-th child. A parent's cell in a `sum` / `mean` / `min` / `max`
+ * column carries its subtotal as `cellValue` (a `mean` is a Float); a `count`
+ * prints itself, and no render sees it.
+ *
+ * @property rowIndex - The row's pre-order index
+ * @property path - The row's path — its index among its siblings at each depth
  * @property columnKey - The column key
  * @property cellValue - The cell value as a LiteralValueType
  */
 export const TableCellRenderContextType = StructType({
     rowIndex: IntegerType,
+    path: ArrayType(IntegerType),
     columnKey: StringType,
     cellValue: LiteralValueType,
 });
@@ -169,12 +213,14 @@ export type TableCellRenderContextType = typeof TableCellRenderContextType;
 /**
  * Event data for table cell click.
  *
- * @property rowIndex - The row index (0-based)
+ * @property rowIndex - The row's pre-order index (its index in the data, for a flat table)
+ * @property path - The row's path — its index among its siblings at each depth
  * @property columnKey - The column key
- * @property cellValue - The cell value as a LiteralValueType
+ * @property cellValue - The cell value as a LiteralValueType (a parent's subtotal in an `aggregate` column)
  */
 export const TableCellClickEventType = StructType({
     rowIndex: IntegerType,
+    path: ArrayType(IntegerType),
     columnKey: StringType,
     cellValue: LiteralValueType,
 });
@@ -184,10 +230,12 @@ export type TableCellClickEventType = typeof TableCellClickEventType;
 /**
  * Event data for table row click.
  *
- * @property rowIndex - The row index (0-based)
+ * @property rowIndex - The row's pre-order index (its index in the data, for a flat table)
+ * @property path - The row's path — its index among its siblings at each depth
  */
 export const TableRowClickEventType = StructType({
     rowIndex: IntegerType,
+    path: ArrayType(IntegerType),
 });
 
 export type TableRowClickEventType = typeof TableRowClickEventType;
@@ -195,12 +243,14 @@ export type TableRowClickEventType = typeof TableRowClickEventType;
 /**
  * Event data for table row selection changes.
  *
- * @property rowIndex - The row index (0-based) that triggered the change
+ * @property rowIndex - The pre-order index of the row that changed
+ * @property path - That row's path — its index among its siblings at each depth
  * @property selected - Whether the row is now selected
- * @property selectedRowsIndices - Full array of currently selected row indices
+ * @property selectedRowsIndices - Every selected row's pre-order index
  */
 export const TableRowSelectionEventType = StructType({
     rowIndex: IntegerType,
+    path: ArrayType(IntegerType),
     selected: BooleanType,
     selectedRowsIndices: ArrayType(IntegerType),
 });
@@ -292,8 +342,8 @@ export type TablePaginationType = typeof TablePaginationType;
  * Row-selection state for a Table.
  *
  * @property mode - Selection mode (single / multiple / range)
- * @property selected - Currently selected row indices
- * @property onChange - Callback fired with the new selected row indices
+ * @property selected - The selected rows' pre-order indices (#954)
+ * @property onChange - Callback fired with the new selected rows' pre-order indices
  */
 export const TableSelectionType = StructType({
     mode: TableSelectionModeType,
@@ -441,21 +491,21 @@ export interface TableStyle<ColumnKeys extends string = string> {
     onRowSelectionChange?: SubtypeExprOrValue<FunctionType<[TableRowSelectionEventType], NullType>>;
     /** Callback triggered when sort column/direction changes */
     onSortChange?: SubtypeExprOrValue<FunctionType<[TableSortEventType], NullType>>;
-    /** `(rowIndex) => StatusToken` — row-status tint callback. */
+    /** `(rowIndex) => StatusToken` — the row's tint, by its pre-order index (#954), so it stays with the row under sorting and pagination. */
     rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
     /** Optional review chrome (#264) — the shared contract's per-row
      *  Approve/Reject Decision column (pinned right) + commitBar batch foot,
      *  identical to the Planner's. Presence is the opt-in. Callbacks receive
-     *  `{ rowIndex }` where `rowIndex` is the **unsliced** row index — stable
-     *  under sorting AND pagination (the `expandedContent` convention). */
+     *  `{ rowIndex }` — the row's pre-order index (#954), stable under sorting
+     *  AND pagination (the `expandedContent` convention). */
     review?: ReviewConfig<RowRefType>;
     /** `(rowIndex) => Option<StatusValue>` — the review chrome's quiet per-row
-     *  dot (some ⇒ flagged, none ⇒ clean), over the unsliced row index. Only
+     *  dot (some ⇒ flagged, none ⇒ clean), over the row's pre-order index. Only
      *  rendered when `review` is set. */
     reviewStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], OptionType<StatusValueType>>>;
     /** `(rowIndex) => Option<ApprovalState>` — the row's review decision
      *  (see the shared `deriveApproval` helper: clean ⇒ approved, flagged ⇒
-     *  pending), over the unsliced row index. Only rendered when `review` is
+     *  pending), over the row's pre-order index. Only rendered when `review` is
      *  set. */
     reviewApproval?: SubtypeExprOrValue<FunctionType<[IntegerType], OptionType<ApprovalStateType>>>;
     /** Density preset. */

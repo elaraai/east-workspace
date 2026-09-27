@@ -15,6 +15,10 @@
  *   - Header controls (#951): the label, then one row of 24 px pin / sort
  *     buttons, shown while the header is hovered or holds focus, and a
  *     resize grip on its right edge.
+ *   - Nested rows (#954), the Plan's gutter voice (#949): a row's first cell
+ *     indents one step per depth — a 14 px caret and its 6 px gap — so a
+ *     child's label starts where its parent's does; a parent's subtotal
+ *     cells are semibold.
  *
  * @packageDocumentation
  */
@@ -28,8 +32,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         "root", "header", "body", "row", "cell", "cellText", "columnHeader",
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
-        "footer", "caption", "scrollArea", "groupHead", "groupHeadCell",
-        "groupHeadAggregate",
+        "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
     ],
     base: {
         root: {
@@ -146,40 +149,38 @@ export const tableSlotRecipe = defineSlotRecipe({
             "th:hover &": { _before: { opacity: 1 } },
             _hover: { _before: { opacity: 1, background: "fg.muted" } },
         },
-        // Row grouping (#317) — group header rows, one visual family with the
-        // Matrix groupHead band (bg.panel wash, mono micro-label).
-        groupHead: {
-            background: "bg.panel",
-            minHeight: "28px",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
+        // Nested rows (#954): the lead of a row's first cell — one step per
+        // depth (`--table-depth`, the row's depth, set by the renderer), then
+        // a parent's caret. The step is the caret and its gap, so a leaf
+        // child's label starts exactly where its parent's does — the Plan's
+        // gutter rule (#949).
+        treeIndent: {
+            display: "inline-flex",
+            alignItems: "center",
+            flexShrink: 0,
+            paddingLeft: "calc(var(--table-depth, 0) * 20px)",
+        },
+        // A parent's caret — the Plan's (14 px, the subtle ink, pointing
+        // right while its children are hidden) as a button that folds them.
+        treeToggle: {
+            ...coarseHitArea({ position: true }),
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "14px",
+            height: "14px",
+            marginRight: "6px",
+            padding: 0,
+            flexShrink: 0,
+            borderRadius: "sm",
+            fontSize: "11px",
+            color: "fg.subtle",
             cursor: "pointer",
-            _hover: { background: "bg.muted" },
-        },
-        groupHeadCell: {
-            fontFamily: "mono",
-            fontSize: "10.5px",
-            fontWeight: "600",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "fg.muted",
-            paddingX: "{spacing.3}",
-            paddingY: "{spacing.1}",
-            fontFeatureSettings: '"tnum" 1',
-        },
-        // Aggregate cells stay at MEMBER-cell scale (an accounting subtotal
-        // matches its member numbers, just heavier) — only the group LABEL
-        // wears the mono micro-label treatment.
-        groupHeadAggregate: {
-            fontFamily: "body",
-            fontSize: "{fontSizes.control}",
-            fontWeight: "600",
-            letterSpacing: "normal",
-            textTransform: "none",
-            color: "fg",
-            paddingX: "{spacing.3}",
-            paddingY: "{spacing.1}",
-            fontFeatureSettings: '"tnum" 1',
+            transitionProperty: "color, transform",
+            transitionDuration: "{durations.fast}",
+            _hover: { color: "fg.default" },
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "1px" },
+            "&[aria-expanded=false]": { transform: "rotate(-90deg)" },
         },
         cell: {
             fontSize: "{fontSizes.control}",
@@ -196,6 +197,9 @@ export const tableSlotRecipe = defineSlotRecipe({
             // shared density token keep text centred).
             verticalAlign: "middle",
             color: "fg",
+            // A parent's subtotal (#954) — an accounting subtotal: its
+            // children's scale, heavier.
+            "&[data-subtotal]": { fontWeight: "semibold" },
         },
         // The text a cell prints itself when its column has no `render`
         // (#874) — one line, cut with an ellipsis in a narrow column.

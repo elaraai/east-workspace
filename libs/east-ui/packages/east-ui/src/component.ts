@@ -210,7 +210,7 @@ import {
     TableSelectionType,
     TablePaginationType,
     TableAggregateType,
-    TableGroupLevelType,
+    TableRowsCollectionType,
 } from "./collections/table/types.js";
 import {
     PlanAxisType,
@@ -880,9 +880,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     Table: StructType({
         // The row SOURCE (#576): the whole mapped collection, or a window at a
-        // time. Mirrors `TableRootType.rows` — this inline copy exists because
-        // container arms need `node` for their recursive children.
-        rows: RowSourceType(ArrayType(DictType(StringType, LiteralValueType))),
+        // time — the rows in pre-order, each with its depth (#954). Mirrors
+        // `TableRootType.rows` — this inline copy exists because container
+        // arms need `node` for their recursive children.
+        rows: RowSourceType(TableRowsCollectionType),
         columns: ArrayType(StructType({
             key: StringType,
             dataType: EastTypeType,
@@ -895,10 +896,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             // prints the cell itself, through `format` for a number.
             render: OptionType(FunctionType([TableCellRenderContextType], node)),
             format: OptionType(TickFormatType),
-            // Row grouping (#317) — group-subtotal aggregate + optional
-            // renderer for the aggregated value on group header rows.
+            // Nested rows (#954) — the subtotal a parent row shows in this
+            // column; it draws through `render` / `format` like any cell.
             aggregate: OptionType(TableAggregateType),
-            aggregateRender: OptionType(FunctionType([LiteralValueType], node)),
         })),
         frozen: ArrayType(StringType),
         columnGroups: OptionType(ArrayType(TableColumnGroupType)),
@@ -920,8 +920,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
         pagination: OptionType(TablePaginationType),
         selection: OptionType(TableSelectionType),
-        // Row grouping (#317) — nested levels of per-row printed group keys.
-        groupBy: OptionType(ArrayType(TableGroupLevelType)),
         onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
         onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
         onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),

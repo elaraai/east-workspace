@@ -198,15 +198,14 @@ const ROSTER = {
  *  verdicts come from the accessor each test wires. */
 const TABLE = {
     rows: variant("inline", [
-        new Map<string, unknown>([["name", variant("String", "alpha")]]),
-        new Map<string, unknown>([["name", variant("String", "bravo")]]),
+        { cells: new Map<string, unknown>([["name", variant("String", "alpha")]]), depth: 0n, collapsed: false },
+        { cells: new Map<string, unknown>([["name", variant("String", "bravo")]]), depth: 0n, collapsed: false },
     ]),
     columns: [{
         key: "name",
         dataType: toEastTypeValue(StringType), valueType: toEastTypeValue(StringType),
         header: some("NAME"), width: none, minWidth: none, maxWidth: none,
-        render: none, format: none,
-        aggregate: none, aggregateRender: none,
+        render: none, format: none, aggregate: none,
     }],
     frozen: [],
     columnGroups: none, footer: none, footerRows: none, expandedContent: none,
@@ -215,7 +214,7 @@ const TABLE = {
     onCellClick: none, onCellDoubleClick: none, onRowClick: none, onRowDoubleClick: none,
     onRowSelectionChange: none, onSortChange: none,
     review: some(REVIEW), reviewStatus: none, reviewApproval: none,
-    slice: none, groupBy: none, style: none,
+    slice: none, style: none,
 } as unknown as TableRootValue;
 
 /** The Approve buttons, one per row, in row order. */

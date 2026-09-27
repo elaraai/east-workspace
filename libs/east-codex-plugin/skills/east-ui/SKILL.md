@@ -448,22 +448,22 @@ Task → Which tag?
 ├─ Collections (display data sets) — structured data on `data=` / `columns=` / `items=` props
 │   ├─ <Table data={rows} columns={…} /> — sortable / pinnable / virtualized data grid; generic pass-through (column/cell inference preserved)
 │   │   ├─ Props:
-│   │   │   ├─ data (required) — array of row structs
-│   │   │   ├─ columns (required) — keyed config: ["a","b"] or { a: { header, width, value?, render?, format?, aggregate?, aggregateRender?, … } }; with no `render` a cell PRINTS ITSELF in the viewer's language (#874): a number keeps every digit, never grouped, with the viewer's decimal separator (1234.5 — German 1234,5; a year or an id prints as stored), a string as it is, anything else as East prints it; `format` — a Format.* spec (Format.Number() groups thousands, Format.Currency({ currency: "EUR" }), Format.Percent(…)) — prints the column's number cells AND its group totals through it (a `count` stays a count); column `render` is an East fn ({rowIndex, columnKey, cellValue} → UIComponent) called per VISIBLE cell, drawing it instead — full-row access = capture the data array + index it (($, ctx) => { const row = $.let(rows.get(ctx.rowIndex)); … }); render/on* fns may capture only data + bind-handles — never a UIComponentType value (beast2 can't serialize it)
-│   │   │   ├─ groupBy (optional) — [accessor | { value, collapsed? }] nested collapsible group header rows (#317); groups keep first-appearance DATA order (never alphabetized), sort is group-scoped; columns with aggregate:"sum"|"mean"|"min"|"max"|"count" show subtotals ON the group row (a collapsed group reads as its subtotal line), printed through the column's `format` or by aggregateRender (East fn over the aggregated cell value — a group row has no rowIndex); grand totals stay in footerRows
+│   │   │   ├─ data (required) — array of row structs, or of RecursiveType rows whose node is a struct (nested with `tree`); or a paged source of either (#576)
+│   │   │   ├─ columns (required) — keyed config: ["a","b"] or { a: { header, width, value?, render?, format?, aggregate?, … } }; with no `render` a cell PRINTS ITSELF in the viewer's language (#874): a number keeps every digit, never grouped, with the viewer's decimal separator (1234.5 — German 1234,5; a year or an id prints as stored), a string as it is, anything else as East prints it; `format` — a Format.* spec (Format.Number() groups thousands, Format.Currency({ currency: "EUR" }), Format.Percent(…)) — prints the column's number cells AND a parent's subtotals through it (a `count` prints as a count); column `render` is an East fn ({rowIndex, path, columnKey, cellValue} → UIComponent) called per VISIBLE cell, drawing it instead — full-row access = capture the data array + index it (($, ctx) => { const row = $.let(rows.get(ctx.rowIndex)); … }; a flat table's rowIndex IS the data index, a nested row is reached by its `path`); render/on* fns may capture only data + bind-handles — never a UIComponentType value (beast2 can't serialize it)
+│   │   │   ├─ tree (optional) — { children: r => r.lines, collapsed?: true | r => Boolean } rows nest to ANY depth from the data's own tree (#954): `children` returns more of the SAME row type (a RecursiveType row's own field, or a lookup among the rows) — a recursive row reaches every accessor as its node — and a different type is refused at build; a parent IS its group row: its own cells, and in an `aggregate` column ("sum"|"mean"|"min"|"max"|"count") its children's subtotal, composed bottom-up (sum of sums, a mean of means — always a Float — min / max of theirs, `count` the leaf rows beneath), drawn through the column's `render` (its `cellValue` the subtotal) or `format` (a `count` prints itself through neither); a caret before a parent's first cell folds its subtree (persisted by path under the storageKey; `collapsed` is where it starts); a sort orders siblings among themselves, each parent carrying its subtree; rows arrive in PRE-ORDER, and a row's position in it is its `rowIndex`. There is no `groupBy`: group flat rows as a data step before the table; grand totals stay in footerRows
 │   │   │   ├─ columnGroups (optional) — column-group heading row (type-checked columnKeys)
 │   │   │   ├─ footer / footerRows (optional) — one / many footer rows, keys narrowed to the table's columns
-│   │   │   ├─ expandedContent (optional) — fn(rowIndex) => UIComponent expandable row detail (UNSLICED row index — stable under sorting AND pagination)
+│   │   │   ├─ expandedContent (optional) — fn(rowIndex) => UIComponent expandable row detail (the row's pre-order index — a flat table's data index — stable under sorting AND pagination)
 │   │   │   ├─ frozen (optional) — column keys pinned left (visible during horizontal scroll)
 │   │   │   ├─ height / maxHeight (optional) — uniform sizing (#320): pin or cap the table; chrome-inclusive, rows scroll within
 │   │   │   ├─ variant / size / striped / interactive / stickyHeader / showColumnBorder (optional) — grid chrome
 │   │   │   ├─ density (optional) — row rhythm preset; rowHeight (optional) — explicit px override (fed to the virtualizer)
 │   │   │   ├─ virtualization / columnResize (optional) — row virtualization + header drag-resize
-│   │   │   ├─ selection (optional) — { mode, selected, onChange } embedded row-selection state
-│   │   │   ├─ pagination (optional) — { pageSize, page, onPageChange } embedded pager
-│   │   │   ├─ onCellClick / onCellDoubleClick / onRowClick / onRowDoubleClick / onRowSelectionChange / onSortChange (optional) — interaction callbacks
-│   │   │   ├─ rowStatus (optional) — fn(rowIndex) => StatusToken row tint (see the Statuses branch)
-│   │   │   ├─ review / reviewStatus / reviewApproval (optional) — pinned-right Decision column + commitBar foot BELOW the pager; rowIndex is the UNSLICED index
+│   │   │   ├─ selection (optional) — { mode, selected, onChange } embedded row-selection state over pre-order indices (a shift-click range spans the rows as displayed; select-all takes every row in the data)
+│   │   │   ├─ pagination (optional) — { pageSize, page, onPageChange } embedded pager over TOP-LEVEL rows, each page holding its rows' whole subtrees
+│   │   │   ├─ onCellClick / onCellDoubleClick / onRowClick / onRowDoubleClick / onRowSelectionChange / onSortChange (optional) — interaction callbacks; row events carry `rowIndex` (the pre-order index) and `path` ([i] the i-th top-level row, [i, j] its j-th child)
+│   │   │   ├─ rowStatus (optional) — fn(rowIndex) => StatusToken row tint over the pre-order index (see the Statuses branch)
+│   │   │   ├─ review / reviewStatus / reviewApproval (optional) — pinned-right Decision column + commitBar foot BELOW the pager; rowIndex is the row's pre-order index
 │   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["filter","search"]); filtering flows through the slice interface
 │   │   │   ├─ plotGutter (optional) — shared plot gutter (#147); frozen columns fill `left`
 │   │   │   └─ colorPalette + headerBackground / headerColor / zebraBackground / hoverBackground / selectedBackground / selectedBorderColor / footerBackground / borderColor (optional) — chrome colours
@@ -1115,7 +1115,7 @@ Task → Which tag?
 │   │   ├─ <Chart> x/y/y2 { format } — axis tick labels; an undeclared time axis prints the locale's numeric date (6/29/2026; German 29.6.2026)
 │   │   ├─ Slice.config fields { format } — filter chips, brush axis labels, range summaries (string shorthands "number"|"percent"|"compact"|{currency:{code?,compact?}}|{date|time|datetime: pattern} also accepted)
 │   │   ├─ <Numeric format> and <Stat format> — KPI values (Format.*)
-│   │   ├─ <Table columns={{ c: { format } }}> — a column's number cells and group totals (Format.*); an undeclared number cell prints every digit, never grouped, with the viewer's decimal separator
+│   │   ├─ <Table columns={{ c: { format } }}> — a column's number cells and a parent's subtotals (Format.*); an undeclared number cell prints every digit, never grouped, with the viewer's decimal separator
 │   │   ├─ Sheet.column.quantity(R, D, { format }) — a quantity column's cells (Format.*); its edit box and copy stay bare and its grammar reads the viewer's separators (#852)
 │   │   ├─ Deck.metric / Deck.Readout cells / card fill { format } — board metrics (Chart.format.*)
 │   │   ├─ Plan.axis { format } — timeline tick labels (a date pattern on a time axis; Chart.format.* on a number axis)
@@ -1364,49 +1364,57 @@ Caveats that save a render cycle:
   `gap` / `padding` / `margin` keep token semantics (`gap="4"` is a spacing
   token, not 4px).
 
-### Row groups — a nested P&L in one Table (#317)
+### Nested rows — a P&L in one Table (#954)
 
-`groupBy` folds flat statement lines into nested, collapsible group header
-rows. Groups keep first-appearance data order (Revenue stays above Cost of
-sales under any sort — sorting reorders members WITHIN their group); columns
-with an `aggregate` show their subtotal ON the group row, so a collapsed group
-reads as its subtotal line (drill up) and expanding drills down. Collapse
-state persists per `storageKey`. Grand totals stay in `footerRows`.
+A Table's rows nest the way the Plan's do: a row carries its children, to any
+depth, and a parent IS the group row. It draws its own cells, and in each
+column that declares an `aggregate`, the subtotal of what its children show —
+so a collapsed section reads as its subtotal line, and opening it drills down.
+Hierarchy comes only from the data; there is no `groupBy`.
 
 ```tsx
+// Sections hold categories, categories hold accounts: the data's own tree.
+const Line = RecursiveType((self) => StructType({
+    account: StringType, q1: FloatType, fy: FloatType, lines: ArrayType(self),
+}));
+const pnl = $.const(PNL, ArrayType(Line));   // a parent's own quarters are 0 — its columns show its lines' subtotals
+// One render for every cell: an account's amount, a parent's subtotal.
 const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
     <Text width="100%" textAlign="right">{East.Float.printCurrency(ctx.cellValue.unwrap("Float"))}</Text>
 )));
-// `aggregateRender` takes the aggregated CELL VALUE — a group row has no rowIndex.
-const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (
-    <Text width="100%" textAlign="right" fontWeight="semibold">{East.Float.printCurrency(v.unwrap("Float"))}</Text>
-)));
 return (
     <Table
-        data={lines}   // flat leaf accounts: { section, category, account, q1..fy }
+        data={pnl}
         columns={{
-            account: { header: "Account" },
-            q1: { header: "Q1", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-            fy: { header: "FY", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+            account: { header: "Account", width: "260px" },
+            q1: { header: "Q1", aggregate: "sum", render: money },
+            fy: { header: "FY", aggregate: "sum", render: money },
         }}
-        groupBy={[
-            r => r.section,                              // level 0: Revenue / Cost of sales / Opex
-            { value: r => r.category, collapsed: true }, // level 1: starts collapsed
-        ]}
+        tree={{
+            children: (r) => r.lines,                            // more of the SAME row type
+            collapsed: (r) => r.account.equal("Operating expenses"),
+        }}
         footerRows={[{ account: { content: <Text fontWeight="bold">Net income</Text> }, /* … */ }]}
     />
 );
 ```
 
-Aggregates: `"sum" | "mean" | "min" | "max" | "count"` (`sum`/`mean` require a
-numeric column value — build-time error otherwise). For formatted numbers
-without a custom cell, declare the column's `format` instead of a render pair:
-`q1: { header: "Q1", aggregate: "sum", format: Format.Currency({ currency: "USD" }) }`
-prints the cells and the subtotal through it, in the viewer's language (#874) —
-keep `render` / `aggregateRender` for cells the format can't draw (right-aligned,
-bold totals). Computed statement lines
-(Gross profit) that aren't plain subtotals: model them as their own
-single-member section in the data, or use `footerRows`.
+| Signature | Description | Example |
+| --- | --- | --- |
+| `tree={{ children: (r) => Array<Row> }}` **❗** | A row's children: more rows of the data's own element type (a recursive row's own field, or a lookup among the rows); another type is refused at build. A recursive row reaches every accessor — columns' `value`, `children`, `collapsed` — as its node. | `tablePnl`, `tableTree` |
+| `tree={{ collapsed: true \| (r) => Boolean }}` | Where a parent starts; the viewer's folds persist by path under the `storageKey`. | `tablePnl`, `tableTree` |
+| `aggregate: "sum" \| "mean" \| "min" \| "max" \| "count"` | A parent's cell in that column: its children's subtotal, composed bottom-up — a mean of means (a Float), `count` the leaf rows beneath. `sum` / `mean` need a numeric column. | `tablePnl`, `tableTree` |
+| `render` / `format` on an `aggregate` column | A subtotal draws like any cell: the render gets it as `ctx.cellValue`, the format prints it. A `count` prints itself through neither. | `tablePnl`, `tableTree` |
+| `rowIndex` / `path` | A row's pre-order position (a flat table's data index) — what `rowStatus`, `expandedContent`, `selection`, review and every event carry, stable under sorting and pagination — and its sibling index at each depth. | `tableTree` |
+| `pagination` / a paged source **❗** | Both page TOP-LEVEL rows, each with its whole subtree, so a parent's subtotals are exact over whatever has loaded. | `tableTreePaged` |
+
+A sort orders each parent's children among themselves (ties keep data order),
+a parent carrying its subtree. A computed statement line (Gross profit) that
+is not a plain subtotal is its own row in the data, or a `footerRows` entry.
+
+Removed with #954: `groupBy` (nest the data — a data step before the table)
+and a column's `aggregateRender` (a parent is a row: its subtotal draws
+through the column's `render` or `format`).
 
 ### Plan — the series list is the layout, the data is the hierarchy (#822)
 
@@ -1864,7 +1872,7 @@ import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
   time, a numbered day / shift / distance, or an ordered list of phases —
   with mixed row kinds, nesting to any depth, a paged source, or rows addressed
   by stable ids.
-- **Table vs Sheet** — `<Table>` DISPLAYS rows (sort, pin, group, review,
+- **Table vs Sheet** — `<Table>` DISPLAYS rows (sort, pin, nest, review,
   paginate; cells printed in the viewer's language, or drawn by `render`);
   `<Sheet>` is where a planner TYPES
   them: typed cells with grammars (dates, quantities, register lookups, a

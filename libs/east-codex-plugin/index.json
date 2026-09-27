@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1193,
+    "totalEntries": 1195,
     "totalFiles": 198,
     "packages": {
       "east": 551,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 368,
+      "east-ui": 370,
       "e3-ui": 39,
       "e3": 11,
       "e3-ui-cli": 7,
@@ -33684,8 +33684,8 @@
         "header"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33722,8 +33722,8 @@
         "wrap"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33748,8 +33748,8 @@
         "virtualization"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33779,8 +33779,8 @@
         "showColumnBorder"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33794,29 +33794,33 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
       "suite": "",
-      "test": "Nested P&L — two-level row grouping with currency subtotals and a Net income footer",
+      "test": "Nested P&L — sections, categories and accounts from the data's own tree, with currency subtotals on every parent and a Net income footer",
       "keywords": [
         "Table",
         "Root",
-        "groupBy",
-        "rowGroups",
+        "tree",
+        "children",
+        "nested",
+        "RecursiveType",
         "collapse",
+        "collapsed",
         "aggregate",
         "sum",
-        "aggregateRender",
+        "subtotal",
+        "render",
         "P&L",
-        "#317",
+        "#954",
         "footerRows"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// Nested P&L — two-level row grouping with currency subtotals and a Net income footer\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (\n            <Text width=\"100%\" textAlign=\"right\">{East.Float.printCurrency(ctx.cellValue.unwrap(\"Float\"))}</Text>\n        )));\n        const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (\n            <Text width=\"100%\" textAlign=\"right\" fontWeight=\"semibold\">{East.Float.printCurrency(v.unwrap(\"Float\"))}</Text>\n        )));\n        return (\n            <Table\n                variant=\"line\"\n                data={[\n                    { section: \"Revenue\", category: \"Product sales\", account: \"Product line A\", q1: 210000.0, q2: 232500.0, q3: 198000.0, q4: 251500.0, fy: 892000.0 },\n                    { section: \"Revenue\", category: \"Product sales\", account: \"Product line B\", q1: 118000.0, q2: 141000.0, q3: 122500.0, q4: 133500.0, fy: 515000.0 },\n                    { section: \"Revenue\", category: \"Services\", account: \"Consulting\", q1: 18500.0, q2: 27000.0, q3: 33500.0, q4: 24000.0, fy: 103000.0 },\n                    { section: \"Cost of sales\", category: \"Materials\", account: \"Raw materials\", q1: 62000.0, q2: 58000.0, q3: 44000.0, q4: 71000.0, fy: 235000.0 },\n                    { section: \"Cost of sales\", category: \"Production\", account: \"Direct labour\", q1: 55000.0, q2: 55000.0, q3: 57500.0, q4: 57500.0, fy: 225000.0 },\n                    { section: \"Operating expenses\", category: \"Sales & marketing\", account: \"Marketing\", q1: 19500.0, q2: 22000.0, q3: 30500.0, q4: 28000.0, fy: 100000.0 },\n                    { section: \"Operating expenses\", category: \"Administration\", account: \"Salaries\", q1: 47500.0, q2: 47500.0, q3: 47500.0, q4: 47500.0, fy: 190000.0 },\n                ]}\n                columns={{\n                    account: { header: \"Account\", width: \"220px\" },\n                    q1: { header: \"Q1\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    q2: { header: \"Q2\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    q3: { header: \"Q3\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    q4: { header: \"Q4\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    fy: { header: \"FY\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                }}\n                groupBy={[\n                    r => r.section,\n                    { value: r => r.category, collapsed: true },\n                ]}\n                footerRows={[\n                    {\n                        account: { content: <Text fontWeight=\"bold\">Net income</Text> },\n                        q1: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$77,000.00</Text> },\n                        q2: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$132,000.00</Text> },\n                        q3: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$117,000.00</Text> },\n                        q4: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$104,000.00</Text> },\n                        fy: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$430,000.00</Text> },\n                    },\n                ]}\n            />\n        );\n    })"
+      "source": "// Nested P&L — sections, categories and accounts from the data's own tree, with currency subtotals on every parent and a Net income footer\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const pnl = $.const(PNL, ArrayType(PnlLine));\n        // One render for every cell: an account's own amount, a parent's subtotal.\n        const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (\n            <Text width=\"100%\" textAlign=\"right\">{East.Float.printCurrency(ctx.cellValue.unwrap(\"Float\"))}</Text>\n        )));\n        return (\n            <Table\n                variant=\"line\"\n                data={pnl}\n                columns={{\n                    account: { header: \"Account\", width: \"260px\" },\n                    q1: { header: \"Q1\", aggregate: \"sum\", render: money },\n                    q2: { header: \"Q2\", aggregate: \"sum\", render: money },\n                    q3: { header: \"Q3\", aggregate: \"sum\", render: money },\n                    q4: { header: \"Q4\", aggregate: \"sum\", render: money },\n                    fy: { header: \"FY\", aggregate: \"sum\", render: money },\n                }}\n                tree={{\n                    children: (r) => r.lines,\n                    collapsed: (r) => r.account.equal(\"Operating expenses\"),\n                }}\n                footerRows={[\n                    {\n                        account: { content: <Text fontWeight=\"bold\">Net income</Text> },\n                        q1: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$77,000.00</Text> },\n                        q2: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$132,000.00</Text> },\n                        q3: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$117,000.00</Text> },\n                        q4: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$104,000.00</Text> },\n                        fy: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$430,000.00</Text> },\n                    },\n                ]}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.tsx:tableNumberFormats",
@@ -33824,7 +33828,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
       "suite": "",
-      "test": "Number cells in the viewer's language — undeclared numbers keep every digit; Format.* columns format their cells and group totals",
+      "test": "Number cells in the viewer's language — undeclared numbers keep every digit; Format.* columns format their cells and each region's subtotals",
       "keywords": [
         "Table",
         "Root",
@@ -33841,18 +33845,91 @@
         "aggregate",
         "sum",
         "mean",
-        "groupBy",
-        "#874"
+        "max",
+        "count",
+        "subtotal",
+        "tree",
+        "#874",
+        "#954"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// Number cells in the viewer's language — undeclared numbers keep every digit; Format.* columns format their cells and group totals\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Table\n            variant=\"line\"\n            data={[\n                { region: \"North\", year: 2026n, sku: 100245n, qty: 1234.5, revenue: 18250.75, margin: 0.2125 },\n                { region: \"North\", year: 2026n, sku: 100246n, qty: 88.25, revenue: 9400.0, margin: 0.184 },\n                { region: \"South\", year: 2025n, sku: 200112n, qty: 410.0, revenue: 26125.5, margin: 0.231 },\n            ]}\n            columns={{\n                region: { header: \"Region\" },\n                year: { header: \"Year\" },\n                sku: { header: \"SKU\" },\n                qty: { header: \"Qty\" },\n                revenue: { header: \"Revenue\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                margin: { header: \"Margin\", format: Format.Percent({ maximumFractionDigits: 1n }), aggregate: \"mean\" },\n            }}\n            groupBy={[r => r.region]}\n        />\n    ))"
+      "source": "// Number cells in the viewer's language — undeclared numbers keep every digit; Format.* columns format their cells and each region's subtotals\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const orders = $.const(ORDERS, ArrayType(OrderLine));\n        return (\n            <Table\n                variant=\"line\"\n                data={orders}\n                columns={{\n                    line: { header: \"Line\" },\n                    year: { header: \"Year\", aggregate: \"max\" },\n                    sku: { header: \"SKU · lines\", aggregate: \"count\" },\n                    qty: { header: \"Qty\", aggregate: \"sum\" },\n                    revenue: { header: \"Revenue\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                    margin: { header: \"Margin\", format: Format.Percent({ maximumFractionDigits: 1n }), aggregate: \"mean\" },\n                }}\n                tree={{ children: (r) => r.lines }}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:table.examples.tsx:tableTree",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
+      "suite": "",
+      "test": "A four-deep bill of materials from the data's own tree — cost subtotals in the column's currency format, a leaf-part count and a collapsed assembly",
+      "keywords": [
+        "Table",
+        "Root",
+        "tree",
+        "children",
+        "nested",
+        "RecursiveType",
+        "depth",
+        "collapsed",
+        "aggregate",
+        "sum",
+        "count",
+        "subtotal",
+        "format",
+        "Format",
+        "Currency",
+        "bill of materials",
+        "#954"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A four-deep bill of materials from the data's own tree — cost subtotals in the column's currency format, a leaf-part count and a collapsed assembly\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const bom = $.const(BOM, ArrayType(BomPart));\n        return (\n            <Table\n                variant=\"line\"\n                data={bom}\n                columns={{\n                    part: { header: \"Part\", width: \"240px\" },\n                    sku: { header: \"SKU · parts\", aggregate: \"count\" },\n                    qty: { header: \"Qty\" },\n                    cost: { header: \"Cost\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                }}\n                tree={{\n                    children: (p) => p.parts,\n                    collapsed: (p) => p.part.equal(\"Wheel set\"),\n                }}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:table.examples.tsx:tableTreePaged",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
+      "suite": "",
+      "test": "The bill of materials over a paged source — windows of whole top-level assemblies, subtotals exact as inline",
+      "keywords": [
+        "Table",
+        "Root",
+        "tree",
+        "children",
+        "nested",
+        "paged",
+        "Paged",
+        "Paged.of",
+        "pageLimit",
+        "window",
+        "subtotal",
+        "aggregate",
+        "#954",
+        "#576"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The bill of materials over a paged source — windows of whole top-level assemblies, subtotals exact as inline\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const bom = $.const(BOM, ArrayType(BomPart));\n        const source = $.const(Paged.of(\"table-tree-bom\", bom, { pageLimit: 1 }));\n        return (\n            <Table\n                variant=\"line\"\n                data={source}\n                columns={{\n                    part: { header: \"Part\", width: \"240px\" },\n                    sku: { header: \"SKU · parts\", aggregate: \"count\" },\n                    qty: { header: \"Qty\" },\n                    cost: { header: \"Cost\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                }}\n                tree={{ children: (p) => p.parts }}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.tsx:tableVariants",
@@ -33902,8 +33979,8 @@
         "configurator"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33934,8 +34011,8 @@
         "configurator"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33960,8 +34037,8 @@
         "capture"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -33994,8 +34071,8 @@
         "Status"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [

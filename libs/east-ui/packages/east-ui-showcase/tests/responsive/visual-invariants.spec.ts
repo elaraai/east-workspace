@@ -393,8 +393,15 @@ test.describe("Visual invariants — the Plan", () => {
 /** Every Table example — each draws its headers' pin / sort controls. */
 const TABLES = [
     "tableBasic", "tableRichColumns", "tableFrozen", "tableGroupedColumns", "tablePnl",
-    "tableNumberFormats", "tableVariants", "tablePaginated", "tableExpandable", "tableReview",
+    "tableNumberFormats", "tableTree", "tableTreePaged", "tableVariants", "tablePaginated",
+    "tableExpandable", "tableReview",
 ];
+
+/** The Table examples whose rows nest (#954) — each with parents and subtotals. */
+const NESTED_TABLES = ["tablePnl", "tableNumberFormats", "tableTree", "tableTreePaged"];
+
+/** One nesting level's indent (#954): the Plan's gutter step (#949) — a 14px caret and its 6px gap. */
+const TREE_STEP = 20;
 
 /** A Table example's entry, at rest with its first header cell in view. */
 async function openTable(page: Page, name: string): Promise<Locator> {
@@ -460,6 +467,75 @@ test.describe("Visual invariants — the Table", () => {
         await th.getByRole("button", { name: /^Pin / }).focus();
         await expect(controls).toHaveCSS("opacity", "1");
     });
+
+    for (const name of NESTED_TABLES) {
+        test(`${name}: a nested row steps in one indent from its parent — carets aligned at each depth, a leaf's label under its parent's — and a subtotal sits in its column like the cells above it, semibold`, async ({ page }) => {
+            const entry = await openTable(page, name);
+            // Open every parent, so every depth is on the page.
+            const closed = entry.locator("[data-slot='treeToggle'][aria-expanded='false']");
+            for (let i = 0; i < 20 && await closed.count() > 0; i++) await closed.first().click();
+            await expect(closed).toHaveCount(0);
+            await settled(page);
+            const read = await entry.evaluate((root, step) => {
+                const out: string[] = [];
+                const trs = [...root.querySelectorAll<HTMLElement>("tbody tr[data-depth]")];
+                const rows = trs.map((tr) => {
+                    const indent = tr.querySelector("[data-slot='treeIndent']")!;
+                    const cell = indent.closest("td")!.getBoundingClientRect();
+                    const toggle = tr.querySelector("[data-slot='treeToggle']")?.getBoundingClientRect();
+                    const label = indent.nextElementSibling!.getBoundingClientRect().left;
+                    return {
+                        depth: Number(tr.getAttribute("data-depth")),
+                        name: (tr.textContent ?? "").trim().slice(0, 24),
+                        cell, toggle, label,
+                        // Where the row's first cell starts: its caret, or a leaf's label.
+                        start: toggle?.left ?? label,
+                    };
+                });
+                rows.forEach((r, i) => {
+                    if (r.toggle !== undefined && (r.toggle.left < r.cell.left - 0.5 || r.toggle.right > r.cell.right + 0.5)) out.push(`"${r.name}": its caret spills out of its cell`);
+                    if (r.depth === 0) return;
+                    let p = i - 1;
+                    while (p >= 0 && rows[p]!.depth !== r.depth - 1) p--;
+                    const parent = rows[p];
+                    if (parent === undefined) { out.push(`"${r.name}": depth ${r.depth} with no parent above it`); return; }
+                    const stepped = r.start - parent.start;
+                    if (Math.abs(stepped - step) > 0.5) out.push(`"${r.name}": starts ${stepped.toFixed(1)}px right of its parent "${parent.name}", want ${step}px`);
+                    if (r.toggle === undefined && Math.abs(r.label - parent.label) > 0.5) out.push(`"${r.name}": its label at ${r.label.toFixed(1)}, its parent's at ${parent.label.toFixed(1)}`);
+                });
+                // Every caret at one depth sits at one x.
+                const carets = new Map<number, number[]>();
+                for (const r of rows) if (r.toggle !== undefined) carets.set(r.depth, [...(carets.get(r.depth) ?? []), r.toggle.left]);
+                for (const [depth, xs] of carets) if (Math.max(...xs) - Math.min(...xs) > 0.5) out.push(`depth ${depth}: carets at ${xs.map((x) => x.toFixed(1)).join(", ")}`);
+                // A subtotal sits in its column exactly as the cells above it do:
+                // the same cell box, its content starting at the same x.
+                const subtotals = [...root.querySelectorAll<HTMLElement>("tbody td[data-subtotal]")];
+                for (const td of subtotals) {
+                    const tr = td.closest("tr")!;
+                    const col = [...tr.children].indexOf(td);
+                    const leaf = [...root.querySelectorAll<HTMLElement>("tbody tr[data-depth]:not([data-parent])")]
+                        .map((l) => l.children[col] as HTMLElement | undefined).find((c) => c !== undefined);
+                    const what = `"${(tr.textContent ?? "").trim().slice(0, 16)}" column ${col}`;
+                    if (leaf === undefined) { out.push(`${what}: no leaf cell to compare`); continue; }
+                    const a = td.getBoundingClientRect();
+                    const b = leaf.getBoundingClientRect();
+                    if (Math.abs(a.left - b.left) > 0.5 || Math.abs(a.width - b.width) > 0.5) out.push(`${what}: cell ${a.left.toFixed(1)}+${a.width.toFixed(1)}, the leaf's ${b.left.toFixed(1)}+${b.width.toFixed(1)}`);
+                    const ca = td.firstElementChild?.getBoundingClientRect();
+                    const cb = leaf.firstElementChild?.getBoundingClientRect();
+                    if (ca !== undefined && cb !== undefined && Math.abs(ca.left - cb.left) > 0.5) out.push(`${what}: content at ${ca.left.toFixed(1)}, the leaf's at ${cb.left.toFixed(1)}`);
+                    // The text it shows reads semibold — an accounting subtotal.
+                    const texts = [...td.querySelectorAll("*")].filter((el) => [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== ""));
+                    for (const el of texts) if (Number(getComputedStyle(el).fontWeight) < 600) out.push(`${what}: "${(el.textContent ?? "").trim()}" at weight ${getComputedStyle(el).fontWeight}, want semibold`);
+                }
+                return { bad: out, rows: rows.length, parents: rows.filter((r) => r.toggle !== undefined).length, deepest: Math.max(...rows.map((r) => r.depth)), subtotals: subtotals.length };
+            }, TREE_STEP);
+            // Every hook the rules read is there — a rule over nothing passes.
+            expect(read.parents, "parent rows").toBeGreaterThan(0);
+            expect(read.deepest, "nesting depth").toBeGreaterThan(0);
+            expect(read.subtotals, "subtotal cells").toBeGreaterThan(0);
+            expect(read.bad).toEqual([]);
+        });
+    }
 
     test("tableFrozen: a pinned column's controls show at rest, its pin upright; an unpinned pin tilts", async ({ page }) => {
         const entry = await openTable(page, "tableFrozen");

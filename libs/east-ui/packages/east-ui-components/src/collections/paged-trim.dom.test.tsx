@@ -180,10 +180,11 @@ describe("a trimmed source through the Table's paged rows (#829)", () => {
         await waitFor(() => expect(table?.loadedElements).toBe(1_000));
         expect(table!.total).toBe(1_000);
         expect(table!.rows).toHaveLength(1_000);
-        // Row i is element i: the `id` cell of each row, in stream order.
+        // Row i is element i: the `id` cell of each row, in stream order — a
+        // flat source's rows all at the top level (#954).
         table!.rows.forEach((row, i) => {
-            const id = row.get("id") as { value: unknown } | undefined;
-            expect(id?.value).toBe(ROWS[i]!.id);
+            expect(row.cells.get("id")?.value).toBe(ROWS[i]!.id);
+            expect(row.depth).toBe(0n);
         });
     });
 });

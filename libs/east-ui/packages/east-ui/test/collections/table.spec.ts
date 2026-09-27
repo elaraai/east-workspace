@@ -3,14 +3,34 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { describe, test as hostTest } from "node:test";
+import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Table, Badge, Format, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
-import { East, EastTypeType, IntegerType, NullType, OptionType, ArrayType, some, toEastTypeValue, variant, type ExprType } from "@elaraai/east";
+import { Paged, Table, Badge, Format, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, EastTypeType, FloatType, IntegerType, NullType, OptionType, ArrayType, RecursiveType, StringType, StructType, some, toEastTypeValue, variant, type ExprType } from "@elaraai/east";
 import * as ex from "./table.examples.js";
 
 // East TYPE VALUES — the form the arm-equality test compares them in (#874).
 const TABLE_ARM = toEastTypeValue(UIComponentType.node.cases.Table);
 const TABLE_ROOT = toEastTypeValue(Table.Types.Root);
+
+/** A tree row (#954): a name, an amount, and its own rows. */
+const Node = RecursiveType((self) => StructType({
+    name: StringType,
+    amount: FloatType,
+    rows: ArrayType(self),
+}));
+
+/** Two top-level rows: `a` holds `a1` (which holds `a1x`) and `a2`; `b` is a leaf. */
+const TREE = [
+    { name: "a", amount: 0.0, rows: [
+        { name: "a1", amount: 0.0, rows: [
+            { name: "a1x", amount: 3.0, rows: [] },
+        ] },
+        { name: "a2", amount: 4.0, rows: [] },
+    ] },
+    { name: "b", amount: 5.0, rows: [] },
+];
 
 describeEast("Table", (test) => {
     Assert.examples(test, {
@@ -20,10 +40,77 @@ describeEast("Table", (test) => {
         tableGroupedColumns: ex.tableGroupedColumns,
         tablePnl: ex.tablePnl,
         tableNumberFormats: ex.tableNumberFormats,
+        tableTree: ex.tableTree,
+        tableTreePaged: ex.tableTreePaged,
         tableVariants: ex.tableVariants,
         tablePaginated: ex.tablePaginated,
         tableExpandable: ex.tableExpandable,
         tableReview: ex.tableReview,
+    });
+
+    // =========================================================================
+    // #954 — rows nest to any depth; the wire is the rows in pre-order
+    // =========================================================================
+
+    test("a tree flattens to its rows in pre-order — a parent, then its subtree — each with its depth (#954)", $ => {
+        const tree = $.const(TREE, ArrayType(Node));
+        const table = $.let(Table.Root(tree, { name: { header: "Name" }, amount: { header: "Amount", aggregate: "sum" } }, {
+            tree: { children: (r) => r.rows },
+        }));
+        const rows = $.let(table.unwrap().unwrap("Table").rows.unwrap("inline"));
+        $(Assert.equal(rows.map((_$, r) => r.cells.get("name").unwrap("String")), ["a", "a1", "a1x", "a2", "b"]));
+        $(Assert.equal(rows.map((_$, r) => r.depth), [0n, 1n, 2n, 1n, 0n]));
+        // Nothing asked a parent to start closed.
+        $(Assert.equal(rows.map((_$, r) => r.collapsed), [false, false, false, false, false]));
+        // A parent keeps its own cells on the wire; the renderer draws its subtotal.
+        $(Assert.equal(rows.get(0n).cells.get("amount").unwrap("Float"), 0.0));
+    });
+
+    test("`collapsed` closes the parents it names — every one for `true` — and never a leaf (#954)", $ => {
+        const tree = $.const(TREE, ArrayType(Node));
+        const byRow = $.let(Table.Root(tree, ["name"], {
+            tree: { children: (r) => r.rows, collapsed: (r) => r.name.startsWith("a") },
+        }));
+        // `a1x` and `a2` start with "a" too, but they are leaves.
+        $(Assert.equal(byRow.unwrap().unwrap("Table").rows.unwrap("inline").map((_$, r) => r.collapsed), [true, true, false, false, false]));
+        const all = $.let(Table.Root(tree, ["name"], { tree: { children: (r) => r.rows, collapsed: true } }));
+        $(Assert.equal(all.unwrap().unwrap("Table").rows.unwrap("inline").map((_$, r) => r.collapsed), [true, true, false, false, false]));
+    });
+
+    test("a flat table's rows are all at depth 0, uncollapsed, in data order (#954)", $ => {
+        const table = $.let(Table.Root([{ name: "x" }, { name: "y" }], ["name"]));
+        const rows = $.let(table.unwrap().unwrap("Table").rows.unwrap("inline"));
+        $(Assert.equal(rows.map((_$, r) => r.cells.get("name").unwrap("String")), ["x", "y"]));
+        $(Assert.equal(rows.map((_$, r) => r.depth), [0n, 0n]));
+        $(Assert.equal(rows.map((_$, r) => r.collapsed), [false, false]));
+    });
+
+    test("a paged tree serves whole top-level rows per window, each flattened with its subtree (#954)", $ => {
+        const tree = $.const(TREE, ArrayType(Node));
+        const source = $.const(Paged.of("tree", tree, { pageLimit: 1 }));
+        const table = $.let(Table.Root(source, ["name"], { tree: { children: (r) => r.rows } }));
+        const paged = $.let(table.unwrap().unwrap("Table").rows.unwrap("paged"));
+        // Element 0 is `a` and its whole subtree; element 1 is `b`.
+        const first = $.let(paged.page(0n, 1n).unwrap("some"));
+        $(Assert.equal(first.map((_$, r) => r.cells.get("name").unwrap("String")), ["a", "a1", "a1x", "a2"]));
+        $(Assert.equal(first.map((_$, r) => r.depth), [0n, 1n, 2n, 1n]));
+        $(Assert.equal(paged.page(1n, 1n).unwrap("some").map((_$, r) => r.cells.get("name").unwrap("String")), ["b"]));
+        // A window of two elements is both trees, in order.
+        $(Assert.equal(paged.page(0n, 2n).unwrap("some").size(), 5n));
+    });
+
+    test("a tree over flat rows looks children up — the data holds the top-level rows (#954)", $ => {
+        const Flat = StructType({ id: StringType, parent: StringType });
+        const all = $.const([
+            { id: "p", parent: "" }, { id: "c1", parent: "p" }, { id: "c2", parent: "p" }, { id: "q", parent: "" },
+        ], ArrayType(Flat));
+        const roots = $.let(all.filter((_$, r) => r.parent.equal("")));
+        const table = $.let(Table.Root(roots, ["id"], {
+            tree: { children: (r) => all.filter((_$, c) => c.parent.equal(r.id)) },
+        }));
+        const rows = $.let(table.unwrap().unwrap("Table").rows.unwrap("inline"));
+        $(Assert.equal(rows.map((_$, r) => r.cells.get("id").unwrap("String")), ["p", "c1", "c2", "q"]));
+        $(Assert.equal(rows.map((_$, r) => r.depth), [0n, 1n, 1n, 0n]));
     });
 
     test("the component.ts Table arm and TableRootType are one East type (#874)", $ => {
@@ -74,16 +161,38 @@ describeEast("Table", (test) => {
         $(Assert.equal(columns.get(2n).format.hasTag("none"), true));
     });
 
-    test("tableNumberFormats: undeclared columns print themselves; revenue and margin declare their formats (#874)", $ => {
+    test("tableNumberFormats: undeclared columns print themselves; revenue and margin declare their formats; each region subtotals its lines (#874, #954)", $ => {
         const table = $.const(ex.tableNumberFormats.fn() as ExprType<UIComponentType>);
-        const columns = $.let(table.unwrap().unwrap("Table").columns);
-        $(Assert.equal(columns.map((_$, c) => c.key), ["region", "year", "sku", "qty", "revenue", "margin"]));
+        const root = $.let(table.unwrap().unwrap("Table"));
+        const columns = $.let(root.columns);
+        $(Assert.equal(columns.map((_$, c) => c.key), ["line", "year", "sku", "qty", "revenue", "margin"]));
         $(Assert.equal(columns.filter((_$, c) => c.render.hasTag("some")).size(), 0n));
         $(Assert.equal(columns.get(3n).format.hasTag("none"), true));
         $(Assert.equal(columns.get(4n).format.unwrap("some").unwrap("currency").currency.hasTag("EUR"), true));
-        $(Assert.equal(columns.get(4n).aggregate.unwrap("some").hasTag("sum"), true));
         $(Assert.equal(columns.get(5n).format.unwrap("some").hasTag("percent"), true));
-        $(Assert.equal(columns.get(5n).aggregate.unwrap("some").hasTag("mean"), true));
+        // Every number column subtotals a region's lines; the label does not.
+        $(Assert.equal(
+            columns.filter((_$, c) => c.aggregate.hasTag("some")).map((_$, c) => c.aggregate.unwrap("some").getTag()),
+            ["max", "count", "sum", "sum", "mean"],
+        ));
+        // The regions, each followed by its lines.
+        const rows = $.let(root.rows.unwrap("inline"));
+        $(Assert.equal(rows.map((_$, r) => r.cells.get("line").unwrap("String")), ["North", "SO-1001", "SO-1002", "South", "SO-2001"]));
+        $(Assert.equal(rows.map((_$, r) => r.depth), [0n, 1n, 1n, 0n, 1n]));
+    });
+
+    test("tableTree: a parent's cost subtotal prints through the column's format; its sku counts the leaf parts (#954)", $ => {
+        const table = $.const(ex.tableTree.fn() as ExprType<UIComponentType>);
+        const root = $.let(table.unwrap().unwrap("Table"));
+        $(Assert.equal(root.columns.map((_$, c) => c.key), ["part", "sku", "qty", "cost"]));
+        $(Assert.equal(root.columns.get(1n).aggregate.unwrap("some").hasTag("count"), true));
+        $(Assert.equal(root.columns.get(3n).aggregate.unwrap("some").hasTag("sum"), true));
+        $(Assert.equal(root.columns.get(3n).format.unwrap("some").unwrap("currency").currency.hasTag("EUR"), true));
+        const rows = $.let(root.rows.unwrap("inline"));
+        // Four deep: the bicycle, its wheel set, a wheel, a part.
+        $(Assert.equal(rows.map((_$, r) => r.depth).filter((_$, d) => d.equal(3n)).size(), 6n));
+        // The wheel set starts collapsed; nothing else does.
+        $(Assert.equal(rows.filter((_$, r) => r.collapsed).map((_$, r) => r.cells.get("part").unwrap("String")), ["Wheel set"]));
     });
 
     // =========================================================================
@@ -718,3 +827,14 @@ describeEast("Table", (test) => {
         $(Assert.equal(root.reviewStatus.hasTag("none"), true));
     });
 }, {   platformFns: TestImpl,});
+
+describe("Table tree refusals (#954)", () => {
+    hostTest("a `tree.children` that returns anything but more of the table's rows is refused at build, naming them", () => {
+        const Row = StructType({ name: StringType, tags: ArrayType(StringType) });
+        const rows = East.value([{ name: "x", tags: ["t"] }], ArrayType(Row));
+        assert.throws(
+            () => Table.Root(rows, ["name"], { tree: { children: (r) => r.tags } }),
+            /`tree\.children` returns a row's child rows — more of the table's own rows/,
+        );
+    });
+});

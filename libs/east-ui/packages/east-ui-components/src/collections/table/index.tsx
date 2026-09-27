@@ -16,20 +16,22 @@ import {
     type TableRootProps,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack } from "@fortawesome/free-solid-svg-icons";
+import { faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack, faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     useReactTable,
     getCoreRowModel,
     getSortedRowModel,
+    getExpandedRowModel,
     createColumnHelper,
     flexRender,
     type SortingState,
     type ColumnResizeMode,
     type ColumnDef,
     type RowSelectionState,
+    type ExpandedState,
 } from "@tanstack/react-table";
-import { compareFor, equalFor, equivalentFor, printFor, variant, some, none, OptionType, type ValueTypeOf } from "@elaraai/east";
+import { compareFor, equalFor, equivalentFor, printFor, variant, FloatType, OptionType, type ValueTypeOf } from "@elaraai/east";
 import { Table, ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -46,7 +48,7 @@ import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
-import { useTablePagedRows, type TablePagedSourceValue } from "./use-paged-rows.js";
+import { useTablePagedRows, type TablePagedSourceValue, type TableRowValue } from "./use-paged-rows.js";
 import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
 /* Touch (#351): 36px tap halo on the 24px row expander, the size the header's
@@ -99,8 +101,105 @@ type TableCellRenderContextValue = ValueTypeOf<typeof Table.Types.CellRenderCont
 /** Column render function type (called at render time with cell context, returns UIComponent value) */
 type ColumnRenderFn = (ctx: TableCellRenderContextValue) => ValueTypeOf<UIComponentType>;
 
-/** East Table Row value type */
-export type TableRowValue = Map<string, TableCellValue>;
+/**
+ * One row of the table's tree (#954) — a wire row placed: its pre-order index
+ * (the `rowIndex` every row reference carries), its path and its children.
+ */
+interface TreeRow {
+    /** Its position in the rows' pre-order — a flat table's data index. */
+    index: number;
+    /** Its index among its siblings at each depth. */
+    path: bigint[];
+    /** How deep it sits — 0 at the top. */
+    depth: number;
+    /** Its own cells. */
+    cells: Map<string, TableCellValue>;
+    /** Whether it declares itself collapsed (a parent's). */
+    collapsed: boolean;
+    /** Its children, in data order — TanStack's sub-rows. */
+    subRows: TreeRow[];
+}
+
+/** The table's rows as a tree: the top-level rows, and every row in pre-order. */
+interface TableTree {
+    roots: TreeRow[];
+    all: TreeRow[];
+}
+
+/**
+ * The table's rows as a tree (#954): the wire's pre-order stream, each row
+ * placed under the nearest row before it one level shallower. A depth that
+ * skips a level is read as one level below the row before it, and one below
+ * zero as zero, so a malformed stream still draws every row.
+ */
+function treeOf(rows: readonly TableRowValue[]): TableTree {
+    const roots: TreeRow[] = [];
+    const all: TreeRow[] = [];
+    // The rows from the top down to the last row placed.
+    const open: TreeRow[] = [];
+    rows.forEach((row, index) => {
+        const depth = Math.max(0, Math.min(Number(row.depth), open.length));
+        open.length = depth;
+        const parent = open[depth - 1];
+        const siblings = parent === undefined ? roots : parent.subRows;
+        const node: TreeRow = {
+            index,
+            path: [...(parent?.path ?? []), BigInt(siblings.length)],
+            depth,
+            cells: row.cells,
+            collapsed: row.collapsed,
+            subRows: [],
+        };
+        siblings.push(node);
+        all.push(node);
+        open.push(node);
+    });
+    return { roots, all };
+}
+
+/** A path as one key — what fold overrides persist under. */
+function pathKey(path: readonly bigint[]): string {
+    return path.join(".");
+}
+
+/**
+ * What each parent shows in the `aggregate` columns (#954): its children's
+ * subtotal, composed bottom-up — `sum` / `mean` / `min` / `max` of what its
+ * children show (a child parent its own subtotal, a leaf its own cell), and
+ * `count` the leaf rows beneath it. Walked in REVERSE pre-order, so every
+ * child is done before its parent, at any depth.
+ *
+ * @param tree - The table's tree
+ * @param aggregates - Each aggregate column's key and aggregate tag
+ * @returns Each parent's subtotal cells, by its pre-order index
+ */
+function subtotalsOf(tree: TableTree, aggregates: ReadonlyMap<string, string>): Map<number, Map<string, TableCellValue>> {
+    const out = new Map<number, Map<string, TableCellValue>>();
+    if (aggregates.size === 0) return out;
+    const drawn = (row: TreeRow, key: string) => out.get(row.index)?.get(key) ?? row.cells.get(key);
+    for (let i = tree.all.length - 1; i >= 0; i--) {
+        const row = tree.all[i]!;
+        if (row.subRows.length === 0) continue;
+        const cells = new Map<string, TableCellValue>();
+        for (const [key, tag] of aggregates) {
+            if (tag === "count") {
+                // A leaf counts 1; a parent its own count.
+                let n = 0n;
+                for (const child of row.subRows) {
+                    n += child.subRows.length === 0 ? 1n : ((drawn(child, key)?.value as bigint | undefined) ?? 0n);
+                }
+                cells.set(key, variant("Integer", n) as TableCellValue);
+                continue;
+            }
+            const values = row.subRows
+                .map((child) => drawn(child, key))
+                .filter((c): c is TableCellValue => c !== undefined);
+            cells.set(key, computeAggregate(tag, values));
+        }
+        out.set(row.index, cells);
+    }
+    return out;
+}
 
 // Column sort types for external API
 export type SortDirection = 'asc' | 'desc';
@@ -183,51 +282,66 @@ export interface TableTransport {
 /** The synthetic Decision column's TanStack id (#264). */
 const REVIEW_COLUMN_ID = "__review__";
 
+/** Column helper for type-safe column definitions over the table's tree. */
+const columnHelper = createColumnHelper<TreeRow>();
+
+/** A row's TanStack id: its pre-order index (#954), so TanStack's selection
+ *  and expansion key on the same index every row reference carries. */
+const treeRowId = (row: TreeRow): string => String(row.index);
+
+/** A row's children — TanStack's sub-rows. */
+const treeSubRows = (row: TreeRow): TreeRow[] => row.subRows;
+
 /** One decoded table cell — a LiteralValue variant ({ type, value }). */
 type TableCellVariant = ValueTypeOf<typeof Table.Types.Cell>;
 
-/** Row grouping (#317): fold member cell values into one aggregate cell. */
-function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVariant {
-    if (tag === "count") return variant("Integer", BigInt(cells.length)) as TableCellVariant;
-    if (cells.length === 0) return variant("Null", null) as TableCellVariant;
-    const kind = cells[0]!.type;
-    if (tag === "sum" || tag === "mean") {
-        // Factory-validated: sum/mean columns are Integer or Float.
-        const nums = cells.map(c => typeof c.value === "bigint" ? Number(c.value) : (c.value as number));
-        const sum = nums.reduce((a, b) => a + b, 0);
-        if (tag === "mean") return variant("Float", sum / nums.length) as TableCellVariant;
-        return kind === "Integer"
-            ? variant("Integer", (cells as { value: bigint }[]).reduce((a, c) => a + c.value, 0n)) as TableCellVariant
-            : variant("Float", sum) as TableCellVariant;
-    }
-    // min / max — native ordering over the column's primitive values.
-    let best = cells[0]!;
-    for (const c of cells) {
-        const a = c.value as number | bigint | string | Date | boolean;
-        const b = best.value as number | bigint | string | Date | boolean;
-        if (tag === "min" ? a < b : a > b) best = c;
-    }
-    return best;
+/** East's own order over cells: by kind, then by the kind's values (#954). */
+const compareCell = compareFor(Table.Types.Cell);
+const compareFloat = compareFor(FloatType);
+
+/** A number cell's value as a Float — how an Integer meets a Float. */
+function asFloat(cell: TableCellVariant): number {
+    return typeof cell.value === "bigint" ? Number(cell.value) : (cell.value as number);
 }
 
-/** A Float aggregate's default: at most two decimals. */
-const AGGREGATE_FLOAT: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none });
+/** Whether a cell holds a number. */
+function isNumberCell(cell: TableCellVariant): boolean {
+    return cell.type === "Integer" || cell.type === "Float";
+}
 
-/** Row grouping (#317): default text for an aggregated value (no
- *  `aggregateRender`) — a number through the column's declared `format`
- *  (#874), else grouped in the app's locale (#850); a date as its UTC ISO
- *  day. The caller passes no format for a `count`, which counts rows. */
-function formatAggregate(cell: TableCellVariant, words: Formatters, format: TickFormatOpt): string {
-    switch (cell.type) {
-        case "Integer": return format !== undefined
-            ? words.value(Number(cell.value as bigint), format)
-            : words.number(cell.value as bigint);
-        case "Float": return words.value(cell.value as number, format ?? AGGREGATE_FLOAT);
-        case "DateTime": return (cell.value as Date).toISOString().slice(0, 10);
-        case "Boolean": return String(cell.value);
-        case "String": return cell.value as string;
-        default: return "\u2014";
+/**
+ * How two drawn cells order (#954): by East's order over cells, save that two
+ * numbers compare as numbers — an Integer column's `mean` subtotal is a Float,
+ * and it sorts among its siblings' Integers by value.
+ */
+function compareDrawn(a: TableCellVariant, b: TableCellVariant): number {
+    return a.type !== b.type && isNumberCell(a) && isNumberCell(b)
+        ? compareFloat(asFloat(a), asFloat(b))
+        : compareCell(a, b);
+}
+
+/**
+ * A parent's subtotal in a `sum` / `mean` / `min` / `max` column (#954): the
+ * aggregate of what its children show. A sum of Integers stays an Integer; a
+ * mean is a Float; `min` / `max` pick by East's order over the column's values.
+ * (`count` counts leaves, in {@link subtotalsOf}.)
+ */
+function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVariant {
+    if (cells.length === 0) return variant("Null", null) as TableCellVariant;
+    if (tag === "sum" || tag === "mean") {
+        // Factory-validated: sum/mean columns are Integer or Float.
+        if (tag === "sum" && cells.every((c) => c.type === "Integer")) {
+            return variant("Integer", cells.reduce((sum, c) => sum + (c.value as bigint), 0n)) as TableCellVariant;
+        }
+        const sum = cells.reduce((acc, c) => acc + asFloat(c), 0);
+        return variant("Float", tag === "mean" ? sum / cells.length : sum) as TableCellVariant;
     }
+    let best = cells[0]!;
+    for (const c of cells) {
+        const order = compareCell(c, best);
+        if (tag === "min" ? order < 0 : order > 0) best = c;
+    }
+    return best;
 }
 
 /** A cell's text when its column has no `render` (#874): a number through the
@@ -256,9 +370,10 @@ interface TablePersistedState {
      *  the current row count. A clamped index survives data changes where a raw
      *  scrollTop would not (#143). */
     scrollIndex?: number;
-    /** Row grouping (#317): per group-path collapse overrides. Absent paths
-     *  fall back to the level's default `collapsed`. */
-    groupCollapse?: Record<string, boolean>;
+    /** Nested rows (#954): whether each parent the viewer folded or opened is
+     *  collapsed, by its path (`0.2`). A parent absent here starts as its row
+     *  declares. */
+    folds?: Record<string, boolean>;
 }
 
 /**
@@ -293,8 +408,27 @@ const TableCore = function TableCore({
 }) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
-    // Aggregates and pager counts, in the app's locale (#850).
+    // Counts and cells, in the app's locale (#850).
     const words = useFormatters();
+
+    // ── The rows' tree (#954) ─────────────────────────────────────────────
+    // The wire's pre-order rows, placed. A row's pre-order index is the one
+    // index every row reference carries — the tint, the expanded detail, the
+    // selection, the review, every event — so each follows its row through
+    // sorting and pagination.
+    const tree = useMemo(() => treeOf(sourceRows), [sourceRows]);
+    // Whether any row has children: a flat table draws no carets.
+    const nested = tree.roots.length !== tree.all.length;
+    // Each `aggregate` column's tag, and every parent's subtotals.
+    const aggregates = useMemo(() => {
+        const out = new Map<string, string>();
+        for (const col of value.columns) {
+            const agg = getSomeorUndefined(col.aggregate);
+            if (agg !== undefined) out.set(col.key, agg.type);
+        }
+        return out;
+    }, [value.columns]);
+    const subtotals = useMemo(() => subtotalsOf(tree, aggregates), [tree, aggregates]);
 
     // Extract East-side callbacks from style
     const style = getSomeorUndefined(value.style);
@@ -373,16 +507,17 @@ const TableCore = function TableCore({
     // come from the theme rather than per-site inline literals.
     const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize });
     // Chakra generates the "table" slot union from ITS built-in table recipe,
-    // so our custom slots — the groupHead family (#317), the printed cell's
-    // `cellText` (#874) and the header's content, controls and resize grip
-    // (#951) — need a wider view of the result.
-    const tableGroupSlotStyles = tableSlotStyles as unknown as Record<string, React.CSSProperties>;
+    // so our custom slots — a nested row's indent and caret (#954), the
+    // printed cell's `cellText` (#874) and the header's content, controls and
+    // resize grip (#951) — need a wider view of the result.
+    const tableCustomSlots = tableSlotStyles as unknown as Record<string, React.CSSProperties>;
 
     // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
     // UIComponent` callback. When defined, an extra toggle column is
     // prepended; clicking the chevron toggles the row's `expandedRows`
-    // membership; expanded rows render an extra child row beneath
-    // showing the callback's UIComp.
+    // membership — keyed by its pre-order index (#954), so the detail stays
+    // under its row when the table sorts — and an expanded row renders the
+    // callback's UIComp beneath it.
     const expandedContentFn = getSomeorUndefined(value.expandedContent);
     const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set());
     const toggleExpanded = useCallback((idx: number) => {
@@ -418,8 +553,8 @@ const TableCore = function TableCore({
     // ── Review chrome (optional, #264) ────────────────────────────────────
     // The shared per-row Approve/Reject Decision column (a synthetic
     // pinned-right TanStack column riding the existing sticky rails) + the
-    // commitBar batch foot below the pager. Decisions are keyed by the
-    // UNSLICED row index — stable under sorting AND pagination (the
+    // commitBar batch foot below the pager. Decisions are keyed by the row's
+    // pre-order index (#954) — stable under sorting AND pagination (the
     // `expandedContent` convention).
     const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
     const hasReview = review !== undefined;
@@ -445,14 +580,12 @@ const TableCore = function TableCore({
         return out;
     }, [reviewChromeRecipe]);
 
-    // Column helper for type-safe column definitions
-    const columnHelper = createColumnHelper<TableRowValue>();
-
-    // Create TanStack Table columns from East UI columns
-    const columns = useMemo<ColumnDef<TableRowValue, TableCellValue | undefined>[]>(() => {
+    // Create TanStack Table columns from East UI columns. A column reads what
+    // a row DRAWS in it — a parent's subtotal in an `aggregate` column, else
+    // the row's own cell — so a sort orders parents by what they show (#954).
+    const columns = useMemo<ColumnDef<TreeRow, TableCellValue | undefined>[]>(() => {
         return value.columns.map((col) => {
             const print = printFor(col.valueType);
-            const compare = compareFor(col.valueType);
 
             // Extract width values from column config
             const width = getSomeorUndefined(col.width);
@@ -464,7 +597,7 @@ const TableCore = function TableCore({
             const format = getSomeorUndefined(col.format) as TickFormatOpt;
 
             return columnHelper.accessor(
-                (row) => row.get(col.key),
+                (row) => subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key),
                 {
                     id: col.key,
                     header: getSomeorUndefined(col.header) ?? col.key,
@@ -473,14 +606,13 @@ const TableCore = function TableCore({
                     // table and is simply wrong (#576). The affordance is
                     // withdrawn rather than allowed to lie; the footer says so.
                     enableSorting: transport === undefined,
+                    // Siblings sort among themselves, each parent carrying its
+                    // subtree; ties keep data order.
                     sortingFn: (rowA, rowB, columnId) => {
-                        const cellA = rowA.original.get(columnId);
-                        const cellB = rowB.original.get(columnId);
-                        // Cells are bare LiteralValueType variants — `.value` is the payload.
-                        const valA = cellA?.value;
-                        const valB = cellB?.value;
-                        if (valA === undefined || valB === undefined) return 0;
-                        return compare(valA as any, valB as any);
+                        const cellA = rowA.getValue<TableCellValue | undefined>(columnId);
+                        const cellB = rowB.getValue<TableCellValue | undefined>(columnId);
+                        if (cellA === undefined || cellB === undefined) return 0;
+                        return compareDrawn(cellA, cellB);
                     },
                     minSize: parseSize(minWidth, 80),
                     size: parseSize(width, 150),
@@ -497,11 +629,11 @@ const TableCore = function TableCore({
                 }
             );
         });
-    }, [value.columns, columnHelper, transport]);
+    }, [value.columns, subtotals, transport]);
 
     // The synthetic Decision column — a display column pinned right, sized to
     // the shared DECISION_WIDTH; header + cells wear the reviewChrome slots.
-    const allColumns = useMemo<ColumnDef<TableRowValue, TableCellValue | undefined>[]>(() => {
+    const allColumns = useMemo<ColumnDef<TreeRow, TableCellValue | undefined>[]>(() => {
         if (!hasReview || review === undefined) return columns;
         return [...columns, columnHelper.display({
             id: REVIEW_COLUMN_ID,
@@ -512,7 +644,7 @@ const TableCore = function TableCore({
             size: parseInt(DECISION_WIDTH, 10),
             meta: { columnKey: REVIEW_COLUMN_ID, width: DECISION_WIDTH },
         })];
-    }, [columns, columnHelper, hasReview, review]);
+    }, [columns, hasReview, review]);
 
     // Consolidated persisted state (sorting + column sizing)
     const { state: persistedState, setState: setPersistedState } = usePersistedState<TablePersistedState>(
@@ -574,15 +706,19 @@ const TableCore = function TableCore({
             .filter(key => newSelection[key])
             .map(key => BigInt(parseInt(key, 10)));
 
-        // Per-row delta (legacy `onRowSelectionChange`).
+        // Per-row delta (legacy `onRowSelectionChange`), each with the row's
+        // path (#954).
         if (onRowSelectionChangeFn) {
             const prevSelected = new Set(Object.keys(prev).filter(key => prev[key]));
             const newSelected = new Set(Object.keys(newSelection).filter(key => newSelection[key]));
+            const pathOf = (key: string): bigint[] => tree.all[parseInt(key, 10)]?.path ?? [];
             for (const key of newSelected) {
                 if (!prevSelected.has(key)) {
                     const rowIndex = BigInt(parseInt(key, 10));
+                    const path = pathOf(key);
                     queueMicrotask(() => onRowSelectionChangeFn({
                         rowIndex,
+                        path,
                         selected: true,
                         selectedRowsIndices: selectedIndices,
                     }));
@@ -591,8 +727,10 @@ const TableCore = function TableCore({
             for (const key of prevSelected) {
                 if (!newSelected.has(key)) {
                     const rowIndex = BigInt(parseInt(key, 10));
+                    const path = pathOf(key);
                     queueMicrotask(() => onRowSelectionChangeFn({
                         rowIndex,
+                        path,
                         selected: false,
                         selectedRowsIndices: selectedIndices,
                     }));
@@ -610,32 +748,7 @@ const TableCore = function TableCore({
         if (!isSelectionControlled) {
             setLocalRowSelection(newSelection);
         }
-    }, [rowSelection, isSelectionControlled, onRowSelectionChangeFn, selectionOnChange]);
-
-    // Toggle a row by index, honouring `selectionMode`. Called by the
-    // checkbox column. `shift` enables range-mode extension. Computes
-    // the next selection from the displayed `rowSelection` (which is
-    // the IR prop when controlled) and delegates to
-    // `handleRowSelectionChange` for callback dispatch + local state
-    // sync.
-    const toggleRowSelection = useCallback((idx: number, shift: boolean) => {
-        const prev = rowSelection;
-        let next: RowSelectionState;
-        const wasSelected = !!prev[String(idx)];
-        if (selectionMode === "single") {
-            next = wasSelected ? {} : { [String(idx)]: true };
-        } else if (selectionMode === "range" && shift && lastClickedRef.current !== null) {
-            const lo = Math.min(lastClickedRef.current, idx);
-            const hi = Math.max(lastClickedRef.current, idx);
-            next = { ...prev };
-            for (let i = lo; i <= hi; i++) next[String(i)] = true;
-        } else {
-            next = { ...prev };
-            if (wasSelected) delete next[String(idx)]; else next[String(idx)] = true;
-        }
-        handleRowSelectionChange(next);
-        lastClickedRef.current = idx;
-    }, [rowSelection, selectionMode, handleRowSelectionChange]);
+    }, [rowSelection, isSelectionControlled, onRowSelectionChangeFn, selectionOnChange, tree]);
 
     // Handle sorting changes and notify parent
     const handleSortingChange = useCallback((updater: SortingState | ((prev: SortingState) => SortingState)) => {
@@ -664,32 +777,32 @@ const TableCore = function TableCore({
         });
     }, [onSortChange, onSortChangeFn, setSorting]);
 
-    // Handle cell click
-    const handleCellClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: TableCellValue | undefined) => {
+    // Handle cell click — the row's pre-order index and path (#954).
+    const handleCellClick = useCallback((rowIndex: bigint, path: bigint[], columnKey: string, cellValue: TableCellValue | undefined) => {
         if (onCellClickFn && cellValue !== undefined) {
             // The event's cellValue is the LiteralValueType variant itself.
-            queueMicrotask(() => onCellClickFn({ rowIndex, columnKey, cellValue }));
+            queueMicrotask(() => onCellClickFn({ rowIndex, path, columnKey, cellValue }));
         }
     }, [onCellClickFn]);
 
     // Handle cell double click
-    const handleCellDoubleClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: TableCellValue | undefined) => {
+    const handleCellDoubleClick = useCallback((rowIndex: bigint, path: bigint[], columnKey: string, cellValue: TableCellValue | undefined) => {
         if (onCellDoubleClickFn && cellValue !== undefined) {
-            queueMicrotask(() => onCellDoubleClickFn({ rowIndex, columnKey, cellValue }));
+            queueMicrotask(() => onCellDoubleClickFn({ rowIndex, path, columnKey, cellValue }));
         }
     }, [onCellDoubleClickFn]);
 
     // Handle row click
-    const handleRowClick = useCallback((rowIndex: bigint) => {
+    const handleRowClick = useCallback((rowIndex: bigint, path: bigint[]) => {
         if (onRowClickFn) {
-            queueMicrotask(() => onRowClickFn({ rowIndex }));
+            queueMicrotask(() => onRowClickFn({ rowIndex, path }));
         }
     }, [onRowClickFn]);
 
     // Handle row double click
-    const handleRowDoubleClick = useCallback((rowIndex: bigint) => {
+    const handleRowDoubleClick = useCallback((rowIndex: bigint, path: bigint[]) => {
         if (onRowDoubleClickFn) {
-            queueMicrotask(() => onRowDoubleClickFn({ rowIndex }));
+            queueMicrotask(() => onRowDoubleClickFn({ rowIndex, path }));
         }
     }, [onRowDoubleClickFn]);
 
@@ -742,30 +855,55 @@ const TableCore = function TableCore({
     // Page index is 0-based per the IR (`TablePaginationType.page` doc).
     const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
     const paginationOnChange = paginationConfig?.onPageChange;
-    const totalPages = pageSize ? Math.max(1, Math.ceil(sourceRows.length / pageSize)) : 1;
-    // Slice rows to the current page when pagination is active. (A paged source
-    // refuses `pagination` at build time — one paging mechanism, not two.)
-    const pagedRows = useMemo(() => {
-        if (!pageSize) return sourceRows;
+    // A page holds `pageSize` TOP-LEVEL rows, each with its whole subtree
+    // (#954), so the pager counts top-level rows.
+    const totalPages = pageSize ? Math.max(1, Math.ceil(tree.roots.length / pageSize)) : 1;
+    // Slice the top-level rows to the current page when pagination is active.
+    // (A paged source refuses `pagination` at build time — one paging
+    // mechanism, not two.)
+    const pageRoots = useMemo(() => {
+        if (!pageSize) return tree.roots;
         const startIdx = currentPage * pageSize;
-        return sourceRows.slice(startIdx, startIdx + pageSize);
-    }, [sourceRows, pageSize, currentPage]);
+        return tree.roots.slice(startIdx, startIdx + pageSize);
+    }, [tree, pageSize, currentPage]);
+
+    // Which parents are open (#954): the viewer's folds, persisted by path,
+    // over each row's declared `collapsed`. TanStack keys expansion on the
+    // row id — its pre-order index.
+    const folds = persistedState.folds;
+    const expanded = useMemo<ExpandedState>(() => {
+        const open: Record<string, boolean> = {};
+        for (const row of tree.all) {
+            if (row.subRows.length > 0 && !(folds?.[pathKey(row.path)] ?? row.collapsed)) open[treeRowId(row)] = true;
+        }
+        return open;
+    }, [tree, folds]);
+    const toggleFold = useCallback((row: TreeRow, collapsed: boolean) => {
+        setPersistedState(prev => ({ ...prev, folds: { ...(prev.folds ?? {}), [pathKey(row.path)]: !collapsed } }));
+    }, [setPersistedState]);
 
     // Create table instance
     const table = useReactTable({
-        data: pagedRows,
+        data: pageRoots,
         columns: allColumns,
+        getRowId: treeRowId,
+        getSubRows: treeSubRows,
         state: {
             sorting,
             columnSizing,
             rowSelection,
             columnPinning,
+            expanded,
         },
         onSortingChange: handleSortingChange,
         onColumnSizingChange: setColumnSizing,
         onRowSelectionChange: handleRowSelectionChange,
         getCoreRowModel: getCoreRowModel(),
+        // Sorts each parent's children among themselves.
         getSortedRowModel: getSortedRowModel(),
+        // The open rows in display order: a row, then — when it is open — its
+        // children, each followed by theirs.
+        getExpandedRowModel: getExpandedRowModel(),
         enableMultiSort,
         isMultiSortEvent: () => enableMultiSort,
         maxMultiSortColCount: maxSortColumns,
@@ -775,92 +913,47 @@ const TableCore = function TableCore({
         enableColumnPinning: true,
     });
 
-    // Get sorted rows from table
+    // The rows on show, in display order: the page's top-level rows sorted,
+    // each open parent followed by its children (#954).
     const { rows } = table.getRowModel();
+    const displayCount = rows.length;
 
-    // ── Row grouping (#317) ─────────────────────────────────────────────────
-    // Fold the sorted row model into a DISPLAY LIST of group header entries +
-    // leaf rows. Groups keep FIRST-APPEARANCE data order (a P&L's Revenue
-    // stays above Cost of Sales under any sort); sorting reorders members
-    // WITHIN their group. Collapsed groups (persisted per path, defaulting to
-    // the level's `collapsed`) contribute only their header — which carries
-    // the per-column aggregates, so a collapsed group reads as its subtotal.
-    const groupLevels = useMemo(() => getSomeorUndefined(value.groupBy), [value.groupBy]);
-    const groupAggByKey = useMemo(() => {
-        const out = new Map<string, { tag: string; renderFn: ((v: TableCellVariant) => unknown) | undefined; format: TickFormatOpt }>();
-        for (const col of value.columns) {
-            const agg = getSomeorUndefined(col.aggregate);
-            if (agg === undefined) continue;
-            out.set(col.key, {
-                tag: agg.type,
-                renderFn: getSomeorUndefined(col.aggregateRender) as ((v: TableCellVariant) => unknown) | undefined,
-                // A count counts rows — it never wears the column's format.
-                format: agg.type === "count" ? undefined : getSomeorUndefined(col.format) as TickFormatOpt,
-            });
+    // Toggle a row by its pre-order index, honouring `selectionMode`. Called
+    // by the checkbox column. `shift` enables range-mode extension, which
+    // spans the rows between the anchor and this one AS DISPLAYED — sorted,
+    // folded, paged (#954); an anchor no longer on show selects this row
+    // alone. Computes the next selection from the displayed `rowSelection`
+    // (which is the IR prop when controlled) and delegates to
+    // `handleRowSelectionChange` for callback dispatch + local state sync.
+    const toggleRowSelection = useCallback((idx: number, shift: boolean) => {
+        const prev = rowSelection;
+        let next: RowSelectionState;
+        const wasSelected = !!prev[String(idx)];
+        if (selectionMode === "single") {
+            next = wasSelected ? {} : { [String(idx)]: true };
+        } else if (selectionMode === "range" && shift && lastClickedRef.current !== null) {
+            const shown = rows.map(r => r.original.index);
+            const from = shown.indexOf(lastClickedRef.current);
+            const to = shown.indexOf(idx);
+            next = { ...prev };
+            if (from < 0 || to < 0) next[String(idx)] = true;
+            else for (let i = Math.min(from, to); i <= Math.max(from, to); i++) next[String(shown[i])] = true;
+        } else {
+            next = { ...prev };
+            if (wasSelected) delete next[String(idx)]; else next[String(idx)] = true;
         }
-        return out;
-    }, [value.columns]);
-    type GroupEntry = { kind: "group"; path: string; depth: number; label: string; count: number; collapsed: boolean; aggregates: Map<string, TableCellVariant> };
-    type DisplayEntry = GroupEntry | { kind: "leaf"; row: (typeof rows)[number] };
-    const groupCollapse = persistedState.groupCollapse;
-    const displayRows: DisplayEntry[] | undefined = useMemo(() => {
-        if (groupLevels === undefined || groupLevels.length === 0) return undefined;
-        const pageOffset = pageSize ? currentPage * pageSize : 0;
-        const rankByIndex = new Map<number, number>();
-        rows.forEach((r, i) => rankByIndex.set(r.index, i));
-        const rowByIndex = new Map(rows.map(r => [r.index, r]));
-        type Node = { path: string; depth: number; label: string; children: Map<string, Node>; order: Node[]; members: number[] };
-        const root: Node = { path: "", depth: -1, label: "", children: new Map(), order: [], members: [] };
-        // First-appearance order over the (page-sliced) data indices.
-        const sliceSize = rows.length;
-        for (let i = 0; i < sliceSize; i++) {
-            const row = rowByIndex.get(i);
-            if (row === undefined) continue;
-            let node = root;
-            for (let d = 0; d < groupLevels.length; d++) {
-                const key = groupLevels[d]!.keys[pageOffset + i] ?? "";
-                let child = node.children.get(key);
-                if (child === undefined) {
-                    child = { path: `${node.path}\u0000${key}`, depth: d, label: key, children: new Map(), order: [], members: [] };
-                    node.children.set(key, child);
-                    node.order.push(child);
-                }
-                node = child;
-            }
-            node.members.push(i);
-        }
-        const collectMembers = (node: Node): number[] =>
-            node.children.size === 0 ? node.members : node.order.flatMap(collectMembers);
-        const out: DisplayEntry[] = [];
-        const emit = (node: Node) => {
-            for (const child of node.order) {
-                const memberIdxs = collectMembers(child);
-                const aggregates = new Map<string, TableCellVariant>();
-                for (const [colKey, { tag }] of groupAggByKey) {
-                    const cells = memberIdxs
-                        .map(idx => rowByIndex.get(idx)?.original?.get(colKey))
-                        .filter((c): c is TableCellVariant => c !== undefined);
-                    aggregates.set(colKey, computeAggregate(tag, cells));
-                }
-                const collapsed = groupCollapse?.[child.path] ?? groupLevels[child.depth]!.collapsed;
-                out.push({ kind: "group", path: child.path, depth: child.depth, label: child.label, count: memberIdxs.length, collapsed, aggregates });
-                if (collapsed) continue;
-                if (child.depth === groupLevels.length - 1) {
-                    [...child.members]
-                        .sort((a, b) => (rankByIndex.get(a) ?? 0) - (rankByIndex.get(b) ?? 0))
-                        .forEach(idx => out.push({ kind: "leaf", row: rowByIndex.get(idx)! }));
-                } else {
-                    emit(child);
-                }
-            }
-        };
-        emit(root);
-        return out;
-    }, [groupLevels, rows, groupAggByKey, groupCollapse, currentPage, pageSize]);
-    const toggleGroup = useCallback((path: string, current: boolean) => {
-        setPersistedState(prev => ({ ...prev, groupCollapse: { ...(prev.groupCollapse ?? {}), [path]: !current } }));
-    }, [setPersistedState]);
-    const displayCount = displayRows !== undefined ? displayRows.length : rows.length;
+        handleRowSelectionChange(next);
+        lastClickedRef.current = idx;
+    }, [rowSelection, selectionMode, handleRowSelectionChange, rows]);
+
+    // Select-all covers every row in the data — every page, every depth.
+    const allSelected = tree.all.length > 0 && tree.all.every(r => rowSelection[treeRowId(r)]);
+    const someSelected = tree.all.some(r => rowSelection[treeRowId(r)]);
+
+    // The first data column, which carries a nested row's indent and caret.
+    const treeColumnId = nested
+        ? [...table.getLeftVisibleLeafColumns(), ...table.getCenterVisibleLeafColumns()].find(c => c.id !== REVIEW_COLUMN_ID)?.id
+        : undefined;
 
     // Calculate column size CSS variables for performance
     const columnSizeVars = useMemo(() => {
@@ -1169,18 +1262,13 @@ const TableCore = function TableCore({
                                         <input
                                             type="checkbox"
                                             aria-label="Select all rows"
-                                            checked={rows.length > 0 && Object.values(rowSelection).filter(Boolean).length === rows.length}
+                                            checked={allSelected}
                                             ref={(el) => {
-                                                if (el) {
-                                                    const some = Object.values(rowSelection).some(Boolean);
-                                                    const all = rows.length > 0 && Object.values(rowSelection).filter(Boolean).length === rows.length;
-                                                    el.indeterminate = some && !all;
-                                                }
+                                                if (el) el.indeterminate = someSelected && !allSelected;
                                             }}
                                             onChange={() => {
-                                                const all = rows.length > 0 && Object.values(rowSelection).filter(Boolean).length === rows.length;
                                                 const next: RowSelectionState = {};
-                                                if (!all) for (let i = 0; i < rows.length; i++) next[String(i)] = true;
+                                                if (!allSelected) for (const r of tree.all) next[treeRowId(r)] = true;
                                                 handleRowSelectionChange(next);
                                             }}
                                         />
@@ -1261,18 +1349,18 @@ const TableCore = function TableCore({
                                         }}
                                         position={isPinned && !gutterActive ? "sticky" : "relative"}
                                     >
-                                        <Box css={tableGroupSlotStyles.columnHeaderContent} data-resizable={enableColumnResizing && !centerInGutter ? "" : undefined}>
+                                        <Box css={tableCustomSlots.columnHeaderContent} data-resizable={enableColumnResizing && !centerInGutter ? "" : undefined}>
                                             {/* Inherit the columnHeader slot's mono/10px/0.16em/uppercase/
                                                 fg.subtle — a bare span so the recipe governs the type,
                                                 not a competing textStyle. */}
-                                            <Box as="span" css={tableGroupSlotStyles.columnHeaderLabel} data-align={centerInGutter ? "center" : undefined}>
+                                            <Box as="span" css={tableCustomSlots.columnHeaderLabel} data-align={centerInGutter ? "center" : undefined}>
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                                             </Box>
                                             {!centerInGutter && (
-                                                <Box css={tableGroupSlotStyles.columnControls} data-slot="columnControls" data-active={isPinned || isSorted ? "" : undefined}>
+                                                <Box css={tableCustomSlots.columnControls} data-slot="columnControls" data-active={isPinned || isSorted ? "" : undefined}>
                                                     <chakra.button
                                                         type="button"
-                                                        css={tableGroupSlotStyles.columnControl}
+                                                        css={tableCustomSlots.columnControl}
                                                         data-control="pin"
                                                         data-active={isPinned ? "" : undefined}
                                                         aria-label={isPinned ? `Unpin ${header.id}` : `Pin ${header.id}`}
@@ -1283,7 +1371,7 @@ const TableCore = function TableCore({
                                                     {header.column.getCanSort() && (
                                                         <chakra.button
                                                             type="button"
-                                                            css={tableGroupSlotStyles.columnControl}
+                                                            css={tableCustomSlots.columnControl}
                                                             data-control="sort"
                                                             data-active={isSorted ? "" : undefined}
                                                             aria-label={`Sort by ${header.id}`}
@@ -1291,7 +1379,7 @@ const TableCore = function TableCore({
                                                         >
                                                             <FontAwesomeIcon icon={icon} />
                                                             {isSorted && sortIndex && enableMultiSort && (
-                                                                <Box as="span" css={tableGroupSlotStyles.columnSortIndex}>{sortIndex}</Box>
+                                                                <Box as="span" css={tableCustomSlots.columnSortIndex}>{sortIndex}</Box>
                                                             )}
                                                         </chakra.button>
                                                     )}
@@ -1302,7 +1390,7 @@ const TableCore = function TableCore({
                                             // Spec resize grip (.mx-bar .seg .resize-handle), hidden
                                             // at rest so the static header matches the bare `.dt`.
                                             <Box
-                                                css={tableGroupSlotStyles.columnResizer}
+                                                css={tableCustomSlots.columnResizer}
                                                 data-slot="columnResizer"
                                                 onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()}
                                             />
@@ -1330,68 +1418,12 @@ const TableCore = function TableCore({
                     }}
                 >
                     {virtualItems.map(virtualRow => {
-                        // Row grouping (#317): group header entries interleave
-                        // with leaf rows in the display list.
-                        const displayEntry = displayRows !== undefined ? displayRows[virtualRow.index] : undefined;
-                        if (displayEntry !== undefined && displayEntry.kind === "group") {
-                            const g = displayEntry;
-                            return (
-                                <div
-                                    key={`group:${g.path}`}
-                                    data-index={virtualRow.index}
-                                    ref={virtualizer.measureElement}
-                                    style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
-                                >
-                                    <ChakraTable.Row
-                                        css={tableGroupSlotStyles.groupHead}
-                                        data-slot="groupHead"
-                                        data-depth={g.depth}
-                                        display="flex"
-                                        width="100%"
-                                        onClick={() => toggleGroup(g.path, g.collapsed)}
-                                    >
-                                        {table.getVisibleLeafColumns().map((col, ci) => {
-                                            const sizedFlex = hasFrozen ? 'none'
-                                                : (columnSizing[col.id] || col.columnDef.meta?.width)
-                                                    ? (col.id === lastStretchId ? '1 0 auto' : 'none')
-                                                    : 1;
-                                            const cellStyle: React.CSSProperties = {
-                                                width: `var(--col-${col.id}-size)`,
-                                                flex: sizedFlex,
-                                                display: "flex",
-                                                alignItems: "center",
-                                                minHeight: `${effectiveRowHeight}px`,
-                                            };
-                                            if (col.id === REVIEW_COLUMN_ID) {
-                                                return <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadCell} style={{ ...cellStyle, flex: "none" }} />;
-                                            }
-                                            if (ci === 0) {
-                                                return (
-                                                    <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadCell} data-slot="groupHeadLabel" style={{ ...cellStyle, cursor: "pointer", paddingLeft: `${12 + g.depth * 18}px`, gap: "8px", overflow: "visible", whiteSpace: "nowrap" }}>
-                                                        <FontAwesomeIcon icon={g.collapsed ? faChevronRight : faChevronDown} style={{ width: 9, height: 9 }} />
-                                                        {g.label === "" ? "\u2014" : g.label}
-                                                    </ChakraTable.Cell>
-                                                );
-                                            }
-                                            const agg = g.aggregates.get(col.id);
-                                            const aggSpec = groupAggByKey.get(col.id);
-                                            if (agg === undefined || aggSpec === undefined) {
-                                                return <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadCell} style={cellStyle} />;
-                                            }
-                                            return (
-                                                <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadAggregate} data-slot="groupHeadAggregate" style={cellStyle}>
-                                                    {aggSpec.renderFn !== undefined
-                                                        ? <EastChakraComponent value={aggSpec.renderFn(agg) as Parameters<typeof EastChakraComponent>[0]["value"]} storageKey={`${storageKey ?? "table"}.group.${g.path}.${col.id}`} />
-                                                        : formatAggregate(agg, words, aggSpec.format)}
-                                                </ChakraTable.Cell>
-                                            );
-                                        })}
-                                    </ChakraTable.Row>
-                                </div>
-                            );
-                        }
-                        const row = displayEntry !== undefined ? (displayEntry as { kind: "leaf"; row: (typeof rows)[number] }).row : rows[virtualRow.index];
+                        const row = rows[virtualRow.index];
                         if (!row) return null;
+                        // The row as the data holds it: its pre-order index \u2014
+                        // what every row reference carries \u2014 its path, depth
+                        // and children (#954).
+                        const node = row.original;
 
                         const rowKey = virtualRow.index;
                         const rowState = rowStates.get(rowKey) || { status: 'unloaded' };
@@ -1402,8 +1434,11 @@ const TableCore = function TableCore({
                         // virtualized host that remounts it would chase that.
                         const isRowLoading = loadingDelay > 0
                             && (!rowStateManager.isRowLoaded(rowKey) || rowState.status === 'loading');
-                        const rowIndex = BigInt(row.index);
+                        const rowIndex = BigInt(node.index);
+                        const path = node.path;
                         const isSelected = !!row.getIsSelected?.();
+                        // Zebra stripes follow the DISPLAY order; everything
+                        // keyed to the row follows its pre-order index.
                         const isOdd = virtualRow.index % 2 === 1;
 
                         // Background priority: rowStatus > selected > zebra
@@ -1416,7 +1451,7 @@ const TableCore = function TableCore({
                         // `bg-muted` can resolve to the same value as the
                         // table base in some palettes, leaving stripes
                         // invisible).
-                        const rowStatusBg = rowStatusBgFor(virtualRow.index);
+                        const rowStatusBg = rowStatusBgFor(node.index);
                         // Default zebra: Chakra's `bg.subtle` token (mode-aware,
                         // distinct from the base table bg in both light and dark
                         // themes). Falls back to a 12% currentColor mix for browsers
@@ -1428,7 +1463,34 @@ const TableCore = function TableCore({
                             ?? (isSelected ? selectedBackground : undefined)
                             ?? stripedZebra;
 
-                        const isExpanded = expandedRows.has(virtualRow.index);
+                        const isExpanded = expandedRows.has(node.index);
+
+                        // A nested table's first data cell leads with the
+                        // row's indent — one step per depth — and, on a
+                        // parent, the caret that folds its subtree (#954).
+                        const isParent = node.subRows.length > 0;
+                        const isOpen = isParent && row.getIsExpanded();
+                        const treeLead = treeColumnId === undefined ? null : (
+                            <Box
+                                as="span"
+                                css={tableCustomSlots.treeIndent}
+                                data-slot="treeIndent"
+                                style={{ "--table-depth": node.depth } as CSSProperties}
+                            >
+                                {isParent && (
+                                    <chakra.button
+                                        type="button"
+                                        css={tableCustomSlots.treeToggle}
+                                        data-slot="treeToggle"
+                                        aria-expanded={isOpen}
+                                        aria-label={isOpen ? "Hide children" : "Show children"}
+                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleFold(node, !isOpen); }}
+                                    >
+                                        <FontAwesomeIcon icon={faCaretDown} />
+                                    </chakra.button>
+                                )}
+                            </Box>
+                        );
 
                         // With an explicit pixel rowHeight, clamp non-expanded
                         // rows to exactly that height (+ overflow hidden) so
@@ -1464,6 +1526,8 @@ const TableCore = function TableCore({
                             >
                             <ChakraTable.Row
                                 data-selected={isSelected ? "true" : undefined}
+                                data-depth={treeColumnId !== undefined ? node.depth : undefined}
+                                data-parent={isParent ? "" : undefined}
                                 style={{
                                     display: 'flex',
                                     width: '100%',
@@ -1480,8 +1544,8 @@ const TableCore = function TableCore({
                                         : undefined,
                                 }}
                                 {...(hoverBackground ? { _hover: { bg: hoverBackground } } : {})}
-                                onClick={onRowClickFn ? () => handleRowClick(rowIndex) : undefined}
-                                onDoubleClick={onRowDoubleClickFn ? () => handleRowDoubleClick(rowIndex) : undefined}
+                                onClick={onRowClickFn ? () => handleRowClick(rowIndex, path) : undefined}
+                                onDoubleClick={onRowDoubleClickFn ? () => handleRowDoubleClick(rowIndex, path) : undefined}
                             >
                                 {/* Selection checkbox cell — fires `toggleRowSelection`
                                     which honours `selectionMode` (single / multiple /
@@ -1506,13 +1570,13 @@ const TableCore = function TableCore({
                                             type={selectionMode === "single" ? "radio" : "checkbox"}
                                             checked={isSelected}
                                             aria-label={`Select row ${virtualRow.index + 1}`}
-                                            onChange={() => toggleRowSelection(virtualRow.index, false)}
-                                            onClick={(e) => {
-                                                if (e.shiftKey) {
-                                                    e.preventDefault();
-                                                    toggleRowSelection(virtualRow.index, true);
-                                                }
-                                            }}
+                                            // One handler: a click fires `onChange`
+                                            // as well as `onClick`, and two toggles
+                                            // from one render's selection let the
+                                            // plain toggle overwrite the range. The
+                                            // change rides the click, which carries
+                                            // the shift key.
+                                            onChange={(e) => toggleRowSelection(node.index, (e.nativeEvent as MouseEvent).shiftKey === true)}
                                         />
                                     </ChakraTable.Cell>
                                 )}
@@ -1530,7 +1594,7 @@ const TableCore = function TableCore({
                                             background: "transparent",
                                             borderColor,
                                         }}
-                                        onClick={(e) => { e.stopPropagation(); toggleExpanded(virtualRow.index); }}
+                                        onClick={(e) => { e.stopPropagation(); toggleExpanded(node.index); }}
                                     >
                                         <Box
                                             as="button"
@@ -1558,10 +1622,9 @@ const TableCore = function TableCore({
                                 {row.getVisibleCells().map((cell) => {
                                     // The synthetic Decision cell — the shared reviewChrome
                                     // decisionCol (quiet status dot + Approve/Reject pair),
-                                    // acting on the UNSLICED row index.
+                                    // acting on the row's pre-order index.
                                     if (cell.column.id === REVIEW_COLUMN_ID && reviewController !== undefined) {
-                                        const unslicedIndex = (pageSize ? currentPage * pageSize : 0) + row.index;
-                                        const dotTag = (reviewStatusFn?.(BigInt(unslicedIndex)) as { type: string; value: { type?: string } | null } | undefined);
+                                        const dotTag = (reviewStatusFn?.(rowIndex) as { type: string; value: { type?: string } | null } | undefined);
                                         const statusTag = dotTag?.type === "some" ? (dotTag.value as { type: string }).type : undefined;
                                         return (
                                             <ChakraTable.Cell
@@ -1584,7 +1647,7 @@ const TableCore = function TableCore({
                                                 {statusTag !== undefined && (
                                                     <Box as="span" css={reviewDotStyles[statusTag]} data-slot="statusDot" position="absolute" left="12px" />
                                                 )}
-                                                <DecisionButtons rowIndex={unslicedIndex} controller={reviewController} />
+                                                <DecisionButtons rowIndex={node.index} controller={reviewController} />
                                             </ChakraTable.Cell>
                                         );
                                     }
@@ -1592,6 +1655,12 @@ const TableCore = function TableCore({
                                     const meta = cell.column.columnDef.meta;
                                     const columnKey = meta?.columnKey ?? cell.column.id;
                                     const pinningStyles = hasFrozen ? getCommonPinningStyles(cell.column) : {};
+                                    // A parent's subtotal (#954) draws like the
+                                    // column's cells — save a `count`, which counts
+                                    // rows, so wears neither its render nor its format.
+                                    const isSubtotal = subtotals.get(node.index)?.has(columnKey) === true;
+                                    const isCount = isSubtotal && aggregates.get(columnKey) === "count";
+                                    const lead = cell.column.id === treeColumnId ? treeLead : null;
 
                                     const cellStyle: React.CSSProperties = {
                                         width: `var(--col-${cell.column.id}-size)`,
@@ -1620,12 +1689,12 @@ const TableCore = function TableCore({
 
                                     const cellClickHandler = onCellClickFn ? (e: React.MouseEvent) => {
                                         e.stopPropagation();
-                                        handleCellClick(rowIndex, columnKey, cellValue);
+                                        handleCellClick(rowIndex, path, columnKey, cellValue);
                                     } : undefined;
 
                                     const cellDoubleClickHandler = onCellDoubleClickFn ? (e: React.MouseEvent) => {
                                         e.stopPropagation();
-                                        handleCellDoubleClick(rowIndex, columnKey, cellValue);
+                                        handleCellDoubleClick(rowIndex, path, columnKey, cellValue);
                                     } : undefined;
 
                                     if (isRowLoading) {
@@ -1643,15 +1712,20 @@ const TableCore = function TableCore({
                                                 css={tableSlotStyles.cell} style={cellStyle}
                                                 onClick={cellClickHandler}
                                                 onDoubleClick={cellDoubleClickHandler}
-                                            />
+                                            >
+                                                {lead}
+                                            </ChakraTable.Cell>
                                         );
                                     }
 
                                     // The column's render function draws the cell;
-                                    // ctx.cellValue is the LiteralValueType variant itself.
-                                    if (meta?.renderFn) {
+                                    // ctx.cellValue is the LiteralValueType variant
+                                    // itself — a parent's subtotal in an `aggregate`
+                                    // column.
+                                    if (meta?.renderFn && !isCount) {
                                         const rendered = meta.renderFn({
-                                            rowIndex: rowIndex,
+                                            rowIndex,
+                                            path,
                                             columnKey,
                                             cellValue,
                                         });
@@ -1659,24 +1733,31 @@ const TableCore = function TableCore({
                                             <ChakraTable.Cell
                                                 key={cell.id}
                                                 css={tableSlotStyles.cell} style={cellStyle}
+                                                data-subtotal={isSubtotal ? "" : undefined}
                                                 onClick={cellClickHandler}
                                                 onDoubleClick={cellDoubleClickHandler}
                                             >
+                                                {lead}
                                                 <EastChakraComponent value={rendered} storageKey={`${storageKey}.render.${cell.column.id}`} />
                                             </ChakraTable.Cell>
                                         );
                                     }
 
                                     // No render: the cell prints itself, in the
-                                    // viewer's language (#874).
+                                    // viewer's language (#874) — a count as a
+                                    // whole number, in no column's format.
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
                                             css={tableSlotStyles.cell} style={cellStyle}
+                                            data-subtotal={isSubtotal ? "" : undefined}
                                             onClick={cellClickHandler}
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
-                                            <Text css={tableGroupSlotStyles.cellText}>{cellText(cellValue, meta?.format, words, meta?.print)}</Text>
+                                            {lead}
+                                            <Text css={tableCustomSlots.cellText}>
+                                                {isCount ? words.number(cellValue.value as bigint) : cellText(cellValue, meta?.format, words, meta?.print)}
+                                            </Text>
                                         </ChakraTable.Cell>
                                     );
                                 })}
@@ -1692,6 +1773,7 @@ const TableCore = function TableCore({
                                 positioned correctly. */}
                             {expandedContentFn && isExpanded && (() => {
                                 const detail = expandedContentFn(rowIndex);
+                                const detailKey = `${storageKey}.expand.${node.index}`;
                                 return (
                                     <Box
                                         bg="bg.subtle"
@@ -1702,7 +1784,7 @@ const TableCore = function TableCore({
                                     >
                                         <EastChakraComponent
                                             value={detail as Parameters<typeof EastChakraComponent>[0]["value"]}
-                                            storageKey={`${storageKey}.expand.${virtualRow.index}`}
+                                            storageKey={detailKey}
                                         />
                                     </Box>
                                 );
@@ -1799,7 +1881,7 @@ const TableCore = function TableCore({
             {paginationConfig && !hidePaginationBand && (
                 <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
                     <Text fontSize="sm" color="fg.muted">
-                        Page {words.number(currentPage + 1)} of {words.number(totalPages)} ({words.number(sourceRows.length)} total)
+                        Page {words.number(currentPage + 1)} of {words.number(totalPages)} ({words.number(tree.roots.length)} total)
                     </Text>
                     <button
                         type="button"
@@ -1893,6 +1975,8 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
         () => (dataRows.type === "inline" ? (dataRows.value as TableRowValue[]) : paged.rows),
         [dataRows, paged.rows],
     );
+    // The pager pages TOP-LEVEL rows, each with its subtree (#954).
+    const topLevelRows = useMemo(() => rows.reduce((n, r) => (r.depth === 0n ? n + 1 : n), 0), [rows]);
     const transport = useMemo<TableTransport | undefined>(() => (pagedSource === undefined ? undefined : {
         loaded: paged.loadedElements,
         total: paged.total,
@@ -1928,7 +2012,7 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     };
     const pageSize = paginationConfig ? Number(paginationConfig.pageSize) : 0;
     const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
-    const totalPages = paginationConfig ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1;
+    const totalPages = paginationConfig ? Math.max(1, Math.ceil(topLevelRows / pageSize)) : 1;
     const pagerOnChange = paginationConfig?.onPageChange;
 
     return (

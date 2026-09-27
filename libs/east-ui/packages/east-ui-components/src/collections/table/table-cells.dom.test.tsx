@@ -8,10 +8,10 @@
  * (#874). A number with no declared format keeps every digit and is never
  * grouped, with the viewer's decimal separator, so a year or an id prints as
  * stored in every language; a column that declares a `Format.*` spec prints
- * its cells, and its group totals, through it. In English every undeclared
- * cell reads exactly as East prints it — what the factory's old default
- * showed. The table is built by the east-ui factory and COMPILED, so the
- * renderer reads what an author's program produces.
+ * its cells, and a parent's subtotals (#954), through it. In English every
+ * undeclared cell reads exactly as East prints it — what the factory's old
+ * default showed. The table is built by the east-ui factory and COMPILED, so
+ * the renderer reads what an author's program produces — here a nested one.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -19,7 +19,7 @@ import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import {
-    ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, StringType, StructType, printFor, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, printFor, type ValueTypeOf,
 } from "@elaraai/east";
 import { Format, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
@@ -38,23 +38,30 @@ type UIValue = ValueTypeOf<typeof UIComponentType>;
 
 // ── Fixtures, at module scope ───────────────────────────────────────────────
 
-/** One region's order lines: every cell kind, and two declared formats. */
-const LineType = StructType({
+/** An order line — every cell kind, and two declared formats — or a region
+ *  holding its lines (#954). */
+const LineType = RecursiveType((self) => StructType({
     region: StringType, year: IntegerType, id: IntegerType, qty: FloatType, whole: FloatType,
     revenue: FloatType, fee: FloatType, shipped: BooleanType, at: DateTimeType,
-});
+    lines: ArrayType(self),
+}));
 const AT = [new Date(Date.UTC(2026, 5, 29, 22, 30)), new Date(Date.UTC(2026, 5, 30, 8, 0))];
 const LINES = [
-    { region: "North", year: 2026n, id: 1234567n, qty: 1234.5, whole: 1234, revenue: 1234.5, fee: 12.5, shipped: true, at: AT[0]! },
-    { region: "North", year: 2026n, id: 1234568n, qty: 0.25, whole: 2, revenue: 1000, fee: 7, shipped: false, at: AT[1]! },
+    { region: "North", year: 2026n, id: 1234567n, qty: 1234.5, whole: 1234, revenue: 1234.5, fee: 12.5, shipped: true, at: AT[0]!, lines: [] },
+    { region: "North", year: 2026n, id: 1234568n, qty: 0.25, whole: 2, revenue: 1000, fee: 7, shipped: false, at: AT[1]!, lines: [] },
+];
+/** The North region: its own quarter-less cells, and its two lines. */
+const REGIONS = [
+    { region: "North", year: 2026n, id: 0n, qty: 0, whole: 0, revenue: 0, fee: 0, shipped: false, at: AT[0]!, lines: LINES },
 ];
 
-/** The table, with no `render` anywhere: revenue sums through its declared
- *  number format; the fee column COUNTS its lines, so its currency format
- *  must not reach the total. Unvirtualized, so jsdom mounts every row. */
+/** The table, with no `render` anywhere: the region's revenue sums its lines
+ *  through the declared number format; the fee column COUNTS the lines, so
+ *  its currency format must not reach the count. Unvirtualized, so jsdom
+ *  mounts every row. */
 const TABLE = East.compile(East.function([], UIComponentType, ($) => {
-    const lines = $.const(LINES, ArrayType(LineType));
-    return Table.Root(lines, {
+    const regions = $.const(REGIONS, ArrayType(LineType));
+    return Table.Root(regions, {
         region: { header: "Region" },
         year: { header: "Year" },
         id: { header: "Id" },
@@ -64,7 +71,7 @@ const TABLE = East.compile(East.function([], UIComponentType, ($) => {
         fee: { header: "Fee", format: Format.Currency({ currency: "EUR" }), aggregate: "count" },
         shipped: { header: "Shipped" },
         at: { header: "At" },
-    }, { virtualization: false, groupBy: [(r) => r.region] });
+    }, { virtualization: false, tree: { children: (r) => r.lines } });
 }), getRegisteredPlatformImplementations())() as UIValue;
 
 /** A euro amount as `Intl` prints it in a locale — the oracle for the fee column. */
@@ -80,16 +87,15 @@ function renderIn(locale: string) {
     );
 }
 
-/** Each member row's cell texts, in column order. */
+/** Each line's cell texts, in column order — the rows one level down. */
 function memberRows(container: HTMLElement): string[][] {
-    return [...container.querySelectorAll("tbody tr")]
-        .filter((tr) => tr.getAttribute("data-slot") !== "groupHead")
+    return [...container.querySelectorAll('tbody tr[data-depth="1"]')]
         .map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent ?? ""));
 }
 
-/** The group header's totals, in column order. */
+/** The region's subtotals, in column order. */
 function groupTotals(container: HTMLElement): string[] {
-    return [...container.querySelectorAll('[data-slot="groupHeadAggregate"]')].map((el) => el.textContent ?? "");
+    return [...container.querySelectorAll('tbody tr[data-depth="0"] td[data-subtotal]')].map((el) => el.textContent ?? "");
 }
 
 // ── German ──────────────────────────────────────────────────────────────────
@@ -103,7 +109,7 @@ describe("a Table cell prints itself in the viewer's language (#874)", () => {
         ]);
     });
 
-    test("German: a declared format formats its sum's group total; a count counts, in no column's format", () => {
+    test("German: a declared format formats its sum's subtotal; a count counts, in no column's format", () => {
         const { container } = renderIn("de-DE");
         expect(groupTotals(container)).toEqual(["2.234,5", "2"]);
     });

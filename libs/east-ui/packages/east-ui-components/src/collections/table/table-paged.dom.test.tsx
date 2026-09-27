@@ -31,12 +31,17 @@ afterEach(cleanup);
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
-/** One decoded cell dict — the Table's own row collection element. */
-function row(name: string, qty: bigint): Map<string, unknown> {
-    return new Map<string, unknown>([
-        ["name", variant("String", name)],
-        ["qty", variant("Integer", qty)],
-    ]);
+/** One decoded row — the Table's own row collection element: its cells, at
+ *  the top level (#954). */
+function row(name: string, qty: bigint): { cells: Map<string, unknown>; depth: bigint; collapsed: boolean } {
+    return {
+        cells: new Map<string, unknown>([
+            ["name", variant("String", name)],
+            ["qty", variant("Integer", qty)],
+        ]),
+        depth: 0n,
+        collapsed: false,
+    };
 }
 
 /** A decoded column with no `render`: the table prints its cells (#874). */
@@ -50,7 +55,6 @@ function column(key: string, tag: "String" | "Integer") {
         render: none,
         format: none,
         aggregate: none,
-        aggregateRender: none,
     };
 }
 
@@ -65,7 +69,7 @@ function tableRoot(rows: unknown): TableRootValue {
         onCellClick: none, onCellDoubleClick: none, onRowClick: none, onRowDoubleClick: none,
         onRowSelectionChange: none, onSortChange: none,
         review: none, reviewStatus: none, reviewApproval: none,
-        slice: none, groupBy: none, style: none,
+        slice: none, style: none,
     } as unknown as TableRootValue;
 }
 
