@@ -30,6 +30,11 @@ import { assertEast, describeEast } from "./platforms.spec.js";
 const SUMMARY_FILE = new URL("../../test/jq-conformance/summary.json", import.meta.url);
 const QUERY_DOC = new URL("../../devdocs/QUERY.md", import.meta.url);
 
+/** A checked-in text file, with the line endings `make query-corpus` writes: a Windows checkout has CRLF. */
+function readText(file: URL): string {
+  return readFileSync(file, "utf8").replaceAll("\r\n", "\n");
+}
+
 const runs = conformanceCases().map(runCase);
 const summary = conformanceSummary(runs);
 
@@ -43,7 +48,7 @@ describe("jq 1.8 conformance", () => {
   });
 
   test("every deviation names an entry of §13, and every skip its reason (J1)", () => {
-    const doc = readFileSync(QUERY_DOC, "utf8");
+    const doc = readText(QUERY_DOC);
     const entries = new Set([...doc.matchAll(/^### 13\.(\d+) /gm)].map(m => Number(m[1])));
     for (const r of runs) {
       if (r.outcome.bucket === "deviation") {
@@ -61,12 +66,12 @@ describe("jq 1.8 conformance", () => {
   });
 
   test("summary.json is where the cases land now (J2)", () => {
-    assert.equal(readFileSync(SUMMARY_FILE, "utf8"), summaryText(summary), "test/jq-conformance/summary.json is stale: run `make query-corpus` in libs/east");
+    assert.equal(readText(SUMMARY_FILE), summaryText(summary), "test/jq-conformance/summary.json is stale: run `make query-corpus` in libs/east");
   });
 
   test("QUERY.md §16's tables are summary.json's (J2)", () => {
-    const doc = readFileSync(QUERY_DOC, "utf8");
-    const pinned = JSON.parse(readFileSync(SUMMARY_FILE, "utf8")) as ConformanceSummary;
+    const doc = readText(QUERY_DOC);
+    const pinned = JSON.parse(readText(SUMMARY_FILE)) as ConformanceSummary;
     assert.equal(withConformanceTables(doc, pinned), doc, "devdocs/QUERY.md's conformance tables are stale: run `make query-corpus` in libs/east");
   });
 
