@@ -86,10 +86,12 @@ describe('a local intake', () => {
 
   it('falls back to the next runner when one cannot run the unit at all, saying why, and does not try it again',
     { skip: process.platform === 'win32' ? 'the stand-in east-c is a shell script' : false }, async () => {
-      // An east-c from before the intake unit: it knows no `exec`.
+      // An east-c from before the intake unit: it knows no `exec`, and says so
+      // above its usage.
       const ran = join(dir, 'stale-east-c.ran');
       const stale = join(dir, 'stale-east-c');
-      writeFileSync(stale, `#!/bin/sh\necho ran >> '${ran}'\necho "Unknown command: exec" >&2\nexit 2\n`);
+      writeFileSync(stale, `#!/bin/sh\necho ran >> '${ran}'\n` +
+        `printf 'Error: Unknown command: exec\\nUsage:\\n  east-c run <ir> [inputs...]\\n\\nSupported formats: .json, .beast2\\n' >&2\nexit 2\n`);
       chmodSync(stale, 0o755);
       const candidates: IntakeCandidate[] = [{ runner: INTAKE_CANDIDATES[0]!.runner, command: stale }, INTAKE_CANDIDATES[1]!];
       const unusable = new Map<string, string>();
@@ -97,7 +99,7 @@ describe('a local intake', () => {
 
       const first = await runIntake(storage, repo, spec, {}, unusable, candidates);
       assert.equal(first.runner, 'east-node');
-      assert.equal(first.fallback, `${stale} exited 2 without recording a result for the intake unit (Unknown command: exec)`);
+      assert.equal(first.fallback, `${stale} exited 2 without recording a result for the intake unit (Error: Unknown command: exec)`);
       assert.equal(first.hash, await datasetWrite(storage, repo, rows(100), TableType));
 
       const second = await runIntake(storage, repo, spec, {}, unusable, candidates);

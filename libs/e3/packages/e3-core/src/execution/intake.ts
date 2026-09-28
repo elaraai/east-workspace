@@ -128,7 +128,7 @@ export async function runIntake(
       }
       // No result that reads: the runner could not run the unit at all.
       const ended = result.exitCode !== null ? `exited ${result.exitCode}` : result.signal !== null ? `was ended by ${result.signal}` : 'did not start';
-      const said = lastLine(result.stderrTail) ?? result.error ?? undefined;
+      const said = tellingLine(result.stderrTail) ?? result.error ?? undefined;
       const reason = `${candidate.command} ${ended} without recording a result for the intake unit${said === undefined ? '' : ` (${said})`}`;
       if (at === candidates.length - 1) {
         throw new Error(result.stderrTail.trim() === '' ? reason : `${reason}\nstderr:\n${result.stderrTail.trim()}`);
@@ -191,9 +191,15 @@ async function spawnIntake(
   }
 }
 
-/** The last line of a stream's tail that says anything, or `undefined`. */
-function lastLine(tail: string): string | undefined {
-  return tail.split('\n').map((line) => line.trim()).filter((line) => line !== '').at(-1);
+/**
+ * The line of a stream's tail that says what went wrong: the first that starts
+ * with an error's name — a CLI's `Error: Unknown command: exec` above its usage,
+ * a Node crash's `TypeError: …` above its stack — else the last that says
+ * anything, or `undefined`.
+ */
+function tellingLine(tail: string): string | undefined {
+  const lines = tail.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+  return lines.find((line) => /^\w*error\b/i.test(line)) ?? lines.at(-1);
 }
 
 function abortError(): Error {
