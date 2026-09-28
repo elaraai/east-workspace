@@ -111,6 +111,34 @@ export interface CheckJqResult {
    * @internal
    */
   scopeAt(path: string, instance?: string): { vars: ReadonlyMap<string, Result>; defs: readonly string[] } | null;
+  /**
+   * The program's text and the spans of its nodes, for the translator's
+   * locations; and whether it was checked as an e3 root.
+   *
+   * @internal
+   */
+  readonly source: { readonly text: string; readonly spans: JqSpans; readonly root: boolean };
+  /**
+   * What a node's input was when it was checked, in an instance: the shape
+   * its records were made for.
+   *
+   * @internal
+   */
+  inputAt(path: string, instance: string): Shape | null;
+  /**
+   * Checks a node again, on an input of another type, in a new instance of
+   * its own: where one record cannot serve every input the translation gives
+   * a node (a `walk`'s filter on each type it meets, `map_values` on each
+   * field of a struct), the translator types that input's code from these.
+   *
+   * @param path - the node's path
+   * @param instance - the instance it was checked in
+   * @param input - the input's type
+   * @returns the new instance, or `null` when the node does not check on it
+   *
+   * @internal
+   */
+  retype(path: string, instance: string, input: EastType): string | null;
 }
 
 /** A `def`, or a filter parameter, in scope. */
@@ -191,6 +219,10 @@ class Checker {
   readonly nodes = new Map<string, JqNode>();
   /** What is in scope at each node checked, by instance and path. */
   readonly scopes = new Map<string, Env>();
+  /** Each node's input when it was checked, by instance and path. */
+  readonly inputs = new Map<string, Shape>();
+  /** How many instances {@link Checker.retype} has made. */
+  private retypes = 0;
   readonly reads: string[] = [];
   /** Defs being instantiated, by instance signature: their output so far, for recursion. */
   private readonly active = new Map<string, { result: Result; recursed: boolean; filters: boolean }>();
@@ -249,6 +281,7 @@ class Checker {
   check(node: JqNode, path: string, input: Result, env: Env): Result {
     this.nodes.set(path, node);
     this.scopes.set(`${env.instance}|${path}`, env);
+    this.inputs.set(`${env.instance}|${path}`, input.shape);
     // A node whose input has no values never runs (a branch narrowing rules
     // out, the elements of `[]`): it gives nothing, and `lo: 1, hi: 0` is the
     // identity of `either`, so a dead branch leaves its `if`'s bounds alone.
@@ -1258,6 +1291,8 @@ class Checker {
       acc = merged;
       if (round === 7) return this.fail(this.range(path), "cannot_infer", MESSAGES.accumulator(kind, describeType(first), describeType(merged)));
     }
+    // The accumulator's settled type, for the translator.
+    this.record(`${path}#acc`, env, { shape: typed(acc), mult: ONE });
     if (kind === "reduce") return { shape: typed(acc), mult: ONE };
     const extract = (node as Extract<JqNode, { type: "foreach" }>).value.extract;
     if (extract.type === "none") return { shape: typed(acc), mult: MANY };
@@ -1652,6 +1687,21 @@ class Checker {
     }, env);
   }
 
+  /** Checks a node again on another input, in a new instance; see {@link CheckJqResult.retype}. */
+  retype(path: string, instance: string, input: EastType): string | null {
+    const env = this.scopes.get(`${instance}|${path}`);
+    const node = this.nodes.get(path);
+    if (env === undefined || node === undefined) return null;
+    this.retypes += 1;
+    const next = `${instance}~${this.retypes}`;
+    const reported = this.diagnostics.length;
+    const result = this.check(node, path, { shape: typed(input), mult: ONE }, { ...env, instance: next });
+    const failed = result.shape.kind === "error" || this.diagnostics.slice(reported).some(d => d.severity.type === "error");
+    // The program was checked already; what this finds is the translator's to act on, not the author's.
+    this.diagnostics.length = reported;
+    return failed ? null : next;
+  }
+
   // ─── The checked query ─────────────────────────────────────────────────
 
   /** The program with every recorded rewrite applied. */
@@ -1794,7 +1844,8 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
   const parsed = typeof program === "string" ? parseJq(program) : program;
   const empty = (diagnostics: QueryError[]): CheckJqResult => ({
     query: null, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
-    resultAt: () => null, scopeAt: () => null,
+    resultAt: () => null, scopeAt: () => null, source: { text: parsed.text, spans: parsed.spans, root: options.root === true },
+    inputAt: () => null, retype: () => null,
   });
   if (parsed.program.type === "none") return empty(parsed.diagnostics);
   const root = parsed.program.value;
@@ -1847,5 +1898,8 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
       const env = anyInstance(checker.scopes, path, instance);
       return env === undefined ? null : { vars: env.vars, defs: [...env.defs.keys()] };
     },
+    source: { text: parsed.text, spans: parsed.spans, root: options.root === true },
+    inputAt: (path: string, instance: string) => checker.inputs.get(`${instance}|${path}`) ?? null,
+    retype: (path: string, instance: string, input: EastType) => checker.retype(path, instance, input),
   };
 }

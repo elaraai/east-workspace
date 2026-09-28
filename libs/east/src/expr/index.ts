@@ -34,6 +34,7 @@ export { type CallableAsyncFunctionExpr, AsyncFunctionExpr } from './asyncfuncti
 import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greater, func, str, platform, asyncFunction, asyncPlatform, genericPlatform, asyncGenericPlatform, compile, compileAsync, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch, builtin, as, wrapRecursive, error } from './block.js';
 import { toSource } from '../codegen/index.js';
 import { importFunction, exportFunctions, encodeFunctionManifest, decodeFunctionManifest, linkImports, platformDependencies } from '../functions.js';
+import { jq } from './query.js';
 export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, type PlatformDeclaration, PLATFORM_DECLARATION, isPlatformDeclaration, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
 
 // Import standard libraries
@@ -754,6 +755,36 @@ export const East = {
    * ```
    */
   invertPatch,
+
+  // ============================================================================
+  // Queries
+  // ============================================================================
+
+  /**
+   * A jq query over East values, as East code: parsed, checked against the
+   * inputs' types and translated to ordinary East IR when the program is
+   * built (`devdocs/QUERY.md` §15).
+   *
+   * @param input - an expression, or an object of named expressions the query
+   *   reads as an e3 root
+   * @param program - the jq text
+   * @param resultType - the result's type, which must be the query's
+   * @returns the result: the element for one output, an `Option` for at most
+   *   one, an `Array` for any number
+   * @throws {QueryError} When the query does not check, or `resultType` is not
+   *   its result type.
+   * @throws East runtime error if the query raises one as it runs.
+   *
+   * @example
+   * ```ts
+   * const Order = StructType({ id: IntegerType, total: FloatType });
+   * const bigOrders = East.function([ArrayType(Order)], ArrayType(IntegerType), ($, orders) =>
+   *   East.jq(orders, "[.[] | select(.total > 1000) | .id]", ArrayType(IntegerType)));
+   * const compiled = East.compile(bigOrders, []);
+   * compiled([{ id: 1n, total: 250.0 }, { id: 2n, total: 1200.0 }]);  // [2n]
+   * ```
+   */
+  jq,
 
   // Root stdlib
 

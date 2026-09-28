@@ -207,7 +207,8 @@ export const QueryFixType = StructType({ edits: ArrayType(QueryEditType), label:
  *   `ambiguous_output`, `cannot_infer`, `unsupported` or
  *   `array_builtin_on_element`, or a lint (`duplicate_outputs`,
  *   `duplicate_key`, `never_missing`, `long_range`); `devdocs/QUERY.md` §12
- *   lists each message's template.
+ *   lists each message's template. An error a query raised as it ran is
+ *   `runtime` (§15).
  * - `fixes` — one-click fixes, best first.
  * - `message` — one sentence, the same wherever the checker runs.
  * - `severity` — `error`, or `warning` for a lint.
@@ -222,14 +223,3 @@ export const QueryErrorType = StructType({
   span: OptionType(QuerySpanType),
   suggestions: ArrayType(StringType),
 });
-
-/**
- * What evaluating a query dynamically gives: `ok` with the result as a
- * self-describing beast2 blob, or `error`.
- *
- * @remarks
- * The result blob is encoded as `BlobEncodeBeast2` encodes: it carries its
- * type, which is the result type the query's element type and multiplicity
- * imply.
- */
-export const QueryResultType = VariantType({ error: QueryErrorType, ok: BlobType });

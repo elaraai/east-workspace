@@ -5,8 +5,10 @@
 export {
   JqPatternType, JqType,
   QueryMultiplicityType, QueryV1Type, QueryType,
-  QuerySpanType, QueryEditType, QueryFixType, QueryErrorType, QueryResultType,
+  QuerySpanType, QueryEditType, QueryFixType, QueryErrorType,
 } from "./types.js";
+export { QueryError, evaluateJq, type EvaluateJqOptions, type QueryDiagnostic } from "./evaluate.js";
+export { translateJq, TranslationError, type JqTranslation, type TranslateJqOptions } from "./jq/translate.js";
 export { lexJq, type JqToken, type JqTokenKind } from "./jq/lex.js";
 export { parseJq, type ParsedJq } from "./jq/parse.js";
 export { printJq, type PrintJqOptions, type PrintedJq } from "./jq/print.js";
