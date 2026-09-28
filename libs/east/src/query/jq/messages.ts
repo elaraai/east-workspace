@@ -151,6 +151,11 @@ export const MESSAGES = {
     `type_mismatch: ${form} needs ${article(key)} ${key} key; ${keyText} is ${given}.`,
   mutableKey: (keyText: string, given: string) => `type_mismatch: ${keyText} is ${given}, and a dict's keys must be immutable.`,
   sliceBound: (given: string) => `type_mismatch: .[a:b] needs Integer bounds, got ${given}.`,
+  sliceUpdate: (form: string, given: string) => `type_mismatch: ${form} is updated with an array, not ${given}.`,
+  stringSlice: (form: string) => `type_mismatch: ${form} cannot update part of a string; update the whole string.`,
+  updateKey: (text: string) => `unsupported: ${text} gives more or fewer than one value; an update's keys and bounds give one each.`,
+  walkUpdate: (path: string, from: string, to: string) =>
+    `type_mismatch: an update through ${path} keeps each value's type, but here ${from} would become ${to}.`,
   structKey: (form: string) => `type_mismatch: ${form} on a struct needs a literal field name; a computed name needs a dict.`,
   compares: (op: string, left: string, right: string) => `type_mismatch: ${op} compares ${left} with ${right}.`,
   neverEqual: (op: string) => op === "=="
