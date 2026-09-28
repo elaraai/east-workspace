@@ -523,7 +523,7 @@
         "module"
       ],
       "imports": [],
-      "source": "npm create @elaraai/e3 my-app -- --platform                     # TS-East only\nnpm create @elaraai/e3 my-app -- --platform --runners=east-node,east-py   # + Python half"
+      "source": "npm create @elaraai/e3 my-app -- --platform                      # TS-East, + the Python half (east-py is on by default)\nnpm create @elaraai/e3 my-app -- --platform --runners=east-node   # TS-East only"
     },
     {
       "id": "e3-create:static:new-east-project",
@@ -542,7 +542,26 @@
         "library"
       ],
       "imports": [],
-      "source": "npm create @elaraai/east mylib\nnpm create @elaraai/east mylib -- --no-tests"
+      "source": "npm create @elaraai/east mylib\nnpm create @elaraai/east mylib -- --no-eslint   # its spec is always generated; create-east has no --tests"
+    },
+    {
+      "id": "e3-create:static:update-stack",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --update",
+      "test": "Bump an existing project's @elaraai/* stack to one release, in lockstep",
+      "keywords": [
+        "e3-create",
+        "update",
+        "upgrade",
+        "bump",
+        "version",
+        "lockstep",
+        "ERESOLVE"
+      ],
+      "imports": [],
+      "source": "# Inside the project: every @elaraai/* dependency moves to the initializer's version,\n# and the stale lock is dropped so the install resolves\nnpm create @elaraai/e3@latest -- --update\nnpm create @elaraai/e3@1.2.3 -- --update --no-install"
     },
     {
       "id": "e3:static:partition-merge",
