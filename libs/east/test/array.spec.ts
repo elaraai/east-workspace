@@ -112,6 +112,23 @@ await describe("Array", (test) => {
         $(assert.equal(a2.findSortedRange(5n), { start: 5n, end: 5n }))
     });
 
+    test("Sorting is stable: equal keys keep their input order", $ => {
+        // A selection sort of short runs would give c before a
+        const tagged = $.const([
+            { key: 1n, tag: "a" },
+            { key: 3n, tag: "b" },
+            { key: 1n, tag: "c" },
+        ], ArrayType(StructType({ key: IntegerType, tag: StringType })));
+        $(assert.equal(tagged.sort(($, x) => x.key).map(($, x) => x.tag), ["a", "c", "b"]))
+
+        // Twenty elements, past the short runs, under three keys
+        const numbers = $.let(East.Array.range(0n, 20n));
+        const byRemainder = [0n, 3n, 6n, 9n, 12n, 15n, 18n, 1n, 4n, 7n, 10n, 13n, 16n, 19n, 2n, 5n, 8n, 11n, 14n, 17n];
+        $(assert.equal(numbers.sort(($, x) => x.remainder(3n)), byRemainder))
+        $(numbers.sortInPlace(($, x) => x.remainder(3n)))
+        $(assert.equal(numbers, byRemainder))
+    });
+
     assert.examples(test, { arrayGenerate: ex.arrayGenerate, arrayRange: ex.arrayRange, arrayRangeWithStep: ex.arrayRangeWithStep, arrayLinspace: ex.arrayLinspace, arraySlice: ex.arraySlice, arrayGetKeys: ex.arrayGetKeys, arrayConcat: ex.arrayConcat, arraySum: ex.arraySum, arraySumWithProjection: ex.arraySumWithProjection, arrayMean: ex.arrayMean, arrayMaximum: ex.arrayMaximum, arrayMinimum: ex.arrayMinimum, arrayFindMaximum: ex.arrayFindMaximum, arrayFindMinimum: ex.arrayFindMinimum, arrayEvery: ex.arrayEvery, arraySome: ex.arraySome });
 
     test("Bulk ops", $ => {
