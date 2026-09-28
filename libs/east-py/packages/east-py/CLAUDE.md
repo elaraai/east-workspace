@@ -117,6 +117,11 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
     (imported, fetched) and put to that same check; a user module's is the
     build's to tell. Surfaces:
     `east-py lint`, the flake8 plugin and `east-py lsp` (east-py-cli).
+11. **`east/query/`** — typed jq queries (#875): `types.py`, the wire types,
+    twins of `libs/east/src/query/types.ts` (spec
+    `libs/east/devdocs/QUERY.md`). `tests/test_query_types.py` holds each to
+    TypeScript's bytes, which the header of
+    `libs/east/test/fixtures/query-corpus.beast2` carries.
 
 ### Invariants
 

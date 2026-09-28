@@ -1,7 +1,7 @@
 # east — core language package
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: build test test-export lint example clean help
+.PHONY: build test test-export query-corpus lint example clean help
 
 ## Build the package
 build:
@@ -14,6 +14,10 @@ test:
 ## Export test IR to /tmp/east-test-ir
 test-export:
 	pnpm run build && pnpm run test:export
+
+## Rewrite the query corpus and fixture (test/fixtures/query-*.beast2) (builds first)
+query-corpus:
+	pnpm run build && pnpm run query-corpus
 
 ## Run linter (builds first)
 lint:
@@ -34,6 +38,7 @@ help:
 	@echo "  build       - Build the package"
 	@echo "  test        - Run tests"
 	@echo "  test-export - Export test IR to /tmp/east-test-ir"
+	@echo "  query-corpus - Rewrite test/fixtures/query-corpus.beast2 and query-fixture.beast2"
 	@echo "  lint        - Run linter"
 	@echo "  example     - Run examples"
 	@echo "  clean       - Clean build artifacts"
