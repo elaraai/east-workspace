@@ -5,8 +5,9 @@
 
 /**
  * Feed specs — which pollers a view mounts, the execution event cursor,
- * the repositories view's lazy facts, and the workspaces view's
- * summaries, all over the in-memory API and fake timers.
+ * the repositories view's lazy facts, the workspaces view's summaries, and
+ * what holds a workspace a first deploy is deploying, all over the in-memory
+ * API and fake timers.
  */
 
 import { test, describe } from 'node:test';
@@ -151,6 +152,38 @@ describe('feeds', () => {
         assert.equal(state.data.workspaceState['main']?.packageName, 'demand');
         assert.equal(state.data.execution['main']?.state, null);
         assert.equal(state.data.workspaceState['scratch'], null);
+        feeds.stop();
+    });
+
+    test('a workspace nothing is deployed to yet is no error: its status feed reads what holds it, as a first deploy does', async () => {
+        const api = fakeRepo();
+        const deploying = {
+            state: { operation: variant('deployment', null), holder: variant('process', { pid: 4242n, bootId: 'boot', startTime: 1n, command: 'e3 workspace deploy' }), acquiredAt: new Date(0), expiresAt: none },
+            progress: none,
+        };
+        api.workspace('scratch', { packageName: undefined, packageVersion: undefined, lockStatus: deploying as never });
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'scratch', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        await settle();
+        let state = store.getState();
+        assert.equal(state.data.statusError['scratch'], undefined, 'nothing deployed is not a status error');
+        assert.equal(state.data.workspaceState['scratch'], null);
+        assert.equal(state.data.lock['scratch'], deploying);
+        assert.equal(state.connection.kind, 'connected', 'no status, tasks or datasets to read yet is no failed feed');
+        // The deploy lets go: nothing holds the workspace, and what the title,
+        // the tasks and the inputs show is read again at once, not on its next turn.
+        api.workspace('scratch').lockStatus = undefined;
+        const before = api.calls.length;
+        feeds.fire('status:scratch');
+        await settle();
+        state = store.getState();
+        assert.equal(state.data.lock['scratch'], null);
+        assert.deepEqual(api.calls.slice(before).sort(), [
+            'datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceLock scratch', 'workspaceStatus scratch',
+        ]);
         feeds.stop();
     });
 });

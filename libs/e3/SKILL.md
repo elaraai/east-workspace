@@ -101,14 +101,23 @@ A `file` source:
 - is checked against the declared type at `e3.export` (drift is a build error
   naming the input and the first differing field) and again at deploy, before
   the workspace is touched;
-- may be any beast2 layout, but no segment of it may exceed 64 MiB: a large
-  value encoded whole is one such segment, refused — write it segmented, the
-  Writer's default;
-- is taken in without being read whole or modified: a collection a segment at a
-  time, as the store's own segments (a new delivery stores only the segments
-  that changed, and bytes seen before are not read again), any other value by
-  reflink, hard link or one copy — so replace a delivery with a new file, never
-  edit it in place;
+- is hashed first, so a delivery the store already holds costs that one read;
+- is taken in without being read whole or modified — so replace a delivery with
+  a new file, never edit it in place. A collection goes a segment at a time,
+  and a new delivery stores only the segments that changed. One the Writer
+  wrote whole, in any runtime and with its default codec (`Beast2ElementWriter`,
+  `encodeBeast2PagedFor`, east-py's `write_beast2_file`), is carried: each
+  segment is checked against what the Writer writes and stored as it stands.
+  One written any other way — batches of your own through `Beast2Writer`,
+  shards spliced together by `write_beast2_file_parallel` or
+  `splice_beast2_files`, `codec: "none"` — is read and written again through
+  the Writer, which is slower. Any other value is taken in by reflink, hard
+  link or one copy;
+- may hold no segment of more than 64 MiB, the most a collection is read in at
+  once. A value encoded whole is one such segment, and so can be a segment of
+  wide rows from an older Writer, which bounded a segment by its element count
+  alone; either is refused, naming the fix: write it again with a current
+  Writer, whose segments stay under 8 MiB;
 - is read on the machine that runs `e3 workspace deploy`, local repository or
   not: against a server the CLI checks every delivery first, then streams each
   after the deploy. A deploy made through the API leaves it unset;
@@ -491,12 +500,12 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 workspace create [repo] <ws>` · `list [repo]` · `status [repo] <ws>` · `remove [repo] <ws>` | `status` shows tasks, datasets and locks. |
 | `e3 workspace deploy [repo] <ws> <pkg[@ver]>` | Deploy an imported package. |
 | `… --from-zip <zip>` · `… --from-source <src.ts> [--functions <manifest…>]` | Import the zip (or bundle the source) and deploy, creating the workspace. |
-| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, `file` sources and the budget. |
+| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, `file` sources and the budget; says how far it has got (below), `--quiet` aside. |
 | `e3 workspace export [repo] <ws> <zip> [--name <n>] [--version <v>]` | The workspace's state as a package. |
 | **Datasets** | |
 | `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
 | `e3 dataset set [repo] <ws.name> <file> [--type <spec> \| --type-file <path>]` | Write from `.east`, `.beast2`, `.json` or `.csv` (JSON and CSV need the type). |
-| `e3 dataset set [repo] <ws.name> --from-file <path.beast2>` | Take a beast2 file in as the value, a segment at a time. |
+| `e3 dataset set [repo] <ws.name> --from-file <path.beast2> [-j <n>]` | Take a beast2 file in as the value, a segment at a time, as a deploy takes a `file` source in, saying how far it has got; `-j`: the cores its segments are checked on (local). |
 | `e3 dataset list [repo] <ws> [-l]` · `status [repo] <ws.name>` · `find [repo] <ws> <pattern>` | Paths (`-l`: kind, type, status, size) · one dataset · by substring or glob. |
 | **Running** | |
 | `e3 dataflow run [repo] <ws> [--filter <p>] [--force] [-j <n>] [--memory <size>] [-v]` | Run what is stale, then print the outputs' paths. |
@@ -522,9 +531,21 @@ its CPU affinity capped by a cgroup quota, and the cgroup's `memory.max` or
 physical memory, less a reserve. A unit of a split task reserves the largest
 peak a unit of its stage has reached in the run, so a stage runs its first unit
 alone and then fans out; on Linux and macOS a guard stops the newest unit when
-the runners together pass the budget, and runs it again once it fits. The flags
-apply to a local repository; a server refuses them, since it runs work under its
-own (`e3-api-server -j`, `--memory`).
+the runners together pass the budget, and runs it again once it fits. A deploy
+takes its `file` sources in `-j` at a time, their segments checked on as many
+cores. The flags apply to a local repository; a server refuses them, since it
+runs work under its own (`e3-api-server -j`, `--memory`).
+
+**A deploy says how far it has got**, on stderr. Each `file` source prints a
+line once it is in: its size, time and rate, and how it was taken in
+(`unchanged, already in the store`, `carried`, or `written again: not the
+Writer's bytes`). A terminal also keeps a live line for the files in flight,
+with the rate and the time left across them. Against a server, the deploy line
+says what the job is doing, such as migrating a record or building an index;
+each delivery's upload line says what the server's commit is doing with it.
+While a deploy runs, its lock carries the same progress for `e3-ui` or any
+client to read (`workspaceLockStatus`). A workspace deployed for the first time
+has no status until its deploy ends, so the lock is the only place to see it.
 
 **`-v`** passes `-v` to the runners, which print a timing and peak-memory block,
 identical on every runtime, to the task's logs. It never changes hashes or
@@ -542,7 +563,9 @@ staging files older than `--min-age` (60 s). `--dry-run` reports what would go.
 
 A package zip names the release of e3 that exported it, and an import refuses a
 zip a newer release exported, naming that release: import it with an e3 at least
-as new as the SDK that exported it.
+as new as the SDK that exported it. A dataset upload names the transfer protocol
+its e3 speaks, and a server refuses one that speaks another, naming both
+releases and which of them to upgrade.
 
 ## Driving e3 from code
 
@@ -555,8 +578,8 @@ input definition's `.path`, for one.
 |---|---|
 | Repositories | `repoList(url, opts)`, `repoCreate(url, name, opts)`, `repoRemove(url, name, opts)`, `repoStatus(url, repo, opts)`, `repoRecord` (its release and upgrades), `repoGc(url, repo, gcRequest, opts)` — a job it polls; `repoGcStart` and `repoGcStatus` apart |
 | Packages | `packageList(url, repo, opts)`, `packageGet(url, repo, name, version, opts)`, `packageImport(url, repo, zipBytes, opts)`, `packageExport(url, repo, name, version, opts)` → zip bytes, `packageRemove` |
-| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan? })` — a job it polls, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
-| Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream`, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
+| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
+| Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream(url, repo, ws, path, { size, hash, slice }, opts, { onCommitProgress? })` — a file of any size, the server's commit saying how far it has taken it in, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
 | Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`), `dataflowCancel`, `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList`, `taskLogs(url, repo, ws, task, { stream?, offset?, limit? }, opts)` |
 | Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)`; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)`; `oneShotExecute` |
 | Records | `workspaceRecordDescribe`, `workspaceRecordMutate(url, repo, ws, record, mutation, { args, actor, limits }, opts, idempotencyKey?)`, `workspaceRecordHistory(url, repo, ws, record, limit, opts, from?)`, `workspaceRecordCompact` |
@@ -570,8 +593,8 @@ takes a runner, `new LocalTaskRunner(repo)`.
 |---|---|
 | Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays? })` |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
-| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)`, `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceRemove` |
-| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file)` |
+| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
+| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { onProgress? })` → `{ hash, size, segments, rows, taken }`, `taken` being `known`, `carried` or `written` |
 | Runs | `dataflowExecute(storage, repo, ws, options?)`; `LocalOrchestrator` to start, poll and cancel a run |
 | Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex` |
 
@@ -599,7 +622,7 @@ repo/
 ├── dataflows/         # run records
 ├── executions/        # execution attempts: status, owner, logs
 ├── adoptions/         # the manifest each delivered file became
-├── locks/             # locks and their holders
+├── locks/             # locks, their holders, and how far each says it has got
 ├── envs/              # built execution environments
 └── tmp/               # scratch and staged uploads
 ```

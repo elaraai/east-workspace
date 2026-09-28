@@ -113,11 +113,13 @@ export {
   workspaceRemove,
   workspaceGetState,
   workspaceGetPackage,
+  workspaceLockStatus,
   workspaceDeploy,
   workspaceExport,
   type WorkspaceExportResult,
   type WorkspaceRemoveOptions,
   type WorkspaceDeployOptions,
+  type DeploySourceProgress,
 } from './workspaces.js';
 
 // What a deploy decides for each record and index, and its schema policy: the
@@ -193,7 +195,9 @@ export {
   deliveryKnown,
   objectAdoptFile,
   type DatasetAdoptOptions,
+  type DatasetAdoptProgress,
   type DatasetAdoptResult,
+  type DatasetTaken,
 } from './dataset-adopt.js';
 
 // Tree and dataset operations (high-level, by path)

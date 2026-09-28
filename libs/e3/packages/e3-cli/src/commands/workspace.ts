@@ -44,12 +44,13 @@ import {
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { EastTypeValue } from '@elaraai/east';
-import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader, sha256File } from '@elaraai/e3';
+import { configureFramePool, type EastTypeValue } from '@elaraai/east';
+import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import { treePath, type PackageObject, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
+import { commitText, deployJobText, hashDelivery, intakeReporter } from '../intake.js';
 import { fileTransferSource } from '../file-transfer-source.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
@@ -512,18 +513,37 @@ function deployReporter(target: DeployTarget): {
  * decides for each record and index; with `--plan`, only saying it. A plan's
  * package may be read through a view of a zip, which the repository does not
  * hold.
+ *
+ * @remarks
+ * The package's `file` sources are taken in as many at a time as the budget
+ * has cores, each saying how far it has got. Their segments are checked on the
+ * frame pool, which the check keeps busy where the door's own writing does not:
+ * while they are taken in it has a worker for each core.
  */
 async function deployLocal(target: DeployTarget, storage: StorageBackend, repoPath: string, name: string, version: string): Promise<void> {
   const report = deployReporter(target);
-  await workspaceDeploy(storage, repoPath, target.ws, name, version, {
-    resolveFileSources: !target.skipFileSources,
-    runner: new LocalTaskRunner(repoPath, target.budget),
-    ...(target.schema !== undefined && { schema: target.schema }),
-    allowDropRecords: target.allowDropRecords,
-    plan: target.plan,
-    onRecordPlan: report.onRecordPlan,
-    onRecordIndex: report.onRecordIndex,
-  });
+  const intake = intakeReporter(target.progress);
+  const pool = target.budget !== undefined && !target.plan && !target.skipFileSources
+    ? configureFramePool({ workers: target.budget.cores })
+    : undefined;
+  try {
+    await workspaceDeploy(storage, repoPath, target.ws, name, version, {
+      resolveFileSources: !target.skipFileSources,
+      runner: new LocalTaskRunner(repoPath, target.budget),
+      ...(target.schema !== undefined && { schema: target.schema }),
+      allowDropRecords: target.allowDropRecords,
+      plan: target.plan,
+      onRecordPlan: report.onRecordPlan,
+      onRecordIndex: report.onRecordIndex,
+      sourceConcurrency: target.budget?.cores ?? 1,
+      onSourceProgress: (progress) => intake.report(progress),
+    });
+  } catch (err) {
+    intake.fail();
+    throw err;
+  } finally {
+    if (pool !== undefined) configureFramePool({ workers: pool.workers });
+  }
   if (target.plan) {
     report.endPlan();
     return;
@@ -616,7 +636,8 @@ async function latestRemoteVersion(location: RepoLocation, name: string): Promis
  * sources from this machine; with `--plan`, only saying what it would do.
  *
  * @remarks
- * The server runs the deploy as a job, which this polls, and says what it
+ * The server runs the deploy as a job, which this polls, saying what the job
+ * says it is doing — migrating a record, building an index — and what it
  * decided for each record and index once it has finished.
  *
  * A `file` source names a path on the machine that exported the package, and
@@ -625,7 +646,9 @@ async function latestRemoteVersion(location: RepoLocation, name: string): Promis
  * and each delivery is then streamed over the dataset transfer protocol, whose
  * commit runs the same validation a local deploy's adopt does. The transfer
  * dedups on the hash, so a redeploy whose delivery has not changed costs one
- * round trip and no bytes. A plan writes nothing, so it reads no source.
+ * round trip and no bytes. Each upload's line says how far the hash has got,
+ * then what the server's commit is doing with the file. A plan writes nothing,
+ * so it reads no source.
  */
 async function deployRemote(target: DeployTarget, name: string, version: string): Promise<void> {
   const { location, ws, progress } = target;
@@ -646,7 +669,9 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
       allowDropRecords: target.allowDropRecords,
       plan: target.plan,
       onProgress: (p) => {
-        deployStep.update(`${doing}… ${p.type === 'pending' ? 'waiting for server' : 'running on the server'}`);
+        const now = p.type === 'pending' ? 'waiting for server'
+          : p.value.type === 'some' ? deployJobText(p.value.value) : 'running on the server';
+        deployStep.update(`${doing}… ${now}`);
       },
     });
   } catch (err) {
@@ -671,11 +696,13 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
     const step = progress.step(`uploading ${source.name} from ${source.file}`);
     try {
       const { size } = readDatasetFileHeader(source.file, `input '${source.name}'`, source.type);
-      const hash = await sha256File(source.file);
+      const hash = await hashDelivery(source.file, size, source.name, step);
+      step.update(`uploading ${source.name} from ${source.file}`);
       await datasetSetStream(
         location.baseUrl, location.repo, ws, source.treePath,
         fileTransferSource(source.file, size, hash),
         auth,
+        { onCommitProgress: (file) => step.update(`uploaded ${source.name}, and ${commitText(file)}`) },
       );
       step.done(`uploaded ${ws}.${source.name} (${formatBytes(size)}, ${hash.slice(0, 12)}...)`);
     } catch (err) {

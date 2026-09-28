@@ -37,22 +37,25 @@ import {
   StringType,
   StructType,
   encodeBeast2For,
+  encodeBeast2PagedFor,
+  some,
   toEastTypeValue,
   variant,
 } from '@elaraai/east';
 import e3, { DatasetFileTypeMismatchError, type DatasetSource } from '@elaraai/e3';
-import { datasetAdoptFile, datasetAdoptObject, deliveryKnown, objectAdoptFile } from './dataset-adopt.js';
+import type { LockProgress, LockStatus } from '@elaraai/e3-types';
+import { datasetAdoptFile, datasetAdoptObject, deliveryKnown, objectAdoptFile, type DatasetAdoptProgress } from './dataset-adopt.js';
 import { DatasetSegments } from './dataset-open.js';
 import { DatasetTypeMismatchError, WorkspaceLockError } from './errors.js';
 import { computeHash } from './objects.js';
 import { packageImport } from './packages.js';
-import { workspaceDeploy, workspaceGetState } from './workspaces.js';
+import { workspaceDeploy, workspaceGetState, workspaceLockStatus, type DeploySourceProgress } from './workspaces.js';
 import { datasetWrite, workspaceGetDatasetStatus, workspaceSetDataset, workspaceSetDatasetBytes } from './trees.js';
 import { repoGc } from './gc.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, encodeInSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
-import type { StorageBackend } from './storage/interfaces.js';
+import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = ArrayType(RowType);
@@ -202,8 +205,8 @@ describe('path-initialised inputs', () => {
       // The repository-level adopt deploy uses lands on the same object.
       assert.deepEqual(
         await objectAdoptFile(storage, testRepo, file),
-        { hash: written, size: statSync(file).size },
-        'objectAdoptFile agrees on the address and reports the size'
+        { hash: written, size: statSync(file).size, taken: 'known' },
+        'objectAdoptFile agrees on the address, reports the size, and knows the delivery by its hash'
       );
     });
 
@@ -288,7 +291,7 @@ describe('path-initialised inputs', () => {
       const before = await storage.objects.count(testRepo);
       await assert.rejects(
         () => datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file),
-        /more than the 67108864 a collection is read in at once — write the value segmented/
+        /more than the 67108864 a collection is read in at once — write it again with a current Writer/
       );
       assert.equal(await storage.objects.count(testRepo), before, 'a refused adopt writes nothing');
     });
@@ -324,7 +327,7 @@ describe('path-initialised inputs', () => {
 
       const result = await objectAdoptFile(storage, testRepo, file);
 
-      assert.deepEqual(result, { hash: computeHash(bytes), size: bytes.length }, 'the object is the file, by its hash');
+      assert.deepEqual(result, { hash: computeHash(bytes), size: bytes.length, taken: 'carried' }, 'the object is the file, by its hash');
       const after = statSync(file);
       assert.equal(after.mode, before.mode, 'the delivery\'s mode is untouched');
       assert.equal(after.mtimeMs, before.mtimeMs, 'the delivery\'s mtime is untouched');
@@ -406,6 +409,51 @@ describe('path-initialised inputs', () => {
         (err: unknown) => err instanceof DatasetFileTypeMismatchError && /input 'table' declares/.test(err.message),
       );
       assert.equal(await storage.objects.count(testRepo), before, 'nothing was stored');
+    });
+  });
+
+  describe('a delivery the Writer wrote', () => {
+    it('is carried segment by segment, on the manifest writing it again gives', async () => {
+      await deployTableWorkspace('writer-carried');
+      const file = join(tempDir, 'writer.beast2');
+      writeFileSync(file, encodeBeast2PagedFor(TableType)(rows(20_000)));
+
+      const result = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+      assert.equal(result.taken, 'carried');
+      assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(20_000), TableType), 'the same manifest as the value path');
+      assert.equal(result.rows, 20_000);
+    });
+
+    it('is not what any other writer wrote, which is written again to the same manifest', async () => {
+      await deployTableWorkspace('writer-batched');
+      const result = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], writeDelivery('batched.beast2', 2_000));
+      assert.equal(result.taken, 'written', 'a writer that batched its segments is not the Writer');
+      assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(2_000), TableType));
+    });
+
+    it('says how far it has got: its hash, then its take-in, to its size', async () => {
+      await deployTableWorkspace('writer-progress');
+      const file = join(tempDir, 'writer.beast2');
+      writeFileSync(file, encodeBeast2PagedFor(TableType)(rows(20_000)));
+      const size = statSync(file).size;
+      const heard: DatasetAdoptProgress[] = [];
+
+      await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file, { onProgress: (progress) => heard.push(progress) });
+
+      const phases = heard.map((progress) => progress.phase);
+      assert.ok(phases.indexOf('take-in') > phases.lastIndexOf('hash'), 'the hash comes first, whole');
+      assert.deepEqual(heard.filter((progress) => progress.phase === 'hash').at(-1), { phase: 'hash', bytes: size, total: size, foreign: false });
+      assert.deepEqual(heard.at(-1), { phase: 'take-in', bytes: size, total: size, foreign: false });
+      const takeIn = heard.filter((progress) => progress.phase === 'take-in').map((progress) => progress.bytes);
+      assert.deepEqual(takeIn, [...takeIn].sort((a, b) => a - b), 'the take-in only moves forward');
+    });
+
+    it('is carried when the store holds it whole, and the dedup door takes it in', async () => {
+      await deployTableWorkspace('writer-object');
+      const whole = await storage.objects.write(testRepo, encodeBeast2PagedFor(TableType)(rows(5_000)));
+      const result = await datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], whole);
+      assert.equal(result.taken, 'carried');
+      assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(5_000), TableType));
     });
   });
 
@@ -596,6 +644,94 @@ describe('path-initialised inputs', () => {
         'deploy-first',
         'the workspace still names the previous package'
       );
+    });
+
+    it('takes its file sources several at a time, saying how far each has got', async () => {
+      const files = ['a', 'b', 'c'].map((name, i) => {
+        const file = join(tempDir, `${name}.beast2`);
+        writeFileSync(file, encodeBeast2PagedFor(TableType)(rows(3_000 + i)));
+        return file;
+      });
+      const pkg = e3.package('deploy-many', '1.0.0', ...files.map((file, i) => e3.input(['a', 'b', 'c'][i]!, TableType, variant('file', file))));
+      const zipPath = join(tempDir, 'deploy-many.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+
+      const heard: DeploySourceProgress[] = [];
+      const inFlight = new Set<string>();
+      let peak = 0;
+      await workspaceDeploy(storage, testRepo, 'ws', 'deploy-many', '1.0.0', {
+        sourceConcurrency: 3,
+        onSourceProgress: (progress) => {
+          heard.push(progress);
+          if (progress.phase === 'done') inFlight.delete(progress.path);
+          else inFlight.add(progress.path);
+          peak = Math.max(peak, inFlight.size);
+        },
+      });
+
+      const bytes = files.reduce((sum, file) => sum + statSync(file).size, 0);
+      assert.ok(heard.every((progress) => progress.sources.count === 3 && progress.sources.bytes === bytes), 'every report names all three sources');
+      const done = heard.filter((progress) => progress.phase === 'done');
+      assert.deepEqual(done.map((progress) => progress.path).sort(), ['inputs/a', 'inputs/b', 'inputs/c']);
+      assert.ok(done.every((progress) => progress.taken === 'carried'));
+      assert.ok(peak >= 2, `the sources were taken in side by side, not one at a time (at most ${peak} at once)`);
+      for (const [i, name] of ['a', 'b', 'c'].entries()) {
+        const status = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [variant('field', 'inputs'), variant('field', name)], { geometry: true });
+        assert.equal(status.rows, 3_000 + i, `inputs.${name} is its own delivery`);
+      }
+    });
+
+    it('says how far it has taken its sources in through its lock, for whoever watches the workspace', async () => {
+      const files = ['a', 'b'].map((name, i) => {
+        const file = join(tempDir, `${name}.beast2`);
+        writeFileSync(file, encodeBeast2PagedFor(TableType)(rows(20_000 + i)));
+        return file;
+      });
+      const pkg = e3.package('deploy-watched', '1.0.0', ...files.map((file, i) => e3.input(['a', 'b'][i]!, TableType, variant('file', file))));
+      const zipPath = join(tempDir, 'deploy-watched.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      const bytes = BigInt(files.reduce((sum, file) => sum + statSync(file).size, 0));
+
+      // The deploy's own lock, read by a watcher each time a report lands.
+      const held = await storage.locks.acquire(testRepo, 'ws', variant('deployment', null));
+      assert.ok(held);
+      const reports: LockProgress[] = [];
+      const watched: Array<LockStatus | null> = [];
+      const lock: LockHandle = {
+        resource: held.resource,
+        release: () => held.release(),
+        report: async (progress) => {
+          reports.push(progress);
+          await held.report(progress);
+          watched.push(await workspaceLockStatus(storage, testRepo, 'ws'));
+        },
+      };
+      try {
+        await workspaceDeploy(storage, testRepo, 'ws', 'deploy-watched', '1.0.0', { lock, sourceConcurrency: 2 });
+      } finally {
+        await held.release();
+      }
+
+      const sizes = files.map((file) => BigInt(statSync(file).size));
+      const first = reports[0]!.value;
+      assert.deepEqual(first.package, { name: 'deploy-watched', version: '1.0.0' });
+      assert.deepEqual(first.files, [
+        { path: 'inputs/a', step: variant('waiting', null), bytes: 0n, total: sizes[0] },
+        { path: 'inputs/b', step: variant('waiting', null), bytes: 0n, total: sizes[1] },
+      ], 'the first report names every source, before any is started');
+      assert.deepEqual(reports.at(-1)!.value.files, [
+        { path: 'inputs/a', step: variant('done', variant('carried', null)), bytes: sizes[0], total: sizes[0] },
+        { path: 'inputs/b', step: variant('done', variant('carried', null)), bytes: sizes[1], total: sizes[1] },
+      ], 'the last has them all in');
+      assert.equal(sizes[0]! + sizes[1]!, bytes);
+      assert.ok(reports.every((progress) => progress.value.startedAt.getTime() === first.startedAt.getTime()), 'the intake started once');
+      const done = reports.map((progress) => progress.value.files.filter((file) => file.step.type === 'done').length);
+      assert.ok(done.every((count, i) => i === 0 || count >= done[i - 1]!), 'the sources in only climb');
+      assert.ok(watched.every((status) => status?.state.operation.type === 'deployment'), 'a watcher sees the deploy hold the workspace');
+      assert.deepEqual(watched.map((status) => status?.progress), reports.map((progress) => some(progress)), 'and reads each report as it lands');
+      assert.equal(await workspaceLockStatus(storage, testRepo, 'ws'), null, 'nothing holds the workspace once the deploy lets go');
     });
 
     it('leaves a file source unassigned, with a warning, when the caller cannot read it', async () => {

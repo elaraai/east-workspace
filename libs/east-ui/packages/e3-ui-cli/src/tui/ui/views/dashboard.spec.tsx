@@ -8,7 +8,8 @@
  * accounted bar, the execution panel in its states (while running, the
  * budget in use, a split task's progress, a unit requeued and one waiting
  * for room), the tasks and inputs tables with each task's peak, `⏎` on each
- * row kind, scrolling a long column, and the narrow layout.
+ * row kind, a deploy in progress, scrolling a long column, and the narrow
+ * layout.
  */
 
 import { test, describe, afterEach } from 'node:test';
@@ -261,6 +262,71 @@ describe('the dashboard', () => {
         assert.match(mounted.lines()[2]!, /^ scratch\s+○ EMPTY$/);
         assert.match(mounted.frame(), /○  NOTHING DEPLOYED/);
         assert.match(mounted.frame(), /e3 workspace deploy <repo> scratch <package>\[@version\]   deploy one/);
+    });
+
+    test('a deploy in progress: the INPUTS and RECORDS tables, each file and record at its step, first deploy and redeploy alike', async () => {
+        /** The deploy's lock, as the lock route serves it, with the files and records it reports. */
+        const deploying = (files: unknown[], records: unknown[]) => ({
+            state: {
+                operation: variant('deployment', null),
+                holder: variant('process', { pid: 4242n, bootId: 'boot', startTime: 1n, command: 'e3 workspace deploy' }),
+                acquiredAt: new Date(NOW - 12_000),
+                expiresAt: none,
+            },
+            progress: some(variant('deployment', { package: { name: 'demand', version: '1.5.0' }, startedAt: new Date(NOW - 10_000), files, records })),
+        }) as never;
+        const file = (name: string, step: unknown, bytes: number, total: number) =>
+            ({ path: `inputs/${name}`, step, bytes: BigInt(Math.round(bytes * MB)), total: BigInt(Math.round(total * MB)) });
+        const orders = (step: unknown) => ({ plan: { record: 'records/orders', action: variant('migrate', { steps: ['add_owner', 'by_title'] }) }, indexes: ['by_customer'], step });
+        const audit = (step: unknown) => ({ plan: { record: 'records/audit', action: variant('mint', null) }, indexes: [], step });
+
+        // A first deploy, taking its files in: 17 of its 32 MB past their hash in 10 s.
+        mounted = await mountApp({
+            view: dashboardView('scratch'),
+            actions: [
+                { type: 'data/workspaces', workspaces: [{ name: 'scratch', deployed: false, packageName: none, packageVersion: none }] as never },
+                { type: 'data/workspaceState', ws: 'scratch', state: null },
+                { type: 'data/lock', ws: 'scratch', lock: deploying([
+                    file('sales', variant('done', variant('carried', null)), 10, 10),
+                    file('calendar', variant('done', variant('known', null)), 2, 2),
+                    file('stock', variant('taking_in', { foreign: false }), 4, 8),
+                    file('prices', variant('hashing', null), 1, 6),
+                    file('legacy', variant('taking_in', { foreign: true }), 1, 4),
+                    file('extra', variant('waiting', null), 0, 2),
+                ], [orders(variant('waiting', null)), audit(variant('waiting', null))]) },
+            ],
+        });
+        let lines = mounted.lines();
+        assert.match(lines[2]!, /^ scratch\s+◔ DEPLOYING · demand@1\.5\.0 · pid 4242 · started 12s ago$/);
+        assert.match(lines[3]!, /^ DEPLOY\s+◔ TAKING IN · 2 of 6 files · 17 of 32 MB · 1\.7 MB\/s · ~8\.8s left$/);
+        assert.equal(lines[4], '');
+        assert.match(lines[5]!, /^ INPUTS$/);
+        assert.match(lines[6]!, /^  NAME\s+STATUS\s+SIZE$/);
+        assert.match(lines[7]!, /^  sales\s+● carried\s+10 MB$/);
+        assert.match(lines[8]!, /^  calendar\s+● unchanged\s+2 MB$/);
+        assert.match(lines[9]!, /^  stock\s+◔ taking in █████░░░░░ 50%\s+8 MB$/);
+        assert.match(lines[10]!, /^  prices\s+◔ hashing ██░░░░░░░░ 16%\s+6 MB$/);
+        assert.match(lines[11]!, /^  legacy\s+◐ writing again ███░░░░░░░ 25%\s+4 MB$/);
+        assert.match(lines[12]!, /^  extra\s+○ waiting\s+2 MB$/);
+        assert.equal(lines[13], '');
+        assert.match(lines[14]!, /^ RECORDS$/);
+        assert.match(lines[15]!, /^  NAME\s+STATUS\s+INDEXES$/);
+        assert.match(lines[16]!, /^  orders\s+○ migrate · 2 steps · waiting\s+by_customer$/);
+        assert.match(lines[17]!, /^  audit\s+○ mint · waiting\s+—$/);
+        assert.doesNotMatch(mounted.frame(), /NOTHING DEPLOYED|not deployed/i);
+        mounted.unmount();
+
+        // A redeploy over a workspace deployed before, its files in and a record migrating.
+        const inFiles = ['sales', 'calendar', 'stock', 'prices', 'legacy', 'extra'].map((name, i) => file(name, variant('done', variant('carried', null)), [10, 2, 8, 6, 4, 2][i]!, [10, 2, 8, 6, 4, 2][i]!));
+        mounted = await mountApp({ view: dashboardView(), actions: [...fixture(), { type: 'data/lock', ws: 'main', lock: deploying(inFiles, [
+            orders(variant('migrating', { name: 'by_title', step: 2n, steps: 2n })),
+            audit(variant('done', null)),
+        ]) }] });
+        lines = mounted.lines();
+        assert.match(lines[2]!, /^ main\s+● DEPLOYED · demand@1\.4\.2 · deployed 3d ago · ◔ DEPLOYING · demand@1\.5\.0 · pid 4242 · started 12s ago$/);
+        assert.match(lines[3]!, /^ DEPLOY\s+◔ MIGRATING · took in 6 files · 32 MB$/);
+        assert.match(lines[16]!, /^  orders\s+◔ migrating · by_title · 2 of 2\s+by_customer$/);
+        assert.match(lines[17]!, /^  audit\s+● minted\s+—$/);
     });
 
     test('a long column scrolls under the fixed title, with a scrollbar', async () => {

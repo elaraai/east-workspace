@@ -19,7 +19,9 @@
  * segment is the unit of memory, and the one limit is on it: a frame whose
  * logical bytes exceed {@link RUN_MAX_BYTES} is refused before it is read. That
  * is what refuses a large value encoded whole — one frame holding everything —
- * and a writer that batched segments too big to decode at once.
+ * a writer that batched segments too big to decode at once, and an older Writer
+ * that bounded a segment by its element count alone, whose segments of wide
+ * elements grew past it.
  */
 
 import { type EastTypeValue, EastTypeValueType, isTypeValueEqual } from "../../../type_of_type.js";
@@ -35,6 +37,7 @@ import { asTypeValue, readTypeSection } from "./type-section.js";
 import { MAGIC_BYTES_V5, TAG_NEW, type V5DecodeContext, buildV5Decoder, isSegmentedRoot, readSourceMapSectionV5 } from "./codec.js";
 import { CODEC_DEFLATE, CODEC_NONE, CODEC_ZSTD, FRAME_HEADER_MAX, inflateRawSync } from "./frames.js";
 import { RUN_MAX_BYTES } from "./runs.js";
+import { SEGMENT_MAX_BYTES } from "./boundary.js";
 import type { Beast2ElementOf } from "./stream.js";
 
 /** Head reads the header sections are parsed from, in order: neither section
@@ -238,7 +241,9 @@ export function decodeBeast2ElementsFor<T extends EastType>(
       if (logicalBytes > RUN_MAX_BYTES) {
         throw new Error(
           `beast2: frame ${frames} at offset ${at} holds ${logicalBytes} bytes, more than the ${RUN_MAX_BYTES} a ` +
-          `collection is read in at once — write the value segmented (the Writer's default), not encoded whole`
+          `collection is read in at once — write it again with a current Writer, whose segments stay under ` +
+          `${SEGMENT_MAX_BYTES} bytes: it was encoded whole, or cut by an older Writer that bounded a segment by ` +
+          `its element count alone`
         );
       }
       if (codec === CODEC_NONE && payloadBytes !== logicalBytes) {

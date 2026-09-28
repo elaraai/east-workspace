@@ -37,6 +37,7 @@ import {
     taskLogs,
     workspaceGet,
     workspaceList,
+    workspaceLockStatus,
     workspaceRecordDescribe,
     workspaceRecordHistory,
     workspaceStatus,
@@ -50,6 +51,7 @@ import {
     type DatasetStatusDetail,
     type ExecutionListItem,
     type ListEntry,
+    type LockStatus,
     type LogChunk,
     type LogOptions,
     type RecordHistoryResult,
@@ -95,6 +97,8 @@ export interface Api {
     /** The deployed state (deployedAt, package hash), or null when not deployed. */
     workspaceGet(ws: string): Promise<WorkspaceState | null>;
     workspaceStatus(ws: string): Promise<WorkspaceStatusResult>;
+    /** What holds the workspace exclusively and how far it has got — a deploy taking its files in — or null when nothing does. */
+    workspaceLock(ws: string): Promise<LockStatus | null>;
     taskList(ws: string): Promise<TaskListItem[]>;
     taskGet(ws: string, task: string): Promise<TaskDetails>;
     taskExecutionList(ws: string, task: string): Promise<ExecutionListItem[]>;
@@ -157,6 +161,7 @@ export function createHttpApi(config: HttpApiConfig): Api {
             }
         },
         workspaceStatus: async (ws) => workspaceStatus(apiUrl, repo(), ws, await options()),
+        workspaceLock: async (ws) => workspaceLockStatus(apiUrl, repo(), ws, await options()),
         taskList: async (ws) => taskList(apiUrl, repo(), ws, await options()),
         taskGet: async (ws, task) => taskGet(apiUrl, repo(), ws, task, await options()),
         // Every attempt, not only the latest per inputs hash: the Runs tab is a history.

@@ -55,6 +55,7 @@ export {
   WorkspaceDeployProgressType,
   WorkspaceDeployStatusType,
   WorkspaceExportRequestType,
+  LockStatusType,
   // Workspace Status
   DatasetStatusType,
   TaskStatusUpToDateType,
@@ -139,6 +140,13 @@ export type {
   WorkspaceDeployResult,
   WorkspaceDeployProgress,
   WorkspaceDeployStatus,
+  LockStatus,
+  LockProgress,
+  DeployProgress,
+  RecordDeployState,
+  RecordDeployStep,
+  IntakeFile,
+  IntakeStep,
   DatasetStatus,
   ApiTaskStatus as TaskStatus,
   DatasetStatusInfo,
@@ -230,6 +238,7 @@ import {
   WorkspaceDeployProgressType,
   WorkspaceDeployStatusType,
   WorkspaceExportRequestType,
+  LockStatusType,
   DatasetStatusType,
   TaskStatusType,
   TaskStatusUpToDateType,
@@ -327,6 +336,7 @@ export const ApiTypes = {
   WorkspaceDeployProgressType,
   WorkspaceDeployStatusType,
   WorkspaceExportRequestType,
+  LockStatusType,
 
   // Workspace Status
   DatasetStatusType,

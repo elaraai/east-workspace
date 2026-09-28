@@ -6,7 +6,7 @@
 /**
  * An in-memory {@link Api} for the frame specs — a builder
  * (`fakeRepo().workspace('main').task('forecast', { … })`) that serves
- * workspace status, `datasetGetPage` windows and `datasetFindKey` over
+ * workspace status and what holds a workspace, `datasetGetPage` windows and `datasetFindKey` over
  * synthetic values — a record's rows, and its indexes' windows in index
  * order — log chunks, executions, a record's signature and commits, and a
  * scripted dataflow whose events arrive over time. Every view spec drives it.
@@ -23,6 +23,7 @@ import {
     type DatasetStatusDetail,
     type ExecutionListItem,
     type ListEntry,
+    type LockStatus,
     type RecordCommitInfo,
     type RecordHistoryResult,
     type RecordSignature,
@@ -132,6 +133,8 @@ export interface FakeWorkspace {
     inputs: FakeInput[];
     records?: FakeRecord[] | undefined;
     lock?: { pid: number; acquiredAt: string; command: string } | undefined;
+    /** What holds the workspace exclusively, as the lock route serves it: a deploy, and how far it has got. */
+    lockStatus?: LockStatus | undefined;
     /** The latest execution, or null for never run. */
     execution?: FakeExecution | null | undefined;
 }
@@ -287,6 +290,13 @@ export class FakeApi implements Api {
         return w;
     }
 
+    /** A workspace with a package deployed: one with none has no status, tasks or datasets, as on the server. */
+    private deployed(name: string): FakeWorkspace {
+        const w = this.ws(name);
+        if (w.packageName === undefined) throw new ApiError('workspace_not_deployed', { workspace: name });
+        return w;
+    }
+
     private findTask(ws: FakeWorkspace, name: string): FakeTask {
         const t = ws.tasks.find(x => x.name === name);
         if (t === undefined) throw new ApiError('task_not_found', { task: name });
@@ -385,7 +395,7 @@ export class FakeApi implements Api {
 
     async workspaceStatus(ws: string): Promise<WorkspaceStatusResult> {
         return this.call(`workspaceStatus ${ws}`, () => {
-            const w = this.ws(ws);
+            const w = this.deployed(ws);
             const datasets = this.allPaths(w).map(path => {
                 const s = this.datasetPathStatus(w, path);
                 return { path, status: variant(s.status, null), hash: s.hash !== null ? some(s.hash) : none, isTaskOutput: s.isTaskOutput, producedBy: s.producedBy !== null ? some(s.producedBy) : none };
@@ -423,8 +433,13 @@ export class FakeApi implements Api {
         });
     }
 
+    async workspaceLock(ws: string): Promise<LockStatus | null> {
+        // The route answers for any name: nothing holds a workspace that does not exist.
+        return this.call(`workspaceLock ${ws}`, () => this.repos[this.repo]?.workspaces.find(w => w.name === ws)?.lockStatus ?? null);
+    }
+
     async taskList(ws: string): Promise<TaskListItem[]> {
-        return this.call(`taskList ${ws}`, () => this.ws(ws).tasks.map(t => ({
+        return this.call(`taskList ${ws}`, () => this.deployed(ws).tasks.map(t => ({
             name: t.name,
             hash: sha256(new TextEncoder().encode(t.name)),
             role: t.manifest !== undefined ? variant('ui', t.manifest) : variant('data', null),
@@ -454,7 +469,7 @@ export class FakeApi implements Api {
 
     async datasetList(ws: string): Promise<ListEntry[]> {
         return this.call(`datasetList ${ws}`, () => {
-            const w = this.ws(ws);
+            const w = this.deployed(ws);
             const entries: ListEntry[] = [];
             for (const path of this.allPaths(w)) {
                 const stored = this.stored(w.name, path);

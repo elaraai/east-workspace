@@ -268,7 +268,7 @@ export async function handleProcessDeploy(
   const record = await deployStore.get(id);
   if (!record) throw new Error(`Deploy record ${id} not found`);
 
-  await deployStore.updateStatus(id, variant('processing', variant('deploying', null)));
+  await deployStore.updateStatus(id, variant('processing', variant('deploying', none)));
   const records: RecordPlan[] = [];
   const indexes: RecordIndexPlan[] = [];
   const warnings: string[] = [];
@@ -283,6 +283,8 @@ export async function handleProcessDeploy(
       ...(lock !== undefined && { lock }),
       onRecordPlan: (plan) => { records.push(plan); },
       onRecordIndex: (plan) => { indexes.push(plan); },
+      // A client polling the job reads how far it has got.
+      onDeployProgress: (progress) => deployStore.updateStatus(id, variant('processing', variant('deploying', some(progress)))),
     });
     await deployStore.updateStatus(id, variant('completed', { records, indexes, warnings }));
   } catch (err) {

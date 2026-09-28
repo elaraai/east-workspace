@@ -204,7 +204,20 @@ export {
   type LockHolderVariant,
   LockStateType,
   type LockState,
+  LockProgressType,
+  type LockProgress,
+  LockStatusType,
+  type LockStatus,
 } from './lock.js';
+
+// How far a file being taken into the store has got: a deploy's file source,
+// or an upload's delivery as its commit takes it in
+export {
+  IntakeStepType,
+  type IntakeStep,
+  IntakeFileType,
+  type IntakeFile,
+} from './intake.js';
 
 // The repository's own records
 export {
@@ -316,6 +329,9 @@ export {
   WorkspaceDeployRequestType,
   RecordPlanType,
   RecordIndexPlanType,
+  RecordDeployStepType,
+  RecordDeployStateType,
+  DeployProgressType,
   WorkspaceDeployResultType,
   WorkspaceDeployProgressType,
   WorkspaceDeployStatusType,
@@ -386,6 +402,9 @@ export {
   type SchemaPolicy,
   type RecordPlan,
   type RecordIndexPlan,
+  type RecordDeployStep,
+  type RecordDeployState,
+  type DeployProgress,
   type WorkspaceDeployResult,
   type WorkspaceDeployProgress,
   type WorkspaceDeployStatus,

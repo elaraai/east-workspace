@@ -42,16 +42,32 @@ test('TTY: step renders in place and completes to a ✔ line', () => {
   assert.ok(out.endsWith('✔ imported demo@1.0.0 (40 objects)\n'), 'completion line last');
 });
 
-test('TTY: a phase completing mid-step resumes the step line', () => {
+test('TTY: a phase completing mid-step resumes the step line, and the step goes on', () => {
   const stream = fakeStream(true);
   const progress = createProgress({ stream });
   const step = progress.step('capturing package');
   progress.phase('captured pricing (uv build --sdist, 1.2 MB)');
+  step.update('capturing package: 2 of 3 members');
   step.done('captured package demo@1.0.0');
   const out = stream.chunks.join('');
   const phaseAt = out.indexOf('✔ captured pricing');
   const resumeAt = out.indexOf('capturing package', phaseAt);
   assert.ok(phaseAt >= 0 && resumeAt > phaseAt, 'step line resumes after the phase line');
+  assert.ok(out.indexOf('capturing package: 2 of 3 members', phaseAt) > phaseAt, 'the step updates after the phase');
+  assert.ok(out.endsWith('✔ captured package demo@1.0.0\n'), 'the step completes after the phase');
+});
+
+test('non-TTY: a phase mid-step prints its line, and the step still completes', () => {
+  const stream = fakeStream(false);
+  const progress = createProgress({ stream });
+  const step = progress.step('taking in 2 files');
+  progress.phase('wide_a 70.7 MB in 3.1 s (22.8 MB/s), carried');
+  step.done('took in 2 files');
+  assert.deepStrictEqual(stream.chunks.join('').split('\n').filter(Boolean), [
+    'taking in 2 files …',
+    '✔ wide_a 70.7 MB in 3.1 s (22.8 MB/s), carried',
+    '✔ took in 2 files',
+  ]);
 });
 
 test('quiet suppresses everything', () => {
@@ -79,4 +95,5 @@ test('formatBytes picks sensible units', () => {
   assert.strictEqual(formatBytes(512), '512 B');
   assert.strictEqual(formatBytes(84 * 1024), '84 kB');
   assert.strictEqual(formatBytes(1.2 * 1024 * 1024), '1.2 MB');
+  assert.strictEqual(formatBytes(7.5 * 1024 * 1024 * 1024), '7.5 GB');
 });

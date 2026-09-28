@@ -14,6 +14,10 @@
  * - when it was acquired;
  * - when it expires, for a cloud backend's lease.
  *
+ * An exclusive holder may also report how far its operation has got, for
+ * another process to read while it holds the lock: a deploy taking its file
+ * sources in and deploying its records.
+ *
  * A local repository keeps each resource's locks in `locks/<resource>/`.
  */
 
@@ -27,6 +31,7 @@ import {
   NullType,
   ValueTypeOf,
 } from '@elaraai/east';
+import { DeployProgressType } from './api.js';
 
 /**
  * Lock operation - what acquired the lock.
@@ -105,3 +110,27 @@ export const LockStateType = StructType({
 });
 
 export type LockState = ValueTypeOf<typeof LockStateType>;
+
+/**
+ * How far the operation holding a lock exclusively has got, as its holder
+ * reports it for another process to read while it holds the lock.
+ */
+export const LockProgressType = VariantType({
+  /** A deploy: its file sources and its records */
+  deployment: DeployProgressType,
+});
+
+export type LockProgress = ValueTypeOf<typeof LockProgressType>;
+
+/**
+ * A resource's exclusive lock as another process reads it while it is held:
+ * what holds it, and how far that operation says it has got.
+ */
+export const LockStatusType = StructType({
+  /** The lock's state: the operation, its holder, and when it was acquired */
+  state: LockStateType,
+  /** What the holder last reported of its progress; `none` until it reports */
+  progress: OptionType(LockProgressType),
+});
+
+export type LockStatus = ValueTypeOf<typeof LockStatusType>;

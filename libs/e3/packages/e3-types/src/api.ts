@@ -36,6 +36,7 @@ import {
 } from '@elaraai/east';
 
 import { StructureType, TreePathType } from './structure.js';
+import { IntakeFileType } from './intake.js';
 import { RunnerType } from './runner.js';
 import { TaskBodyType, TaskInputType, TaskOutputType, TaskRoleType } from './task.js';
 import { RequeueReasonType, StageUnitType } from './dataflow.js';
@@ -368,6 +369,51 @@ export const RecordIndexPlanType = StructType({
 });
 
 /**
+ * The step a deploy is at with one record.
+ *
+ * - `waiting`: its turn has not come, or it needs nothing but the deploy's
+ *   commit
+ * - `migrating`: running migration step `step` of the `steps` it owes, `name`
+ * - `indexing`: building `index`, the `build`th of the `builds` it owes
+ * - `done`: its migrations and index builds have run
+ */
+export const RecordDeployStepType = VariantType({
+  waiting: NullType,
+  migrating: StructType({ name: StringType, step: IntegerType, steps: IntegerType }),
+  indexing: StructType({ index: StringType, build: IntegerType, builds: IntegerType }),
+  done: NullType,
+});
+
+/**
+ * One record a deploy is deploying.
+ *
+ * @property plan - What the deploy decided for it
+ * @property indexes - The indexes the package declares for it
+ * @property step - How far the deploy has got with it
+ */
+export const RecordDeployStateType = StructType({
+  plan: RecordPlanType,
+  indexes: ArrayType(StringType),
+  step: RecordDeployStepType,
+});
+
+/**
+ * How far a deploy has got, for a client to show while it runs.
+ *
+ * @property package - The package it deploys
+ * @property startedAt - When it began taking its files in
+ * @property files - Each file source it takes in, in the package's order
+ * @property records - Each record it deploys, in the package's order, and
+ *   each it drops
+ */
+export const DeployProgressType = StructType({
+  package: StructType({ name: StringType, version: StringType }),
+  startedAt: DateTimeType,
+  files: ArrayType(IntakeFileType),
+  records: ArrayType(RecordDeployStateType),
+});
+
+/**
  * What a deploy did, or under `plan` would do.
  *
  * @property records - What it decided for each record
@@ -382,11 +428,12 @@ export const WorkspaceDeployResultType = StructType({
 });
 
 /**
- * A deploy job's progress: `pending` until it starts, then `deploying`.
+ * A deploy job's progress: `pending` until it starts, then `deploying`, with
+ * how far it has got once it has said.
  */
 export const WorkspaceDeployProgressType = VariantType({
   pending: NullType,
-  deploying: NullType,
+  deploying: OptionType(DeployProgressType),
 });
 
 /**
@@ -1145,6 +1192,9 @@ export type WorkspaceDeployRequest = ValueTypeOf<typeof WorkspaceDeployRequestTy
 export type SchemaPolicy = ValueTypeOf<typeof SchemaPolicyType>['type'];
 export type RecordPlan = ValueTypeOf<typeof RecordPlanType>;
 export type RecordIndexPlan = ValueTypeOf<typeof RecordIndexPlanType>;
+export type RecordDeployStep = ValueTypeOf<typeof RecordDeployStepType>;
+export type RecordDeployState = ValueTypeOf<typeof RecordDeployStateType>;
+export type DeployProgress = ValueTypeOf<typeof DeployProgressType>;
 export type WorkspaceDeployResult = ValueTypeOf<typeof WorkspaceDeployResultType>;
 export type WorkspaceDeployProgress = ValueTypeOf<typeof WorkspaceDeployProgressType>;
 export type WorkspaceDeployStatus = ValueTypeOf<typeof WorkspaceDeployStatusType>;

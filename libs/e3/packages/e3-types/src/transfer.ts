@@ -16,7 +16,8 @@
  * newer server that speak one version work together.
  */
 
-import { VariantType, StructType, StringType, IntegerType, NullType, DictType, type ValueTypeOf } from '@elaraai/east';
+import { VariantType, StructType, StringType, IntegerType, NullType, DictType, OptionType, type ValueTypeOf } from '@elaraai/east';
+import { IntakeFileType } from './intake.js';
 
 /**
  * The dataset transfer protocol version this build speaks, and the only one.
@@ -25,10 +26,10 @@ import { VariantType, StructType, StringType, IntegerType, NullType, DictType, t
  * The server plans an upload as parts — each sent to its own URL with the
  * request headers the server names, so an object store can bind a checksum to
  * a single PUT or take a multipart upload larger than one PUT allows — and a
- * commit may answer `processing` while the server verifies the bytes, for the
- * client to poll.
+ * commit may answer `processing` while the server verifies the bytes and takes
+ * them in, with how far it has got, for the client to poll.
  */
-export const TRANSFER_PROTOCOL_VERSION = 2;
+export const TRANSFER_PROTOCOL_VERSION = 3;
 
 /**
  * How many parts an upload of `size` bytes has when planned with `partBytes`.
@@ -118,14 +119,15 @@ export type TransferPartResponse = ValueTypeOf<typeof TransferPartResponseType>;
  *
  * - `completed`: Hash verified, object stored, dataset ref updated
  * - `error`: Hash mismatch or other failure
- * - `processing`: the server is still verifying the bytes; poll
- *   `GET …/upload/<id>` until it answers `completed` or `error`
+ * - `processing`: the server is still verifying the bytes or taking them in,
+ *   with how far it has got once it has said; poll `GET …/upload/<id>` until
+ *   it answers `completed` or `error`
  */
 export const TransferDoneResponseType = VariantType({
   completed: NullType,
   error: StructType({
     message: StringType,
   }),
-  processing: NullType,
+  processing: OptionType(IntakeFileType),
 });
 export type TransferDoneResponse = ValueTypeOf<typeof TransferDoneResponseType>;

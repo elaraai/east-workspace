@@ -20,6 +20,7 @@ import {
   TransferDoneResponseType,
   type ListEntry,
   type DatasetStatusDetail,
+  type IntakeFile,
   type TransferUploadResponse,
   type TransferDoneResponse,
 } from './types.js';
@@ -615,6 +616,13 @@ export interface DatasetTransferSource {
   slice(start: number, end: number): Uint8Array | ReadableStream<Uint8Array>;
 }
 
+/** What a transfer tells its caller as it goes. */
+export interface DatasetTransferOptions {
+  /** Called with how far the server's commit has taken the bytes in, each
+   *  time a poll finds it still processing and saying so. */
+  onCommitProgress?: (progress: IntakeFile) => void;
+}
+
 /**
  * Set a large dataset using the transfer flow (init → upload → commit).
  *
@@ -622,8 +630,8 @@ export interface DatasetTransferSource {
  * The init answers `completed` (the object is stored already) or
  * `upload_parts` (the parts the server planned, each sent to the URL and with
  * the headers it names for that part, a few at a time). The commit may answer
- * `processing` while the server verifies the bytes, and is polled until it
- * finishes.
+ * `processing` while the server verifies the bytes and takes them in, and is
+ * polled until it finishes.
  */
 async function datasetSetTransfer(
   url: string,
@@ -631,7 +639,8 @@ async function datasetSetTransfer(
   workspace: string,
   path: TreePath,
   source: DatasetTransferSource,
-  options: RequestOptions
+  options: RequestOptions,
+  transfer: DatasetTransferOptions = {},
 ): Promise<void> {
   const { hash } = source;
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
@@ -671,9 +680,11 @@ async function datasetSetTransfer(
   await putParts(url, `${uploadPath}/${init.value.id}`, Number(init.value.partBytes), source, options);
 
   // 3. Commit — server verifies hash + updates ref (BEAST2 response), and
-  //    answers `processing` while that is still running
+  //    answers `processing`, with how far it has got, while that is still
+  //    running
   let done = await commitRequest(`${url}/api${uploadPath}/${init.value.id}?${protocol}`, 'POST', options);
   for (let wait = COMMIT_POLL_MIN_MS; done.type === 'processing'; wait = Math.min(wait * 2, COMMIT_POLL_MAX_MS)) {
+    if (done.value.type === 'some') transfer.onCommitProgress?.(done.value.value);
     await new Promise(resolve => setTimeout(resolve, wait));
     done = await commitRequest(`${url}/api${uploadPath}/${init.value.id}`, 'GET', options);
   }
@@ -796,6 +807,8 @@ async function commitRequest(
  * @param path - Path to the dataset (e.g., ['inputs', 'table'])
  * @param source - The file's size, digest and byte ranges
  * @param options - Request options including auth token
+ * @param transfer - What to tell as it goes: how far the server's commit has
+ *   taken the file in
  * @throws {ApiError} On application-level errors, including a type mismatch
  */
 export async function datasetSetStream(
@@ -804,9 +817,10 @@ export async function datasetSetStream(
   workspace: string,
   path: TreePath,
   source: DatasetTransferSource,
-  options: RequestOptions
+  options: RequestOptions,
+  transfer: DatasetTransferOptions = {},
 ): Promise<void> {
-  return datasetSetTransfer(url, repo, workspace, path, source, options);
+  return datasetSetTransfer(url, repo, workspace, path, source, options, transfer);
 }
 
 /**

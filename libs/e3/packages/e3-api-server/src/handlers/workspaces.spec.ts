@@ -7,13 +7,16 @@
  * Deploy route tests: a deploy runs as a job the client polls, on the runner
  * the job's store was given — an embedder mounts these routes with a store and
  * a runner of its own — and without one, a deploy that owes an index build
- * fails before it writes anything.
+ * fails before it writes anything. While it runs, the job and the workspace's
+ * lock say how far it has got.
  */
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import { DictType, NullType, StringType, StructType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant, none } from '@elaraai/east';
+import {
+  DictType, NullType, OptionType, StringType, StructType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant, none, some,
+} from '@elaraai/east';
 import {
   InMemoryTransferBackend, MockTaskRunner, readRecordState, storeDatasetBytes, workspaceCreate, workspaceGetState,
   type TaskRunner,
@@ -24,13 +27,14 @@ import {
   WorkspaceDeployRequestType, WorkspaceDeployStatusType, type WorkspaceDeployStatus,
 } from '@elaraai/e3-types';
 import { createWorkspaceRoutes } from '../routes/workspaces.js';
-import { ResponseType } from '../types.js';
+import { LockStatusType, ResponseType, type LockStatus } from '../types.js';
 
 const REPO = 'test-repo';
 const WS = 'main';
 const PlansType = DictType(StringType, StringType);
 const decodeStarted = decodeBeast2For(ResponseType(PackageJobResponseType));
 const decodeStatus = decodeBeast2For(ResponseType(WorkspaceDeployStatusType));
+const decodeLock = decodeBeast2For(ResponseType(OptionType(LockStatusType)));
 
 /**
  * Seed `planrecords@1.0.0` — an empty `plans` record declaring one index — and
@@ -103,6 +107,14 @@ async function poll(app: Hono, id: string): Promise<WorkspaceDeployStatus> {
   return answer.value;
 }
 
+/** What holds the workspace, and how far it says it has got; null when nothing does. */
+async function lockStatus(app: Hono): Promise<LockStatus | null> {
+  const response = await app.request(`/api/repos/r/workspaces/${WS}/lock`);
+  const answer = decodeLock(new Uint8Array(await response.arrayBuffer()));
+  if (answer.type !== 'success') assert.fail(`the lock was refused: ${answer.value.type}`);
+  return answer.value.type === 'some' ? answer.value.value : null;
+}
+
 /** A deploy job's status once it has finished. */
 async function finished(app: Hono, id: string): Promise<WorkspaceDeployStatus> {
   for (;;) {
@@ -161,6 +173,50 @@ describe('deploy route', () => {
     release();
     assert.equal((await finished(app, started.value.id)).type, 'completed');
     assert.equal((await workspaceGetState(storage, REPO, WS))?.packageName, 'planrecords');
+  });
+
+  it('says how far it has got while it runs, in the job and through the workspace lock', async () => {
+    // A build that holds until released, and says when it has started.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    let begin!: () => void;
+    const building = new Promise<void>((resolve) => { begin = resolve; });
+    const runner = {
+      execute: async () => {
+        begin();
+        await released;
+        return { state: 'success', cached: false, executionId: 'held', outputHash: emptyIndex };
+      },
+    } as unknown as TaskRunner;
+    const app = routes(storage, () => runner);
+
+    const started = await start(app);
+    if (started.type !== 'success') assert.fail(`the deploy was refused: ${started.value.type}`);
+    await building;
+
+    // The deploy is building the record's index: the job says so.
+    const status = await poll(app, started.value.id);
+    if (status.type !== 'processing' || status.value.type !== 'deploying' || status.value.value.type !== 'some') {
+      assert.fail(`the job says nothing of how far it has got: ${status.type}`);
+    }
+    const progress = status.value.value.value;
+    assert.deepEqual(progress.package, { name: 'planrecords', version: '1.0.0' });
+    assert.deepEqual(progress.files, [], 'a server leaves a file source to the client, so it takes in none');
+    assert.deepEqual(progress.records, [{
+      plan: { record: 'records/plans', action: variant('mint', null) },
+      indexes: ['by_value'],
+      step: variant('indexing', { index: 'by_value', build: 1n, builds: 1n }),
+    }]);
+
+    // So does its lock, for a watcher that knows no job: a first deploy has no
+    // status to read.
+    const lock = await lockStatus(app);
+    assert.equal(lock?.state.operation.type, 'deployment');
+    assert.deepEqual(lock?.progress, some(variant('deployment', progress)));
+
+    release();
+    assert.equal((await finished(app, started.value.id)).type, 'completed');
+    assert.equal(await lockStatus(app), null, 'nothing holds the workspace once the deploy has finished');
   });
 
   it('without a runner, fails a deploy that owes an index build, and writes nothing', async () => {

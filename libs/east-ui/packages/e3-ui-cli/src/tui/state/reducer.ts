@@ -269,6 +269,8 @@ export function reduce(state: TuiState, action: Action): TuiState {
         case 'data/workspaces':
             return { ...state, data: { ...state.data, workspaces: action.workspaces } };
         case 'data/workspaceState':
+            // Nothing deployed, polled again, changes nothing.
+            if (action.state === null && state.data.workspaceState[action.ws] === null) return state;
             return { ...state, data: { ...state.data, workspaceState: { ...state.data.workspaceState, [action.ws]: action.state } } };
         case 'data/status': {
             const statusError = { ...state.data.statusError };
@@ -285,6 +287,10 @@ export function reduce(state: TuiState, action: Action): TuiState {
         }
         case 'data/statusError':
             return { ...state, data: { ...state.data, statusError: { ...state.data.statusError, [action.ws]: action.error } } };
+        case 'data/lock':
+            // Nothing holding the workspace, polled again, changes nothing.
+            if (action.lock === null && (state.data.lock[action.ws] ?? null) === null) return state;
+            return { ...state, data: { ...state.data, lock: { ...state.data.lock, [action.ws]: action.lock } } };
         case 'data/execution': {
             const previous = state.data.execution[action.ws];
             const running = action.state !== null && action.state.status.type === 'running';
@@ -346,7 +352,7 @@ export function reduce(state: TuiState, action: Action): TuiState {
             return { ...state, data: { ...state.data, logs: nested(state.data.logs, action.ws, action.task, forTask) } };
         }
         case 'data/reset':
-            return { ...state, data: { ...state.data, status: {}, statusError: {}, execution: {}, budget: {}, datasets: {}, taskList: {}, taskDetails: {}, executions: {}, dataset: {}, records: {}, logs: {} } };
+            return { ...state, data: { ...state.data, status: {}, statusError: {}, lock: {}, execution: {}, budget: {}, datasets: {}, taskList: {}, taskDetails: {}, executions: {}, dataset: {}, records: {}, logs: {} } };
 
         // -- editing -------------------------------------------------------
         case 'edit/set':

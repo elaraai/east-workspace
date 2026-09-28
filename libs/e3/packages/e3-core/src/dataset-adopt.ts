@@ -22,11 +22,14 @@
  *   segment at a time and taken in through the store's door, never held whole,
  *   so a new delivery that differs from the last in a few rows shares every
  *   other segment with it, and a task split over it re-runs only the pieces
- *   around those rows. Any other value is taken in as the object the file is, by a
- *   link, a reflink or one kernel copy.
- * - **An unchanged delivery is not read twice.** The store remembers each
- *   delivery's SHA-256 and the manifest it became, so adopting the same bytes
- *   again costs their hash — and a transfer of them, a round trip.
+ *   around those rows. A delivery the Writer wrote is carried segment by
+ *   segment as the door proves it; any other is read and written again. Any
+ *   other value is taken in as the object the file is, by a link, a reflink or
+ *   one kernel copy.
+ * - **An unchanged delivery is not taken in twice.** The store remembers each
+ *   delivery's SHA-256 and the manifest it became, and the hash is taken
+ *   first, so adopting the same bytes again costs their hash — and a transfer
+ *   of them, a round trip, the client asking before it sends anything.
  * - **The declared type is checked at the door**, by the same
  *   `checkDatasetType` every other door uses, *before* any object is written.
  * - **The delivered file is never modified** — not its bytes, its mode or its
@@ -48,6 +51,31 @@ import { storeCollection } from './store-collection.js';
 import { withDatasetWriteLock, workspaceSetDatasetByHash } from './trees.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
+/** How an adopt took its file in. */
+export type DatasetTaken =
+  /** The store already knew the delivery by its hash: nothing was taken in. */
+  | 'known'
+  /** Stored as it stands: a collection whose segments proved the Writer's, or
+   *  any other value as the object the file is. */
+  | 'carried'
+  /** Read as foreign and written again through the Writer. */
+  | 'written';
+
+/** How far an adopt has got with its file. */
+export interface DatasetAdoptProgress {
+  /** `hash` while the file is read for its SHA-256, which says whether the
+   *  store already knows it; `take-in` while it goes into the store. */
+  readonly phase: 'hash' | 'take-in';
+  /** Bytes of the file the phase has read. A file taken in as foreign after
+   *  the door's check refused it is read again from its start. */
+  readonly bytes: number;
+  /** The file's size. */
+  readonly total: number;
+  /** In `take-in`: whether the file is being read as foreign, to be written
+   *  again, rather than carried. */
+  readonly foreign: boolean;
+}
+
 /** What an adopt reports back about the file it took. */
 export interface DatasetAdoptResult {
   /** The dataset's new content address: the manifest a collection was
@@ -60,6 +88,8 @@ export interface DatasetAdoptResult {
   segments: number | null;
   /** Element count (pairs for a Dict), for a collection root; `null` otherwise. */
   rows: number | null;
+  /** How the file was taken in. */
+  taken: DatasetTaken;
 }
 
 /** Options accepted by {@link datasetAdoptFile}. */
@@ -78,6 +108,8 @@ export interface DatasetAdoptOptions {
    * is touched, so a corrupted upload leaves nothing behind.
    */
   expectHash?: string;
+  /** Hears how far the adopt has got with the file, as it goes. */
+  onProgress?: (progress: DatasetAdoptProgress) => void;
 }
 
 /**
@@ -156,9 +188,10 @@ export async function deliveryKnown(storage: StorageBackend, repo: string, sourc
  * @param repo - Repository identifier
  * @param file - Path to the file to adopt
  * @param options - The digest the caller was promised, checked before anything
- *   is written, and the type the destination declares
- * @returns The dataset object's hash — the manifest, for a collection — and the
- *   file's size
+ *   is written, the type the destination declares, and a listener for how far
+ *   the adopt has got
+ * @returns The dataset object's hash — the manifest, for a collection — the
+ *   file's size, and how it was taken in
  * @throws {DatasetFileTypeMismatchError} When the file's type is not the
  *   declared one
  * @throws If the file is missing or unreadable, its digest is not
@@ -169,10 +202,12 @@ export async function objectAdoptFile(
   storage: StorageBackend,
   repo: string,
   file: string,
-  options: { expectHash?: string; declared?: { subject: string; type: EastTypeValue } } = {}
-): Promise<{ hash: string; size: number }> {
+  options: { expectHash?: string; declared?: { subject: string; type: EastTypeValue }; onProgress?: (progress: DatasetAdoptProgress) => void } = {}
+): Promise<{ hash: string; size: number; taken: DatasetTaken }> {
   const delivered = await stat(file, { bigint: true });
-  const sourceHash = await sha256File(file);
+  const size = Number(delivered.size);
+  const onProgress = options.onProgress;
+  const sourceHash = await sha256File(file, onProgress === undefined ? undefined : (bytes) => onProgress({ phase: 'hash', bytes, total: size, foreign: false }));
   if (options.expectHash !== undefined && options.expectHash !== sourceHash) {
     throw new Error(`hash mismatch: expected ${options.expectHash}, got ${sourceHash}`);
   }
@@ -185,18 +220,29 @@ export async function objectAdoptFile(
       throw new Error(`${file} changed while it was adopted, and nothing was recorded — adopt it again once it is complete`);
     }
   };
-  const size = Number(delivered.size);
 
   if (!isCollectionRoot(type)) {
     await storage.objects.adoptFile(repo, file, sourceHash);
     await unchanged();
-    return { hash: sourceHash, size };
+    return { hash: sourceHash, size, taken: 'carried' };
   }
   const known = await adoptedManifest(storage, repo, sourceHash);
-  const hash = known?.hash ?? await storeCollection(storage, repo, type, [{ file }]);
+  if (known !== null) {
+    await unchanged();
+    return { hash: known.hash, size, taken: 'known' };
+  }
+  let foreign = false;
+  const hash = await storeCollection(storage, repo, type, [{
+    file,
+    check: true,
+    onRead: (bytes, reading) => {
+      foreign = reading;
+      onProgress?.({ phase: 'take-in', bytes, total: size, foreign: reading });
+    },
+  }]);
   await unchanged();
-  if (known === null) await storage.refs.adoptionWrite(repo, sourceHash, hash);
-  return { hash, size };
+  await storage.refs.adoptionWrite(repo, sourceHash, hash);
+  return { hash, size, taken: foreign ? 'written' : 'carried' };
 }
 
 /**
@@ -235,17 +281,17 @@ export async function datasetAdoptFile(
     // again on the file the adoption stores; a mismatch is re-raised once the
     // workspace and address are known.
     const declared = { subject: `dataset '${leaf.address}'`, type: leaf.type };
-    let adopted: { hash: string; size: number };
+    let adopted: { hash: string; size: number; taken: DatasetTaken };
     try {
       readDatasetFileHeader(file, declared.subject, declared.type);
-      adopted = await objectAdoptFile(storage, repo, file, { expectHash: options.expectHash, declared });
+      adopted = await objectAdoptFile(storage, repo, file, { expectHash: options.expectHash, declared, onProgress: options.onProgress });
     } catch (err) {
       if (err instanceof DatasetFileTypeMismatchError) {
         throw new DatasetTypeMismatchError(ws, leaf.address, err.mismatch);
       }
       throw err;
     }
-    const { hash, size } = adopted;
+    const { hash, size, taken } = adopted;
 
     // The self entry is what makes change detection exact: the ref's version
     // vector names the value's hash, so a new delivery invalidates precisely
@@ -253,7 +299,7 @@ export async function datasetAdoptFile(
     const selfKeypath = treePath.map(s => `.${s.value}`).join('');
     await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
 
-    return { hash, size, ...await geometry(storage, repo, hash, leaf.type) };
+    return { hash, size, taken, ...await geometry(storage, repo, hash, leaf.type) };
   });
 }
 
@@ -270,16 +316,18 @@ export async function datasetAdoptFile(
  * store's door first, and is remembered as the manifest it became.
  *
  * It holds the locks {@link datasetAdoptFile} does: a collection the store
- * holds whole is re-cut here, which for a large one takes minutes, and neither
- * a deploy nor a removal may finish inside it, nor a sweep delete its segments
- * before the ref names them.
+ * holds whole is split into segments here — carried as its segments are proved
+ * the Writer's, or read and written again — which for a large one takes a
+ * while, and neither a deploy nor a removal may finish inside it, nor a sweep
+ * delete its segments before the ref names them.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
  * @param sourceHash - SHA-256 of the delivered bytes
- * @returns The dataset's new hash, the delivery's size and the stored geometry
+ * @returns The dataset's new hash, the delivery's size, the stored geometry and
+ *   how the delivery was taken in
  * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
  *   type the dataset declares
  * @throws {WorkspaceLockError} When the workspace is locked by another process
@@ -298,25 +346,30 @@ export async function datasetAdoptObject(
     const known = await adoptedManifest(storage, repo, sourceHash);
     let hash: string;
     let size: number;
+    let taken: DatasetTaken;
     if (known !== null) {
       const mismatch = checkDatasetType(subject, `delivery ${sourceHash.slice(0, 8)}...`, leaf.type, known.manifest.type);
       if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
       hash = known.hash;
       size = manifestByteSize(known.manifest);
+      taken = 'known';
     } else {
       ({ size } = await storage.objects.stat(repo, sourceHash));
       const mismatch = checkDatasetType(subject, `object ${sourceHash.slice(0, 8)}...`, leaf.type, await objectType(storage, repo, sourceHash, size));
       if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
       if (isCollectionRoot(leaf.type)) {
-        hash = await storeCollection(storage, repo, leaf.type, [{ stored: sourceHash }]);
+        let foreign = false;
+        hash = await storeCollection(storage, repo, leaf.type, [{ stored: sourceHash, onRead: (_bytes, reading) => { foreign = reading; } }]);
         await storage.refs.adoptionWrite(repo, sourceHash, hash);
+        taken = foreign ? 'written' : 'carried';
       } else {
         hash = sourceHash;
+        taken = 'carried';
       }
     }
     const selfKeypath = treePath.map(s => `.${s.value}`).join('');
     await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
-    return { hash, size, ...await geometry(storage, repo, hash, leaf.type) };
+    return { hash, size, taken, ...await geometry(storage, repo, hash, leaf.type) };
   });
 }
 

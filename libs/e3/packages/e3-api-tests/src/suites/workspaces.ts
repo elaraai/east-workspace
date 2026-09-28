@@ -6,7 +6,7 @@
 /**
  * Workspace operations test suite.
  *
- * Tests: create, list, get, status, deploy, remove
+ * Tests: create, list, get, status, lock, deploy, remove
  */
 
 import { describe, it } from 'node:test';
@@ -14,10 +14,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  ApiError,
   packageImport,
   workspaceList,
   workspaceCreate,
   workspaceGet,
+  workspaceLockStatus,
   workspaceStatus,
   workspaceRemove,
   workspaceDeploy,
@@ -88,6 +90,32 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
 
       workspaces = await workspaceList(ctx.config.baseUrl, ctx.repoName, opts);
       assert.strictEqual(workspaces.length, 0);
+    });
+
+    it('workspaceGet names a workspace nothing is deployed to, and one that does not exist', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'empty-ws', opts);
+      await assert.rejects(
+        workspaceGet(ctx.config.baseUrl, ctx.repoName, 'empty-ws', opts),
+        (err: unknown) => err instanceof ApiError && err.code === 'workspace_not_deployed',
+      );
+      await assert.rejects(
+        workspaceGet(ctx.config.baseUrl, ctx.repoName, 'no-such-ws', opts),
+        (err: unknown) => err instanceof ApiError && err.code === 'workspace_not_found',
+      );
+    });
+
+    it('workspaceLockStatus answers none while nothing holds a workspace, deployed or not', async (t) => {
+      const ctx = await withDeployedPackage(t);
+      const opts = await ctx.opts();
+
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'empty-ws', opts);
+      assert.strictEqual(await workspaceLockStatus(ctx.config.baseUrl, ctx.repoName, 'empty-ws', opts), null,
+        'a workspace nothing is deployed to');
+      assert.strictEqual(await workspaceLockStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts), null,
+        'a deployed workspace, its deploy done');
     });
 
     describe('with deployed package', { concurrency: false }, () => {

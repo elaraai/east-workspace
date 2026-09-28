@@ -7,8 +7,9 @@
  * Dataset transfer test suite.
  *
  * Tests: redirect-based GET for large objects, a collection downloaded as its
- * segments, transfer upload flow for large SET, dedup shortcut, and hash
- * mismatch rejection — through the client, and at the wire, where a server
+ * segments, transfer upload flow for large SET, a delivery the Writer wrote
+ * kept as its own segments, dedup shortcut, and hash mismatch rejection —
+ * through the client, and at the wire, where a server
  * speaks the one protocol version and refuses a request naming another, or
  * none, in the same words, naming its release and the request's.
  */
@@ -41,7 +42,9 @@ function incompressibleString(byteLength: number): string {
   return chars.join('');
 }
 
-import { ArrayType, BlobType, IntegerType, StringType, StructType, encodeBeast2For, decodeBeast2For, type EastType, type ValueTypeOf } from '@elaraai/east';
+import {
+  ArrayType, BlobType, IntegerType, StringType, StructType, encodeBeast2For, encodeBeast2PagedFor, decodeBeast2For, type EastType, type ValueTypeOf,
+} from '@elaraai/east';
 import { some, variant } from '@elaraai/east';
 import { computeHash } from '@elaraai/e3-core';
 import {
@@ -516,6 +519,43 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       const init = success(await transferCall(`${uploadUrl}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferUploadResponseType, opts, request));
       assert.deepStrictEqual(init, variant('completed', null), 'no upload is planned');
       assert.deepStrictEqual((await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, opts)).hash, stored);
+    });
+
+    it('takes a delivery the Writer wrote as its own segments, so it downloads as the very bytes delivered', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const zipPath = await createTablePackageZip(ctx.tempDir, 'table-writer', '1.0.0');
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+      await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'table-ws', opts);
+      await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'table-ws', 'table-writer@1.0.0', opts);
+      const path = [variant('field', 'inputs'), variant('field', 'rows')];
+      const uploadUrl = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/table-ws/datasets/inputs/rows/upload`;
+      const RowsType = ArrayType(StructType({ id: IntegerType, name: StringType }));
+
+      // The Writer's bytes for the value, over several segments: what every
+      // runtime's Writer writes for it, which the store keeps as they stand.
+      const text = incompressibleString(2_000_000);
+      const data = encodeBeast2PagedFor(RowsType)(Array.from({ length: 50_000 }, (_, i) => ({ id: BigInt(i), name: text.slice(i * 40, i * 40 + 40) })));
+      const hash = computeHash(data);
+      await datasetSetStream(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, {
+        size: data.byteLength,
+        hash,
+        slice: (start, end) => data.subarray(start, end),
+      }, opts);
+
+      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, opts);
+      assert.notDeepStrictEqual(status.hash, some(hash), 'the dataset is the manifest naming the delivery\'s segments');
+      assert.ok(status.segments.type === 'some' && status.segments.value > 1n, 'the value spans segments');
+      const { data: downloaded } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, opts);
+      assert.ok(Buffer.from(downloaded).equals(Buffer.from(data)), 'the segments the store holds are the delivery\'s own');
+
+      // Pointed elsewhere, then offered the same delivery again: the store
+      // knows it by its hash, and asks for no bytes.
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, encodeBeast2For(RowsType)([]), opts);
+      const request = encodeBeast2For(TransferUploadRequestType)({ hash, size: BigInt(data.byteLength) });
+      const init = success(await transferCall(`${uploadUrl}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferUploadResponseType, opts, request));
+      assert.deepStrictEqual(init, variant('completed', null), 'no upload is planned');
+      assert.deepStrictEqual((await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, opts)).hash, status.hash);
     });
 
     it('small dataset SET still uses inline PUT', async (t) => {

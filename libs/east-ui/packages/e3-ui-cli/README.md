@@ -9,7 +9,7 @@
 
 ## Features
 
-- **Terminal UI** (`e3-ui [repo] [workspace]`): the workspace dashboard, `/run` and `/stop` with a live event feed and the scheduler (the cores and memory in use, units waiting for room and requeued, each task's peak memory), task views (a paged value tree with `/find` and `/goto`, stdout and stderr with tail-follow, the run history, a `ui()` task's manifest), editable inputs with a commit bar and conflict detection, records (a read-only view of their rows, through any of their indexes, and their commits), a command box with completion, vim-style keys and the mouse, remote repositories over the same credentials as `e3 auth`.
+- **Terminal UI** (`e3-ui [repo] [workspace]`): the workspace dashboard — and, while a deploy runs, its file sources and records at their steps — `/run` and `/stop` with a live event feed and the scheduler (the cores and memory in use, units waiting for room and requeued, each task's peak memory), task views (a paged value tree with `/find` and `/goto`, stdout and stderr with tail-follow, the run history, a `ui()` task's manifest), editable inputs with a commit bar and conflict detection, records (a read-only view of their rows, through any of their indexes, and their commits), a command box with completion, vim-style keys and the mouse, remote repositories over the same credentials as `e3 auth`.
 - **Component screenshots**: render a `.ts`/`.tsx` source (`--from-source`) or serialized `.beast2`/`.json` IR (`--from-ir`) to a PNG.
 - **Live task screenshots**: render a deployed e3 UI task's output with real, already-computed workspace data (`--from-task`).
 - **Self-contained**: the renderer (React + Chakra UI v3 + the full component set) is pre-bundled; no app server or build step at use time.

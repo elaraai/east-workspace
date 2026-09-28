@@ -116,9 +116,16 @@ export type Beast2RecutStats = {
 /** Steps a reader over one root element by decoding it, and returns the
  *  length of its key: a Set element's whole length, a Dict pair's key, 0 for
  *  an Array element. */
-type ElementParser = (reader: BufferReader, ctx: V5DecodeContext) => number;
+export type ElementParser = (reader: BufferReader, ctx: V5DecodeContext) => number;
 
-function elementParserFor(typeValue: EastTypeValue): ElementParser {
+/**
+ * Builds the {@link ElementParser} for a collection type's root elements.
+ *
+ * @param typeValue - the collection type (Array/Set/Dict)
+ * @returns the parser
+ * @internal
+ */
+export function elementParserFor(typeValue: EastTypeValue): ElementParser {
   const typeCtx = new Map<bigint, any>();
   if (typeValue.type === "Dict") {
     const key = buildV5Decoder((typeValue as any).value.key, typeCtx);

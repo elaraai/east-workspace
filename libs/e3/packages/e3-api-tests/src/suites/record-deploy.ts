@@ -9,21 +9,35 @@
  * A deploy decides for each record whether it mints, keeps, migrates, resets,
  * drops or refuses it, and a server runs the deploy as a job the client polls.
  * This takes each decision through the API against a real server and runner:
- * what the job reports, the commits it leaves, and the state it carries.
+ * what the job reports, the commits it leaves, and the state it carries — and,
+ * while the job runs, how far it has got, which its status and the workspace's
+ * lock both say.
  */
 
 import { describe, it, type TestContext as NodeTestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { inspect } from 'node:util';
 
-import { StringType, decodeBeast2For, encodeBeast2For, variant, none } from '@elaraai/east';
+import { StringType, decodeBeast2For, encodeBeast2For, variant, none, type EastType, type ValueTypeOf } from '@elaraai/east';
+import {
+  BEAST2_CONTENT_TYPE,
+  PackageJobResponseType,
+  ResponseType,
+  WorkspaceDeployRequestType,
+  WorkspaceDeployStatusType,
+} from '@elaraai/e3-types';
 import {
   packageImport,
   workspaceCreate,
   workspaceDeploy,
+  workspaceLockStatus,
   datasetGet,
   workspaceRecordMutate,
   workspaceRecordHistory,
+  type DeployProgress,
+  type LockStatus,
+  type RequestOptions,
   type WorkspaceDeployOptions,
   type WorkspaceDeployResult,
 } from '@elaraai/e3-api-client';
@@ -38,6 +52,34 @@ const RECORD = 'records/tasks';
 const tasksPath = [variant('field', 'records'), variant('field', 'tasks')];
 const encodeStr = encodeBeast2For(StringType);
 const decodeTasks = decodeBeast2For(TasksV2Type);
+
+/**
+ * One request made the way a client without e3-api-client makes it: the
+ * success value, failing the test on an API error.
+ */
+async function call<T extends EastType>(
+  url: string,
+  method: 'GET' | 'POST',
+  type: T,
+  opts: RequestOptions,
+  body?: Uint8Array,
+): Promise<ValueTypeOf<T>> {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Accept': BEAST2_CONTENT_TYPE,
+      ...(body ? { 'Content-Type': BEAST2_CONTENT_TYPE } : {}),
+      ...(opts.token ? { 'Authorization': `Bearer ${opts.token}` } : {}),
+    },
+    ...(body ? { body } : {}),
+  });
+  assert.ok(response.ok, `${method} ${url}: ${response.status} ${response.statusText}`);
+  const answer = decodeBeast2For(ResponseType(type))(new Uint8Array(await response.arrayBuffer())) as
+    | { type: 'success'; value: ValueTypeOf<T> }
+    | { type: 'error'; value: unknown };
+  if (answer.type !== 'success') assert.fail(`${method} ${url} was refused: ${inspect(answer.value, { depth: 4 })}`);
+  return answer.value;
+}
 
 export function recordDeployTests(setup: TestSetup<TestContext>): void {
   /** A fresh repository holding `versions` of the package, and a workspace to
@@ -102,6 +144,56 @@ export function recordDeployTests(setup: TestSetup<TestContext>): void {
       assert.deepEqual((await deploy(ctx, '2.0.0')).records, [{ record: RECORD, action: variant('keep', { deploy: false }) }]);
       assert.deepEqual((await deploy(ctx, '2.1.0')).records, [{ record: RECORD, action: variant('keep', { deploy: true }) }]);
       assert.deepEqual(await history(ctx), ['$deploy', '$migrate:add_owner', 'add', '$init']);
+    });
+
+    it('says how far it has got while it runs, in the job and through the workspace\'s lock', async (t) => {
+      const ctx = await holding(t, ['1.0.0', '2.0.0']);
+      await deploy(ctx, '1.0.0');
+      const opts = await ctx.opts();
+      const base = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/${WS}`;
+
+      // Started here rather than through workspaceDeploy, so the job is polled
+      // as often as it moves; the migration runs on the runner, which takes a
+      // while to start.
+      const { id } = await call(`${base}/deploy`, 'POST', PackageJobResponseType, opts, encodeBeast2For(WorkspaceDeployRequestType)({
+        packageRef: `${PKG}@2.0.0`, schema: variant('migrate', null), allowDropRecords: false, plan: false,
+      }));
+      const reported: DeployProgress[] = [];
+      const held: LockStatus[] = [];
+      for (;;) {
+        const [status, lock] = await Promise.all([
+          call(`${base}/deploy/${encodeURIComponent(id)}`, 'GET', WorkspaceDeployStatusType, opts),
+          workspaceLockStatus(ctx.config.baseUrl, ctx.repoName, WS, opts),
+        ]);
+        if (lock !== null) held.push(lock);
+        if (status.type !== 'processing') {
+          assert.equal(status.type, 'completed', inspect(status, { depth: 4 }));
+          break;
+        }
+        if (status.value.type === 'deploying' && status.value.value.type === 'some') reported.push(status.value.value.value);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      assert.ok(reported.length > 0, 'the job said how far it had got while it ran');
+      for (const progress of reported) {
+        assert.deepEqual(progress.package, { name: PKG, version: '2.0.0' });
+        assert.deepEqual(progress.files, [], 'a server leaves a file source to the client, so it takes in none');
+        assert.deepEqual(progress.records.map((record) => [record.plan, record.indexes]),
+          [[{ record: RECORD, action: variant('migrate', { steps: ['add_owner'] }) }, []]]);
+      }
+      // The record's step only moves on: waiting, its migration, then done.
+      const steps = reported.map((progress) => progress.records[0]!.step);
+      const order = steps.map((step) => ['waiting', 'migrating', 'done'].indexOf(step.type));
+      assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at >= order[i - 1]!)), inspect(steps, { depth: 3 }));
+      for (const step of steps) {
+        if (step.type === 'migrating') assert.deepEqual(step.value, { name: 'add_owner', step: 1n, steps: 1n });
+      }
+
+      assert.ok(held.every((lock) => lock.state.operation.type === 'deployment'), 'only the deploy held the workspace');
+      assert.ok(held.some((lock) => lock.progress.type === 'some' && lock.progress.value.type === 'deployment'
+        && lock.progress.value.value.package.version === '2.0.0'), 'its lock said how far it had got too');
+      assert.equal(await workspaceLockStatus(ctx.config.baseUrl, ctx.repoName, WS, opts), null,
+        'nothing holds the workspace once the deploy has finished');
     });
 
     it('refuses a type change with no migration, naming the fix, and resets the record when told to', async (t) => {

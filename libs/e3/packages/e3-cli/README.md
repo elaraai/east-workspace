@@ -49,6 +49,7 @@ e3 workspace deploy <repo> <ws> … --functions <path...>      # Function manife
 e3 workspace deploy <repo> <ws> … --schema <policy>          # A record that cannot be kept as it is: migrate (default), fail, or reset
 e3 workspace deploy <repo> <ws> … --allow-drop-records       # Drop a record the package no longer declares, with its state and history
 e3 workspace deploy <repo> <ws> … --plan                     # Say what the deploy would do to each record and index; write nothing
+e3 workspace deploy <repo> <ws> … --quiet                    # Errors only: no progress
 e3 workspace export <repo> <ws> <zip>                        # Export workspace as a package
 e3 workspace list <repo>                                     # List workspaces
 e3 workspace status <repo> <ws>                              # Detailed workspace status
@@ -69,6 +70,17 @@ package from the zip where it is. A server plans only a package it holds, so
 there it is refused: `e3 package import` the zip, then plan the package by
 name.
 
+A deploy takes the package's `file` sources in on this machine, locally `-j` at
+a time. A delivery the Writer wrote (`Beast2ElementWriter`, `write_beast2_file`)
+is carried as it stands; any other is read and written again, which is slower.
+The deploy says how far it has got on stderr. Each file prints a line once it is
+in: its size, time and rate, and how it was taken in (`unchanged, already in
+the store`, `carried`, or `written again: not the Writer's bytes`). A terminal
+also keeps a live line for the files in flight, with the rate and the time
+left. Against a server, the deploy line says what the server's job is doing,
+and each upload's line how far its hash has got, then what the server's commit
+is doing with the file.
+
 ### Datasets
 
 Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against inputs and task outputs automatically.
@@ -76,7 +88,7 @@ Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
-e3 dataset set <repo> <ws.name> --from-file <path.beast2>   # Take a beast2 file in as the value, a segment at a time
+e3 dataset set <repo> <ws.name> --from-file <path.beast2> [-j <n>]   # Take a beast2 file in as the value, a segment at a time, as a deploy does
 e3 dataset list <repo> <ws> [-l]                # List dataset paths (with -l for table view)
 e3 dataset status <repo> <ws.name>              # Show one dataset's kind/type/status/size
 e3 dataset find <repo> <ws> <pattern>           # Substring or glob (`*`, `?`) match across names
@@ -126,9 +138,10 @@ Linux and macOS a guard stops the newest such unit when the runners together
 pass the budget, and runs it again once there is room.
 
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
-`e3 workspace deploy` take the same two flags for a local repository. Against a
-server they are refused: it runs the work under its own budget
-(`e3-api-server -j` / `--memory`).
+`e3 workspace deploy` take the same two flags for a local repository, a deploy
+taking its `file` sources in `-j` at a time; `e3 dataset set --from-file` takes
+`-j` for the cores it checks a file on. Against a server they are refused: it
+runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
 A local run's per-execution scratch directories are created inside the
 repository, under `<repo>/tmp/scratch` — on the object store's filesystem, so

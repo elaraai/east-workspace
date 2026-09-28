@@ -102,6 +102,12 @@ export {
   type Beast2RecutStats,
 } from "./v5/recut.js";
 export {
+  checkBeast2WriterSegmentsFor,
+  Beast2NotWritersError,
+  type Beast2WriterSegment,
+  type Beast2CheckRead,
+} from "./v5/writer-check.js";
+export {
   COLLECTION_MANIFEST_KIND,
   CollectionManifestType,
   CollectionManifestEntryType,

@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { randomUUID } from 'node:crypto';
-import { variant } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import { E3_RELEASE, TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
 import {
   datasetAdoptObject,
@@ -78,7 +78,7 @@ async function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 function sendCommitStatus(transfer: DatasetUpload, status: DatasetCommitStatus): Response {
   switch (status.type) {
     case 'processing':
-      return sendSuccess(TransferDoneResponseType, variant('processing', null));
+      return sendSuccess(TransferDoneResponseType, variant('processing', status.value));
     case 'completed':
       return sendSuccess(TransferDoneResponseType, variant('completed', null));
     case 'failed':
@@ -275,10 +275,12 @@ export function createTransferRoutes(
       if (status === null || status.type === 'processing') {
         status = await within(uploads.commit(id, transfer), commitWaitMs);
       }
+      // Still running once the wait is up: how far it has got, as the store says.
+      status ??= await uploads.getCommitStatus(id);
     } catch (err) {
       return sendError(TransferDoneResponseType, errorToVariant(err));
     }
-    return sendCommitStatus(transfer, status ?? variant('processing', null));
+    return sendCommitStatus(transfer, status ?? variant('processing', none));
   }
 
   async function handlePoll(c: Context, id: string, suffix: string) {

@@ -5,9 +5,10 @@
 
 /**
  * A deploy's record migrations, on the real runner: the plan it makes for each
- * record, the steps it runs before it writes, the commits it leaves, and the
- * reserved slots those commits keep. And the system commits that roll a record
- * back or restore it, which never take it back past a migration.
+ * record, the steps it runs before it writes, how far it says it has got with
+ * each, the commits it leaves, and the reserved slots those commits keep. And
+ * the system commits that roll a record back or restore it, which never take it
+ * back past a migration.
  *
  * A workspace moves through one record's versions. v1 holds rows of a title;
  * v2 adds an owner to each row (a `rows` step) and indexes the rows by owner;
@@ -22,7 +23,7 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
-import type { RecordIndexPlan, RecordPlan, TreePath } from '@elaraai/e3-types';
+import type { DeployProgress, RecordIndexPlan, RecordPlan, TreePath } from '@elaraai/e3-types';
 import {
   appliedMigrations, readRecordState, recordCompact, recordHistory, recordMutate, recordReindex, recordSystemCommit,
   type RecordSystemCommitOptions, type RecordSystemCommitTarget,
@@ -197,6 +198,22 @@ describe('a deploy\'s record migrations', () => {
     assert.deepEqual(keyed.get('Plan 7'), { title: 'Plan 7', owner: 'unassigned' });
     assert.deepEqual((await history()).slice(0, 2), ['$reindex', '$migrate:by_title']);
     assert.deepEqual(appliedMigrations((await ref()).versions), ['add_owner', 'by_title']);
+  });
+
+  it('says how far it has got with each record: waiting, each migration step, each index build, then done', async () => {
+    await seeded(50n);
+    const reports: DeployProgress[] = [];
+    await deploy(v2(), { onDeployProgress: (progress) => { reports.push(progress); } });
+
+    const plan = { record: 'records/plans', action: variant('migrate', { steps: ['add_owner'] }) };
+    assert.deepEqual(reports[0]!.package, { name: 'planning', version: '2.0.0' });
+    assert.deepEqual(reports[0]!.records, [{ plan, indexes: ['by_owner'], step: variant('waiting', null) }], 'the first report names the record, before anything runs');
+    const steps = reports.map((progress) => progress.records[0]!.step);
+    assert.deepEqual(steps.map((step) => step.type).filter((type, i, all) => i === 0 || type !== all[i - 1]),
+      ['waiting', 'migrating', 'indexing', 'done'], 'its steps in order');
+    assert.deepEqual(steps.find((step) => step.type === 'migrating'), variant('migrating', { name: 'add_owner', step: 1n, steps: 1n }));
+    assert.deepEqual(steps.find((step) => step.type === 'indexing'), variant('indexing', { index: 'by_owner', build: 1n, builds: 1n }));
+    assert.deepEqual(reports.at(-1)!.records[0]!.step, variant('done', null));
   });
 
   it('keeps a record at the end of the chain, with a $deploy commit only when the package changed', async () => {
