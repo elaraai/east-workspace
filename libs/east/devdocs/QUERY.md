@@ -23,6 +23,7 @@ for queries.
 | Wire types (§14) | `src/query/types.ts`; python twins in `east/query/types.py` |
 | Lexer, parser, printer (§18) | `src/query/jq/` (#920) |
 | Checker and builtin catalog (§10, §12) | `src/query/jq/` (#921) |
+| Completions, descriptions, summaries (§19) | `src/query/jq/complete.ts`, `describe.ts`, `summary.ts` (#922) |
 | Translator, `East.jq`, `evaluateJq` (§15) | `src/query/jq/translate.ts` (#923) |
 | Corpus | `test/query.corpus.ts`, generating `test/fixtures/query-corpus.beast2` |
 | Shared fixture | `test/query.fixture.ts`, generating `test/fixtures/query-fixture.beast2` |
@@ -47,6 +48,7 @@ for queries.
 16. Conformance
 17. e3 surfaces
 18. Grammar and canonical text
+19. Completions, descriptions and summaries
 
 ---
 
@@ -1306,3 +1308,83 @@ one line. The query editor prints this way:
 `parseJq(printJq(p).text)` gives `p` back, with the same spans, in both
 layouts. `test/query.parse.spec.ts` holds it over the corpus and 5 000
 generated programs.
+
+---
+
+## 19. Completions, descriptions and summaries
+
+`src/query/jq/`, exported from `@elaraai/east`. All three run in a browser.
+
+### 19.1 Completions
+
+`completeJq(text, offset, input, options?)` gives the completions at a cursor
+from the type there, and the range they replace: from the start of the word
+being typed to the cursor. The text is usually mid-edit, so the text before
+the cursor is repaired to parse (brackets closed, an `if` ended, a `def` given
+its rest) and checked, and the value before the cursor is typed.
+
+| At | Offers | `detail` · `doc` |
+|---|---|---|
+| `.` at an e3 root | the data sources (`dataset`) | the East type · `describeRoot`, else the plain kind |
+| `.` or a path | a struct's fields (`field`) | the type as read (an `Option` through `null`) · the plain kind |
+| `.F.` on a variant | `type` and `value` | · `case name: a, b, c` |
+| `.F.value.` un-narrowed | every case's fields, as `Option<T>`, `warn` | · `only when .F.type == "c"` |
+| `.F.value.` narrowed | the case's fields, exactly | · the plain kind |
+| `.` on a dict | `[` (`key`) | the dict's type · `look up by K key` |
+| `.F.type == "` | the case names (`case`) | `case of Variant{…}` |
+| `== "` on another path | `values(path, prefix)` (`value`) | `{n} in data` |
+| `$d["` | `values("$d", prefix)` (`key`) | `{n} in data` |
+| `$` | the variables in scope (`variable`) | the type · the plain kind |
+| a word | the builtins and defs that start with it (`builtin`), not an exact match | the signature (`select(f)`) · the catalog's rule |
+
+A builtin that takes arguments inserts `name(`; a case or a value inside a
+string inserts its closing quote. Items are ordered by kind (case, value,
+key, dataset, field, variable, builtin) and then label, 40 at most.
+
+### 19.2 The type as jq sees it
+
+`describeJqType(type, { maxDepth })` describes a type as jq reads it: one
+line per path, indented by depth, with its type. A struct's fields are
+`.name`, an array's elements `[]`, a dict's values `[<K>]`; a variant's case
+is `.type`, listed as its names, and each case's payload is under `.value`,
+marked `(when case)`; a recursive type is described once and marked
+`(recursive: path)` where it recurs. `e3 dataset describe` prints it.
+`plainKind` gives the words the query editor uses: `text`, `number`, `whole
+number`, `date`, `yes or no`, `one of`, `list`, `lookup table`, `record`,
+`calculation`, with `, sometimes missing` for an Option.
+
+```text
+.  Struct{customer_id, discount, id, lines, status, total}
+  .customer_id  String
+  .discount  Option<Float>
+  …
+  .status  Variant{cancelled, pending, shipped}
+    .status.type  "cancelled" | "pending" | "shipped"
+    .status.value  Struct{date} (when shipped)
+      .status.value.date  DateTime (when shipped)
+```
+
+### 19.3 Summaries
+
+`summaryProgram(type, { maxLeaves, topValues })` is one jq program that
+profiles a value of `type`, and checks against it to `SummaryType`: the row
+count, and a `SummaryLeafType` for each leaf path, keyed by the path's jq from
+a row.
+
+- **Rows** are an array's or a set's elements, a dict's values, or else the
+  value itself.
+- **Leaves** are each path from a row to a scalar, each variant's `.type`,
+  each case's payload leaves (counted where the case holds), and each list;
+  shallowest first, `maxLeaves` (100) at most.
+- **Each leaf** gives `count` and `missing`, and by kind: `values` (the
+  `topValues`, 20, most common, by count then value) and `distinct` for text;
+  `cases` for a variant, in declared order with zero counts kept; `numbers`
+  (min, max, mean, median) for numbers, and `distinct` for whole numbers;
+  `dates` (first, last, and counts per month and per year); `lengths` for
+  lists.
+- **Composable.** `prefix + " | " + summaryProgram(typeAfterPrefix)`
+  summarises the rows at any stage, which is how the query editor fills its
+  value slots (`Query Editor Spec.md` §6.4).
+- The program binds its rows once, and lists two prototype leaves first, one
+  with every optional part and one with none, and then drops them: they give
+  each part its `Option` type whatever the rows hold.
