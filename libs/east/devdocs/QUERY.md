@@ -2,8 +2,8 @@
 
 **Normative.** This document says what a query means. Where an implementation
 and this document disagree, the implementation is the bug. The design, its
-motivation and the plan are issue #875. Its children fill the sections marked
-*to be written*: conformance (#924) and the e3 surfaces (#932).
+motivation and the plan are issue #875. Its children fill the section marked
+*to be written*: the e3 surfaces (#932).
 
 A **query** is a jq 1.8 program run on an East value. Values and types are
 East's, and every departure from jq 1.8 is deliberate and listed in §13.
@@ -27,6 +27,7 @@ for queries.
 | `East.jq`, `evaluateJq`, `QueryError` (§15) | `src/expr/query.ts`, `src/query/evaluate.ts` (#923) |
 | Corpus | `test/query.corpus.ts`, generating `test/fixtures/query-corpus.beast2` |
 | Shared fixture | `test/query.fixture.ts`, generating `test/fixtures/query-fixture.beast2` |
+| Conformance (§16) | `test/jq-conformance/` and `test/query.conformance.spec.ts` (#924) |
 
 ## Contents
 
@@ -349,6 +350,11 @@ def revenue: map(.total) | add; .orders | revenue
   Integer builtins; overflow and division by zero behave as they do.
 - **`/` is always Float**, as in jq: `5 / 2` is `2.5`. Integer mixed with
   Float gives Float.
+- **`%` truncates to integers**, as jq's does: `5.5 % 2` is `1.0`. With a Float
+  operand it gives a Float: NaN when either side is NaN, and ±Infinity taken
+  as the ends of the 64-bit range.
+- **`*` repeats a string** by a number on either side, truncated:
+  `"ab" * 2.7` is `"abab"`, and a negative count gives `null`.
 - **Rounding gives Integer**: `floor`, `ceil` and `round` are
   `East.Float.roundFloor`, `roundCeil` and `roundHalf`.
 - **`null` is the identity for `+`**, as in jq, so `+` works on an Option.
@@ -543,7 +549,7 @@ changes `QueryType`.
 <!-- catalog: written by `make query-corpus` from src/query/jq/catalog.ts -->
 | Builtin | Arities | Takes → gives | Outputs | East definition |
 |---|---|---|---|---|
-| `abs` | 0 | Integer → Integer; Float → Float | one | IntegerAbs / FloatAbs |
+| `abs` | 0 | Integer → Integer; Float → Float; strings, arrays, objects as they are | one | IntegerAbs / FloatAbs; other values as they are |
 | `add` | 0, 1 | Array<T> → T for numbers, strings, arrays and dicts (their identity when empty, §13.15), Option<T> for structs; `add(f)` over f's outputs | one | ArrayFold of the matching add builtin (adding nothing gives its identity, §13.15) |
 | `all` | 0, 1, 2 | `all`, `all(f)`, `all(g; c)` → Boolean | one | a loop on jq's truthiness, stopping at the first false |
 | `any` | 0, 1, 2 | `any`, `any(f)`, `any(g; c)` → Boolean | one | a loop on jq's truthiness, stopping at the first true |
@@ -560,7 +566,7 @@ changes `QueryType`.
 | `captures` | 0 | a function value → Array<String> (tooling) | one | the host platform function jq_captures (#931) (tooling-only, §9) |
 | `ceil` | 0 | a number → Integer | one | East.Float.roundCeil |
 | `combinations` | 0, 1 | Array<Array<T>> → Array<T>; `combinations(n)`: Array<T> → Array<T> | many | nested loops over the arrays |
-| `contains` | 1 | two strings, or two arrays of scalars → Boolean | one | StringContains; for arrays, a loop of StringContains / Equal |
+| `contains` | 1 | two strings, arrays, structs or dicts, or equal values → Boolean | one | StringContains for strings; loops of it for arrays, structs and dicts; Equal for other values |
 | `cos` | 0 | a number → Float | one | FloatCos |
 | `@csv` | 0 | Array of scalars → String | one | ArrayStringJoin of the quoted cells |
 | `datetime_add` | 2 | `datetime_add(n; unit)`: DateTime, Integer, a literal unit → DateTime | one | DateTimeAddMilliseconds of n units |
@@ -594,10 +600,10 @@ changes `QueryType`.
 | `IN` | 1, 2 | `IN(s)`, `IN(src; s)` → Boolean | one | Equal against each output, stopping at the first match |
 | `in` | 1 | `in(o)` → `o \| has(.)` | one | has, on the argument |
 | `INDEX` | 1, 2 | `INDEX(f)`: Array<T> → Dict<K, T> for f's key K; `INDEX(src; f)` | one | ArrayToDict keyed by the index filter (keys keep their type, §13.2) |
-| `index` | 1 | String, String → Option<Integer> | one | StringIndexOf (strings) |
-| `indices` | 1 | String, String → Array<Integer> | one | StringIndexOf in a loop (strings) |
+| `index` | 1 | String, String → Option<Integer>; Array<T> and a T or an Array<T> → Option<Integer> | one | StringIndexOf (strings); Equal in a loop (arrays) |
+| `indices` | 1 | String, String → Array<Integer>; Array<T> and a T or an Array<T> → Array<Integer> | one | StringIndexOf in a loop (strings); Equal in a loop (arrays) |
 | `infinite` | 0 | → Float | one | the Float Infinity |
-| `inside` | 1 | two strings, or two arrays of scalars → Boolean | one | contains, the other way round |
+| `inside` | 1 | two strings, arrays, structs or dicts, or equal values → Boolean | one | contains, the other way round |
 | `isempty` | 1 | `isempty(f)` → Boolean | one | whether f gives no output, stopping at the first |
 | `isfinite` | 0 | a number → Boolean | one | FloatAbs and comparisons |
 | `isinfinite` | 0 | a number → Boolean | one | FloatAbs and comparisons |
@@ -615,7 +621,7 @@ changes `QueryType`.
 | `log10` | 0 | a number → Float | one | FloatLog / FloatLog(10) |
 | `log2` | 0 | a number → Float | one | FloatLog / FloatLog(2) |
 | `ltrim` | 0 | String → String | one | StringTrimStart |
-| `ltrimstr` | 1 | String, String → String; other values as they are | one | StringStartsWith / StringEndsWith and StringSubstring; other values as they are |
+| `ltrimstr` | 1 | String, String → String | one | StringStartsWith / StringEndsWith and StringSubstring |
 | `map` | 1 | `map(f)`: Array<T>, Set<T>, or a Dict's or struct's values → Array of f's outputs | one | ArrayMap / SetToArray / DictToArray of f (f's outputs collected) |
 | `map_values` | 1 | `map_values(f)`: Array, Dict or struct → the same with f's first output in each place | one | ArrayMap / DictMap / the struct rebuilt field by field, with f's first output |
 | `max` | 0 | Array<T> → Option<T> | one | ArrayFold keeping the greatest (null for an empty array) |
@@ -638,10 +644,10 @@ changes `QueryType`.
 | `recurse` | 0, 1, 2 | every value nested in the input; `recurse(f[; c])` → the input, then f again, of the one type a fixpoint settles on | many | a depth-first walk with an explicit stack |
 | `repeat` | 1 | `repeat(f)` → the input, f of it, and so on | many | a loop: the value, then f of it, and so on |
 | `reverse` | 0 | Array<T> → Array<T>; String → String; null → [] | one | ArrayReverse; a string's code points reversed |
-| `rindex` | 1 | String, String → Option<Integer> | one | StringIndexOf in a loop (strings) |
+| `rindex` | 1 | String, String → Option<Integer>; Array<T> and a T or an Array<T> → Option<Integer> | one | StringIndexOf in a loop (strings); Equal in a loop (arrays) |
 | `round` | 0 | a number → Integer | one | East.Float.roundHalf |
 | `rtrim` | 0 | String → String | one | StringTrimEnd |
-| `rtrimstr` | 1 | String, String → String; other values as they are | one | StringStartsWith / StringEndsWith and StringSubstring; other values as they are |
+| `rtrimstr` | 1 | String, String → String | one | StringStartsWith / StringEndsWith and StringSubstring |
 | `scalars` | 0 | the input when it is not an array, struct or dict; narrows | maybe | a type test |
 | `second` | 0 | DateTime → Integer | one | DateTimeGetSecond |
 | `select` | 1 | `select(f)` → its input, narrowed by what `f` proves | maybe; many when `f` is | a branch on jq's truthiness |
@@ -671,7 +677,7 @@ changes `QueryType`.
 | `tostring` | 0 | any → String: a string as it is, anything else as East text (§13.9) | one | the string, or Print (East text, §13.9) |
 | `transpose` | 0 | Array<Array<T>> → Array<Array<Option<T>>> | one | nested loops, padding short rows with null |
 | `trim` | 0 | String → String | one | StringTrim |
-| `trimstr` | 1 | String, String → String; other values as they are | one | StringStartsWith / StringEndsWith and StringSubstring; other values as they are |
+| `trimstr` | 1 | String, String → String | one | StringStartsWith / StringEndsWith and StringSubstring |
 | `trunc` | 0 | a number → Integer | one | East.Float.roundTrunc |
 | `@tsv` | 0 | Array of scalars → String | one | ArrayStringJoin of the quoted cells |
 | `type` | 0 | any → String: `null`, `boolean`, `number`, `string`, `array`, `object`, `datetime`, `blob` or `function`; `type == "…"` narrows | one | the jq type name of the value's East type, as a literal or by the option's case (§2) |
@@ -768,6 +774,7 @@ Refused, with the diagnostic's reason (§12):
 | `tgamma` | 0 | unavailable: East has no builtin for it |
 | `tostream` | 0 | unavailable: a path array mixes strings and integers, which no one East type holds |
 | `truncate_stream` | 1 | unavailable: a path array mixes strings and integers, which no one East type holds |
+| `@urid` | 0 | unavailable: no East builtin makes a Blob from bytes |
 | `y0` | 0 | unavailable: East has no builtin for it |
 | `y1` | 0 | unavailable: East has no builtin for it |
 | `yn` | 2 | unavailable: East has no builtin for it |
@@ -947,11 +954,12 @@ Integer operations stay Integer, and `/` gives a Float (§6).
 It compares with ISO-8601 literals parsed when the query is checked, and
 `fromdateiso8601` accepts milliseconds and offsets (§7). `fromdate`,
 `fromdateiso8601` and `strptime` give a DateTime, not epoch seconds or jq's
-broken-down time; `todate` writes East's RFC 3339 form
-(`2026-04-27T09:00:00.000+00:00`, not jq's `2026-04-27T09:00:00Z`); `strftime`
-and `strptime` take `%Y %m %d %H %M %S %b %B %a %A %F %T` and `%%`; and a
-string builtin on a DateTime is a `type_mismatch` that names `todate` and the
-parts.
+broken-down time, which `strftime` does not take either, and `gmtime` and
+`mktime`, which work on it, are not yet available; `todate` writes East's RFC
+3339 form (`2026-04-27T09:00:00.000+00:00`, not jq's `2026-04-27T09:00:00Z`);
+`strftime` and `strptime` take a format written in the query, with `%Y %m %d
+%H %M %S %b %B %a %A %F %T` and `%%`; and a string builtin on a DateTime is a
+`type_mismatch` that names `todate` and the parts.
 
 ### 13.5 A program's outputs share one element type
 
@@ -959,7 +967,9 @@ Outputs unify to one type, or the program is `ambiguous_output` (§3).
 
 ### 13.6 Literal keys build Structs; computed keys build Dicts
 
-`{a: 1}` is a Struct and `{("a"): 1}` a Dict (§5).
+`{a: 1}` is a Struct and `{("a"): 1}` a Dict (§5), and an object has one kind
+of key: `{a, (.k): 1}` is refused. A Struct's field is read by its name, and
+`.[e]` with a computed name needs a Dict (§4).
 
 ### 13.7 Host access and nondeterminism are excluded
 
@@ -1030,10 +1040,13 @@ builtins (§13.8); `have_decnum` and `have_literal_numbers`; and the math
 builtins East's Float lacks (`atan`, `cbrt`, `gamma`, …). `builtins` lists
 those a query may call, each arity once: 158 names where jq 1.8.1 lists 226.
 
-### 13.18 `ascii_downcase` and `ascii_upcase` map all of Unicode
+### 13.18 `ascii_downcase`, `ascii_upcase` and the trims are East's string builtins
 
-They are East's `StringLowerCase` and `StringUpperCase`, so `"À"` becomes
-`"à"` too.
+`ascii_downcase` and `ascii_upcase` are East's `StringLowerCase` and
+`StringUpperCase`, so `"À"` becomes `"à"` too. `trim`, `ltrim` and `rtrim` are
+`StringTrim`, `StringTrimStart` and `StringTrimEnd`, which remove JavaScript's
+whitespace in every runtime: U+FEFF too, and not U+0085, which jq's (Unicode's
+White_Space) removes.
 
 ### 13.19 `tonumber` on a string gives a Float
 
@@ -1055,17 +1068,20 @@ raises an error.
 A variant reads as `{type, value}` (§8), but `.[]` on one is `not_iterable`,
 and `iterables` drops it: read `.type` and `.value`.
 
-### 13.23 An update's path is a subset of jq's, and keeps types
+### 13.23 Paths are a subset of jq's, and keep types
 
 An update's path is made of field reads, indexes, slices, `.[]`, a variant's
 `.value`, `select`, the type selectors (`numbers`, `strings`, …), `empty`,
 `..`, `recurse`, `recurse(.a[])` and `|` (§15.5). `,`, `if`, `//`,
-`first(f)` and a `def` there are `unsupported`, and an index or a slice bound
-gives one value. Along these paths:
+`first(f)`, `map(f)`, an `as` binding and a `def` there are `unsupported`, and
+an index or a slice bound gives one value. `del`'s path is made of field
+reads, indexes, slices, `.[]`, `select`, `|` and `,`; `pick`'s of field reads.
+Along these paths:
 
 - a struct field an update never gives a value is removed, as jq removes the
   key; one it gives no value only sometimes raises an error there, since a
-  struct cannot lose a field for some values and keep it for others;
+  struct cannot lose a field for some values and keep it for others, and so
+  `map_values(f)` on a struct needs an output of `f` for every field;
 - an index past the end of an array raises an error, where jq pads the array
   with nulls;
 - an update through `..` or `recurse` gives each value it reaches back with
@@ -1079,6 +1095,46 @@ gives one value. Along these paths:
 Where the update gives no output for an element, the state stays as it was:
 `reduce range(3) as $x (1; if $x == 1 then empty else . * 2 end)` is `4`. jq
 1.8 makes the state `null` there, and raises an error at `null * 2`.
+
+### 13.25 A pattern's keys are names
+
+A key in an object pattern is a name, `$name` or a string:
+`. as {("e" + "xp"): $x}` is a `syntax` problem (#875 defers computed keys in
+patterns).
+
+### 13.26 A number literal fits East's numbers
+
+jq 1.8 keeps a literal's decimal text, so `12345678909876543212345` compares
+exactly and `1E1000` prints as written. In a query, a literal without `.` or
+an exponent must fit 64 bits, and any other must fit a Float: beyond either
+it is a `syntax` problem (§18.3). An input number that does not fit 64 bits is
+a Float.
+
+### 13.27 Values of two types do not compare
+
+`==`, `!=`, `<`, `<=`, `>` and `>=` take values of one type, an Integer and a
+Float, or a value and `null` where it can be null (§6). Any other pair is
+`type_mismatch`: `{"a": 1} == {"b": 1}` and `null == false` are refused, where
+jq orders every value against every other.
+
+### 13.28 A runtime error's message is East's
+
+An error a query raises carries East's message: `try -. catch .` on `"foo"`
+gives `string cannot be negated`, where jq gives `string ("foo") cannot be
+negated`, and a builtin names what it needs (`number cannot be used with
+trim: it needs a string`). `error(v)`'s message is §13.14's.
+
+### 13.29 An index or a slice bound is an Integer
+
+`.[1.5]`, `.[1.2:3.5]`, `.[nan]` and `has(nan)` on an array are `type_mismatch`
+(inside `try`, or after `?`, an error at run time), where jq truncates a Float
+index, rounds a slice's bounds outward, and takes NaN as the start or the end.
+
+### 13.30 An argument of a type a builtin cannot take is found when the query is checked
+
+`ltrimstr(1)` and `strftime([])` are `type_mismatch` when the query is checked,
+even inside `try` or after `?`, where jq raises an error at run time. (An
+input of a type a builtin cannot take is a run-time error there, as in jq.)
 
 ---
 
@@ -1411,11 +1467,103 @@ span of the node that raised it. Its message lists each error as
 
 ## 16. Conformance
 
-*To be written by #924*: the jq 1.8 test suites (`jq.test`, `man.test`,
-`onig.test`, `optional.test`) run through the checker and the translation. This
-section will count the cases that pass, those skipped because their inputs or
-outputs are not typeable as East values, and those that differ by a deviation
-of §13, and list the last by deviation.
+jq 1.8.1's own test suites, `jq.test`, `man.test`, `onig.test` and
+`optional.test`, run through the checker and the translation
+(`test/query.conformance.spec.ts`). They are vendored with jq's licence in
+`test/jq-conformance/jq-1.8/`, and read as jq's runner reads them
+(`src/jq_test.c`): a program, its input and its expected outputs; after
+`%%FAIL`, a program that must fail to compile.
+
+### 16.1 Typing an input
+
+JSON has one number type and mixed arrays; East has neither. An input becomes
+an East value by these rules (`test/jq-conformance/typing.ts`):
+
+- a number without `.` or an exponent that fits 64 bits is an Integer, and
+  any other a Float, `nan` and `Infinity` (which jq's reader takes) included;
+- `null`, `true` and `false`, and a string, are Null, Boolean and String;
+- an object is a Struct of its keys in order, and `{}` is `Struct{}`;
+- an array is an array of the one type its elements unify to, as the checker
+  unifies outputs (§3): Integer and Float to Float, `T` and `null` to
+  `Option<T>`, and Structs of the same fields field by field; `[]` is
+  `Array<Never>`;
+- an input that does not unify (a mixed array, differently shaped objects in
+  one array) is *untypeable*, and its case is skipped.
+
+An expected output is read as a value of the query's element type, as jq
+prints one: a whole number where the type is Float, `null` for NaN, and
+±1.7976931348623157e+308 for ±Infinity. Outputs compare with `equalFor`.
+
+### 16.2 Where a case lands
+
+| Bucket | When |
+|---|---|
+| pass | the program checks and its outputs equal jq's; a `%%FAIL` program does not check (the messages are not compared) |
+| deviation | it differs as a deviation of §13 says: `test/jq-conformance/deviations.ts` lists each such case with the deviation and why, and one a builtin §13.8 or §13.17 makes unavailable is placed by its diagnostic |
+| skipped | its input is untypeable; it uses an excluded builtin (§11), `$ENV` or a module; or a runner's limit (`resource`, `runner`) is in the way, with the reason |
+| fail | anything else |
+
+No case fails. `test/jq-conformance/summary.json` holds where each case lands,
+and `make query-corpus` rewrites it and the tables below, which the spec holds
+to both. A case that passes on an input runs again as a compliance test: its
+translation, called on its typed input, gives jq's expected outputs.
+`make test-export` writes these tests, a suite per file, to
+`/tmp/east-test-ir/query-conformance/`, where east-c and east-py run them
+(#925).
+
+<!-- conformance: written by `make query-corpus` from test/jq-conformance/summary.json -->
+| Suite | Cases | Pass | Deviation | Skipped | Fail |
+|---|---|---|---|---|---|
+| `jq.test` | 522 | 290 | 142 | 90 | 0 |
+| `man.test` | 231 | 158 | 42 | 31 | 0 |
+| `onig.test` | 47 | 17 | 30 | 0 | 0 |
+| `optional.test` | 2 | 0 | 2 | 0 | 0 |
+| All | 802 | 465 | 216 | 121 | 0 |
+
+| Deviation | Cases |
+|---|---|
+| §13.1 A missing Struct field is an error | 5: jq.test:609, jq.test:1168, man.test:33, man.test:162, man.test:805 |
+| §13.2 Dict keys have any East type, and `.[k]` is an index or a key by type | 2: jq.test:127, jq.test:2044 |
+| §13.3 Integers are exact to 64 bits | 2: jq.test:2169, jq.test:2177 |
+| §13.4 DateTime is a type | 12: jq.test:1805, jq.test:1813, jq.test:1817, jq.test:1821, jq.test:1847, jq.test:1851, jq.test:1857, man.test:742, man.test:746, man.test:750, optional.test:4, optional.test:9 |
+| §13.5 A program's outputs share one element type | 44: jq.test:213, jq.test:217, jq.test:229, jq.test:248, jq.test:269, jq.test:273, jq.test:315, jq.test:319, jq.test:405, jq.test:440, jq.test:478, jq.test:524, jq.test:716, jq.test:851, jq.test:944, jq.test:948, jq.test:966, jq.test:973, jq.test:994, jq.test:1001, jq.test:1022, jq.test:1029, jq.test:1138, jq.test:1154, jq.test:1399, jq.test:1431, jq.test:1515, jq.test:1519, jq.test:1639, jq.test:2004, jq.test:2008, jq.test:2012, jq.test:2016, jq.test:2020, jq.test:2047, jq.test:2194, jq.test:2199, man.test:104, man.test:582, man.test:586, man.test:669, man.test:809, man.test:813, man.test:919 |
+| §13.6 Literal keys build Structs; computed keys build Dicts | 4: jq.test:118, jq.test:122, jq.test:1663, jq.test:2266 |
+| §13.8 Regular expressions are East's | 26: onig.test:2, onig.test:6, onig.test:10, onig.test:14, onig.test:18, onig.test:23, onig.test:28, onig.test:32, onig.test:36, onig.test:41, onig.test:47, onig.test:54, onig.test:60, onig.test:67, onig.test:75, onig.test:104, onig.test:141, onig.test:145, onig.test:149, onig.test:153, onig.test:157, onig.test:166, onig.test:170, onig.test:183, onig.test:187, onig.test:191 |
+| §13.9 `tostring` and `tojson` are East's | 2: jq.test:1482, man.test:341 |
+| §13.14 `error(v)` takes any type, and its message is `v`'s East text | 2: jq.test:205, jq.test:1476 |
+| §13.16 A value that can be null is checked where a value is needed | 11: jq.test:329, jq.test:333, jq.test:341, jq.test:898, jq.test:1615, jq.test:1619, jq.test:2029, jq.test:2123, jq.test:2173, man.test:658, man.test:915 |
+| §13.17 Builtins East cannot define are unavailable | 50: jq.test:72, jq.test:90, jq.test:98, jq.test:838, jq.test:1101, jq.test:1106, jq.test:1110, jq.test:1114, jq.test:1118, jq.test:1122, jq.test:1126, jq.test:1130, jq.test:1144, jq.test:1160, jq.test:1164, jq.test:1180, jq.test:2154, jq.test:2158, jq.test:2162, jq.test:2182, jq.test:2186, jq.test:2273, jq.test:2277, jq.test:2282, jq.test:2361, jq.test:2369, jq.test:2383, jq.test:2388, jq.test:2452, jq.test:2456, jq.test:2491, man.test:13, man.test:21, man.test:260, man.test:264, man.test:276, man.test:280, man.test:284, man.test:288, man.test:292, man.test:296, man.test:630, man.test:634, man.test:738, man.test:956, man.test:961, onig.test:196, onig.test:200, onig.test:204, onig.test:208 |
+| §13.18 `ascii_downcase`, `ascii_upcase` and the trims are East's string builtins | 3: jq.test:1531, jq.test:1785, man.test:646 |
+| §13.20 `repeat(f)` gives its input, then `f` of it, and so on | 1: man.test:654 |
+| §13.23 Paths are a subset of jq's, and keep types | 19: jq.test:490, jq.test:1188, jq.test:1197, jq.test:1232, jq.test:1236, jq.test:1261, jq.test:1265, jq.test:1269, jq.test:1273, jq.test:1277, jq.test:1281, jq.test:1285, jq.test:2088, man.test:248, man.test:252, man.test:256, man.test:706, man.test:985, man.test:991 |
+| §13.25 A pattern's keys are names | 1: jq.test:530 |
+| §13.26 A number literal fits East's numbers | 8: jq.test:661, jq.test:668, jq.test:674, jq.test:2190, jq.test:2229, jq.test:2233, man.test:9, man.test:25 |
+| §13.27 Values of two types do not compare | 2: jq.test:1394, man.test:754 |
+| §13.28 A runtime error's message is East's | 6: jq.test:1464, jq.test:1537, jq.test:1801, jq.test:1959, jq.test:1963, jq.test:1967 |
+| §13.29 An index or a slice bound is an Integer | 14: jq.test:1695, jq.test:2393, jq.test:2397, jq.test:2401, jq.test:2405, jq.test:2409, jq.test:2413, jq.test:2417, jq.test:2421, jq.test:2425, jq.test:2429, jq.test:2433, jq.test:2437, jq.test:2441 |
+| §13.30 An argument of a type a builtin cannot take is found when the query is checked | 2: jq.test:1839, jq.test:2462 |
+
+| Skipped | Cases |
+|---|---|
+| excluded | 18: jq.test:1843, jq.test:1862, jq.test:1866, jq.test:1870, jq.test:1874, jq.test:1879, jq.test:1883, jq.test:1887, jq.test:1891, jq.test:1931, jq.test:1935, jq.test:1939, jq.test:1955, jq.test:2295, jq.test:2299, jq.test:2506, man.test:686, man.test:690 |
+| resource | 1: jq.test:1603 |
+| runner | 1: jq.test:2317 |
+| untypeable | 101: jq.test:106, jq.test:179, jq.test:183, jq.test:187, jq.test:191, jq.test:195, jq.test:200, jq.test:345, jq.test:455, jq.test:701, jq.test:705, jq.test:728, jq.test:736, jq.test:741, jq.test:749, jq.test:894, jq.test:920, jq.test:924, jq.test:929, jq.test:936, jq.test:940, jq.test:952, jq.test:959, jq.test:980, jq.test:987, jq.test:1008, jq.test:1015, jq.test:1036, jq.test:1040, jq.test:1044, jq.test:1048, jq.test:1134, jq.test:1150, jq.test:1192, jq.test:1241, jq.test:1297, jq.test:1301, jq.test:1353, jq.test:1357, jq.test:1361, jq.test:1368, jq.test:1435, jq.test:1439, jq.test:1635, jq.test:1655, jq.test:1679, jq.test:1687, jq.test:1691, jq.test:1729, jq.test:1733, jq.test:1737, jq.test:1741, jq.test:1745, jq.test:1749, jq.test:1753, jq.test:1757, jq.test:1761, jq.test:1765, jq.test:1769, jq.test:1773, jq.test:1826, jq.test:1830, jq.test:1834, jq.test:1976, jq.test:1992, jq.test:1996, jq.test:2051, jq.test:2093, jq.test:2348, jq.test:2365, jq.test:2474, jq.test:2481, man.test:199, man.test:219, man.test:223, man.test:320, man.test:345, man.test:349, man.test:365, man.test:393, man.test:397, man.test:405, man.test:442, man.test:447, man.test:454, man.test:460, man.test:526, man.test:530, man.test:642, man.test:714, man.test:718, man.test:722, man.test:762, man.test:823, man.test:831, man.test:835, man.test:847, man.test:857, man.test:862, man.test:965, man.test:969 |
+<!-- /conformance -->
+
+### 16.3 Oniguruma features East's regular expressions lack
+
+jq's regular expressions are Oniguruma's, and East's ECMAScript-style (§13.8).
+`onig.test`'s cases that use these differ by §13.8, or by §13.17 where the
+builtin is unavailable:
+
+- capture groups read as values: `match`, `capture`, `scan`, `splits` and
+  `split/2`;
+- the flags `x` (extended), `n` (ignore empty matches), `s` (single line),
+  `l` (longest) and `p`: `test`, `sub` and `gsub` take `g` and `i`;
+- a replacement that is a filter over the groups (`"\(.x | ascii_downcase)"`),
+  or gives several strings (`"b", "c"`): a replacement interpolates the named
+  groups as they are.
 
 ---
 

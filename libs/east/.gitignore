@@ -7,3 +7,5 @@ coverage
 *.json
 *.csv
 *.cpuprofile
+# The jq conformance summary is pinned (#924): `make query-corpus` rewrites it.
+!test/jq-conformance/summary.json

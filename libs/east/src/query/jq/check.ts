@@ -25,7 +25,7 @@ import { BUILTINS, type Builtin, type CallContext } from "./catalog.js";
 import { MESSAGES, closest, edit, report, type QueryError, type QueryFix } from "./messages.js";
 import { parseJq, type ParsedJq } from "./parse.js";
 import {
-  ERROR, MANY, ONE, SOME, ZERO, also, canBeNull, casesOf, describeType, either, membersOf, nullablePayload,
+  ERROR, MANY, MAYBE, ONE, SOME, ZERO, also, canBeNull, casesOf, describeType, either, membersOf, nullablePayload,
   JQ_TYPE_NAMES, narrowTypes, orNull, refine, then, typed, unify, unifyShape, union, unwrap, wireMultiplicity,
   type Facts, type Member, type Mult, type Proof, type Result, type Shape, type TypeShape,
 } from "./shapes.js";
@@ -151,6 +151,19 @@ export interface CheckJqResult {
    * @internal
    */
   updatedCases(path: string, instance: string, variant: EastType): readonly string[] | null;
+  /**
+   * Whether a builtin call in a lenient place (`try`, `?`) was checked with
+   * its input's options opened: each is `null` or its value, checked apart,
+   * so the translator gives the builtin one or the other.
+   *
+   * @param path - the call's path
+   * @param instance - the instance it was checked in
+   * @returns `null` when the call's input was not opened; else whether the
+   *   builtin raises for `null`, which it cannot take
+   *
+   * @internal
+   */
+  opened(path: string, instance: string): { readonly nullRaises: boolean } | null;
 }
 
 /** A `def`, or a filter parameter, in scope. */
@@ -212,6 +225,9 @@ function parseIsoDateTime(text: string): Date | undefined {
 
 /** What a node that never runs gives. */
 const DEAD: Result = { shape: typed(NeverType), mult: { lo: 1, hi: 0 } };
+
+/** The input of a node that never runs: no value reaches it. */
+const NOTHING: Result = { shape: typed(NeverType), mult: ONE };
 
 /** The binary operators by kind. */
 const ARITHMETIC: ReadonlySet<string> = new Set(["+", "-", "*", "/", "%"]);
@@ -275,6 +291,26 @@ function rewrap(original: EastType, rebuilt: EastType): EastType {
   return original.type === "Recursive" && isTypeEqual(original.node as EastType, rebuilt) ? original : rebuilt;
 }
 
+/**
+ * A shape with each option that may be null opened: `null`, and its value,
+ * as members of their own. In a lenient place jq raises for a `null` a
+ * builtin cannot take and computes with a value, so each is checked apart.
+ *
+ * @returns the opened shape, or `undefined` when no member is such an option
+ */
+function openOptions(shape: Shape): Shape | undefined {
+  if (shape.kind === "error") return undefined;
+  let opened = false;
+  const members: Member[] = [];
+  for (const member of membersOf(shape)) {
+    const payload = nullablePayload(unwrap(member.shape.type));
+    if (payload === undefined || member.shape.facts?.kind === "present") { members.push(member); continue; }
+    opened = true;
+    members.push({ shape: typed(NullType), case: member.case }, { shape: typed(payload), case: member.case });
+  }
+  return opened ? union(members) : undefined;
+}
+
 /** Checks one program. */
 class Checker {
   readonly diagnostics: QueryError[] = [];
@@ -290,6 +326,10 @@ class Checker {
   private retypes = 0;
   /** The cases each update's `.value` step updates, by instance, path and variant type. */
   readonly updatedCases = new Map<string, readonly string[]>();
+  /** The builtin calls checked with their input's options opened, by instance and path: whether each raises for null. */
+  readonly opened = new Map<string, { readonly nullRaises: boolean }>();
+  /** How many type errors a lenient place has let by, to run as errors. */
+  private refused = 0;
   readonly reads: string[] = [];
   /** Defs being instantiated, by instance signature: their output so far, for recursion. */
   private readonly active = new Map<string, { result: Result; recursed: boolean; filters: boolean }>();
@@ -320,7 +360,10 @@ class Checker {
 
   /** A type error jq raises at run time: reported, or in a lenient place no output. */
   mismatch(env: Env, range: JqRange | undefined, code: string, message: string, options: { suggestions?: string[]; fixes?: QueryFix[] } = {}): Result {
-    if (env.lenient) return { shape: typed(NeverType), mult: ZERO };
+    if (env.lenient) {
+      this.refused += 1;
+      return { shape: typed(NeverType), mult: ZERO };
+    }
     return this.fail(range, code, message, options);
   }
 
@@ -395,6 +438,9 @@ class Checker {
         return this.mapMembers(operand, member => {
           const t = unwrap(member.type);
           if (isNumber(t)) return { shape: typed(t), mult: ONE };
+          // In a lenient place, an option is null, which raises, or a number, negated.
+          const payload = nullablePayload(t);
+          if (env.lenient && payload !== undefined && isNumber(unwrap(payload))) return { shape: typed(unwrap(payload)), mult: MAYBE };
           return this.mismatch(env, this.range(path), "type_mismatch", MESSAGES.negate(describeType(member.type)));
         });
       }
@@ -793,11 +839,21 @@ class Checker {
     }
     const lenient = optional ? { ...env, lenient: true } : env;
     const out = this.mapMembers(base, member => {
-      const t = unwrap(member.type);
+      const u = unwrap(member.type);
+      // `null` slices to null, as jq slices it: an option's value is sliced, and its null stays null.
+      const payload = nullablePayload(u);
+      const present = member.facts?.kind === "present";
+      const t = payload === undefined ? u : unwrap(payload);
+      const facts = payload === undefined ? member.facts : member.facts?.kind === "present" ? member.facts.payload : undefined;
+      const sliced = (type: EastType, f?: Facts): Result => {
+        if (payload === undefined || present) return { shape: typed(type, f), mult: ONE };
+        const option = orNull(type);
+        return option === undefined ? this.mismatch(lenient, this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(type), "Null")) : { shape: typed(option), mult: ONE };
+      };
       switch (t.type) {
         case "Null": return { shape: typed(NullType), mult: ONE };
-        case "Array": case "String": case "Vector": return { shape: typed(t, member.facts), mult: ONE };
-        case "Set": return { shape: typed(ArrayType(t.key as EastType)), mult: ONE };
+        case "Array": case "String": case "Vector": return sliced(t, facts);
+        case "Set": return sliced(ArrayType(t.key as EastType));
         default:
           if (optional) return { shape: typed(NeverType), mult: ZERO };
           return this.mismatch(lenient, this.range(path), "not_indexable", MESSAGES.notIndexable(this.source(childPath(path, "slice.target")) || ".", describeType(member.type)));
@@ -820,7 +876,8 @@ class Checker {
     const t = unwrap(member.type);
     const payload = nullablePayload(t);
     if (payload !== undefined) {
-      if (!optional && member.facts?.kind !== "present") {
+      // Null raises; in a lenient place that gives no output, and a value's elements are given.
+      if (!optional && !env.lenient && member.facts?.kind !== "present") {
         const fixes = range === undefined ? [] : [edit(`Use ${form}?`, range.to, range.to, "?")];
         return this.mismatch(env, range, "not_iterable", MESSAGES.notIterableNull(form, describeType(member.type)), { fixes });
       }
@@ -1078,11 +1135,17 @@ class Checker {
       if (pa !== undefined) a = unwrap(pa);
       if (pb !== undefined) b = unwrap(pb);
     } else if (nullablePayload(a) !== undefined || nullablePayload(b) !== undefined) {
-      return fail();
+      if (!env.lenient) return fail();
+      // In a lenient place, an option is null, which raises, or its value, combined as a value is.
+      const pa = nullablePayload(a);
+      const pb = nullablePayload(b);
+      const inner = this.arithmetic(op, { shape: typed(pa ?? a), mult: ONE }, { shape: typed(pb ?? b), mult: ONE }, operands, env);
+      return inner.shape.kind === "error" ? inner : { ...inner, mult: { lo: 0, hi: inner.mult.hi } };
     }
     if (isNumber(a) && isNumber(b)) {
       if (op === "/") return { shape: typed(FloatType), mult: ONE };
-      if (op === "%") return { shape: typed(IntegerType), mult: ONE };
+      // jq's remainder of the numbers truncated to integers: a Float operand, which can be NaN, gives a Float.
+      if (op === "%") return { shape: typed(a.type === "Integer" && b.type === "Integer" ? IntegerType : FloatType), mult: ONE };
       if (a.type === "Float" || b.type === "Float") {
         if (a.type === "Integer" && operands.left.type === "literal") this.coerceLiteral(operands.left, leftPath, FloatType);
         if (b.type === "Integer" && operands.right.type === "literal") this.coerceLiteral(operands.right, rightPath, FloatType);
@@ -1111,10 +1174,8 @@ class Checker {
         return fail();
       case "*":
         if (a.type === "Struct" && b.type === "Struct") return { shape: this.mergeStructs(left, right, true), mult: ONE };
-        if (a.type === "String" && b.type === "Integer") {
-          const t = orNull(StringType);
-          return { shape: typed(t!), mult: ONE };
-        }
+        // A string repeated, the count a number on either side: a negative count gives null.
+        if ((a.type === "String" && isNumber(b)) || (isNumber(a) && b.type === "String")) return { shape: typed(orNull(StringType)!), mult: ONE };
         return fail();
       case "/":
         if (a.type === "String" && b.type === "String") return { shape: typed(ArrayType(StringType)), mult: ONE };
@@ -1162,6 +1223,9 @@ class Checker {
   // ─── Construction ──────────────────────────────────────────────────────
 
   object(node: Extract<JqNode, { type: "object" }>, path: string, input: Result, env: Env): Result {
+    // Names build a struct and computed keys a dict (§13.6): an object has one kind of key.
+    const computedKeys = node.value.filter(entry => entry.key.type === "computed").length;
+    if (computedKeys > 0 && computedKeys < node.value.length) return this.fail(this.range(path), "type_mismatch", MESSAGES.mixedKeys());
     let mult = ONE;
     const literal: { name: string; result: Result }[] = [];
     const computed: { key: Result; value: Result; keyPath: string }[] = [];
@@ -1178,9 +1242,10 @@ class Checker {
       } else {
         const keyPath = childPath(path, `object[${i}].key.computed`);
         const k = this.check(key.value, keyPath, input, env);
+        // `{"\(f)"}` holds the input's value at the key, `.[key]`.
         const v = entry.value.type === "some"
           ? this.check(entry.value.value, valuePath, input, env)
-          : this.readField(input, "", this.range(keyPath), env, false, keyPath);
+          : this.entryAt(input, k, keyPath, env);
         mult = then(mult, then(k.mult, v.mult));
         if (k.shape.kind === "error" || v.shape.kind === "error") error = true;
         computed.push({ key: k, value: v, keyPath });
@@ -1202,7 +1267,6 @@ class Checker {
       }
     });
     if (error) return { shape: ERROR, mult };
-    if (literal.length > 0 && computed.length > 0) return this.fail(this.range(path), "type_mismatch", MESSAGES.mixedKeys());
     if (computed.length > 0) {
       let keyType: EastType = NeverType;
       let valueType: EastType = NeverType;
@@ -1229,6 +1293,33 @@ class Checker {
       if (l.result.shape.kind === "type" && l.result.shape.facts !== undefined) facts.set(l.name, l.result.shape.facts);
     }
     return { shape: typed(StructType(fields), facts.size > 0 ? { kind: "fields", fields: facts } : undefined), mult };
+  }
+
+  /**
+   * The value at a computed key of the input, as `.[key]` reads it: a dict's
+   * value at the key, or null where it has none; `null`'s is null. A struct's
+   * field needs its name written (§4).
+   */
+  entryAt(input: Result, key: Result, keyPath: string, env: Env): Result {
+    if (key.shape.kind === "error") return { shape: ERROR, mult: ONE };
+    const keyType = this.collect(key, this.range(keyPath));
+    if (keyType === undefined) return { shape: ERROR, mult: ONE };
+    const range = this.range(keyPath);
+    return this.mapMembers(input, member => {
+      const u = unwrap(member.type);
+      if (u.type === "Null") return { shape: typed(NullType), mult: ONE };
+      const t = unwrap(nullablePayload(u) ?? u);
+      if (t.type === "Dict") {
+        if (!isTypeEqual(unwrap(keyType), unwrap(t.key as EastType))) {
+          return this.mismatch(env, range, "type_mismatch", MESSAGES.keyType(`{${this.source(keyPath)}}`, describeType(t.key as EastType), this.source(keyPath), describeType(keyType)));
+        }
+        const value = orNull(t.value as EastType);
+        if (value === undefined) return this.mismatch(env, range, "ambiguous_output", MESSAGES.noCommonType(describeType(t.value as EastType), "Null"));
+        return { shape: typed(value), mult: ONE };
+      }
+      if (t.type === "Struct") return this.mismatch(env, range, "type_mismatch", MESSAGES.structKey(`{${this.source(keyPath)}}`));
+      return this.mismatch(env, range, "not_indexable", MESSAGES.notIndexable(".", describeType(member.type)));
+    });
   }
 
   format(node: Extract<JqNode, { type: "format" }>, path: string, input: Result, env: Env): Result {
@@ -1278,8 +1369,11 @@ class Checker {
     let condMult = ONE;
     branches.forEach((branch, i) => {
       const condition = this.check(branch.condition, childPath(path, `if.branches[${i}].condition`), rest, env);
-      condMult = then(condMult, condition.mult);
-      const thenInput = condition.proves !== undefined ? this.narrow(rest, condition.proves) : rest;
+      // A condition after one that is always true never runs.
+      if (rest !== NOTHING) condMult = then(condMult, condition.mult);
+      // A literal condition decides the branch, as the translation does: the branch it rules out never runs.
+      const truth = this.truthOf(branch.condition);
+      const thenInput = truth === false ? NOTHING : condition.proves !== undefined ? this.narrow(rest, condition.proves) : rest;
       const result = this.check(branch.then, childPath(path, `if.branches[${i}].then`), thenInput, env);
       if (condition.shape.kind === "error" || result.shape.kind === "error") error = true;
       members.push(...membersOf(result.shape));
@@ -1297,13 +1391,22 @@ class Checker {
           rest = this.narrow(rest, [{ kind: "type", path: proof.path, types: JQ_TYPE_NAMES.filter(name => !proof.types.includes(name)) }]);
         }
       }
+      if (truth === true) rest = NOTHING;
     });
     const other = otherwise.type === "some"
       ? this.check(otherwise.value, childPath(path, "if.otherwise.some"), rest, env)
-      : { shape: rest.shape, mult: ONE };
+      : rest === NOTHING ? DEAD : { shape: rest.shape, mult: ONE };
     if (other.shape.kind === "error" || error) return { shape: ERROR, mult: ONE };
     members.push(...membersOf(other.shape));
     return { shape: union(members), mult: then(condMult, either(mult ?? ONE, other.mult)) };
+  }
+
+  /** A literal's truth to jq: `false` and `null` are false, any other literal true; `undefined` for any other node. */
+  truthOf(node: JqNode): boolean | undefined {
+    if (node.type !== "literal") return undefined;
+    const { type, value } = this.literal(node.value);
+    if (type.type === "Boolean") return value as boolean;
+    return type.type !== "Null";
   }
 
   /** The shape at a field path, for narrowing's else branch. */
@@ -1458,7 +1561,19 @@ class Checker {
     const unavailable = this.availability(builtin, name, path);
     if (unavailable !== undefined) return unavailable;
     const argPaths = args.map((_, i) => childPath(path, `call.args[${i}]`));
-    return builtin.typing!(this.context(builtin, name, path, input, env, args, argPaths));
+    // In a lenient place, an option is null or its value, each checked apart: jq
+    // raises for a null the builtin cannot take, and computes with a value.
+    const opened = env.lenient ? openOptions(input.shape) : undefined;
+    if (opened !== undefined) {
+      // Whether the builtin takes null, from its typing on null alone; what that reports is reported again below.
+      const reported = this.diagnostics.length;
+      const refused = this.refused;
+      builtin.typing!(this.context(builtin, name, path, { ...input, shape: typed(NullType), partial: undefined }, env, args, argPaths));
+      this.diagnostics.length = reported;
+      this.opened.set(`${env.instance}|${path}`, { nullRaises: this.refused > refused });
+    }
+    const given = opened === undefined ? input : { ...input, shape: opened, partial: undefined };
+    return builtin.typing!(this.context(builtin, name, path, given, env, args, argPaths));
   }
 
   /** A builtin a query may not call: its diagnostic. */
@@ -1783,6 +1898,19 @@ class Checker {
       const literalName = step.type === "index" && step.value.index.type === "literal" && t.type !== "Dict" ? this.literal(step.value.index.value) : undefined;
       const name = step.type === "field" ? step.value.name : literalName?.type.type === "String" ? literalName.value as string : undefined;
       if (name !== undefined) {
+        const payload = nullablePayload(t);
+        if (payload !== undefined) {
+          // An option: `null` is updated as null is, and a value as it is; the two must share a type.
+          const present = member.facts?.kind === "present" ? member.facts.payload : undefined;
+          const whenNull = this.assignStep({ shape: typed(NullType), mult: ONE }, step, path, at, env, keys);
+          const whenSome = this.assignStep({ shape: typed(payload, present), mult: ONE }, step, path, at, env, keys);
+          const a = whenNull === undefined ? undefined : unifyShape(whenNull);
+          const b = whenSome === undefined ? undefined : unifyShape(whenSome);
+          if (a === undefined || b === undefined) return failed;
+          const merged = unify(a, b);
+          if (merged === undefined) return this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(a), describeType(b)));
+          return done(merged);
+        }
         if (t.type === "Struct") {
           const fields = { ...(t.fields as Record<string, EastType>) };
           const facts = member.facts?.kind === "fields" ? member.facts.fields.get(name) : undefined;
@@ -2127,7 +2255,7 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
   const empty = (diagnostics: QueryError[]): CheckJqResult => ({
     query: null, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
     resultAt: () => null, scopeAt: () => null, source: { text: parsed.text, spans: parsed.spans, root: options.root === true },
-    inputAt: () => null, retype: () => null, updatedCases: () => null,
+    inputAt: () => null, retype: () => null, updatedCases: () => null, opened: () => null,
   });
   if (parsed.program.type === "none") return empty(parsed.diagnostics);
   const root = parsed.program.value;
@@ -2184,5 +2312,6 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
     inputAt: (path: string, instance: string) => checker.inputs.get(`${instance}|${path}`) ?? null,
     retype: (path: string, instance: string, input: EastType) => checker.retype(path, instance, input),
     updatedCases: (path: string, instance: string, variant: EastType) => checker.updatedCases.get(`${instance}|${path}|${printType(variant)}`) ?? null,
+    opened: (path: string, instance: string) => checker.opened.get(`${instance}|${path}`) ?? null,
   };
 }
