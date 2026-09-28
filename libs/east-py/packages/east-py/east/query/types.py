@@ -222,10 +222,6 @@ QueryErrorType = StructType(
     ]
 )
 
-# What evaluating a query dynamically gives: the result as a self-describing
-# beast2 blob, or an error.
-QueryResultType = VariantType([("error", QueryErrorType), ("ok", BlobType)])
-
 __all__ = [
     "JqPatternType",
     "JqType",
@@ -233,7 +229,6 @@ __all__ = [
     "QueryErrorType",
     "QueryFixType",
     "QueryMultiplicityType",
-    "QueryResultType",
     "QuerySpanType",
     "QueryType",
     "QueryV1Type",

@@ -3,8 +3,7 @@
 **Normative.** This document says what a query means. Where an implementation
 and this document disagree, the implementation is the bug. The design, its
 motivation and the plan are issue #875. Its children fill the sections marked
-*to be written*: the builtin catalog (#921), translation (#923), conformance
-(#924) and the e3 surfaces (#932).
+*to be written*: conformance (#924) and the e3 surfaces (#932).
 
 A **query** is a jq 1.8 program run on an East value. Values and types are
 East's, and every departure from jq 1.8 is deliberate and listed in §13.
@@ -24,7 +23,8 @@ for queries.
 | Lexer, parser, printer (§18) | `src/query/jq/` (#920) |
 | Checker and builtin catalog (§10, §12) | `src/query/jq/` (#921) |
 | Completions, descriptions, summaries (§19) | `src/query/jq/complete.ts`, `describe.ts`, `summary.ts` (#922) |
-| Translator, `East.jq`, `evaluateJq` (§15) | `src/query/jq/translate.ts` (#923) |
+| Translator (§15) | `src/query/jq/translate.ts`, each builtin's rule in `translate-builtins.ts` (#923) |
+| `East.jq`, `evaluateJq`, `QueryError` (§15) | `src/expr/query.ts`, `src/query/evaluate.ts` (#923) |
 | Corpus | `test/query.corpus.ts`, generating `test/fixtures/query-corpus.beast2` |
 | Shared fixture | `test/query.fixture.ts`, generating `test/fixtures/query-fixture.beast2` |
 
@@ -1029,6 +1029,22 @@ They are East's `StringLowerCase` and `StringUpperCase`, so `"À"` becomes
 
 `"12" | tonumber` is `12.0`; a number is returned as it is.
 
+### 13.20 `repeat(f)` gives its input, then `f` of it, and so on
+
+`repeat(f)` is `def repeat(f): def r: ., (f | r); r;`, as the jq manual
+describes it: `1 | repeat(. * 2)` gives 1, 2, 4, 8, … jq 1.8.1 gives `f` of the
+input every time (2, 2, 2, …).
+
+### 13.21 `reverse` reverses a string
+
+`"abc" | reverse` is `"cba"`, by code points, as jq 1.7 defines it. jq 1.8.1
+raises an error.
+
+### 13.22 A variant is not iterable
+
+A variant reads as `{type, value}` (§8), but `.[]` on one is `not_iterable`,
+and `iterables` drops it: read `.type` and `.value`.
+
 ---
 
 ## 14. Wire types
@@ -1098,7 +1114,6 @@ export const QueryErrorType = StructType({
   span: OptionType(QuerySpanType),
   suggestions: ArrayType(StringType),
 });
-export const QueryResultType = VariantType({ error: QueryErrorType, ok: BlobType });
 ```
 
 **Why a checked query carries its types.** A runtime then never needs the
@@ -1151,15 +1166,182 @@ cases.)
 
 ## 15. Translation
 
-*To be written by #923*, following issue #875 §6. A checked query is
-translated to ordinary East IR by East's own builder, and runs wherever East
-IR runs: no runtime has a builtin for queries, and none reads query text. The
-translation is deterministic, so a checked query over an input type always
-gives the same IR. `East.jq` records the query's canonical text (§18) in the
-IR it builds, so the IR printers show a query as the jq it came from (#927).
-This section will give the translation of each construct, how a stream stops
-early, how a runtime error carries its jq position, and how a paged input is
-read.
+`translateJq(checked, options?)` turns a checked query into ordinary East IR
+with East's own builder, typed by the checker's types. `East.jq` and
+`evaluateJq` are built on it. TypeScript compiles the IR as it compiles any
+program, east-c runs it natively, and python runs it through east-c: no
+runtime has a builtin for queries, and none reads query text.
+
+```ts
+const checked = checkJq(".orders | map(.total) | add", FixtureRoot, { root: true });
+const translation = translateJq(checked);
+translation.inputs;       // [{ name: "orders", type: Array<Order> }]
+translation.resultType;   // Float
+translation.fn();         // East.function([Array<Order>], Float, …)
+```
+
+### 15.1 The model
+
+- **A filter is a loop body.** Each node is generated with a continuation that
+  receives each of its outputs. `a | b` generates `b` in `a`'s continuation,
+  and `a, b` gives `a`'s outputs, then `b`'s. `.[]` is a `for` over the
+  collection: an array's elements, a set's in order, a dict's values in key
+  order, a struct's fields in declared order.
+- **The result is the sink.** A `one` query's result is its output, `maybe`
+  fills an `Option`, and `many` pushes each output onto an `Array`.
+- **Every value has the checker's type.** Each node's outputs are converted to
+  the type the checker gave it: Integer widened to Float, `T` and `null` to
+  `Option<T>`, arrays, dicts, structs and variants part by part. Narrowing is
+  kept: a `null` the checker ruled out never reaches the next filter, and an
+  option narrowing proved present gives its payload.
+- **Tests narrow.** `type == "number"` on an option opens it first, so each
+  branch sees what it tests; a case test (`.status.type == "shipped"`) limits
+  `.value` to the cases it allows; a branch narrowing rules out is not
+  generated. A comparison or `type` that the types decide is folded when the
+  query is translated.
+- **One type per input.** Where one record of the checker cannot serve every
+  input a node is given (a `walk` meeting values of several types, `map` over
+  a struct's fields), the checker checks the node again for that input's type,
+  and the translation is typed from what it finds.
+
+```jq
+[.orders[] | if .status.type == "cancelled" then .status.value.reason else "" end] | .[:3]
+```
+→ `["", "", ""]` · Array<String>, one (only the `cancelled` case is read for `.reason`)
+
+### 15.2 Early exit
+
+`first(f)`, `limit(n; f)`, `nth(n; f)`, `isempty(f)`, `any`, `all`, `IN` and
+`label $l | … break $l` run their stream inside a labelled loop, and break out
+of it, and so out of every loop between, when they have what they need. A
+lazy input stops being read there (§15.6).
+
+```jq
+first(.orders[] | select(.total > 1000)) | .id
+```
+→ `.some 1002` · Option<Integer>, maybe (the loop over the orders stops at the second)
+
+### 15.3 Control and errors
+
+- **`if`** is `if`/`else`; a condition with several outputs runs a branch for
+  each.
+- **`try body catch h`** runs `body` in an East `try`. The outputs it gave
+  before an error stand, and are given on after the `try`, so an error their
+  consumer raises is not `body`'s to catch. `h` receives the error's message
+  (§13.14). `f?` is `try f`.
+- **`a // b`** gives `a`'s outputs that are neither `false` nor `null`, with
+  `a`'s errors suppressed, or else `b`'s.
+- **`?//`** binds each pattern in turn, and runs the body with the first that
+  raises no error.
+- **`reduce` and `foreach`** loop over the source with an accumulator of the
+  checker's settled type (§5). The update runs on the state as it was, and its
+  last output becomes the state; `foreach` gives each of its outputs, through
+  `extract` when there is one.
+- **Errors are East errors.** `error(v)` raises `v`'s East text (§13.14). An
+  arithmetic error is the builtin's own (`Division by zero` from an integer
+  `%`); `/` by zero raises `Division by zero`, as jq raises an error.
+- **Locations.** Each node that can raise carries a location in the jq text:
+  file `jq`, the node's line and column. An error names it, so `1 | . % 0`
+  raises `Division by zero` at `jq 1:5`, and `evaluateJq` gives it as its
+  `runtime` diagnostic's span.
+
+### 15.4 Functions and recursion
+
+- A `def` is inlined at each call, typed as the checker typed that call; a
+  filter parameter is a closure over the caller's scope.
+- A recursive `def` with value parameters is an East function held in a
+  reference, which its body calls through the reference. It returns its whole
+  stream as an array, so early exit does not reach into its recursion. One
+  that takes a filter parameter is refused (§13.13).
+- `recurse`, `..`, `while`, `until` and `repeat` walk with an explicit stack.
+  Over a recursive type, the stack holds the kinds of value the walk meets as
+  the cases of one variant, and needs no recursion in the IR. The walk is
+  pre-order, fields in declared order.
+- `walk(f)` rebuilds bottom-up: a value's parts first, then `f` on the value
+  rebuilt. A recursive type is rebuilt by a function reached through a
+  reference.
+
+```jq
+def fact: if . <= 1 then 1 else . * (. - 1 | fact) end; 5 | fact
+```
+→ `120` · Integer, one
+
+### 15.5 Updates
+
+`=`, `|=` and the arithmetic updates rebuild the value along their path:
+fields, indexes and keys, `.[]`, `select(f)` and `|` of these. A new field
+gives the Struct type the checker inferred (§5).
+
+- `|=` takes the update's first output at each position; where it gives none,
+  an array element or a dict key is deleted, and a struct field, which cannot
+  be, is an error.
+- `=` and `op=` take their value on `.`, once for each of its outputs.
+- `del(p)` deletes every path `p` names at once, each path's indexes and bounds
+  taken on the input, as jq deletes them: `del(.[0], .[2])` on `[1, 2, 3, 4]`
+  is `[2, 4]`.
+
+### 15.6 Inputs and paging
+
+- **Checked as an e3 root** (`East.jq({ orders, customers }, …)`, e3's root),
+  each field the query reads is its own parameter, and `.orders` reads it
+  directly: the root is never built as a value. The checker's `reads` lists
+  the fields.
+- **A lazy input stays lazy.** It is iterated, indexed, looked up and counted
+  with the builtins that read a lazy value without reading it whole, and early
+  exit stops reading it: `first(.orders[])` reads the first segment of the
+  orders, and `.orders | length` their index alone.
+
+### 15.7 `East.jq`
+
+```ts
+East.jq(input: Expr | { [name: string]: Expr }, program: string, resultType?: EastType): Expr
+```
+
+`East.jq` parses, checks and translates when the program is built. For an
+object of inputs, the query is checked as an e3 root: a Struct of their types,
+in the given order. A diagnostic of error severity throws `QueryError`, and so
+does a `resultType` that is not the query's result type, naming both.
+
+The expression is a block:
+
+1. **the marker**, a discarded Struct statement
+   `{east_jq: "<the canonical text, one line>", inputs: [<the inputs' names, or [] for one input>]}`;
+2. **one `let` per input**, in order, holding the expression given;
+3. **the translation** over those variables, whose value is the block's.
+
+The marker is the whole of the convention: nothing reads it at run time, and
+the IR printers read it to show `East.jq(…)` again (#927).
+
+### 15.8 `evaluateJq` and `QueryError`
+
+`evaluateJq(program, input, { inputType, root, tooling, platform })` checks the
+program when given its text, translates it, compiles it with `East.compile`
+and runs it. The compiled function is cached by the query's canonical text,
+its input type and the options, 64 at most, so a query run again compiles
+once. With `root`, each field the query reads is passed alone, so a lazy one
+stays lazy. It returns `T`, `Option<T>` or `Array<T>` by the multiplicity.
+
+`QueryError` carries `diagnostics`, `QueryErrorType` values. For a query that
+does not check they are the checker's; for an error the query raised as it
+ran, one diagnostic with code `runtime`, the East error's message and the
+span of the node that raised it. Its message lists each error as
+`jq <line>:<column>: <message>`.
+
+### 15.9 Options, determinism and tooling
+
+- **`maxOutputs`.** With `maxOutputs = n`, a `many` query stops after `n + 1`
+  outputs, so a caller can tell the result was cut short, and reads nothing
+  past them (#929).
+- **`tooling`.** `signature`, `source`, `calls` and `captures` become calls of
+  the host platform functions `jq_signature`, `jq_source`, `jq_calls` and
+  `jq_captures`, given the function value's type (#931).
+- **`builtins`** gives `name/arity` for each arity of each builtin a query may
+  call (with `tooling`, the tooling builtins too), in East's string order.
+- **Deterministic.** The same checked program and options give the same IR,
+  but for variable names and locations, which the IR normaliser ignores. The
+  corpus fixture holds each case's translation (`translated`), built without
+  source locations but the jq text's, and python's translator is held to it
+  (#926).
 
 ---
 
