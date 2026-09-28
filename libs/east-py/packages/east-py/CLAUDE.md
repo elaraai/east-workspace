@@ -73,8 +73,8 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
    (authoring names for IR variables, #639: parameters from a body's
    signature, `b.let`/`b.const` bindings from the authoring file parsed
    with `ast`), `capture.py`,
-   `project.py` (field masks for beast2 projection), `errors.py`,
-   `helpers.py`. `libs/<type>.py` is the TypeScript `expr/libs` stdlib,
+   `project.py` (field masks for beast2 projection), `query.py` (`East.jq`,
+   layer 11), `errors.py`, `helpers.py`. `libs/<type>.py` is the TypeScript `expr/libs` stdlib,
    ported body for body and built on first use (`LazyFunction`).
 3. **`east/namespace.py`** — the `East` object: the scalar namespaces
    (`East.Float`, `East.Integer`, `East.String`, `East.DateTime`,
@@ -117,11 +117,24 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
     (imported, fetched) and put to that same check; a user module's is the
     build's to tell. Surfaces:
     `east-py lint`, the flake8 plugin and `east-py lsp` (east-py-cli).
-11. **`east/query/`** — typed jq queries (#875): `types.py`, the wire types,
-    twins of `libs/east/src/query/types.ts` (spec
-    `libs/east/devdocs/QUERY.md`). `tests/test_query_types.py` holds each to
-    TypeScript's bytes, which the header of
-    `libs/east/test/fixtures/query-corpus.beast2` carries.
+11. **`east/query/`** — typed jq queries (#875; spec
+    `libs/east/devdocs/QUERY.md`), each module the twin of its TypeScript
+    namesake in `libs/east/src/query/`: `types.py`, the wire types; in `jq/`
+    the lexer, parser and canonical printer (`lex.py`, `parse.py`,
+    `print.py`; UTF-16 spans in `spans.py`), the checker (`check.py`, with
+    `shapes.py`, `messages.py`, `regex.py`, `strftime.py`, and `catalog.py`
+    over `_catalog.json`, which `make query-corpus` in `libs/east` writes)
+    and the translator (`translate.py`, each builtin's rule in
+    `translate_builtins.py`), which writes TypeScript's AST and lowers it
+    with `ast_to_ir`'s rules (`lower.py`), so the two give the same IR;
+    `evaluate.py` holds `evaluate_jq` and `QueryError`. `East.jq`
+    (`east/expression/query.py`) translates in a build behind the marker
+    statement, and runs on values. The corpus fixture holds them to
+    TypeScript: `tests/test_query_corpus.py` (checked queries, diagnostics,
+    and translations under `diff_ir`), `tests/test_query.py` (outputs over
+    the fixture), `tests/test_query_types.py` (the wire types' bytes, which
+    the header of `libs/east/test/fixtures/query-corpus.beast2` carries) and
+    `tests/test_query_catalog.py` (the catalog).
 
 ### Invariants
 

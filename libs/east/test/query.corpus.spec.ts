@@ -16,8 +16,8 @@ import {
   canonicalTypeValue, decodeBeast2For, equalFor, isTypeValueEqual, toEastTypeValue,
 } from "../src/index.js";
 import {
-  QUERY_CORPUS, QUERY_WIRE_TYPES, QueryCorpusFixtureType,
-  assertFixtureCurrent, queryCorpusBytes, typeValueBytes,
+  PYTHON_CATALOG, QUERY_CORPUS, QUERY_WIRE_TYPES, QueryCorpusFixtureType,
+  assertFixtureCurrent, catalogJson, queryCorpusBytes, typeValueBytes,
 } from "./query.corpus.js";
 
 const CORPUS_FILE = new URL("../../test/fixtures/query-corpus.beast2", import.meta.url);
@@ -40,6 +40,15 @@ describe("query corpus", () => {
 
   test("the checked-in fixture is current", () => {
     assertFixtureCurrent("query-corpus.beast2", checkedIn, queryCorpusBytes());
+  });
+
+  test("python's copy of the catalog is current (#926)", () => {
+    // A Windows checkout has CRLF; `make query-corpus` writes LF.
+    const checkedInCatalog = readFileSync(PYTHON_CATALOG, "utf8").replaceAll("\r\n", "\n");
+    assert.ok(
+      checkedInCatalog === catalogJson(),
+      "east-py's east/query/jq/_catalog.json is not what the catalog makes now: run `make query-corpus` in libs/east and commit the file",
+    );
   });
 
   test("a stale fixture fails with the instruction to rewrite it", () => {

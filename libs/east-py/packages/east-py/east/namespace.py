@@ -65,6 +65,7 @@ from east.expression.platform import (
 from east.expression.platform import (
     platform as _platform,
 )
+from east.expression.query import jq as _jq
 from east.expression.statements import error
 from east.functions import (
     decode_function_manifest as _decode_function_manifest,
@@ -1791,6 +1792,9 @@ class _East:
     # total order; clamp pins a value into [lo, hi]; str is the template
     max = staticmethod(greatest)
     min = staticmethod(least)
+    # a typed jq query (#875, east/expression/query.py): translated to East IR
+    # in a build, compiled and run on values
+    jq = staticmethod(_jq)
 
     @staticmethod
     def clamp(value: Any, lo: Any, hi: Any) -> Any:
