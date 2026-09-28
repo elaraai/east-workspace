@@ -1420,13 +1420,21 @@ A new field gives the Struct type the checker inferred (§5).
 ### 15.7 `East.jq`
 
 ```ts
-East.jq(input: Expr | { [name: string]: Expr }, program: string, resultType?: EastType): Expr
+East.jq<T extends EastType>(input: Expr | { [name: string]: Expr }, program: string, resultType: T): ExprType<T>
 ```
 
 `East.jq` parses, checks and translates when the program is built. For an
 object of inputs, the query is checked as an e3 root: a Struct of their types,
 in the given order. A diagnostic of error severity throws `QueryError`, and so
 does a `resultType` that is not the query's result type, naming both.
+
+**The result type is required, and types the expression.** A query's type is
+known only once its text is checked, so the program states it: the result
+type of §3 (`T`, `Option<T>` or `Array<T>`), which the query must check to
+exactly. The expression is then of that type (an `ArrayExpr` for an `Array`,
+and so on), and its methods chain:
+`East.jq(orders, "map(.total)", ArrayType(FloatType)).sum()`. python's
+`East.jq(input, program, result_type)` takes it the same way.
 
 The expression is a block:
 
