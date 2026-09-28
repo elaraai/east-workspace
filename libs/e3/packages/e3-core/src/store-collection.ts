@@ -26,16 +26,10 @@
  *   they stand, never decoded: a manifest directory's segment files are linked
  *   in under the hashes that name them, and a blob's segments are carved out of
  *   the file.
- * - A delivered file is checked: every runtime's Writer writes the same bytes
- *   for a value, so a file one of them wrote is already the store's. Each of
- *   its segments is proved the Writer's — every element held to the Writer's
- *   encoding and walked through the cut rule, which must cut exactly where the
- *   file does, and its frame deflated again, byte for byte — and stored as it
- *   stands as it is proved. A file the check refuses anywhere is foreign.
- * - Everything else is foreign: an upload, a custom task's output, a delivered
- *   file the check refused. Its elements are read a segment of the source at a
- *   time and written again through the Writer, so nothing about the source's
- *   layout survives into the store.
+ * - Everything else is foreign: a delivered file, an upload, a custom task's
+ *   output. Its elements are read a segment of the source at a time and
+ *   written again through the Writer, so nothing about the source's layout
+ *   survives into the store.
  * - Elements in memory are written through the Writer.
  *
  * No source is decoded whole: a foreign source is read front to back, and a
@@ -49,10 +43,8 @@ import { open, readFile, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   Beast2ElementWriter,
-  Beast2NotWritersError,
   EastTypeValueType,
   carveBeast2Ranged,
-  checkBeast2WriterSegmentsFor,
   decodeBeast2ElementsFor,
   encodeBeast2FenceFor,
   isTypeValueEqual,
@@ -94,17 +86,12 @@ const READ_CHUNK_BYTES = 1024 * 1024;
 export type CollectionSource =
   /** A collection in the store — a manifest, or a record state naming one —
    *  or its segments `[from, to)`; or a delivery, whole, stored as the object
-   *  it arrived as, which is checked as a delivered file is. `onRead` hears
-   *  a whole delivery read, as for a file. */
-  | { readonly stored: string; readonly from?: number; readonly to?: number; readonly onRead?: (bytes: number, foreign: boolean) => void }
+   *  it arrived as. */
+  | { readonly stored: string; readonly from?: number; readonly to?: number }
   /** A beast2 blob in a file. `canonical` when the Writer wrote it — a stock
-   *  runner's output — so its segments are stored as they stand. `check` when
-   *  it was delivered from outside: its segments are stored as they stand if
-   *  the Writer check proves every one of them. Otherwise its elements are read
-   *  and written again. `onRead` hears, as the door reads the file, how many of
-   *  its bytes the read underway has reached, and whether that read is of the
-   *  file as foreign: a file the check refuses is read again from its start. */
-  | { readonly file: string; readonly canonical?: boolean; readonly check?: boolean; readonly onRead?: (bytes: number, foreign: boolean) => void }
+   *  runner's output — so its segments are stored as they stand; otherwise
+   *  its elements are read and written again. */
+  | { readonly file: string; readonly canonical?: boolean }
   /** A manifest directory: the manifest in the file `manifest`, and each
    *  object it names in `<manifest>.segments/`, the file named by the
    *  object's SHA-256. `canonical` when the Writer wrote it — a stock
@@ -155,7 +142,6 @@ export async function storeCollection(
     throw new TypeError(`store: a collection is an Array, Set or Dict, not ${typeValue.type}`);
   }
   const readElements = decodeBeast2ElementsFor(typeValue);
-  let checkSegments: ReturnType<typeof checkBeast2WriterSegmentsFor> | undefined;
   const rule = segmentRuleFor(typeValue);
   // The Writer's own header: a segment is carried over only under it.
   const header = new Beast2ElementWriter(typeValue, { segment: () => {} }).header;
@@ -197,17 +183,14 @@ export async function storeCollection(
     }
   }
 
-  const storedPiece = async (source: { stored: string; from?: number; to?: number; onRead?: (bytes: number, foreign: boolean) => void }): Promise<CollectionPiece> => {
+  const storedPiece = async (source: { stored: string; from?: number; to?: number }): Promise<CollectionPiece> => {
     const opened = await openDatasetObject(storage, repo, source.stored);
     const manifest = opened.manifest;
     if (manifest === null) {
       if (source.from !== undefined || source.to !== undefined) {
         throw new Error(`store: object ${opened.hash.slice(0, 8)} is not a manifest, and only a manifest has segments to take a run of`);
       }
-      const { size } = await storage.objects.stat(repo, opened.hash);
-      const checked = await checkedPiece(size, (offset, length) => storage.objects.readRange(repo, opened.hash, offset, length), source.onRead);
-      if (checked !== null) return checked;
-      return { elements: readElements(counted(objectChunks(opened.hash), source.onRead)) };
+      return { elements: readElements(objectChunks(opened.hash)) };
     }
     checkType(`manifest ${opened.hash.slice(0, 8)}`, manifest.type);
     // No segment of a manifest cut under another rule or header is one the
@@ -220,14 +203,11 @@ export async function storeCollection(
     return { segments: manifestRefs(manifest, source.from ?? 0, source.to ?? manifest.entries.length) };
   };
 
-  /** A beast2 file: a stock runner's output carved out as its segments stand,
-   *  a delivery carried as its segments are proved, and anything else read as
-   *  foreign. A stock runner's file that is not the Writer's — no index,
-   *  segments that alias one another, another header — is read as foreign
-   *  too. */
-  const filePiece = async (source: { file: string; canonical?: boolean; check?: boolean; onRead?: (bytes: number, foreign: boolean) => void }): Promise<CollectionPiece> => {
-    const { file, onRead } = source;
-    if (source.canonical === true) {
+  /** A stock runner's output: its segments carved out of the file as they
+   *  stand. A file that is not the Writer's — no index, segments that alias
+   *  one another, another header — is read as foreign bytes instead. */
+  const filePiece = async (file: string, canonical: boolean): Promise<CollectionPiece> => {
+    if (canonical) {
       let extents: Beast2RangedExtents | null = null;
       const handle = await open(file, 'r');
       try {
@@ -241,61 +221,8 @@ export async function storeCollection(
         checkType(file, extents.typeValue);
         if (extents.selfContained && bytesEqual(extents.head, header)) return { segments: fileRefs(file, extents) };
       }
-    } else if (source.check === true) {
-      const handle = await open(file, 'r');
-      try {
-        const checked = await checkedPiece((await handle.stat()).size, (offset, length) => readRange(handle, offset, length), onRead);
-        if (checked !== null) return checked;
-      } finally {
-        await handle.close();
-      }
     }
-    return { elements: readElements(counted(createReadStream(file, { highWaterMark: READ_CHUNK_BYTES }), onRead)) };
-  };
-
-  /** A delivery — a file, or an object stored whole — read through `read`, its
-   *  segments stored as the Writer check proves them, OBJECT_CONCURRENCY writes
-   *  at a time, and carried by the entries they were stored under. `null` when
-   *  the delivery is not the Writer's: no index, or a segment the check
-   *  refuses. The segments stored before a refusal are named by nothing, and
-   *  gc's to collect. */
-  const checkedPiece = async (
-    size: number,
-    read: (offset: number, length: number) => Promise<Uint8Array>,
-    onRead?: (bytes: number, foreign: boolean) => void,
-  ): Promise<CollectionPiece | null> => {
-    let extents: Beast2RangedExtents;
-    try {
-      extents = await readBeast2ExtentsRanged({ size, read });
-    } catch {
-      return null;
-    }
-    checkSegments ??= checkBeast2WriterSegmentsFor(typeValue);
-    const writes: Promise<CollectionSegmentRef>[] = [];
-    const refs: CollectionSegmentRef[] = [];
-    try {
-      for await (const segment of checkSegments(extents, read)) {
-        const blob = carveBeast2Ranged(extents, segment.frame, segment.index, segment.index + 1);
-        const writing = storage.objects.write(repo, blob).then((hash): CollectionSegmentRef => ({
-          count: segment.count,
-          fence: segment.fence,
-          read: () => storage.objects.read(repo, hash),
-          entry: { hash, fence: segment.fence, count: BigInt(segment.count), bytes: BigInt(blob.byteLength) },
-        }));
-        writing.catch(() => { /* raised in order below */ });
-        writes.push(writing);
-        if (writes.length >= OBJECT_CONCURRENCY) refs.push(await writes.shift()!);
-        onRead?.(segment.index + 1 < extents.offsets.length ? extents.offsets[segment.index + 1]! : extents.segmentsEnd, false);
-      }
-      while (writes.length > 0) refs.push(await writes.shift()!);
-    } catch (err) {
-      // Nothing this started runs on after it returns.
-      await Promise.allSettled(writes);
-      if (err instanceof Beast2NotWritersError) return null;
-      throw err;
-    }
-    onRead?.(extents.size, false);
-    return { segments: refs };
+    return { elements: readElements(createReadStream(file, { highWaterMark: READ_CHUNK_BYTES })) };
   };
 
   /** A manifest directory. A stock runner's, cut by the current rule under
@@ -346,7 +273,7 @@ export async function storeCollection(
     for await (const source of sources) {
       if ('elements' in source) yield { elements: source.elements };
       else if ('chunks' in source) yield { elements: readElements(source.chunks) };
-      else if ('file' in source) yield await filePiece(source);
+      else if ('file' in source) yield await filePiece(source.file, source.canonical === true);
       else if ('manifest' in source) yield await directoryPiece(source.manifest, source.canonical === true);
       else yield await storedPiece(source);
     }
@@ -420,17 +347,6 @@ export async function storeDatasetBytes(storage: StorageBackend, repo: string, b
   }
   if (!isCollectionRoot(type)) return storage.objects.write(repo, bytes);
   return storeCollection(storage, repo, type, [{ chunks: [bytes] }]);
-}
-
-/** A delivery read as foreign, its chunks as they are read, telling `onRead`
- *  how many bytes have been. */
-async function* counted(chunks: AsyncIterable<Uint8Array>, onRead?: (bytes: number, foreign: boolean) => void): AsyncGenerator<Uint8Array> {
-  let bytes = 0;
-  for await (const chunk of chunks) {
-    bytes += chunk.length;
-    onRead?.(bytes, true);
-    yield chunk;
-  }
 }
 
 /** Exactly `length` bytes of a file at `offset`, or fewer at its end. */
