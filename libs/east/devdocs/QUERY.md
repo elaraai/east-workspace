@@ -3,8 +3,8 @@
 **Normative.** This document says what a query means. Where an implementation
 and this document disagree, the implementation is the bug. The design, its
 motivation and the plan are issue #875. Its children fill the sections marked
-*to be written*: the builtin catalog (#921), conformance (#924) and the e3
-surfaces (#932).
+*to be written*: the builtin catalog (#921), translation (#923), conformance
+(#924) and the e3 surfaces (#932).
 
 A **query** is a jq 1.8 program run on an East value. Values and types are
 East's, and every departure from jq 1.8 is deliberate and listed in §13.
@@ -13,16 +13,17 @@ A query's text is parsed and checked **once, in an SDK**, against the type of
 its input. Checking gives a **checked query**: a `QueryType` value holding
 the program, the input type, the type of each output and how many outputs
 there are. That value is East's narrow waist for queries, as the token array
-of a datetime format string is for `DateTime.printFormatted`. Two builtins,
-`Query` and `QueryDynamic`, evaluate a checked query in every runtime (§15).
-No runtime reads query text.
+of a datetime format string is for `DateTime.printFormatted`. An SDK
+translates a checked query to ordinary East IR, which every runtime runs as it
+runs any program (§15). No runtime reads query text, and none has a builtin
+for queries.
 
 | Piece | Where |
 |---|---|
 | Wire types (§14) | `src/query/types.ts`; python twins in `east/query/types.py` |
-| Lexer, parser, printer | `src/query/jq/` (#920) |
+| Lexer, parser, printer (§18) | `src/query/jq/` (#920) |
 | Checker and builtin catalog (§10, §12) | `src/query/jq/` (#921) |
-| Evaluator, `Query` / `QueryDynamic`, `East.jq` | `src/query/eval.ts`, `src/compile/builtins/query.ts` (#923); east-c (#925) |
+| Translator, `East.jq`, `evaluateJq` (§15) | `src/query/jq/translate.ts` (#923) |
 | Corpus | `test/query.corpus.ts`, generating `test/fixtures/query-corpus.beast2` |
 | Shared fixture | `test/query.fixture.ts`, generating `test/fixtures/query-fixture.beast2` |
 
@@ -42,9 +43,10 @@ No runtime reads query text.
 12. Diagnostics and lints
 13. Deviations from jq 1.8
 14. Wire types
-15. The runtime contract
+15. Translation
 16. Conformance
 17. e3 surfaces
+18. Grammar and canonical text
 
 ---
 
@@ -178,9 +180,10 @@ first(.orders[]) | .id, .customer_id
 → `ambiguous_output`: Integer and String have no common type. Suggestion:
 `{id, customer_id}`.
 
-**The runtime enforces the multiplicity.** A one query that gives no output,
-or two, is a runtime error. The checker never produces such a query, but a
-hand-built `QueryType` can claim anything, and a runtime checks it (§15).
+**The multiplicity is the checker's.** A one query gives exactly one output.
+A query is translated from the checker's own result (§15), so a hand-built
+`QueryType` that claims other types or another multiplicity is checked again
+before it runs, and refused.
 
 ---
 
@@ -489,14 +492,14 @@ call(.model; {price: 10.0, region: "NSW"})
 → `.some (price=12.0, demand=929.67)` · Option<Struct{price: Float, demand: Float}>, one
 
 - **Async functions** are `unsupported` in this version.
-- **Platform dependencies.** A function value runs in the runtime that
-  evaluates the query, compiled against that runtime's platform when the value
-  is decoded. e3 answers a value whose IR needs platform functions it has not
+- **Platform dependencies.** A function value runs in the runtime that runs
+  the query, compiled against that runtime's platform when the value is
+  decoded. e3 answers a value whose IR needs platform functions it has not
   loaded with `needs_platform` (§17).
 - **Inspection is tooling.** `signature`, `source`, `calls` and `captures`
   need the TypeScript IR printers. They are tooling-only builtins: `e3 query`
-  and host-side evaluation (`evaluateJq` with the tooling catalog) offer them,
-  and the checker rejects them everywhere else with `unsupported`.
+  and host-side runs (`evaluateJq` with the tooling platform functions, #931)
+  offer them, and the checker rejects them everywhere else with `unsupported`.
 
 ---
 
@@ -750,58 +753,24 @@ cases.)
 
 ---
 
-## 15. The runtime contract
+## 15. Translation
 
-Two builtins evaluate a checked query:
-
-```ts
-Query:        { type_parameters: ["T", "R"], inputs: ["T", QueryType], output: "R" },
-QueryDynamic: { type_parameters: ["T"],      inputs: ["T", QueryType], output: QueryResultType },
-```
-
-**Runtimes evaluate; they do not check.**
-
-- The query's `input_type` must equal `T`. That is one type comparison per
-  query value, and a runtime caches it.
-- For `Query`, the builder guarantees that `R` is the result type that
-  `element_type` and `multiplicity` imply, and the runtime verifies it.
-- The evaluator runs jq's stream semantics, calling the runtime's own
-  builtins for the catalog (§10).
-- **Every output is validated** against `element_type` before it is returned
-  or encoded, and the multiplicity is enforced. A hand-built `QueryType` with
-  the wrong types therefore gives an error, never a value of the wrong type.
-  In east-c, a value of the wrong type could reach invalid memory.
-- **Errors.** `Query` throws an East runtime error. `QueryDynamic` returns
-  `error` for an input of the wrong type and for any evaluation error,
-  `error/1` and errors thrown by a called function value included.
-- **Encoding.** `QueryDynamic`'s `ok` is encoded exactly as
-  `BlobEncodeBeast2` encodes.
-
-**Implementations.**
-
-- **TypeScript**: `src/query/eval.ts`, registered by
-  `src/compile/builtins/query.ts`, with a prepared plan cached per query value
-  in a `WeakMap`.
-- **east-c**: `src/query/eval.c` and `src/builtins/query.c`, registered in
-  `east_register_all_builtins`. A builtin's implementation takes no context,
-  so the prepared plan is cached in a `_Thread_local` table keyed by the query
-  value's identity and `T`.
-- **python** evaluates through east-c; east-py implements no builtin in python.
-
-**Paged inputs.** The evaluator does not load a lazy or paged collection
-that it only iterates, indexes, slices, looks up by key or counts. In
-TypeScript these are the lazy values of `openBeast2LazyFor` and
-`BlobOpenBeast2`. In east-c, both builtins serve paged arguments
-(`east_builtin_serves_paged`). `first(f)`, `limit(n; f)` and `label` /
-`break` stop reading input as soon as they are satisfied, and `length` on an
-unfiltered collection reads only its segment index.
+*To be written by #923*, following issue #875 §6. A checked query is
+translated to ordinary East IR by East's own builder, and runs wherever East
+IR runs: no runtime has a builtin for queries, and none reads query text. The
+translation is deterministic, so a checked query over an input type always
+gives the same IR. `East.jq` records the query's canonical text (§18) in the
+IR it builds, so the IR printers show a query as the jq it came from (#927).
+This section will give the translation of each construct, how a stream stops
+early, how a runtime error carries its jq position, and how a paged input is
+read.
 
 ---
 
 ## 16. Conformance
 
 *To be written by #924*: the jq 1.8 test suites (`jq.test`, `man.test`,
-`onig.test`, `optional.test`) run through the checker and the evaluators. This
+`onig.test`, `optional.test`) run through the checker and the translation. This
 section will count the cases that pass, those skipped because their inputs or
 outputs are not typeable as East values, and those that differ by a deviation
 of §13, and list the last by deviation.
@@ -814,3 +783,131 @@ of §13, and list the last by deviation.
 `e3 dataset summarize`; the query route, its root, its limits and its
 permission; evaluation on a runner with the datasets passed by reference;
 `needs_platform`; and query plans on the engine (issue #875 §10).
+
+---
+
+## 18. Grammar and canonical text
+
+`src/query/jq/`: `lexJq`, `parseJq` and `printJq`, with `spanOf`, `pathAt`
+and `toQuerySpan`, exported from `@elaraai/east`. The python twins (#926)
+give the same programs, spans, diagnostics and text.
+
+### 18.1 The grammar
+
+jq 1.8's (`src/parser.y`), from the loosest level to the tightest:
+
+| Level | Forms | Associativity |
+|---|---|---|
+| pipe | `a \| b` | right |
+| comma | `a, b` | left |
+| binding | `src as $p ?// $q \| body`, `label $l \| body`, `def f(g; $x): body; rest` | the body runs to the end of the enclosing query |
+| alternative | `a // b` | right |
+| update | `=` `\|=` `+=` `-=` `*=` `/=` `%=` `//=` | none |
+| or | `a or b` | left |
+| and | `a and b` | left |
+| comparison | `==` `!=` `<` `<=` `>` `>=` | none |
+| additive | `+` `-` | left |
+| multiplicative | `*` `/` `%` | left |
+| term | `-a`; `try a catch b`, whose body and handler are terms | — |
+| postfix | `.name`, `."name"`, `[e]`, `[]`, `[a:b]`, `[a:]`, `[:b]`, each with an optional `?`; `f?` | — |
+| primary | `.`, `..`, literals, `$x`, `name(a; b)`, `[…]`, `{…}`, strings, `@format`, `reduce`, `foreach`, `if`, `break $l`, `(…)` | — |
+
+- `as` takes the whole expression on its left, as jq 1.8 does:
+  `1 + 2 as $x | $x` binds 3. `,` binds more loosely:
+  `1, 2 as $x | $x` is `1, (2 as $x | $x)`.
+- The source of `reduce` and `foreach` is an expression:
+  `reduce 1 + 2 as $x (…)`.
+- A `try` with no `catch` takes the first `catch` after its body, so
+  `try (try a) catch b` needs its parentheses.
+- An object's value is an expression, or expressions joined by `|`. A `,` or a
+  binding needs parentheses there.
+- A format where a field's name or a key goes must have its string:
+  `.@base64 "x"` and `{@base64 "x": v}`, never `.@base64`.
+- `$__loc__` is the variable `__loc__`. `import`, `include` and `module` are
+  `unsupported`.
+
+### 18.2 What the parser keeps
+
+The parser keeps jq's sugar, so printing gives back what was written:
+
+- `.a.b` is two `field` nodes, and `.a?` sets `optional`;
+- `."a"` is the field `a`, and `."a\(f)"` an index by the string;
+- `f?` and `try f` are both a `try` with no `catch`;
+- `.a.[0]` is `.a[0]`, as in jq 1.7 and later.
+
+**Literals** are self-describing beast2 blobs:
+
+- a number written without `.` or an exponent is an Integer, exact to 64
+  bits; a larger one is a problem;
+- any other number is a Float;
+- `true`, `false` and `null` are Boolean and Null;
+- a string without interpolations is a String.
+
+A string's escapes are JSON's, and its text is well-formed UTF-16: a lone
+surrogate, written raw or escaped, reads as U+FFFD.
+
+**Spans.** `parseJq` gives the span of every node by its path from the root
+(`pipe.left.call.args[1]`), in the units of §14. A node's span leaves out the
+parentheses around it and takes in those around its operands, and `printJq`
+gives the same spans for the text it prints. `pathAt` finds the innermost node
+at an offset.
+
+### 18.3 Syntax diagnostics
+
+A problem is a `QueryErrorType` with code `syntax`, one sentence, its span,
+and a fix where one is obvious. A program with any problem has no `program`.
+After a problem the parser resumes at the next `|` outside every bracket,
+`if … end` and `def … ;`, so one typo reports one problem.
+
+| Case | Message | Fix |
+|---|---|---|
+| a closing bracket with no opener, or the wrong one | `syntax: unexpected "{c}".` / `syntax: unexpected "{c}" — "{o}" at column {n} is still open.` | — |
+| an unclosed bracket | `syntax: "{c}" is never closed.` | "Close it": the bracket, at the end |
+| an unterminated string | `syntax: this string is never closed.` | "Close it": `"`, at the end of its line |
+| a trailing `\|` | `syntax: expected a filter after "\|".` | "Remove the \|" |
+| an empty program | `syntax: empty program.`, with no span | — |
+| an escape JSON lacks | `syntax: invalid escape "\q" in a string.` | — |
+| an Integer beyond 64 bits | `syntax: {n} is too large for an Integer; write {n}.0 for a Float.` | — |
+| a Float beyond range | `syntax: {n} is too large for a Float.` | — |
+| a computed key in a pattern | `syntax: computed keys in patterns are not supported (#875 Defer).` | — |
+| `$name: pattern` in a pattern | `syntax: "$name: pattern" is not supported; write "name: pattern" and bind $name separately.` | — |
+| a module keyword | `unsupported: {keyword} is excluded — queries are deterministic and have no host access.`, code `unsupported` | — |
+| anything else | `syntax: unexpected {token}; expected {what the grammar allows}.` | — |
+
+### 18.4 The canonical text
+
+Every program has one canonical text:
+
+- one space around binary operators, `|`, `//`, `as` and `?//`; `, ` and `; `
+  between items; `: ` in objects; no space inside brackets;
+- a field or a key bare when it is an identifier (keywords included), and a
+  JSON string otherwise;
+- literals as East prints them: Integers as digits, and Floats in East's
+  shortest round-trip form with `.0` when integral (`100.0`, `1e+21`). NaN and
+  ±Infinity print as `nan`, `infinite` and `-infinite`;
+- strings with JSON's minimal escapes;
+- parentheses only where the grammar needs them: around a looser operand, a
+  binding with more text after it, and an Integer or `..` before a postfix;
+- a `try` with no `catch` as `f?` when its body is a call, a variable, a
+  literal or a constructor, and as `try f` otherwise;
+- no comments.
+
+The **pipeline layout** breaks the top-level pipe chain, one segment per line,
+joined by `\n| `. It descends through the bodies of the `as`, `label` and `def`
+that lead the chain, and a `def` ends its line with `;`. Nested pipes stay on
+one line. The query editor prints this way:
+
+```jq
+.customers as $customers
+| .orders
+| map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
+| map(. + {name: $customers[.customer_id].name, region: $customers[.customer_id].region})
+| map({order: .id, customer: .name, region, total, shipped: .status.value.date})
+| sort_by(-.total)
+| .[:10]
+```
+
+**The round-trip law.** For every program the parser accepts,
+`parseJq(printJq(p).text)` gives `p` back, with the same spans, in both
+layouts. `test/query.parse.spec.ts` holds it over the corpus and 5 000
+generated programs.
