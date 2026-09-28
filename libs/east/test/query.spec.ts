@@ -14,14 +14,15 @@ import assert from "node:assert/strict";
 
 import {
   ArrayType, DictType, EastError, East, Expr, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
-  checkJq, compareFor, equalFor, evaluateJq, printFor, QueryError, some, translateJq, type EastType,
+  SummaryLeafType, SummaryType, checkJq, compareFor, equalFor, evaluateJq, printFor, QueryError, some, summaryProgram, translateJq,
+  type EastType, type ValueTypeOf,
 } from "../src/index.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
 import { BUILTIN_RULES, FORMATS } from "../src/query/jq/translate-builtins.js";
 import type { AST } from "../src/ast.js";
 import { describeEast, assertEast } from "./platforms.spec.js";
 import { QUERY_CORPUS, translatedBytes } from "./query.corpus.js";
-import { FixtureRoot, queryFixture } from "./query.fixture.js";
+import { FixtureRoot, Order, queryFixture } from "./query.fixture.js";
 import * as ex from "./query.examples.js";
 
 /** Asserts two East values of a type are equal, as East compares them. */
@@ -133,6 +134,30 @@ describe("the query editor's default query (E2)", () => {
     // Then a let per input, in order, then the translation.
     assert.equal(block.statements[1]!.ast_type, "Let");
     assert.equal(block.statements[2]!.ast_type, "Let");
+  });
+});
+
+// ─── The summary program (#922) ──────────────────────────────────────────
+
+describe("the summary program over the orders", () => {
+  test("gives #922's counts: the rows, the status cases, the totals' range and the shipped months", () => {
+    const fixture = queryFixture();
+    const summary = evaluateJq(summaryProgram(ArrayType(Order)), fixture.orders, { inputType: ArrayType(Order) }) as ValueTypeOf<typeof SummaryType>;
+    assertValue(IntegerType, summary.count, 40n);
+    const leaf = (path: string): ValueTypeOf<typeof SummaryLeafType> => {
+      const found = summary.leaves.get(path);
+      assert.ok(found !== undefined, path);
+      return found;
+    };
+    const Counts = OptionType(ArrayType(StructType({ n: IntegerType, value: StringType })));
+    assertValue(Counts, leaf(".status.type").cases, some([{ n: 3n, value: "cancelled" }, { n: 14n, value: "pending" }, { n: 23n, value: "shipped" }]));
+    const total = leaf(".total").numbers;
+    assert.ok(total.type === "some");
+    assertValue(ArrayType(FloatType), [total.value.min, total.value.max], [36.26, 3646.84]);
+    const dates = leaf(".status.value.date").dates;
+    assert.ok(dates.type === "some");
+    assertValue(IntegerType, dates.value.months.reduce((n, m) => n + m.n, 0n), 23n);
+    assertValue(IntegerType, leaf(".status.value.date").count, 23n);
   });
 });
 
