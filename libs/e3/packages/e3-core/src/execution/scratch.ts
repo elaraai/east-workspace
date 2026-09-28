@@ -38,11 +38,16 @@ const CALL_SCRATCH_PREFIX = 'e3-call-';
  * The directory a repository's execution and call scratch directories are
  * created under: `E3_SCRATCH_DIR`, or `<repo>/tmp/scratch`.
  *
+ * @remarks
+ * Always absolute, whatever form the repository or `E3_SCRATCH_DIR` is named
+ * in: a runner runs in its scratch directory, so a path into it relative to the
+ * caller's working directory would name nothing.
+ *
  * @param repo - Path to the e3 repository
- * @returns The scratch root
+ * @returns The scratch root, as an absolute path
  */
 export function scratchRoot(repo: string): string {
-  return process.env.E3_SCRATCH_DIR ?? path.join(repo, 'tmp', 'scratch');
+  return path.resolve(process.env.E3_SCRATCH_DIR ?? path.join(repo, 'tmp', 'scratch'));
 }
 
 /**

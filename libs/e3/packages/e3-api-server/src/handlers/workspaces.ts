@@ -4,10 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { BlobType, NullType, some, none, variant } from '@elaraai/east';
+import { NullType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
 import {
   PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type WorkspaceDeployRequest,
@@ -17,13 +14,12 @@ import {
   workspaceCreate,
   workspaceRemove,
   workspaceGetState,
-  workspaceExport,
   workspaceStatus,
   packageGetLatestVersion,
   packageResolve,
   PackageNotFoundError,
 } from '@elaraai/e3-core';
-import type { StorageBackend, WorkspaceDeployStore } from '@elaraai/e3-core';
+import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import { WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
@@ -105,14 +101,22 @@ export async function getWorkspace(
 
 /**
  * Get comprehensive workspace status.
+ *
+ * @param storage - Storage backend
+ * @param runner - The runner the repository's tasks run on, which says
+ *   whether an execution recorded running can still finish
+ * @param repoPath - Repository identifier
+ * @param name - Workspace name
+ * @returns The response: the status, or the error
  */
 export async function getWorkspaceStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repoPath: string,
   name: string
 ): Promise<Response> {
   try {
-    const status = await workspaceStatus(storage, repoPath, name);
+    const status = await workspaceStatus(storage, runner, repoPath, name);
     // Convert numbers to bigints for BEAST2 serialization
     const result = {
       workspace: status.workspace,
@@ -308,29 +312,5 @@ export async function getWorkspaceDeployStatus(
     return sendSuccess(WorkspaceDeployStatusType, job.status);
   } catch (err) {
     return sendError(WorkspaceDeployStatusType, errorToVariant(err));
-  }
-}
-
-/**
- * Export a workspace as a zip archive.
- */
-export async function exportWorkspace(
-  storage: StorageBackend,
-  repoPath: string,
-  workspace: string
-): Promise<Response> {
-  try {
-    // Export to temp file
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'e3-ws-export-'));
-    const tempPath = path.join(tempDir, 'workspace.zip');
-    try {
-      await workspaceExport(storage, repoPath, workspace, tempPath);
-      const archive = await fs.readFile(tempPath);
-      return sendSuccess(BlobType, new Uint8Array(archive));
-    } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
-  } catch (err) {
-    return sendError(BlobType, errorToVariant(err));
   }
 }

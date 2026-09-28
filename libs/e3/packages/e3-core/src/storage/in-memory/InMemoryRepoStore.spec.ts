@@ -9,7 +9,8 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { InMemoryRepoStore } from './InMemoryRepoStore.js';
+import type { InMemoryRepoStore } from './InMemoryRepoStore.js';
+import { InMemoryStorage } from './InMemoryStorage.js';
 import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
@@ -17,10 +18,12 @@ import {
 } from '../../errors.js';
 
 describe('InMemoryRepoStore', () => {
+  let storage: InMemoryStorage;
   let store: InMemoryRepoStore;
 
   beforeEach(() => {
-    store = new InMemoryRepoStore();
+    storage = new InMemoryStorage();
+    store = storage.repos;
   });
 
   describe('list', () => {
@@ -173,36 +176,49 @@ describe('InMemoryRepoStore', () => {
   });
 
   describe('deleteRefsBatch', () => {
-    it('returns done immediately (no-op for in-memory)', async () => {
+    it('deletes every record of the repository in one batch, counting them', async () => {
       await store.create('my-repo');
+      await storage.refs.packageWrite('my-repo', 'pkg', '1.0.0', 'a'.repeat(64));
+      await storage.logs.append('my-repo', 'b'.repeat(64), 'c'.repeat(64), 'id', 'stdout', 'a log');
       const result = await store.deleteRefsBatch('my-repo');
 
       assert.strictEqual(result.status, 'done');
-      assert.strictEqual(result.deleted, 0);
+      assert.strictEqual(result.deleted, 3, 'its record, its package ref and its log');
+      assert.strictEqual(await storage.refs.repositoryRead('my-repo'), null);
     });
   });
 
   describe('deleteObjectsBatch', () => {
-    it('returns done immediately (no-op for in-memory)', async () => {
+    it('deletes every object of the repository in one batch, counting them', async () => {
       await store.create('my-repo');
+      await storage.objects.write('my-repo', new Uint8Array([1]));
+      await storage.objects.write('my-repo', new Uint8Array([2]));
       const result = await store.deleteObjectsBatch('my-repo');
 
       assert.strictEqual(result.status, 'done');
-      assert.strictEqual(result.deleted, 0);
+      assert.strictEqual(result.deleted, 2);
+      assert.strictEqual(await storage.objects.count('my-repo'), 0);
     });
   });
 
   describe('gcScanPackageRoots', () => {
-    it('returns empty for in-memory store', async () => {
+    it('finds no roots in an empty repository', async () => {
       await store.create('my-repo');
       const result = await store.gcScanPackageRoots('my-repo');
       assert.deepStrictEqual(result.roots, []);
       assert.strictEqual(result.cursor, undefined);
     });
+
+    it('finds the object each package ref names', async () => {
+      await store.create('my-repo');
+      await storage.refs.packageWrite('my-repo', 'pkg', '1.0.0', 'a'.repeat(64));
+      const result = await store.gcScanPackageRoots('my-repo');
+      assert.deepStrictEqual(result.roots, ['a'.repeat(64)]);
+    });
   });
 
   describe('gcScanWorkspaceRoots', () => {
-    it('returns empty for in-memory store', async () => {
+    it('finds no roots in an empty repository', async () => {
       await store.create('my-repo');
       const result = await store.gcScanWorkspaceRoots('my-repo');
       assert.deepStrictEqual(result.roots, []);
@@ -210,7 +226,7 @@ describe('InMemoryRepoStore', () => {
   });
 
   describe('gcScanExecutionRoots', () => {
-    it('returns empty for in-memory store', async () => {
+    it('finds no roots in an empty repository', async () => {
       await store.create('my-repo');
       const result = await store.gcScanExecutionRoots('my-repo');
       assert.deepStrictEqual(result.roots, []);
@@ -218,19 +234,41 @@ describe('InMemoryRepoStore', () => {
   });
 
   describe('gcScanObjects', () => {
-    it('returns empty for in-memory store', async () => {
+    it('lists nothing in an empty repository', async () => {
       await store.create('my-repo');
       const result = await store.gcScanObjects('my-repo');
       assert.deepStrictEqual(result.objects, []);
       assert.strictEqual(result.cursor, undefined);
     });
+
+    it('lists each object with its size and when it was written', async () => {
+      await store.create('my-repo');
+      const before = Date.now();
+      const hash = await storage.objects.write('my-repo', new Uint8Array([1, 2, 3]));
+      const [entry, ...rest] = (await store.gcScanObjects('my-repo')).objects;
+      assert.ok(entry !== undefined);
+      assert.deepStrictEqual(rest, []);
+      assert.strictEqual(entry.hash, hash);
+      assert.strictEqual(entry.size, 3);
+      assert.ok(entry.lastModified >= before && entry.lastModified <= Date.now(), 'written just now');
+    });
   });
 
   describe('gcDeleteObjects', () => {
-    it('succeeds (no-op for in-memory)', async () => {
+    it('deletes the objects named, passing over one already gone', async () => {
       await store.create('my-repo');
-      await store.gcDeleteObjects('my-repo', ['a'.repeat(64)]);
-      // Should not throw
+      const kept = await storage.objects.write('my-repo', new Uint8Array([1]));
+      const deleted = await storage.objects.write('my-repo', new Uint8Array([2]));
+      await store.gcDeleteObjects('my-repo', [deleted, 'a'.repeat(64)]);
+      assert.deepStrictEqual(await storage.objects.list('my-repo'), [kept]);
+    });
+  });
+
+  describe('gcSweepBackend', () => {
+    it('sweeps nothing: nothing is kept beside the objects and records', async () => {
+      await store.create('my-repo');
+      const result = await store.gcSweepBackend('my-repo', new Set(), { minAge: 0, dryRun: false });
+      assert.deepStrictEqual(result, { deletedPartials: 0, skippedYoung: 0 });
     });
   });
 

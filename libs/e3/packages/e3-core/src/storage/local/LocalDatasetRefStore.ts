@@ -25,7 +25,7 @@ import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import { DatasetRefConflictError, checkName } from '../../errors.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
 import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
-import { withKeyedLock } from './keyedMutex.js';
+import { withKeyedLock } from '../../keyed-mutex.js';
 import type { DatasetRefStore } from '../interfaces.js';
 
 /** A stored ref: the ref, and the revision its write minted. */

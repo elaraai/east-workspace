@@ -1,35 +1,35 @@
 ---
 name: east-py
-description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @East.platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @East.platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions), (10) Diagnosing East bodies at edit time — the build's refusals as lint (east-py lint, flake8 EAS codes, east-py lsp) and its TYPE errors as a build check (east-py check), (11) Publishing a JSON Schema contract for an East type with json_schema_for, or building an East type from a vendored schema with type_from_json_schema."
+description: "East in Python (east-py): (A) East EXPRESSIONS — East functions written in python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), the TypeScript methods snake_cased, the standard library, East.compile; (B) East VALUES — East data as ordinary python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the same names. Use when writing python against east-py: (1) an East function in python (b.let/b.if_/b.for_, expression methods, the stdlib), (2) building and validating values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) scalar builtins via East.<Type>, (5) @East.platform_function to expose python to East, (6) beast2 files larger than memory, numpy/torch through EastVector/EastMatrix, (7) porting a plain-python POC into a platform function, (8) the east-py CLI — run, exec, convert, transpile, export-functions, lint, check, lsp, version, (9) exporting functions for TypeScript / e3 and importing TypeScript-authored ones (East.export_functions / East.import_function), (10) edit-time diagnostics (east-py lint, flake8 EAS codes, east-py check, east-py lsp), (11) JSON Schema contracts (json_schema_for, type_from_json_schema)."
 ---
 
 # East.py — East expressions and East values in Python
 
 `east-py` is the Python runtime for East: a Cython bridge to the native **east-c**
-runtime (IR compilation, the builtin library, execution and serialization all run in
-east-c). It has **two surfaces** that share **one vocabulary** — the TypeScript method
-names, snake_cased:
+runtime, where IR compilation, the builtin library, execution and serialization
+all run. Its two surfaces share one vocabulary — the TypeScript method names,
+snake_cased:
 
-- **East expressions** — write East *functions* in Python, exactly as the TypeScript
-  `east` skill does. `East.function(param_types, out, body)` runs `body` ONCE over typed
-  expression proxies (the block `b` first — TypeScript's `$`), records IR, and east-c
-  compiles it. Every East type has an expression class (`ArrayExpression`,
-  `DictExpression`, `IntegerExpression`, …) mirroring `libs/east/src/expr/*.ts` method
-  for method, plus the standard library (`East.Integer.print_compact`,
-  `East.DateTime.round_down_week`, …) and the statement set (`b.let`, `b.if_`,
-  `b.while_`, `b.for_`, `b.match_`, `b.try_`, `b.return_`). Anything East cannot express
-  raises at build time — there is no interpreter behind it.
-- **East values** — the *data*: `EastArray`/`EastSet`/`EastDict`/`EastVector`/
-  `EastMatrix`/`EastStruct`/`EastVariant`/`EastRef`/`EastBlob` are handles into the
-  east-c value slab; scalars are plain `int`/`float`/`str`/`bool`/`datetime`. Their
-  **eager methods** — the same names — execute immediately in east-c and chain;
-  `@East.platform_function` exposes a Python function to East.
+- **East expressions** — East *functions* written in python, as the TypeScript
+  `east` skill writes them. `East.function(param_types, out, body)` runs `body`
+  ONCE over typed expression proxies (the block `b` first — TypeScript's `$`),
+  records IR, and east-c compiles it. Every East type has an expression class
+  (`ArrayExpression`, `IntegerExpression`, …) mirroring `libs/east/src/expr/*.ts`
+  method for method, plus the standard library (`East.Integer.print_compact`,
+  `East.DateTime.round_down_week`, …) and the statements (`b.let`, `b.if_`,
+  `b.while_`, `b.for_`, `b.match_`, `b.try_`, `b.return_`). What East cannot
+  express raises at build time — there is no interpreter behind it.
+- **East values** — the data. `EastArray`/`EastSet`/`EastDict`/`EastVector`/
+  `EastMatrix`/`EastStruct`/`EastVariant`/`EastRef`/`EastBlob` are handles into
+  the east-c value slab; scalars are plain `int`/`float`/`str`/`bool`/`datetime`.
+  Their **eager methods** — the same names — run in east-c now, and chain.
+  `@East.platform_function` exposes a python function to East.
 
-They meet in two places. A **callback** handed to an eager method
-(`items.map(lambda b, r: …)`) is an East function body: captured once, compiled, and
-run natively per element — never per-element Python. And an `East.function` artifact
-is a plain callable on values, accepted by every eager method. (For the TypeScript DSL
-use the `east` skill; for ML/optimization platform functions, `east-py-datascience`.)
+They meet twice: a **callback** handed to an eager method (`items.map(lambda b,
+r: …)`) is an East function body — captured once, compiled, run natively per
+element, never per-element python — and an `East.function` is a plain callable
+on values that every eager method accepts. (The TypeScript DSL: the `east`
+skill. ML and optimisation platform functions: `east-py-datascience`.)
 
 ## Before writing code — search the example index
 
@@ -95,303 +95,90 @@ platform = East.platform_functions(__name__)   # pass to East.compile(fn, platfo
 | An option | `.is_some()` / `.is_none()` / `.unwrap_or(d)` / `.match({…})` | an `EastVariant` — the SAME accessors, plus `.type` / `.value` / `.unwrap(tag)` |
 | Errors | an operation East cannot express raises `ExpressionError` at BUILD time, naming the binding or method | a runtime `EastError` / `EastTypeError` |
 
-A body's parameters are expressions already; a python scalar or `datetime` inside a body
-lifts to a literal, `East.value(v, T)` / `b.const(v)` lift anything else explicitly (TS
-`East.value` / `$.const`); an East COLLECTION closed over by an `East.function` body is
-snapshot into the IR (to keep it live, `.bind(table)` it as a trailing parameter). In the
-other direction an artifact is a plain callable on values, every eager method accepts one
-(a VALUE takes no block), and referencing one inside another body splices it in — see
-[Python values vs East expressions](#python-values-vs-east-expressions).
+A body's parameters are expressions already. A python scalar or `datetime` inside
+a body lifts to a literal; `East.value(v, T)` / `b.const(v)` lift anything else
+(TS `East.value` / `$.const`); an East COLLECTION an `East.function` body closes
+over is snapshot into the IR (`.bind(table)` it as a trailing parameter to keep it
+live). The other way, an artifact is a plain callable on values, every eager
+method accepts one (a VALUE takes no block), and one referenced inside another
+body splices in — see [Python values vs East expressions](#python-values-vs-east-expressions).
 
 ## Decision Tree: What Do You Need?
+
+Each leaf names the section holding the whole surface for it.
 
 ```
 Task → What do you need?
     │
-    ├─ A. WRITE AN EAST FUNCTION IN PYTHON — East expressions (the `east` skill's twin, name for name)
-    │   ├─ Define a type (PAIRS, not a dict) → IntegerType · FloatType · StringType · BooleanType · DateTimeType · BlobType · NullType ·
+    ├─ A. Write an East function in python — East expressions (the `east` skill's twin, name for name)
+    │   ├─ Types (PAIRS, not a dict) → IntegerType · FloatType · StringType · BooleanType · DateTimeType · BlobType · NullType ·
     │   │   ArrayType(T) · SetType(K) · DictType(K, V) · RefType(T) · VectorType(T) · MatrixType(T) (T ∈ Float/Integer/Boolean) ·
     │   │   StructType([("f", T), …]) · VariantType([("case", T), …]) · OptionType(T) · recursive_type(lambda self: …) ·
-    │   │   FunctionType(I, O) · AsyncFunctionType(I, O) · PatchType(T)
-    │   ├─ Author → East.function([T…], Out, lambda b, x: …) · @East.function([T…], Out) def f(b, x) · East.asyncFunction(…)  ❗out is required
-    │   │   ├─ a pure body compiles immediately → f(values) runs natively · xs.map(f) · f.bind(table) pre-binds trailing params BY REFERENCE
-    │   │   ├─ a platform call inside → CALL THE IMPLEMENTATION: a @East.platform_function is dual-mode — fs_read_file(path) from east_py_std,
-    │   │   │   your own decorated def — the call is the Platform node with its declared signature · a stock generic: fs_open_beast(T, path), T first ·
-    │   │   │   East.platform(name, inputs, output) / East.asyncPlatform · optional=True · East.genericPlatform(name, ["T"], …) only for a function
-    │   │   │   implemented elsewhere (another package, another runtime)
-    │   │   ├─ implement it in python → @East.platform_function(inputs=[…], output=…[, name=]) · @East.generic_platform_function(type_parameters=, inputs=, output=)
-    │   │   │   — the def's name (or name=) is what every runtime pairs the call with
-    │   │   ├─ compile with the implementations → East.compile(fn, platform=East.platform_functions(__name__)) / East.compileAsync (analyzed first; a
-    │   │   │   call no implementation matches is a named EastError)
-    │   │   └─ spelled INSIDE a body → an inline Function EXPRESSION (bind it with b.const, hand it to a slot, or call it — a Call node)
-    │   ├─ Block statements — the block `b` a body receives FIRST (TS `$`); a bare `lambda x:` is refused
-    │   │   ├─ Variables → b.let(value[, T]) (mutable) · b.const(value[, T]) · b.assign(var, value)
-    │   │   ├─ Execute → b.do(expr) ($(expr)) · b.return_(value) · b.error(msg)
-    │   │   ├─ Control flow → b.if_(pred, fn).else_if(pred, fn).else_(fn) · b.while_(pred, fn(b, label)) · b.for_(coll, fn(b, v, i, label)) ·
-    │   │   │   b.break_(label) / b.continue_(label) · b.match_(v, {case: fn(b, x)})
-    │   │   ├─ Errors → b.try_(fn).catch(fn(b, message, stack)).finally_(fn)
-    │   │   └─ Statements inside an EXPRESSION form (a callback, an if_else arm) → East.block(lambda b: …)
-    │   ├─ Expression operations (the TypeScript methods, snake_cased — the full tables are under “The expression surface, type by type”)
-    │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · .bit_and(y) .bit_or(y) .bit_xor(y) .not_() · short-circuit .and_(fn(b)) .or_(fn(b)) ·
-    │   │   │            .if_else(fn(b), fn(b)) · East.if_else(cond, value, …, otherwise) (one IfElse node) · .equals/.equal/.eq .not_equals/.ne
-    │   │   ├─ Integer → + - * (unary -) · .add .subtract .multiply .divide .remainder .pow (+ .plus .minus .times .div .mod .rem .modulo) ·
-    │   │   │            .abs .sign .negate .log(base) · .to_float() · == != < <= > >= (.less_than/.lt … .greater_equal/.ge) ·
-    │   │   │            ❗ // % ** / RAISE at build time with fix-its: .divide · .remainder · .pow · .to_float() / y
-    │   │   ├─ Float → + - * / ** (unary -) · the same named math · .sqrt .exp .log .sin .cos .tan · .to_integer() ❗non-integral ·
-    │   │   │          Float → Integer is the stdlib: East.Float.round_floor/round_ceil/round_trunc/round_half(x) (math.floor/ceil/trunc(x) build them;
-    │   │   │          .floor()/.ceil()/.trunc()/.round() are deprecated aliases; round_half = ties AWAY from zero — python round() raises)
-    │   │   ├─ String → + (concat) · .concat .repeat .substring .upper_case .lower_case .trim .trim_start .trim_end · .replace .split ·
-    │   │   │           .length .starts_with .ends_with .contains .index_of · .parse(T) ❗ .parse_json(T) .try_parse(T)→Option ·
-    │   │   │           .encode_utf8 .encode_utf16 · .regex_contains/.regex_index_of/.regex_replace(pat, …, flags=) · East.str(…) — never an f-string
-    │   │   ├─ DateTime → .get_year/.get_month/.get_day_of_month/.get_day_of_week/.get_hour/.get_minute/.get_second/.get_millisecond ·
-    │   │   │             .add_/subtract_{milliseconds,seconds,minutes,hours,days,weeks}(n) · .duration_{…}(other) ❗ a.duration_days(b) = b − a ·
-    │   │   │             .to_epoch_milliseconds() · .print_formatted("YYYY-MM-DD") · a python datetime literal lifts
-    │   │   ├─ Blob → .size .get_uint8 · .decode_utf8 .decode_utf16 · .decode_beast(T, version) · .decode_csv(RowT, config=) ·
-    │   │   │         .open_beast(T) — an indexed beast2 Array/Set/Dict blob as a FROZEN paged value (size / keyed reads / for_ decode one segment)
-    │   │   ├─ Array → Read .size .length .has .get(i[, on_missing(b, i)]) ❗ .at .try_get .get_keys · xs[i] (a negative LITERAL index raises) ·
-    │   │   │          Mutate (yield Null/Boolean — b.do it or East.block it) .update .push_last .pop_last .push_first .pop_first .append(array) .prepend(array) ·
-    │   │   │            .merge .merge_all .clear .sort_in_place .reverse_in_place ·
-    │   │   │          Transform .copy .slice .concat .sort .reverse .map .filter .filter_map .flat_map ·
-    │   │   │          Search .find_first .find_all .first_map .is_sorted .find_sorted_first/last/range ·
-    │   │   │          Reduce .reduce(fn, init) .scan(fn, init) .every .some .sum .mean .maximum .minimum .find_maximum .find_minimum ·
-    │   │   │          Convert .string_join .to_set .to_dict .flatten_to_set .flatten_to_dict .encode_csv .to_vector .unique ·
-    │   │   │          Group .group_by .group_reduce .group_size .group_sum .group_mean .group_minimum .group_maximum ·
-    │   │   │            .group_to_arrays/sets/dicts .group_every .group_some .group_find_all/first/maximum/minimum · effect .for_each
-    │   │   ├─ Set → .size .has · .insert .try_insert .delete .try_delete .clear .union_in_place · .copy .union .intersection .difference ·
-    │   │   │        .symmetric_difference .is_subset_of .is_superset_of .is_disjoint_from · .filter .filter_map .map(→Dict) .for_each .first_map ·
-    │   │   │        .reduce .scan .every .some .sum .mean · .to_array .to_set .to_dict .flatten_to_array .flatten_to_set .flatten_to_dict · .group_*
-    │   │   ├─ Dict (callbacks are (value, key)) → .size .has .get(k[, on_missing(b, k)]) ❗ .get_or_default .try_get .keys .get_keys · d[k] ·
-    │   │   │        .insert .insert_or_update .update .merge .get_or_insert .delete .try_delete .pop .swap .clear .union_in_place .merge_all ·
-    │   │   │        .copy .union .map .filter .filter_map .for_each .first_map · .reduce .scan .every .some .sum .mean ·
-    │   │   │        .to_array .to_set .to_dict .flatten_to_array .flatten_to_set .flatten_to_dict · .group_*
-    │   │   ├─ Vector → .length .get · .set(→new) · .slice .concat .map .reduce · .scale .add_scaled .mul .add_scalar .abs .clamp .cum_sum ·
-    │   │   │           .sum .dot .max .min .arg_max .arg_min .mean ❗empty · .eq/.lt/.gt → mask · mask.select(a, b) · data.compress(mask) ·
-    │   │   │           mask.count_true() · .gather .scatter_add .search_sorted · .to_array .to_matrix
-    │   │   ├─ Matrix → .rows .cols .get .get_row .get_col · .set(→new) · .transpose · .scale .add_scaled .mul_elementwise ·
-    │   │   │           .row_sums .col_sums .vec_mul(v) · .to_vector .to_array .to_rows · .map_rows
-    │   │   ├─ Struct → r.field / r["field"] · build with a dict literal {"k": expr, …} or struct({…}, T)
-    │   │   ├─ Variant → .match({case: fn(b, x)}, default=fn(b)) · .match_tag(tag, fn, default) · .unwrap(tag="some", on_other=None) ❗ ·
-    │   │   │            .has_tag .get_tag · Option: .is_some .is_none .unwrap_or(d) · build with some(expr) / none / variant(case, payload)
-    │   │   ├─ Ref → East.ref(v) · .get() · .update(v) · .merge(v, fn(b, current, patch))
-    │   │   └─ Function → a Function-typed parameter or a b.const(East.function(…)) is callable in the body (a Call node)
-    │   ├─ Standard library (East.<Type>.*, dual-mode: on values or in a body)
-    │   │   ├─ Integer → East.Integer.print_comma_seperated · print_currency · print_compact/_si/_computing · print_ordinal · print_percentage ·
-    │   │   │            digit_count · round_nearest/up/down/truncate(x, step)
-    │   │   ├─ Float → East.Float.approx_equal · round_floor/ceil/half/trunc · round_nearest/up/down/truncate(x, step) · round_to_decimals ·
-    │   │   │          print_fixed · print_comma_seperated · print_currency · print_compact · print_percentage
-    │   │   ├─ DateTime → East.DateTime.from_components (NORMALISES out-of-range components: (2024, 2, 31)
-    │   │   │   is 2024-03-02 — validate by round-tripping get_month(), not by range-checking) ·
-    │   │   │   from_epoch_milliseconds · parse_formatted · print_formatted ·
-    │   │   │             round_down/up/nearest_{millisecond,second,minute,hour,day,week} · round_down_month · round_down_year
-    │   │   ├─ String → East.String.print_json(value) · print_error(message, stack) · Blob → East.Blob.encode_beast(value, "v1"|"v2")
-    │   │   ├─ Array → East.Array.range · linspace · generate(size, T, fn) · Set → East.Set.generate(size, K, fn, on_conflict=) ·
-    │   │   │          Dict → East.Dict.generate(size, K, V, key_fn, value_fn, on_conflict=)   (a duplicate key ERRORS without a handler)
-    │   │   └─ Vector → East.Vector.zeros · ones · fill · from_array · sparse_axpy · sparse_from_pairs · sparse_filter_gt ·
-    │   │              Matrix → East.Matrix.zeros · ones · fill · from_array · from_rows
-    │   ├─ Root helpers → East.str(*parts) (TS East.str`…`) · East.print(value[, T]) (East text) · East.min/max(a, b) · East.clamp(x, lo, hi) · greatest/least ·
-    │   │   East.equal/not_equal/less/less_equal/greater/greater_equal/compare(T, a, b) · East.value(v, T) · East.as_(v, T) · East.error(msg) ·
-    │   │   East.wrap_recursive(v, R) / expr.unwrap() · East.builtin(name, [T…], [args], out) (the few with no named spelling)
-    │   ├─ Control flow, expression forms → East.if_else(cond, v, …, otherwise) · East.while_(state, cond, body) · East.for_(coll, state, body) ·
-    │   │   East.block(a, b, …) · East.let(value, fn(b, bound)) · East.try_catch(body, handler, finally_=) · East.new_array/new_set/new_dict/new_vector/new_matrix
-    │   ├─ Body rules — what a body may reference
-    │   │   ├─ Its parameters · python scalar / datetime constants (they lift) · East types · the East namespace · struct/variant/some/none ·
-    │   │   │   other East.function artifacts (they splice in) · compiled / .bind functions (a Call) · helper lambdas two levels deep
-    │   │   ├─ ❗ Anything else RAISES naming the binding: random.…, np.…, len/str, an f-string (constant-folds the proxy), a mutable python
-    │   │   │   capture, `nonlocal x; x += 1` — for genuine python work write a python loop OUTSIDE the body
-    │   │   ├─ ❗ A closed-over East COLLECTION: an East.function body SNAPSHOTS it (built once, later mutations unseen); an eager callback
-    │   │   │   REFUSES it — .bind(table) keeps it live · read a snapshot with .get(expr)/.get_or_default/.try_get, never [expr]
-    │   │   ├─ Reuse a python variable to share work → ONE Let (build-time CSE); loop invariants hoist out of callbacks; cse=False builds
-    │   │   │   exactly what the body spells
-    │   │   └─ Captures are CACHED per (code, bindings, signature) — a lambda whose captures change per call re-builds every call:
-    │   │       hoist an East.function and .bind the varying value
-    │   ├─ Sequential logic — the next step depends on the LAST (worklist · BFS · fixpoint · replay) — see Key Patterns
-    │   │   ├─ Statements (TS `$`) → b.let/b.const locals · b.while_ / b.for_ · b.do(acc.push_last(x)) · b.assign(i, i + 1)
-    │   │   ├─ Expression forms → East.while_(state, cond, body) · East.for_(coll, state, body): state = a dict of fields (read s.f) or one
-    │   │   │   value; the body RETURNS the next state with the SAME fields and types ❗ · branch with East.if_else · keep a field → s.f ·
-    │   │   │   change one → {**s, "k": …} · Array body(b, s, el[, i]) · Set body(b, s, el) · Dict body(b, s, k, v)
-    │   │   ├─ Leave / skip → East.break_(state=, label=) · East.continue_(state=, label=) as an if_else arm (the state COMMITS before the
-    │   │   │   jump) · East.label("outer") on an outer loop lets an inner one break all the way out
-    │   │   ├─ Accumulate IN PLACE → East.new_array/new_set/new_dict (fresh per evaluation) · .push_last / .insert / .insert_or_update ·
-    │   │   │   ❗ a bare mutation LINE is evaluated at build time and thrown away — the build raises; b.do(…) or East.block(mutation, result) ·
-    │   │   │   ❗ mutating a CAPTURED collection raises (a loop SEED is exempt — rebuilt per call)
-    │   │   └─ Sequence / bind / cell / catch → East.block(a, b, …) · East.let(value, fn(b, bound)) · East.ref(v) .get()/.update(v)/.merge ·
-    │   │       East.try_catch(body(b), handler(b, message[, stack]), finally_=) (both arms one East type)
-    │   ├─ IR ↔ python → to_python_source(fn) · `east-py transpile prog.json -o prog.py` · compile_from_beast2/json/east (a function compiled
-    │   │   elsewhere — pass it to any eager method) · compile_from_value (IR built with east.ir.builders) · `east-c ir normalize|diff|convert`
-    │   ├─ The build's refusals at EDIT time → `east-py lint src/` (exit 1 on any finding; `--format json`, `--disable RULE`, `# noqa`) ·
-    │   │   `flake8 --select EAS` (the plugin) · `east-py lsp` (an editor) — 25 rules, each the build's own message (see Diagnostics)
-    │   ├─ TYPE errors at edit time (a wrong `out`, a refused callback) → `east-py check src/` — runs the build, reports every
-    │   │   broken function at its line; the rules are syntactic and cannot see these (see Diagnostics)
-    │   └─ Across languages → the package's root module declares `east_functions = {"name": fn}`; an e3 task names it with East.importFunction and
-    │       e3.export exports + links a uv-workspace package by itself (`east-py export-functions pkg -o pkg.functions.beast2 -p east-py-std` only for a
-    │       package built elsewhere) · East.import_function(pkg, name, FunctionType) to call a TypeScript-authored one (`east-node export-functions`) ·
-    │       East.link_imports(fn, [manifests]) before compiling in-process
+    │   │   FunctionType(I, O) · AsyncFunctionType(I, O)                                 → "Type System Summary"
+    │   ├─ Author → East.function([T…], Out, lambda b, x: …) · @East.function([T…], Out) def f(b, x) · East.asyncFunction ·
+    │   │   ❗ out is required · a pure one is a callable on values · f.bind(table) pre-binds trailing parameters BY REFERENCE
+    │   │                                                                        → "Declare, implement, build, compile"
+    │   ├─ Statements on the block `b` (TS `$`) → b.let · b.const · b.assign · b.do · b.return_ · b.error · b.if_ … .else_if … .else_ ·
+    │   │   b.while_ · b.for_ · b.break_ / b.continue_ · b.match_ · b.try_ … .catch … .finally_ · East.block(lambda b: …)
+    │   │                                                                        → "Every body takes the block first"
+    │   ├─ Methods and operators (the TS methods, snake_cased) ❗ // % ** / on an Integer RAISE, with the fix-it
+    │   │                                                                        → "The expression surface, type by type"
+    │   ├─ The standard library, dual-mode → East.Integer / Float / DateTime / String / Blob / Boolean .* · East.str · East.print ·
+    │   │   East.min / max / clamp · East.equal / less / compare(T, a, b) → "The standard library" and "East.<Type> namespaces"
+    │   ├─ The next step depends on the last (worklist · BFS · fixpoint · replay) → b.while_ / b.for_, or the expression forms
+    │   │   East.while_ / for_ / if_else / let / block / try_catch · East.new_array / new_set / new_dict accumulators ·
+    │   │   East.break_ / continue_ / label → "Control flow — the expression forms", "Sequential logic that stays in east-c"
+    │   ├─ What a body may capture — and what it refuses, naming the binding → "What a body may reference"
+    │   ├─ Call python from a body → the @East.platform_function you hold IS the Platform node (no declaration) · East.platform /
+    │   │   asyncPlatform / genericPlatform only for one implemented elsewhere · East.compile(fn, platform=East.platform_functions(__name__))
+    │   │                                                                        → "Declare, implement, build, compile", "Platform functions"
+    │   ├─ Make it fast → data stays in East · chain · CSE by reusing a python variable · capture small tables, .bind big ones
+    │   │                                                                        → "Performance — the levers, ranked"
+    │   ├─ IR ↔ python → to_python_source · east-py transpile · compile_from_beast2 / json / east / value · east-c ir …  → "IR ↔ python"
+    │   ├─ Refusals at edit time → east-py lint · flake8 --select EAS · east-py lsp; TYPE errors → east-py check
+    │   │                                                                        → "Diagnostics at edit time"
+    │   └─ Across languages → east_functions = {"name": fn} · East.import_function · East.link_imports · east-py export-functions
+    │                                                                            → "Cross-language functions"
     │
-    ├─ B. WORK WITH EAST VALUES — the eager runtime (the same names; executes NOW in east-c; results stay C-side and chain)
-    │   ├─ Build an East value from python data
-    │   │   ├─ Array of structs from dicts → array(ElemType, [dict, …])   (coerces + validates each)
-    │   │   ├─ One struct (reorder/coerce keys to a type) → struct({…}, StructType)
-    │   │   ├─ Tagged value / option → variant(case, value, VariantType) · some(x) / none
-    │   │   ├─ Numeric buffer for ML/tensors → EastVector(FloatType, np_1d) / EastMatrix(FloatType, np_2d) · from_numpy / from_torch
-    │   │   ├─ A ref cell → east_ref(value) · Raw bytes → EastBlob(b"…")   (a bytes subclass; decode_csv/beast2/utf8 live on it)
-    │   │   ├─ Generate → EastArray.range / linspace / generate · EastSet.generate · EastDict.generate · EastVector.zeros/ones/fill/from_array ·
-    │   │   │   EastMatrix.zeros/ones/fill/from_array/from_rows   (East.Array/Set/Dict/Vector/Matrix.* are the dual-mode twins)
-    │   │   └─ Anything, type-driven (int→Float, dict→Struct, np 1-D→Array, …) → coerce_to(value, typ)
-    │   ├─ Validate a value at a python↔East boundary
-    │   │   ├─ Raise on mismatch, path-pinpointed → assert_value_of(value, typ)   ❗EastTypeError
-    │   │   ├─ List every problem (empty == conforms) → explain_value_of(value, typ)
-    │   │   ├─ Boolean check → is_value_of(value, typ)
-    │   │   └─ Infer a value's type → type_of(value)
-    │   ├─ Publish a JSON contract ANOTHER system validates against → json_schema_for(T, draft="2020-12"|"draft-07"|"openapi-3.0")
-    │   │   (from east.serialization; a plain function like compare_for — it describes East's OWN JSON encoding, and emits the
-    │   │   same bytes the TypeScript jsonSchemaFor does; an Option is null or its payload; a DateTime is `format: "date-time"`,
-    │   │   any RFC 3339 date-time, read as UTC) · and back → type_from_json_schema(schema) ❗JsonSchemaUnsupportedError,
-    │   │   carrying the RFC 6901 .pointer of the keyword East cannot express (a `format: "date-time"` string reads as a DateTime;
-    │   │   `nullable: true`, `["string", "null"]` and a `oneOf` of null and one schema read as an Option)
-    │   ├─ Transform a value (every callback is an East function body: the block first — fn(b, el), or fn(b, el, idx) for the builtin's index)
-    │   │   ├─ Array<T>
-    │   │   │   ├─ Access → get(i[, fn(b, i)]) ❗bounds · at(i) · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · size()/length() ·
-    │   │   │   │            arr[i] (pythonic) · len() · iterate
-    │   │   │   ├─ Reorder → sort(by=, reverse=) (new array) · reverse() (new) · sort_in_place(by=) · reverse_in_place()
-    │   │   │   ├─ Slice & combine → slice(start, end) · concat(other) · copy()
-    │   │   │   ├─ Per-element → map(fn, out=) · filter(pred) · filter_map(fn, out=) · for_each(fn)
-    │   │   │   ├─ Reduce → reduce(fn, init) · scan(fn, init) (running fold → Array, one per element) · map_reduce(map_fn, reduce_fn, out=) ·
-    │   │   │   │            sum(fn=) · mean(fn=) · maximum(by=) ❗empty · minimum(by=) ❗empty (the ELEMENT, like TS) · every(pred=) · some(pred=)
-    │   │   │   ├─ Search → find_first(target, key=) · find_all(value, by=) · find_maximum(by=)/find_minimum(by=) → some(i)/none ·
-    │   │   │   │            find_sorted_first/last/range(target, key=) · first_map(fn, out=) · is_sorted(key=)
-    │   │   │   ├─ Group → group_by(key) · group_reduce(key, init, fold) · group_size(key=) · group_sum(key, fn=) · group_mean(key, fn=) ·
-    │   │   │   │            group_maximum/minimum(key, by=) (the ELEMENT per group, like TS) · group_every/some(key, pred) ·
-    │   │   │   │            group_find_all(key, value, by=)/group_find_first(key, value, by=) → indices per group ·
-    │   │   │   │            group_find_maximum/minimum(key, by=) → the INDEX per group (ties keep the earliest) ·
-    │   │   │   │            group_to_arrays(key, value=) · group_to_sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
-    │   │   │   ├─ Convert → to_dict(key, value=, combine=) ❗dup w/o combine · to_set(key=) · unique() · string_join(sep) ·
-    │   │   │   │            to_vector() ❗non-numeric · encode_csv(config=) → Blob · flat_map(fn, out=) · flatten_to_set(fn, out=) ·
-    │   │   │   │            flatten_to_dict(fn, combine=) ❗dup w/o combine
-    │   │   │   ├─ Columnar → to_columns(fields=) · EastArray.from_columns(T, cols) · map_batches(fn, out=, batch_size=)
-    │   │   │   └─ Mutate (in place, the TS names) → push_last(v) · push_first(v) · append(array) · prepend(array) · pop_last() · pop_first() ·
-    │   │   │                update(i, v) · merge(i, v, fn) · merge_all(array, fn) · clear() ·
-    │   │   │                python protocol: extend(iterable) (bulk, one crossing) · insert · pop · remove · arr[i]=v
-    │   │   ├─ Set<K>
-    │   │   │   ├─ Access → len(s) · value in s · has(value) · iterate (East order)
-    │   │   │   ├─ Algebra → union · intersection · difference · symmetric_difference · is_subset_of · is_superset_of · is_disjoint_from · union_in_place
-    │   │   │   ├─ Per-element → map(fn)→Dict · filter(pred) · filter_map(fn)→Dict · first_map(fn) · for_each(fn)
-    │   │   │   ├─ Reduce → reduce(fn, init) · scan(fn, init) (running fold → Array) · map_reduce(fn, reduce) ❗empty ·
-    │   │   │   │            sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
-    │   │   │   ├─ Group → group_reduce(key, init, fold) · group_size(key) · group_sum(key, fn=) · group_mean(key, fn=) ·
-    │   │   │   │            group_every/some(key, pred) · group_to_arrays/sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
-    │   │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=) ❗dup w/o combine
-    │   │   │   ├─ Flatten → flatten_to_array(fn, out=) (the TS Set name; only Array spells it flat_map) · flatten_to_set(fn, out=) ·
-    │   │   │   │            flatten_to_dict(fn, combine=) ❗dup w/o combine
-    │   │   │   └─ Mutate (in place) → add · insert ❗exists · try_insert(v)→bool · remove · delete ❗missing · try_delete(v)→bool · discard · clear · copy()
-    │   │   ├─ Dict<K,V>  (callbacks, after the block, take the builtin's own TS order: fn(b, v) or fn(b, v, k) · a fold step is fn(b, acc, v[, k]))
-    │   │   │   ├─ Access → d[k] · get(k) ❗missing · get(k, default) / get(k, fn(b, k)) (TS onMissing) · get_or_default(k, d) · try_get(k) ·
-    │   │   │   │            has(k) · len()/size() · keys() → Set (TS; east-c DictKeys) · values()/items() (python views)
-    │   │   │   ├─ Combine → union(other, combine=) ❗shared key w/o combine (pure) · union_in_place(other, combine=) ·
-    │   │   │   │            merge(key, value, update_fn, initial_fn=) (ONE key, in place; TS `merge`) · get_keys(keys, fill)
-    │   │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
-    │   │   │   ├─ Reduce → reduce(fn, init) · scan(fn, init) (running fold → Array, key order) · map_reduce(map_fn, reduce_fn, out=) ❗empty ·
-    │   │   │   │            sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
-    │   │   │   ├─ Group → group_reduce(key_fn, init_fn, fold_fn) · group_size(key_fn) · group_sum(key_fn, fn=) · group_mean(key_fn, fn=) ·
-    │   │   │   │            group_every/some(key_fn, pred) · group_to_arrays/sets(key_fn, value_fn=) · group_to_dicts(key_fn, key2_fn, value_fn=, combine=)
-    │   │   │   ├─ Flatten → flatten_to_array(fn, out=) (the TS Dict name) · flatten_to_set(fn, out=) · flatten_to_dict(fn, combine=) ❗dup w/o combine
-    │   │   │   ├─ Convert → keys() · to_array(fn, out=) · to_set(fn, out=) · to_dict(key_fn, value_fn=, combine=)
-    │   │   │   └─ Mutate (in place) → d[k]=v · insert ❗exists · get_or_insert(k, fn) · insert_or_update(k, v, combine) · update(k, v) ❗missing ·
-    │   │   │                swap ❗missing · delete ❗missing / try_delete · pop · clear · merge_all(other, merge, default) ·
-    │   │   │                (bulk) update_many(keys, values, combine=)
-    │   │   ├─ Vector / Matrix → get/set(→new)/slice/concat · rows()/cols() · transpose/get_row/get_col · to_array/to_vector/to_matrix/to_rows ·
-    │   │   │   │                 to_numpy(copy=False)/to_torch() · from_numpy/from_torch/zeros/ones/fill ·
-    │   │   │   │                 Vector map(fn(b, el[, i])) · reduce(fn(b, acc, el[, i]), init) · Matrix map_rows(fn(b, row[, i]))
-    │   │   │   ├─ Elementwise arithmetic (east-c) → scale(α) · add_scaled(other, α) · mul(other) · add_scalar(c) · abs() · clamp(lo, hi) ·
-    │   │   │   │            cum_sum() — Matrix: scale · add_scaled · mul_elementwise
-    │   │   │   ├─ Reductions (strict left-to-right order, cross-runtime) → sum() · dot(other) · max/min() ❗empty · arg_max/arg_min() ❗empty ·
-    │   │   │   │            mean()→Float · Matrix: row_sums() · col_sums() · vec_mul(v)
-    │   │   │   ├─ Masks & selection → eq/lt/gt(other)→Vector<Boolean> · mask.select(a, b) · v.compress(mask) · mask.count_true() ·
-    │   │   │   │            gather(idxs) · scatter_add(idxs, src) · search_sorted(needles)
-    │   │   │   └─ Sparse accumulators (Struct{ix, v}; strictly ascending ix; every ix/v input takes a Vector OR an Array) →
-    │   │   │                East.Vector.sparse_axpy(ixA, vA, ixB, vB, α) (union merge, vA + α·vB) · East.Vector.sparse_from_pairs(ix, v)
-    │   │   │                (sorts + sums duplicates, stable) · East.Vector.sparse_filter_gt(ix, v, threshold) · seed → arr.to_vector() ·
-    │   │   │                East.Vector.zeros/ones(T, n) · East.Vector.fill(T, n, value)
-    │   │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
-    │   │   ├─ Variant       → .type/.get_tag() · .value · .has_tag(tag) · .unwrap(tag="some", on_other=fn(b)) ❗ · .match({case: fn(b, x)}, default=fn(b)) ·
-    │   │   │                  .match_tag(tag, fn, default) · Option: .is_some() .is_none() .unwrap_or(d) — the expression spellings, on the value
-    │   │   ├─ Ref           → get() · update(value) (TS; `set` deprecated) · merge(patch, combine(b, current, patch))
-    │   │   └─ Blob          → size/get_uint8/.data · decode_utf8/utf16 · decode_beast(T, version="v1"|"v2") · encode_beast2/decode_beast2 ·
-    │   │                      open_beast(T) (a frozen paged proxy — the value a task input opens as) ·
-    │   │                      decode_csv(row_type, csv_parse_config(null_strings=…, defaults=…, …)) or decode_csv(row_type, null_strings=…)
-    │   ├─ Diff / patch two values of one type (East's structural patch algebra; all four take T first)
-    │   │   ├─ Compute a patch → East.diff(T, before, after)   (patch type is PatchType(T))
-    │   │   ├─ Apply it → East.apply_patch(T, value, patch)
-    │   │   ├─ Combine two patches → East.compose_patch(T, first, second)
-    │   │   └─ Reverse one → East.invert_patch(T, patch)
-    │   ├─ A scalar builtin (you can't method-call a float/int/str/bool/datetime)
-    │   │   ├─ Numeric → East.Float.<op> / East.Integer.<op> · Text → East.String.<op> · Time → East.DateTime.<op> · Logic → East.Boolean.<op>
-    │   │   ├─ Compare / order (East total order) → East.less / compare / equal / …(T, a, b) · East.min/max(a, b) · East.clamp(x, lo, hi)
-    │   │   └─ The stdlib (branch A) on plain values → East.Integer.print_compact(1234567) → "1.23M" · East.Float.print_currency(x) · …
-    │   ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()
-    │   │   (the East arithmetic surface above covers elementwise/reduction/sparse work with the cross-runtime order contract)
-    │   ├─ A collection FILE that does not fit in memory (beast2 v5) — start MANAGED:
-    │   │   ├─ Write → write_beast2_file(path, T, value)  (any size; the value's canonical segments — the bytes TypeScript and east-c write for it)
-    │   │   │   ├─ streaming producer → open_beast2_file(path, T, mode="w") as w: w.write(batch)
-    │   │   │   ├─ N CPUs on one table → write_beast2_file_parallel(path, T, partitions, produce)
-    │   │   │   │   (build the expensive context BEFORE the call; forked children inherit it COW on Linux/macOS)
-    │   │   │   └─ merge shard files yourself → splice_beast2_files(path, T, sources) — byte copy, no re-encode
-    │   │   ├─ Read → open_beast2_file(path) as f — a first-class READ-ONLY East collection VALUE (a Beast2*File subclasses
-    │   │   │   EastArray/EastDict/EastSet): isinstance/type_of answer, mutation raises, and it feeds East functions directly
-    │   │   │   (T optional: the header supplies it; declare T to VALIDATE it at open; don't know the type? → read_beast2_type(path)):
-    │   │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
-    │   │   │   ├─ join against it from a body → East.function([RowT, TableT], T, …).bind(f) — keyed reads answer from the pager,
-    │   │   │   │   ONE frame per hit/miss, nothing materialised (EAST_PAGED_CACHE_BYTES tunes the segment cache)
-    │   │   │   ├─ Array point reads → f[i] · f.get/get_or_default/try_get/has · f.slice(a,b) · f.get_keys(rows)
-    │   │   │   ├─ Dict keyed reads → f[k] ❗KeyError · f.get/get_or_default/try_get/has · k in f · f.get_keys(keys, fill)
-    │   │   │   ├─ Set membership → x in f · f.has(x)
-    │   │   │   ├─ Array sorted search → f.find_sorted_first/last/range(target) — GLOBAL insertion indices; no key= projection
-    │   │   │   ├─ whole-file compute → the FULL eager read surface runs on f directly: map · filter · filter_map · first_map · reduce ·
-    │   │   │   │   map_reduce · sum · mean · maximum · minimum · every · some · find_* · is_sorted · to_set/unique · to_dict · to_array ·
-    │   │   │   │   to_columns · map_batches · string_join · flatten_* · the group_* family · Set algebra — segment folds, east-c per
-    │   │   │   │   segment, results == f.load() exactly (f.segments() is a DEPRECATED alias)
-    │   │   │   └─ wide rows, few columns read → column projection is INFERRED from the callback's IR (each segment decodes to
-    │   │   │       exactly the struct fields it reads); declare it instead → open_beast2_file(path, project=NARROW)
-    │   │   ├─ As a manifest directory — the manifest at path, each object in path.segments/ under its SHA-256: the form e3
-    │   │   │   stores a collection in, and the directory TypeScript and east-c write for the value
-    │   │   │   ├─ Write → with Beast2ManifestWriter(T, path) as w: w.add_all(batch) (or w.add(el))
-    │   │   │   └─ Read → load_beast2_manifest(path[, T]) whole · read_beast2_manifest(path) → the manifest, or None
-    │   │   └─ Buffer-level (you hold the bytes, not a path):
-    │   │       ├─ the canonical blob → Beast2ElementWriter(T, stream) .add(el)/.add_all(batch) · encode_beast2_paged_for(T)(value)
-    │   │       ├─ elements in ANY order (a re-key) → Beast2RunSorter(T, open_run, merge= | union=) .add(el) .finish() — sorted
-    │   │       │   canonical runs, one run's memory, the runs east-c and TypeScript write; merging them gives the value
-    │   │       ├─ segments of your own choosing → Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
-    │   │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
-    │   │       ├─ decode_beast2_with_header_for(T)(blob)  — whole, v4 AND v5 ❗ValueError when the header names another type
-    │   │       ├─ open_beast2_pages_for(T)(source) — .element(n)/.segment(i), ONE segment each ❗borrows the buffer — keep it alive
-    │   │       └─ read_beast2_index(T, blob) -> (segments, elements) — totals without decoding
-    │   ├─ Logic genuinely needs python (numpy / a model / a solver) → to_columns()/EastArray.from_columns · map_batches ·
-    │   │   EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
-    │   └─ Let East call your python function
-    │       ├─ Concrete types → @East.platform_function(inputs=[…], output=…)  +  East.platform_functions(__name__) — the decorated def is
-    │       │   DUAL-MODE: call it on values, or inside a body where it IS the Platform node (no declaration to restate)
-    │       ├─ Type-parameterized → @East.generic_platform_function(type_parameters=[…], inputs=…, output=…, is_async=…, type_erased=…)
-    │       └─ Cache a pure, expensive one (dev/test) → @memoize above @East.platform_function; inert until configure_memo(dir) / EAST_MEMO_DIR
+    ├─ B. Work with East values — the eager runtime (the same names, run NOW in east-c; results stay C-side and chain)
+    │   ├─ Build one → array · struct · variant · some / none · east_ref · EastBlob(b"…") · EastVector / EastMatrix (numpy) ·
+    │   │   coerce_to(value, T) (type-driven: int→Float, dict→Struct, 1-D numpy→Array) · validate at a python ↔ East boundary with
+    │   │   assert_value_of ❗ · explain_value_of · is_value_of · type_of                → "Construction & validation"
+    │   ├─ Transform → map · filter · reduce · scan · sort · group_* · to_dict · set algebra · dict union / merge · …, each callback
+    │   │   an East function body — and keep the data in East: never down-convert to list/dict/set, loop, and rebuild
+    │   │   → "Work in East values", "Eager callbacks", then "EastArray — complete method surface" and its siblings
+    │   ├─ Generate → EastArray.range / linspace / generate · EastSet / EastDict.generate · EastVector / EastMatrix.zeros / ones /
+    │   │   fill / from_array / from_numpy / from_torch                                    → "Container generators"
+    │   ├─ Scalars (float / int / str / bool / datetime take no methods) → East.Float / Integer / String / DateTime / Boolean.* ·
+    │   │   East.less / compare / equal(T, a, b) — never python's str / re / datetime / // / < for these
+    │   │                                                        → "East.<Type> namespaces", "Scalars: use the `East.<Type>` utilities"
+    │   ├─ Diff / patch two values → East.diff / apply_patch / compose_patch / invert_patch(T, …) → "East.<Type> namespaces"
+    │   ├─ A JSON contract another system validates against → json_schema_for · type_from_json_schema   → "A JSON contract"
+    │   ├─ A collection file larger than memory → write_beast2_file · open_beast2_file (a read-only East collection value) ·
+    │   │   write_beast2_file_parallel · splice_beast2_files · Beast2ManifestWriter · open_beast2_pages_for  → "Beast2 streaming"
+    │   ├─ Logic genuinely needs python (numpy, a model, a solver) → to_columns · from_columns · map_batches · update_many ·
+    │   │   extend · to_numpy / to_torch                                                   → "Columnar escape hatches"
+    │   └─ Let East call python → @East.platform_function · @East.generic_platform_function · @memoize → "Platform functions"
     │
-    └─ C. CROSSING BETWEEN THEM
-        ├─ A python value inside a body → parameters are expressions already · scalars/datetimes lift · East.value(v, T) / b.const(v) ·
-        │   a closed-over East collection = build-time SNAPSHOT (an eager callback refuses it)
-        ├─ A large side table inside a body → declare it as a trailing parameter + fn.bind(table) (by reference, live, zero-copy)
-        ├─ An East function on values → f(values) runs natively · xs.map(f) (a VALUE takes no block) · compile_from_beast2/json/east
-        ├─ A callback in an eager method → it IS a body (captured, compiled; a body East cannot express RAISES naming the binding)
-        ├─ A dual-mode construct → East.if_else · East.while_/for_ · struct/variant/some/none · every East.<Type>.* function — eager on
-        │   values, IR on expressions; one body serves both
-        └─ See how a hot call ran → east.runtime.compiler.eager_stats() (function_direct · c_to_py_decodes · beast2_*)
+    ├─ C. Cross between them → a body's parameters are expressions · python scalars and datetimes lift · East.value(v, T) /
+    │   b.const(v) · a captured East collection is a build-time SNAPSHOT (an eager callback refuses it), .bind(table) keeps it
+    │   live · an East function is a callable on values, and a VALUE takes no block · east.runtime.compiler.eager_stats()
+    │   shows how a hot call ran                                       → "Python values vs East expressions", "Performance"
+    │
+    └─ D. Run a program from the shell → east-py run (IR + input files → a result) · exec (a unit: the runner protocol e3
+        speaks) · convert (a beast2 value → East text) · version                                  → "The east-py CLI"
 ```
 
 ## Type System Summary
 
-Every East type has an expression class (what you hold inside a body — the TS
-`IntegerExpr`/`ArrayExpr`/… twins, exported from `east.expression.expr`) and a python
-value (what you hold outside). Scalars are plain Python objects, so their builtins live
-on the `East.<Type>` namespaces; everything else is an `East*` container that carries its
-element type and has real eager methods. Only `EastArray`/`EastSet`/`EastDict`/`EastRef`
-mutate in place — `EastStruct`, `EastVariant`, `EastVector`, and `EastMatrix` are
-immutable value types (`set` returns a new tensor).
+Every East type has an expression class (what a body holds — the TS
+`IntegerExpr`/`ArrayExpr`/… twins, from `east.expression.expr`) and a python
+value (what you hold outside). Scalars are plain python objects, so their
+builtins live on the `East.<Type>` namespaces; the rest are `East*` containers
+that carry their element type and have eager methods. Only
+`EastArray`/`EastSet`/`EastDict`/`EastRef` mutate in place — `EastStruct`,
+`EastVariant`, `EastVector` and `EastMatrix` are immutable (`set` returns a new
+tensor).
 
 | East type | Expression class (in a body) | Python value (eager) | Mutability |
 |-----------|------------------------------|----------------------|------------|
@@ -413,38 +200,37 @@ immutable value types (`set` returns a new tensor).
 | `FunctionType(I, O)` / `AsyncFunctionType(I, O)` | `FunctionExpression` / `AsyncFunctionExpression` (callable in a body) | an `East.function` artifact / `EastFunction` | Immutable |
 | `recursive_type(…)` / a diverging body | `RecursiveExpression` / `NeverExpression` | the wrapped value / — | — |
 
-`VectorType`/`MatrixType` element types are `FloatType`, `IntegerType`, or `BooleanType`;
-the runtime backing numpy dtype may be narrower (e.g. f32), and the bridge canonicalizes
-to East's storage width (Float→f64, Integer→i64, Boolean→u8) crossing into east-c.
+`VectorType`/`MatrixType` elements are `FloatType`, `IntegerType` or `BooleanType`;
+a narrower numpy dtype (f32, …) is canonicalized to East's width (Float→f64,
+Integer→i64, Boolean→u8) crossing into east-c. `PatchType(T)` (from
+`east.types.types`) is the type of a structural patch of a `T`.
 
 ## East expressions — writing East functions in Python
 
 A python body becomes East IR by being CAPTURED: it runs ONCE against typed
-expression proxies (exactly like the TypeScript `East.function` builder),
-east-c compiles the recorded IR, and from then on only the compiled function
-executes. There is no interpreter path behind it — a body East cannot express
-raises at build time, so the same source always costs and means the same
-thing.
+expression proxies, exactly like the TypeScript builder; east-c compiles the
+recorded IR, and from then on only the compiled function runs. A body East
+cannot express raises at build time, so the same source always costs and means
+the same thing.
 
 ### Declare, implement, build, compile — the four authoring calls
 
-Four calls, the TypeScript names, name for name. Two are about **platform
-functions** — python the East program calls out to — and are paired **by
-name**; two are about **East functions**, the program itself:
+The TypeScript names, name for name. Two are about **platform functions** —
+python the program calls out to, paired **by name** — and two about **East
+functions**, the program itself:
 
 | Step | Call | What it is |
 |---|---|---|
 | **Implement** a platform function in python | `@East.platform_function(inputs=…, output=…)` (`@East.generic_platform_function(type_parameters=, inputs=, output=)`; `East.platform_functions(__name__)` collects a module's) | the host side AND the body's spelling: a plain python function over East VALUES, its result validated against `output` — and, called inside a body, the `Platform` node with this very signature. Its name — the `def`'s, or `name=` — is what every runtime pairs the call with |
-| **Declare** one implemented elsewhere | `East.platform(name, inputs, output)` (`East.asyncPlatform`, `East.genericPlatform`) | a handle a body CALLS — it emits the `Platform` node; nothing runs here. For a function implemented in another package or runtime; a python implementation you hold needs no declaration |
+| **Declare** one implemented elsewhere | `East.platform(name, inputs, output)` (`East.asyncPlatform`, `East.genericPlatform`, `East.asyncGenericPlatform`) | a handle a body CALLS — it emits the `Platform` node; nothing runs here. For a function implemented in another package or runtime; a python implementation you hold needs no declaration |
 | **Build** an East function | `East.function(inputs, out, body)` / `@East.function(inputs, out)` (`East.asyncFunction`) | runs `body` once over expression proxies and records IR; a pure one is already callable |
 | **Compile** with the implementations | `East.compile(fn, platform=[…])` (`East.compileAsync`) | analyzes the IR against the implementations — a declaration no implementation matches by name is `Platform function '<name>' not found` — and returns the native callable |
 
 An `East.function` has no name of its own: it is a VALUE, called through the
-binding that holds it (`score(x)`, `rows.map(score)`), stored in a struct or
-an array, exported under its module-level name (`east_functions = {"score":
-score}`) — its IR carries its parameters' names, never its own,
-exactly as in TypeScript. A platform function is the opposite: the name IS
-the pairing, on every runtime.
+binding that holds it (`score(x)`, `rows.map(score)`), stored in a struct or an
+array, exported under a name (`east_functions = {"score": score}`) — its IR
+carries its parameters' names, never its own, as in TypeScript. A platform
+function is the opposite: the name IS the pairing, on every runtime.
 
 ```python
 from east import East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType
@@ -504,57 +290,49 @@ Each call in detail:
 |---|---|---|
 | `East.function(param_types, out, body)` | a `Function` artifact | `param_types` is a LIST (`[]` for none); the body takes the block first — `lambda b, x: …` / `def f(b, x)`, as EVERY body does (`lambda x: …` is refused with the fix-it); `out` is required, and a body whose expression has another type raises naming both; with `body` omitted it is a DECORATOR |
 | `East.asyncFunction(param_types, out, body)` | an `AsyncFunction` artifact | for bodies calling async platform declarations; compile with `East.compileAsync` |
-| `East.platform(name, inputs, output, optional=False)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level`; `East.genericPlatform(name, ["T"], inputs, output)` is the type-parameterised form. Needed only for a function implemented elsewhere: a `@East.platform_function` you hold emits the same node itself |
+| `East.platform(name, inputs, output, optional=False)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level`; `East.genericPlatform(name, ["T"], inputs, output)` is the type-parameterised form (`East.asyncGenericPlatform` the async one). Needed only for a function implemented elsewhere: a `@East.platform_function` you hold emits the same node itself |
 | `East.asyncPlatform(name, inputs, output)` | an async declaration | calling it from a SYNC body is a build error naming `East.asyncFunction` |
 | `East.compile(fn, platform=[])` / `East.compileAsync(...)` | a native callable | takes an artifact or a raw IR value; the IR is analyzed against `platform` first (`east.ir.analyze`, the TS `analyzeIR`): a signature mismatch or a missing implementation is an `EastError` naming the call — unless the declaration is `optional=True`, which compiles to a stub that raises at the call (TS parity) |
 
 A **pure** artifact needs no compile step: it is already a native callable,
-`.bind(*values)` pre-binds trailing parameters by reference, and
-referencing it inside another body splices its expression into that build
-. The splice runs the body in ITS OWN frame: a body that
-appends statements (`b.let`, `b.if_`) becomes a `Block` where it is spliced,
-not statements of the caller's block above the expression that consumes it —
-so an artifact used as an `East.if_else` arm evaluates only when that arm is
-taken, like every other arm. One consequence to know at the call site: an
-effect-only artifact whose value the caller DISCARDS is now the build-time
-"was evaluated and thrown away" error rather than a silent write into the
-caller's block — spell it `b.do(push(xs))` / `East.block(push(xs), result)`,
-as with any other mutation. A platform-declaring artifact stays first-class
-(composable, serializable) but raises until `East.compile` pairs it with
-implementations.
-`East.function(...)` spelled INSIDE a body is not an artifact but the inline
-`Function` node as a Function-typed expression — bind it with `b.const`, hand
-it to a callback slot, or call it (a `Call`; inside `East.asyncFunction`,
-calling an async one is a `CallAsync`).
+`.bind(*values)` pre-binds trailing parameters by reference, and referencing it
+inside another body splices it into that build — in ITS OWN frame, so a body
+that appends statements (`b.let`, `b.if_`) becomes a `Block` where it is
+spliced, and an artifact used as an `East.if_else` arm evaluates only when that
+arm is taken. An effect-only artifact whose value the caller DISCARDS is
+therefore the build's "evaluated and thrown away" error — spell it
+`b.do(push(xs))` / `East.block(push(xs), result)`, as with any mutation. An
+artifact that calls platform functions stays first-class (composable,
+serializable) but raises until `East.compile` pairs it with implementations.
+`East.function(...)` spelled INSIDE a body is the inline `Function` node, a
+Function-typed expression: bind it with `b.const`, hand it to a callback slot,
+or call it (a `Call`; in an `East.asyncFunction`, calling an async one is a
+`CallAsync`).
 
-**Error locations.** A build records the python frames that built
-each node, so a runtime error inside the function names the authoring site:
-`EastError.location` is the stack — the lambda's `file:line:column` first,
-then the `East.function(...)` call and its callers — and a platform-signature
-mismatch at `East.compile` names the offending call the same way. The map
-rides the function's beast2 encoding, so the error reads the same after
-export to east-c or east-node. Paths are relative to the working directory;
+**Error locations.** A build records the python frames that built each node,
+so a runtime error names its authoring site: `EastError.location` is the stack —
+the lambda's `file:line:column` first, then the `East.function(...)` call and
+its callers — and a platform-signature mismatch at `East.compile` names the call
+the same way. The map rides the function's beast2 encoding, so the error reads
+the same on east-c or east-node. Paths are relative to the working directory;
 `set_location_base_path(dir)` (from `east`) pins the base for reproducible
-fixtures, and `set_location_capture(False)` builds without recording any.
-There is then no stack walk per node, and an error raised by such a function
-carries no location. Binding names are read separately and keep working. The
-TypeScript twin is `setLocationCapture`. An error raised inside a callback that a *builtin* invokes
-(`arr.map(...)` and friends) resolves to the builtin's call site, on every
-runner.
+fixtures. An error inside a callback a builtin invokes (`arr.map(...)` and
+friends) resolves to the builtin's call site, on every runner.
+`set_location_capture(False)` (from `east`) builds without recording any
+locations: there is then no stack walk per node, and an error raised by such a
+function carries no location. Binding names are read separately and keep
+working. The TypeScript twin is `setLocationCapture`.
 
 ### Every body takes the block first — the TypeScript `$` twin
 
-A TypeScript body receives `$` and appends STATEMENTS to it. A python body
-receives **`b`** — the block — as its FIRST parameter and does the same.
-EVERY body does, always — an `East.function` body, a builtin's callback, a
-branch, a loop, a handler — exactly as every TypeScript body is `($, …) =>
-…`: a `lambda x: …` that leaves it out is refused with the fix-it, and a
-body that uses the block as if it were the element fails on the block's
-first use. Every branch, loop and handler body receives ITS OWN block
-first, then what the construct hands it, so which block a statement belongs
-to is always written down — and a statement on any other block is a
-build-time error. Python `None` returned from a body is TypeScript's "no
-return"; the `east_null` sentinel is an explicit `null`:
+A TypeScript body receives `$` and appends statements to it; a python body
+receives **`b`**, the block, as its FIRST parameter and does the same. EVERY
+body does — an `East.function` body, a builtin's callback, a branch, a loop, a
+handler — exactly as every TypeScript body is `($, …) => …`: `lambda x: …` is
+refused with the fix-it, a body that uses the block as the element fails on the
+block's first use, and each nested body receives ITS OWN block first, so a
+statement on any other block is a build-time error. Python `None` returned from a
+body is TypeScript's "no return"; the `east_null` sentinel is an explicit `null`:
 
 ```python
 from east import East, IntegerType, StringType
@@ -601,40 +379,35 @@ does not use it.
 | `East.block(fn)` | `Block` | the EXPRESSION form: `fn(b)`'s statements, then the value it returns (a block returning nothing must diverge) |
 
 A statement after one that never completes raises `Unreachable statement
-detected`, as in TypeScript; a statement on an OUTER block from inside a
-nested body, or on a block whose body has returned, raises naming it (the
-TypeScript `no-cross-block-builder` lint is a hard error here). Every other IR
-node kind has a spelling too, so any program TypeScript can build, python can
-build name for name: `East.value(v, T)` (a typed literal / struct / list /
-dict), `East.as_(v, T)` (an explicit widening `As`), `East.wrap_recursive(v, R)`
-and `expr.unwrap()` on a recursive-typed expression, `East.builtin(name, [T…],
-[args], out)` (a raw builtin, for the few with no named spelling —
-`east.codegen.RAW_ONLY`).
+detected`, as in TypeScript; a statement on an OUTER block from inside a nested
+body, or on a block whose body has returned, raises naming it (TypeScript's
+`no-cross-block-builder` lint is a hard error here). Every other IR node kind has
+a spelling too, so any program TypeScript can build, python builds name for
+name: `East.value(v, T)` (a typed literal / struct / list / dict), `East.as_(v,
+T)` (an explicit widening `As`), `East.wrap_recursive(v, R)` and `expr.unwrap()`
+on a recursive-typed expression, and `East.builtin(name, [T…], [args], out)` (a
+raw builtin, for the few with no named spelling — `east.codegen.RAW_ONLY`).
 
-**The analyzer.** Every build (and every `East.compile`) runs
-`east.ir.analyze.analyze_ir` — the python twin of TypeScript's `analyzeIR`:
-scope, exact-type rules (a `Let`/`Assign`/argument/element/field must have
-exactly its slot's type, subtyping spelled with `As`), divergence rules and
-node well-formedness, with the TypeScript messages and the python
-`file:line:column` of the node. A body that cannot pass it never compiles.
+**The analyzer.** Every build and every `East.compile` runs
+`east.ir.analyze.analyze_ir`, the twin of TypeScript's `analyzeIR`: scope, exact
+types (a `Let`/`Assign`/argument/element/field has exactly its slot's type;
+subtyping is spelled with `As`), divergence and node well-formedness, with the
+TypeScript messages at the python `file:line:column`. A body that fails it never
+compiles.
 
 ### The expression surface, type by type
 
-One class per East type in `east.expression.expr`, each mirroring its
-`libs/east/src/expr/<type>.ts` twin: the same methods under the snake_cased
-name, the same builtin and argument order behind each one, and — where
-TypeScript has alias spellings (`plus`/`minus`/…, `eq`/`equal`/`equals`) — the
-same aliases. `tests/test_ts_name_parity.py` pins this against the TypeScript
-sources: every TypeScript method exists here, on the expression class AND on
-the eager value class (for a scalar, whose python value takes no methods, the
-eager twin is the `East.<Type>` function of the same name, value first:
-`d.add_days(n)` ↔ `East.DateTime.add_days(d, n)`), and every python-only
-name is declared with its reason (a deprecated python-idiom alias, a python
-protocol twin, or a convenience). Python differs from TypeScript in exactly the places
-the language forces: operators where they agree (`+ - * / ** & | ^ ~`, the
-comparisons), keyword-mangled `and_`/`or_`/`not_`, a trailing underscore on
-`as_`, and keyword arguments (`out=`, `key=`, `combine=`) where TypeScript
-overloads.
+One class per East type in `east.expression.expr`, each the twin of
+`libs/east/src/expr/<type>.ts`: the same methods snake_cased, the same builtin
+and argument order behind each, and the same aliases where TypeScript has them
+(`plus`/`minus`/…, `eq`/`equal`/`equals`). Every TypeScript method exists on the
+expression class AND on the eager value class (a scalar's eager twin is the
+`East.<Type>` function of the same name, value first: `d.add_days(n)` ↔
+`East.DateTime.add_days(d, n)`), and each python-only name is a deprecated
+python-idiom alias, a python protocol twin, or a convenience. Python departs from
+TypeScript only where the language forces it: operators where they agree (`+ - *
+/ ** & | ^ ~`, the comparisons), `and_`/`or_`/`not_`, `as_`, and keyword
+arguments (`out=`, `key=`, `combine=`) where TypeScript overloads.
 
 | Type | Operators | Methods (the TypeScript names) |
 |---|---|---|
@@ -644,36 +417,31 @@ overloads.
 | **String** | `+` (concat); comparisons | `.concat(s) .repeat(n) .substring(a, b) .upper_case() .lower_case() .trim() .trim_start() .trim_end()` · `.replace(old, new) .split(sep)` · `.length() .starts_with(p) .ends_with(s) .contains(s) .index_of(s)` · `.parse(T)` ❗ (strict whole-string) `.parse_json(T)` · `.try_parse(T) -> Option<T>` (none on any failure) · `.encode_utf8() .encode_utf16()` · `.regex_contains(pat, flags="") .regex_index_of(pat, flags="") .regex_replace(pat, repl, flags="")` (the builtins TypeScript has no method for) · never an f-string (it would constant-fold the proxy) — `East.str(…)` or `+` |
 | **DateTime** | comparisons; a python `datetime` literal lifts as a DateTime | `.get_year() .get_month() .get_day_of_month() .get_day_of_week()` (Monday = 1) `.get_hour() .get_minute() .get_second() .get_millisecond()` · `.add_milliseconds(n) .add_seconds .add_minutes .add_hours .add_days .add_weeks` and `.subtract_milliseconds … .subtract_weeks` (an Integer or Float `n`) · `.duration_milliseconds(other) -> Integer`, `.duration_seconds/minutes/hours/days/weeks(other) -> Float` ❗ `a.duration_days(b)` is `b − a` (positive when `b` is later — the TS method; the namespace `East.DateTime.duration_milliseconds(a, b)` is the raw builtin, `a − b`) · `.to_epoch_milliseconds()` · `.print_formatted(fmt)` (Day.js tokens) |
 | **Blob** | comparisons | `.size() .get_uint8(i)` · `.decode_utf8() .decode_utf16()` · `.decode_beast(T, version="v1")` (`"v2"` = the beast2 family) · `.open_beast(T)` (TS `openBeast`: an indexed beast2 `Array`/`Set`/`Dict` blob as a FROZEN paged value — `size`, keyed reads and `for_` decode one segment; an index-less blob or a Ref-/function-bearing element shape decodes whole; the header's type must equal `T`, checked before any decode) · `.decode_csv(RowT, config=None, **options)` |
-| **Array** | `xs[i]` (a negative LITERAL index raises — spell `xs.get(xs.size() - 1)`); comparisons | Read `.size() .length() .has(i) .get(i[, on_missing(b, i)])` ❗bounds `.at(i) .try_get(i) .get_keys(idxs)` · Mutate (yield Null / Boolean, sequence with `East.block` or `b.do`) `.update(i, v) .push_last(v) .pop_last() .push_first(v) .pop_first() .append(array) .prepend(array) .merge(i, v, fn) .merge_all(array, fn) .clear() .sort_in_place(by=) .reverse_in_place()` · Transform `.copy() .slice(a, b) .concat(other) .sort(by=, reverse=) .reverse() .map(fn, out=) .filter(fn) .filter_map(fn, out=) .flat_map(fn, out=)` · Search `.find_first(target, key=) .find_all(v, by=) .first_map(fn, out=) .is_sorted(key=) .find_sorted_first/last/range(target, key=)` · Reduce `.reduce(fn(acc, el[, i]), init) .scan(fn, init) .every(pred=) .some(pred=) .sum(fn=) .mean(fn=) .maximum(by=) .minimum(by=)` ❗empty `.find_maximum(by=) .find_minimum(by=)` · Convert `.string_join(sep) .to_set(key=) .to_dict(key, value=, combine=) .flatten_to_set(fn) .flatten_to_dict(fn, combine=) .encode_csv(config=) .to_vector() .unique()` · Group `.group_by(key) .group_reduce(key, init, fold) .group_size(key=) .group_sum(key, fn=) .group_mean(key, fn=) .group_maximum/.group_minimum(key, by=) .group_to_arrays/.group_to_sets(key, value=) .group_to_dicts(key, key2, value=, combine=) .group_every/.group_some(key, pred) .group_find_all/.group_find_first(key, v, by=) .group_find_maximum/.group_find_minimum(key, by=)` · effect `.for_each(fn)` |
-| **Set** | comparisons | Read `.size() .has(v)` · Mutate `.insert(v)` ❗exists `.try_insert(v)→Boolean .delete(v)` ❗absent `.try_delete(v)→Boolean .clear() .union_in_place(other)` · Set ops `.copy() .union(o) .intersection(o) .difference(o) .symmetric_difference(o) .is_subset_of(o) .is_superset_of(o) .is_disjoint_from(o)` · Transform `.filter(fn) .filter_map(fn, out=)→Dict .map(fn, out=)→Dict .for_each(fn) .first_map(fn, out=)` · Reduce `.reduce(fn(acc, el), init) .scan(fn, init) .every .some .sum .mean` · Convert `.to_array(fn=) .to_set(fn) .to_dict(key, value, combine=) .flatten_to_array(fn) .flatten_to_set(fn) .flatten_to_dict(fn, combine=)` (a Set spells it `flatten_to_array` in TypeScript — only an Array has `flat_map`) · Group `.group_reduce .group_size .group_sum .group_mean .group_to_arrays .group_to_sets .group_to_dicts .group_every .group_some` |
-| **Dict** | `d[k]` ❗missing; comparisons · every callback is **`(value, key)`** — `fn(b, v)` or `fn(b, v, k)`; a fold step `fn(b, acc, v[, k])`; a collision handler `combine(b, existing, incoming[, key])` | Read `.size() .has(k) .get(k[, on_missing(b, k)])` ❗missing `.get_or_default(k, d) .try_get(k) .keys()→Set .get_keys(keys, fill)` · Mutate `.insert(k, v)` ❗exists `.insert_or_update(k, v, combine) .update(k, v)` ❗missing `.merge(k, v, update_fn, initial_fn=) .get_or_insert(k, fn) .delete(k)` ❗ `.try_delete(k)→Boolean .pop(k) .swap(k, v) .clear() .union_in_place(o, combine) .merge_all(o, update, init)` · Transform `.copy() .union(o, combine=) .map(fn, out=) .filter(fn) .filter_map(fn, out=) .for_each(fn) .first_map(fn, out=)` · Reduce `.reduce(fn, init) .scan(fn, init) .every .some .sum .mean` · Convert `.to_array(fn, out=) .to_set(fn, out=) .to_dict(key, value=, combine=) .flatten_to_array(fn) .flatten_to_set(fn) .flatten_to_dict(fn, combine=)` · Group `.group_reduce .group_size .group_sum .group_mean .group_to_arrays .group_to_sets .group_to_dicts .group_every .group_some` |
-| **Vector** | comparisons | Read `.length() .get(i)` ❗bounds · `.set(i, v)` (a NEW vector) · Transform `.slice(a, b) .concat(o) .map(fn(el[, i]), out=) .reduce(fn(acc, el[, i]), init)` · Arithmetic (Float/Integer) `.scale(α) .add_scaled(o, α) .mul(o) .add_scalar(c) .abs() .clamp(lo, hi) .cum_sum()` · Reduce (strict left-to-right) `.sum() .dot(o) .max() .min() .arg_max() .arg_min() .mean()` ❗ empty: `sum()==0`, the rest raise · Masks `.eq(o) .lt(o) .gt(o)` → `Vector<Boolean>`, `mask.select(a, b)`, `data.compress(mask)`, `mask.count_true()` · `.gather(idxs) .scatter_add(idxs, src) .search_sorted(needles)` · Convert `.to_array() .to_matrix(rows, cols)` |
-| **Matrix** | comparisons | `.rows() .cols() .get(r, c) .get_row(r) .get_col(c)` ❗bounds · `.set(r, c, v)` (a NEW matrix) · `.transpose()` · `.scale(α) .add_scaled(o, α) .mul_elementwise(o)` · `.row_sums() .col_sums() .vec_mul(v)` ❗ cols ≠ `v.length()` · `.to_vector() .to_array() .to_rows()` · `.map_rows(fn(row[, i]))` |
+| **Array / Set / Dict / Vector / Matrix** | `xs[i]` (a negative LITERAL index raises — spell `xs.get(xs.size() - 1)`) · `d[k]` ❗missing · comparisons | The eager surface, name for name and signature for signature — [EastArray](#eastarray--complete-method-surface) · [EastSet](#eastset--complete-method-surface) · [EastDict](#eastdict--complete-method-surface) · [EastVector](#eastvector--complete-method-surface) · [EastMatrix](#eastmatrix--complete-method-surface) — less what only a value has: the python protocol (Array `insert`/`remove`/`count`/`index`, Set `add`/`remove`/`discard`, Dict `values`/`items`), the columnar hatches (`to_columns`, `from_columns`, `map_batches`, `update_many`), the numpy/torch bridges, the classmethod generators (`East.Array.range` and kin are their twins) and the deprecated `map_elements`. A mutator yields Null or Boolean — sequence it with `b.do` or `East.block`. A Dict callback is `(value, key)`: `fn(b, v)` or `fn(b, v, k)`, a fold step `fn(b, acc, v[, k])`, a collision handler `combine(b, existing, incoming[, key])` |
 | **Struct** | `r.field` / `r["field"]` (both build IR, both work on real rows) | build a row with a dict literal `{"k": expr, …}` or `struct({…}, T)` (dual-mode) |
 | **Variant** | — | `.match({case: fn(b, payload)}, default=fn(b))` (TS's partial match; the arms must agree on one East type — a `some(x)` arm types its `none` sibling) · `.match_tag(tag, fn, default)` · `.unwrap(tag="some", on_other=None)` ❗ · `.has_tag(tag) .get_tag()` · Option: `.is_some() .is_none() .unwrap_or(d)` · build with `some(expr)` / `none` / `variant(case, payload)`, typed from context (the build's declared output, a typed `if_else` sibling, a declared struct field, or an `out=` pin) |
 | **Ref** | — | `East.ref(v)` builds one · `.get()` · `.update(v)` (TS `RefUpdate`; `.set` and the read-modify-write `update(fn)` are deprecated — write `r.update(f(r.get()))`) · `.merge(v, fn(b, current, patch))` |
 | **Function** | `f(x, …)` — a `Call` node (a `CallAsync` inside an async body) | a Function-typed parameter or a `b.const(East.function(…))` is callable in the body; `FunctionType` parameters bind with `.bind(fn_value)` |
 
-The expression methods accept the eager keywords — `out=` (`map`, `filter_map`,
-`map_reduce`, `flat_map`, `flatten_to_set`, `to_array`, `to_set`), `key_out=`/
-`value_out=` (`to_dict`), `key_out=`/`acc_out=` (`group_reduce`), `pred=`, `key=`,
-`value_fn=` — and an `out=`-family pin also TYPES the callback's build, so a
-pinned callback can build a general variant without any other context. Result
-types come from the build, never from a data sample, so `out=` is optional
-everywhere and an EMPTY collection derives exactly what a full one derives.
-`some`/`every`/`first_map` compile to the native short-circuiting FirstMap
-scans (`some([])` is False, `every([])` True). An unsupported method raises
-`ExpressionError` NAMING the supported set.
+The expression methods take the eager keywords — `out=` (`map`, `filter_map`,
+`map_reduce`, `flat_map`, `flatten_to_set`, `to_array`, `to_set`), `key_out=` /
+`value_out=` (`to_dict`), `key_out=` / `acc_out=` (`group_reduce`), `pred=`,
+`key=`, `value_fn=` — and an `out=`-family pin also TYPES the callback's build, so
+a pinned callback can build a general variant with no other context. Result
+types come from the build, never a data sample: `out=` is optional everywhere,
+and an EMPTY collection derives what a full one does. `some`/`every`/`first_map`
+compile to the native short-circuiting FirstMap scans (`some([])` is False,
+`every([])` True). An unsupported method raises `ExpressionError` naming the
+supported set.
 
 ### The standard library — the TypeScript `East.<Type>.*` functions
 
-Every namespace carries the East standard library — the TypeScript
-`libs/east/src/expr/libs/*.ts` functions, body for body, under their names
-snake_cased (`printCompact` → `print_compact`; the TS misspelling
-`printCommaSeperated` is kept as `print_comma_seperated`, with
-`print_comma_separated` as a python twin). Every stdlib function is an
-`East.function` built on first use: called on plain values it runs natively,
-referenced inside a body it splices in like any artifact:
+Every namespace carries the East standard library — TypeScript's
+`libs/east/src/expr/libs/*.ts`, body for body, snake_cased (`printCompact` →
+`print_compact`; the TS misspelling `printCommaSeperated` stays
+`print_comma_seperated`, with `print_comma_separated` as a python twin). Each is
+an `East.function` built on first use: on plain values it runs natively, inside a
+body it splices in like any artifact:
 
 ```python
 @East.function([IntegerType, FloatType, DateTimeType], StringType)
@@ -683,23 +451,14 @@ def label(b, n, x, d):
                     East.DateTime.print_formatted(East.DateTime.round_down_hour(d, 6), "HH:mm"))
 ```
 
-The outputs are the TypeScript outputs exactly — a Float prints with its
-point (`East.Float.print_percentage(1.0, 0)` is `"100.0%"`), the Integer
-compact forms carry two decimals below ten units (`print_compact(1500)` is
-`"1.50K"`), and `round_nearest`'s Integer half-step truncates
-(`round_nearest(17, 5)` is `20`). The full tables are under
-[East.<Type> namespaces](#easttype-namespaces--the-builtins-and-the-standard-library).
-
-| Namespace | Functions |
-|---|---|
-| `East.Integer` | `print_comma_seperated(x)` `print_currency(x)` `print_compact(x)` (K/M/B/T/Q) `print_compact_si(x)` (k/M/G/T/P) `print_compact_computing(x)` (base 1024) `print_ordinal(x)` `print_percentage(x)` `digit_count(x)` `round_nearest/round_up/round_down/round_truncate(x, step)` |
-| `East.Float` | `approx_equal(x, y, eps)` `round_floor/round_ceil/round_half/round_trunc(x)→int` `round_nearest/round_up/round_down/round_truncate(x, step)` `round_to_decimals(x, n)` `print_fixed(x, n)` `print_comma_seperated(x, n)` `print_currency(x)` `print_compact(x)` `print_percentage(x, n)` (NaN/±Infinity raise `Cannot round/format …`) |
-| `East.DateTime` | `from_components(year, month=1, …)` `from_epoch_milliseconds(ms)` `parse_formatted(s, fmt)` `round_down_/round_up_/round_nearest_{millisecond,second,minute,hour,day,week}(dt, step)` `round_down_month(dt, step)` `round_down_year(dt, step)` |
-| `East.String` | `print_json(value)` (or `print_json(T, value)`) `print_error(message, stack)` |
-| `East.Blob` | `encode_beast(value, version="v1", typ=None)` |
-| `East.Array` / `East.Set` / `East.Dict` | `range(start, end, step=1)` `linspace(a, b, n)` `generate(size, T, fn)` · `generate(size, K, fn, on_conflict=None)` · `generate(size, K, V, key_fn, value_fn, on_conflict=None)` — the TypeScript argument order; a key generated twice is a runtime error `Duplicate key <k> in set/dict` without a handler |
-| `East.Vector` / `East.Matrix` | `zeros ones fill from_array sparse_axpy sparse_from_pairs sparse_filter_gt` · `zeros ones fill from_array from_rows` |
-| `East` root | `East.str(*parts)` (TS `East.str`\`…\` — the parts concatenated, non-String parts printed) · `East.print(value[, T])` (East text under the value's own type) · `East.min(a, b)` `East.max(a, b)` `East.clamp(x, lo, hi)` (`greatest`/`least` under East's total order) · `East.equal/not_equal/less/less_equal/greater/greater_equal/compare(T, a, b)` · `East.value(v, T)` `East.as_(v, T)` `East.error(msg)` |
+The outputs are TypeScript's exactly — a Float prints with its point
+(`East.Float.print_percentage(1.0, 0)` is `"100.0%"`), the Integer compact forms
+carry two decimals below ten units (`print_compact(1500)` is `"1.50K"`), and
+`round_nearest`'s Integer half-step truncates (`round_nearest(17, 5)` is `20`).
+Every function, with its outputs, is in
+[East.<Type> namespaces](#easttype-namespaces--the-builtins-and-the-standard-library);
+the dual-mode generators (`East.Array.range`, `East.Set.generate`,
+`East.Vector.zeros`, …) are in [Container generators](#container-generators-classmethods).
 
 ### Control flow — the expression forms (`East.while_`, `East.for_`, …)
 
@@ -771,85 +530,68 @@ between calls.
 
 ### What a body may reference
 
-- Its own parameters, plain scalar constants (closure
-  floats/ints/strings/datetimes bake in — the same value per element either
-  way), East types/values (`east_null` included), the `East` builtin
-  namespace, `East.if_else`, the `struct`/`variant`/`some`/`none`
-  constructors (dual-mode: they build IR when handed expression fields),
-  **East.function artifacts** (dual-mode: they re-run their source at any
-  nesting depth), **compiled East function values** (`.bind` results,
-  `compile_from_*` functions — a CALL on one lowers to a native IR Call), and — two wrapper levels deep, enough for helper lambdas that
+- Its own parameters; plain scalar constants (closure floats / ints / strings /
+  datetimes bake in — the same value per element either way); East types and
+  values (`east_null` included); the `East` namespace, `East.if_else` included;
+  the `struct`/`variant`/`some`/`none` constructors (dual-mode: they build IR
+  when handed expression fields); **East.function artifacts** (dual-mode: they
+  re-run their source at any nesting depth); **compiled East function values**
+  (`.bind` results, `compile_from_*` functions — a CALL on one lowers to a native
+  IR `Call`); and, two wrapper levels deep — enough for helper lambdas that
   compose a callback — other python functions that pass the same rules.
 - Anything else RAISES an `ExpressionError` **naming the binding**: a module
-  reference (`random.…`, `np.…`), a python builtin (`len`, `str`), a mutable
-  python capture, closure mutation (`nonlocal x; x += 1`). A closed-over
-  East *collection* raises in an eager callback too — a capture snapshots,
-  `.bind` stays live, and which one you meant must be your choice, not the
-  library's: use an explicit `East.function` to snapshot a side-table or
-  `.bind(table)` to keep it live. For genuine python semantics write an
-  explicit `for` loop. Side effects therefore never get lost or silently
-  doubled: the body runs once, at build time, or not at all.
+  (`random.…`, `np.…`), a python builtin (`len`, `str`), a mutable python
+  capture, closure mutation (`nonlocal x; x += 1`). A closed-over East
+  *collection* raises in an eager callback too — a capture snapshots, `.bind`
+  stays live, and which you meant is your choice: an explicit `East.function`
+  snapshots a side table, `.bind(table)` keeps it live. For genuine python
+  semantics write an explicit python loop outside the body. Side effects are
+  therefore never lost or silently doubled: the body runs once, at build time, or
+  not at all.
 - Arithmetic follows East types exactly: no implicit Integer↔Float mixing
-  (`.to_float()` / `.to_integer()` convert) and `/` is Float division.
-- Captures are CACHED: an eager callback whose code object, captured
-  bindings and declared signature match a previous call reuses the compiled
-  function — so the per-group aggregate shape,
-  `group_to_arrays(key).to_array(lambda b, es, k: {…aggregates over es…})`,
-  builds each inner lambda once, not once per group (this exact shape
-  measured 145 s of pure re-building before the cache). ⚠️ A lambda whose
-  CAPTURES change per call (`lambda b, r: r.v > g` inside a loop over `g`)
-  re-builds every time, because each capture value bakes into a different
-  function — hoist an `East.function(...)` and pass the varying value as a
-  bound parameter instead.
+  (`.to_float()` / `.to_integer()` convert), and `/` is Float division.
+- Captures are CACHED: an eager callback whose code object, captured bindings
+  and declared signature match an earlier call reuses its compiled function, so
+  the per-group aggregate `group_to_arrays(key).to_array(lambda b, es, k: {…})`
+  builds each inner lambda once, not once per group. ⚠️ A lambda whose CAPTURES
+  change per call (`lambda b, r: r.v > g` in a python loop over `g`) rebuilds
+  every call, since each capture bakes into a different function — hoist an
+  `East.function(...)` and pass the varying value as a bound parameter.
 
 ### Performance — the levers, ranked
 
-The whole point of the machinery is that **data stays in east-c and python
-never runs per element**. In order of impact:
+The point of the machinery: **data stays in east-c and python never runs per
+element**.
 
 1. **Keep values East end-to-end.** `EastArray`/`EastSet`/`EastDict` are
-   C-backed; every eager method (`map`/`filter`/`group_by`/`sort`/set
-   algebra/dict merge/…) runs the loop natively regardless of how deeply
-   nested the element type is — nesting costs nothing extra because the
-   structure never round-trips through python. The moment you call
-   `list(...)`/`dict(...)` or iterate in python you pay a per-element
-   boxing crossing — convert at most once, at the very end.
-2. **Let the callbacks build**, and chain on the results —
-   a chain of `map`/`filter`/`reduce` stays native between steps.
-   Return a dict literal (`lambda b, r: {"a": …, "b": …}`) to compute every
-   derived column in ONE pass instead of one `map` per column. **Reuse a
-   python variable to share work** (build-time CSE): assigning
-   `fields = r.data.split("|")` and reading `fields` for 30 columns
-   compiles to ONE `Let` — the split runs once per row, not 30×
-   (~2.5× on that shape). Sharing the *variable* is what dedupes;
-   re-calling `.split()` per column re-emits the split. Loop-invariant
-   subexpressions hoist out of nested lambdas to the function body the same
-   way — including a derived value read only ONCE inside a callback
-  , so `table = derive(rec)` before a `.map` runs once, not per
-   element. A hoist never leaves a GUARD: a subexpression shared
-   inside a `b.try_` / `East.try_catch` body binds inside that body, never
-   above it, so a throwing expression stays under the handler written for it
-   — which is what makes `s.try_parse(T)` answer `none` even when the parse
-   is CSE'd. `East.function(..., cse=False)` switches the pass off and builds
-   exactly the IR the body spells — what the transpiler emits.
-3. **Side tables: capture small ones, `bind` big ones.** Two spellings with
-   opposite contracts — never conflate them:
-
-   - **Closure capture (snapshot).** An East collection captured by an
-     `East.function` body is snapshot into its IR: hoisted and
-     identity-deduped so it builds **once per compiled function** and every
-     per-element lookup runs in C — ideal for lookup tables up to ~10⁴–10⁵
-     entries. The snapshot's build cost and memory ride the function (a
-     1M-entry dict costs ~10 s to snapshot), and later mutations are **not**
-     seen. (Only an EXPLICIT build snapshots: an eager method's callback
-     refuses a mutable collection capture rather than pick for you.)
+   C-backed, and every eager method runs its loop natively however deeply the
+   element type nests. `list(...)`/`dict(...)` or a python loop pays a boxing
+   crossing per element — convert at most once, at the very end.
+2. **Let the callbacks build, and chain on the results** — a chain of
+   `map`/`filter`/`reduce` stays native between steps. Return a dict literal
+   (`lambda b, r: {"a": …, "b": …}`) to derive every column in ONE pass. **Reuse
+   a python variable to share work** (build-time CSE): `fields =
+   r.data.split("|")` read for 30 columns compiles to ONE `Let` — the split runs
+   once per row (re-calling `.split()` per column re-emits it). Loop-invariant
+   subexpressions hoist out of nested lambdas to the function body, a value read
+   once inside a callback included, so `table = derive(rec)` before a `.map` runs
+   once. A hoist never leaves a guard: a subexpression shared inside `b.try_` /
+   `East.try_catch` binds inside that body, so `s.try_parse(T)` still answers
+   `none` when CSE'd. `East.function(..., cse=False)` switches the pass off and
+   builds exactly what the body spells (what the transpiler emits).
+3. **Side tables: capture small ones, `bind` big ones** — opposite contracts:
+   - **Capture (snapshot).** A collection captured by an `East.function` body
+     is snapshot into its IR — hoisted and identity-deduped, so it builds **once
+     per compiled function** and each lookup runs in C. Right for tables up to
+     ~10⁴–10⁵ entries; the snapshot's build cost and memory ride the function (a
+     1M-entry dict takes ~10 s), and later mutations are **not** seen. Only an
+     EXPLICIT build snapshots: an eager callback refuses a mutable capture.
    - **`East.function(...).bind(table)` (by reference, live).** Declare the
-     table as a trailing parameter and pre-bind it: C-level partial application
-     retains the value's live pointer — **zero copy, O(1) bind at any size**
-     (1M entries: ~0.1 ms), per-row cost matches the hoisted case, and the
-     function **observes later mutations** (the explicit opt-in to live
-     semantics). Rebinding gives independent callables; the unbound function
-     stays usable; binding a wrong-typed value raises `TypeError`.
+     table as a trailing parameter and pre-bind it: zero copy, O(1) at any size
+     (1M entries: ~0.1 ms), the per-row cost of the hoisted case, and the
+     function **sees later mutations**. Rebinding gives independent callables,
+     the unbound function stays usable, and a wrong-typed value raises
+     `TypeError`.
 
    ```python
    fx = EastDict(StringType, FloatType, rates)          # small table → capture
@@ -863,29 +605,26 @@ never runs per element**. In order of impact:
    conv.bind(t1, t2)  # multi-table: binds the TRAILING parameters in order
    ```
 
-   Function *parameters* always cross the bridge **by reference** (zero copy,
-   any size, any nesting depth) — `bind` is what lets eager methods use a
-   parameter-taking function where the callback signature is fixed.
-
-4. **Hoist `East.function(...)` out of python loops** and reuse it —
-   re-building is cheap but not free; the artifact is a plain callable and
-   every eager method accepts it.
-5. **When logic must stay python, go columnar** (the values section): one
-   boundary crossing per column/batch instead of per row × field, then
-   come back to East values with `from_columns`/`extend`.
-6. **See how a hot call ran** with
-   `east.runtime.compiler.eager_stats()` — `function_direct` counts callbacks
-   that rode a precompiled function value straight in, `c_to_py_decodes`
-   counts values boxed C→python (an eager method quietly decoding a whole
-   collection shows up here), and the `beast2_*` counters report column
-   projection. There is no per-element python counter because there is no
-   per-element python path: an eager callback builds or it raises.
+   Function *parameters* always cross by reference (zero copy, any size, any
+   depth); `bind` is what lets an eager method use a parameter-taking function
+   where the callback signature is fixed.
+4. **Hoist `East.function(...)` out of python loops** and reuse it — building
+   is cheap, not free.
+5. **When logic must stay python, go columnar** — one crossing per column or
+   batch instead of per row × field, then back with `from_columns`/`extend`
+   ([Columnar escape hatches](#columnar-escape-hatches--when-the-logic-must-stay-python)).
+6. **See how a hot call ran** — `east.runtime.compiler.eager_stats()`:
+   `function_direct` counts callbacks that rode a precompiled function value
+   straight in, `c_to_py_decodes` counts values boxed C→python (an eager method
+   quietly decoding a whole collection shows here), and the `beast2_*` counters
+   report column projection. There is no per-element python counter because
+   there is no per-element python path.
 
 ### IR ↔ python: `east-py transpile` and the `east-c ir` toolbox
 
-Any East IR — an `East.function` artifact, or a `.json` / `.beast2` export
-from TypeScript, east-c or east-node — prints as an idiomatic python module
-that REBUILDS it through the surface above:
+Any East IR — an `East.function` artifact, or a `.json` / `.beast2` export from
+TypeScript, east-c or east-node — prints as an idiomatic python module that
+REBUILDS it through the surface above:
 
 ```python
 from east.codegen import to_python_source
@@ -901,89 +640,76 @@ east-c ir diff a.json b.beast2                             # first difference, o
 east-c ir convert program.json -o program.beast2           # json <-> beast2, source map intact
 ```
 
-The contract, pinned by `tests/conformance` over the whole compliance corpus
-and every exported `*.examples.ts` example: `build(print(IR))` equals `IR`
-under `east-c ir normalize` (loc_ids stripped, variables and labels renamed
-in the TypeScript lowering's order, captures recomputed, recursive type ids
-renumbered — the one normalizer, in libeast-c, reached from python as
-`east.runtime._compiler_eastc.normalize_ir` / `diff_ir`). The TypeScript
-printer is its twin (`East.toSource`, `east-node transpile`), and the
-three-way sweep pins the pair: IR → python → IR → TypeScript → IR, every
-leg equal, over the same corpus (`docs/conventions/EAST_CODEGEN.md`). Builtins print
-through the spelling table `east.codegen.spellings` (operators only where the
-exactness table permits — `+ - *` on numbers, `/` on Floats, comparisons,
-`& | ^ ~` on Booleans, `+` on Strings; named `East.<Type>.*` / method
-spellings elsewhere; `East.builtin(...)` for `RAW_ONLY`), and the eager
-compliance replay derives its rows from the same table. A function referenced
-as a VALUE in the IR (`$.let(East.DateTime.roundDownWeek)`) prints as the
-inline `@East.function` it is — the IR carries the body, not the name. A
-platform call prints as a hoisted `East.platform(...)` declaration named
-after the function — or, given the implementing packages
-(`to_python_source(ir, providers=providers_for(["east_py_std"]))`,
-`east-py transpile -p east-py-std`), as `from east_py_std import
-fs_read_file` and the call itself, with a struct or variant type the
-package names (`GzipOptionsType`) printed by its name — the python reading
-of the TypeScript printer's library handles; the plugin's example index is
-rendered this way. A provider is used only where its declared signature IS
-the node's, so a signature that has drifted keeps the declaration rather
-than printing a wrong import. A package with nothing python to run — the
-function is implemented in C — exports the DECLARATION under the same name
-(`simulation_run`, `optimization_iterative`), which a body calls
-identically.
+- **The contract:** `build(print(IR))` equals `IR` under `east-c ir normalize`
+  (location ids stripped, variables and labels renamed in the TypeScript
+  lowering's order, captures recomputed, recursive type ids renumbered — one
+  normalizer, in libeast-c). The TypeScript printer (`East.toSource`, `east-node
+  transpile`) is its twin: IR → python → IR → TypeScript → IR is equal at every
+  leg, over the whole compliance corpus and every example
+  (`docs/conventions/EAST_CODEGEN.md`).
+- **Builtins print through one spelling table** (`east.codegen.spellings`):
+  operators only where they are exact — `+ - *` on numbers, `/` on Floats, the
+  comparisons, `& | ^ ~` on Booleans, `+` on Strings — named `East.<Type>.*` or
+  method spellings elsewhere, and `East.builtin(...)` for `RAW_ONLY`.
+- **A function used as a VALUE** (`$.let(East.DateTime.roundDownWeek)`) prints
+  as the inline `@East.function` it is — the IR carries the body, not the name.
+- **A platform call** prints as a hoisted `East.platform(...)` declaration — or,
+  given the implementing packages
+  (`to_python_source(ir, providers=providers_for(["east_py_std"]))`, `east-py
+  transpile -p east-py-std`), as `from east_py_std import fs_read_file` and the
+  call itself, with a type the package names (`GzipOptionsType`) printed by its
+  name; the plugin's example index is rendered this way. A provider is used only
+  where its declared signature IS the node's, so a drifted signature keeps the
+  declaration rather than printing a wrong import. A package whose function is
+  implemented in C exports the DECLARATION under the same name
+  (`simulation_run`, `optimization_iterative`), which a body calls identically.
 
 ### Diagnostics at edit time — `east-py lint`, `east-py check`, flake8, `east-py lsp`
 
-Everything the strict surface refuses at build time — a body without the
-block, `//` on an expression, an f-string over one, `if` on one, a callback
-reaching for `np` — is also a **rule**: `east.diagnostics` reads a file's
-`ast`, finds the East bodies (an `East.function` body and everything nested
-in it; an eager callback on an East value; a `@East.platform_function`'s East
-inputs), and says at edit time what the build would say — **one message, two
-moments**: every rule's text IS the refusal the build raises for the same
-code, pinned by building the very source the rules read
-(`tests/diagnostics`). Five surfaces, one engine; the python twin of
-`@elaraai/east-diagnostics`.
+Everything the build refuses — a body without the block, `//` on an
+expression, an f-string over one, `if` on one, a callback reaching for `np` — is
+also a **rule** in `east.diagnostics` (the python twin of
+`@elaraai/east-diagnostics`). The rules read a file's `ast`, find its East bodies
+(an `East.function` body and everything nested in it, an eager callback on an
+East value, a `@East.platform_function`'s East inputs), and say at edit time what
+the build would say: every rule's message IS the build's refusal for the same
+code, pinned by building the very source the rules read.
 
-Two TIERS, because they cost different things. The **rules** read the `ast`:
-instant, and they still say something useful about a file that does not parse.
-The **check** RUNS the build (`east-py check`), which is the only way to type
-check a python East body — East's type checker IS the builder — and costs the
-module's import.
+Two tiers, at two costs. The **rules** read the `ast` — instant, and useful even
+on a file that does not parse. The **check** runs the build — the only type
+checker a python East body has, since East's type checker IS the builder — at
+the cost of importing the module.
 
 ```bash
 east-py lint src/                         # file:line:col: category [rule] message — exit 1 on any finding
 east-py lint src/ --format json           # the findings as records
 east-py lint src/ --disable no-deprecated-alias --exclude fixtures
-east-py lint --list-rules                 # EAS001 … EAS025
-east-py check src/                        # the BUILD's errors — the type errors lint cannot see; a file, a directory, or a module; --format json
+east-py lint --list-rules                 # every rule, with its EAS code
+east-py check src/                        # the BUILD's errors — a file, a directory, or a module; --format json
 flake8 --select EAS src/                  # the same rules inside flake8 (east-py-cli registers the plugin)
-east-py lsp                               # a Language Server over stdio, both tiers (east-py lsp --probe: can it start here?)
+east-py lsp                               # a Language Server over stdio, both tiers (--probe: can it start here?)
 # pylsp                                   # python-lsp-server runs the rules too (east-py-cli registers the plugin)
 ```
 
-The rules run on every change; the build tier runs on **open** (debounced)
-and on **save** (at once), and only when the project opts in (below). It reads
-the module from DISK — an import does — so running it against an unsaved
-buffer would report the last saved version's errors at that version's lines.
-It runs on one long-lived worker thread inside the server, never on the
-handler, and a save evicts the saved module from the warm process so a module
-that imports it is checked against the new version next time. Pyright/Pylance
-has no plugin API, so flake8 and pylsp are the two editor paths that need no
-East-specific server; the Claude Code plugin registers a launcher for `.py`
-files that runs the project's own `east-py lsp` and falls back to `east-py
-lint` per change when that server cannot start.
+- **`east-py check`** imports each target — a `.py` file, a directory (walked
+  as `lint` walks it) or a dotted module name, each executed afresh — builds
+  every East function in it, and reports EVERY failure at its authoring line: a
+  body whose type differs from the declared `out`, a callback the capture
+  refuses, an `IRAnalysisError`. Importing runs the module, so `EAST_CHECK=1` is
+  set for the duration — skip import-time work when you see it.
+  `--only-if-enabled` honours the project's opt-in (below), as the plugin's read
+  hook does, so the hook and the language server agree.
+- **`east-py lsp`** (needs `pygls`) runs the rules on every change and the build
+  tier on **open** (debounced) and **save** (at once), on one long-lived worker
+  thread, and only when the project opts in: the build reads the module from
+  DISK, so on an unsaved buffer it would report the saved version's errors. A
+  save evicts the module from the warm process, so its importers are checked
+  against the new version. Pyright/Pylance has no plugin API, so flake8 and
+  pylsp are the editor paths that need no East-specific server; the Claude Code
+  plugin launches the project's own `east-py lsp` for `.py` files, and falls back
+  to `east-py lint` per change when that server cannot start.
 
-`east-py check` imports the module and builds every East function in it,
-reporting each failure at its authoring line: a body whose expression type
-differs from the declared `out`, a callback the capture refuses, an
-`IRAnalysisError`. It reports EVERY broken function, not the first — a build
-normally raises out of the import. Importing runs the module, so it sets
-`EAST_CHECK=1` for the duration and a module should skip its import-time work
-when it sees that. A target is a `.py` file, a directory (walked as `lint`
-walks it), or a dotted module name; every target is executed afresh, and
-`--only-if-enabled` makes it honour the project's opt-in — what the plugin's
-read hook passes, so the hook and the language server show the same findings.
-
+The rules — `east-py lint --list-rules` prints them:
 | Rule | Flags | What the build says |
 |---|---|---|
 | `body-takes-block-first` (EAS001) | `lambda x: …`, a body whose parameter count is not the declared count plus the block, `b.price`, `x + b` | `a body takes the block first` |
@@ -1012,8 +738,8 @@ read hook passes, so the hook and the language server show the same findings.
 | `no-derived-struct-fields` (EAS024, warning) | `Derived = StructType([… for f in Other.value])` | a type declaration is a wire format — spell the fields |
 | `no-python-data-work` (EAS025, warning) | a python helper doing parse / strip / null-check / coerce work on an EXPRESSION a body hands it | express it in East, where it runs on every row |
 
-Configure it once, in the project's own `pyproject.toml` — every surface
-reads it (`east-py lint`, the flake8 plugin, the pylsp plugin, `east-py lsp`):
+Configure it once in the project's `pyproject.toml`; every surface reads it, and
+`east-py lint`'s own flags add to it:
 
 ```toml
 [tool.east-py]
@@ -1022,30 +748,21 @@ disable = ["no-deprecated-alias"]  # rules to skip
 exclude = ["fixtures", "vendor"]   # extra directory names not to walk
 ```
 
-`check` is off unless a project asks, deliberately: the rules READ a file, the
-build check RUNS it, and an editor should not start importing someone's
-modules on save because a language server happened to be installed. An
-explicit `east-py check` on the command line is consent in itself and ignores
-the setting. Unreadable or malformed configuration falls back to the defaults
-rather than raising — a diagnostics tool must never be what stops a project
-building.
+`check` is off unless a project asks: the rules READ a file, the build RUNS it,
+and an editor should not import someone's modules on save because a language
+server happened to be installed. `east-py check` on the command line is consent
+in itself and ignores the setting. Unreadable configuration falls back to the
+defaults — a diagnostics tool must never stop a project building.
 
-A file that does not import `east` is never diagnosed; a line ending in
-`# noqa` (or `# noqa: EAS002` / `# noqa: no-operator-fork`) is skipped;
-`.venv`, `node_modules`, `build`, `tests` are not walked. The rules are
-syntactic (which names hold expressions, what python does to them), so a
-clean `lint` is necessary but not sufficient — the type errors live behind
-`east-py check`, which builds the module and reports what the builder says.
-`make lint` runs the rules over every east-py package's own East bodies.
-
-The rules are written to be disjoint — each mistake is one rule's to report —
-and the corpus pins it: a bad fixture trips only its own rule, every `ok.py`
-builds, and a bad fixture builds or raises as its rule's category says. One
-TypeScript rule has no python twin on purpose: `no-reinlined-east-binding`
-warns that an `Expr` held in a JS `const` and used twice is re-inlined, but the
-python build's common-subexpression pass binds a reused python local to ONE
-`Let` (`fields = r.data.split("|")` read for thirty columns splits once), so
-the hazard does not exist here.
+A file that does not import `east` is never diagnosed; a line ending in `# noqa`
+(or `# noqa: EAS002` / `# noqa: no-operator-fork`) is skipped; `.venv`, `venv`,
+`node_modules`, `dist`, `build`, `.git`, `__pycache__`, `tests` and `test` are not
+walked. The rules are syntactic, so a clean `lint` is necessary, not sufficient —
+the type errors live behind `east-py check`. The rules are disjoint (each
+mistake is one rule's to report). One TypeScript rule has no python twin on
+purpose: `no-reinlined-east-binding` warns that a JS `const` holding an `Expr`
+re-inlines it at each use, but the python build's CSE binds a reused python local
+to ONE `Let`, so the hazard does not exist here.
 
 ### Cross-language functions: `east-py export-functions` and `East.import_function`
 
@@ -1100,63 +817,51 @@ ir, imports = East.link_imports(user, [manifest])       # exact type check; the 
 compile_from_value(ir, [])(20)                          # 41 — pure IR, runs on any runner
 ```
 
-Unlinked, the reference is a `Platform` node named `east.importFunction` —
-compiling it raises naming that platform. `East.export_functions(pkg,
-version, {…}, providers)` / `encode_function_manifest` are the API behind
-the CLI; the TypeScript names are the same in camelCase. Contract and
-runner rules: `docs/conventions/EAST_CODEGEN.md` §6.
+Unlinked, the reference is a `Platform` node named `east.importFunction`, and
+compiling it raises naming that platform. `East.export_functions(pkg, version,
+{…}, providers)` and `East.encode_function_manifest` are the API behind the CLI,
+and `East.platform_dependencies(fn)` lists the platform functions an artifact
+calls, in first-use order (unresolved imports skipped). Each also answers to its
+TypeScript camelCase name (`East.exportFunctions`, `East.linkImports`, …). The
+contract and the runner rules: `docs/conventions/EAST_CODEGEN.md`.
 
 ## East values — the eager runtime
 
 ### Work in East values — don't round-trip through Python
 
-Inside a `@East.platform_function` (or any east-py code over runtime data), **do the
-work with the East values you were handed and their chained eager methods. Do
-not down-convert to a Python `list`/`dict`/`set`, loop in the interpreter, and
-rebuild an East value** — that is the single most common way east-py gets used
-badly. This is not a style preference; it changes the cost and the correctness.
+Inside a `@East.platform_function`, or any east-py code over runtime data, **do
+the work with the East values you were handed and their chained eager methods.
+Never down-convert to a python `list`/`dict`/`set`, loop in the interpreter, and
+rebuild an East value** — the most common way east-py gets used badly, and it
+changes both cost and correctness:
 
-- **Speed.** `EastArray`/`EastSet`/`EastDict` are handles into the shared east-c
-  value slab. An eager method hands that pointer to the native builtin with no
-  copy and returns a new handle, so `a.filter(...).group_by(...).map(...)` runs
-  the container machinery — traversal, allocation, ordering, set/dict algebra —
-  in C, and the data never leaves it. Down-converting is the opposite: an O(n)
-  decode to Python, an interpreter loop, then an O(n) re-encode — every round
-  trip copies the whole collection. (Tensors are the same: `to_numpy()` is a
-  zero-copy view; a Python element loop is not.)
-- **Correctness + standardisation.** East methods use East's *total order* and
-  equality (right for floats/NaN, mixed types, variants-by-name) and keep Sets/
-  Dicts deterministically ordered. `sorted()`, a bare `dict`, or `set()` get
-  these subtly wrong and diverge from the C / TS / other runtimes.
-- **Scalars + dates.** The same rule covers primitives. East scalars *are* Python
-  scalars, but use the `East.<Type>` utilities (and `East.less`/`compare`/`equal`)
-  for anything whose semantics diverge — integer division/overflow (`Integer` is
-  i64, Python `int` is unbounded), `to_integer`/rounding, **all** ordering and
-  equality, string case/trim/split/`replace`/regex — and **always**
-  `East.DateTime.*` for date/time (UTC; `print_formatted`/`parse_formatted` Day.js
-  tokens), never Python `datetime` arithmetic / `strftime` / `timedelta` / `<`.
-
-**Chain, don't stage.** Each collection method returns a live east-c value —
-keep piping (`arr.filter(...).to_dict(...).map(...)`) instead of binding
-intermediates to Python names and re-wrapping them. Cross back to Python only at
-the edges: a scalar for `East.Float.*`/`East.String.*` math, or a numpy/torch
-buffer via `to_numpy()`/`to_torch()`.
-
-**This applies to *intermediates*, not just the input/output boundary.** The
-failure mode is the *sandwich* — East input → convert to Python → run the logic
-over `list`/`dict`/`set` → convert back to an East output. If the logic is
-East-expressible (mapping, filtering, grouping, joining, reducing, set/dict
-algebra), do the whole thing in East so every intermediate stays an east-c value
-produced by an east-c method — never materialised, never manually looped. In
-particular, prefer the declarative reducers (`reduce`/`map_reduce`/`group_reduce`/
-`to_dict(..., combine=…)`) over *any* hand-rolled accumulation loop: the reducer
-makes **one** native call that iterates and accumulates in C, whereas a manual
-loop — Python **or** repeated `EastRef`/`EastDict` updates — pays a separate FFI
-crossing per element (no faster than pure Python, usually slower). Reach for a
-Python/numpy intermediate only when the work genuinely isn't East-expressible (a
-real numpy/scipy/torch/solver op) — cross via `to_numpy()`/`to_torch()`
-(zero-copy for tensors) and wrap the result back. Bare scalars stay plain Python
-— an East `Float` *is* a `float`; don't wrap a running sum in an `EastRef`.
+- **Speed.** An eager method hands the value's pointer to the native builtin
+  with no copy and returns a new handle, so
+  `a.filter(...).group_by(...).map(...)` runs traversal, allocation, ordering and
+  set/dict algebra in C and the data never leaves it. Down-converting is an O(n)
+  decode, an interpreter loop and an O(n) re-encode, every time. (A tensor's
+  `to_numpy()` is a zero-copy view; a python element loop is not.)
+- **Correctness.** East methods use East's *total order* and equality (right
+  for floats and NaN, mixed types, variants by name) and keep Sets and Dicts
+  deterministically ordered; `sorted()`, a bare `dict` or `set()` get these
+  subtly wrong and diverge from the other runtimes.
+- **Intermediates too, not just the boundary.** The failure is the *sandwich* —
+  East in → python `list`/`dict` logic → East out. If the logic is
+  East-expressible (mapping, filtering, grouping, joining, reducing, set/dict
+  algebra), every intermediate stays an east-c value. Prefer the declarative
+  reducers (`reduce`/`map_reduce`/`group_reduce`/`to_dict(..., combine=…)`) over
+  ANY hand-rolled accumulation: a reducer is one native call, while a manual loop
+  — python, or repeated `EastRef`/`EastDict` updates — pays an FFI crossing per
+  element. Cross to numpy/torch only for work East cannot express, and wrap the
+  result back. Bare scalars stay plain python — an East `Float` *is* a `float`;
+  don't wrap a running sum in an `EastRef`.
+- **Chain, don't stage.** Each method returns a live east-c value: keep piping
+  (`arr.filter(...).to_dict(...).map(...)`) rather than binding intermediates to
+  python names and re-wrapping them. Cross to python only at the edges — a
+  scalar for `East.Float.*` math, a buffer via `to_numpy()`/`to_torch()`.
+- **Scalars and dates** — see [Scalars](#scalars-use-the-easttype-utilities-for-consistency--above-all-string--datetime):
+  the `East.<Type>` utilities for anything whose semantics diverge, and ALWAYS
+  `East.DateTime.*` for dates.
 
 | Instead of (pure Python) | Write (East values) |
 |---|---|
@@ -1188,21 +893,18 @@ def totals_by_region(items):
 ### Eager callbacks are East function bodies
 
 An eager method and its expression twin are ONE builtin with two entry points:
-`xs.map(f)` on an `EastArray` invokes `ArrayMap` in east-c now, where the same call
-on an `ArrayExpression` records the `ArrayMap` node. The callback is the same
-thing on both: a body. Every eager callback method takes exactly two kinds of
-function:
+`xs.map(f)` on an `EastArray` runs `ArrayMap` in east-c now; on an
+`ArrayExpression` it records the `ArrayMap` node. The callback is a body either
+way, and an eager callback slot takes exactly two kinds of function:
 
-1. **A python body — captured automatically.** The method builds it as an
-   `East.function` body — the block first, then the builtin's callback
-   arguments (`lambda b, el: …`; trailing arguments may be omitted, the
-   block cannot) — against the builtin's declared signature. The whole
-   expression surface above is available in it; east-c compiles it, and the
-   loop AND the body execute natively, zero python per element (~5× the old
-   per-element callback on a 300k-row map, and it composes with chaining).
-   Every transform is pure, so a whole `record → legs → values` descent — or
-   a `group_by` + `to_dict(combine=)` + `sort` aggregate — is ONE compiled
-   function with no materialised intermediate between stages:
+1. **A python body, captured automatically** — the block first, then the
+   builtin's callback arguments (`lambda b, el: …`; trailing arguments may be
+   omitted, the block cannot), built as an `East.function` against the builtin's
+   declared signature. The whole expression surface is available; east-c
+   compiles it, and the loop AND the body run natively, zero python per element.
+   Every transform is pure, so a `record → legs → values` descent, or a
+   `group_by` + `to_dict(combine=)` + `sort` aggregate, is ONE compiled function
+   with no materialised intermediate:
 
    ```python
    rows    = EastBlob(csv_bytes).decode_csv(Row)          # C-backed Array<Row>
@@ -1216,30 +918,20 @@ function:
                           combine=lambda b, x, y: x + y)
    ```
 
-2. **A precompiled East function** — `East.function(param_types, out, fn)`
-   builds now and returns a reusable compiled callable (hoist compilation
-   out of a loop, or share one body across call sites). A precompiled
-   function — including a `.bind(...)` result — passes its native function
-   value **straight through every eager method**: the loop runs
-   entirely in east-c with zero per-element python, and the output type
-   comes from its own signature, so no `out=` and no sampling. If you DO
-   pass `out=` (or the method has a declared type) and the signature
-   contradicts it, the call raises `EastTypeError` immediately.
-   Artifacts are also **dual-mode**: called with plain values they
-   execute natively; referenced inside another body they re-run their
-   source, in their own frame, and splice into that build — so they
-   compose
-   (`East.function([Row], FloatType, lambda b, r: amount(r) * 1.1)`). A
-   `.bind(...)` result (or any compiled function value) cannot re-run its
-   body — instead a body that CALLS one lowers the call to the IR
-   `Call` node: the callee rides as a hidden bound parameter and the
-   loop, the body and the callee all execute inside east-c. `FunctionType`
-   PARAMETERS are first-class — callable in the body and bindable with
-   function values (calling an `AsyncFunctionType` value in a sync body
-   raises a named `ExpressionError`). Compiled East functions loaded from
-   elsewhere (`compile_from_beast2/json/east`, or `compile_from_value` for a
-   homoiconic IR value built with `east.ir.builders`) are accepted the same
-   way:
+2. **A precompiled East function** — `East.function(...)`, a `.bind(...)`
+   result, or one compiled elsewhere (`compile_from_beast2/json/east`, or
+   `compile_from_value` for IR built with `east.ir.builders`). Its native
+   function value passes **straight through** every eager method — the loop runs
+   entirely in east-c, and the output type comes from its own signature (no
+   `out=`, no sampling; an `out=` or declared type that contradicts it raises
+   `EastTypeError` at the call). An artifact is **dual-mode**: on values it runs
+   natively, and inside another body it re-runs its source in its own frame and
+   splices in (`East.function([Row], FloatType, lambda b, r: amount(r) * 1.1)`).
+   A compiled value (a `.bind` result) cannot re-run a body, so a body that CALLS
+   one lowers to an IR `Call`: the callee rides as a hidden bound parameter, and
+   loop, body and callee all run in east-c. `FunctionType` PARAMETERS are
+   first-class — callable in the body, bindable with function values (calling an
+   `AsyncFunctionType` value in a sync body is a named `ExpressionError`):
 
    ```python
    amount = East.function([Row], FloatType, lambda b, r: r.price * r.qty)
@@ -1256,12 +948,10 @@ function:
    ```
 
 Anything else in a callback slot RAISES — there is no third kind. The
-callback-free ops (`sort`, `unique`, `union`/`intersection`/`difference`,
-`concat`, `group_by`, `to_dict`/`to_set`, `find_sorted_*`) always run the
-whole loop in east-c. The eager compliance replay (`tests/test_compliance_eager.py`)
-runs the whole TypeScript compliance corpus a second time through these eager
-methods, builtin by builtin, and requires the same answers the compiled programs
-give — the two entry points agree over every builtin in the corpus.
+callback-free operations (`sort`, `unique`, `union`/`intersection`/`difference`,
+`concat`, `group_by`, `to_dict`/`to_set`, `find_sorted_*`) always run the whole
+loop in east-c. The TypeScript compliance corpus is replayed through these eager
+methods, builtin by builtin, and must give the compiled programs' answers.
 
 ### Construction & validation (`from east import ...`)
 
@@ -1287,11 +977,10 @@ Container constructors are also direct: `EastArray(elem, items=None)`, `EastSet(
 
 ### A JSON contract for a type — `json_schema_for` / `type_from_json_schema`
 
-`East.String.print_json` writes **East JSON** — lossless and self-describing — but
-nothing tells another system what that looks like. `json_schema_for(T)` emits the JSON
-Schema describing exactly that encoding, so a producer can validate a payload before
-sending it to you. Plain host-side functions, like `compare_for`: build time, no
-expression, no IR.
+`East.String.print_json` writes **East JSON**, lossless and self-describing.
+`json_schema_for(T)` emits the JSON Schema of exactly that encoding, so another
+system can validate a payload before sending it; `type_from_json_schema` goes the
+other way. Host-side functions, like `compare_for` — no expression, no IR:
 
 ```python
 import json
@@ -1309,61 +998,45 @@ T = type_from_json_schema(json.loads(Path("partner.schema.json").read_text()))
 
 | Signature | Notes |
 |-----------|-------|
-| `json_schema_for(typ, draft="2020-12") -> JsonSchema` | The schema describing `typ`'s East-JSON encoding. `draft` is `"2020-12"`, `"draft-07"` or `"openapi-3.0"` — a consumer's validator pins one. `Never`, `Function` and `AsyncFunction` raise `TypeError` naming what has no JSON form |
-| `type_from_json_schema(schema) -> EastType` ❗ | The East type a schema describes. Raises `JsonSchemaUnsupportedError` — whose `.pointer` is the RFC 6901 location, also quoted in the message — on a keyword East cannot express (`allOf`, `not`, `if`/`then`/`else`, `anyOf`, `patternProperties`, `prefixItems`, a union of more than one type, an open record, an optional property, an untagged `oneOf`, a non-local `$ref`, a cycle of definitions that no single definition breaks) |
-| `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take — `.integer` `.blob` `.float_specials` — so a reader enforces precisely what the schema describes (the TypeScript twin spells the last one `floatSpecials`). A DateTime has none: its form is `format: "date-time"` |
+| `json_schema_for(typ, draft="2020-12") -> JsonSchema` | `draft`: `"2020-12"`, `"draft-07"` or `"openapi-3.0"`, as a consumer's validator pins. `Never`, `Function` and `AsyncFunction` raise `TypeError` naming what has no JSON form |
+| `type_from_json_schema(schema) -> EastType` ❗ | Raises `JsonSchemaUnsupportedError` — its `.pointer` the RFC 6901 location, also in the message — on what East cannot express: `allOf`, `not`, `if`/`then`/`else`, `anyOf`, `patternProperties`, `prefixItems`, a union of more than one type, an open record, an optional property, an untagged `oneOf`, a non-local `$ref`, a cycle of definitions no single definition breaks |
+| `EAST_JSON_PATTERNS` | The lexical forms of East JSON's scalars — `.integer` `.blob` `.float_specials` (TypeScript: `floatSpecials`) — so a reader enforces exactly what the schema describes. A DateTime has none: its form is `format: "date-time"` |
 
-- **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never itself encode
-  as `null`: `none` prints as `null`, `some("x")` as `"x"`, `some(7)` as `"7"`, and a
-  struct field `("note", OptionType(StringType))` as `"note": null` or `"note": "x"` — an
-  absent key is still an error. Only the two payloads whose encoding can be `null` keep
-  the tagged `{"type": …, "value": …}` object: `Option<Null>` and `Option<Option<T>>`,
-  which is what keeps `some(none)` distinct from `none`. A recursive payload is judged by
-  what it wraps, so a linked list's `("next", OptionType(self))` is flat at every depth.
-  The rule is a total function of the type — no option, mode or policy, nothing to call —
-  applied by east-c's codec and reader (python's too) and by `json_schema_for`, which
-  describes a flat Option as `oneOf [null, T]` annotated `x-east-type: "Option"`. The
-  tagged object under a flat Option is refused by the payload's own
-  decoder (`expected string, got {"type":"none","value":null}`).
-- **A `DateTime` is `format: "date-time"` — any RFC 3339 date-time, on the way in.**
-  Every decoder, `parse_json` and the strict reader alike, on every runtime, reads
-  exactly that: `Z` or any offset (the instant is UTC), a `t` or `z` in either case, any
-  number of fractional digits (past the millisecond dropped, never rounded — so
-  `isoformat()`'s microseconds read to the millisecond), and a leap second as the Unix
-  time its fields add up to (`1998-12-31T23:59:60.5Z` is `1999-01-01T00:00:00.500Z`).
-  `print_json` writes one form of it — UTC, three fractional digits, `+00:00`. The
-  instant must fall in years 0001–9999, the range every runtime holds (python's
-  `datetime` starts at year 1); that is the one thing the format cannot say, refused
-  with its own message.
-- **For the other scalars it describes what the ENCODER emits.** An `Integer` is a
-  quoted decimal in i64 range and a `Blob` lowercase hex, by pattern — `parse_json` also
-  takes uppercase hex, which the contract does not — so a producer that validates
-  against it cannot send something a strict reader then rejects.
-- **The document is deterministic and identical across languages** — key order, `$defs`
-  names (first-encounter order, never type ids) and variant case order are fixed by the
-  type, so this and the TypeScript `jsonSchemaFor` emit the same bytes for the same type.
-- **Annotations make the inverse exact.** `x-east-type` is what lets
-  `type_from_json_schema` tell `Set` from `Array`, `Dict` from an array of two-property
-  objects, and a flat `Option` from any other `oneOf`. A foreign schema without them still
-  converts, under a structural mapping that does not promise to round-trip.
-  `{"type": "string", "format": "date-time"}` reads as `DateTime`, since every decoder
-  reads any RFC 3339 date-time; any other `format` is a `String`. OpenAPI 3.0's
-  `nullable: true` beside a type, JSON Schema's own `{"type": ["string", "null"]}`, and a
-  `oneOf` of null and one other schema, read as `Option<String>` — East JSON writes a
-  `none` whose payload cannot be null as `null`, so the nulls such a contract permits are
-  exactly what the reader accepts (a type that already admits null is left as it is,
-  however the document spells it).
-- **Recursion binds one `recursive_type` per cycle group.** Definitions that reference each
-  other — a `Node` whose children are a `NodeList` of `Node` — convert as long as every cycle
-  in the group passes through one definition, which becomes the binder; entered at any other
-  member the group unrolls to it. Three definitions that each reference the other two need two
-  binders and are refused, naming them. Reachability decides what recurses, never the order
-  the references appear in.
-- **The patterns are portable.** Every pattern spells digits as `[0-9]` — python's `\d`
-  matches any Unicode digit — so a validator here and one in JavaScript accept the same
-  strings; a DateTime's digits are ASCII too, RFC 3339's `DIGIT`.
-- To READ a document larger than memory under this contract, use `json_open` / `json_next`
-  from **east-py-std**.
+- **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never
+  encode as `null`: `none` → `null`, `some(7)` → `"7"`, a struct field
+  `"note": null` or `"note": "x"` (an absent key is still an error). Only
+  `Option<Null>` and `Option<Option<T>>` keep the tagged `{"type": …, "value":
+  …}` object, which keeps `some(none)` apart from `none`; a recursive payload is
+  judged by what it wraps. The rule is a total function of the type, applied by
+  every codec and reader and by `json_schema_for` (a flat Option is `oneOf
+  [null, T]` annotated `x-east-type: "Option"`), and the tagged object under a
+  flat Option is refused by the payload's own decoder (`expected string, got
+  {"type":"none","value":null}`).
+- **A `DateTime` is `format: "date-time"`**: every decoder, on every runtime,
+  reads any RFC 3339 date-time — `Z` or any offset (the instant is UTC), `t`/`z`
+  in either case, any fractional digits (past the millisecond dropped, never
+  rounded, so `isoformat()`'s microseconds read to the millisecond), a leap
+  second as the Unix time its fields add up to — in years 0001–9999, the range
+  every runtime holds. `print_json` writes UTC, three fractional digits, `+00:00`.
+- **Other scalars are described as the encoder emits them**: an `Integer` is a
+  quoted i64 decimal, a `Blob` lowercase hex (`parse_json` also takes uppercase,
+  which the contract does not), so a producer that validates cannot send what a
+  strict reader rejects. Every pattern spells digits `[0-9]` — python's `\d`
+  matches any Unicode digit — so validators here and in JavaScript agree.
+- **The document is deterministic and byte-identical to TypeScript's
+  `jsonSchemaFor`** (key order, `$defs` names in first-encounter order, variant
+  case order). Its `x-east-type` annotations make the inverse exact — `Set` vs
+  `Array`, `Dict` vs an array of pairs, a flat Option vs any other `oneOf`. A
+  foreign schema without them converts under a structural mapping that does not
+  promise to round-trip: `format: "date-time"` reads as a `DateTime` (any other
+  `format` is a `String`), and `nullable: true`, `["string", "null"]` and a
+  `oneOf` of null and one schema read as an Option.
+- **Recursion binds one `recursive_type` per cycle group**: definitions that
+  reference each other convert when every cycle passes through one definition,
+  the binder; three that each reference the other two need two binders and are
+  refused, naming them.
+- To READ a document larger than memory under this contract: `json_open` /
+  `json_next` in **east-py-std**.
 
 ### EastArray — complete method surface
 
@@ -1434,18 +1107,19 @@ in `other`'s values; `merge` takes a single differently-typed value.
 
 ### EastVector — complete method surface
 
-Immutable 1-D numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by a
-contiguous NumPy buffer for zero-copy ML interop. The logical `.element_type` is fixed; the storage
-`.dtype` may be any compatible width (e.g. f32). The **arithmetic surface delegates to the east-c
-builtins**: reductions fold in strict left-to-right index order and comparisons use East's
-total order (NaN greatest, `-0.0 < 0.0`) — bit-identical across the TS, C and Python runtimes,
-which numpy's reassociating reductions are not. Free-form math beyond it goes via
-`to_numpy()`/`to_torch()`. **Immutable:** `set`/transform return a NEW vector; the original is
-unchanged. **Not hashable**, but valid as an East Set/Dict key (ordered by value). Construct via
-the `EastVector.*` classmethods (see [Container generators](#container-generators-classmethods));
-`from_numpy`/`from_torch` infer `element_type` from the array dtype when omitted. Structural access
-methods called with an **expression** argument (inside a body) lift the vector as a
-constant and emit IR, like the eager collections.
+Immutable 1-D numeric value: logical element type `Float`/`Integer`/`Boolean`,
+backed by a contiguous NumPy buffer for zero-copy ML interop; `.element_type` is
+fixed, while the storage `.dtype` may be any compatible width (f32, …). The
+**arithmetic surface delegates to the east-c builtins** — reductions fold in
+strict left-to-right index order and comparisons use East's total order (NaN
+greatest, `-0.0 < 0.0`) — bit-identical across the TypeScript, C and python
+runtimes, which numpy's reassociating reductions are not; free-form math goes via
+`to_numpy()`/`to_torch()`. `set` and every transform return a NEW vector. Not
+hashable, but a valid East Set/Dict key (ordered by value). Construct with the
+`EastVector.*` classmethods ([Container generators](#container-generators-classmethods));
+`from_numpy`/`from_torch` infer `element_type` from the dtype when omitted.
+Structural access with an **expression** argument (inside a body) lifts the
+vector as a constant and emits IR, like the eager collections.
 
 | Group | Methods |
 |-------|---------|
@@ -1462,15 +1136,12 @@ constant and emit IR, like the eager collections.
 
 ### EastMatrix — complete method surface
 
-Immutable 2-D row-major numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by
-a contiguous NumPy buffer. Logical `.element_type` is separate from storage `.dtype` (a Float matrix
-may be stored f32). Same contract as `EastVector`: the arithmetic surface delegates to east-c
- with the strict left-to-right reduction order; free-form math goes via
-`to_numpy()`/`to_torch()`. **Immutable** (`set`/transform return a NEW matrix), **not hashable**
-but valid as an East Set/Dict key. Construct via the `EastMatrix.*` classmethods (see
-[Container generators](#container-generators-classmethods)); `from_numpy`/`from_torch` infer
-`element_type` from the array dtype when omitted. Structural access methods called with an
-expression argument lift the matrix as a constant and emit IR.
+Immutable 2-D row-major numeric value on a contiguous NumPy buffer, with the
+`EastVector` contract: logical `.element_type` apart from storage `.dtype`, the
+arithmetic surface in east-c with the strict reduction order, free-form math via
+`to_numpy()`/`to_torch()`, NEW matrices from `set` and every transform, not
+hashable but a valid Set/Dict key, the `EastMatrix.*` classmethods to construct,
+and an expression argument lifting the matrix as a constant.
 
 | Group | Methods |
 |-------|---------|
@@ -1618,7 +1289,7 @@ under East's total order) and `East.clamp(value, lo, hi)` — all dual-mode.
 | `not_(x)` · `bit_and(a, b)` · `bit_or(a, b)` · `bit_xor(a, b)` | the BooleanNot / BooleanAnd / BooleanOr / BooleanXor builtins under the TypeScript names (`not`, `bitAnd`, `bitOr`, `bitXor`; `and_`/`or_`/`xor` are deprecated spellings) — both operands are values here, so there is nothing to short-circuit; the expression twins are `.not_()`, `.bit_and`, `.bit_or`, `.bit_xor`, and the short-circuit `.and_(fn(b))`/`.or_(fn(b))` take bodies |
 
 **`East`** comparisons (East total order; element type `T` first): `compare(T, a, b) -> int`,
-`equal/not_equal/less/less_equal/greater/greater_equal(T, a, b) -> bool`.
+`equal/not_equal/less/less_equal/greater/greater_equal(T, a, b) -> bool`, and `is_(T, a, b) -> bool` (East `Is`: identity for a mutable container, value otherwise).
 
 **`East`** structural diff/patch (any East type `T`; a patch is a value of `PatchType(T)`; every
 function takes `T` explicitly — a type sampled from one value cannot describe both sides of a
@@ -1659,44 +1330,42 @@ East.DateTime.print_formatted(dt, "dddd, MMMM D, YYYY h:mm A")  # 'Wednesday, Ma
 ### Beast2 streaming — bounded-memory collections (`from east.serialization.beast2 import ...`)
 
 Beast2 v5 encodes a large Array/Set/Dict as an append-only stream of
-independently decodable segments: writer memory is one segment (never the
-whole collection), and decoders accept v4 and v5 through the same entry
-points. The canonical writers — the managed file writer,
-`Beast2ElementWriter`, `encode_beast2_paged_for` — cut the segments by one
-content-defined rule, the same in TypeScript and east-c, so a value's bytes
-are its own whoever writes it; `Beast2Writer` makes each batch you give it a
-segment instead. Use for exports too big to hold, or to re-read a huge file
-one segment at a time.
+independently decodable segments: writer memory is one segment, never the whole
+collection, and the decoders read v4 and v5 through the same entry points. The
+canonical writers — the managed file writer, `Beast2ElementWriter`,
+`encode_beast2_paged_for` — cut segments by one content-defined rule, the same in
+TypeScript and east-c, so a value's bytes are its own whoever writes them;
+`Beast2Writer` makes each batch you give it a segment instead.
 
-**Managed files — start here (`open_beast2_file` / `write_beast2_file`).**
-Path in, East values out — the file is self-describing, so reads need no
-declared type (writes do; declaring one on a read validates it at open). The
-file object owns the fd + mmap (closes on `with`-exit), east-c does all byte
-work, and the segments are the canonical ones — no buffers, iterators, or
-batch sizes in user code. The read flavor mirrors the root collection's read
-surface name-for-name.
+**Managed files — start here (`open_beast2_file` / `write_beast2_file`).** Path
+in, East values out. The file is self-describing, so a read needs no declared
+type (a write does; a type declared on a read is validated at open). The file
+object owns the fd and the mmap (closed on `with`-exit), east-c does every byte,
+and the segments are the canonical ones — no buffers, iterators or batch sizes in
+your code. The read flavour mirrors the root collection's read surface name for
+name.
 
 | Signature | Description |
 |-----------|-------------|
-| `write_beast2_file(path, T, value, *, codec="deflate")` | One call writes a collection of any size as one indexed v5 file — the canonical blob for the value: segments fall where the content-defined cut rule places them, bounded in both elements and bytes (so wide rows never pile into one segment) and key-disjoint for a Dict/Set. The bytes are what TypeScript and east-c write for the same value, and what `encode_beast2_paged_for(T)(value)` returns |
-| `open_beast2_file(path, T, mode="w", *, codec=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, and the batches add up to one canonical blob whatever their sizes (a Set/Dict batch continues strictly ascending from the last); `.segments` counts the segments closed so far |
-| `open_beast2_file(path, T=None)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` — a first-class READ-ONLY East collection VALUE: each subclasses `EastArray`/`EastDict`/`EastSet`, so `isinstance`/`type_of` answer, every eager method works (streamed overrides below; the rest via iteration), mutation raises, and the file binds into functions / passes into compiled calls by reference — keyed reads inside the compiled body answer from the pager, one frame per hit/miss, through a BYTE-budgeted segment cache (`EAST_PAGED_CACHE_BYTES`). `close()` DEFERS while a bind still holds the value. `T` is optional (the self-describing header supplies it — also exposed as `f.wire_type`); a declared `T` is validated against the header, so a mismatch fails at open instead of decoding garbage |
-| `read_beast2_type(source) -> EastType` | The root type embedded in any beast2-full blob (v4 **and** v5), from a path or buffer, no value decoded — regenerate loaders from artifacts alone, or inspect a file you know nothing about |
-| `write_beast2_file_parallel(path, T, partitions, produce, *, processes=, strategy="auto", codec=, keep_shards=False, verify=False)` | Partitioned parallel write to ONE file: `produce(partition)` runs per worker and returns that partition's batches (or one collection = one batch); each worker writes a private shard, cut canonically from the partition's start, and the shards splice **in partition order**, incrementally, as they finish. `strategy="auto"` forks on Linux/macOS — whatever `produce` closes over is inherited copy-on-write, so build the expensive context before the call (and call before starting threads) — and runs inline on Windows: byte-identical output either way. Any worker failure (exception or signal) fails the whole call with the worker's traceback and leaves nothing behind |
-| `splice_beast2_files(path, T, sources, *, verify=False) -> (segments, elements)` | Merge indexed v5 files into one by **byte copy** — east-c parses the container geometry, `os.sendfile` moves the segment frames, nothing decodes or re-encodes. `sources` may be a lazy generator (shards splice as they complete, in order = row order). Every source must be v5 + indexed + self-contained with an identical type section; refusals name the offending path and leave no destination. Output is indistinguishable from one writer given the same batches; `verify=True` re-walks it with east-c's strict sequential reader |
-| `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size (also the mutable escape hatch, like `f.copy()`) |
-| `f.segments()` | DEPRECATED alias — the file IS its collection value, so the eager methods, keyed reads and `load()` subsume the raw segment scan; still works (warning) for per-batch migration code |
-| `len(f)` · `f.segment_count` · `f.self_contained` · `f.indexed` | O(1) from the trailing index — counts are exact for every root kind (Set/Dict segments are disjoint ranges of the canonical value) |
-| Array: `f[i]` / `f[a:b]` · `f.get(i)` ❗bounds · `f.get_or_default(i, d)` · `f.try_get(i)` → `some`/`none` · `f.has(i)` · `f.slice(a, b)` · `f.get_keys(rows)` | Same names, signatures and error semantics as `EastArray`; every point read decodes only the owning segment, `get_keys` decodes each owning segment once |
-| Dict: `f[k]` ❗KeyError · `f.get(k[, default | fn(k)])` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/values()` and iteration (streaming) · `f.keys()` (the Set — native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads: east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Disjoint ascending segments are the v5 wire contract; the first keyed read still verifies the fences, and a corrupt (or pre-contract) blob raises `segments are not disjoint ascending key ranges` instead of reporting false misses |
-| Array sorted search: `f.find_sorted_first/last(target)` → global index · `f.find_sorted_range(target)` → `{start, end}` | Same contract as the eager `EastArray` builtins over the whole file — the fences pick the boundary segment, its in-segment search adds the segment's base, and only that segment decodes. No `key=` projection (the file pages by element order); pair with `f.slice(start, end)` to fetch the matching rows |
-| Compute: `f.map/filter/filter_map/first_map/reduce/scan/map_reduce/sum/mean/maximum/minimum/every/some/find_first/find_all/find_maximum/find_minimum/is_sorted/to_set/unique/to_dict/to_array/to_columns/map_batches/string_join/flat_map (Array) / flatten_to_array (Set, Dict)/flatten_to_set/dict/for_each` · the full `group_*` family (including `group_find_all/first/maximum/minimum`, whose indices are rebased to GLOBAL rows) · Set algebra (`union/intersection/difference/symmetric_difference/is_subset_of/is_superset_of/is_disjoint_from`) | The whole eager read surface, one segment decoded at a time: each segment runs the ordinary eager method — bodies build, precompiled functions pass through — and partials combine through east-c containers in stream order. Order-dependent folds thread ONE accumulator and grouped folds SEED each segment's init from the running per-group accumulators, so results equal `load()` exactly, float ordering included. Array `(el, idx)` callbacks see GLOBAL row indices, and so do the indices `find_*`/`group_find_*` report; `first_map`/`some`/`every`/`is_superset_of` stop decoding at the answer. Dict/Set compute streams disjointness-verified segments (a corrupt blob fails loudly, like keyed reads). Re-keyed collisions in `to_dict`/`flatten_to_dict`/`group_to_dicts` combine left-associatively in stream order — use an associative `combine`. `sort`/`reverse`/`copy`/`concat`/`union` stay off the file (they materialize the whole collection — `load()` first) |
-| Column projection — INFERRED: automatic on the compute family above; EXPLICIT: `open_beast2_file(path, project=NARROW)` | The compute family builds its callbacks FIRST and decodes each segment to exactly the struct fields the IR reads (skipped fields are parsed-and-hopped through the inflated bytes, never built into values — value materialisation, not byte-walking, dominates decode cost). Struct fields subset by name at ANY depth; a subtree used any way other than a further field read stays whole, so every comparison and builtin sees full values and results are unchanged. Dict KEYS and Set elements never narrow (they order the container). Runner-opened task inputs get the same inference from the compiled body's loop IR — no API change at either site. Non-inferable cases decode whole and are COUNTED in `eager_stats()` (`beast2_segments_projected/whole`, `beast2_projection_declined_*` by reason: a callback that cannot build, the element escaping whole, a `.bind` function with no source to rebuild, an unpageable blob) — an inferred optimisation that silently stops applying is an invisible cliff. The explicit form serves the subset from EVERY read (point reads, keyed gets, `load()`); `project` must be a subset of the wire type — a missing field raises `ValueError` naming it and the wire's fields — while a declared `T` keeps its exact meaning; `find_sorted_*` refuse under it (the file sorts by whole elements). Cache rule: a segment decoded under one mask is never served to an operation needing more. Zero wire change — every blob stays readable by every runtime |
-| Degraded blobs | v4 file → clear refusal (`decode_beast2_with_header_for` still decodes v4 whole); index-less v5 → `segments()`/`load()` work, random access refuses; non-self-contained → point reads refuse |
-| **Manifest directories** — a collection as one object per segment plus a manifest naming them: the form e3 stores a collection in, and stages a task input as |
-| `Beast2ManifestWriter(T, path, *, codec="deflate")` | The canonical writer of a manifest directory (context manager): `.add(element)` / `.add_all(batch)` as `Beast2ElementWriter` takes them, and its segments. Each segment is written to `<path>.segments/` as a standalone blob under the header they share, named by its SHA-256 (`<sha256>.beast2`), and `.close()` then writes the manifest to `path` — the directory TypeScript's `Beast2ManifestWriter` and east-c write for the value. A writer left by an exception writes no manifest; `.segments` counts the segments written. East-c does every byte, the hashing included |
-| `load_beast2_manifest(path, T=None)` ❗ | The whole collection a manifest directory holds, decoded segment by segment inside east-c: the value its segments spliced into one blob decode to. `T` is optional (a manifest records its type); a declared `T` must be that type. Raises `ValueError` when `path` holds no manifest, the types differ, or a segment is missing or malformed |
-| `read_beast2_manifest(source)` | The manifest a path or buffer holds — a struct of `kind`, `level`, `type`, `rule`, `header` and `entries` (each `{hash, fence, count, bytes}`) — or `None` for anything else; a blob holding a value is read no further than its type section |
+| `write_beast2_file(path, T, value, *, codec="deflate")` | One call writes a collection of any size as one indexed v5 file — the value's canonical blob: segments where the content-defined cut rule places them, bounded in elements and bytes (wide rows never pile into one), key-disjoint for a Dict/Set. The bytes TypeScript and east-c write, and what `encode_beast2_paged_for(T)(value)` returns |
+| `open_beast2_file(path, T, mode="w", *, codec=)` | The streaming writer: `.write()` takes East collections or python `list`/`dict`/`set` batches of any size, which add up to one canonical blob (a Set/Dict batch continues strictly ascending from the last); `.segments` counts the segments closed so far |
+| `open_beast2_file(path, T=None, *, project=None)` | The read: `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile`, a READ-ONLY East collection VALUE subclassing `EastArray`/`EastDict`/`EastSet` — `isinstance`/`type_of` answer, every eager method works (streamed, below), mutation raises, and it binds into functions or passes into compiled calls by reference, where keyed reads answer from the pager, one frame per hit or miss, through a byte-budgeted segment cache (`EAST_PAGED_CACHE_BYTES`); `close()` defers while a bind holds it. `T` is optional (the header supplies it, also as `f.wire_type`); a declared `T` is checked against the header at open, never decoded as garbage |
+| `read_beast2_type(source) -> EastType` | The root type of any beast2 blob (v4 or v5), from a path or a buffer, nothing decoded — for a file you know nothing about |
+| `write_beast2_file_parallel(path, T, partitions, produce, *, processes=, strategy="auto", codec=, keep_shards=False, verify=False)` | N workers, ONE file: `produce(partition)` returns that partition's batches (or one collection); each worker writes a shard cut canonically from its start, and the shards splice **in partition order** as they finish. `strategy="auto"` forks on Linux/macOS — what `produce` closes over is inherited copy-on-write, so build the expensive context before the call (and before starting threads) — and runs inline on Windows, byte-identically. Any worker failure fails the call with the worker's traceback and leaves nothing behind |
+| `splice_beast2_files(path, T, sources, *, verify=False) -> (segments, elements)` | Merges indexed v5 files by **byte copy** — east-c parses the geometry, `os.sendfile` moves the frames, nothing re-encodes. `sources` may be a lazy generator (spliced as they complete, in row order). Each must be v5, indexed and self-contained with an identical type section; a refusal names the path and leaves no destination. `verify=True` re-walks the result with east-c's strict reader |
+| `f.load()` | The whole collection, decoded in east-c off the mmap — input memory stays one segment at any size; also the mutable escape hatch, like `f.copy()` |
+| `f.segments()` | DEPRECATED — the file IS its collection value; still works (with a warning) for per-batch migration code |
+| `len(f)` · `f.segment_count` · `f.self_contained` · `f.indexed` | O(1) from the trailing index, exact for every root kind |
+| Array: `f[i]` / `f[a:b]` · `f.get(i)` ❗bounds · `f.get_or_default(i, d)` · `f.try_get(i)` · `f.has(i)` · `f.slice(a, b)` · `f.get_keys(rows)` | `EastArray`'s names, signatures and errors; a point read decodes only the owning segment, `get_keys` each owning segment once |
+| Dict: `f[k]` ❗KeyError · `f.get(k[, default \| fn(k)])` · `f.get_or_default(k, d)` · `f.try_get(k)` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()` / `values()` / iteration (streaming) · `f.keys()` (the Set) · `f.size()` — Set: `x in f` / `f.has(x)` | east-c binary-searches the segment *fences* (each segment's first key, from a bounded probe, cached), then decodes ONLY the owning segment (a small LRU keeps hot ones); `get_keys` merges the sorted keys against the fences and calls `fill` per missing key. The first keyed read verifies the fences: a corrupt or pre-contract blob raises `segments are not disjoint ascending key ranges` instead of reporting false misses |
+| Array sorted search: `f.find_sorted_first/last(target)` → a global index · `f.find_sorted_range(target)` → `{start, end}` | `EastArray`'s contract over the whole file, only the boundary segment decoded; no `key=` projection (the file pages in element order) — pair with `f.slice(start, end)` |
+| Compute: `map` `filter` `filter_map` `first_map` `reduce` `scan` `map_reduce` `sum` `mean` `maximum` `minimum` `every` `some` `find_*` `is_sorted` `to_set` `unique` `to_dict` `to_array` `to_columns` `map_batches` `string_join` `flat_map` (Array) / `flatten_to_array` (Set, Dict) `flatten_to_set` `flatten_to_dict` `for_each`, the whole `group_*` family, Set algebra | Each segment runs the ordinary eager method, and partials combine in east-c in stream order: order-dependent folds thread ONE accumulator and grouped folds seed each segment from the running per-group accumulators, so results equal `load()` exactly, float order included. Array `(el, idx)` callbacks, and the indices `find_*` / `group_find_*` report, are GLOBAL; `first_map`/`some`/`every`/`is_superset_of` stop decoding at the answer. Dict/Set compute streams disjointness-verified segments. A re-keyed collision (`to_dict`, `flatten_to_dict`, `group_to_dicts`) combines left-associatively in stream order — use an associative `combine`. `sort`/`reverse`/`copy`/`concat`/`union` materialize the collection — `load()` first |
+| Column projection — INFERRED on the compute family; EXPLICIT with `open_beast2_file(path, project=NARROW)` | The compute family builds its callbacks FIRST and decodes each segment to just the struct fields their IR reads (the rest are hopped over, never built — building values, not walking bytes, is what decoding costs). Fields subset by name at any depth; a subtree used any other way stays whole, so results never change; Dict keys and Set elements never narrow. Runner-opened task inputs infer the same from the body's loop IR. What cannot be inferred decodes whole and is COUNTED in `eager_stats()` (`beast2_segments_projected/whole`, `beast2_projection_declined_*` by reason) — a projection that silently stopped applying would be an invisible cliff. The explicit form serves the subset to EVERY read (point reads, keyed gets, `load()`); `project` must be a subset of the wire type (a missing field raises `ValueError` naming it), a declared `T` keeps its meaning, and `find_sorted_*` refuse under it. A segment decoded under one mask is never served to a read needing more. No wire change |
+| Degraded blobs | v4 → refused (`decode_beast2_with_header_for` still decodes it whole); index-less v5 → `load()` works, random access refuses; not self-contained → point reads refuse |
+| **Manifest directories** — one object per segment plus a manifest naming them: how e3 stores a collection, and stages a task input |
+| `Beast2ManifestWriter(T, path, *, codec="deflate")` | The canonical writer (a context manager): `.add(el)` / `.add_all(batch)`, as `Beast2ElementWriter` takes them; each segment goes to `<path>.segments/<sha256>.beast2`, a standalone blob under the shared header, and `.close()` writes the manifest to `path` — the directory TypeScript's `Beast2ManifestWriter` and east-c write. A writer left by an exception writes no manifest; `.segments` counts them; east-c does every byte, hashing included |
+| `load_beast2_manifest(path, T=None)` ❗ | The whole collection, segment by segment in east-c — the value its segments spliced into one blob decode to. `ValueError` when `path` holds no manifest, the types differ, or a segment is missing or malformed |
+| `read_beast2_manifest(source)` | The manifest — `kind`, `level`, `type`, `rule`, `header`, `entries` (each `{hash, fence, count, bytes}`) — or `None`; a blob holding a value is read no further than its type section |
 
 ```python
 from east.serialization.beast2 import open_beast2_file, write_beast2_file
@@ -1718,32 +1387,27 @@ with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
     joined = rows.map(lambda b, r: r.v + lookup(r.k))   # loop + callee + pager: all east-c
 ```
 
-**Pick the right pair first — `_for` is NOT the same format as `_with_header_for`:**
+**Buffer level — you hold bytes, not a path. `_for` is NOT `_with_header_for`:**
 
 | Signature | Description |
 |-----------|-------------|
-| `encode_beast2_with_header_for(T, *, version=None)` / `decode_beast2_with_header_for(T)` | **The one you want.** The full, self-describing container: magic + type schema + value. Encode writes the current default container (v5); pass `version=4` only for a reader that predates v5. Decode accepts v4 **and** v5 — it never needs a version. ❗The header's type must be `T`, or a subtype of it whose variant cases line up with `T`'s (a `none` reads as any `Option`): the encoding is positional, so any other type raises `ValueError: beast2: cannot decode a blob of type … as …` before the value decodes — the words TypeScript and east-c use |
-| `encode_beast2_for(T)` / `decode_beast2_for(T)` | **Headerless** — raw type-directed bytes, no magic and no schema, so the reader must already know `T` exactly, and mutable containers (Array/Set/Dict/Ref) are rejected outright. Note this name means the *full container* in the TypeScript API (`encodeBeast2For`) — the two languages disagree, so do not port a call site by name |
-
-| Signature | Description |
-|-----------|-------------|
-| `Beast2ElementWriter(T, stream, *, codec="deflate", parallel=False)` | The canonical writer (context manager): `.add(element)` takes one Array/Set element or one Dict `(key, value)` pair, `.add_all(batch)` every element of a collection (the loop runs in east-c); Set elements and Dict keys strictly ascending in East order. Segments fall where the content-defined cut rule places them — the bytes the managed writer, TypeScript and east-c write for the same value. Memory is one open segment; `.close()` writes the last segment, terminator and index; `.segments` counts the closed ones. An element that does not ascend, or fails to encode, raises and leaves the writer as it was |
-| `encode_beast2_paged_for(T, *, codec="deflate") -> (value) -> bytes` | One whole collection value through the canonical writer — the write-side sibling of `open_beast2_pages_for` |
-| `Beast2RunSorter(T, open_run, *, merge=None, union=False, codec="deflate", parallel=False)` | A Set's or Dict's elements in ANY order in, sorted canonical runs out: `.add(element)` takes a Set element or a Dict `(key, value)` pair, encoded at once; once the open run holds `RUN_MAX_COUNT` elements or `RUN_MAX_BYTES` of their encoding it sorts them — stably, so a key's values keep the order they were added — folds a key added again (`merge`, a compiled `(K, V, V) -> V` East function, for a Dict; `union=True` for a Set; without one it raises) and writes the run to the object `open_run(run)` returns (anything with `write(bytes)` and `close()` — a file will do) as the canonical blob of its value. `.finish()` writes the last run; `.runs` counts them. East-c's sorter does every byte, so the runs are the ones TypeScript and east-c write; an exception the sink raises comes back out of the call that wrote the run. A key repeated across runs is the merge's to fold |
-| `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True)` | Streaming writer for segments of your own choosing (context manager): `.write(batch)` appends one segment per non-empty batch of `T`; `.close()` writes the terminator + paging index; `.segments` counts batches. Set/Dict batches must arrive in strict ascending East (key) order — segment content is the canonical value, so pre-sort into batches or model arrival order as an Array. **Keep both defaults unless you know otherwise** — `index` writes the trailing offsets and `self_contained` keeps each segment independently decodable; together they are exactly what `open_beast2_pages_for` needs, and turning either off silently forfeits random access. `codec="none"` skips deflate: right for already-compressed payloads or maximum write throughput |
-| `encode_beast2_segments_for(T, **opts) -> (batches) -> bytes` | In-memory convenience over `Beast2Writer` — one segment per non-empty batch |
-| `encode_beast2_v5_for(T, *, codec="deflate", index=False) -> (value) -> bytes` | Whole-value v5 encode (any root type); decode with `decode_beast2_with_header_for` |
-| `iter_beast2_segments_for(T) -> (source) -> iterator` | Yield one decoded collection per segment, O(segment) memory; `source` is bytes / `mmap` / binary stream |
-| `decode_beast2_with_header_for(T) -> (blob) -> value` | Whole decode of v4 **or** v5 blobs (segments concatenate; Set/Dict wire must hold the canonical value — sorted, disjoint segments — and non-canonical blobs are rejected as corrupt); a header of another type raises `ValueError` first, as above |
+| `encode_beast2_with_header_for(T, *, version=None)` / `decode_beast2_with_header_for(T)` | **The one you want**: the self-describing container — magic, type schema, value. Encode writes the current default container (v5; `version=4` only for a reader that predates it); decode reads v4 and v5, whole (Set/Dict segments must hold the canonical value — sorted, disjoint — or the blob is rejected as corrupt). ❗The header's type must be `T`, or a subtype whose variant cases line up with `T`'s (a `none` reads as any `Option`), else `ValueError: beast2: cannot decode a blob of type … as …` before anything decodes — the words TypeScript and east-c use |
+| `encode_beast2_for(T)` / `decode_beast2_for(T)` | **Headerless** type-directed bytes: the reader must know `T` exactly, and mutable containers (Array/Set/Dict/Ref) are refused. In TypeScript `encodeBeast2For` is the FULL container — do not port a call site by name |
+| `Beast2ElementWriter(T, stream, *, codec="deflate", parallel=False)` | The canonical writer (a context manager): `.add(el)` — an Array/Set element or a Dict `(key, value)` pair — and `.add_all(batch)` (the loop in east-c); Set elements and Dict keys strictly ascending in East order. Segments fall where the cut rule places them — the bytes the managed writer, TypeScript and east-c write; memory is one open segment; `.close()` writes the last segment, the terminator and the index; `.segments` counts the closed ones. An element that does not ascend, or fails to encode, raises and leaves the writer as it was |
+| `encode_beast2_paged_for(T, *, codec="deflate") -> (value) -> bytes` | A whole collection through the canonical writer — the write side of `open_beast2_pages_for` |
+| `Beast2RunSorter(T, open_run, *, merge=None, union=False, codec="deflate", parallel=False)` | A Set's or Dict's elements in ANY order in, sorted canonical runs out: `.add(el)` encodes at once; at `RUN_MAX_COUNT` elements or `RUN_MAX_BYTES` it sorts the run — stably, so a key's values keep the order they came in — folds a repeated key (`merge`, a compiled `(K, V, V) -> V` East function, for a Dict; `union=True` for a Set; neither: it raises) and writes the run to `open_run(run)` (anything with `write(bytes)` and `close()`) as its value's canonical blob. `.finish()` writes the last run; `.runs` counts them. The runs are the ones east-c and TypeScript write; a sink's exception comes back out of the call that wrote the run; a key repeated across runs is the merge's to fold |
+| `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True, parallel=False)` | Segments of your choosing (a context manager): `.write(batch)` appends one segment per non-empty batch; `.close()` writes the terminator and the index; `.segments` counts. Set/Dict batches must ascend strictly across the stream. **Keep both defaults** — `index` and `self_contained` are what `open_beast2_pages_for` needs, and turning either off silently forfeits random access. `codec="none"` for already-compressed payloads or raw write throughput |
+| `encode_beast2_segments_for(T, **opts) -> (batches) -> bytes` | In-memory `Beast2Writer`: one segment per non-empty batch |
+| `encode_beast2_v5_for(T, *, codec="deflate", index=False) -> (value) -> bytes` | A whole value of any root type as v5; decode with `decode_beast2_with_header_for` |
+| `iter_beast2_segments_for(T) -> (source) -> iterator` | One decoded collection per segment, O(segment) memory; `source` is bytes, an `mmap` or a binary stream |
 | `read_beast2_index(T, blob) -> (segments, elements) \| None` | O(1) totals from a v5 blob's trailing index |
-| `open_beast2_pages_for(T) -> (source) -> Beast2Pages` | Random access: `.segment_count` `.element_count` `.self_contained` `.counts`, `.segment(i)`, `.element(row)` (also `len()`/`[]`). Seeks via the index and decodes ONE segment — O(segment), not O(blob). ❗Needs a blob written with `index=True` **and** `self_contained=True` (both default); `.element()` is Array roots only. ❗Borrows the source buffer — keep it alive (and an mmap open) for the pages' lifetime, or use `open_beast2_file`, which owns it |
+| `open_beast2_pages_for(T) -> (source) -> Beast2Pages` | Random access: `.segment_count` `.element_count` `.self_contained` `.counts`, `.segment(i)`, `.element(row)` (also `len()` / `[]`), each decoding ONE segment. ❗Needs `index=True` and `self_contained=True` (the defaults); `.element()` is for Array roots. ❗Borrows the buffer — keep it (and an mmap) alive for the pages' lifetime, or use `open_beast2_file`, which owns it |
 
-**Batch size (`Beast2Writer` only — the canonical writers cut by the rule).**
-A batch is simultaneously your memory ceiling, one segment, one compression
-window, and the granularity of random access. ~1000 rows is a good default:
-measured on 5000 struct rows, one row per batch costs **4x the bytes** of
-1000-per-batch (79,418 vs 20,066), and the curve is flat past ~100. `write()`
-takes a batch, never a row — accumulate and flush yourself, or hand rows to
+**Batch size (`Beast2Writer` only — the canonical writers cut by the rule).** A
+batch is at once your memory ceiling, one segment, one compression window and
+the granularity of random access. ~1000 rows is a good default: one row per
+batch costs about 4× the bytes, and the curve is flat past ~100. `write()` takes
+a batch, never a row — accumulate and flush yourself, or hand rows to
 `Beast2ElementWriter`, which needs no batch at all.
 
 ```python
@@ -1804,23 +1468,18 @@ list converts per cell, so `np.asarray(col)` first when the source is a
 list. Composition rule: **East functions for East-expressible transforms,
 columns/batches for the genuinely-python remainder.**
 
-**Put the logic in the platform function, not a pure-Python shim.** Don't
-write pure-Python helpers over `list`/`dict` and give a `@East.platform_function`
-that only converts-and-delegates to them. A `@East.platform_function` is *just* a
-typed, validated Python function — its one added cost is validating the declared
-output, which is a **feature** — so a separate untyped helper layer buys nothing
-and costs you: **testability** (the typed `inputs`/`output` is the contract you
-test against; untyped helpers surface bugs as silent corruption instead of a
-named `EastTypeError`), **migratability** (a platform function over East values
-is the portable unit — it moves to an e3 task, another runtime, or a TS `East`
-mirror unchanged), **a forced sandwich** (a helper that speaks `list`/`dict`
-makes the function convert East→Python on the way in and back on the way
-out), and **blurred purity** (East platform functions should be *pure in their
-East inputs* — that is what makes them memoisable). Factoring out small
-functions for reuse is fine — just have them **take and return East values**
-so the East types flow through; pay the output-validation cost only at the
-real East↔Python edge, and never call a platform function per element inside
-a loop.
+**Put the logic in the platform function, not a pure-python shim.** A
+`@East.platform_function` is just a typed, validated python function; its one
+added cost, validating the declared output, is a feature. A separate helper layer
+over `list`/`dict` that the platform function converts into and out of costs
+**testability** (the typed `inputs`/`output` is the contract you test; untyped
+helpers turn bugs into silent corruption instead of a named `EastTypeError`),
+**portability** (a platform function over East values moves to an e3 task,
+another runtime or a TypeScript mirror unchanged), a **forced sandwich**
+(East→python on the way in, back on the way out) and **purity** (a platform
+function pure in its East inputs is memoisable). Small reusable functions are
+fine — have them take and return East values, pay output validation only at the
+real East↔python edge, and never call a platform function per element in a loop.
 
 ### Platform functions
 
@@ -1833,34 +1492,63 @@ a loop.
 | `@memoize` / `@memoize(salt="…")` / `memoized = memoize(fn, salt="…")` | Content-addressed memo over ONE platform function. Apply **above** `@East.platform_function` (or inline on an imported one). Key = sha256(name + salts + per-input digests of the with-header BEAST2 encodings via the declared input types); value = with-header BEAST2 of the output, decoded via the declared output type. Inert by default |
 | `configure_memo(directory, salt="")` | Activate (`None` deactivates) memoization for `@memoize` functions; overrides `EAST_MEMO_DIR` / `EAST_MEMO_SALT` env vars. Bump `salt` to invalidate after code edits — input-derived keys can't see them |
 
-### What is NOT east-c (the honest list)
+### What is NOT east-c
 
-Almost everything above delegates to native builtins — these are the paths
-that still run python, so you can reason about cost and semantics:
+Nearly everything above delegates to native builtins. What still runs python,
+so you can reason about cost and semantics:
 
-- **`EastMatrix.map_elements`** is DEPRECATED: it ran a python
-  callback per element, the one shape the strict surface removes, so it
-  warns and will go. (`Vector.map`/`reduce` and `Matrix.map_rows` are the
-  native VectorMap/VectorFold/MatrixMapRows builtins.) Use the
-  arithmetic/reduction/mask/sparse methods, which delegate to the east-c
-  builtins, or `to_numpy`/`to_torch` for free-form math.
-- **`Dict.get_or_insert`** composes membership + get python-side so `fn` is
-  only called on a miss (deliberately lazier than East's strict default
-  expression). The other singles (`insert`/`update`/`swap`/`delete`/
-  `try_delete`/`insert_or_update`) are the native builtins — including their
-  error semantics (`insert` on an existing key and `delete`/`update`/`swap`
-  on a missing one raise East's messages).
-- **Reduction sugar** — `mean`, `group_mean`, `group_size`, …: several
-  native passes, zero python per element, but not a single fused builtin
-  (mirrors the TS composition).
-- **Boundary utilities** — `coerce_to`/`assert_value_of`/`type_of`,
-  `variant`/`struct` validation, `match()` dispatch, and the
-  `compare_for`/`make_east_key` ordering helpers are python walkers (that is
-  their job: the python↔East edge).
-- **Iteration** — `for x in arr` / `list(arr)` boxes per element (lazily:
-  elements decode as you go, and East's iteration lock is held, so mutating
-  during a loop raises `Cannot modify … during iteration` exactly like an
-  East for-loop); cross once with `to_columns`/`to_numpy` instead.
+- **`EastMatrix.map_elements`** — DEPRECATED: a python callback per element,
+  the one shape the strict surface removes; it warns and will go. Use the
+  arithmetic / reduction / mask / sparse methods, `map_rows`, or
+  `to_numpy()`/`to_torch()`. (`Vector.map`/`reduce` and `Matrix.map_rows` are the
+  native VectorMap / VectorFold / MatrixMapRows builtins.)
+- **`Dict.get_or_insert`** composes membership and get python-side so `fn` runs
+  only on a miss (lazier than East's strict default). The other singles
+  (`insert`/`update`/`swap`/`delete`/`try_delete`/`insert_or_update`) are the
+  native builtins, error messages included.
+- **Reduction sugar** — `mean`, `group_mean`, `group_size`, …: several native
+  passes, zero python per element, but not one fused builtin (as in TypeScript).
+- **Boundary utilities** — `coerce_to`/`assert_value_of`/`type_of`, `variant`/
+  `struct` validation, `match()` dispatch, `compare_for`/`make_east_key`: python
+  walkers, by design — they are the python↔East edge.
+- **Iteration** — `for x in arr` / `list(arr)` boxes per element (lazily, under
+  East's iteration lock, so mutating during the loop raises `Cannot modify …
+  during iteration`, as an East for-loop does); cross once with
+  `to_columns`/`to_numpy` instead.
+
+## The east-py CLI
+
+`east-py` (the `east-py-cli` package) runs East IR with python platform
+functions — the runner e3 drives for `runtime: 'east-py'` — and carries the
+authoring tools:
+
+```bash
+east-py run prog.beast2 -p east-py-std -i a.beast2 -i b.json -o out.beast2   # -v: timings, peak memory
+east-py exec unit.beast2                        # one unit: the runner protocol e3 speaks
+east-py convert value.beast2                    # a beast2 value as East text (-o value.east to write it)
+east-py transpile prog.beast2 -o prog.py        # IR → a python module that rebuilds it
+east-py export-functions pricing -o pricing.functions.beast2 -p east-py-std
+east-py lint src/ ; east-py check src/ ; east-py lsp
+east-py version -p east-py-std                  # the runner's version, and each package's
+```
+
+| Command | Does |
+|---|---|
+| `run <ir> [-p PACKAGE]… [-i FILE]… [-o FILE] [-v]` | Compiles an IR file (`.beast2`, `.beast`, `.east` or `.json`) and calls it with one `-i` file per parameter, in order, each decoded by its extension to the parameter's type and FROZEN (a task input is immutable). An indexed beast2 collection input of 64 MiB or more (`EAST_LAZY_INPUT_BYTES`; `0` disables) opens lazily — mapped, one segment decoded at a time — and a manifest file opens as the collection it names. `-o` writes the result in its extension's format (a collection as canonical indexed beast2); without it the result prints as East text. `-v` adds timings, peak memory and each lazy input's segment reads |
+| `exec <unit> [-v]` | The runner protocol: one unit file says what to run — a program over its inputs, or a merge of an output's parts — and where; the output is written by its kind and a result recorded. Exit 0 when it succeeded, 1 when it failed (the message and locations also go to stderr), 2 when the unit cannot be read or the result written. Relative paths in the unit are relative to its directory |
+| `convert <file> [-o FILE.east] [-v]` | Decodes a beast2 value (its header names the type) and prints it as East text, or writes it to a `.east` file |
+| `transpile <ir> [-o FILE] [--name NAME] [-p PACKAGE]…` | IR as a python module rebuilding it (`--name` binds it, default `main`; each `-p` prints its calls as that package's own functions) — [IR ↔ python](#ir--python-east-py-transpile-and-the-east-c-ir-toolbox) |
+| `export-functions <module> -o FILE [-p PACKAGE]… [--name NAME] [--package-version V] [--only NAME]…` | A module's (a dotted name, or a `.py` path) `east_functions` as a function manifest; every platform call must be provided by a `-p` package; `--name` defaults to the module's top-level name, the version to the installed distribution's (else `0.0.0`); `--only` exports just those — [Cross-language functions](#cross-language-functions-east-py-export-functions-and-eastimport_function) |
+| `lint [paths…] [--format text\|json] [--disable RULE]… [--exclude DIR]… [--list-rules]` | The rules (default path `.`); exit 1 on any finding, a warning included, 2 on a usage error — [Diagnostics](#diagnostics-at-edit-time--east-py-lint-east-py-check-flake8-east-py-lsp) |
+| `check <targets…> [--format text\|json] [--only-if-enabled]` | The build's own errors; exit 1 on any |
+| `lsp [--probe]` | The Language Server over stdio (needs `pygls`); `--probe` reports whether it can start here |
+| `version [-p PACKAGE]…` | The `east-py-cli` and `east-py` versions (and the Cython extensions loaded), and each package's version and function count |
+
+A `-p` package is a python module name (`east-py-std` imports `east_py_std`)
+exporting a top-level `platform` list; a project's own module is loaded the same
+way (see [Project-owned platform module](#project-owned-platform-module-calling-your-python-from-e3)).
+`run` and `exec` take `--exit-with-parent`: exit once stdin reaches end of file,
+for a parent that holds a stdin pipe it never writes to.
 
 ## Key Patterns
 
@@ -1988,7 +1676,7 @@ write_beast2_file_parallel(
 @East.platform_function(inputs=[StringType], output=ArrayType(ROW))
 def load_orders(path):
     with open_beast2_file(path, ArrayType(ROW)) as f:
-        return f.load()    # or stream f.segments() and never hold the table
+        return f.load()    # or compute on f directly, never holding the table
 ```
 
 Shards produced by your own process topology (or on another machine)? Merge
@@ -2004,16 +1692,16 @@ A reference table exported as a Dict file answers point reads without ever
 being held in memory: east-c fence-searches the segment index and decodes
 one segment per lookup, so a sparse join against a multi-GB file stays
 cheap. (A *dense* pass over most keys is still better as whole-file compute
-— `f.group_sum(...)`, `f.filter(...)`, any read method directly on the file
-— or a `segments()` scan for a custom fold.)
+— `f.group_sum(...)`, `f.filter(...)`, any read method directly on the file.)
 
 ```python
 from east.serialization.beast2 import open_beast2_file
 
-with open_beast2_file("orders.beast2") as orders:   # Dict<String, Order>, type from header
+with open_beast2_file("orders.beast2") as orders:   # Dict<String, Order>; Order = Struct{id, total}
     order = orders[order_id]                        # fence search → ONE segment decode
-    hot = orders.get_keys(wanted_ids, lambda b, k: default_order)   # each owning segment
-    if candidate_id in orders:                      #   decodes once for the whole batch
+    hot = orders.get_keys(wanted_ids,               # each owning segment decodes once;
+                          lambda b, k: {"id": k, "total": 0.0})   # `fill` is a body (a python dict
+    if candidate_id in orders:                      #   captured from outside is refused)
         ...
 
 # A sorted Array file answers range queries the same way — global insertion
@@ -2165,86 +1853,65 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
 
 ## Sharp edges
 
-- **Every body takes the block first** — `lambda b, x: …` / `def f(b, x)`,
-  never `lambda x: …` (refused with the fix-it) — an `East.function` body, a
-  builtin's callback, a branch, a loop, a `.match` handler alike, exactly as
-  every TypeScript body is `($, …) => …`. A function VALUE (a compiled
-  `East.function`, a `.bind` result) takes none. Name the block `_b` when the
-  body does not use it.
-- **Type constructors take PAIRS, not a dict** (unlike the TS DSL):
-  `StructType([("name", StringType), ("price", FloatType)])` /
+- **Every body takes the block first** — `lambda b, x: …` / `def f(b, x)`, never
+  `lambda x: …` — an `East.function` body, a builtin's callback, a branch, a
+  loop, a `.match` handler alike. A function VALUE (a compiled `East.function`, a
+  `.bind` result) takes none. Name the block `_b` when unused.
+- **Type constructors take PAIRS, not a dict** (unlike TypeScript):
+  `StructType([("name", StringType), ("price", FloatType)])`,
   `VariantType([("ok", T), ("err", E)])`.
-- **`@East.platform_function` output must be an East value.** Returning plain Python
-  (a `dict`, a `list` of dicts) fails output validation — build with
-  `array`/`struct`/`variant` or `coerce_to(raw, OutputType)` at the return
-  boundary.
-- **One name, two surfaces.** Inside any body you hold EXPRESSIONS; decoded
-  East values — what a `@East.platform_function` is handed, or what iteration
-  yields — are the eager surface. The vocabulary is the same on both, options
-  included: an `EastVariant` carries `.is_some()` / `.is_none()` /
-  `.unwrap_or(default)` / `.match({…})` exactly as the expression does, plus
-  the value-side `.type` / `.value` / `.unwrap(tag)`. Read a decoded option
-  with `opt.unwrap_or(d)` or `.match(...)`, not a hand-rolled
-  `opt.type == "some"` branch. Both surfaces are real; what does not exist is
-  a callback that silently runs on the second.
-- **The two `duration` spellings differ in sign**: the expression METHOD
-  `a.duration_days(b)` is `b − a` (the TypeScript method); the namespace
-  function `East.DateTime.duration_days(a, b)` is the raw builtin, `a − b`.
-- **`EastDict.get(k)` errors on a missing key**, like `d[k]` and like
-  TypeScript; `get(k, default)` (a value) is the python convenience, and
-  `get(k, lambda b, k: …)` is TypeScript's `onMissing` body — both build IR.
-- **`append` takes an ARRAY** (TS `append`); one element is `push_last`.
-  A Set or Dict spells the array flattening `flatten_to_array` (TypeScript);
-  only an Array has `flat_map`.
-- **Genuinely-Python loops cross the boundary once** —
-  `to_columns()` / `EastArray.from_columns` / `map_batches`, never a platform
-  call or a decode per element.
-- **Task inputs arrive frozen.** Runner-decoded values reaching a
-  `@East.platform_function` are zero-copy proxies over the frozen C value:
-  mutating one raises `cannot mutate a frozen value (task inputs are
-  immutable) — copy first` — call `.copy()` to derive a mutable value.
-  Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
-  through the proxy; frozen collections compare by value under `Is`. The
-  same value comes from `blob.open_beast(T)` / `EastBlob.open_beast(T)` and
-  from `FileSystem.openBeast` (`fs_open_beast` in **east-py-std**) —
-  frozen, paged, one segment per keyed read. An input e3 stages as a
-  manifest directory opens the same way, reading only the segment files a
-  read lands in.
-- **A callback East cannot express RAISES** — everywhere, eager paths
-  included, with the offending binding NAMED. That covers both halves: a
-  body reaching for python (`random.…`, `len`, a mutable capture, `nonlocal
-  x; x += 1`) and one that looks East-native but is not (an f-string, which
-  would constant-fold the proxy into the result; an off-surface method).
-  The alternative it replaces — quietly dropping the loop to per-element
-  python — had no symptom except the job taking hours. Build strings with
-  `East.str(...)` or `+`; write an explicit `for` loop for genuine python work.
-- **A captured East collection is read with `.get(expr)` /
-  `.get_or_default(expr, d)` / `.try_get(expr)`** — the `[expr]` subscript
-  spelling does not build IR on a captured constant (python coerces the index
-  via `__index__` and the build bails).
+- **A `@East.platform_function` must return an East value.** Plain python (a
+  `dict`, a `list` of dicts) fails output validation — build it with
+  `array`/`struct`/`variant`, or `coerce_to(raw, OutputType)` at the return.
+- **One name, two surfaces.** A body holds EXPRESSIONS; what a platform function
+  is handed, or iteration yields, is the eager surface — the same vocabulary,
+  options included: read a decoded option with `.unwrap_or(d)` / `.match({…})` /
+  `.is_some()`, never a hand-rolled `opt.type == "some"` branch.
+- **The two `duration` spellings differ in sign**: the METHOD `a.duration_days(b)`
+  is `b − a` (the TypeScript method); `East.DateTime.duration_days(a, b)` is the
+  raw builtin, `a − b`.
+- **`EastDict.get(k)` errors on a missing key**, like `d[k]` and TypeScript;
+  `get(k, default)` is the python convenience, `get(k, lambda b, k: …)`
+  TypeScript's `onMissing` body.
+- **`append` takes an ARRAY**; one element is `push_last`. A Set or Dict spells
+  the array flattening `flatten_to_array`; only an Array has `flat_map`.
+- **Task inputs arrive frozen**: mutating one raises `cannot mutate a frozen
+  value (task inputs are immutable) — copy first`; `.copy()` gives a mutable
+  value. Keyed gets and iteration on a paged input stay O(segment) through the
+  proxy, and frozen collections compare by value under `Is`. The same frozen
+  paged value comes from `blob.open_beast(T)` and from `fs_open_beast` in
+  **east-py-std**; an input e3 stages as a manifest directory opens the same
+  way, reading only the segment files a read lands in.
+- **A callback East cannot express RAISES**, eager paths included, naming the
+  binding — a body reaching for python (`random.…`, `len`, a mutable capture,
+  `nonlocal`) or one that only looks East-native (an f-string, which would
+  constant-fold the proxy; an off-surface method). Build strings with
+  `East.str(...)` or `+`; genuine python work is an explicit loop outside.
+- **Read a captured East collection with `.get(expr)` /
+  `.get_or_default(expr, d)` / `.try_get(expr)`** — `[expr]` on a captured
+  constant does not build IR (python coerces the index via `__index__`).
+- **Genuinely-python loops cross the boundary once** — `to_columns()` /
+  `EastArray.from_columns` / `map_batches`, never a platform call or a decode per
+  element.
 
 ## Related skills
 
-`east-py` is the Python runtime: East expressions AND East values in Python, plus the
-`@East.platform_function` on-ramp. Load the skill that matches what you are adding:
-
-- **east** — the TypeScript `East.function` DSL. The expression surface here is its
-  twin name for name (`$` is `b`, `camelCase` is `snake_case`); the two share the same
-  type system and IR, a program prints from one into the other (`east-py transpile` /
-  `east-node transpile`), and a function exported from one is imported by the other
+- **east** — the TypeScript `East.function` DSL, this surface's twin name for
+  name (`$` is `b`, camelCase is snake_case): one type system and one IR, a
+  program prints from one into the other (`east-py transpile` / `east-node
+  transpile`), and a function exported from one is imported by the other
   (`east-py export-functions` ↔ `East.importFunction`).
-- **east-py-datascience** — Python platform functions for ML and optimization (XGBoost, LightGBM,
-  Optuna, MADS, PyMC, SHAP, Torch, GoogleOR, Simulation). The home once a `@East.platform_function`
-  POC needs a real model or solver.
-- **east-py-std** / **east-py-io** — the platform functions on the Python runtime:
-  Console/FileSystem/Fetch/Crypto/Time/Random and the strict large-JSON reader, and
-  SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —
-  each exported under its own name, callable with East values and, the same object, inside an
-  East body. (Their TypeScript authoring siblings are **east-node-std** / **east-node-io**.)
-- **e3** — run compiled East functions as durable, content-addressed dataflow tasks; wire a
-  project-owned Python platform module via a `{ custom: 'platform_module' }` task runner.
-- **east-project** — scaffold (`--platform`) and package a project-owned platform module (the
-  `*_impl` → `platform` aggregation, `east-py run -p`, dotted names, the TS declaration mirror).
-- **e3-create** — scaffold a *dedicated* Python platform package with `--python-packages=<name>`
-  (a uv workspace member, its own auto-derived e3 environment) instead of the single `--platform` module.
-- **east-design** — start here when you have a goal but no architecture yet.
+- **east-py-datascience** — python platform functions for ML and optimisation
+  (XGBoost, LightGBM, Optuna, MADS, PyMC, SHAP, Torch, GoogleOR, Simulation): the
+  home once a platform-function POC needs a real model or solver.
+- **east-py-std** / **east-py-io** — the platform functions of the python runtime
+  (Console/FileSystem/Fetch/Crypto/Time/Random and the strict large-JSON reader;
+  SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression), each exported under its own name
+  and callable with East values or inside a body. Their TypeScript siblings are
+  **east-node-std** / **east-node-io**.
+- **e3** — run East functions as durable, content-addressed dataflow tasks; wire
+  a project's python module with a `{ custom: 'platform_module' }` platform.
+- **east-project** — scaffold (`--platform`) and package a project-owned
+  platform module; **e3-create** — a dedicated python platform package
+  (`--python-packages=<name>`, a uv workspace member with its own derived e3
+  environment); **east-design** — start there with a goal but no architecture.

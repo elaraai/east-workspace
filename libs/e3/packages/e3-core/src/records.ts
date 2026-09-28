@@ -49,7 +49,7 @@ import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
-import { withRunningWork } from './storage/local/gc.js';
+import { withRunningWork } from './running-work.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './execution/interfaces.js';
 

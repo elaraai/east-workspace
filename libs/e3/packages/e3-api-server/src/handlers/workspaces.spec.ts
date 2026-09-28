@@ -79,7 +79,7 @@ function routes(storage: InMemoryStorage, getRunner?: () => TaskRunner): Hono {
     storage,
     getRepoPath: () => REPO,
     ...(getRunner !== undefined && { getRunner }),
-  })));
+  }), getRunner ?? (() => new MockTaskRunner())));
   return app;
 }
 

@@ -36,11 +36,12 @@ const pkg = await packageResolve(repoPath, 'my-pkg@1.0.0');
 ### Workspaces
 
 ```typescript
-import { workspaceCreate, workspaceList, workspaceDeploy, workspaceStatus } from '@elaraai/e3-core';
+import { workspaceCreate, workspaceList, workspaceDeploy, workspaceStatus, LocalTaskRunner } from '@elaraai/e3-core';
 
 await workspaceCreate(repoPath, 'dev');
 await workspaceDeploy(repoPath, 'dev', 'my-pkg@1.0.0');
-const status = await workspaceStatus(storage, repoPath, 'dev');
+// The runner says whether an execution recorded running can still finish
+const status = await workspaceStatus(storage, new LocalTaskRunner(repoPath), repoPath, 'dev');
 ```
 
 ### Datasets

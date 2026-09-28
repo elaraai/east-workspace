@@ -10,6 +10,8 @@ import type {
   RepoStatusName,
   RepoMetadata,
   BatchResult,
+  GcBackendSweepOptions,
+  GcBackendSweepResult,
   GcObjectEntry,
   GcObjectScanResult,
   GcRootScanResult,
@@ -18,47 +20,98 @@ import type { RefStore, DatasetRefStore } from '../interfaces.js';
 import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
+  RepoLayoutError,
   RepoStatusConflictError,
   checkName,
+  isNotFoundError,
 } from '../../errors.js';
-import { decodeBeast2For, variant } from '@elaraai/east';
-import { E3_RELEASE, WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
-import { refPathToKeypath } from '../../dataset-refs.js';
+import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
+import { RepoMetadataType } from '@elaraai/e3-types';
+import { executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
+import { newRepositoryRecord } from '../../repository-record.js';
 import { atomicWriteFile } from './localHelpers.js';
-import { REPOSITORY_FILENAME, encodeRepositoryRecord, repoOpen, writeNewRepoMetadata } from './repository.js';
+import { sweepLocalRepository } from './sweep.js';
+import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
+
+/** A repository's metadata's file, at the repository's root. */
+export const METADATA_FILE = 'metadata.beast2';
+
+/** Encodes a repository's metadata as a local repository keeps it. */
+export const encodeRepoMetadata: (metadata: RepoMetadata) => Uint8Array = encodeBeast2For(RepoMetadataType);
+const decodeRepoMetadata = decodeBeast2For(RepoMetadataType);
 
 /**
  * Local filesystem implementation of RepoStore.
  *
  * Manages repository lifecycle for local e3 repositories stored
- * as subdirectories within a parent directory.
+ * as subdirectories within a parent directory. A repository's metadata is
+ * `metadata.beast2` at its root, beside the repository record the ref store
+ * keeps.
+ *
+ * Its lifecycle names a repository by its directory's name in that parent
+ * directory; its gc primitives take a repository's path, as the other stores
+ * do, so a store without the parent directory runs gc all the same.
  */
 export class LocalRepoStore implements RepoStore {
   /**
    * Create a new LocalRepoStore.
-   * @param reposDir - Parent directory containing repositories
-   * @param refs - RefStore for reading package/workspace/execution refs
-   * @param datasets - DatasetRefStore for reading per-dataset refs (for GC scanning)
+   * @param reposDir - The directory the repositories are in, which the
+   *   lifecycle needs; `null` for a store that runs gc alone
+   * @param refs - The ref store a created repository's record is written to,
+   *   and gc's root scans read
+   * @param datasets - The dataset ref store gc's root scans read
    */
   constructor(
-    private readonly reposDir: string,
+    private readonly reposDir: string | null,
     private readonly refs: RefStore,
-    private readonly datasets?: DatasetRefStore
+    private readonly datasets: DatasetRefStore
   ) {}
+
+  /**
+   * The directory the repositories are in.
+   *
+   * @throws {Error} When the store was made without one
+   */
+  private requireReposDir(): string {
+    if (this.reposDir === null) {
+      throw new Error('a repository\'s lifecycle needs the directory the repositories are in: give LocalStorage its reposDir');
+    }
+    return this.reposDir;
+  }
 
   /**
    * Get the path to a repository directory.
    */
   private getRepoPath(repo: string): string {
+    const reposDir = this.requireReposDir();
     checkName('repository', repo);
-    return path.join(this.reposDir, repo);
+    return path.join(reposDir, repo);
   }
 
   /**
-   * Get the path to a repository's record.
+   * Get the path to a repository's metadata.
    */
-  private getRecordPath(repo: string): string {
-    return path.join(this.getRepoPath(repo), REPOSITORY_FILENAME);
+  private getMetadataPath(repo: string): string {
+    return path.join(this.getRepoPath(repo), METADATA_FILE);
+  }
+
+  /**
+   * Read a repository's metadata, refusing a repository whose metadata does
+   * not read: an e3 older than this layout wrote it.
+   */
+  private async readMetadata(repo: string): Promise<RepoMetadata> {
+    let data: Buffer;
+    try {
+      data = await fs.readFile(this.getMetadataPath(repo));
+    } catch (err) {
+      if (isNotFoundError(err)) throw new RepoLayoutError(this.getRepoPath(repo), null);
+      throw err;
+    }
+    try {
+      return decodeRepoMetadata(data);
+    } catch {
+      throw new RepoLayoutError(this.getRepoPath(repo), null);
+    }
   }
 
   /**
@@ -84,12 +137,13 @@ export class LocalRepoStore implements RepoStore {
   // ===========================================================================
 
   async list(): Promise<string[]> {
+    const reposDir = this.requireReposDir();
     const repos: string[] = [];
     try {
-      const entries = await fs.readdir(this.reposDir, { withFileTypes: true });
+      const entries = await fs.readdir(reposDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          const repoPath = path.join(this.reposDir, entry.name);
+          const repoPath = path.join(reposDir, entry.name);
           if (await this.isValidRepository(repoPath)) {
             repos.push(entry.name);
           }
@@ -109,12 +163,8 @@ export class LocalRepoStore implements RepoStore {
   /**
    * The repository's metadata, or `null` when there is no repository.
    *
-   * @remarks
-   * The repository is opened: a repository an older release wrote is
-   * upgraded in place first.
-   *
-   * @throws {RepoLayoutError} When the repository has no record this e3 reads,
-   *   or has had an upgrade this e3 does not know
+   * @throws {RepoLayoutError} When the repository's metadata does not read:
+   *   an older e3 wrote it
    */
   async getMetadata(repo: string): Promise<RepoMetadata | null> {
     const repoPath = this.getRepoPath(repo);
@@ -124,7 +174,7 @@ export class LocalRepoStore implements RepoStore {
       return null;
     }
 
-    return repoOpen(repoPath).metadata;
+    return this.readMetadata(repo);
   }
 
   // ===========================================================================
@@ -146,7 +196,12 @@ export class LocalRepoStore implements RepoStore {
     await fs.mkdir(path.join(repoPath, 'executions'), { recursive: true });
     await fs.mkdir(path.join(repoPath, 'workspaces'), { recursive: true });
 
-    writeNewRepoMetadata(repoPath, repo);
+    // Its record first, so a repository whose metadata is there has one.
+    await this.refs.repositoryWrite(repoPath, newRepositoryRecord(LOCAL_REPOSITORY_UPGRADES));
+    const now = new Date();
+    await atomicWriteFile(this.getMetadataPath(repo), encodeRepoMetadata({
+      name: repo, status: variant('active', null), createdAt: now, statusChangedAt: now,
+    }));
   }
 
   async setStatus(
@@ -158,20 +213,20 @@ export class LocalRepoStore implements RepoStore {
     if (!(await this.isValidRepository(repoPath))) {
       throw new RepoNotFoundError(repo);
     }
-    const record = repoOpen(repoPath);
+    const metadata = await this.readMetadata(repo);
 
     // Check expected status (CAS)
     if (expected !== undefined) {
       const expectedArray = Array.isArray(expected) ? expected : [expected];
-      if (!expectedArray.includes(record.metadata.status.type)) {
-        throw new RepoStatusConflictError(repo, expected, record.metadata.status.type);
+      if (!expectedArray.includes(metadata.status.type)) {
+        throw new RepoStatusConflictError(repo, expected, metadata.status.type);
       }
     }
 
-    await atomicWriteFile(this.getRecordPath(repo), encodeRepositoryRecord({
-      ...record,
-      release: E3_RELEASE,
-      metadata: { ...record.metadata, status: variant(status, null), statusChangedAt: new Date() },
+    await atomicWriteFile(this.getMetadataPath(repo), encodeRepoMetadata({
+      ...metadata,
+      status: variant(status, null),
+      statusChangedAt: new Date(),
     }));
   }
 
@@ -255,71 +310,15 @@ export class LocalRepoStore implements RepoStore {
   // storage interfaces work in the local implementation.
 
   async gcScanPackageRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
-    const roots: string[] = [];
-    const packages = await this.refs.packageList(repo);
-    for (const { name, version } of packages) {
-      const hash = await this.refs.packageResolve(repo, name, version);
-      if (hash) {
-        roots.push(hash);
-      }
-    }
-    return { roots };
+    return { roots: await packageRoots(this.refs, repo) };
   }
 
   async gcScanWorkspaceRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
-    const roots: string[] = [];
-    const decoder = decodeBeast2For(WorkspaceRecordType);
-    const names = await this.refs.workspaceList(repo);
-    for (const name of names) {
-      const data = await this.refs.workspaceRead(repo, name);
-      if (data === null) continue;
-      try {
-        const record = decoder(data);
-        if (record.type === 'none') continue; // not deployed
-        roots.push(record.value.packageHash);
-        // Scan per-dataset ref files for value hashes
-        if (this.datasets) {
-          const refPaths = await this.datasets.list(repo, name);
-          for (const refPath of refPaths) {
-            const ref = await this.datasets.read(repo, name, refPath);
-            if (ref && ref.type === 'value') {
-              roots.push(ref.value.hash);
-              // Root the version-vector SELF-entry only — a record's head-commit
-              // hash (its history root). For plain values the self-entry equals
-              // the state hash already rooted above (harmless dupe); a derived
-              // dataset has no self-entry, so its inputs' hashes are not rooted
-              // here (they stay alive via those inputs' own refs).
-              const selfEntry = ref.value.versions.get(refPathToKeypath(refPath));
-              if (selfEntry !== undefined) roots.push(selfEntry);
-            }
-          }
-        }
-      } catch {
-        // Corrupt workspace state - skip
-      }
-    }
-    return { roots };
+    return { roots: await workspaceRoots(this.refs, this.datasets, repo) };
   }
 
   async gcScanExecutionRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
-    const roots: string[] = [];
-    const entries = await this.refs.executionList(repo);
-    for (const { taskHash, inputsHash } of entries) {
-      // The plan of a split task's execution that can resume: the `$plan` of
-      // the stage it is in. It is the only reference to the pieces it cut and
-      // the key ranges it planned, and it lives in a record no other scan
-      // reads — unrooted, the sweep takes the plan and everything it records,
-      // and a resumed run plans again from scratch. gc walks the plan itself,
-      // by its kind tag.
-      const planHash = await this.refs.executionPlanRead(repo, taskHash, inputsHash);
-      if (planHash !== null) roots.push(planHash);
-      const ids = await this.refs.executionListIds(repo, taskHash, inputsHash);
-      for (const executionId of ids) {
-        const status = await this.refs.executionGet(repo, taskHash, inputsHash, executionId);
-        if (status !== null) roots.push(...executionStatusRoots(status));
-      }
-    }
-    return { roots };
+    return { roots: await executionRoots(this.refs, repo) };
   }
 
   async gcScanObjects(repo: string, _cursor?: unknown): Promise<GcObjectScanResult> {
@@ -377,5 +376,9 @@ export class LocalRepoStore implements RepoStore {
         // Directory not empty or doesn't exist
       }
     }
+  }
+
+  gcSweepBackend(repo: string, reachable: ReadonlySet<string>, options: GcBackendSweepOptions): Promise<GcBackendSweepResult> {
+    return sweepLocalRepository(repo, reachable, options);
   }
 }

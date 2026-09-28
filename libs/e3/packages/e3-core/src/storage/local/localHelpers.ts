@@ -242,7 +242,8 @@ export async function renameWithRetry(from: string, to: string, maxAttempts = 25
  *
  * Staging files use a `.partial` extension so the directory-listing helpers
  * (which filter `.partial`) never mistake them for real entries, and orphaned
- * stages from a crashed writer are swept by `gc` (see cleanupPartials).
+ * stages from a crashed writer are swept by gc, in the local `RepoStore`'s
+ * sweep (`sweep.ts`).
  *
  * @param filePath - Destination path to atomically (over)write
  * @param data - Bytes (or string) to write

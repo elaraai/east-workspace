@@ -10,7 +10,7 @@
  * with `if (err instanceof E3Error)` or specific errors with their class.
  */
 
-import { E3_RELEASE, nameProblem, type DatasetTypeMismatch, type NamedKind } from '@elaraai/e3-types';
+import { E3_RELEASE, nameProblem, type DatasetTypeMismatch, type LockState, type NamedKind } from '@elaraai/e3-types';
 import type { TaskExecutionResult } from './dataflow.js';
 
 // =============================================================================
@@ -49,9 +49,9 @@ export class RepoAlreadyExistsError extends E3Error {
 }
 
 /**
- * Thrown when this e3 cannot open a local repository: it has no repository
- * record this e3 reads, which an older e3 wrote, or it has had a store upgrade
- * this e3 does not know, which a newer e3 applied. Nothing in it is read.
+ * Thrown when this e3 cannot open a repository: it has no repository record
+ * this e3 reads, which an older e3 wrote, or it has had a store upgrade this e3
+ * does not know, which a newer e3 applied. Nothing in it is read.
  */
 export class RepoLayoutError extends E3Error {
   constructor(
@@ -132,6 +132,26 @@ export interface LockHolderInfo {
   startTime?: number;
   /** Command that acquired the lock (for debugging) */
   command?: string;
+}
+
+/**
+ * A lock's holder as an error names it.
+ *
+ * @param state - The lock's state
+ * @returns The holder's details, flattened for a message
+ */
+export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
+  const info: LockHolderInfo = {
+    acquiredAt: state.acquiredAt.toISOString(),
+    operation: state.operation.type,
+  };
+  if (state.holder.type === 'process') {
+    info.pid = Number(state.holder.value.pid);
+    info.bootId = state.holder.value.bootId;
+    info.startTime = Number(state.holder.value.startTime);
+    info.command = state.holder.value.command;
+  }
+  return info;
 }
 
 /**

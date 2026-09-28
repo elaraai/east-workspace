@@ -43,6 +43,15 @@ describe('scratch directories', () => {
     assert.equal(path.dirname(dir), path.join(repo, 'tmp', 'scratch'));
   });
 
+  it('is absolute, however the repository or E3_SCRATCH_DIR is named', () => {
+    // A runner runs in its scratch directory, where a path relative to the
+    // caller's working directory names nothing.
+    delete process.env.E3_SCRATCH_DIR;
+    assert.equal(scratchRoot(path.join('relative', 'repo')), path.resolve('relative', 'repo', 'tmp', 'scratch'));
+    process.env.E3_SCRATCH_DIR = path.join('relative', 'scratch');
+    assert.equal(scratchRoot(repo), path.resolve('relative', 'scratch'));
+  });
+
   it('names an execution\'s directory under E3_SCRATCH_DIR after the execution attempt and this process', async () => {
     assert.equal(scratchRoot(repo), root);
     const dir = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001');

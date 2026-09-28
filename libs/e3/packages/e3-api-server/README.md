@@ -141,6 +141,31 @@ interface ServerConfig {
 }
 ```
 
+### Mounting the routes on another host
+
+The route factories are exported, so a host that runs e3 on its own backends
+mounts them over its own seams. The repositories' routes list, create and
+remove repositories through the storage backend's `RepoStore`, and the
+repository gate, mounted ahead of every repository's routes, checks that the
+repository exists and is not being removed, and opens it. The dataflow routes
+take the runner, the orchestrator that runs a repository's dataflows, and the
+state store it writes: a poll and a cancel read the latest run from that
+store, whichever instance answers them.
+
+```typescript
+import { Hono } from 'hono';
+import { createExecutionRoutes, createRepositoriesRoutes, createRepositoryGate } from '@elaraai/e3-api-server';
+
+const app = new Hono();
+app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath));
+app.route('/api/repos', createRepositoriesRoutes(storage));
+app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
+  getRunner: (repo) => runnerFor(repo),
+  getOrchestrator: (repo) => orchestratorFor(repo),
+  getStateStore: (repo) => stateStoreFor(repo),
+}));
+```
+
 ## API Endpoints
 
 All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
@@ -153,7 +178,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 |--------|----------|-------------|
 | GET | `/api/repos` | List available repositories (multi-repo mode) |
 | PUT | `/api/repos/:repo` | Create repository (multi-repo mode) |
-| DELETE | `/api/repos/:repo` | Delete repository (multi-repo mode, async) |
+| DELETE | `/api/repos/:repo` | Remove repository (multi-repo mode): marked as being removed first, so a request to it is refused from then on |
 | GET | `/api/repos/:repo/status` | Repository status (counts) |
 | POST | `/api/repos/:repo/gc` | Start garbage collection (async) |
 | GET | `/api/repos/:repo/gc/:id` | Get GC status |
@@ -164,8 +189,11 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/packages` | List all packages |
 | GET | `/api/repos/:repo/packages/:name/:version` | Get package details |
-| POST | `/api/repos/:repo/packages` | Import package (zip body) |
-| GET | `/api/repos/:repo/packages/:name/:version/export` | Export package as zip |
+| POST | `/api/repos/:repo/import` | Start importing a package zip, as a job: answers the job's id and where to upload the zip |
+| POST | `/api/repos/:repo/import/:id` | Import the uploaded zip |
+| GET | `/api/repos/:repo/import/:id` | Poll an import job |
+| POST | `/api/repos/:repo/packages/:name/:version/export` | Start exporting a package as a zip, as a job: answers the job's id |
+| GET | `/api/repos/:repo/export/:id` | Poll an export job: once it completes, where to download the zip |
 | DELETE | `/api/repos/:repo/packages/:name/:version` | Remove package |
 
 ### Workspaces
@@ -179,7 +207,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
 | GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing`, what the deploy did for each record and index, or why it failed |
 | DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace |
-| GET | `/api/repos/:repo/workspaces/:ws/export` | Export workspace as package zip |
+| POST | `/api/repos/:repo/workspaces/:ws/export` | Start exporting the workspace as a package zip, as a job polled at `/api/repos/:repo/export/:id` |
 
 A deploy that migrates a record, or builds an index over one, takes as long as
 the record is large, so it runs as a job, on the runner the server runs every
@@ -241,8 +269,8 @@ The full protocol is in
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight in this server, the tasks and units waiting for room and each split task's progress |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a server that runs no dataflow) |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/logs/:task` | Read task logs |

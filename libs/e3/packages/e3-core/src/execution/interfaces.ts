@@ -11,7 +11,7 @@
  * task — locally by spawning a runner, or remotely.
  */
 
-import type { PartitionProgress } from '@elaraai/e3-types';
+import type { ExecutionStatus, PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
 import type { MergeParts } from './units.js';
@@ -99,6 +99,9 @@ export interface TaskResult {
   peakBytes?: number;
 }
 
+/** An execution's record while it runs: the `running` case of its status. */
+export type RunningExecution = Extract<ExecutionStatus, { type: 'running' }>['value'];
+
 /**
  * One unit of a task split into pieces: a piece, which runs the task's program
  * over the piece's inputs, or a merge of what the pieces wrote.
@@ -164,6 +167,26 @@ export interface TaskRunner {
     unit: SplitUnit,
     options?: TaskExecuteOptions
   ): Promise<TaskResult>;
+
+  /**
+   * Whether an execution recorded `running` can still finish, which the runner
+   * that started it knows: a local runner by its runner process and the
+   * orchestrator recorded as its owner, a remote one by its own compute. The
+   * workspace status reports a task in progress while its execution can, and
+   * stale once it cannot.
+   *
+   * @param storage - Storage backend
+   * @param taskHash - Hash of the TaskObject
+   * @param inputsHash - The execution's combined inputs hash
+   * @param running - Its `running` record
+   * @returns Whether it can still finish
+   */
+  executionAlive(
+    storage: StorageBackend,
+    taskHash: string,
+    inputsHash: string,
+    running: RunningExecution
+  ): Promise<boolean>;
 
   /**
    * Run a body IR detached from the dataflow graph (function / one-shot

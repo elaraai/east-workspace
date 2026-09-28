@@ -4,223 +4,58 @@
  */
 
 /**
- * Tests for gc.ts
+ * gc over e3-core's own backends: the contract suite every backend runs, over a
+ * local repository and the in-memory backend; what a local repository's own
+ * sweep removes; and the mark and the sweep's decision, which read no backend.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
-import e3 from '@elaraai/e3';
-import { WorkspaceRecordType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, decodeMigrationObject, decodeRecordObject, encodeUnitPlan } from '@elaraai/e3-types';
-import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
-import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
-import { readDatasetWhole } from './dataset-open.js';
+import { DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
+import { PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
+import type { PackageObject, TaskObject } from '@elaraai/e3-types';
+import { gcTests } from './contract/index.js';
+import { repoGc, markReachable, sweepBatch } from './gc.js';
 import { packageStagingPath, transferStagingPath } from './storage/local/localHelpers.js';
-import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
-import { packageImport, packageRemove, packageRead } from './packages.js';
+import { objectWrite } from './storage/local/LocalObjectStore.js';
 import { sweepEnvironments } from './execution/environment.js';
 import { getPidStartTime } from './execution/processHelpers.js';
-import { ObjectNotFoundError } from './errors.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, deadPid } from './test-helpers.js';
-import { uuidv7 } from './uuid.js';
+import { createTestRepo, removeTestRepo, deadPid } from './test-helpers.js';
+import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import type { GcObjectEntry } from './storage/interfaces.js';
 
+describe('over a local repository', () => {
+  // Without the directory the repositories are in: gc needs none.
+  gcTests(async (t) => {
+    const repo = createTestRepo();
+    t.after(() => removeTestRepo(repo));
+    return { storage: new LocalStorage(), repo };
+  });
+});
+
+describe('over the in-memory backend', () => {
+  gcTests(async () => {
+    const storage = new InMemoryStorage();
+    await storage.repos.create('repo');
+    return { storage, repo: 'repo' };
+  });
+});
+
 describe('gc', () => {
   let testRepoPath: string;
-  let tempDir: string;
   let storage: StorageBackend;
 
   beforeEach(() => {
     testRepoPath = createTestRepo();
-    tempDir = createTempDir();
-    // Create LocalStorage with the parent of testRepo as reposDir.
-    // This allows repoGc to use repoName for repos.* operations,
-    // while objects/refs still use testRepoPath (full path).
-    storage = new LocalStorage(dirname(testRepoPath));
+    storage = new LocalStorage();
   });
 
   afterEach(() => {
     removeTestRepo(testRepoPath);
-    removeTempDir(tempDir);
-  });
-
-  describe('with no objects', () => {
-    it('returns zero counts for empty repository', async () => {
-      const result = await repoGc(storage, testRepoPath);
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.deletedPartials, 0);
-      assert.strictEqual(result.retainedObjects, 0);
-      assert.strictEqual(result.bytesFreed, 0);
-    });
-  });
-
-  describe('with orphaned objects', () => {
-    it('deletes orphaned objects', async () => {
-      // Store an object directly without any ref
-      const data = new Uint8Array([1, 2, 3, 4, 5]);
-      const hash = await objectWrite(testRepoPath, data);
-
-      // Verify object exists
-      const loaded = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(loaded), data);
-
-      // Run gc with minAge=0 to delete immediately
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 1);
-      assert.strictEqual(result.retainedObjects, 0);
-      assert.ok(result.bytesFreed > 0);
-
-      // Verify object is gone
-      await assert.rejects(
-        async () => await objectRead(testRepoPath, hash),
-        ObjectNotFoundError
-      );
-    });
-
-    it('deletes multiple orphaned objects', async () => {
-      // Store several objects
-      await objectWrite(testRepoPath, new Uint8Array([1]));
-      await objectWrite(testRepoPath, new Uint8Array([2]));
-      await objectWrite(testRepoPath, new Uint8Array([3]));
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 3);
-      assert.strictEqual(result.retainedObjects, 0);
-    });
-  });
-
-  describe('with package refs', () => {
-    it('retains objects referenced by packages', async () => {
-      // Create and import a package
-      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
-      const pkg = e3.package('gc-test', '1.0.0', myInput);
-      const zipPath = join(tempDir, 'gc-test.zip');
-      await e3.export(pkg, zipPath);
-
-      const importResult = await packageImport(storage, testRepoPath, zipPath);
-
-      // Run gc - should not delete anything
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.ok(result.retainedObjects >= 2, `Expected at least 2 retained objects, got ${result.retainedObjects}`);
-
-      // Verify package object still exists
-      const packageData = await objectRead(testRepoPath, importResult.packageHash);
-      assert.ok(packageData.length > 0);
-    });
-
-    it('deletes objects after package is removed', async () => {
-      // Create and import a package
-      const pkg = e3.package('remove-gc', '1.0.0') as any;
-      const zipPath = join(tempDir, 'remove-gc.zip');
-      await e3.export(pkg, zipPath);
-
-      const importResult = await packageImport(storage, testRepoPath, zipPath);
-      const objectCount = importResult.objectCount;
-
-      // Remove the package
-      await packageRemove(storage, testRepoPath, 'remove-gc', '1.0.0');
-
-      // Run gc - should delete all package objects
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, objectCount);
-      assert.strictEqual(result.retainedObjects, 0);
-    });
-
-    it('retains shared objects between packages', async () => {
-      // Create and import two packages
-      const pkg1 = e3.package('shared-a', '1.0.0') as any;
-      const pkg2 = e3.package('shared-b', '1.0.0') as any;
-
-      const zip1 = join(tempDir, 'shared-a.zip');
-      const zip2 = join(tempDir, 'shared-b.zip');
-
-      await e3.export(pkg1, zip1);
-      await e3.export(pkg2, zip2);
-
-      await packageImport(storage, testRepoPath, zip1);
-      await packageImport(storage, testRepoPath, zip2);
-
-      // Remove one package
-      await packageRemove(storage, testRepoPath, 'shared-a', '1.0.0');
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      // Some objects may be deleted, but shared-b's objects are retained
-      assert.ok(result.retainedObjects >= 1);
-    });
-  });
-
-  describe('with function objects', () => {
-    it('function bodies survive gc (PackageObject -> FunctionObject -> bodyIr)', async () => {
-      // Deploy a package containing a function, gc, then verify the
-      // FunctionObject and its bodyIr object are retained and decodable.
-      const double = e3.function(
-        'double',
-        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
-      );
-      const pkg = e3.package('fn-gc', '1.0.0', double);
-      const zipPath = join(tempDir, 'fn-gc.zip');
-      await e3.export(pkg, zipPath);
-      await packageImport(storage, testRepoPath, zipPath);
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(result.deletedObjects, 0);
-
-      // The function body must still be readable after gc
-      const pkgObject = await packageRead(storage, testRepoPath, 'fn-gc', '1.0.0');
-      const fnHash = pkgObject.functions.get('double');
-      assert.ok(fnHash, 'functions map lost');
-      const fnObject = decodeBeast2For(FunctionObjectType)(Buffer.from(await objectRead(testRepoPath, fnHash!)));
-      const bodyIr = await objectRead(testRepoPath, fnObject.bodyIr);
-      assert.ok(bodyIr.length > 0, 'bodyIr object lost');
-    });
-
-    it('function objects are deleted once the package is removed', async () => {
-      const double = e3.function(
-        'double',
-        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
-      );
-      const pkg = e3.package('fn-gc-rm', '1.0.0', double);
-      const zipPath = join(tempDir, 'fn-gc-rm.zip');
-      await e3.export(pkg, zipPath);
-      const importResult = await packageImport(storage, testRepoPath, zipPath);
-
-      await packageRemove(storage, testRepoPath, 'fn-gc-rm', '1.0.0');
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(result.deletedObjects, importResult.objectCount);
-    });
-  });
-
-  describe('with record migrations', () => {
-    it('keeps a record\'s migrations, their functions and a split step\'s program (PackageObject → RecordObject → MigrationObject → IR)', async () => {
-      const RowType = StructType({ title: StringType });
-      const plans = e3.record('plans', DictType(StringType, RowType), new Map());
-      const retitle = e3.migration.rows('retitle', plans,
-        East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title })));
-      const zipPath = join(tempDir, 'migration-gc.zip');
-      await e3.export(e3.package('migration-gc', '1.0.0', retitle), zipPath);
-      await packageImport(storage, testRepoPath, zipPath);
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(result.deletedObjects, 0);
-
-      const pkgObject = await packageRead(storage, testRepoPath, 'migration-gc', '1.0.0');
-      const record = decodeRecordObject(await objectRead(testRepoPath, pkgObject.records.get('plans')!));
-      const step = decodeMigrationObject(await objectRead(testRepoPath, record.migrations[0]!.migration));
-      assert.ok((await objectRead(testRepoPath, step.bodyIr)).length > 0, 'the function survives');
-      assert.ok((await objectRead(testRepoPath, step.programIr)).length > 0, 'the program a split step runs survives');
-    });
   });
 
   describe('with staging files', () => {
@@ -374,54 +209,7 @@ describe('gc', () => {
     });
   });
 
-  describe('minAge option', () => {
-    it('skips young objects', async () => {
-      // Store an object
-      const hash = await objectWrite(testRepoPath, new Uint8Array([42]));
-
-      // Run gc with high minAge - object is too young
-      const result = await repoGc(storage, testRepoPath, { minAge: 60000 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.skippedYoung, 1);
-
-      // Object should still exist
-      const data = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(data), new Uint8Array([42]));
-    });
-
-    it('deletes old objects with minAge=0', async () => {
-      const hash = await objectWrite(testRepoPath, new Uint8Array([99]));
-
-      // Run gc with minAge=0
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 1);
-
-      await assert.rejects(
-        async () => await objectRead(testRepoPath, hash),
-        ObjectNotFoundError
-      );
-    });
-  });
-
   describe('dryRun option', () => {
-    it('reports but does not delete in dry run mode', async () => {
-      // Store an orphaned object
-      const data = new Uint8Array([10, 20, 30]);
-      const hash = await objectWrite(testRepoPath, data);
-
-      // Run gc in dry run mode
-      const result = await repoGc(storage, testRepoPath, { minAge: 0, dryRun: true });
-
-      assert.strictEqual(result.deletedObjects, 1);
-      assert.ok(result.bytesFreed > 0);
-
-      // Object should still exist
-      const loaded = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(loaded), data);
-    });
-
     it('reports partials but does not delete in dry run mode', async () => {
       const partialDir = join(testRepoPath, 'objects', 'ef');
       mkdirSync(partialDir, { recursive: true });
@@ -435,315 +223,9 @@ describe('gc', () => {
     });
   });
 
-  describe('object graph traversal', () => {
-    it('retains transitively referenced objects via tree → value chain', async () => {
-      // Create a chain: Package → Tree → Value (leaf)
-      // Tree has a 'data' field pointing to a value object
-
-      // Create value leaf object (some arbitrary beast2 data)
-      const valueEncoder = encodeBeast2For(StringType);
-      const hashValue = await objectWrite(testRepoPath, valueEncoder('hello world'));
-
-      // Create a package object with refs referencing the value
-      const pkgEncoder = encodeBeast2For(PackageObjectType);
-      const hashPkg = await objectWrite(testRepoPath, pkgEncoder({
-        tasks: new Map(),
-        data: {
-          structure: variant('struct', new Map()),
-          refs: new Map([
-            ['data', variant('value', { hash: hashValue, versions: new Map() })],
-          ]),
-        },
-        functions: new Map(),
-        records: new Map(), sources: new Map(),
-      } as PackageObject));
-
-      // Create a package ref pointing to the package
-      const refDir = join(testRepoPath, 'packages', 'transitive');
-      mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0.beast2'), encodeBeast2For(StringType)(hashPkg));
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 2); // pkg, value retained
-
-      // All objects should still exist
-      await objectRead(testRepoPath, hashPkg);
-      await objectRead(testRepoPath, hashValue);
-    });
-
-    it('deletes unreachable objects in graph', async () => {
-      // Create a reachable package with empty refs, plus an unreachable orphan
-
-      // Reachable package (no children via refs)
-      const pkgEncoder = encodeBeast2For(PackageObjectType);
-      const hashPkg = await objectWrite(testRepoPath, pkgEncoder({
-        tasks: new Map(),
-        data: {
-          structure: variant('struct', new Map()),
-          refs: new Map(),
-        },
-        functions: new Map(),
-        records: new Map(), sources: new Map(),
-      } as PackageObject));
-
-      // Unreachable orphan object
-      const orphanData = new Uint8Array([77, 88, 99]);
-      const hashOrphan = await objectWrite(testRepoPath, orphanData);
-
-      // Only package is a root
-      const refDir = join(testRepoPath, 'packages', 'graph-test');
-      mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0.beast2'), encodeBeast2For(StringType)(hashPkg));
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 1); // orphan deleted
-      assert.strictEqual(result.retainedObjects, 1); // pkg retained
-
-      // Package exists, orphan is gone
-      await objectRead(testRepoPath, hashPkg);
-      await assert.rejects(
-        async () => await objectRead(testRepoPath, hashOrphan),
-        ObjectNotFoundError
-      );
-    });
-  });
-
-  describe('execution refs', () => {
-    it('retains objects referenced by execution refs', async () => {
-      // Store an object
-      const data = new Uint8Array([11, 22, 33]);
-      const hash = await objectWrite(testRepoPath, data);
-
-      // Create an execution ref using the new schema:
-      // executions/<taskHash>/<inputsHash>/<executionId>/status.beast2 — a
-      // recent one, which the history keeps
-      const taskHash = 'a'.repeat(64);
-      const inputsHash = 'b'.repeat(64);
-      const executionId = uuidv7();
-      const execDir = join(testRepoPath, 'executions', taskHash, inputsHash, executionId);
-      mkdirSync(execDir, { recursive: true });
-
-      // Write a success execution status with outputHash
-      const { encodeBeast2For: encodeFor } = await import('@elaraai/east');
-      const { ExecutionStatusType } = await import('@elaraai/e3-types');
-      const encoder = encodeFor(ExecutionStatusType);
-      const status = variant('success', {
-        executionId,
-        inputHashes: [inputsHash],
-        outputHash: hash,
-        startedAt: new Date(),
-        completedAt: new Date(),
-        peakBytes: none,
-        plan: none,
-        unit: false,
-      });
-      writeFileSync(join(execDir, 'status.beast2'), encoder(status));
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 1);
-
-      // Object still exists
-      const loaded = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(loaded), data);
-    });
-
-    it('roots a split task\'s plan through its sidecar until the execution clears it', async () => {
-      const taskHash = 'a'.repeat(64);
-      const inputsHash = 'b'.repeat(64);
-      // The execution was interrupted mid-task, and can resume.
-      const interrupted = uuidv7();
-      await storage.refs.executionWrite(testRepoPath, taskHash, inputsHash, interrupted, variant('interrupted', {
-        executionId: interrupted, inputHashes: [], startedAt: new Date(), completedAt: new Date(), pid: 1n, unit: false,
-      }));
-      const piece = await objectWrite(testRepoPath, encodeBeast2For(StringType)('a piece of the input'));
-      const plan = await objectWrite(testRepoPath, encodeUnitPlan({
-        kind: UNIT_PLAN_KIND,
-        task: taskHash,
-        inputs: inputsHash,
-        stage: variant('pieces', [[piece]]),
-        previous: none,
-        peakBytes: none,
-      }));
-      await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, plan);
-
-      const kept = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(kept.deletedObjects, 0, 'a plan the execution can resume from keeps what it names');
-      await objectRead(testRepoPath, plan);
-      await objectRead(testRepoPath, piece);
-
-      await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, null);
-      assert.strictEqual(await storage.refs.executionPlanRead(testRepoPath, taskHash, inputsHash), null);
-      const swept = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(swept.deletedObjects, 2, 'the plan and its piece go once the execution has ended');
-    });
-  });
-
-  describe('dataflow locks', () => {
-    it('refuses while a dataflow holds a workspace\'s dataflow lock, releasing the locks it took', async () => {
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(wsDir, { recursive: true });
-      writeFileSync(join(wsDir, 'first.beast2'), encodeBeast2For(WorkspaceRecordType)(none));
-      writeFileSync(join(wsDir, 'second.beast2'), encodeBeast2For(WorkspaceRecordType)(none));
-
-      const run = await storage.locks.acquire(testRepoPath, 'second#dataflow', variant('dataflow', null));
-      assert.ok(run, 'the run holds its dataflow lock');
-      try {
-        await assert.rejects(
-          repoGc(storage, testRepoPath, { minAge: 0 }),
-          { message: "gc: a dataflow is running in workspace 'second' — retry when it finishes" },
-        );
-        const first = await storage.locks.acquire(testRepoPath, 'first#dataflow', variant('dataflow', null));
-        assert.ok(first, 'gc released the lock it had taken before refusing');
-        await first.release();
-      } finally {
-        await run.release();
-      }
-
-      await repoGc(storage, testRepoPath, { minAge: 0 });
-      for (const ws of ['first', 'second']) {
-        const lock = await storage.locks.acquire(testRepoPath, `${ws}#dataflow`, variant('dataflow', null));
-        assert.ok(lock, `gc released ${ws}'s dataflow lock`);
-        await lock.release();
-      }
-    });
-  });
-
-  describe('workspace refs', () => {
-    it('marks a workspace dataset header-first: retained, never read whole', async () => {
-      const datasetHash = await objectWrite(testRepoPath, encodeBeast2For(StructType({ name: StringType }))({ name: 'y'.repeat(100_000) }));
-      const pkgHash = await objectWrite(testRepoPath, encodeBeast2For(PackageObjectType)({
-        tasks: new Map(), data: { structure: variant('struct', new Map()), refs: new Map() },
-        functions: new Map(), records: new Map(), sources: new Map(),
-      } as PackageObject));
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(join(wsDir, 'reader', 'data'), { recursive: true });
-      writeFileSync(join(wsDir, 'reader.beast2'), encodeBeast2For(WorkspaceRecordType)(some({
-        packageName: 'test-pkg',
-        packageVersion: '1.0.0',
-        packageHash: pkgHash,
-        deployedAt: new Date(),
-        currentRunId: none,
-      })));
-      await storage.datasets.write(testRepoPath, 'reader', 'big', variant('value', { hash: datasetHash, versions: new Map() }));
-
-      const objects = storage.objects;
-      const read = objects.read.bind(objects);
-      let datasetReads = 0;
-      objects.read = (repo: string, hash: string) => {
-        if (hash === datasetHash) datasetReads++;
-        return read(repo, hash);
-      };
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 2);
-      assert.strictEqual(datasetReads, 0, 'the dataset is classified from its head');
-    });
-
-    it('retains objects referenced by workspace state and dataset refs', async () => {
-      // Store objects for a dataset value and package
-      const valueData = new Uint8Array([44, 55, 66]);
-      const valueHash = await objectWrite(testRepoPath, valueData);
-      const pkgHash = await objectWrite(testRepoPath, encodeBeast2For(PackageObjectType)({
-        tasks: new Map(), data: { structure: variant('struct', new Map()), refs: new Map() },
-        functions: new Map(), records: new Map(), sources: new Map(),
-      } as PackageObject));
-
-      // Create workspace state file at workspaces/<name>.beast2
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(wsDir, { recursive: true });
-
-      const state: WorkspaceState = {
-        packageName: 'test-pkg',
-        packageVersion: '1.0.0',
-        packageHash: pkgHash,
-        deployedAt: new Date(),
-        currentRunId: none,
-      };
-      writeFileSync(join(wsDir, 'myworkspace.beast2'), encodeBeast2For(WorkspaceRecordType)(some(state)));
-
-      // Create a per-dataset ref that references valueHash
-      await storage.datasets.write(testRepoPath, 'myworkspace', 'some-dataset', variant('value', { hash: valueHash, versions: new Map() }));
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 2); // both valueHash and pkgHash
-
-      // Objects still exist
-      await objectRead(testRepoPath, valueHash);
-      await objectRead(testRepoPath, pkgHash);
-    });
-
-    it('deletes nothing while it cannot read what a deployed workspace is served from', async () => {
-      // A deployed workspace whose package does not read: what its state is
-      // served from cannot be known, so no history is pruned, and no object
-      // swept, rather than on a guess.
-      const junk = await objectWrite(testRepoPath, new Uint8Array([77, 88, 99]));
-      writeFileSync(join(testRepoPath, 'workspaces', 'broken.beast2'), encodeBeast2For(WorkspaceRecordType)(some({
-        packageName: 'test-pkg',
-        packageVersion: '1.0.0',
-        packageHash: junk,
-        deployedAt: new Date(),
-        currentRunId: none,
-      })));
-      const orphan = await objectWrite(testRepoPath, new Uint8Array([1, 2, 3]));
-
-      await assert.rejects(repoGc(storage, testRepoPath, { minAge: 0 }),
-        /^Error: gc deletes nothing while it cannot read what workspace 'broken' is served from: /);
-      await objectRead(testRepoPath, orphan);
-    });
-
-    it('ignores undeployed workspaces', async () => {
-      // Store an orphaned object
-      const data = new Uint8Array([11, 22, 33]);
-      await objectWrite(testRepoPath, data);
-
-      // An undeployed workspace's record is none
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(wsDir, { recursive: true });
-      writeFileSync(join(wsDir, 'undeployed.beast2'), encodeBeast2For(WorkspaceRecordType)(none));
-
-      // Run gc - orphaned object should be deleted
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 1);
-      assert.strictEqual(result.retainedObjects, 0);
-    });
-  });
-
   // ==========================================================================
   // Unit tests for shared algorithm functions
   // ==========================================================================
-
-  describe('collectAllRoots', () => {
-    it('collects roots from all root types', async () => {
-      const roots = await collectAllRoots(storage.repos, testRepoPath);
-      // Empty repo has no roots
-      assert.strictEqual(roots.size, 0);
-    });
-
-    it('collects package roots', async () => {
-      // Create a package ref
-      const hash = 'a'.repeat(64);
-      const refDir = join(testRepoPath, 'packages', 'test-pkg');
-      mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0.beast2'), encodeBeast2For(StringType)(hash));
-
-      const roots = await collectAllRoots(storage.repos, testRepoPath);
-      assert.ok(roots.has(hash));
-    });
-  });
 
   describe('markReachable', () => {
     // Helper: create a tree type with DataRef fields
@@ -1486,35 +968,6 @@ describe('gc', () => {
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(root));
       assert.ok(!reachable.has(HEADER), 'an object carrying another kind must not be traversed as segments');
-    });
-
-    it('survives a real gc: a collection dataset keeps every segment it names', async () => {
-      const type = DictType(StringType, IntegerType);
-      const rows = new Map<string, bigint>();
-      for (let i = 0; i < 20_000; i++) rows.set(`k${String(i).padStart(7, '0')}`, BigInt(i));
-
-      const pkg = e3.package('gc-manifest', '1.0.0',
-        e3.input('rows', type, variant('value', rows)));
-      const zipPath = join(tempDir, 'gc-manifest.zip');
-      await e3.export(pkg, zipPath);
-      await packageImport(storage, testRepoPath, zipPath);
-
-      const pkgObject = await packageRead(storage, testRepoPath, 'gc-manifest', '1.0.0');
-      const ref = pkgObject.data.refs.get('inputs/rows');
-      assert.ok(ref && ref.type === 'value');
-      const hash = ref.type === 'value' ? ref.value.hash : '';
-      const manifest = decodeCollectionManifest(await storage.objects.read(testRepoPath, hash));
-      assert.ok(manifest.entries.length > 1, 'a 20k-row dict must hold more than one segment');
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(result.deletedObjects, 0);
-
-      // Every object the manifest names must still be readable, and the value
-      // must still decode — a sweep that took a segment would show up here.
-      await storage.objects.read(testRepoPath, manifest.header);
-      for (const entry of manifest.entries) await storage.objects.read(testRepoPath, entry.hash);
-      const whole = decodeBeast2For(type)(await readDatasetWhole(storage, testRepoPath, hash)) as Map<string, bigint>;
-      assert.strictEqual(whole.size, 20_000);
     });
   });
 

@@ -9,13 +9,14 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createWriteStream, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import yauzl from 'yauzl';
+import yazl from 'yazl';
 import {
-  carveBeast2, compareFor, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor, readBeast2Extents,
-  readBeast2Type, segmentKeyTypeOf, toEastTypeValue, type EastType, type EastTypeValue,
+  StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
+  readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry } from '@elaraai/e3-types';
 import { repoInit } from './storage/local/repository.js';
@@ -23,6 +24,9 @@ import type { StorageBackend } from './storage/interfaces.js';
 
 // Re-export InMemoryStorage for test consumers
 export { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
+
+// The contract suites every storage backend runs over itself
+export * from './contract/index.js';
 
 /**
  * Builds an encoder that writes a collection as a blob of `size`-element
@@ -258,6 +262,37 @@ export async function readZipEntries(zipPath: string): Promise<Map<string, Buffe
       zipfile.on('error', reject);
     });
   });
+}
+
+/**
+ * Writes a zip of the given entries, in the given order.
+ *
+ * @param zipPath - Where to write it
+ * @param entries - Each entry's path in the zip, and its bytes
+ * @returns The zip's path
+ */
+export async function writeZip(zipPath: string, entries: Iterable<readonly [string, Buffer]>): Promise<string> {
+  const zip = new yazl.ZipFile();
+  for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
+  await new Promise<void>((resolve, reject) => {
+    zip.outputStream.pipe(createWriteStream(zipPath)).on('close', resolve).on('error', reject);
+    zip.end();
+  });
+  return zipPath;
+}
+
+/**
+ * A package zip's entries with its release entry naming `release`, placed
+ * last, as a newer e3 might place it; with none when `release` is `null`, as a
+ * zip from before zips named their release.
+ *
+ * @param entries - The zip's entries, as {@link readZipEntries} reads them
+ * @param release - The release the zip names, or `null` for none
+ * @returns The entries, for {@link writeZip}
+ */
+export function withRelease(entries: Map<string, Buffer>, release: string | null): Array<readonly [string, Buffer]> {
+  const rest = [...entries].filter(([name]) => name !== 'release.beast2');
+  return release === null ? rest : [...rest, ['release.beast2', Buffer.from(encodeBeast2For(StringType)(release))]];
 }
 
 /**

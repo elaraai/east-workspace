@@ -388,7 +388,7 @@ The left column decides how work, and so floating-point folds, are grouped, whic
 ### 3.11 Object kinds and GC
 
 Every object introduced for this layer that names other objects carries a `kind` tag: manifests (`$segments`), record states (`$record`), task objects (`$task`) and unit plans (`$plan`). A piece merges its own runs (§3.7), so no object names a unit's runs.
-- **Dispatch.** GC's `markReachable` (`storage/local/gc.ts`) dispatches on the tag through one table. The table gives, for each tag, the field names of its kind and the objects a value of it names.
+- **Dispatch.** GC's `markReachable` (`gc.ts`) dispatches on the tag through one table. The table gives, for each tag, the field names of its kind and the objects a value of it names.
 - **Versions.** An object is walked as a kind when its fields begin with the kind's and its `kind` is the kind's tag, so a later version, which appends fields, is walked for the fields this build knows.
 - **Untagged objects** are recognised by their current shape exactly: packages, functions, records, index objects, mutations, migrations, environment specs, commits and trees. An object of an earlier shape, which only an older e3's repository holds, is a leaf.
 - **Header-first marking.** The mark reads an object's type from its head, and reads it whole only when it is a shape that names other objects, so a dataset is never read whole.
@@ -409,7 +409,8 @@ A local repository is a directory of records and objects:
 
 | Path | What it holds | East type |
 |---|---|---|
-| `repository.beast2` | the repository: the release that last wrote it, the store upgrades it has had, and its name, status and times | `RepositoryRecordType`, `{ release, upgrades, metadata }` |
+| `repository.beast2` | the repository record: the release that last wrote it, and the store upgrades it has had | `RepositoryRecordType`, `{ release, upgrades }` |
+| `metadata.beast2` | the repository's name, status and times | `RepoMetadataType` |
 | `objects/<ab>/<rest>.beast2` | content-addressed objects, an environment's files among them as Blobs | any |
 | `packages/<name>/<version>.beast2` | a package ref: the package object's hash | String |
 | `workspaces/<ws>.beast2` | a workspace: `none` until a package is deployed, then its state | `WorkspaceRecordType`, an `Option` of `WorkspaceStateType` |
@@ -427,14 +428,15 @@ A local repository is a directory of records and objects:
 
 - **Every record is an East value in beast2**, except the logs, which stay the runners' own text: they are appended as output arrives and read by byte offset. A record is read as the type its header names or refused, since every runtime's typed decode checks the header against the type it is asked for. A header's type reads as the asked type when East's subtyping makes it that type or a subtype whose variant tags line up, so `none` reads as any `Option`.
 - **A package zip holds the repository's own forms:** the objects, the package ref at `packages/<name>/<version>.beast2`, and from a workspace the executions the run its current state came from used, so the importing repository's cache serves the outputs they made. It names the release that exported it in `release.beast2`, a String, its first entry. It carries no run's record, which names a workspace of the repository the run ran in: a run's history stays there, and an import files none. It holds nothing an import does not read. An import reads the zip's directory before it writes anything, and refuses a zip a newer release exported, naming that release, and one an older e3 wrote in a form no longer read, naming the export.
-- **Upgrades are recorded.** The repository record names the release that last wrote it and the store upgrades the repository has had, each with the release that applied it.
-  - A release that changes a stored form ships a named upgrade step (`REPOSITORY_UPGRADES`). A step is synchronous and idempotent, leaving a record already in the new form as it is, and once released it is never edited, reordered or removed.
-  - An e3 that opens a repository applies the steps it has not had, in order, in place and before anything reads it, recording each with its release as soon as it is applied. So the repository's records keep their states and histories across releases. Every open applies them: the CLI's, the API server's when it starts over one repository or at a repository's first request, and `LocalStorage.validateRepository`. Two processes opening a repository at once may both apply a step, which its idempotence makes safe.
+- **Upgrades are recorded.** The repository record names the release that last wrote it and the store upgrades the repository has had, each with the release that applied it. Every backend keeps it, through its ref store (`repositoryRead`, `repositoryWrite`), and writes it as it creates a repository (`newRepositoryRecord`).
+  - A release that changes a stored form ships a named upgrade step. A change to a record's East type is every backend's (`REPOSITORY_UPGRADES`), and its step goes through the storage backend; a change to one backend's layout, a local repository's files or the cloud's items, is that backend's own (`StorageBackend.upgrades`). A step is idempotent, leaving a record already in the new form as it is, and once released it is never edited, reordered or removed.
+  - Every way into a repository opens it (`repositoryOpen`): the CLI, the API server when it starts over one repository and at every request to one of several, and any host that mounts the API's routes. An open reads the record and applies the steps the repository has not had, the backend's before the shared ones, in order, in place and before anything reads it, recording each with its release as soon as it is applied. So the repository's records keep their states and histories across releases. It holds the repository still while it does, as gc does (§3.16), waiting for work running there to finish, and of two opens at once one applies the steps and the other finds them applied.
   - A repository that has had a step this e3 does not know was upgraded by a newer e3, and is refused, naming the release that applied it. One with no repository record is refused, naming the fix: re-create it. Releases that change no stored form ship no step, so they open each other's repositories either way.
 - **Names are checked** before they become paths: a repository's name where a server keeps several, workspace names, package names and versions, and lock resources. A path separator, a character a Windows file name refuses, or `.` or `..` as a whole segment, is refused. A hash — an object's, which a client names too, or an execution's task and inputs hashes — and an attempt's or a run's id, which an imported package names, must be of the form e3 writes.
 - **One record for one fact.** The `success` status holds the output hash, and a dataflow run has one id, its UUIDv7 `runId`.
 - **What goes with what it describes:** a workspace's execution state and runs go with the workspace, and so do the locks its dataflows and dataset writes left when they exited; a lock a live process holds is left for it to release. A built environment goes when gc no longer reaches its spec.
 - **Staging files are `.partial`s**, which gc sweeps, and they sit inside the repository, never in the machine's temp directory.
+- **gc is one driver over every backend** (`repoGc`, `gc.ts`): it prunes the history, marks from the roots the `RepoStore`'s scans find, and sweeps the objects nothing reaches. What a backend keeps beside its objects and records it sweeps itself (`RepoStore.gcSweepBackend`): a local repository its staging files, the scratch directories of orchestrators that have exited and the built environments nothing kept names; the in-memory backend nothing. A local repository's gc needs only its path. Over the API gc runs as a job, which the transfer backend's `repoGc` store files and dispatches, and a poll reads its status there, whichever instance answers.
 - **History is bounded.** gc keeps:
   - the last 10 runs of each workspace, every run from the last 7 days, and the run its current state came from;
   - every execution those runs used, and every execution each workspace's current state is served from: a task's own, and a split task's units, which its `success` record names through the `$plan` of its last stage, each plan naming the one before it;
@@ -494,18 +496,18 @@ A lock is shared or exclusive, on a resource. It records what took it and who ho
 | Resource | Shared by | Exclusive by |
 |---|---|---|
 | `<ws>`, the workspace | a dataflow run; a dataset write; a record write — a mutation, a reindex, a compaction or a system commit | a deploy, a removal, an export |
-| `<ws>#dataflow` | — | a dataflow run, so one runs at a time; gc |
-| `#tasks`, the repository's work | every write that stores objects before a ref names them: an ad-hoc `e3 run`, a dataset write through the door, a record write, a deploy | gc |
+| `<ws>#dataflow` | — | a dataflow run, so one runs at a time; gc; an open that applies upgrades |
+| `#tasks`, the repository's work | every write that stores objects before a ref names them: an ad-hoc `e3 run`, a dataset write through the door, a record write, a deploy | gc; an open that applies upgrades |
 | one dataset's ref | — | its conditional write, for the instant of its read, compare and rename |
 
 - **Writes during a run.** A dataflow and dataset writes go on together: a write changes a root input, and the running dataflow reacts to it (§3.15). Two dataflows of one workspace do not.
 - **Structural changes.** A deploy, a removal or an export is refused while a dataflow or a write holds the workspace. A deploy's caller may take the lock itself and hand it to the deploy, which then releases nothing. That is how a deploy run in rounds keeps the workspace across them (§3.18).
-- **gc** takes `#tasks` and every workspace's `#dataflow` exclusively. So it never overlaps a write whose objects no ref names yet, nor a run, and none of those objects needs rooting.
+- **gc** takes `#tasks` and every workspace's `#dataflow` exclusively (`withRepositoryHeld`). So it never overlaps a write whose objects no ref names yet, nor a run, and none of those objects needs rooting. An open that applies upgrades holds the repository the same way, waiting for the work to finish where gc refuses at once.
 - **A dataset ref's own lock** makes its conditional write (`writeIf`) a compare-and-swap across processes. A revision is minted per write, never taken from the content, so an equal value written twice is two revisions and no write is lost to ABA.
 
 ### 3.17 The API's data contracts
 
-e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. Three of its contracts belong to this layer: how a large value goes up, how a collection comes down, and whose budget a run gets.
+e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. The contracts of it that belong to this layer are how a large value goes up, how a collection comes down, whose budget a run gets, and the seams a host runs a dataflow through.
 
 #### Dataset transfer
 
@@ -547,7 +549,9 @@ const TransferDoneResponseType = VariantType({
 - It then points the dataset at what it stored, with the version vector's self entry.
 - A refusal is an `error` answer, or the `dataset_type_mismatch` API error.
 - A commit may answer `processing` instead. The client then polls `GET …/upload/<id>` (100 ms, doubling to 1 s) until it answers `completed` or `error`.
-- A finished commit's answer stays pollable for a while, so a client whose response was lost asks again and hears the same thing.
+- The upload store commits it (`DatasetUploadStore.commit`), where it runs its commits — a local server in its own process, a cloud on its own compute — and a poll reads the commit's status from the store (`getCommitStatus`), whichever instance answers.
+- A commit asked for again starts nothing new and answers as the first does. A finished commit's answer stays pollable for a while, so a client whose response was lost asks again and hears the same thing.
+- Once a commit has been asked for, the upload takes no more parts, since a part sent then could rewrite the bytes being verified.
 
 **Dedup.** An init whose hash the store already knows answers `completed`. The store knows the bytes as the manifest a delivery of them was split into (the adoption memo, §3.6), or as an object. Either is checked against the dataset's declared type first, and a collection object goes through the store's door. It is the one door that skips the commit.
 
@@ -580,7 +584,11 @@ Pages (`?page=true`) are decoded on the server from the segments they touch, and
 
 #### The budget
 
-A request carries no parallelism. The server runs every dataflow, function call, mutation and index build it serves under one budget of cores and memory (§3.8), set by `e3-api-server -j` and `--memory`. `GET …/dataflow/budget` answers it. `GET …/dataflow/execution` answers the budget in use beside a run's state and a window of its events, and, while the run is in flight in that server, the units waiting for room and each split task's progress.
+A request carries no parallelism. The server runs every dataflow, function call, mutation and index build it serves under one budget of cores and memory (§3.8), set by `e3-api-server -j` and `--memory`. `GET …/dataflow/budget` answers it. `GET …/dataflow/execution` answers the budget in use beside a run's state and a window of its events, and, while the run is in flight, the units waiting for room and each split task's progress, as the orchestrator running it answers them.
+
+#### The dataflow's seams
+
+The dataflow routes (`createExecutionRoutes`) run, poll and cancel a run through the seams their host gives them (`DataflowSeams`): the runner, the orchestrator that runs a repository's dataflows, and the state store it writes. A poll and a cancel read the workspace's latest run from the state store, so whichever instance answers them finds it; the orchestrator answers the run's waits and split progress, and cancels it. A local server's seams are a `LocalOrchestrator` over a `FileStateStore` for each repository it serves. A cloud's orchestrator runs its dataflows on its own compute and keeps their state in its own store. The server exports its route factories, so a host mounts them over its own seams, as it gives gc's and the deploy's job stores (§3.13, §3.18). So are the routes of a host's repositories — list, create and remove, through the `RepoStore` — and the gate every request to one passes (`createRepositoryGate`): the repository exists, is not being removed, and is opened (§3.13).
 
 ### 3.18 Record migrations
 

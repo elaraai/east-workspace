@@ -74,8 +74,10 @@ export { ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWith
 export type { RequestOptions, RetryOptions, Response } from './http.js';
 
 // Repository
+export type { RepositoryRecord } from '@elaraai/e3-types';
 export {
   repoStatus,
+  repoRecord,
   repoGc,
   repoGcStart,
   repoGcStatus,

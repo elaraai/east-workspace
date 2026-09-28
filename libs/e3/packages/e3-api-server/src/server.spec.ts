@@ -5,7 +5,7 @@
 
 /**
  * A server opens a repository before it serves it, as the CLI does: the one it
- * serves alone when it starts, and each of several at its first request. One
+ * serves alone when it starts, and each of several at every request to it. One
  * this e3 cannot open is refused, naming the release that applied the upgrade
  * it does not know.
  */
@@ -15,17 +15,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ArrayType, StringType, StructType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import { repoInit } from '@elaraai/e3-core';
-import { E3_RELEASE, RepoMetadataType } from '@elaraai/e3-types';
+import { E3_RELEASE, RepositoryRecordType } from '@elaraai/e3-types';
 import { createServer } from './server.js';
-
-/** The repository record, as a local repository keeps it. */
-const RepositoryRecordType = StructType({
-  release: StringType,
-  upgrades: ArrayType(StructType({ name: StringType, release: StringType })),
-  metadata: RepoMetadataType,
-});
 
 /** Records that e3 999.0.0 applied an upgrade to the repository this e3 does not know. */
 function upgradedByNewer(repoPath: string): void {
@@ -58,7 +51,7 @@ describe('a server opens the repositories it serves', () => {
     await assert.rejects(createServer({ singleRepoPath: repoPath, port: 0 }), { name: 'RepoLayoutError', message: refusal(repoPath) });
   });
 
-  it('refuses each of several repositories this e3 cannot open at its first request, naming the release that upgraded it', async () => {
+  it('refuses each of several repositories this e3 cannot open at a request to it, naming the release that upgraded it', async () => {
     assert.equal(repoInit(join(dir, 'newer')).success, true);
     upgradedByNewer(join(dir, 'newer'));
     const server = await createServer({ reposDir: dir, port: 0, host: '127.0.0.1' });

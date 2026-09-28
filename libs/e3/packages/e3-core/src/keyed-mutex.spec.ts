@@ -13,7 +13,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { withKeyedLock, pendingKeyCount } from './keyedMutex.js';
+import { withKeyedLock, pendingKeyCount } from './keyed-mutex.js';
 
 const tick = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

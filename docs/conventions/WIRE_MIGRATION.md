@@ -35,16 +35,21 @@ A PR that changes a wire says which kind it changes.
   by what it can see, rather than misreading them.
 - **A stored form changes** — a record moves, is renamed or takes another
   type, or the dataflow's execution state gains an event: the release ships a
-  named upgrade step (`REPOSITORY_UPGRADES` in e3-core's
-  `storage/local/repository.ts`) that rewrites a repository's records into the
-  new form. A step is synchronous and idempotent — it leaves a record already
-  in the new form as it is — and once released it is never edited, reordered
-  or removed. The repository record lists the steps a repository has had, each
-  with the release that applied it. An e3 opening a repository applies the
-  steps it has not had, in order and before anything reads it, and refuses a
-  repository that has had a step it does not know, naming the release that
-  applied it. One with no repository record is refused before anything in it
-  is read, naming the fix.
+  named upgrade step that rewrites a repository's records into the new form.
+  A change to a record's East type is every backend's, and its step goes
+  through the storage backend (`REPOSITORY_UPGRADES` in e3-core's
+  `repository-record.ts`); a change to one backend's own layout — a local
+  repository's files, the cloud's items — is that backend's step
+  (`StorageBackend.upgrades`). A step is idempotent — it leaves a record
+  already in the new form as it is — and once released it is never edited,
+  reordered or removed. The repository record, which every backend keeps
+  through its ref store, lists the steps a repository has had, each with the
+  release that applied it. Every way into a repository opens it
+  (`repositoryOpen`): the steps it has not had are applied, the backend's
+  before the shared ones, in order, before anything reads it and with the
+  repository held still; and a repository that has had a step this e3 does not
+  know is refused, naming the release that applied it. One with no repository
+  record is refused before anything in it is read, naming the fix.
 - **A new object kind names other objects:** it carries a `kind` tag, and lands
   with a GC test. GC dispatches a tagged object on its tag, through a table
   listing the field names of each kind. An object whose fields begin with the

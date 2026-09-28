@@ -4,6 +4,7 @@
  */
 
 import { StringType, NullType } from '@elaraai/east';
+import { RepositoryRecordType, type RepositoryRecord } from '@elaraai/e3-types';
 import type {
   RepositoryStatus,
   GcRequest,
@@ -31,6 +32,22 @@ import { get, post, del, putEmpty, type RequestOptions } from './http.js';
  */
 export async function repoStatus(url: string, repo: string, options: RequestOptions): Promise<RepositoryStatus> {
   return get(url, `/repos/${encodeURIComponent(repo)}/status`, RepositoryStatusType, options);
+}
+
+/**
+ * Get a repository's record: the release of e3 that last wrote it, and the
+ * store upgrades it has had, which an open applies to a repository an older
+ * release wrote.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param options - Request options including auth token
+ * @returns The repository's record
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function repoRecord(url: string, repo: string, options: RequestOptions): Promise<RepositoryRecord> {
+  return get(url, `/repos/${encodeURIComponent(repo)}/record`, RepositoryRecordType, options);
 }
 
 /**

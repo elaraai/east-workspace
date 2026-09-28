@@ -5,14 +5,14 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore, RepoStore, DatasetRefStore } from '../interfaces.js';
+import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore, RepoStore, DatasetRefStore, RepositoryUpgrade } from '../interfaces.js';
 import { LocalObjectStore } from './LocalObjectStore.js';
 import { LocalRefStore } from './LocalRefStore.js';
 import { LocalLockService } from './LocalLockService.js';
 import { LocalLogStore } from './LocalLogStore.js';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
-import { repoOpen } from './repository.js';
+import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
 import { RepoNotFoundError } from '../../errors.js';
 
 /**
@@ -47,6 +47,9 @@ class RepoDirNotFoundError extends RepoNotFoundError {
  * ```
  */
 export class LocalStorage implements StorageBackend {
+  /** The upgrades of a local repository's own layout */
+  public readonly upgrades: readonly RepositoryUpgrade[] = LOCAL_REPOSITORY_UPGRADES;
+
   /** Content-addressed object storage */
   public readonly objects: ObjectStore;
 
@@ -68,9 +71,9 @@ export class LocalStorage implements StorageBackend {
   /**
    * Create a new LocalStorage instance.
    *
-   * @param reposDir - Optional parent directory containing repositories.
-   *                   Required for repo lifecycle operations (repos.*).
-   *                   If not provided, repos.* methods will throw.
+   * @param reposDir - The directory the repositories are in, which a
+   *   repository's lifecycle (`repos.list`, `repos.create`, `repos.remove`…)
+   *   needs; without it those throw, and gc runs all the same
    */
   constructor(reposDir?: string) {
     this.objects = new LocalObjectStore();
@@ -78,19 +81,13 @@ export class LocalStorage implements StorageBackend {
     this.locks = new LocalLockService();
     this.logs = new LocalLogStore();
     this.datasets = new LocalDatasetRefStore();
-    // repos requires reposDir for multi-repo operations
-    // If not provided, create a RepoStore that throws on all operations
-    this.repos = reposDir
-      ? new LocalRepoStore(reposDir, this.refs, this.datasets)
-      : new NoOpRepoStore();
+    this.repos = new LocalRepoStore(reposDir ?? null, this.refs, this.datasets);
   }
 
   /**
-   * Validate that a repository exists and is properly structured, and open
-   * it: a repository an older release wrote is upgraded in place.
+   * Validate that a repository exists and is properly structured.
    * @param repo - Path to the e3 repository directory
    * @throws {RepoNotFoundError} If repository doesn't exist or is invalid
-   * @throws {RepoLayoutError} If this e3 cannot open it
    */
   async validateRepository(repo: string): Promise<void> {
     const requiredDirs = ['objects', 'packages', 'workspaces', 'executions'];
@@ -101,72 +98,5 @@ export class LocalStorage implements StorageBackend {
         throw new RepoDirNotFoundError(repo);
       }
     }
-    repoOpen(repo);
-  }
-}
-
-/**
- * No-op implementation of RepoStore that throws on all operations.
- * Used when LocalStorage is created without a reposDir.
- */
-class NoOpRepoStore implements RepoStore {
-  private error(): never {
-    throw new Error('RepoStore operations require reposDir to be configured');
-  }
-
-  list(): Promise<string[]> {
-    return this.error();
-  }
-
-  exists(_repo: string): Promise<boolean> {
-    return this.error();
-  }
-
-  getMetadata(_repo: string): Promise<import('../interfaces.js').RepoMetadata | null> {
-    return this.error();
-  }
-
-  create(_repo: string): Promise<void> {
-    return this.error();
-  }
-
-  setStatus(
-    _repo: string,
-    _status: import('../interfaces.js').RepoStatusName,
-    _expected?: import('../interfaces.js').RepoStatusName | import('../interfaces.js').RepoStatusName[]
-  ): Promise<void> {
-    return this.error();
-  }
-
-  remove(_repo: string): Promise<void> {
-    return this.error();
-  }
-
-  deleteRefsBatch(_repo: string, _cursor?: string): Promise<import('../interfaces.js').BatchResult> {
-    return this.error();
-  }
-
-  deleteObjectsBatch(_repo: string, _cursor?: string): Promise<import('../interfaces.js').BatchResult> {
-    return this.error();
-  }
-
-  gcScanPackageRoots(_repo: string, _cursor?: unknown): Promise<import('../interfaces.js').GcRootScanResult> {
-    return this.error();
-  }
-
-  gcScanWorkspaceRoots(_repo: string, _cursor?: unknown): Promise<import('../interfaces.js').GcRootScanResult> {
-    return this.error();
-  }
-
-  gcScanExecutionRoots(_repo: string, _cursor?: unknown): Promise<import('../interfaces.js').GcRootScanResult> {
-    return this.error();
-  }
-
-  gcScanObjects(_repo: string, _cursor?: unknown): Promise<import('../interfaces.js').GcObjectScanResult> {
-    return this.error();
-  }
-
-  gcDeleteObjects(_repo: string, _hashes: string[]): Promise<void> {
-    return this.error();
   }
 }

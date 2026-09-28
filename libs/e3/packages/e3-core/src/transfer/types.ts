@@ -22,7 +22,7 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  PackageImportProgressType, PackageExportProgressType, SchemaPolicyType, WorkspaceDeployStatusType,
+  GcRequestType, GcStatusResultType, PackageImportProgressType, PackageExportProgressType, SchemaPolicyType, WorkspaceDeployStatusType,
 } from '@elaraai/e3-types';
 export { PackageImportProgressType, PackageExportProgressType };
 
@@ -39,6 +39,23 @@ export const DatasetUploadType = StructType({
 });
 
 export type DatasetUpload = ValueTypeOf<typeof DatasetUploadType>;
+
+/**
+ * How a dataset upload's commit stands, as a store keeps it for a poll:
+ * `processing` while the staged bytes are verified and taken in; `completed`
+ * once the dataset names them; `failed`, naming why, when they are not the
+ * upload's bytes or cannot be taken in; and `type_mismatch` when they are not
+ * of the type the dataset declares, which the API answers as its
+ * `dataset_type_mismatch` error.
+ */
+export const DatasetCommitStatusType = VariantType({
+  processing: NullType,
+  completed: NullType,
+  failed: StructType({ message: StringType }),
+  type_mismatch: StructType({ path: StringType, message: StringType }),
+});
+
+export type DatasetCommitStatus = ValueTypeOf<typeof DatasetCommitStatusType>;
 
 // =============================================================================
 // Package Import
@@ -112,3 +129,20 @@ export const WorkspaceDeployJobType = StructType({
 });
 
 export type WorkspaceDeployJob = ValueTypeOf<typeof WorkspaceDeployJobType>;
+
+// =============================================================================
+// Repository GC
+// =============================================================================
+
+/**
+ * A gc job, as a store keeps it: the repository, what gc was asked to keep
+ * and whether to delete, and the status a poll reads.
+ */
+export const RepoGcJobType = StructType({
+  repo: StringType,
+  request: GcRequestType,
+  status: GcStatusResultType,
+  createdAt: DateTimeType,
+});
+
+export type RepoGcJob = ValueTypeOf<typeof RepoGcJobType>;

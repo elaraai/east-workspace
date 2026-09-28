@@ -128,6 +128,20 @@ def _validate_inputs(args: tuple, inputs: list[EastType]) -> None:
 def _validate_output(result: Any, output: EastType, name: str) -> None:
     from east.types.coercion import EastTypeError, assert_value_of
 
+    if getattr(result, "_east_c_paged", None) is not None:
+        # A paged hold (fs_open_beast's opener, open_paged_file, a beast2 file
+        # opened as a value) crosses the return seam by pointer, with nothing
+        # python to walk: check the type it was opened as, as the seam does.
+        from east.runtime._compiler_eastc import paged_type_matches
+
+        if paged_type_matches(result, output):
+            return
+        raise EastTypeError(
+            f"platform function {name!r} returned a paged value whose type does not match its declared output",
+            value=result,
+            expected=output,
+            path="$.output",
+        )
     try:
         assert_value_of(result, output, path="$.output")
     except EastTypeError as e:

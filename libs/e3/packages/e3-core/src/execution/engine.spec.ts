@@ -438,6 +438,33 @@ describe('a task split into pieces', () => {
     assert.equal((await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash))?.value.unit, false);
   });
 
+  it('writes each running record, the task\'s own and each unit\'s, after its owner', async () => {
+    // A process killed between the two writes then leaves no `running` record
+    // without the owner its repair needs.
+    const taskHash = await deploy(e3.streamTask('owned', {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, amount, key) => {
+        $(emit(key, amount));
+      });
+    }));
+    const owned: { unit: boolean; owner: boolean }[] = [];
+    const write = storage.refs.executionWrite.bind(storage.refs);
+    storage.refs.executionWrite = async (repoPath, task, inputs, executionId, status) => {
+      if (status.type === 'running') {
+        owned.push({ unit: status.value.unit, owner: (await storage.refs.executionOwnerRead(repoPath, task, inputs, executionId)) !== null });
+      }
+      return write(repoPath, task, inputs, executionId, status);
+    };
+
+    const result = await run(taskHash, [[SalesType, salesOf(8000)]]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.equal(owned.filter((record) => !record.unit).length, 1, 'the task\'s own execution was recorded running');
+    assert.ok(owned.filter((record) => record.unit).length > 4, 'and each of its many pieces');
+    assert.deepEqual(owned.filter((record) => !record.owner), [], 'every one after its owner');
+  });
+
   it('roots each stage\'s plan through its sidecar until the task ends, and a later run takes up the stage it names', async () => {
     const taskHash = await deploy(e3.streamTask('staged', {
       inputs: [e3.partition(sales)],

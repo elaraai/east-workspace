@@ -129,6 +129,18 @@ export class InMemoryStateStore implements ExecutionStateStore {
     }
     taskState.completedAt = some(new Date());
 
+    // The run's summary counts the task as it finished.
+    const mutableState = state as Mutable<DataflowExecutionState>;
+    if (status === 'completed' && details?.cached) {
+      mutableState.cached = state.cached + 1n;
+    } else if (status === 'completed') {
+      mutableState.executed = state.executed + 1n;
+    } else if (status === 'failed') {
+      mutableState.failed = state.failed + 1n;
+    } else if (status === 'skipped') {
+      mutableState.skipped = state.skipped + 1n;
+    }
+
     await this.update(state);
   }
 

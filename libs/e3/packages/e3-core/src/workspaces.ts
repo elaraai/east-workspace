@@ -41,7 +41,7 @@ import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLeafType } from './records.js';
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
-import { withRunningWork } from './storage/local/gc.js';
+import { withRunningWork } from './running-work.js';
 
 /**
  * List workspace names.

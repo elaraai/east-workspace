@@ -30,7 +30,7 @@ import {
   LocalTaskRunner,
   RecordDeployRefusedError,
 } from '@elaraai/e3-core';
-import { resolveRepo, formatError, exitError } from '../utils.js';
+import { openRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 import { recordPlanLine, schemaPolicy } from './workspace.js';
@@ -64,7 +64,7 @@ export async function watchCommand(
   workspace: string,
   options: WatchOptions
 ): Promise<void> {
-  const repoPath = resolveRepo(repoArg);
+  const repoPath = await openRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
   const schema = schemaPolicy(options.schema);
   // One budget for the watch: the runner processes of its runs and of each

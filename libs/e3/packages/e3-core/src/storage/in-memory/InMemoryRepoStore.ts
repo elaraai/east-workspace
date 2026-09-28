@@ -9,26 +9,90 @@ import type {
   RepoStatusName,
   RepoMetadata,
   BatchResult,
+  DatasetRefStore,
+  GcBackendSweepOptions,
+  GcBackendSweepResult,
+  GcObjectEntry,
   GcObjectScanResult,
   GcRootScanResult,
+  RefStore,
+  RepositoryUpgrade,
 } from '../interfaces.js';
 import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
 } from '../../errors.js';
+import { executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
+import { newRepositoryRecord } from '../../repository-record.js';
+
+/**
+ * The objects an in-memory repository store scans and deletes for gc: its
+ * backend's object store, which keeps when it wrote each.
+ */
+export interface InMemoryObjectCatalogue {
+  /**
+   * Every object of a repository, with its size and when it was last written.
+   *
+   * @param repo - Repository identifier
+   * @returns The objects
+   */
+  gcEntries(repo: string): GcObjectEntry[];
+  /**
+   * Deletes a repository's objects; one already gone is passed over.
+   *
+   * @param repo - Repository identifier
+   * @param hashes - The objects' hashes
+   */
+  gcDelete(repo: string, hashes: readonly string[]): void;
+}
+
+/**
+ * A store of the in-memory backend's, which drops what it keeps of a
+ * repository when the repository is removed.
+ */
+export interface InMemoryRepositoryRecords {
+  /**
+   * Drops everything the store keeps of a repository.
+   *
+   * @param repo - Repository identifier
+   * @returns How many records it dropped
+   */
+  drop(repo: string): number;
+}
 
 /**
  * In-memory implementation of RepoStore for testing.
  *
  * Stores all data in memory maps. Useful for unit tests
- * where filesystem access is not needed.
+ * where filesystem access is not needed. gc runs over it as over any backend:
+ * its root scans read the backend's ref stores, and its object scan the
+ * backend's objects. A repository removed goes whole — its records, logs,
+ * locks and objects — as a local repository's directory does.
  *
  * All methods are synchronous but return Promises to match the interface.
  */
 /* eslint-disable @typescript-eslint/require-await */
 export class InMemoryRepoStore implements RepoStore {
   private repos = new Map<string, RepoMetadata>();
+
+  /**
+   * @param refs - The ref store a created repository's record is written to,
+   *   and gc's root scans read
+   * @param datasets - The dataset ref store gc's root scans read
+   * @param objects - The objects gc's object scan lists and deletes
+   * @param upgrades - The backend's own upgrades, which a created repository's
+   *   record names
+   * @param records - The stores that drop what they keep of a repository
+   *   removed: its refs, dataset refs, logs and locks
+   */
+  constructor(
+    private readonly refs: RefStore,
+    private readonly datasets: DatasetRefStore,
+    private readonly objects: InMemoryObjectCatalogue,
+    private readonly upgrades: readonly RepositoryUpgrade[],
+    private readonly records: readonly InMemoryRepositoryRecords[],
+  ) {}
 
   // ===========================================================================
   // Queries
@@ -56,6 +120,7 @@ export class InMemoryRepoStore implements RepoStore {
     }
 
     const now = new Date();
+    await this.refs.repositoryWrite(repo, newRepositoryRecord(this.upgrades));
     this.repos.set(repo, {
       name: repo,
       status: variant('active', null),
@@ -90,6 +155,9 @@ export class InMemoryRepoStore implements RepoStore {
   }
 
   async remove(repo: string): Promise<void> {
+    // Whatever the batches left goes with it.
+    await this.deleteRefsBatch(repo);
+    await this.deleteObjectsBatch(repo);
     this.repos.delete(repo);
   }
 
@@ -97,38 +165,44 @@ export class InMemoryRepoStore implements RepoStore {
   // Batched Deletion
   // ===========================================================================
 
-  async deleteRefsBatch(_repo: string, _cursor?: string): Promise<BatchResult> {
-    // In-memory doesn't have refs to delete
-    return { status: 'done', deleted: 0 };
+  async deleteRefsBatch(repo: string, _cursor?: string): Promise<BatchResult> {
+    const deleted = this.records.reduce((sum, store) => sum + store.drop(repo), 0);
+    return { status: 'done', deleted };
   }
 
-  async deleteObjectsBatch(_repo: string, _cursor?: string): Promise<BatchResult> {
-    // In-memory doesn't have objects to delete
-    return { status: 'done', deleted: 0 };
+  async deleteObjectsBatch(repo: string, _cursor?: string): Promise<BatchResult> {
+    const hashes = this.objects.gcEntries(repo).map(({ hash }) => hash);
+    this.objects.gcDelete(repo, hashes);
+    return { status: 'done', deleted: hashes.length };
   }
 
   // ===========================================================================
   // GC Primitives
   // ===========================================================================
 
-  async gcScanPackageRoots(_repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
-    return { roots: [] };
+  async gcScanPackageRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
+    return { roots: await packageRoots(this.refs, repo) };
   }
 
-  async gcScanWorkspaceRoots(_repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
-    return { roots: [] };
+  async gcScanWorkspaceRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
+    return { roots: await workspaceRoots(this.refs, this.datasets, repo) };
   }
 
-  async gcScanExecutionRoots(_repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
-    return { roots: [] };
+  async gcScanExecutionRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
+    return { roots: await executionRoots(this.refs, repo) };
   }
 
-  async gcScanObjects(_repo: string, _cursor?: unknown): Promise<GcObjectScanResult> {
-    return { objects: [] };
+  async gcScanObjects(repo: string, _cursor?: unknown): Promise<GcObjectScanResult> {
+    return { objects: this.objects.gcEntries(repo) };
   }
 
-  async gcDeleteObjects(_repo: string, _hashes: string[]): Promise<void> {
-    // Nothing to delete
+  async gcDeleteObjects(repo: string, hashes: string[]): Promise<void> {
+    this.objects.gcDelete(repo, hashes);
+  }
+
+  async gcSweepBackend(_repo: string, _reachable: ReadonlySet<string>, _options: GcBackendSweepOptions): Promise<GcBackendSweepResult> {
+    // Nothing is kept beside the objects and records
+    return { deletedPartials: 0, skippedYoung: 0 };
   }
 
   // ===========================================================================

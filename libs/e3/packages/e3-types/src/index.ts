@@ -206,8 +206,10 @@ export {
   type LockState,
 } from './lock.js';
 
-// The repository's own record
+// The repository's own records
 export {
+  RepositoryRecordType,
+  type RepositoryRecord,
   RepoStatusType,
   type RepoStatus,
   RepoMetadataType,

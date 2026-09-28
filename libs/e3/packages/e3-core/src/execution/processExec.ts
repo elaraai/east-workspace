@@ -556,7 +556,10 @@ export async function spawnAndCapture(
     // PATH, so cwd isn't part of the contract — and inheriting the
     // caller's cwd pins it. On Windows a live process's cwd can't be
     // removed, so a child that outlives a killed parent would hold the
-    // repo/project dir open and block its cleanup (EBUSY).
+    // repo/project dir open and block its cleanup (EBUSY). Every path the
+    // child is handed is therefore absolute: one relative to the caller's
+    // cwd names nothing from the scratch dir, so it is resolved, and an
+    // absolute one is handed on as given.
     cwd: scratchDir,
     // The lifeline is an overlapped pipe ('overlapped' is 'pipe' off
     // Windows). A runner reads it on a thread of its own for as long as it
@@ -591,7 +594,7 @@ export async function spawnAndCapture(
   spawnOpts.env = {
     ...process.env,
     ...options.extraEnv,
-    PATH: [...(options.extraBins ?? []), ...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
+    PATH: [...(options.extraBins ?? []).map((bin) => (path.isAbsolute(bin) ? bin : path.resolve(bin))), ...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
       .filter(Boolean)
       .join(pathSep),
   };
@@ -601,7 +604,7 @@ export async function spawnAndCapture(
   // self-reference (the project package is the repo root, not a node_modules
   // entry). east-node-cli's loader reads this. Like PATH it lives only in the
   // child env, never in the hashed command argv, so taskHash is unaffected.
-  const searchDirs = (options.searchDirs ?? []).filter(Boolean);
+  const searchDirs = (options.searchDirs ?? []).filter(Boolean).map((dir) => (path.isAbsolute(dir) ? dir : path.resolve(dir)));
   if (searchDirs.length > 0) {
     spawnOpts.env.E3_RUNNER_SEARCH_DIRS = [...new Set(searchDirs)].join(pathSep);
   }

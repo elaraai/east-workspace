@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1201,
+    "totalEntries": 1204,
     "totalFiles": 198,
     "packages": {
       "east": 551,
@@ -10,9 +10,9 @@
       "east-py-datascience": 94,
       "east-ui": 371,
       "e3-ui": 41,
-      "e3": 13,
+      "e3": 15,
       "e3-ui-cli": 8,
-      "e3-create": 5
+      "e3-create": 6
     }
   },
   "entries": [
@@ -42354,7 +42354,7 @@
       "package": "e3",
       "file": "static",
       "suite": "e3.input",
-      "test": "Path-initialise an input from a large beast2 delivery, adopted by hash at deploy",
+      "test": "Initialise an input from a large beast2 delivery, taken into the store at deploy",
       "keywords": [
         "e3",
         "input",
@@ -42376,7 +42376,7 @@
         "import { ArrayType, IntegerType, StringType, StructType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// A large table delivered as an indexed beast2 file. Only the path travels in\n// the package; deploy adopts the file into the object store by hash (reflink,\n// hard link or one kernel copy — never read whole, never modified), after\n// checking its header against the declared type. A new delivery under the same\n// path is a new hash, so only its consumers re-run.\nconst RowType = StructType({ id: IntegerType, site: StringType });\nconst table = e3.input('table', ArrayType(RowType), variant('file', './deliveries/TABLE.beast2'));\n\n// Re-point it later without a redeploy:\n//   e3 dataset set . dev.table --from-file ./deliveries/TABLE-v2.beast2",
+      "source": "// A large table delivered as a beast2 file. Only the path travels in the\n// package; deploy checks the file against the declared type and takes it in\n// as the value — a collection a segment at a time, as the store's own\n// segments, never read whole and never modified — so a new delivery stores\n// only the segments that changed, and only its consumers re-run.\nconst RowType = StructType({ id: IntegerType, site: StringType });\nconst table = e3.input('table', ArrayType(RowType), variant('file', './deliveries/TABLE.beast2'));\n\n// Point it at a new delivery without a redeploy:\n//   e3 dataset set . dev.table --from-file ./deliveries/TABLE-v2.beast2",
       "languages": [
         "typescript"
       ]
@@ -42420,10 +42420,10 @@
         "pipeline"
       ],
       "imports": [
-        "import { East, StringType } from '@elaraai/east';",
+        "import { East, StringType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Chain tasks via .output\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst shout = e3.task(\n  'shout',\n  [greet.output],\n  East.function([StringType], StringType, ($, s) => s.upperCase())\n);",
+      "source": "// Chain tasks via .output\nconst name = e3.input('name', StringType, variant('value', 'World'));\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst shout = e3.task(\n  'shout',\n  [greet.output],\n  East.function([StringType], StringType, ($, s) => s.upperCase())\n);",
       "languages": [
         "typescript"
       ]
@@ -42447,10 +42447,10 @@
         "uv"
       ],
       "imports": [
-        "import { East, IntegerType } from '@elaraai/east';",
+        "import { East, IntegerType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// A stock runtime and the platforms it loads: a typo, or another runtime's\n// platform, is a compile error.\nconst pyTask = e3.task(\n  'py_task',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }\n);\n\n// Any other command is the custom runtime: e3 runs it with `run`'s arguments\n// appended — -i <input> for each input, -o <output>, then the program's file.\nconst wrapped = e3.task(\n  'wrapped',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }\n);",
+      "source": "const input = e3.input('input', IntegerType, variant('value', 21n));\n\n// A stock runtime and the platforms it loads: a typo, or another runtime's\n// platform, is a compile error.\nconst pyTask = e3.task(\n  'py_task',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }\n);\n\n// Any other command is the custom runtime: e3 runs it with `run`'s arguments\n// appended — -i <input> for each input, -o <output>, then the program's file.\nconst wrapped = e3.task(\n  'wrapped',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }\n);",
       "languages": [
         "typescript"
       ]
@@ -42471,10 +42471,10 @@
         "process"
       ],
       "imports": [
-        "import { East, StringType } from '@elaraai/east';",
+        "import { East, StringType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Define a task that runs a shell command\nconst process = e3.customTask(\n  'process',\n  [rawData],\n  StringType,\n  ($, input_paths, output_path) =>\n    East.str`python script.py -i ${input_paths.get(0n)} -o ${output_path}`\n);",
+      "source": "// Define a task that runs a shell command: it builds a bash script from the\n// staged input files' paths and the path it writes the output to.\nconst rawData = e3.input('raw_data', StringType, variant('value', 'hello'));\nconst process = e3.customTask(\n  'process',\n  [rawData],\n  StringType,\n  ($, input_paths, output_path) =>\n    East.str`python script.py -i ${input_paths.get(0n)} -o ${output_path}`\n);",
       "languages": [
         "typescript"
       ]
@@ -42495,9 +42495,10 @@
         "deploy"
       ],
       "imports": [
+        "import { East, IntegerType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Bundle tasks into a package and export to zip\nconst pkg = e3.package('myapp', '1.0.0', finalTask);\nawait e3.export(pkg, '/tmp/myapp.zip');\nexport default pkg;",
+      "source": "// Bundle into a package — pass the last tasks: what they depend on is collected —\n// and export it to a zip.\nconst input = e3.input('input', IntegerType, variant('value', 21n));\nconst finalTask = e3.task('final_task', [input], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));\n\nconst pkg = e3.package('myapp', '1.0.0', finalTask);\nawait e3.export(pkg, '/tmp/myapp.zip');\nexport default pkg;",
       "languages": [
         "typescript"
       ]
@@ -42524,6 +42525,71 @@
         "import e3 from '@elaraai/e3';"
       ],
       "source": "// Complete e3 package with input, task, package, and export\nconst name = e3.input('name', StringType, variant('value', 'World'));\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst pkg = e3.package('hello', '1.0.0', greet);\nawait e3.export(pkg, '/tmp/hello.zip');\nexport default pkg;",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:cli-workflow",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3 CLI",
+      "test": "Deploy, run, read, write and watch a workspace from the shell",
+      "keywords": [
+        "e3",
+        "cli",
+        "repo create",
+        "workspace deploy",
+        "from-source",
+        "from-zip",
+        "dataflow run",
+        "dataset get",
+        "dataset set",
+        "from-file",
+        "task logs",
+        "watch",
+        "gc",
+        "jobs",
+        "memory",
+        "budget"
+      ],
+      "imports": [],
+      "source": "e3 repo create ./repo\ne3 workspace deploy ./repo dev --from-source ./src/index.ts   # or --from-zip <zip>; creates the workspace\ne3 dataflow run ./repo dev -j 4 --memory 8G                     # runs what is stale; -j cores, --memory what runners may reserve\ne3 dataset get ./repo dev.greet -f json                         # flat paths: <ws>.<input or task>\ne3 dataset set ./repo dev.name name.east                        # write an input; its consumers re-run on the next run\ne3 dataset set ./repo dev.table --from-file ./deliveries/TABLE.beast2   # take a beast2 file in, a segment at a time\ne3 task logs ./repo dev.greet --follow\ne3 watch ./src/index.ts ./repo dev --start                      # redeploy and run on every save\ne3 repo gc ./repo --dry-run                                     # what gc would drop: old runs, then what nothing names\n# Any <repo> may be a server: http://localhost:3000/repos/demo (after e3 auth login http://localhost:3000)",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:api-client",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "@elaraai/e3-api-client",
+      "test": "Drive an e3 server from TypeScript: create a repository, import and deploy a package, run it, read an output",
+      "keywords": [
+        "e3",
+        "e3-api-client",
+        "api",
+        "client",
+        "server",
+        "http",
+        "programmatic",
+        "repoCreate",
+        "packageImport",
+        "workspaceDeploy",
+        "dataflowExecute",
+        "datasetGet",
+        "TreePath",
+        "token",
+        "remote"
+      ],
+      "imports": [
+        "import { readFileSync } from 'node:fs';",
+        "import { StringType, decodeBeast2For, variant } from '@elaraai/east';",
+        "import { dataflowExecute, datasetGet, packageImport, repoCreate, workspaceCreate, workspaceDeploy } from '@elaraai/e3-api-client';"
+      ],
+      "source": "const url = 'http://localhost:3000';            // e3-api-server --repos ./repos\nconst opts = { token: null };                   // a server with auth: the token `e3 auth token <server>` prints\n\nawait repoCreate(url, 'demo', opts);\nconst pkg = await packageImport(url, 'demo', readFileSync('hello.zip'), opts);\nawait workspaceCreate(url, 'demo', 'dev', opts);\nawait workspaceDeploy(url, 'demo', 'dev', `${pkg.name}@${pkg.version}`, opts);   // a job, polled to its end\n\nconst run = await dataflowExecute(url, 'demo', 'dev', {}, opts);                  // starts the run and polls it\n// A dataset's path is a TreePath — a definition's `.path`, or built from its fields:\nconst greeting = [variant('field', 'tasks'), variant('field', 'greet'), variant('field', 'output')];\nconst { data } = await datasetGet(url, 'demo', 'dev', greeting, opts);\nconsole.log(run.success, decodeBeast2For(StringType)(data));                     // true 'Hello, World!'",
       "languages": [
         "typescript"
       ]
@@ -42841,7 +42907,7 @@
         "module"
       ],
       "imports": [],
-      "source": "npm create @elaraai/e3 my-app -- --platform                     # TS-East only\nnpm create @elaraai/e3 my-app -- --platform --runners=east-node,east-py   # + Python half",
+      "source": "npm create @elaraai/e3 my-app -- --platform                      # TS-East, + the Python half (east-py is on by default)\nnpm create @elaraai/e3 my-app -- --platform --runners=east-node   # TS-East only",
       "languages": [
         "typescript"
       ]
@@ -42863,7 +42929,29 @@
         "library"
       ],
       "imports": [],
-      "source": "npm create @elaraai/east mylib\nnpm create @elaraai/east mylib -- --no-tests",
+      "source": "npm create @elaraai/east mylib\nnpm create @elaraai/east mylib -- --no-eslint   # its spec is always generated; create-east has no --tests",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3-create:static:update-stack",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --update",
+      "test": "Bump an existing project's @elaraai/* stack to one release, in lockstep",
+      "keywords": [
+        "e3-create",
+        "update",
+        "upgrade",
+        "bump",
+        "version",
+        "lockstep",
+        "ERESOLVE"
+      ],
+      "imports": [],
+      "source": "# Inside the project: every @elaraai/* dependency moves to the initializer's version,\n# and the stale lock is dropped so the install resolves\nnpm create @elaraai/e3@latest -- --update\nnpm create @elaraai/e3@1.2.3 -- --update --no-install",
       "languages": [
         "typescript"
       ]
@@ -42874,7 +42962,7 @@
       "package": "e3",
       "file": "static",
       "suite": "e3.partition",
-      "test": "Split a stream task's work over a huge input with e3.partition — keys that repeat across pieces fold with merge",
+      "test": "Split a stream task's work over a huge input with e3.partition — keys that repeat across pieces fold with merge, and `by` keeps an entity's rows in one piece, in order",
       "keywords": [
         "e3",
         "partition",
@@ -42889,16 +42977,17 @@
         "rekey",
         "shuffle",
         "by",
-        "partitionTask",
         "Dict",
         "huge",
-        "bounded memory"
+        "bounded memory",
+        "running total",
+        "per entity"
       ],
       "imports": [
-        "import { DictType, FloatType, IntegerType, StringType, StructType } from '@elaraai/east';",
+        "import { East, DictType, FloatType, IntegerType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const SaleKeyType = StructType({ sku: StringType, id: IntegerType });\nconst SaleType = StructType({ amount: FloatType, currency: StringType });\nconst sales = e3.input('sales', DictType(SaleKeyType, SaleType));\nconst rates = e3.input('rates', DictType(StringType, FloatType));\n\n// e3.partition splits the work over `sales`: the body runs once per piece — a\n// key range, cut by content — each piece a cached unit, run in parallel. `rates`\n// reaches every piece whole, opened lazily when large. A key emitted more than\n// once, in one piece or across pieces, folds with `merge`.\nconst bySku = e3.streamTask('by_sku', {\n  inputs: [e3.partition(sales), rates],\n  output: e3.output.dict(StringType, FloatType, { merge: ($, _sku, a, b) => a.add(b) }),\n}, ($, sales, rates, emit) => {\n  $.for(sales, ($, sale, key) => {\n    $(emit(key.sku, sale.amount.multiply(rates.get(sale.currency))));\n  });\n});\n\n// `by` names leading key fields: rows whose `by` fields are equal are never\n// split across pieces, so each piece holds whole SKUs, in key order.\nconst perSku = e3.streamTask('per_sku', {\n  inputs: [e3.partition(sales, { by: ['sku'] })],\n  output: e3.output.array(FloatType),\n}, ($, sales, emit) => { /* a running total per SKU */ });",
+      "source": "const SaleKeyType = StructType({ sku: StringType, id: IntegerType });\nconst SaleType = StructType({ amount: FloatType, currency: StringType });\nconst sales = e3.input('sales', DictType(SaleKeyType, SaleType));\nconst rates = e3.input('rates', DictType(StringType, FloatType));\n\n// e3.partition splits the work over `sales`: the body runs once per piece — a\n// key range, cut by content — each piece a cached unit, run in parallel. `rates`\n// reaches every piece whole, opened lazily when large. A key emitted more than\n// once, in one piece or across pieces, folds with `merge`.\nconst bySku = e3.streamTask('by_sku', {\n  inputs: [e3.partition(sales), rates],\n  output: e3.output.dict(StringType, FloatType, { merge: ($, _sku, a, b) => a.add(b) }),\n}, ($, sales, rates, emit) => {\n  $.for(sales, ($, sale, key) => {\n    $(emit(key.sku, sale.amount.multiply(rates.get(sale.currency))));\n  });\n});\n\n// `by` names leading key fields: rows whose `by` fields are equal are never\n// split across pieces, so each piece holds whole SKUs, in key order.\nconst perSku = e3.streamTask('per_sku', {\n  inputs: [e3.partition(sales, { by: ['sku'] })],\n  output: e3.output.array(FloatType),\n}, ($, sales, emit) => {\n  const sku = $.let('');\n  const total = $.let(0.0);\n  $.for(sales, ($, sale, key) => {\n    $.if(East.notEqual(key.sku, sku), ($) => {   // the next SKU starts from zero\n      $.assign(sku, key.sku);\n      $.assign(total, 0.0);\n    });\n    $.assign(total, total.add(sale.amount));\n    $(emit(total));\n  });\n});",
       "languages": [
         "typescript"
       ]

@@ -9,12 +9,14 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { E3_RELEASE } from '@elaraai/e3-types';
-import { LocalRepoStore } from './LocalRepoStore.js';
+import { LocalRepoStore, METADATA_FILE } from './LocalRepoStore.js';
 import { LocalStorage } from './LocalBackend.js';
-import { REPOSITORY_FILENAME, encodeRepositoryRecord, repoInit, repoOpen } from './repository.js';
+import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './LocalRefStore.js';
+import { repoInit } from './repository.js';
+import { repositoryOpen } from '../../repository-record.js';
 import {
   InvalidNameError,
   RepoNotFoundError,
@@ -109,7 +111,7 @@ describe('LocalRepoStore', () => {
       assert.strictEqual(metadata.statusChangedAt.getTime(), metadata.createdAt.getTime());
     });
 
-    it('refuses a repo without a repository record, naming the fix', async () => {
+    it('refuses a repo whose metadata an older e3 left, naming the fix', async () => {
       // The repo an older e3 left: the directories, and its metadata as JSON
       const olderDir = join(testDir, 'older-repo');
       mkdirSync(olderDir);
@@ -126,19 +128,17 @@ describe('LocalRepoStore', () => {
       });
     });
 
-    it('refuses a repo that has had an upgrade this e3 does not know, naming the release that applied it', async () => {
+    it('reads the metadata without opening the repository, whose record the open reads', async () => {
       await store.create('newer-repo');
       const repoDir = join(testDir, 'newer-repo');
-      const record = repoOpen(repoDir);
-      writeFileSync(join(repoDir, REPOSITORY_FILENAME), encodeRepositoryRecord({
+      const record = await repositoryOpen(storage, repoDir);
+      writeFileSync(join(repoDir, REPOSITORY_RECORD_FILE), encodeRepositoryRecord({
         ...record, upgrades: [...record.upgrades, { name: 'from-a-newer-e3', release: '999.0.0' }],
       }));
 
-      await assert.rejects(store.getMetadata('newer-repo'), {
-        name: 'RepoLayoutError',
-        message: `the repository at ${repoDir} has had the upgrade "from-a-newer-e3", which e3 999.0.0 applied and this e3, ` +
-          `${E3_RELEASE}, does not know — open it with e3 999.0.0 or a newer one`,
-      });
+      const metadata = await store.getMetadata('newer-repo');
+      assert.strictEqual(metadata?.name, 'newer-repo');
+      await assert.rejects(repositoryOpen(storage, repoDir), { name: 'RepoLayoutError' });
     });
 
     it('refuses a repository name that is no one path segment, before it becomes a path', async () => {
@@ -169,17 +169,19 @@ describe('LocalRepoStore', () => {
       assert.strictEqual(existsSync(join(repoDir, 'workspaces')), true);
     });
 
-    it('creates the repository record, naming this release', async () => {
+    it('creates the repository record, naming this release, and the metadata beside it', async () => {
       await store.create('my-repo');
 
       const repoDir = join(testDir, 'my-repo');
-      assert.strictEqual(existsSync(join(repoDir, REPOSITORY_FILENAME)), true);
+      assert.strictEqual(existsSync(join(repoDir, REPOSITORY_RECORD_FILE)), true);
+      assert.strictEqual(existsSync(join(repoDir, METADATA_FILE)), true);
       assert.strictEqual(existsSync(join(repoDir, '.e3-metadata.json')), false);
 
-      const { release, metadata } = repoOpen(repoDir);
+      const { release } = await repositoryOpen(storage, repoDir);
       assert.strictEqual(release, E3_RELEASE);
-      assert.strictEqual(metadata.name, 'my-repo');
-      assert.strictEqual(metadata.status.type, 'active');
+      const metadata = await store.getMetadata('my-repo');
+      assert.strictEqual(metadata?.name, 'my-repo');
+      assert.strictEqual(metadata?.status.type, 'active');
     });
 
     it('throws RepoAlreadyExistsError if repo exists', async () => {
@@ -241,18 +243,15 @@ describe('LocalRepoStore', () => {
       );
     });
 
-    it('writes the record as this release, keeping the upgrades the repository has had', async () => {
+    it('leaves the repository record as it is', async () => {
       await store.create('my-repo');
       const repoDir = join(testDir, 'my-repo');
-      const record = repoOpen(repoDir);
-      writeFileSync(join(repoDir, REPOSITORY_FILENAME), encodeRepositoryRecord({ ...record, release: '0.0.1' }));
+      const record = readFileSync(join(repoDir, REPOSITORY_RECORD_FILE));
 
       await store.setStatus('my-repo', 'gc');
 
-      const written = repoOpen(repoDir);
-      assert.strictEqual(written.release, E3_RELEASE);
-      assert.deepStrictEqual(written.upgrades, record.upgrades);
-      assert.strictEqual(written.metadata.status.type, 'gc');
+      assert.deepStrictEqual(readFileSync(join(repoDir, REPOSITORY_RECORD_FILE)), record);
+      assert.strictEqual((await store.getMetadata('my-repo'))?.status.type, 'gc');
     });
 
     it('succeeds with expected status array', async () => {
@@ -394,6 +393,22 @@ describe('LocalRepoStore', () => {
 
       const result = await store.gcScanObjects(repoPath);
       assert.strictEqual(result.objects.length, 0);
+    });
+  });
+
+  describe('without the directory the repositories are in', () => {
+    it('runs gc\'s primitives, and refuses a repository\'s lifecycle, naming what it needs', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const hash = await storage.objects.write(repoPath, new Uint8Array([1]));
+      const alone = new LocalStorage().repos;
+
+      assert.deepStrictEqual((await alone.gcScanObjects(repoPath)).objects.map((object) => object.hash), [hash]);
+      const needs = { message: 'a repository\'s lifecycle needs the directory the repositories are in: give LocalStorage its reposDir' };
+      await assert.rejects(alone.list(), needs);
+      await assert.rejects(alone.create('other'), needs);
+      await assert.rejects(alone.getMetadata('my-repo'), needs);
+      await assert.rejects(alone.remove('my-repo'), needs);
     });
   });
 });

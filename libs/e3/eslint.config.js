@@ -170,6 +170,28 @@ export default [
       }]
     }
   },
+  // e3-core's contract suites: test code every storage backend runs, shipped
+  // in the package's test entry (BSL 1.1)
+  {
+    files: ['packages/e3-core/src/contract/**/*.ts'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        project: true
+      }
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+      'headers': headers
+    },
+    rules: {
+      ...testRules,
+      'headers/header-format': ['error', {
+        source: 'string',
+        content: bslHeader
+      }]
+    }
+  },
   // e3-api-tests: entire package is test helpers/suites (BSL 1.1)
   {
     files: ['packages/e3-api-tests/src/**/*.ts'],

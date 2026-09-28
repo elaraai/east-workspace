@@ -430,6 +430,16 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
         success(await transferCall(`${uploadUrl}/${id}`, 'GET', TransferDoneResponseType, opts)),
         variant('completed', null),
       );
+      assert.deepStrictEqual(
+        success(await transferCall(`${uploadUrl}/${id}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferDoneResponseType, opts)),
+        variant('completed', null),
+        'a commit asked for again answers as the first did',
+      );
+      // A committed upload takes no more parts.
+      assert.deepStrictEqual(
+        await transferCall(`${uploadUrl}/${id}/parts/1`, 'GET', TransferPartResponseType, opts),
+        variant('error', variant('internal', { message: 'the upload is committed: it takes no more parts' })),
+      );
 
       const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, opts);
       assert.deepStrictEqual(status.hash, some(hash));

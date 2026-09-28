@@ -33,7 +33,7 @@ import { extract as tarExtract } from 'tar-stream';
 import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
 import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
-import { withKeyedLock } from '../storage/local/keyedMutex.js';
+import { withKeyedLock } from '../keyed-mutex.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 
 const execFileAsync = promisify(execFile);

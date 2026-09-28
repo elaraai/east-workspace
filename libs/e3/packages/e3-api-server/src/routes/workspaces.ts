@@ -17,10 +17,10 @@ import {
   deleteWorkspace,
   startWorkspaceDeploy,
   getWorkspaceDeployStatus,
-  exportWorkspace,
 } from '../handlers/workspaces.js';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExportRequestType } from '../types.js';
+import type { GetRunner } from './functions.js';
 
 /**
  * Workspace routes, mounted at `/api/repos/:repo/workspaces`.
@@ -28,14 +28,17 @@ import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExport
  * @param storage - Storage backend
  * @param getRepoPath - The repository identifier for a repo name
  * @param transferBackend - Files and dispatches the jobs a deploy and an
- *   asynchronous export run as. A deploy job runs its migrations and index
- *   builds on the runner the backend was given.
+ *   export run as, which outlast a request. A deploy job runs its migrations
+ *   and index builds on the runner the backend was given.
+ * @param getRunner - The runner a repository's tasks run on, which the status
+ *   asks whether an execution recorded running can still finish
  * @returns The routes
  */
 export function createWorkspaceRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
+  getRunner: GetRunner,
 ) {
   const app = new Hono();
 
@@ -67,7 +70,7 @@ export function createWorkspaceRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-    return getWorkspaceStatus(storage, repoPath, ws);
+    return getWorkspaceStatus(storage, getRunner(repoPath), repoPath, ws);
   });
 
   // DELETE /api/repos/:repo/workspaces/:ws - Remove a workspace
@@ -95,7 +98,8 @@ export function createWorkspaceRoutes(
     return getWorkspaceDeployStatus(transferBackend.workspaceDeploy, repo, ws, id);
   });
 
-  // POST /api/repos/:repo/workspaces/:ws/export - Trigger async workspace export
+  // POST /api/repos/:repo/workspaces/:ws/export - Start an export job, polled
+  // at /api/repos/:repo/export/:id
   app.post('/:ws/export', async (c) => {
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
@@ -132,14 +136,6 @@ export function createWorkspaceRoutes(
 
     await transferBackend.packageExport.execute(id, repo);
     return sendSuccess(PackageJobResponseType, { id });
-  });
-
-  // GET /api/repos/:repo/workspaces/:ws/export - Export workspace as a package zip
-  app.get('/:ws/export', async (c) => {
-    const repo = c.req.param('repo')!;
-    const repoPath = getRepoPath(repo);
-    const ws = c.req.param('ws')!;
-    return exportWorkspace(storage, repoPath, ws);
   });
 
   return app;

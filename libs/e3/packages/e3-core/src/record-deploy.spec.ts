@@ -29,7 +29,7 @@ import {
 } from './records.js';
 import { storeDatasetBytes } from './store-collection.js';
 import { readDatasetWhole } from './dataset-open.js';
-import { repoGc } from './storage/local/gc.js';
+import { repoGc } from './gc.js';
 import { RecordDeployRefusedError } from './errors.js';
 import { workspaceGetDataset } from './trees.js';
 import { packageImport } from './packages.js';

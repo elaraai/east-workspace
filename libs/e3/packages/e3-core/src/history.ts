@@ -26,11 +26,11 @@
 
 import { decodeBeast2For } from '@elaraai/east';
 import { WorkspaceRecordType, decodeUnitPlan, executionStatusRoots, type ExecutionStatus, type UnitPlan } from '@elaraai/e3-types';
-import type { StorageBackend } from '../interfaces.js';
-import { dataflowGetGraph, dataflowResolveInputHashes, type DataflowGraph } from '../../dataflow.js';
-import { inputsHash } from '../../executions.js';
-import { stageUnits } from '../../execution/engine.js';
-import { uuidv7Timestamp } from '../../uuid.js';
+import type { StorageBackend } from './storage/interfaces.js';
+import { dataflowGetGraph, dataflowResolveInputHashes, type DataflowGraph } from './dataflow.js';
+import { inputsHash } from './executions.js';
+import { stageUnits } from './execution/engine.js';
+import { uuidv7Timestamp } from './uuid.js';
 
 /** The runs of each workspace gc keeps however old: the latest ten. */
 export const DEFAULT_KEEP_RUNS = 10;

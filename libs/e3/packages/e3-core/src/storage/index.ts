@@ -38,8 +38,12 @@ export {
   type GcRootScanResult,
   type GcObjectEntry,
   type GcObjectScanResult,
+  type GcBackendSweepOptions,
+  type GcBackendSweepResult,
   // Dataset refs
   type DatasetRefStore,
+  // Repository upgrades
+  type RepositoryUpgrade,
   // Combined backend
   type StorageBackend,
 } from './interfaces.js';
