@@ -11,7 +11,6 @@
 #include "east/builtins.h"
 #include "east/values.h"
 #include "east/serialization.h"
-#include <ctype.h>
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,6 +70,30 @@ static size_t utf8_byte_to_cp(const char *s, size_t byte_offset)
         cp++;
     }
     return cp;
+}
+
+/* Decode one UTF-8 codepoint, returning the codepoint and advancing *advance. */
+static uint32_t utf8_decode_cp(const unsigned char *p, size_t *advance)
+{
+    if (*p < 0x80) {
+        *advance = 1;
+        return *p;
+    }
+    if ((*p & 0xE0) == 0xC0) {
+        *advance = 2;
+        return ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    }
+    if ((*p & 0xF0) == 0xE0) {
+        *advance = 3;
+        return ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    }
+    if ((*p & 0xF8) == 0xF0) {
+        *advance = 4;
+        return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
+               ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+    }
+    *advance = 1;
+    return 0xFFFD;
 }
 
 /* Length-aware forward substring search. East strings carry their length and
@@ -228,17 +251,49 @@ static EastValue *string_split(EastValue **args, size_t n)
     return arr;
 }
 
+/* Whether cp is ECMAScript WhiteSpace or a LineTerminator: the code points JS's
+ * trim, trimStart and trimEnd remove, which the TS reference uses. isspace is
+ * ASCII-only and locale-dependent, so it would keep U+00A0, U+3000, U+FEFF… */
+static int js_whitespace(uint32_t cp)
+{
+    if (cp <= 0x20) return cp == 0x20 || (cp >= 0x09 && cp <= 0x0D);
+    return cp == 0xA0 || cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x2028 ||
+           cp == 0x2029 || cp == 0x202F || cp == 0x205F || cp == 0x3000 || cp == 0xFEFF;
+}
+
+/* The byte length of the whitespace code point at s[i], or 0 if it is not one. */
+static size_t js_space_at(const char *s, size_t i, size_t len)
+{
+    const unsigned char *p = (const unsigned char *)s + i;
+    size_t cl = utf8_char_len(p);
+    if (i + cl > len) return 0;
+    size_t advance;
+    return js_whitespace(utf8_decode_cp(p, &advance)) ? cl : 0;
+}
+
+/* The byte length of the whitespace code point ending at s[end], or 0. */
+static size_t js_space_before(const char *s, size_t start, size_t end)
+{
+    const unsigned char *u = (const unsigned char *)s;
+    size_t i = end - 1;
+    while (i > start && (u[i] & 0xC0) == 0x80)
+        i--;
+    if (i + utf8_char_len(u + i) != end) return 0;
+    size_t advance;
+    return js_whitespace(utf8_decode_cp(u + i, &advance)) ? end - i : 0;
+}
+
 static EastValue *string_trim(EastValue **args, size_t n)
 {
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
-    size_t start = 0;
-    while (start < len && isspace((unsigned char)s[start]))
-        start++;
+    size_t start = 0, cl;
+    while (start < len && (cl = js_space_at(s, start, len)) > 0)
+        start += cl;
     size_t end = len;
-    while (end > start && isspace((unsigned char)s[end - 1]))
-        end--;
+    while (end > start && (cl = js_space_before(s, start, end)) > 0)
+        end -= cl;
     return east_string_len(s + start, end - start);
 }
 
@@ -247,9 +302,9 @@ static EastValue *string_trim_start(EastValue **args, size_t n)
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
-    size_t start = 0;
-    while (start < len && isspace((unsigned char)s[start]))
-        start++;
+    size_t start = 0, cl;
+    while (start < len && (cl = js_space_at(s, start, len)) > 0)
+        start += cl;
     return east_string_len(s + start, len - start);
 }
 
@@ -258,33 +313,10 @@ static EastValue *string_trim_end(EastValue **args, size_t n)
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
-    while (len > 0 && isspace((unsigned char)s[len - 1]))
-        len--;
+    size_t cl;
+    while (len > 0 && (cl = js_space_before(s, 0, len)) > 0)
+        len -= cl;
     return east_string_len(s, len);
-}
-
-/* Decode one UTF-8 codepoint, returning the codepoint and advancing *advance. */
-static uint32_t utf8_decode_cp(const unsigned char *p, size_t *advance)
-{
-    if (*p < 0x80) {
-        *advance = 1;
-        return *p;
-    }
-    if ((*p & 0xE0) == 0xC0) {
-        *advance = 2;
-        return ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
-    }
-    if ((*p & 0xF0) == 0xE0) {
-        *advance = 3;
-        return ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F);
-    }
-    if ((*p & 0xF8) == 0xF0) {
-        *advance = 4;
-        return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
-               ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
-    }
-    *advance = 1;
-    return 0xFFFD;
 }
 
 /* Encode one codepoint as UTF-8, return bytes written. */

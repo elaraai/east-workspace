@@ -558,6 +558,17 @@ await describe("String", (test) => {
         // Unicode whitespace and content
         $(assert.equal(East.value("  café  ").trim(), "café"));
         $(assert.equal(East.value("  🚀  ").trim(), "🚀"));
+
+        // Whitespace is JavaScript's set on every runtime: the Unicode space
+        // separators, the line and paragraph separators and U+FEFF — not the
+        // ASCII-only set C's isspace knows
+        const spaces = "\t\n\v\f\r          　﻿";
+        $(assert.equal(East.value(`${spaces}東京${spaces}`).trim(), "東京"));
+        $(assert.equal(East.value(`${spaces}東京${spaces}`).trimStart(), `東京${spaces}`));
+        $(assert.equal(East.value(`${spaces}東京${spaces}`).trimEnd(), `${spaces}東京`));
+        $(assert.equal(East.value(spaces).trim(), ""));
+        // U+0085 and U+200B are not whitespace to JavaScript
+        $(assert.equal(East.value("\u0085a​").trim(), "\u0085a​"));
     });
 
     assert.examples(test, {

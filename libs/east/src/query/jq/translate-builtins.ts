@@ -531,8 +531,8 @@ function deleteAt(t: Translator, c: CallSite, $: Block, v: Expr, paths: readonly
     const isArray = type.type === "Array";
     const d = t.bind($, e, "container");
     const size = isArray ? t.declare($, t.size(d, c.path), "size", false) : undefined;
-    // Each path's index, key or bounds, as the element it names.
-    type Target = { readonly from: Expr; readonly to: Expr } | { readonly key: Expr } | undefined;
+    // Each path's bounds, or every index or key it gives: one that gives several names several elements.
+    type Target = { readonly from: Expr; readonly to: Expr } | { readonly keys: Expr } | undefined;
     const targets = paths.map((p): Target => {
       const first = p[0]!;
       if (first.kind === "iterate") return undefined;
@@ -543,13 +543,20 @@ function deleteAt(t: Translator, c: CallSite, $: Block, v: Expr, paths: readonly
           : t.boundOf($, t.one(option.value, childPath(first.path, step), $, c.x, c.env, argTypeAt(t, c, childPath(first.path, step))), fallback, size!, c.path);
         return { from: bound(node.value.from, "slice.from.some", t.int(0)), to: bound(node.value.to, "slice.to.some", size!) };
       }
+      const K = isArray ? IntegerType : type.key as EastType;
+      const keys = t.declare($, t.emptyArray(K), "keys");
+      const add = ($2: Block, key: Expr): void => {
+        const k = t.bind($2, t.widenTo($2, key, K, c.path), "key");
+        // A negative index counts from the end.
+        t.push($2, keys, isArray ? t.ifValue(t.lt(k, t.int(0), c.path), () => t.add(k, size!, c.path), () => k, IntegerType, c.path) : k, c.path);
+      };
       const name = nameOf(first);
-      const key = name !== undefined ? t.str(name, c.path)
-        : t.one((first as Extract<DelStep, { kind: "index" }>).node, (first as Extract<DelStep, { kind: "index" }>).path, $, c.x, c.env, argTypeAt(t, c, (first as Extract<DelStep, { kind: "index" }>).path));
-      if (!isArray) return { key: t.bind($, t.widenTo($, key, type.key as EastType, c.path), "key") };
-      const index = t.declare($, t.widenTo($, key, IntegerType, c.path), "at");
-      t.ifElse($, t.lt(index, t.int(0), c.path), $2 => t.assign($2, index, t.add(index, size!, c.path)), undefined, c.path);
-      return { key: index };
+      if (name !== undefined) add($, t.str(name, c.path));
+      else {
+        const step = first as Extract<DelStep, { kind: "index" }>;
+        t.collected(step.node, step.path, $, c.x, c.env, add);
+      }
+      return { keys };
     });
     // Paths through every element to something inside it change each alike, and may change its type: they apply first.
     const throughEach = (p: readonly DelStep[]): boolean => p[0]!.kind === "iterate" && p.length > 1 && !(p.length === 2 && p[1]!.kind === "select");
@@ -579,7 +586,7 @@ function deleteAt(t: Translator, c: CallSite, $: Block, v: Expr, paths: readonly
           t.ifElse($2, inRange, handle, undefined, c.path);
           return;
         }
-        t.ifElse($2, t.eq(target.key, key!, c.path), handle, undefined, c.path);
+        t.forEach($2, target.keys, ($3, k, _i, label) => t.ifElse($3, t.eq(k, key!, c.path), $4 => { handle($4); t.brk($4, label); }, undefined, c.path), c.path, "key");
       });
       const element = t.type(cell);
       out ??= t.declare(declared, isArray ? t.emptyArray(element) : t.value(new Map(), DictType(type.key as EastType, element)), isArray ? "array" : "dict");
@@ -699,7 +706,8 @@ rule("pick", (t, c) => {
   const names: string[] = [];
   while (node.type === "field") { names.unshift(node.value.name); node = node.value.target; }
   const build = ($: Block, v: Expr, rest: readonly string[]): Expr => {
-    const inner = t.field(v, rest[0]!);
+    // `null`'s fields are null.
+    const inner = t.type(v).type === "Null" ? t.null(c.path) : t.field(v, rest[0]!);
     const picked = rest.length === 1 ? inner : build($, t.bind($, inner, rest[0]!), rest.slice(1));
     return t.struct(StructType({ [rest[0]!]: t.type(picked) }), { [rest[0]!]: picked });
   };
@@ -708,6 +716,8 @@ rule("pick", (t, c) => {
 
 rule("transpose", (t, c) => {
   const type = outputType(t, c);
+  // No rows, so nothing to transpose.
+  if ((parts(t.type(t.open(input(t, c)))).value as EastType).type === "Never") { c.emit(c.$, t.value([], type, c.path)); return; }
   const row = parts(type.value);
   const cell = row.value;
   const rows = t.bind(c.$, t.open(input(t, c)), "rows");
@@ -1094,28 +1104,69 @@ rule("reverse", (t, c) => {
   c.emit(c.$, t.b("ArrayReverse", [t.type(array).value as EastType], [array], t.type(array), c.path));
 });
 
-/** Whether `a` contains `b`: a substring, or every element of an array somewhere in the other. */
+/**
+ * Whether `a` holds `b`, as jq's `contains` decides it: a string its
+ * substrings; an array an array whose every element some element of it
+ * holds; a struct or a dict one whose every field or key it has, holding its
+ * value; any other value an equal one.
+ */
 function contains(t: Translator, c: CallSite, $: Block, a: Expr, b: Expr): Expr {
   const va = t.open(a);
   const vb = t.open(b);
   const ta = t.type(va);
-  if (ta.type === "String") return t.b("StringContains", [], [va, t.widenTo($, vb, StringType, c.path)], BooleanType, c.path);
-  const all = t.declare($, t.bool(true), "contains");
-  t.forEach($, vb, ($2, wanted, _k, outer) => {
-    const found = t.declare($2, t.bool(false), "found");
-    t.forEach($2, va, ($3, item, _k2, inner) => {
-      const test = t.type(t.open(item)).type === "String" && t.type(t.open(wanted)).type === "String"
-        ? t.b("StringContains", [], [t.open(item), t.open(wanted)], BooleanType, c.path)
-        : t.compare($3, "==", item, wanted, c.path);
-      t.ifElse($3, test, $4 => { t.assign($4, found, t.bool(true)); t.brk($4, inner); }, undefined, c.path);
+  const tb = t.type(vb);
+  if (ta.type === "String" && tb.type === "String") return t.b("StringContains", [], [va, vb], BooleanType, c.path);
+  if (ta.type === "Array" && tb.type === "Array") {
+    // `[]` is held by every array, and an empty array holds only `[]`.
+    if ((tb.value as EastType).type === "Never") return t.bool(true, c.path);
+    if ((ta.value as EastType).type === "Never") return t.eq(t.size(vb, c.path), t.int(0), c.path);
+    const outer = t.bind($, va, "outer");
+    const all = t.declare($, t.bool(true), "contains");
+    t.forEach($, vb, ($2, wanted, _k, each) => {
+      const found = t.declare($2, t.bool(false), "found");
+      t.forEach($2, outer, ($3, item, _k2, inner) => {
+        t.ifElse($3, contains(t, c, $3, item, wanted), $4 => { t.assign($4, found, t.bool(true)); t.brk($4, inner); }, undefined, c.path);
+      }, c.path);
+      t.ifElse($2, t.not(found, c.path), $3 => { t.assign($3, all, t.bool(false)); t.brk($3, each); }, undefined, c.path);
+    }, c.path, "wanted");
+    return all;
+  }
+  if (ta.type === "Struct" && tb.type === "Struct") {
+    const fields = ta.fields as Record<string, EastType>;
+    const outer = t.bind($, va, "outer");
+    const inner = t.bind($, vb, "inner");
+    let all: Expr | undefined;
+    for (const name of Object.keys(tb.fields as object)) {
+      // A field the outer struct lacks is not held.
+      if (!(name in fields)) return t.bool(false, c.path);
+      const held = t.bind($, contains(t, c, $, t.field(outer, name), t.field(inner, name)), "held");
+      all = all === undefined ? held : t.b("BooleanAnd", [], [all, held], BooleanType, c.path);
+    }
+    return all ?? t.bool(true, c.path);
+  }
+  // `{}` is held by every dict.
+  if (ta.type === "Dict" && tb.type === "Struct") return t.bool(true, c.path);
+  if (ta.type === "Dict" && tb.type === "Dict") {
+    const K = ta.key as EastType;
+    const V = ta.value as EastType;
+    const outer = t.bind($, va, "outer");
+    const all = t.declare($, t.bool(true), "contains");
+    t.forEach($, vb, ($2, value, key, label) => {
+      t.match($2, t.b("DictTryGet", [K, V], [outer, key!], OptionType(V), c.path), {
+        none: $3 => { t.assign($3, all, t.bool(false)); t.brk($3, label); },
+        some: ($3, held) => t.ifElse($3, t.not(contains(t, c, $3, held, value), c.path), $4 => { t.assign($4, all, t.bool(false)); t.brk($4, label); }, undefined, c.path),
+      }, c.path);
     }, c.path);
-    t.ifElse($2, t.not(found, c.path), $3 => { t.assign($3, all, t.bool(false)); t.brk($3, outer); }, undefined, c.path);
-  }, c.path, "wanted");
-  return all;
+    return all;
+  }
+  // Values of two kinds (a lenient place lets them by) raise, as jq does.
+  const [ka, kb] = [jqTypeNames(ta)[0], jqTypeNames(tb)[0]];
+  if (ka !== kb || ["array", "object"].includes(ka ?? "")) return t.failure(`${ka ?? "a value"} and ${kb ?? "a value"} cannot have their containment checked`, c.path);
+  return t.compare($, "==", va, vb, c.path);
 }
 
-rule("contains", (t, c) => values(t, c, [0], c.$, ($, [b]) => c.emit($, contains(t, c, $, input(t, c), b!))));
-rule("inside", (t, c) => values(t, c, [0], c.$, ($, [b]) => c.emit($, contains(t, c, $, b!, input(t, c)))));
+rule("contains", (t, c) => values(t, c, [0], c.$, ($, [b]) => t.give($, contains(t, c, $, input(t, c), b!), c.emit)));
+rule("inside", (t, c) => values(t, c, [0], c.$, ($, [b]) => t.give($, contains(t, c, $, b!, input(t, c)), c.emit)));
 
 /** Every index where a string occurs in another, overlapping ones included, in code points. */
 function indices(t: Translator, c: CallSite, $: Block, s: Expr, sub: Expr): Expr {
@@ -1134,8 +1185,41 @@ function indices(t: Translator, c: CallSite, $: Block, s: Expr, sub: Expr): Expr
   return out;
 }
 
+/**
+ * Every position at which an array holds an element equal to a value, or,
+ * for an array, a run of elements equal to its elements; an empty run is
+ * found nowhere, as in jq.
+ */
+function indicesIn(t: Translator, c: CallSite, $: Block, array: Expr, x: Expr): Expr {
+  const out = t.declare($, t.emptyArray(IntegerType), "indices");
+  const a = t.bind($, array, "array");
+  const E = t.type(a).value as EastType;
+  const xo = t.open(x);
+  if (t.type(xo).type !== "Array") {
+    t.forEach($, a, ($2, item, index) => t.ifElse($2, t.compare($2, "==", item, xo, c.path), $3 => t.push($3, out, index!, c.path), undefined, c.path), c.path);
+    return out;
+  }
+  const run = t.bind($, xo, "run");
+  const n = t.declare($, t.size(run, c.path), "length", false);
+  const last = t.declare($, t.b("IntegerSubtract", [], [t.size(a, c.path), n], IntegerType, c.path), "last", false);
+  t.ifElse($, t.lt(t.int(0), n, c.path), $2 => {
+    const i = t.declare($2, t.int(0), "start");
+    t.whileLoop($2, t.b("LessEqual", [IntegerType], [i, last], BooleanType, c.path), $3 => {
+      const same = t.declare($3, t.bool(true), "same");
+      t.forEach($3, run, ($4, wanted, k, label) => {
+        const item = t.b("ArrayGet", [E], [a, t.add(i, k!, c.path)], E, c.path);
+        t.ifElse($4, t.not(t.compare($4, "==", item, wanted, c.path), c.path), $5 => { t.assign($5, same, t.bool(false)); t.brk($5, label); }, undefined, c.path);
+      }, c.path, "wanted");
+      t.ifElse($3, same, $4 => t.push($4, out, i, c.path), undefined, c.path);
+      t.assign($3, i, t.add(i, t.int(1), c.path));
+    }, c.path);
+  }, undefined, c.path);
+  return out;
+}
+
 rule(["index", "rindex", "indices"], (t, c) => values(t, c, [0], c.$, ($, [sub]) => {
-  const all = indices(t, c, $, t.open(input(t, c)), sub!);
+  const x = t.open(input(t, c));
+  const all = t.type(x).type === "String" ? indices(t, c, $, x, sub!) : indicesIn(t, c, $, x, sub!);
   if (c.name === "indices") { c.emit($, all); return; }
   const option = OptionType(IntegerType);
   const size = t.bind($, t.size(all, c.path), "count");
@@ -1241,9 +1325,9 @@ rule("scalars", selector(ty => isScalar(ty) ? "keep" : "drop"));
 rule("normals", selector(ty => isNumber(ty) ? "maybe" : "drop", (t, $, v, path) => isNormal(t, $, v, path)));
 rule("finites", selector(ty => ty.type === "Integer" ? "keep" : ty.type === "Float" ? "maybe" : "drop", (t, $, v, path) => t.not(isInfiniteOrNan(t, $, v, path), path)));
 
-/** Whether a Float is NaN: East's order puts it after +Infinity. */
+/** Whether a number is NaN. */
 function isNan(t: Translator, $: Block, v: Expr, path: string): Expr {
-  return t.lt(t.float(Infinity), float(t, $, v, path), path);
+  return t.isNan(float(t, $, v, path), path);
 }
 
 function isInfinite(t: Translator, $: Block, v: Expr, path: string): Expr {
@@ -1300,9 +1384,14 @@ rule("isnormal", (t, c) => c.emit(c.$, isNormal(t, c.$, input(t, c), c.path)));
 // jq's own definition: a number that is not infinite, so NaN is finite.
 rule("isfinite", (t, c) => c.emit(c.$, t.not(isInfinite(t, c.$, input(t, c), c.path), c.path)));
 
+// jq's `if . < 0 then -. else . end`: a value above every number is given back; null and a boolean raise.
 rule("abs", (t, c) => {
   const x = t.open(input(t, c));
-  c.emit(c.$, t.type(x).type === "Integer" ? t.b("IntegerAbs", [], [x], IntegerType, c.path) : t.b("FloatAbs", [], [x], FloatType, c.path));
+  const xt = t.type(x);
+  if (xt.type === "Integer") c.emit(c.$, t.b("IntegerAbs", [], [x], IntegerType, c.path));
+  else if (xt.type === "Float") c.emit(c.$, t.b("FloatAbs", [], [x], FloatType, c.path));
+  else if (xt.type === "Null" || xt.type === "Boolean") t.negate(c.$, x, c.path, c.emit);
+  else c.emit(c.$, x);
 });
 
 // ─── Strings ─────────────────────────────────────────────────────────────
@@ -1332,10 +1421,7 @@ function trimEnd(t: Translator, $: Block, s: Expr, suffix: Expr, path: string): 
     () => s, StringType, path);
 }
 
-rule(["ltrimstr", "rtrimstr", "trimstr"], (t, c) => values(t, c, [0], c.$, ($, [affix]) => {
-  const x = t.open(input(t, c));
-  // Anything but a string is given back as it is.
-  if (t.type(x).type !== "String") { c.emit($, x); return; }
+rule(["ltrimstr", "rtrimstr", "trimstr"], onString([0], (t, c, $, x, [affix]) => {
   const s = t.bind($, x, "string");
   if (c.name === "ltrimstr") { c.emit($, trimStart(t, $, s, affix!, c.path)); return; }
   if (c.name === "rtrimstr") { c.emit($, trimEnd(t, $, s, affix!, c.path)); return; }

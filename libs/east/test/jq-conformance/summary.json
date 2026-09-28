@@ -1,0 +1,498 @@
+{
+  "suites": [
+    {
+      "suite": "jq.test",
+      "cases": 522,
+      "pass": 290,
+      "deviation": 142,
+      "skipped": 90,
+      "fail": 0
+    },
+    {
+      "suite": "man.test",
+      "cases": 231,
+      "pass": 158,
+      "deviation": 42,
+      "skipped": 31,
+      "fail": 0
+    },
+    {
+      "suite": "onig.test",
+      "cases": 47,
+      "pass": 17,
+      "deviation": 30,
+      "skipped": 0,
+      "fail": 0
+    },
+    {
+      "suite": "optional.test",
+      "cases": 2,
+      "pass": 0,
+      "deviation": 2,
+      "skipped": 0,
+      "fail": 0
+    }
+  ],
+  "deviations": [
+    {
+      "deviation": 1,
+      "cases": [
+        "jq.test:609",
+        "jq.test:1168",
+        "man.test:33",
+        "man.test:162",
+        "man.test:805"
+      ]
+    },
+    {
+      "deviation": 2,
+      "cases": [
+        "jq.test:127",
+        "jq.test:2044"
+      ]
+    },
+    {
+      "deviation": 3,
+      "cases": [
+        "jq.test:2169",
+        "jq.test:2177"
+      ]
+    },
+    {
+      "deviation": 4,
+      "cases": [
+        "jq.test:1805",
+        "jq.test:1813",
+        "jq.test:1817",
+        "jq.test:1821",
+        "jq.test:1847",
+        "jq.test:1851",
+        "jq.test:1857",
+        "man.test:742",
+        "man.test:746",
+        "man.test:750",
+        "optional.test:4",
+        "optional.test:9"
+      ]
+    },
+    {
+      "deviation": 5,
+      "cases": [
+        "jq.test:213",
+        "jq.test:217",
+        "jq.test:229",
+        "jq.test:248",
+        "jq.test:269",
+        "jq.test:273",
+        "jq.test:315",
+        "jq.test:319",
+        "jq.test:405",
+        "jq.test:440",
+        "jq.test:478",
+        "jq.test:524",
+        "jq.test:716",
+        "jq.test:851",
+        "jq.test:944",
+        "jq.test:948",
+        "jq.test:966",
+        "jq.test:973",
+        "jq.test:994",
+        "jq.test:1001",
+        "jq.test:1022",
+        "jq.test:1029",
+        "jq.test:1138",
+        "jq.test:1154",
+        "jq.test:1399",
+        "jq.test:1431",
+        "jq.test:1515",
+        "jq.test:1519",
+        "jq.test:1639",
+        "jq.test:2004",
+        "jq.test:2008",
+        "jq.test:2012",
+        "jq.test:2016",
+        "jq.test:2020",
+        "jq.test:2047",
+        "jq.test:2194",
+        "jq.test:2199",
+        "man.test:104",
+        "man.test:582",
+        "man.test:586",
+        "man.test:669",
+        "man.test:809",
+        "man.test:813",
+        "man.test:919"
+      ]
+    },
+    {
+      "deviation": 6,
+      "cases": [
+        "jq.test:118",
+        "jq.test:122",
+        "jq.test:1663",
+        "jq.test:2266"
+      ]
+    },
+    {
+      "deviation": 8,
+      "cases": [
+        "onig.test:2",
+        "onig.test:6",
+        "onig.test:10",
+        "onig.test:14",
+        "onig.test:18",
+        "onig.test:23",
+        "onig.test:28",
+        "onig.test:32",
+        "onig.test:36",
+        "onig.test:41",
+        "onig.test:47",
+        "onig.test:54",
+        "onig.test:60",
+        "onig.test:67",
+        "onig.test:75",
+        "onig.test:104",
+        "onig.test:141",
+        "onig.test:145",
+        "onig.test:149",
+        "onig.test:153",
+        "onig.test:157",
+        "onig.test:166",
+        "onig.test:170",
+        "onig.test:183",
+        "onig.test:187",
+        "onig.test:191"
+      ]
+    },
+    {
+      "deviation": 9,
+      "cases": [
+        "jq.test:1482",
+        "man.test:341"
+      ]
+    },
+    {
+      "deviation": 14,
+      "cases": [
+        "jq.test:205",
+        "jq.test:1476"
+      ]
+    },
+    {
+      "deviation": 16,
+      "cases": [
+        "jq.test:329",
+        "jq.test:333",
+        "jq.test:341",
+        "jq.test:898",
+        "jq.test:1615",
+        "jq.test:1619",
+        "jq.test:2029",
+        "jq.test:2123",
+        "jq.test:2173",
+        "man.test:658",
+        "man.test:915"
+      ]
+    },
+    {
+      "deviation": 17,
+      "cases": [
+        "jq.test:72",
+        "jq.test:90",
+        "jq.test:98",
+        "jq.test:838",
+        "jq.test:1101",
+        "jq.test:1106",
+        "jq.test:1110",
+        "jq.test:1114",
+        "jq.test:1118",
+        "jq.test:1122",
+        "jq.test:1126",
+        "jq.test:1130",
+        "jq.test:1144",
+        "jq.test:1160",
+        "jq.test:1164",
+        "jq.test:1180",
+        "jq.test:2154",
+        "jq.test:2158",
+        "jq.test:2162",
+        "jq.test:2182",
+        "jq.test:2186",
+        "jq.test:2273",
+        "jq.test:2277",
+        "jq.test:2282",
+        "jq.test:2361",
+        "jq.test:2369",
+        "jq.test:2383",
+        "jq.test:2388",
+        "jq.test:2452",
+        "jq.test:2456",
+        "jq.test:2491",
+        "man.test:13",
+        "man.test:21",
+        "man.test:260",
+        "man.test:264",
+        "man.test:276",
+        "man.test:280",
+        "man.test:284",
+        "man.test:288",
+        "man.test:292",
+        "man.test:296",
+        "man.test:630",
+        "man.test:634",
+        "man.test:738",
+        "man.test:956",
+        "man.test:961",
+        "onig.test:196",
+        "onig.test:200",
+        "onig.test:204",
+        "onig.test:208"
+      ]
+    },
+    {
+      "deviation": 18,
+      "cases": [
+        "jq.test:1531",
+        "jq.test:1785",
+        "man.test:646"
+      ]
+    },
+    {
+      "deviation": 20,
+      "cases": [
+        "man.test:654"
+      ]
+    },
+    {
+      "deviation": 23,
+      "cases": [
+        "jq.test:490",
+        "jq.test:1188",
+        "jq.test:1197",
+        "jq.test:1232",
+        "jq.test:1236",
+        "jq.test:1261",
+        "jq.test:1265",
+        "jq.test:1269",
+        "jq.test:1273",
+        "jq.test:1277",
+        "jq.test:1281",
+        "jq.test:1285",
+        "jq.test:2088",
+        "man.test:248",
+        "man.test:252",
+        "man.test:256",
+        "man.test:706",
+        "man.test:985",
+        "man.test:991"
+      ]
+    },
+    {
+      "deviation": 25,
+      "cases": [
+        "jq.test:530"
+      ]
+    },
+    {
+      "deviation": 26,
+      "cases": [
+        "jq.test:661",
+        "jq.test:668",
+        "jq.test:674",
+        "jq.test:2190",
+        "jq.test:2229",
+        "jq.test:2233",
+        "man.test:9",
+        "man.test:25"
+      ]
+    },
+    {
+      "deviation": 27,
+      "cases": [
+        "jq.test:1394",
+        "man.test:754"
+      ]
+    },
+    {
+      "deviation": 28,
+      "cases": [
+        "jq.test:1464",
+        "jq.test:1537",
+        "jq.test:1801",
+        "jq.test:1959",
+        "jq.test:1963",
+        "jq.test:1967"
+      ]
+    },
+    {
+      "deviation": 29,
+      "cases": [
+        "jq.test:1695",
+        "jq.test:2393",
+        "jq.test:2397",
+        "jq.test:2401",
+        "jq.test:2405",
+        "jq.test:2409",
+        "jq.test:2413",
+        "jq.test:2417",
+        "jq.test:2421",
+        "jq.test:2425",
+        "jq.test:2429",
+        "jq.test:2433",
+        "jq.test:2437",
+        "jq.test:2441"
+      ]
+    },
+    {
+      "deviation": 30,
+      "cases": [
+        "jq.test:1839",
+        "jq.test:2462"
+      ]
+    }
+  ],
+  "skipped": [
+    {
+      "reason": "excluded",
+      "cases": [
+        "jq.test:1843",
+        "jq.test:1862",
+        "jq.test:1866",
+        "jq.test:1870",
+        "jq.test:1874",
+        "jq.test:1879",
+        "jq.test:1883",
+        "jq.test:1887",
+        "jq.test:1891",
+        "jq.test:1931",
+        "jq.test:1935",
+        "jq.test:1939",
+        "jq.test:1955",
+        "jq.test:2295",
+        "jq.test:2299",
+        "jq.test:2506",
+        "man.test:686",
+        "man.test:690"
+      ]
+    },
+    {
+      "reason": "resource",
+      "cases": [
+        "jq.test:1603"
+      ]
+    },
+    {
+      "reason": "runner",
+      "cases": [
+        "jq.test:2317"
+      ]
+    },
+    {
+      "reason": "untypeable",
+      "cases": [
+        "jq.test:106",
+        "jq.test:179",
+        "jq.test:183",
+        "jq.test:187",
+        "jq.test:191",
+        "jq.test:195",
+        "jq.test:200",
+        "jq.test:345",
+        "jq.test:455",
+        "jq.test:701",
+        "jq.test:705",
+        "jq.test:728",
+        "jq.test:736",
+        "jq.test:741",
+        "jq.test:749",
+        "jq.test:894",
+        "jq.test:920",
+        "jq.test:924",
+        "jq.test:929",
+        "jq.test:936",
+        "jq.test:940",
+        "jq.test:952",
+        "jq.test:959",
+        "jq.test:980",
+        "jq.test:987",
+        "jq.test:1008",
+        "jq.test:1015",
+        "jq.test:1036",
+        "jq.test:1040",
+        "jq.test:1044",
+        "jq.test:1048",
+        "jq.test:1134",
+        "jq.test:1150",
+        "jq.test:1192",
+        "jq.test:1241",
+        "jq.test:1297",
+        "jq.test:1301",
+        "jq.test:1353",
+        "jq.test:1357",
+        "jq.test:1361",
+        "jq.test:1368",
+        "jq.test:1435",
+        "jq.test:1439",
+        "jq.test:1635",
+        "jq.test:1655",
+        "jq.test:1679",
+        "jq.test:1687",
+        "jq.test:1691",
+        "jq.test:1729",
+        "jq.test:1733",
+        "jq.test:1737",
+        "jq.test:1741",
+        "jq.test:1745",
+        "jq.test:1749",
+        "jq.test:1753",
+        "jq.test:1757",
+        "jq.test:1761",
+        "jq.test:1765",
+        "jq.test:1769",
+        "jq.test:1773",
+        "jq.test:1826",
+        "jq.test:1830",
+        "jq.test:1834",
+        "jq.test:1976",
+        "jq.test:1992",
+        "jq.test:1996",
+        "jq.test:2051",
+        "jq.test:2093",
+        "jq.test:2348",
+        "jq.test:2365",
+        "jq.test:2474",
+        "jq.test:2481",
+        "man.test:199",
+        "man.test:219",
+        "man.test:223",
+        "man.test:320",
+        "man.test:345",
+        "man.test:349",
+        "man.test:365",
+        "man.test:393",
+        "man.test:397",
+        "man.test:405",
+        "man.test:442",
+        "man.test:447",
+        "man.test:454",
+        "man.test:460",
+        "man.test:526",
+        "man.test:530",
+        "man.test:642",
+        "man.test:714",
+        "man.test:718",
+        "man.test:722",
+        "man.test:762",
+        "man.test:823",
+        "man.test:831",
+        "man.test:835",
+        "man.test:847",
+        "man.test:857",
+        "man.test:862",
+        "man.test:965",
+        "man.test:969"
+      ]
+    }
+  ],
+  "fail": []
+}

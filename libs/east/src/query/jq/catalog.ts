@@ -929,6 +929,8 @@ supported("pick", [1], "a struct of the picked fields", ctx => {
   return perMember(ctx, ctx.input, member => {
     const build = (t: EastType, rest: readonly string[]): EastType | undefined => {
       const u = unwrap(t);
+      // `null`'s fields are null, so picking from it builds the path, null at its end, as jq does.
+      if (u.type === "Null") return StructType({ [rest[0]!]: rest.length === 1 ? NullType : build(NullType, rest.slice(1))! });
       if (u.type !== "Struct" || !(rest[0]! in (u.fields as Record<string, EastType>))) return undefined;
       const inner = (u.fields as Record<string, EastType>)[rest[0]!]!;
       const picked = rest.length === 1 ? inner : build(inner, rest.slice(1));
@@ -941,6 +943,7 @@ supported("pick", [1], "a struct of the picked fields", ctx => {
 supported("transpose", [0], "nested loops, padding short rows with null", ctx => onInput(ctx, "an array of arrays", t => {
   if (t.type !== "Array") return undefined;
   const row = unwrap(t.value as EastType);
+  if (row.type === "Never") return one(ArrayType(ArrayType(NeverType)));
   if (row.type !== "Array") return undefined;
   const cell = orNull(row.value as EastType);
   return cell === undefined ? undefined : one(ArrayType(ArrayType(cell)));
@@ -1112,24 +1115,62 @@ supported("reverse", [0], "ArrayReverse; a string's code points reversed", ctx =
   const e = elementOf(t);
   return e === undefined ? undefined : one(ArrayType(e));
 }));
-supported("contains", [1], "StringContains; for arrays, a loop of StringContains / Equal", containment);
+supported("contains", [1], "StringContains for strings; loops of it for arrays, structs and dicts; Equal for other values", containment);
 supported("inside", [1], "contains, the other way round", containment);
-/** `contains` and `inside`: two strings, or two arrays of scalars of one type; either way round, the types match alike. */
+/**
+ * `contains` and `inside`: whether one value holds another, as jq's
+ * `contains` decides it. A string holds its substrings; an array holds an
+ * array whose every element some element of it holds; a struct or a dict
+ * holds one whose every field or key it has, holding its value; other
+ * values hold only an equal one.
+ */
 function containment(ctx: CallContext): Result {
-  const other = argOf(ctx, 0, "a string or an array of scalars", t => t.type === "String" || (t.type === "Array" && isScalar(t.value as EastType)));
-  if (other === undefined) return { shape: ERROR, mult: ONE };
-  return onInput(ctx, "a string or an array of scalars", t => {
-    const o = unwrap(other.type);
-    if (t.type === "String" && o.type === "String") return one(BooleanType, other.result.mult);
-    if (t.type === "Array" && o.type === "Array" && isScalar(t.value as EastType) && unify(t.value as EastType, o.value as EastType) !== undefined) return one(BooleanType, other.result.mult);
-    return undefined;
+  const other = ctx.arg(0);
+  if (other.shape.kind === "error") return { shape: ERROR, mult: ONE };
+  const ot = ctx.collect(other, 0);
+  if (ot === undefined) return { shape: ERROR, mult: ONE };
+  return perMember(ctx, ctx.input, member => {
+    const [outer, inner] = ctx.name === "contains" ? [member.type, ot] : [ot, member.type];
+    if (containable(outer, inner)) return one(BooleanType, other.mult);
+    // An input that can be null holds only null (§13.16): skip the nulls.
+    if (nullablePayload(unwrap(member.type)) !== undefined) return inputMismatch(ctx, "a value", member.type);
+    // jq raises for values whose containment it cannot check: in a lenient place, at run time.
+    return ctx.mismatch("type_mismatch", MESSAGES.argument(ctx.name, "first", `a value ${ctx.name === "contains" ? "held in" : "holding"} ${describeType(member.type)}`, describeType(ot)), 0);
   });
 }
+/** Whether values of type `inner` can be held in values of type `outer`, as `contains` compares them. */
+function containable(outer: EastType, inner: EastType): boolean {
+  const a = unwrap(outer);
+  const b = unwrap(inner);
+  if (b.type === "Never") return true;
+  if (a.type === "String" && b.type === "String") return true;
+  if (a.type === "Array" && b.type === "Array") return containable(a.value as EastType, b.value as EastType);
+  if (a.type === "Struct" && b.type === "Struct") {
+    const fields = a.fields as Record<string, EastType>;
+    // A field the outer struct lacks is never held: the answer is false, not an error.
+    return Object.entries(b.fields as Record<string, EastType>).every(([name, f]) => !(name in fields) || containable(fields[name]!, f));
+  }
+  if (a.type === "Dict" && b.type === "Dict") return isTypeEqual(unwrap(a.key as EastType), unwrap(b.key as EastType)) && containable(a.value as EastType, b.value as EastType);
+  if (a.type === "Dict" && b.type === "Struct" && Object.keys(b.fields).length === 0) return true;
+  return isScalar(a) && isScalar(b) && unify(a, b) !== undefined;
+}
 for (const [name, output] of [["index", "first"], ["rindex", "last"], ["indices", "all"]] as const) {
-  supported(name, [1], `StringIndexOf${output === "first" ? "" : " in a loop"} (strings)`, ctx => {
-    const s = argOf(ctx, 0, "a string", t => t.type === "String");
-    if (s === undefined) return { shape: ERROR, mult: ONE };
-    return onInput(ctx, "a string", t => t.type === "String" ? one(output === "all" ? ArrayType(IntegerType) : orNull(IntegerType)!, s.result.mult) : undefined);
+  supported(name, [1], `StringIndexOf${output === "first" ? "" : " in a loop"} (strings); Equal in a loop (arrays)`, ctx => {
+    const x = ctx.arg(0);
+    if (x.shape.kind === "error") return { shape: ERROR, mult: ONE };
+    const xt = ctx.collect(x, 0);
+    if (xt === undefined) return { shape: ERROR, mult: ONE };
+    const found = (): Result => one(output === "all" ? ArrayType(IntegerType) : orNull(IntegerType)!, x.mult);
+    return onInput(ctx, "a string or an array", t => {
+      const u = unwrap(xt);
+      if (t.type === "String") return u.type === "String" ? found() : ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, "first", "a string", describeType(xt)), { arg: 0 });
+      if (t.type !== "Array") return undefined;
+      // An element, or an array: a run of elements.
+      const element = t.value as EastType;
+      const wanted = u.type === "Array" ? u.value as EastType : xt;
+      if (wanted.type === "Never" || unify(element, wanted) !== undefined) return found();
+      return ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, "first", `${describeType(element)}, or an array of it`, describeType(xt)), { arg: 0 });
+    });
   });
 }
 supported("bsearch", [1], "ArrayFindSortedFirst, with jq's −1 − insertion point when absent", ctx => {
@@ -1185,13 +1226,17 @@ supported("nan", [0], "the Float NaN", () => one(FloatType));
 for (const name of ["isfinite", "isinfinite", "isnan", "isnormal"]) {
   supported(name, [0], "FloatAbs and comparisons", ctx => onInput(ctx, "a number", t => isNumber(t) ? one(BooleanType) : undefined));
 }
-supported("abs", [0], "IntegerAbs / FloatAbs", math("same"));
+// jq's `if . < 0 then -. else . end`: null and booleans, below every number, raise as they are negated.
+supported("abs", [0], "IntegerAbs / FloatAbs; other values as they are", ctx => onInput(ctx, "a number, or a value above every number", t => {
+  if (t.type === "Null" || t.type === "Boolean" || nullablePayload(t) !== undefined) return undefined;
+  return one(t);
+}));
 unavailable({ fromjson: [0] }, "its result has no static type; parse into a known type in the program that runs the query");
 unavailable(each(["implode", "explode"], [0]), "East has no builtin between a string and its code points");
 unavailable(each(["have_decnum", "have_literal_numbers"], [0]), "it describes jq's build, not the data");
 unavailable({ splits: [1, 2] }, "East regular expressions have no regex split");
 unavailable(each(["match", "capture", "scan"], [1, 2]), "East regular expressions have no capture groups (§13.8)");
-unavailable(each(["@base64d", "@base32d"], [0]), "no East builtin makes a Blob from bytes");
+unavailable(each(["@base64d", "@base32d", "@urid"], [0]), "no East builtin makes a Blob from bytes");
 
 // Strings.
 for (const name of ["startswith", "endswith"]) {
@@ -1202,10 +1247,11 @@ for (const name of ["startswith", "endswith"]) {
   });
 }
 for (const name of ["ltrimstr", "rtrimstr", "trimstr"]) {
-  supported(name, [1], "StringStartsWith / StringEndsWith and StringSubstring; other values as they are", ctx => {
+  // jq 1.8 raises for an input or an affix that is not a string (jq #2969).
+  supported(name, [1], "StringStartsWith / StringEndsWith and StringSubstring", ctx => {
     const s = argOf(ctx, 0, "a string", t => t.type === "String");
     if (s === undefined) return { shape: ERROR, mult: ONE };
-    return { shape: ctx.input.shape, mult: s.result.mult };
+    return onInput(ctx, "a string", t => t.type === "String" ? one(StringType, s.result.mult) : undefined);
   });
 }
 for (const [name, east] of [["trim", "StringTrim"], ["ltrim", "StringTrimStart"], ["rtrim", "StringTrimEnd"], ["ascii_downcase", "StringLowerCase"], ["ascii_upcase", "StringUpperCase"]] as const) {
@@ -1438,11 +1484,11 @@ const RULES: Readonly<Record<string, readonly [rule: string, outputs: string]>> 
   min: ["Array<T> → Option<T>", "one"],
   max: ["Array<T> → Option<T>", "one"],
   reverse: ["Array<T> → Array<T>; String → String; null → []", "one"],
-  contains: ["two strings, or two arrays of scalars → Boolean", "one"],
-  inside: ["two strings, or two arrays of scalars → Boolean", "one"],
-  index: ["String, String → Option<Integer>", "one"],
-  rindex: ["String, String → Option<Integer>", "one"],
-  indices: ["String, String → Array<Integer>", "one"],
+  contains: ["two strings, arrays, structs or dicts, or equal values → Boolean", "one"],
+  inside: ["two strings, arrays, structs or dicts, or equal values → Boolean", "one"],
+  index: ["String, String → Option<Integer>; Array<T> and a T or an Array<T> → Option<Integer>", "one"],
+  rindex: ["String, String → Option<Integer>; Array<T> and a T or an Array<T> → Option<Integer>", "one"],
+  indices: ["String, String → Array<Integer>; Array<T> and a T or an Array<T> → Array<Integer>", "one"],
   bsearch: ["Array<T>, T → Integer", "one"],
   join: ["Array of strings, numbers, booleans or nulls; String → String", "one"],
   type: ["any → String: `null`, `boolean`, `number`, `string`, `array`, `object`, `datetime`, `blob` or `function`; `type == \"…\"` narrows", "one"],
@@ -1468,12 +1514,12 @@ const RULES: Readonly<Record<string, readonly [rule: string, outputs: string]>> 
   isinfinite: ["a number → Boolean", "one"],
   isnan: ["a number → Boolean", "one"],
   isnormal: ["a number → Boolean", "one"],
-  abs: ["Integer → Integer; Float → Float", "one"],
+  abs: ["Integer → Integer; Float → Float; strings, arrays, objects as they are", "one"],
   startswith: ["String, String → Boolean", "one"],
   endswith: ["String, String → Boolean", "one"],
-  ltrimstr: ["String, String → String; other values as they are", "one"],
-  rtrimstr: ["String, String → String; other values as they are", "one"],
-  trimstr: ["String, String → String; other values as they are", "one"],
+  ltrimstr: ["String, String → String", "one"],
+  rtrimstr: ["String, String → String", "one"],
+  trimstr: ["String, String → String", "one"],
   trim: ["String → String", "one"],
   ltrim: ["String → String", "one"],
   rtrim: ["String → String", "one"],

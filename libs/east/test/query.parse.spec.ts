@@ -91,6 +91,11 @@ function holds(node: JqNode, jqCase: string): boolean {
 describe("the corpus (P1)", () => {
   for (const c of QUERY_CORPUS) {
     test(c.name, () => {
+      // A case with no canonical text is a program that does not parse; its problems are C1's.
+      if (c.canonical === "") {
+        assert.equal(parseJq(c.program).program.type, "none", `${c.program} parses, but its case has no canonical text`);
+        return;
+      }
       const program = programOf(c.program);
       const jqCase = c.name.split("-")[0]!;
       if (Object.keys(JqType.node.cases).includes(jqCase)) {
@@ -578,7 +583,9 @@ describe("the lexer (P4)", () => {
 describe("spans", () => {
   test("pathAt finds a node covering every offset of every corpus program", () => {
     for (const c of QUERY_CORPUS) {
-      const { spans } = parseJq(c.program);
+      const { program, spans } = parseJq(c.program);
+      // A program that does not parse has no spans (P3).
+      if (program.type === "none") continue;
       for (let offset = 0; offset <= c.program.length; offset++) {
         const path = pathAt(spans, offset);
         assert.ok(path !== undefined, `${c.name}: nothing at ${offset}`);

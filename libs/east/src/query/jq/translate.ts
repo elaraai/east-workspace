@@ -696,6 +696,8 @@ export class Translator {
     const from = this.type(e);
     if (isTypeEqual(from, to)) return this.as(e, to);
     if (from.type === "Never") return this.as(e, to);
+    // An option of Never is always none: as Null, it is null.
+    if (to.type === "Null" && nullablePayload(from)?.type === "Never") { this.bind($, e, "none"); return this.null(path); }
     const toPayload = nullablePayload(to);
     if (toPayload !== undefined) {
       if (from.type === "Null") return this.none(to);
@@ -771,10 +773,18 @@ export class Translator {
     if (this.ended($)) return;
     const from = this.type(e);
     if (isTypeEqual(from, to)) { emit($, this.as(e, to)); return; }
+    // An option of Never is always none: null, where null can go.
+    if (nullablePayload(from)?.type === "Never") {
+      this.bind($, e, "none");
+      if (to.type === "Null" || nullablePayload(to) !== undefined) emit($, this.bind($, this.widenTo($, this.null(path), to, path), "value"));
+      return;
+    }
     if (nullablePayload(to) === undefined) {
       if (from.type === "Null") return;
       if (nullablePayload(from) !== undefined) {
-        this.match($, e, { some: ($2, p) => this.emitAs($2, p, to, path, emit) }, path);
+        // Proved null, an option gives its none; proved present, its value.
+        if (to.type === "Null") this.match($, e, { none: $2 => emit($2, this.null(path)) }, path);
+        else this.match($, e, { some: ($2, p) => this.emitAs($2, p, to, path, emit) }, path);
         return;
       }
     }
@@ -999,13 +1009,7 @@ export class Translator {
         return;
       }
       case "negate":
-        this.gen(node.value, at("negate"), $, x, env, ($2, v) => {
-          const o = this.open(v);
-          const t = this.type(o);
-          if (t.type === "Integer") emit($2, this.b("IntegerNegate", [], [o], IntegerType, path));
-          else if (t.type === "Float") emit($2, this.b("FloatNegate", [], [o], FloatType, path));
-          else this.raise($2, `${jqKind(t)} cannot be negated`, path);
-        });
+        this.gen(node.value, at("negate"), $, x, env, ($2, v) => this.negate($2, v, path, emit));
         return;
       case "binary":
         this.genBinary(node, path, $, x, env, emit);
@@ -1053,6 +1057,21 @@ export class Translator {
         this.genUpdate(node, path, $, x, env, emit);
         return;
     }
+  }
+
+  /**
+   * `-v`: a number negated. Any other value raises jq's error, naming its
+   * kind, as a lenient place (`try`, `?`) lets it by; an option is null, or
+   * its value.
+   */
+  negate($: Block, v: Expr, path: string, emit: Emit): void {
+    const o = this.open(v);
+    const t = this.type(o);
+    if (t.type === "Integer") emit($, this.b("IntegerNegate", [], [o], IntegerType, path));
+    else if (t.type === "Float") emit($, this.b("FloatNegate", [], [o], FloatType, path));
+    else if (nullablePayload(t) !== undefined) {
+      this.match($, o, { none: $2 => this.raise($2, "null cannot be negated", path), some: ($2, p) => this.negate($2, p, path, emit) }, path);
+    } else this.raise($, `${jqKind(t)} cannot be negated`, path);
   }
 
   /** `$__loc__`: where a node is, as jq gives it. */
@@ -1413,10 +1432,14 @@ export class Translator {
           return;
         }
         const entry = entries[i]!;
-        if (entry.key.type !== "computed" || entry.value.type !== "some") throw this.gap("a dict entry without a computed key and a value");
+        if (entry.key.type !== "computed") throw this.gap("a dict entry without a computed key");
+        const value = entry.value;
         this.gen(entry.key.value as JqNode, childPath(path, `object[${i}].key.computed`), $2, x, env, ($3, k) => {
           const key = this.bind($3, k, "key");
-          this.gen(entry.value.value as JqNode, childPath(path, `object[${i}].value.some`), $3, x, env, ($4, v) => step($4, i + 1, [...pairs, [key, this.bind($4, v, "value")]]));
+          const next = ($4: Block, v: Expr): void => step($4, i + 1, [...pairs, [key, this.bind($4, v, "value")]]);
+          // `{"\(f)"}` holds the input's value at the key, `.[key]`.
+          if (value.type === "none") this.indexOf($3, this.expr(x, path), key, false, path, next);
+          else this.gen(value.value as JqNode, childPath(path, `object[${i}].value.some`), $3, x, env, next);
         });
       };
       step($, 0, []);
@@ -1556,6 +1579,12 @@ export class Translator {
       if (nullablePayload(tb) !== undefined) {
         return this.matchAuto(vb, { none: () => va, some: ($2, p) => this.arith($2, op, va, p, path) }, path);
       }
+    } else if (nullablePayload(ta) !== undefined || nullablePayload(tb) !== undefined) {
+      // An option is null or its value: null raises, as jq raises where a lenient place lets it by, and a value is combined.
+      if (nullablePayload(ta) !== undefined) {
+        return this.matchAuto(va, { none: $2 => this.arith($2, op, this.null(path), vb, path), some: ($2, p) => this.arith($2, op, p, vb, path) }, path);
+      }
+      return this.matchAuto(vb, { none: $2 => this.arith($2, op, va, this.null(path), path), some: ($2, p) => this.arith($2, op, va, p, path) }, path);
     }
     const number = (t: EastType): boolean => t.type === "Integer" || t.type === "Float";
     if (number(ta) && number(tb)) {
@@ -1564,11 +1593,7 @@ export class Translator {
         this.ifElse($, this.b("Equal", [FloatType], [divisor, this.float(0)], BooleanType, path), $2 => this.raise($2, "Division by zero", path), undefined, path);
         return this.b("FloatDivide", [], [this.widenTo($, va, FloatType, path), divisor], FloatType, path);
       }
-      if (op === "%") {
-        // jq truncates both sides to integers.
-        const whole = (v: Expr, t: EastType): Expr => t.type === "Integer" ? v : this.round("roundTrunc", v, $, path);
-        return this.b("IntegerRemainder", [], [whole(va, ta), whole(vb, tb)], IntegerType, path);
-      }
+      if (op === "%") return this.remainder($, va, vb, path);
       const name = ARITHMETIC_BUILTINS[op]!;
       if (ta.type === "Integer" && tb.type === "Integer") return this.b(`Integer${name}` as BuiltinName, [], [va, vb], IntegerType, path);
       return this.b(`Float${name}` as BuiltinName, [], [this.widenTo($, va, FloatType, path), this.widenTo($, vb, FloatType, path)], FloatType, path);
@@ -1600,15 +1625,58 @@ export class Translator {
       return out;
     }
     if (op === "+" && (ta.type === "Dict" || tb.type === "Dict") && (ta.type === "Struct" || tb.type === "Struct")) return ta.type === "Dict" ? va : vb;
-    if (op === "*" && ta.type === "String" && tb.type === "Integer") {
-      // A negative count gives null; zero, the empty string.
-      const option = OptionType(StringType);
-      return this.ifValue(this.lt(vb, this.int(0), path),
-        () => this.none(option),
-        () => this.some(this.b("StringRepeat", [], [va, vb], StringType, path), option), option, path);
-    }
+    // A string repeated, the count a number on either side.
+    if (op === "*" && ta.type === "String" && number(tb)) return this.repeat($, va, vb, path);
+    if (op === "*" && number(ta) && tb.type === "String") return this.repeat($, vb, va, path);
     if (op === "/" && ta.type === "String" && tb.type === "String") return this.b("StringSplit", [], [va, vb], ArrayType(StringType), path);
     return this.failure(`${jqKind(ta)} and ${jqKind(tb)} cannot be combined with ${op}`, path);
+  }
+
+  /**
+   * jq's `%`: the remainder of the numbers truncated to 64-bit integers, one
+   * beyond the range taken as its end (±Infinity too). Integers give an
+   * Integer; with a Float, a NaN gives NaN, and the remainder is a Float. A
+   * divisor of 0 raises, as IntegerRemainder does.
+   */
+  private remainder($: Block, a: Expr, b: Expr, path: string): Expr {
+    if (this.type(a).type === "Integer" && this.type(b).type === "Integer") return this.b("IntegerRemainder", [], [a, b], IntegerType, path);
+    const x = this.bind($, this.widenTo($, a, FloatType, path), "dividend");
+    const y = this.bind($, this.widenTo($, b, FloatType, path), "divisor");
+    const nan = this.b("BooleanOr", [], [this.isNan(x, path), this.isNan(y, path)], BooleanType, path);
+    return this.ifValue(nan, () => this.float(NaN, path), $2 => {
+      const r = this.b("IntegerRemainder", [], [this.truncated($2, x, path), this.truncated($2, y, path)], IntegerType, path);
+      return this.b("IntegerToFloat", [], [r], FloatType, path);
+    }, FloatType, path);
+  }
+
+  /** A Float truncated to an Integer as jq's `dtoi` takes it: below the range its least, above it its greatest. */
+  private truncated($: Block, f: Expr, path: string): Expr {
+    return this.bind($, this.ifValue(this.lt(f, this.float(-(2 ** 63)), path), () => this.int(-(2n ** 63n)),
+      () => this.ifValue(this.b("GreaterEqual", [FloatType], [f, this.float(2 ** 63)], BooleanType, path), () => this.int(2n ** 63n - 1n),
+        $2 => this.round("roundTrunc", f, $2, path), IntegerType, path), IntegerType, path), "whole");
+  }
+
+  /**
+   * jq's string repetition: `n` copies of a string, a Float count truncated,
+   * at most 2³¹ − 1 as jq takes it. A negative count, or NaN, gives null.
+   */
+  private repeat($: Block, s: Expr, n: Expr, path: string): Expr {
+    const option = OptionType(StringType);
+    const count = this.bind($, n, "count");
+    if (this.type(count).type === "Integer") {
+      return this.ifValue(this.lt(count, this.int(0), path), () => this.none(option),
+        () => this.some(this.b("StringRepeat", [], [s, count], StringType, path), option), option, path);
+    }
+    const invalid = this.b("BooleanOr", [], [this.lt(count, this.float(0), path), this.isNan(count, path)], BooleanType, path);
+    return this.ifValue(invalid, () => this.none(option), $2 => {
+      const capped = this.ifValue(this.lt(count, this.float(2 ** 31 - 1), path), () => count, () => this.float(2 ** 31 - 1), FloatType, path);
+      return this.some(this.b("StringRepeat", [], [s, this.round("roundTrunc", capped, $2, path)], StringType, path), option);
+    }, option, path);
+  }
+
+  /** Whether a Float is NaN: East's order puts it above +Infinity. */
+  isNan(f: Expr, path: string): Expr {
+    return this.lt(this.float(Infinity), f, path);
   }
 
   /** An expression that raises an error: of type Never, so it stands for a value of any type. */
@@ -1635,14 +1703,19 @@ export class Translator {
       if (build === undefined) throw this.gap(`no value for the case ${name}`);
       const value = build(block, fromAst(variable) as Expr);
       built.push({ name, variable, block, value });
-      if (this.ended(block)) continue;
+      if (this.ended(block) || this.type(value).type === "Never") continue;
       const next = unify(type, this.type(value));
       if (next === undefined) throw this.gap(`${printType(type)} and ${printType(this.type(value))} as one value`);
       type = next;
     }
     const out: Record<string, { variable: VariableAST; body: AST }> = {};
     for (const { name, variable, block, value } of built) {
-      if (this.ended(block)) { out[name] = { variable, body: { ast_type: "Block", type: NeverType, loc_id: UNKNOWN_LOC_ID, statements: block.statements } }; continue; }
+      // A case that raises: its statements, the error last.
+      if (this.ended(block) || this.type(value).type === "Never") {
+        const statements = this.ended(block) ? block.statements : [...block.statements, this.ast(value)];
+        out[name] = { variable, body: { ast_type: "Block", type: NeverType, loc_id: UNKNOWN_LOC_ID, statements } };
+        continue;
+      }
       const w = this.widenTo(block, value, type, path);
       out[name] = { variable, body: block.statements.length === 0 ? this.ast(w) : { ast_type: "Block", type, loc_id: UNKNOWN_LOC_ID, statements: [...block.statements, this.ast(w)] } };
     }
@@ -1747,6 +1820,8 @@ export class Translator {
     const caught = handler === undefined ? undefined : this.declare($, this.none(OptionType(StringType)), "caught");
     this.tryCatch($, $2 => {
       this.gen(node.value.body, bodyPath, $2, x, env, ($3, v) => {
+        // An output after an error the body always raises never comes.
+        if (this.ended($3)) return;
         if (kept === undefined) throw this.gap("a try whose outputs have no one type");
         this.push($3, kept, v, path);
       });
@@ -1798,13 +1873,24 @@ export class Translator {
         return;
       }
       // `?//`: the first pattern that binds and whose body raises no error;
-      // the body's outputs are kept, then given on.
+      // the body's outputs are kept, then given on. A variable only another
+      // pattern binds is null, as jq binds it.
       const type = this.typeAt(bodyPath, env);
       const kept = this.declare($2, this.emptyArray(type), "kept");
+      const names = [...new Set(patterns.flatMap(patternNames))];
+      const scope = this.checked.scopeAt(bodyPath, env.instance);
       const attempt = ($3: Block, i: number): void => {
         const run = ($4: Block): void => {
           this.destructure($4, patterns[i]!, childPath(path, `bind.patterns[${i}]`), s, env, bodyPath, ($5, vars) => {
-            this.gen(body, bodyPath, $5, x, { ...env, vars }, ($6, v) => this.push($6, kept, v, path));
+            const own = new Set(patternNames(patterns[i]!));
+            const all = new Map(vars);
+            for (const name of names) {
+              if (own.has(name)) continue;
+              const checked = scope?.vars.get(name);
+              const nullType = checked === undefined ? undefined : unifyShape(checked.shape);
+              all.set(name, this.bind($5, nullType === undefined ? this.null(path) : this.widenTo($5, this.null(path), nullType, path), name));
+            }
+            this.gen(body, bodyPath, $5, x, { ...env, vars: all }, ($6, v) => this.push($6, kept, v, path));
           });
         };
         if (i === patterns.length - 1) { run($3); return; }
@@ -1969,6 +2055,22 @@ export class Translator {
   genBuiltin(name: string, args: readonly JqNode[], argPaths: readonly string[], path: string, $: Block, x: Value, env: Env, emit: Emit): void {
     const rule = BUILTIN_RULES[name];
     if (rule === undefined) throw this.gap(`no translation for the builtin ${name}/${args.length}`);
+    // Checked in a lenient place with its input's options opened: the builtin is given the value, and null,
+    // or where it cannot take null, jq's error for it.
+    const opened = isRoot(x) ? null : this.checked.opened(path, env.instance);
+    if (opened !== null) {
+      const o = this.open(x as Expr);
+      if (nullablePayload(this.type(o)) !== undefined) {
+        this.match($, o, {
+          none: $2 => {
+            if (opened.nullRaises) this.raise($2, `null cannot be used with ${name}`, path);
+            else rule(this, { name, path, args, argPaths, $: $2, x: this.null(path), env, emit });
+          },
+          some: ($2, p) => rule(this, { name, path, args, argPaths, $: $2, x: p, env, emit }),
+        }, path);
+        return;
+      }
+    }
     rule(this, { name, path, args, argPaths, $, x, env, emit });
   }
 
@@ -2178,6 +2280,13 @@ export class Translator {
     const e = this.open(v);
     const t = this.type(e);
     if (t.type === "Variant" && nullablePayload(t) === undefined && name === "value") return this.setPayload(e, path, env, f);
+    if (nullablePayload(t) !== undefined) {
+      // An option: `null` is updated as null is, and a value as it is; the checker gave the two one type.
+      return this.matchAuto(e, {
+        none: $2 => this.setField($2, this.null(path), name, optional, path, env, f),
+        some: ($2, p) => this.setField($2, p, name, optional, path, env, f),
+      }, path);
+    }
     if (t.type === "Null") {
       const next = f($, this.null(path));
       if (next === undefined) return e;
@@ -2250,9 +2359,11 @@ export class Translator {
     const e = this.open(v);
     const t = this.type(e);
     if (t.type === "Array") {
+      // A key that is not an Integer (in a `try`, or after `?`, where the checker lets it by) raises, as jq does.
+      if (this.type(key).type !== "Integer") { this.raise($, `Cannot update an array at a ${jqKind(this.type(key))} index`, path); return v; }
       const element = t.value as EastType;
       const source = this.bind($, e, "array");
-      const i = this.declare($, this.widenTo($, key, IntegerType, path), "index");
+      const i = this.declare($, key, "index");
       this.ifElse($, this.lt(i, this.int(0), path), $2 => this.assign($2, i, this.add(i, this.size(source, path), path)), undefined, path);
       const next = f($, this.b("ArrayGet", [element], [source, i], element, path));
       if (next === undefined) return this.without($, source, i, path);
@@ -2703,6 +2814,17 @@ const ORDERINGS: Readonly<Record<string, (order: number) => boolean>> = {
 };
 
 const ARITHMETIC_BUILTINS: Readonly<Record<string, string>> = { "+": "Add", "-": "Subtract", "*": "Multiply" };
+
+/** The variables a pattern binds. */
+function patternNames(pattern: JqPattern): string[] {
+  switch (pattern.type) {
+    case "variable": return [pattern.value];
+    case "array": return (pattern.value as JqPattern[]).flatMap(patternNames);
+    case "object":
+      return (pattern.value as { key: string; value: { type: "none" | "some"; value: any } }[])
+        .flatMap(entry => entry.value.type === "none" ? [entry.key] : patternNames(entry.value.value as JqPattern));
+  }
+}
 
 /** Whether a node calls a def by `name/arity`, outside any def of the same name inside it. */
 function callsItself(node: JqNode, key: string): boolean {
