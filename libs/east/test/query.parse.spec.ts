@@ -10,10 +10,12 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  BooleanType, DateTimeType, FloatType, IntegerType, JqType, NullType, QueryErrorType, QuerySpanType, StringType,
+  ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, JqType, NullType, QueryErrorType, QuerySpanType,
+  StringType,
   encodeBeast2For, equalFor, lexJq, none, parseFor, parseJq, pathAt, printJq, some, spanOf, toQuerySpan, variant,
   type JqNode, type JqPattern, type JqSpans, type JqTokenKind, type ValueTypeOf,
 } from "../src/index.js";
+import { DateTimeFormatTokenType } from "../src/datetime_format/types.js";
 import { jqChildren } from "../src/query/jq/spans.js";
 import { QUERY_CORPUS } from "./query.corpus.js";
 
@@ -339,11 +341,25 @@ describe("canonical text", () => {
     });
   }
 
-  test("prints nothing that reads back as another program", () => {
+  test("prints a checked program's rewritten literals as the text they were rewritten from", () => {
     const date = parseFor(DateTimeType)("2026-09-01T00:00:00.000");
     assert.ok(date.success);
+    const tokens = encodeBeast2For(ArrayType(DateTimeFormatTokenType))([
+      variant("year4", null), variant("literal", "-%"), variant("month2", null),
+    ]);
+    const program: JqNode = variant("comma", {
+      left: variant("comma", {
+        left: variant("literal", encodeBeast2For(DateTimeType)(date.value)),
+        right: variant("call", { args: [variant("literal", tokens)], name: "strftime" }),
+      }),
+      right: variant("literal", encodeBeast2For(ArrayType(StringType))(["a", "b"])),
+    });
+    assert.equal(printJq(program).text, "\"2026-09-01T00:00:00.000+00:00\", strftime(\"%Y-%%%m\"), [\"a\", \"b\"]");
+  });
+
+  test("prints nothing that reads back as another program", () => {
     const refused: readonly (readonly [JqNode, RegExp])[] = [
-      [variant("literal", encodeBeast2For(DateTimeType)(date.value)), /a DateTime literal has no jq text/],
+      [variant("literal", encodeBeast2For(BlobType)(new Uint8Array([1, 2]))), /a Blob literal has no jq text/],
       [variant("call", { args: [], name: "if" }), /"if" is not a jq function name/],
       [variant("call", { args: [], name: "true" }), /"true" is not a jq function name/],
       [variant("binary", { left: variant("identity", null), op: "**", right: variant("identity", null) }), /"\*\*" is not a jq binary operator/],
