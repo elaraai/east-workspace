@@ -195,11 +195,17 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 key: `status:${ws}`,
                 intervalMs: 1_000,
                 run: async () => {
+                    // Nothing deployed when last looked, and no status since: a status
+                    // now is a deploy that ended, perhaps between two looks.
+                    const seen = store.getState().data;
+                    const wasEmpty = seen.workspaceState[ws] === null && seen.status[ws] === undefined;
                     let locked = true;
+                    let deployed = false;
                     try {
                         const result = await api.workspaceStatus(ws);
                         store.dispatch({ type: 'data/status', ws, result, at: (deps.clock?.now ?? Date.now)() });
                         locked = result.lock.type === 'some';
+                        deployed = true;
                     } catch (err) {
                         // Nothing deployed has no status: not an error, and a first
                         // deploy shows through the lock it holds.
@@ -211,7 +217,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     }
                     // What holds the workspace, and how far it has got, read only while something may.
                     const lock = locked ? await api.workspaceLock(ws) : null;
-                    const deployEnded = store.getState().data.lock[ws]?.state.operation.type === 'deployment' && lock === null;
+                    const deployEnded = (store.getState().data.lock[ws]?.state.operation.type === 'deployment' && lock === null) || (wasEmpty && deployed);
                     store.dispatch({ type: 'data/lock', ws, lock });
                     // A deploy that has let go has changed what the title, the tasks and the inputs
                     // show: read them now, not on their next turns.

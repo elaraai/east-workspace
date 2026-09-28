@@ -10,9 +10,9 @@ import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType,
     RecursiveType, RefType, SetType, StringType, StructType, VariantType, VectorType,
     East, SortedMap, SortedSet, compareFor, equalFor, none, ref, some, variant, type option,
-    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_COUNT, decodeBeast2For,
+    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_COUNT, checkBeast2WriterSegmentsFor, decodeBeast2For,
     decodeCollectionManifest, encodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR,
-    mergeBeast2For, recutBeast2For, segmentKeyTypeOf, spliceBeast2, spliceBeast2Tail,
+    mergeBeast2For, readBeast2Extents, recutBeast2For, segmentKeyTypeOf, spliceBeast2, spliceBeast2Tail,
     type Beast2RecutPiece, type Beast2Segment, type Beast2SegmentRef, type EastIR, type EastType, type ValueTypeOf,
 } from "../src/index.js";
 
@@ -489,6 +489,15 @@ describe("beast2 conformance corpus", () => {
                     { elements: elements.slice(a, b) as never[] },
                     { segments: segmentRefsOf(c.type, elements.slice(b)) },
                 ]), paged, "re-cut from pieces");
+
+                // The Writer check proves every segment of the paged blob: what
+                // a store carries as it stands when a delivery holds it.
+                const extents = readBeast2Extents({ size: paged.length, read: (offset, length) => paged.subarray(offset, offset + length) });
+                let proved = 0;
+                for await (const segment of checkBeast2WriterSegmentsFor(c.type)(extents, (offset, length) => Promise.resolve(paged.subarray(offset, offset + length)))) {
+                    assert.equal(segment.index, proved++);
+                }
+                assert.equal(proved, extents.offsets.length, "the Writer check proves every segment");
 
                 valueCases.push({ name: c.name, value: whole, paged, manifest });
             });

@@ -28,8 +28,9 @@
  *   the file.
  * - A delivered file is checked: every runtime's Writer writes the same bytes
  *   for a value, so a file one of them wrote is already the store's. Each of
- *   its segments is proved the Writer's — its frame deflated again, byte for
- *   byte, and its start and bounds held to the cut rule — and stored as it
+ *   its segments is proved the Writer's — every element held to the Writer's
+ *   encoding and walked through the cut rule, which must cut exactly where the
+ *   file does, and its frame deflated again, byte for byte — and stored as it
  *   stands as it is proved. A file the check refuses anywhere is foreign.
  * - Everything else is foreign: an upload, a custom task's output, a delivered
  *   file the check refused. Its elements are read a segment of the source at a

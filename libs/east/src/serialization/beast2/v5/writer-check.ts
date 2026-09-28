@@ -12,27 +12,25 @@
  * (`decodeBeast2ElementsFor`). But every runtime's Writer writes the same
  * bytes for a value, so a blob one of them wrote is already the store's bytes,
  * and writing it again decodes and encodes every element only to reproduce its
- * input. This check proves such a blob's segments instead, for the cost of
- * deflating each one again:
+ * input. This check proves such a blob instead, for the cost of stepping over
+ * each element and deflating each segment again:
  *
  * - its header is the Writer's for its type, and its segments are
  *   self-contained;
+ * - each element is the Writer's encoding of the element it holds, stepped
+ *   over without being decoded (`canonicalSkipperFor`) against a definition
+ *   table of its own, and a Set's elements or a Dict's keys strictly ascend
+ *   across the whole blob;
+ * - the elements, walked in order through the cutter, start a segment exactly
+ *   where the blob's segments start, and nowhere else;
  * - each segment's frame is the pinned deflate of its logical bytes, byte for
- *   byte;
- * - each segment but the first starts where the cut rule starts one after the
- *   segment before it, which takes its first element, walked against a
- *   definition table of its own; and a Set's or Dict's first keys ascend;
- * - no segment of more than one element reaches {@link SEGMENT_MAX_BYTES}: the
- *   rule lets a segment pass it only through its last element, which cannot be
- *   told apart without walking the segment, so such a segment is read as
- *   foreign;
- * - the last segment, which no start follows, is walked whole through the
- *   cutter, which must start no segment inside it.
+ *   byte.
  *
  * What a writer batched, what an older rule cut, a frame deflated another way,
- * an element that aliases another: each fails the check, and the caller reads
- * the blob as foreign. The deflates run on the frame pool's workers where there
- * is a pool, so the check's cost spreads over cores.
+ * an element that aliases another, one that decodes but would encode otherwise:
+ * each fails the check, and the caller reads the blob as foreign. The walk runs
+ * on the calling thread; the deflates run on the frame pool's workers where
+ * there is a pool, so most of the check's cost spreads over cores.
  *
  * A segment larger than {@link RUN_MAX_BYTES}, the most a collection is read in
  * at once, fails too, before it is read, or before it is inflated when only its
@@ -45,22 +43,14 @@ import { BufferReader, BufferWriter } from "../../binary-utils.js";
 import { type EastTypeValue, isTypeValueEqual } from "../../../type_of_type.js";
 import type { EastType } from "../../../types.js";
 import { compareFor } from "../../../comparison.js";
-import { buildPlatformContext } from "../shared.js";
-import { asTypeValue, readTypeSection } from "./type-section.js";
-import { MAGIC_BYTES_V5, type V5DecodeContext, isSegmentedRoot, readSourceMapSectionV5 } from "./codec.js";
+import { asTypeValue } from "./type-section.js";
+import { isSegmentedRoot } from "./codec.js";
 import { CODEC_NONE, FRAME_HEADER_MAX, type FrameHeader, inflateRawSync, readFrameHeader, writeFrame } from "./frames.js";
-import { type PendingFrame, framePool } from "./frame-pool.js";
+import { type FramePool, type PendingFrame, framePool } from "./frame-pool.js";
 import { RUN_MAX_BYTES } from "./runs.js";
-import {
-  SEGMENT_MAX_BYTES,
-  SEGMENT_MAX_COUNT,
-  SegmentCutter,
-  decodeBeast2FenceFor,
-  segmentKeyTypeOf,
-  startsSegmentAfter,
-} from "./boundary.js";
+import { SegmentCutter, decodeBeast2FenceFor, segmentKeyTypeOf } from "./boundary.js";
 import { Beast2ElementWriter } from "./stream.js";
-import { elementParserFor } from "./recut.js";
+import { Beast2NotCanonicalError, canonicalSkipperFor, canonicalVarint } from "./canonical.js";
 import type { Beast2RangedExtents } from "./range.js";
 
 /** A segment of a blob from outside, proved the Writer's. */
@@ -96,6 +86,10 @@ export type Beast2CheckRead = (offset: number, length: number) => Promise<Uint8A
 /** An Array segment's fence. */
 const NO_FENCE = new Uint8Array(0);
 
+/** How long a frame is waited for without blocking: far longer than a segment
+ *  takes to deflate, so past it the frame's worker may be gone. */
+const FRAME_POLL_MS = 1_000;
+
 /** Frames every check in the process has on the frame pool: kept to two per
  *  worker, as a Writer keeps its own, however many checks run at once. */
 let framesInFlight = 0;
@@ -113,11 +107,13 @@ let framesInFlight = 0;
  * The check throws {@link Beast2NotWritersError} at the first segment the Writer
  * would not have written, having yielded the ones before it: a caller that
  * needs the whole blob to be the Writer's discards them. An error a read throws
- * is its own. The segments in flight are what the check holds: up to one per
- * frame pool worker, and across every check in the process two per worker —
- * but always one of each check's, so each goes on — or one without a pool.
- * None is larger than {@link RUN_MAX_BYTES}: a larger one is refused before it
- * is read or inflated.
+ * is its own. A value holding a function is not proved: its captures' types are
+ * known only once its IR is decoded. The segments in flight are what the check
+ * holds: up to one per frame pool worker, and across every check in the process
+ * two per worker — but always one of each check's, so each goes on — or one
+ * without a pool. None is larger than {@link RUN_MAX_BYTES}: a larger one is
+ * refused before it is read or inflated. A frame whose worker is lost is framed
+ * on the calling thread, and the check frames the rest there too.
  *
  * @example
  * ```ts
@@ -140,27 +136,37 @@ export function checkBeast2WriterSegmentsFor(
   const keyType = segmentKeyTypeOf(typeValue);
   const decodeKey = keyType === null ? null : decodeBeast2FenceFor(keyType);
   const cmp = keyType === null ? null : compareFor(keyType) as (a: unknown, b: unknown) => number;
-  const parse = elementParserFor(typeValue);
+  // A Set's element is its key; a Dict's pair is its key, then its value; an
+  // Array's element has no key.
+  const skipKey = keyType === null ? null : canonicalSkipperFor(keyType);
+  const skipRest = typeValue.type === "Dict" ? canonicalSkipperFor((typeValue as { value: { value: EastTypeValue } }).value.value)
+    : typeValue.type === "Array" ? canonicalSkipperFor((typeValue as { value: EastTypeValue }).value)
+    : null;
   const header = new Beast2ElementWriter(typeValue, { segment: () => {} }).header;
-  const platform = buildPlatformContext();
 
   return async function* (extents, read) {
     if (!isTypeValueEqual(extents.typeValue, typeValue)) throw new Beast2NotWritersError("the blob holds another type");
     if (!extents.selfContained) throw new Beast2NotWritersError("the blob's segments alias one another");
     if (!bytesEqual(extents.head, header)) throw new Beast2NotWritersError("the blob's header is not the Writer's for its type");
-    const head = new BufferReader(extents.head, MAGIC_BYTES_V5.length);
-    readTypeSection(head);
-    const sourceMap = readSourceMapSectionV5(head);
-    const context = (): V5DecodeContext => ({ containers: [], sourceMap, frozen: false, ...platform });
 
-    const pool = framePool();
-    const queue: { segment: Beast2WriterSegment; framed: PendingFrame | Uint8Array }[] = [];
+    let pool = framePool();
+    /** A segment proved, and its frame built again: on this thread, or on the
+     *  pool it was handed to. */
+    type Queued = { segment: Beast2WriterSegment; framed: Uint8Array | { pending: PendingFrame; on: FramePool } };
+    const queue: Queued[] = [];
 
     /** A frame the pool is building, once it is done — or `null` when its
      *  worker failed or was lost. Taken exactly once, which frees its slot. */
-    const collect = async (pending: PendingFrame): Promise<Uint8Array | null> => {
+    const collect = async ({ pending, on }: { pending: PendingFrame; on: FramePool }): Promise<Uint8Array | null> => {
       try {
-        while (!pending.ready()) await new Promise((resolve) => setTimeout(resolve, 1));
+        // Waiting yields to the event loop, where the pool hears a worker fail
+        // and gives itself up. A frame on a pool given up, or not ready long
+        // past a deflate's time, is taken anyway: taking it fails at once on
+        // a pool given up, and waits out the pool's own bound on a lost worker.
+        const since = Date.now();
+        while (!pending.ready() && framePool() === on && Date.now() - since < FRAME_POLL_MS) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
         return pending.take();
       } catch {
         return null;
@@ -171,11 +177,14 @@ export function checkBeast2WriterSegmentsFor(
 
     /** Waits for a segment's frame to be built again, and holds it to the
      *  frame the blob holds. */
-    const settle = async (item: { segment: Beast2WriterSegment; framed: PendingFrame | Uint8Array }): Promise<Beast2WriterSegment> => {
-      const again = item.framed instanceof Uint8Array
-        ? item.framed
-        // A worker that failed or was lost leaves the frame to this thread.
-        : await collect(item.framed) ?? frameAgain(openFrame(item.segment.frame, item.segment.index, item.segment.count).logical);
+    const settle = async (item: Queued): Promise<Beast2WriterSegment> => {
+      let again = item.framed instanceof Uint8Array ? item.framed : await collect(item.framed);
+      if (again === null) {
+        // Its worker failed or was lost: this segment, and every one after,
+        // is framed on this thread.
+        pool = null;
+        again = frameAgain(openFrame(item.segment.frame, item.segment.index, item.segment.count).logical);
+      }
       if (!bytesEqual(again, item.segment.frame)) {
         throw new Beast2NotWritersError(`segment ${item.segment.index}'s frame is not the Writer's deflate of its bytes`);
       }
@@ -183,7 +192,8 @@ export function checkBeast2WriterSegmentsFor(
     };
 
     const n = extents.offsets.length;
-    let before: { count: number; bytes: number } | null = null;
+    const cutter = new SegmentCutter();
+    const defs: EastTypeValue[] = [];
     let lastKey: unknown;
     try {
       for (let i = 0; i < n; i++) {
@@ -198,63 +208,68 @@ export function checkBeast2WriterSegmentsFor(
           throw new Error(`beast2 v5: a read of segment ${i} returned ${frame.length} of its ${end - start} bytes`);
         }
         const count = extents.counts[i]!;
+        if (count < 1) throw new Beast2NotWritersError(`segment ${i} holds no elements`);
         const { logical, reader } = openFrame(frame, i, count);
-        const bytes = logical.length - reader.offset;
-        if (count < 1 || count > SEGMENT_MAX_COUNT || (count > 1 && bytes >= SEGMENT_MAX_BYTES)) {
-          throw new Beast2NotWritersError(`segment ${i} holds ${count} elements in ${bytes} bytes, past the cut rule's bounds`);
-        }
 
-        const firstStart = reader.offset;
-        const keyLength = parseElement(parse, reader, context, `segment ${i}'s first element`);
-        const first = logical.subarray(firstStart, reader.offset);
-        const hashInput = keyType === null ? first : first.subarray(0, keyLength);
-        if (before !== null && !startsSegmentAfter(before.count, before.bytes, hashInput)) {
-          throw new Beast2NotWritersError(`segment ${i} does not start where the cut rule starts one`);
-        }
-        if (decodeKey !== null) {
-          let key: unknown;
+        let fence = NO_FENCE;
+        for (let j = 0; j < count; j++) {
+          const at = reader.offset;
+          defs.length = 0;
+          let keyEnd = at;
           try {
-            key = decodeKey(hashInput);
-          } catch (err) {
-            throw new Beast2NotWritersError(`segment ${i}'s first key does not decode (${messageOf(err)})`);
-          }
-          if (i > 0 && cmp!(lastKey, key) >= 0) {
-            throw new Beast2NotWritersError(`segment ${i}'s first key does not follow the segment before it`);
-          }
-          lastKey = key;
-        }
-        if (i === n - 1) {
-          // Nothing follows the last segment to say where it ends, so its
-          // elements are walked: the rule must start no segment inside it.
-          const cutter = new SegmentCutter();
-          cutter.startsSegment(first.length, hashInput);
-          for (let k = 1; k < count; k++) {
-            const at = reader.offset;
-            const length = parseElement(parse, reader, context, `the last segment's element ${k}`);
-            const element = logical.subarray(at, reader.offset);
-            if (cutter.startsSegment(element.length, keyType === null ? element : element.subarray(0, length))) {
-              throw new Beast2NotWritersError(`the cut rule starts a segment inside the last segment, at its element ${k}`);
+            if (skipKey !== null) {
+              skipKey(reader, defs);
+              keyEnd = reader.offset;
             }
+            skipRest?.(reader, defs);
+          } catch (err) {
+            if (!(err instanceof Beast2NotCanonicalError)) throw err;
+            throw new Beast2NotWritersError(`segment ${i}'s element ${j} is not the Writer's encoding: ${err.message.replace(/^beast2 v5: /, "")}`);
           }
-          if (reader.offset !== logical.length) {
-            throw new Beast2NotWritersError(`the last segment holds ${logical.length - reader.offset} bytes after its elements`);
+          const element = logical.subarray(at, reader.offset);
+          const hashInput = keyType === null ? element : logical.subarray(at, keyEnd);
+          // The rule starts a segment at the first element of every segment
+          // but the first, and at no other.
+          if (cutter.startsSegment(element.length, hashInput) !== (j === 0 && i > 0)) {
+            throw new Beast2NotWritersError(j === 0
+              ? `segment ${i} does not start where the cut rule starts one`
+              : `the cut rule starts a segment inside segment ${i}, at its element ${j}`);
           }
+          if (decodeKey !== null) {
+            let key: unknown;
+            try {
+              key = decodeKey(hashInput);
+            } catch (err) {
+              throw new Beast2NotWritersError(`segment ${i}'s element ${j}'s key does not decode (${messageOf(err)})`);
+            }
+            if ((i > 0 || j > 0) && cmp!(lastKey, key) >= 0) {
+              throw new Beast2NotWritersError(`segment ${i}'s element ${j} does not follow the one before it in the order of its keys`);
+            }
+            lastKey = key;
+            if (j === 0) fence = new Uint8Array(hashInput);
+          }
+        }
+        if (reader.offset !== logical.length) {
+          throw new Beast2NotWritersError(`segment ${i} holds ${logical.length - reader.offset} bytes after its elements`);
         }
 
-        const segment: Beast2WriterSegment = { index: i, frame, count, fence: keyType === null ? NO_FENCE : new Uint8Array(hashInput) };
+        const segment: Beast2WriterSegment = { index: i, frame, count, fence };
         if (pool === null) {
           queue.push({ segment, framed: frameAgain(logical) });
         } else {
           // Room on the pool: this check's frames up to a worker each, and every
           // check's up to two per worker, past which the oldest settles first.
-          while (queue.length > 0 && (queue.length >= pool.workers || framesInFlight >= 2 * pool.workers)) {
+          while (pool !== null && queue.length > 0 && (queue.length >= pool.workers || framesInFlight >= 2 * pool.workers)) {
             yield await settle(queue.shift()!);
           }
-          framesInFlight++;
-          queue.push({ segment, framed: pool.submit(logical, "deflate") });
+          if (pool === null) {
+            queue.push({ segment, framed: frameAgain(logical) });
+          } else {
+            framesInFlight++;
+            queue.push({ segment, framed: { pending: pool.submit(logical, "deflate"), on: pool } });
+          }
         }
-        before = { count, bytes };
-        while (queue.length > 0 && (queue[0]!.framed instanceof Uint8Array || queue[0]!.framed.ready())) {
+        while (queue.length > 0 && (queue[0]!.framed instanceof Uint8Array || queue[0]!.framed.pending.ready())) {
           yield await settle(queue.shift()!);
         }
       }
@@ -270,7 +285,8 @@ export function checkBeast2WriterSegmentsFor(
 }
 
 /** A segment's frame opened: its logical bytes, and a reader past its element
- *  count, which must be the one the index gives. */
+ *  count, which must be the one the index gives, written as the Writer writes
+ *  it. */
 function openFrame(frame: Uint8Array, index: number, count: number): { logical: Uint8Array; reader: BufferReader } {
   let h: FrameHeader;
   try {
@@ -292,7 +308,7 @@ function openFrame(frame: Uint8Array, index: number, count: number): { logical: 
   const reader = new BufferReader(logical, 0);
   let declared: number;
   try {
-    declared = reader.readVarint();
+    declared = canonicalVarint(reader, "its element count");
   } catch (err) {
     throw new Beast2NotWritersError(`segment ${index}'s frame does not open with its element count (${messageOf(err)})`);
   }
@@ -300,21 +316,6 @@ function openFrame(frame: Uint8Array, index: number, count: number): { logical: 
     throw new Beast2NotWritersError(`segment ${index}'s frame holds ${declared} elements, and the blob's index ${count}`);
   }
   return { logical, reader };
-}
-
-/** Steps over one element, against a definition table of its own, and
- *  returns its key's length — refusing an element that does not decode alone. */
-function parseElement(
-  parse: ReturnType<typeof elementParserFor>,
-  reader: BufferReader,
-  context: () => V5DecodeContext,
-  what: string,
-): number {
-  try {
-    return parse(reader, context());
-  } catch (err) {
-    throw new Beast2NotWritersError(`${what} does not decode on its own (${messageOf(err)})`);
-  }
 }
 
 /** The frame the Writer writes for a segment's logical bytes. */

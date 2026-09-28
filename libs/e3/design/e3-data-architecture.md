@@ -224,15 +224,14 @@ It checks the declared type and never decodes a value whole. Every door routes t
 - API `PUT`;
 - export.
 
-**The check.** Every runtime's Writer writes the same bytes for a value, so a delivery one of them wrote is already the store's. Writing it again would decode and encode every row only to reproduce its input. The check proves it instead, for the cost of deflating each segment again:
+**The check.** Every runtime's Writer writes the same bytes for a value, so a delivery one of them wrote is already the store's. Writing it again would decode and encode every row only to reproduce its input. The check proves it instead, for the cost of stepping over every row and deflating each segment again:
 - the delivery's header is the Writer's for its type, and its segments are self-contained;
+- each row is the Writer's encoding of the row it holds. It is stepped over without being decoded (east's `canonicalSkipperFor`), against a definition table of its own. Its varints are minimal, its strings well-formed UTF-8, and its NaNs the one NaN the encoder writes. Its containers are each written in one run, and its aliases name earlier containers of the same type. A Set's elements and a Dict's keys, inside it and across the delivery, strictly ascend;
+- the rows, walked in order through the cutter, start a segment exactly where the delivery's segments start, and nowhere else;
 - each frame is the pinned deflate of its logical bytes, byte for byte;
-- each segment but the first starts where the cut rule starts one after the segment before it, which takes its first row, walked against a definition table of its own;
-- a Set's or Dict's first keys ascend;
-- no segment of more than one row reaches 8 MiB, and none passes 64 MiB. A larger one, which the Writer writes only for a row that large, is refused before it is read or inflated, so the check never holds more of a delivery than reading it as foreign would;
-- the last segment, which no start follows, is walked whole through the cutter, which must start no segment inside it.
+- no segment passes 64 MiB. A larger one, which the Writer writes only for a row that large, is refused before it is read or inflated, so the check never holds more of a delivery than reading it as foreign would.
 
-What a writer batched, what an older rule cut, a frame deflated another way, a row that aliases another: each fails, and the delivery is foreign. The deflates run on the frame pool's workers, two frames in flight per worker across every check in the process, so the check spreads over cores.
+What a writer batched, what an older rule cut, a frame deflated another way, a row that aliases another or that decodes but would encode otherwise, a row holding a function: each fails, and the delivery is foreign. Checking only where each segment starts is not enough: the rule forces a cut at 4096 rows, so a file cut every 4096 rows starts every segment where the rule would. The walk runs on the calling thread, at about 650 MB/s of logical bytes; the deflates run on the frame pool's workers, two frames in flight per worker across every check in the process. A frame whose worker is lost is framed on the calling thread, as is every frame of the check after it.
 
 **The adoption memo.** A delivery the door has split is remembered by its SHA-256: the backend records the file's hash and the manifest it became. The hash is read first, so an adoption, or a transfer init, that finds a live entry points the dataset at that manifest without taking the file in again: an unchanged delivery costs a hash locally and a round trip remotely. An entry is not a GC root, and one whose manifest is gone is a miss.
 

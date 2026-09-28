@@ -186,4 +186,29 @@ describe('feeds', () => {
         ]);
         feeds.stop();
     });
+
+    test('a first deploy that begins and ends between two looks still has the title, the tasks and the inputs read again at once', async () => {
+        const api = fakeRepo();
+        api.workspace('scratch', { packageName: undefined, packageVersion: undefined });
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'scratch', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        await settle();
+        assert.equal(store.getState().data.workspaceState['scratch'], null);
+        // The whole deploy lands between two looks: no lock is ever seen.
+        Object.assign(api.workspace('scratch'), { packageName: 'demand', packageVersion: '1.5.0' });
+        const before = api.calls.length;
+        feeds.fire('status:scratch');
+        await settle();
+        assert.deepEqual(api.calls.slice(before).sort(), ['datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceStatus scratch']);
+        assert.equal(store.getState().data.workspaceState['scratch']?.packageVersion, '1.5.0');
+        // Once seen deployed, a status reads nothing more.
+        const after = api.calls.length;
+        feeds.fire('status:scratch');
+        await settle();
+        assert.deepEqual(api.calls.slice(after), ['workspaceStatus scratch']);
+        feeds.stop();
+    });
 });
