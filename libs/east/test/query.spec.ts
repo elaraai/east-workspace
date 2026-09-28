@@ -13,9 +13,9 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  ArrayType, DictType, EastError, East, Expr, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
+  ArrayType, DictType, EastError, East, Expr, FloatType, IntegerType, NeverType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
   SummaryLeafType, SummaryType, checkJq, compareFor, equalFor, evaluateJq, printFor, QueryError, some, summaryProgram, translateJq,
-  type EastType, type ValueTypeOf,
+  type ArrayExpr, type EastType, type ValueTypeOf,
 } from "../src/index.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
 import { BUILTIN_RULES, FORMATS } from "../src/query/jq/translate-builtins.js";
@@ -55,7 +55,24 @@ describeEast("East.jq", (test) => {
 
   test("error(v) raises v's East text", $ => {
     const n = $.const(7n, IntegerType);
-    $(assertEast.throws(East.jq(n, "error({code: .})"), /\(code=7\)/));
+    $(assertEast.throws(East.jq(n, "error({code: .})", OptionType(NeverType)), /\(code=7\)/));
+  });
+
+  test("the result is an expression of its result type, so its methods chain", $ => {
+    const xs = $.const([1n, 2n, 3n], ArrayType(IntegerType));
+    $(assertEast.equal(East.jq(xs, "map(. * 2)", ArrayType(IntegerType)).sum(), 12n));
+    $(assertEast.equal(East.jq(xs, "length", IntegerType).add(1n), 4n));
+    $(assertEast.equal(East.jq(xs, "first(.[] | select(. > 1))", OptionType(IntegerType)).unwrap("some"), 2n));
+  });
+});
+
+describe("East.jq's static type", () => {
+  test("a query without its result type does not type-check", () => {
+    // The directive is the assertion: the build fails if East.jq accepts a
+    // query without the result type that types its expression.
+    // @ts-expect-error East.jq's result type is required
+    const untyped = (xs: ArrayExpr<IntegerType>) => East.jq(xs, "map(. * 2)");
+    assert.equal(typeof untyped, "function");
   });
 });
 
@@ -119,7 +136,7 @@ describe("the query editor's default query (E2)", () => {
     const resultType = translateJq(checkJq(DEFAULT_QUERY, datasets, { root: true })).resultType;
     const fn = East.function([FixtureRoot], resultType, ($, root) => {
       const r = root as any;
-      return East.jq({ customers: r.customers, orders: r.orders }, DEFAULT_QUERY, resultType) as any;
+      return East.jq({ customers: r.customers, orders: r.orders }, DEFAULT_QUERY, resultType);
     });
     const body = (fn as any)[Symbol.for("@elaraai/east/expr/ast")].body as AST;
     const block = body.ast_type === "Block" ? body : undefined;

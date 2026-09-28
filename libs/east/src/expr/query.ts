@@ -23,24 +23,26 @@ import { ArrayType, NullType, StringType, StructType, isTypeEqual, type EastType
 import { valueOrExprToAstTyped } from "./ast.js";
 import { fromAst } from "./block.js";
 import { AstSymbol, Expr } from "./expr.js";
+import type { ExprType } from "./types.js";
 
 /**
  * A jq query over East values, as East code: the query is parsed, checked
  * against its inputs' types and translated to ordinary East IR when the
  * program is built, so it runs wherever East runs.
  *
+ * @typeParam T - the query's result type
  * @param input - the query's input: an expression, or an object of named
  *   expressions, which the query reads as an e3 root (`.orders` is the
  *   `orders` input, read alone, so a lazy input stays lazy)
  * @param program - the jq text
- * @param resultType - the result's type, when given: it must be the one the
- *   query checks to
- * @returns the result: the element for a query that gives one output, an
- *   `Option` for one that gives at most one, an `Array` for one that gives
- *   any number
+ * @param resultType - the query's result type: its outputs' type for a query
+ *   that gives one output, an `Option` of it for one that gives at most one,
+ *   an `Array` of it for one that gives any number. The query must check to
+ *   exactly this type, and it types the expression.
+ * @returns the query's result, an expression of `resultType`
  * @throws {QueryError} When the query does not check, with the checker's
- *   diagnostics; or when `resultType` is not the query's result type, naming
- *   both.
+ *   diagnostics; or when it does not check to `resultType`, naming both
+ *   types.
  * @throws East runtime error if the query raises one as it runs: `error(v)`,
  *   an integer division by zero, a date that does not parse; the error names
  *   its line and column in the jq text.
@@ -59,8 +61,18 @@ import { AstSymbol, Expr } from "./expr.js";
  * const compiled = East.compile(bigOrders, []);
  * compiled([{ id: 1n, total: 250.0 }, { id: 2n, total: 1200.0 }]);  // [2n]
  * ```
+ *
+ * @example
+ * ```ts
+ * // The result is an expression of its result type (here an ArrayExpr<FloatType>), so its methods chain.
+ * const Order = StructType({ id: IntegerType, total: FloatType });
+ * const revenue = East.function([ArrayType(Order)], FloatType, ($, orders) =>
+ *   East.jq(orders, "map(.total)", ArrayType(FloatType)).sum());
+ * const compiled = East.compile(revenue, []);
+ * compiled([{ id: 1n, total: 250.0 }, { id: 2n, total: 1200.0 }]);  // 1450.0
+ * ```
  */
-export function jq(input: Expr | { readonly [name: string]: Expr }, program: string, resultType?: EastType): Expr {
+export function jq<T extends EastType>(input: Expr | { readonly [name: string]: Expr }, program: string, resultType: T): ExprType<T> {
   const named = !(input instanceof Expr);
   const names = named ? Object.keys(input) : [];
   const values = named ? names.map(n => (input as Record<string, Expr>)[n]!) : [input];
@@ -71,7 +83,7 @@ export function jq(input: Expr | { readonly [name: string]: Expr }, program: str
   const checked = checkJq(parsed, inputType, { root: named });
   if (checked.query === null) throw new QueryError(checked.diagnostics);
   const translation = translateJq(checked);
-  if (resultType !== undefined && !isTypeEqual(resultType, translation.resultType)) {
+  if (!isTypeEqual(resultType, translation.resultType)) {
     const message = `type_mismatch: the query gives ${describeType(translation.resultType)}, not the ${describeType(resultType)} it was given.`;
     throw new QueryError([report(program, "type_mismatch", undefined, message)]);
   }
@@ -92,5 +104,5 @@ export function jq(input: Expr | { readonly [name: string]: Expr }, program: str
   if (result.ast_type === "Block") statements.push(...result.statements);
   else statements.push(result);
   const last = statements[statements.length - 1]!;
-  return fromAst({ ast_type: "Block", type: last.type.type === "Never" ? last.type : translation.resultType, loc_id: loc, statements });
+  return fromAst({ ast_type: "Block", type: last.type.type === "Never" ? last.type : translation.resultType, loc_id: loc, statements }) as ExprType<T>;
 }

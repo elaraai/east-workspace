@@ -768,11 +768,13 @@ export const East = {
    * @param input - an expression, or an object of named expressions the query
    *   reads as an e3 root
    * @param program - the jq text
-   * @param resultType - the result's type, which must be the query's
-   * @returns the result: the element for one output, an `Option` for at most
-   *   one, an `Array` for any number
-   * @throws {QueryError} When the query does not check, or `resultType` is not
-   *   its result type.
+   * @param resultType - the query's result type (its outputs' type for one
+   *   output, an `Option` of it for at most one, an `Array` of it for any
+   *   number), which the query must check to exactly
+   * @returns the query's result, an expression of `resultType`: typed by it,
+   *   so its methods chain
+   * @throws {QueryError} When the query does not check, or does not check to
+   *   `resultType`.
    * @throws East runtime error if the query raises one as it runs.
    *
    * @example
