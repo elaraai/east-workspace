@@ -352,11 +352,17 @@ export async function stageOutputMerge(unit: TaskUnit): Promise<StagedUnit | nul
  * @param unit - The unit, staged
  */
 export async function clearUnitOutput(unit: TaskUnit): Promise<void> {
-  const output = unit.unit.work.value.output;
-  const written = output.type === 'value' ? output.value
-    : output.type === 'fold' ? output.value.path
-      : output.type === 'dict' ? output.value.dir
-        : output.value;
+  const work = unit.unit.work;
+  let written: string;
+  if (work.type === 'intake') {
+    written = work.value.output;
+  } else {
+    const output = work.value.output;
+    written = output.type === 'value' ? output.value
+      : output.type === 'fold' ? output.value.path
+        : output.type === 'dict' ? output.value.dir
+          : output.value;
+  }
   for (const name of [written, `${written}.segments`, RESULT_FILE, OUTPUT_MERGE_FILE, OUTPUT_MERGE_RESULT, OUTPUT_MERGE_DIR]) {
     await fs.rm(path.join(unit.dir, name), { recursive: true, force: true });
   }
@@ -372,7 +378,8 @@ export async function clearUnitOutput(unit: TaskUnit): Promise<void> {
  * stands. A set or a dict is its one run, or the merge unit's run when it
  * closed several, or the empty collection when nothing was emitted: the
  * program's `emit` parameter says its type. A `merge` unit of a split task
- * wrote one run, or the value its partials folded to.
+ * wrote one run, or the value its partials folded to. An `intake` unit wrote
+ * the delivery it took in as a manifest directory, as the Writer cut it.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -393,6 +400,8 @@ export async function storeUnitOutput(storage: StorageBackend, repo: string, uni
       default: throw new Error(`a merge unit writes a set, a dict or a fold, not ${merged.type}`);
     }
   }
+  // An intake unit writes the delivery as the manifest directory it names.
+  if (work.type === 'intake') return storeDatasetFile(storage, repo, at(work.value.output), { canonical: true });
   const output = work.value.output;
   switch (output.type) {
     case 'value':
