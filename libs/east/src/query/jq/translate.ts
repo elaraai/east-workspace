@@ -1339,9 +1339,11 @@ export class Translator {
     const kinds: EastType[] = [];
     let recursive = false;
     const visit = (t: EastType): void => {
+      // A recursive type equals its node, so a value typed as the node meets
+      // the recursive type as a kind already seen: it recurses all the same.
+      if (t.type === "Recursive") recursive = true;
       if (kinds.some(k => isTypeEqual(k, t))) return;
       kinds.push(t);
-      if (t.type === "Recursive") recursive = true;
       this.childKinds(t).forEach(visit);
     };
     visit(this.type(v));
