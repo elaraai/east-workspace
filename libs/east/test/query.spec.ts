@@ -306,6 +306,16 @@ describe("the translation", () => {
     assertValue(ArrayType(StringType), skus, ["A", "B", "C", "C", "B", "C"]);
   });
 
+  test("`..` and recurse walk a value typed as a recursive type's node", () => {
+    // The node's children are the recursive type, which equals the node: a kind
+    // already seen, which must still make the walk the recursive one.
+    const Part = RecursiveType(self => StructType({ children: ArrayType(self), sku: StringType }));
+    const tree = { children: [{ children: [{ children: [], sku: "C" }], sku: "B" }], sku: "A" };
+    const Skus = ArrayType(StringType);
+    assertValue(Skus, evaluateJq("[.. | objects | .sku]", tree, { inputType: Part.node as EastType }), ["A", "B", "C"]);
+    assertValue(Skus, evaluateJq("[recurse | .sku?]", tree, { inputType: Part.node as EastType }), ["A", "B", "C"]);
+  });
+
   test("a literal the checker made a Float for one kind of value stays whole for another", () => {
     const Row = StructType({ n: IntegerType, x: FloatType });
     assertValue(Row, evaluateJq("(.. | numbers) |= . + 1", { n: 1n, x: 0.5 }, { inputType: Row }), { n: 2n, x: 1.5 });

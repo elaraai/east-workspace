@@ -238,9 +238,10 @@ rule("recurse", (t, c) => {
     const kinds: EastType[] = [];
     let recursive = false;
     const visit = (type: EastType): void => {
+      // A value typed as a recursive type's node meets the type as a kind already seen: it recurses all the same.
+      if (type.type === "Recursive") recursive = true;
       if (kinds.some(k => isTypeEqual(k, type))) return;
       kinds.push(type);
-      if (type.type === "Recursive") recursive = true;
       recurseKinds(type).forEach(visit);
     };
     visit(t.type(x));
