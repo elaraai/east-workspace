@@ -84,11 +84,12 @@ describe('the repository\'s records', () => {
     await workspaceCreate(storage, repo, 'main');
     await workspaceDeploy(storage, repo, 'main', 'layout', '1.0.0');
 
-    // A transfer's commit adopts its delivery: the input's ref, and the memo
-    // of the manifest the delivery became.
+    // A transfer's commit adopts its delivery, taking it in on the runner: the
+    // input's ref, and the memo of the manifest the delivery became.
     const delivery = join(tempDir, 'rows.beast2');
     writeFileSync(delivery, encodeBeast2For(ArrayType(IntegerType))([1n, 2n, 3n]));
-    await datasetAdoptFile(storage, repo, 'main', [variant('field', 'inputs'), variant('field', 'rows')], delivery);
+    await datasetAdoptFile(storage, repo, 'main', [variant('field', 'inputs'), variant('field', 'rows')], delivery,
+      { runner: new LocalTaskRunner(repo) });
 
     const orchestrator = new LocalOrchestrator(new FileStateStore(join(repo, 'workspaces')));
     const run = await orchestrator.wait(await orchestrator.start(storage, repo, 'main'));
