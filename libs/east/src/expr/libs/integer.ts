@@ -18,7 +18,7 @@ export default {
    * const formatComma = East.function([IntegerType], StringType, ($, x) => {
    *   $.return(East.Integer.printCommaSeperated(x));
    * });
-   * const compiled = East.compile(formatComma.toIR(), []);
+   * const compiled = East.compile(formatComma, []);
    * compiled(1234567n);    // "1,234,567"
    * compiled(1000n);       // "1,000"
    * compiled(-5432n);      // "-5,432"
@@ -82,7 +82,7 @@ export default {
      * const formatCurrency = East.function([IntegerType], StringType, ($, x) => {
      *   $.return(East.Integer.printCurrency(x));
      * });
-     * const compiled = East.compile(formatCurrency.toIR(), []);
+     * const compiled = East.compile(formatCurrency, []);
      * compiled(1234n);   // "$1,234"
      * compiled(-42n);      // "-$42"
      * compiled(1000000n);    // "$1,000,000"
@@ -150,7 +150,7 @@ export default {
    * const formatCompact = East.function([IntegerType], StringType, ($, x) => {
    *   $.return(East.Integer.printCompact(x));
    * });
-   * const compiled = East.compile(formatCompact.toIR(), []);
+   * const compiled = East.compile(formatCompact, []);
    * compiled(1500n);        // "1.5K"
    * compiled(2500000n);     // "2.5M"
    * compiled(3140000000n);  // "3.14B"
@@ -232,7 +232,7 @@ export default {
    * const formatSI = East.function([IntegerType], StringType, ($, x) => {
    *   $.return(East.Integer.printCompactSI(x));
    * });
-   * const compiled = East.compile(formatSI.toIR(), []);
+   * const compiled = East.compile(formatSI, []);
    * compiled(1500n);        // "1.5k"
    * compiled(2500000n);     // "2.5M"
    * compiled(3140000000n);  // "3.14G"
@@ -315,7 +315,7 @@ export default {
    * const formatComputing = East.function([IntegerType], StringType, ($, x) => {
    *   $.return(East.Integer.printCompactComputing(x));
    * });
-   * const compiled = East.compile(formatComputing.toIR(), []);
+   * const compiled = East.compile(formatComputing, []);
    * compiled(1536n);       // "1.5ki"  (1536 bytes = 1.5 KiB)
    * compiled(2621440n);    // "2.5Mi"  (2.5 MiB)
    * compiled(3221225472n); // "3Gi"    (3 GiB)
@@ -395,7 +395,7 @@ export default {
    * const formatOrdinal = East.function([IntegerType], StringType, ($, x) => {
    *   $.return(East.Integer.printOrdinal(x));
    * });
-   * const compiled = East.compile(formatOrdinal.toIR(), []);
+   * const compiled = East.compile(formatOrdinal, []);
    * compiled(1n);    // "1st"
    * compiled(2n);    // "2nd"
    * compiled(3n);    // "3rd"
@@ -447,7 +447,7 @@ export default {
    * const countDigits = East.function([IntegerType], IntegerType, ($, x) => {
    *   $.return(East.Integer.digitCount(x));
    * });
-   * const compiled = East.compile(countDigits.toIR(), []);
+   * const compiled = East.compile(countDigits, []);
    * compiled(0n);       // 1n
    * compiled(42n);      // 2n
    * compiled(-1234n);   // 4n
@@ -471,7 +471,7 @@ export default {
    * const roundNearest = East.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
    *   $.return(East.Integer.roundNearest(x, step));
    * });
-   * const compiled = East.compile(roundNearest.toIR(), []);
+   * const compiled = East.compile(roundNearest, []);
    * compiled(17n, 5n);   // 15n
    * compiled(18n, 5n);   // 20n
    * compiled(-17n, 5n);  // -15n
@@ -521,7 +521,7 @@ export default {
    * const roundUp = East.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
    *   $.return(East.Integer.roundUp(x, step));
    * });
-   * const compiled = East.compile(roundUp.toIR(), []);
+   * const compiled = East.compile(roundUp, []);
    * compiled(17n, 5n);   // 20n
    * compiled(15n, 5n);   // 15n (already exact)
    * compiled(-17n, 5n);  // -15n (towards zero for negatives)
@@ -560,7 +560,7 @@ export default {
    * const roundDown = East.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
    *   $.return(East.Integer.roundDown(x, step));
    * });
-   * const compiled = East.compile(roundDown.toIR(), []);
+   * const compiled = East.compile(roundDown, []);
    * compiled(17n, 5n);   // 15n
    * compiled(15n, 5n);   // 15n (already exact)
    * compiled(-17n, 5n);  // -20n (away from zero for negatives)
@@ -600,7 +600,7 @@ export default {
    * const roundTruncate = East.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
    *   $.return(East.Integer.roundTruncate(x, step));
    * });
-   * const compiled = East.compile(roundTruncate.toIR(), []);
+   * const compiled = East.compile(roundTruncate, []);
    * compiled(17n, 5n);   // 15n
    * compiled(-17n, 5n);  // -15n
    * compiled(3n, 5n);    // 0n
@@ -632,7 +632,7 @@ export default {
    * const formatPercent = East.function([IntegerType], StringType, ($, x) => {
    *   $.return(East.Integer.printPercentage(x));
    * });
-   * const compiled = East.compile(formatPercent.toIR(), []);
+   * const compiled = East.compile(formatPercent, []);
    * compiled(45n);   // "45%"
    * compiled(100n);  // "100%"
    * compiled(-25n);  // "-25%"

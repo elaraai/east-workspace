@@ -17,6 +17,7 @@ set(EAST_C_SOURCES
     src/unit.c
     src/file_map.c
     src/exit_with_parent.c
+    src/stack_guard.c
     src/builtins/registry.c
     src/builtins/integer.c
     src/builtins/float_ops.c
@@ -32,6 +33,7 @@ set(EAST_C_SOURCES
     src/builtins/vector.c
     src/builtins/matrix.c
     src/builtins/patch.c
+    src/builtins/tree.c
     src/serialization/json.c
     src/serialization/beast.c
     src/serialization/beast2/tags.c

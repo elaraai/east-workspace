@@ -5,7 +5,7 @@
 import type { AnalyzedIR } from "../analyze.js";
 import { builtin_evaluators } from "./builtins/index.js";
 import { compile_internal } from "./ir.js";
-import { BreakException, ContinueException, EAST_CAPTURES_SYMBOL, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL, getContextValue, lazyReadErrorAt, ReturnException, type RuntimeContext } from "./runtime.js";
+import { BreakException, callDepthErrorAt, ContinueException, EAST_CAPTURES_SYMBOL, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL, getContextValue, lazyReadErrorAt, ReturnException, type RuntimeContext } from "./runtime.js";
 import { variant } from "../containers/variant.js";
 import { EastError } from "../error.js";
 import type { AsyncFunctionIR, BuiltinIR, CallAsyncIR, CallIR, FunctionIR, IR, PlatformIR } from "../ir.js";
@@ -158,7 +158,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
           } else if (e instanceof BreakException) {
             throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
           } else {
-            throw(e);
+            throw callDepthErrorAt(e, loc_id, source_map);
           }
         }
       };
@@ -177,7 +177,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
           } else if (e instanceof BreakException) {
             throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
           } else {
-            throw(e);
+            throw callDepthErrorAt(e, loc_id, source_map);
           }
         }
       }
@@ -205,7 +205,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         } else if (e instanceof BreakException) {
           throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
         } else {
-          throw(e);
+          throw callDepthErrorAt(e, loc_id, source_map);
         }
       }
     };

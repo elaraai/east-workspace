@@ -193,7 +193,7 @@ const XmlImpl: PlatformFunction[] = [
  *     return XML.parse(xmlBlob, config);
  * });
  *
- * const compiled = East.compile(parseXML.toIR(), XML.Implementation);
+ * const compiled = East.compile(parseXML, XML.Implementation);
  * const xmlData = new TextEncoder().encode("<book id='123'><title>East Guide</title></book>");
  * compiled(xmlData);  // Returns parsed XML tree
  * ```
@@ -221,7 +221,7 @@ export const XML = {
      *     return XML.parse(xmlBlob, config);
      * });
      *
-     * const compiled = East.compile(parseXML.toIR(), XML.Implementation);
+     * const compiled = East.compile(parseXML, XML.Implementation);
      * const xmlData = new TextEncoder().encode("<book><title>East</title></book>");
      * compiled(xmlData);  // Returns: { tag: "book", attributes: Map{}, children: [...] }
      * ```
@@ -251,7 +251,7 @@ export const XML = {
      *     return XML.serialize(doc, config);
      * });
      *
-     * const compiled = East.compile(serializeXML.toIR(), XML.Implementation);
+     * const compiled = East.compile(serializeXML, XML.Implementation);
      * const xmlNode = { tag: "book", attributes: new Map(), children: [] };
      * compiled(xmlNode);  // Returns blob: "<?xml version=\"1.0\"?>\n<book/>"
      * ```

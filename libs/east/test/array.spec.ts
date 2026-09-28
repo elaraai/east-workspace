@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, Expr, ArrayType, IntegerType, FloatType, StringType, BooleanType, BlobType, some, none, SetType, DictType, StructType, VariantType, NullType, variant, RecursiveType } from "../src/index.js";
+import { East, Expr, ArrayType, IntegerType, FloatType, StringType, BooleanType, BlobType, some, none, SetType, DictType, StructType, VariantType, NullType, variant, RecursiveType, OptionType } from "../src/index.js";
 import type { ExprType, option, SubtypeExprOrValue } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./array.examples.js";
@@ -1032,6 +1032,166 @@ await describe("Array", (test) => {
             ])
         ))
     })
+
+    // =========================================================================
+    // toTree tests
+    // =========================================================================
+
+    assert.examples(test, { arrayToTree: ex.arrayToTree, arrayToTreeSubtreeSize: ex.arrayToTreeSubtreeSize, arrayToTreeDictChildren: ex.arrayToTreeDictChildren });
+
+    const TreeRowType = StructType({ id: IntegerType, parent: OptionType(IntegerType) });
+    const TreeNodeType = RecursiveType(self => StructType({ id: IntegerType, children: ArrayType(self) }));
+
+    test("toTree - any depth, roots and children in array order", $ => {
+        // 7 comes before its parent 9, and the roots 5 and 2 are not in key order
+        const rows = $.const([
+            { id: 7n, parent: some(9n) },
+            { id: 5n, parent: none },
+            { id: 3n, parent: some(5n) },
+            { id: 9n, parent: some(3n) },
+            { id: 1n, parent: some(5n) },
+            { id: 2n, parent: none },
+        ], ArrayType(TreeRowType));
+        const tree = $.let(rows.toTree(TreeNodeType, (_$, row) => row.id, (_$, row) => row.parent, (_$, row, _i, children) => ({ id: row.id, children })));
+        $(assert.equal(tree, [
+            {
+                id: 5n, children: [
+                    { id: 3n, children: [{ id: 9n, children: [{ id: 7n, children: [] }] }] },
+                    { id: 1n, children: [] },
+                ],
+            },
+            { id: 2n, children: [] },
+        ]));
+    });
+
+    test("toTree - build runs once per element, children before parents", $ => {
+        const rows = $.const([
+            { id: 7n, parent: some(9n) },
+            { id: 5n, parent: none },
+            { id: 3n, parent: some(5n) },
+            { id: 9n, parent: some(3n) },
+            { id: 1n, parent: some(5n) },
+            { id: 2n, parent: none },
+        ], ArrayType(TreeRowType));
+        const built = $.let([], ArrayType(IntegerType));
+        const sizes = $.let(rows.toTree(IntegerType, (_$, row) => row.id, (_$, row) => row.parent, ($, row, _i, children) => {
+            $(built.pushLast(row.id));
+            return children.sum().add(1n);
+        }));
+        $(assert.equal(built, [7n, 9n, 3n, 1n, 5n, 2n]));
+        $(assert.equal(sizes, [5n, 1n]));
+    });
+
+    test("toTree - every key, then every parent, then build", $ => {
+        const rows = $.const([
+            { id: 1n, parent: some(2n) },
+            { id: 2n, parent: none },
+            { id: 3n, parent: some(2n) },
+        ], ArrayType(TreeRowType));
+        const calls = $.let([], ArrayType(StringType));
+        const sizes = $.let(rows.toTree(
+            IntegerType,
+            ($, row, i) => { $(calls.pushLast(Expr.str`key ${i}`)); return row.id; },
+            ($, row, i) => { $(calls.pushLast(Expr.str`parent ${i}`)); return row.parent; },
+            ($, _row, i, children) => { $(calls.pushLast(Expr.str`build ${i}`)); return children.sum().add(1n); },
+        ));
+        $(assert.equal(calls, ["key 0", "key 1", "key 2", "parent 0", "parent 1", "parent 2", "build 0", "build 2", "build 1"]));
+        $(assert.equal(sizes, [3n]));
+    });
+
+    test("toTree - an orphan becomes a root", $ => {
+        const rows = $.const([
+            { id: 7n, parent: some(99n) },
+            { id: 8n, parent: some(7n) },
+            { id: 1n, parent: none },
+        ], ArrayType(TreeRowType));
+        $(assert.equal(rows.toTree(IntegerType, (_$, row) => row.id, (_$, row) => row.parent, (_$, _row, _i, children) => children.sum().add(1n)), [2n, 1n]));
+    });
+
+    test("toTree - an empty array builds no roots", $ => {
+        const rows = $.const([], ArrayType(TreeRowType));
+        $(assert.equal(rows.toTree(TreeNodeType, (_$, row) => row.id, (_$, row) => row.parent, (_$, row, _i, children) => ({ id: row.id, children })), []));
+    });
+
+    test("toTree - callbacks as East functions", $ => {
+        const key = $.const(East.function([TreeRowType, IntegerType], IntegerType, (_$, row) => row.id));
+        const rows = $.const([{ id: 1n, parent: none }, { id: 2n, parent: some(1n) }], ArrayType(TreeRowType));
+        $(assert.equal(rows.toTree(IntegerType, key, (_$, row) => row.parent, (_$, _row, _i, children) => children.sum().add(1n)), [2n]));
+    });
+
+    test("An East function passes where a method infers a callback's output", $ => {
+        const negate = $.const(East.function([IntegerType, IntegerType], IntegerType, (_$, x) => x.negate()));
+        $(assert.equal(East.value([1n, 2n, 3n]).toSet(negate), new Set([-3n, -2n, -1n])));
+        const parity = $.const(East.function([IntegerType, IntegerType], IntegerType, (_$, x) => x.remainder(2n)));
+        $(assert.equal(East.value([1n, 2n, 3n]).groupReduce(parity, (_$, _k) => 0n, (_$, acc, x) => acc.add(x)), new Map([[0n, 2n], [1n, 4n]])));
+    });
+
+    test("toTree - a duplicate key is refused where it repeats, before any parent", $ => {
+        const rows = $.const([
+            { id: 1n, parent: none },
+            { id: 2n, parent: some(1n) },
+            { id: 1n, parent: none },
+            { id: 3n, parent: none },
+        ], ArrayType(TreeRowType));
+        const calls = $.let([], ArrayType(StringType));
+        $(assert.throws(rows.toTree(
+            IntegerType,
+            ($, row, i) => { $(calls.pushLast(Expr.str`key ${i}`)); return row.id; },
+            ($, row, i) => { $(calls.pushLast(Expr.str`parent ${i}`)); return row.parent; },
+            (_$, _row, _i, children) => children.sum().add(1n),
+        ), /^toTree: duplicate key 1$/));
+        $(assert.equal(calls, ["key 0", "key 1", "key 2"]));
+
+        // A String key prints quoted, as East prints it
+        const named = $.const(["a", "b", "a"], ArrayType(StringType));
+        $(assert.throws(named.toTree(IntegerType, (_$, x) => x, (_$, _x) => East.value(none, OptionType(StringType)), (_$, _x, _i, children) => children.sum().add(1n)), /^toTree: duplicate key "a"$/));
+    });
+
+    test("toTree - a cycle is refused before any build, naming the first key on it", $ => {
+        const built = $.let([], ArrayType(IntegerType));
+        const build = $.const(East.function([TreeRowType, IntegerType, ArrayType(IntegerType)], IntegerType, ($, row, _i, children) => {
+            $(built.pushLast(row.id));
+            return children.sum().add(1n);
+        }));
+
+        // An element that is its own parent
+        const selfParent = $.const([{ id: 1n, parent: none }, { id: 2n, parent: some(2n) }], ArrayType(TreeRowType));
+        $(assert.throws(selfParent.toTree(IntegerType, (_$, row) => row.id, (_$, row) => row.parent, build), /^toTree: cycle through key 2$/));
+
+        // 3 -> 4 -> 2 -> 3, with 9 below the cycle and first in array order: the message names 3, the first ON it
+        const loop = $.const([
+            { id: 9n, parent: some(2n) },
+            { id: 5n, parent: none },
+            { id: 3n, parent: some(4n) },
+            { id: 4n, parent: some(2n) },
+            { id: 2n, parent: some(3n) },
+        ], ArrayType(TreeRowType));
+        $(assert.throws(loop.toTree(IntegerType, (_$, row) => row.id, (_$, row) => row.parent, build), /^toTree: cycle through key 3$/));
+
+        $(assert.equal(built, []));
+    });
+
+    // toTree walks iteratively, so the depth is past the ~2,000 nested calls a
+    // recursive walk would reach. It stops at 10,000 because east-c collects
+    // and frees a recursive value recursively (its limit is 20,000–30,000
+    // deep at -O0 on an 8 MB stack), and east-py holds its values in east-c.
+    test("toTree - a 10000-deep chain builds without recursion", $ => {
+        const ids = $.const(East.Array.range(0n, 10000n));
+        // 0 is the root; every other id's parent is the id before it
+        const parentOf = $.const(East.function([IntegerType, IntegerType], OptionType(IntegerType), (_$, id) => East.equal(id, 0n).ifElse(() => none, () => some(id.subtract(1n)))));
+
+        // A bottom-up fold
+        $(assert.equal(ids.toTree(IntegerType, (_$, id) => id, parentOf, (_$, _id, _i, children) => children.sum().add(1n)), [10000n]));
+
+        // A recursive value, walked down iteratively
+        const chain = $.let(ids.toTree(TreeNodeType, (_$, id) => id, parentOf, (_$, id, _i, children) => ({ id, children })));
+        const depth = $.let(0n);
+        $.while(East.greater(chain.size(), 0n), $ => {
+            $.assign(depth, depth.add(1n));
+            $.assign(chain, chain.get(0n).unwrap().children);
+        });
+        $(assert.equal(depth, 10000n));
+    });
 
     // =========================================================================
     // encodeCsv tests

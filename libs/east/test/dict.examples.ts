@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, example, some, none } from "@elaraai/east";
+import { East, DictType, IntegerType, StringType, BooleanType, FloatType, SetType, ArrayType, StructType, OptionType, RecursiveType, example, some, none } from "@elaraai/east";
 
 const { str } = East;
 
@@ -598,3 +598,36 @@ export const dictGroupReduce = example({
     returns: new Map([[0n, 12n], [1n, 14n]]),
 });
 
+// ---------------------------------------------------------------------------
+// Trees
+// ---------------------------------------------------------------------------
+
+const DictTreeEntryType = StructType({ name: StringType, parent: OptionType(StringType) });
+const DictTreeNodeType = RecursiveType(self => StructType({ id: StringType, name: StringType, children: ArrayType(self) }));
+
+export const dictToTree = example({
+    keywords: ["dict", "DictType", "toTree", "tree", "hierarchy", "nest", "parent", "RecursiveType"],
+    description: "Build a tree from a dict whose keys are the node keys and whose values name their parent's key",
+    fn: East.function([], ArrayType(DictTreeNodeType), ($) => {
+        const entries = $.const(new Map([
+            ["animals", { name: "Animals", parent: none }],
+            ["birds", { name: "Birds", parent: some("animals") }],
+            ["mammals", { name: "Mammals", parent: some("animals") }],
+            ["whales", { name: "Whales", parent: some("mammals") }],
+        ]), DictType(StringType, DictTreeEntryType));
+        return entries.toTree(
+            DictTreeNodeType,
+            (_$, entry, _id) => entry.parent,
+            (_$, entry, id, children) => ({ id, name: entry.name, children }),
+        );
+    }),
+    inputs: [],
+    returns: [
+        {
+            id: "animals", name: "Animals", children: [
+                { id: "birds", name: "Birds", children: [] },
+                { id: "mammals", name: "Mammals", children: [{ id: "whales", name: "Whales", children: [] }] },
+            ],
+        },
+    ],
+});

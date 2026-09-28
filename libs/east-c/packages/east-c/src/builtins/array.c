@@ -8,6 +8,7 @@
 #include "east/compiler.h"
 #include "east/serialization.h"
 #include "east/values.h"
+#include "tree.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1347,6 +1348,107 @@ static EastValue *array_group_fold_impl(EastValue **args, size_t n)
 }
 
 /* ================================================================== */
+/* ArrayToTree (arr, key_fn, parent_fn, build_fn) -> Array<N>  (#948) */
+/* ================================================================== */
+
+/* K and N, set by the factory immediately before the impl runs. The impl
+ * copies them before its first callback, which may run another toTree. */
+static _Thread_local EastType *s_array_tree_key_type = NULL;
+static _Thread_local EastType *s_array_tree_node_type = NULL;
+
+typedef struct {
+    EastValue *arr;
+    EastValue *build_fn;
+} ArrayTreeBuild;
+
+static EastValue *array_tree_build(void *ctx, size_t i, EastValue *children)
+{
+    ArrayTreeBuild *b = ctx;
+    EastValue *idx = east_integer((int64_t)i);
+    EastValue *call_args[] = {east_array_get(b->arr, i), idx, children};
+    EastValue *node = call_fn(b->build_fn, call_args, 3);
+    east_value_release(idx);
+    return node;
+}
+
+static EastValue *array_to_tree_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastType *key_type = s_array_tree_key_type;
+    EastType *node_type = s_array_tree_node_type;
+    EastValue *arr = args[0];
+    EastValue *key_fn = args[1];
+    EastValue *parent_fn = args[2];
+    EastValue *build_fn = args[3];
+    size_t len = east_array_len(arr);
+    EastValue *result = NULL;
+    size_t nkeys = 0;
+    EastValue **keys = malloc((len + 1) * sizeof(EastValue *));
+    ptrdiff_t *parents = malloc((len + 1) * sizeof(ptrdiff_t));
+    size_t *order = malloc((len + 1) * sizeof(size_t));
+    size_t *child_counts = malloc((len + 1) * sizeof(size_t));
+    /* each key's source index */
+    EastValue *index = east_dict_new(&east_null_type, &east_null_type);
+    if (!keys || !parents || !order || !child_counts) {
+        east_builtin_error("out of memory");
+        goto done;
+    }
+    arr->iter_lock++;
+    for (size_t i = 0; i < len; i++) {
+        EastValue *idx = east_integer((int64_t)i);
+        EastValue *call_args[] = {east_array_get(arr, i), idx};
+        EastValue *key = call_fn(key_fn, call_args, 2);
+        east_value_release(idx);
+        if (!key) goto unlock;
+        EastValue *seen = NULL;
+        if (east_dict_find(index, key, &seen)) {
+            east_tree_key_error("duplicate key", key, key_type);
+            east_value_release(key);
+            goto unlock;
+        }
+        EastValue *pos = east_integer((int64_t)i);
+        east_dict_set(index, key, pos);
+        east_value_release(pos);
+        keys[nkeys++] = key;
+    }
+    for (size_t i = 0; i < len; i++) {
+        EastValue *idx = east_integer((int64_t)i);
+        EastValue *call_args[] = {east_array_get(arr, i), idx};
+        EastValue *parent = call_fn(parent_fn, call_args, 2);
+        east_value_release(idx);
+        if (!parent) goto unlock;
+        parents[i] = -1;
+        EastValue *pos = NULL;
+        if (strcmp(east_variant_case_name(parent), "some") == 0 &&
+            east_dict_find(index, parent->data.variant.value, &pos))
+            parents[i] = (ptrdiff_t)pos->data.integer;
+        east_value_release(parent);
+    }
+    ptrdiff_t cycle;
+    if (!east_tree_order(parents, len, order, child_counts, &cycle)) {
+        east_builtin_error("out of memory");
+        goto unlock;
+    }
+    if (cycle >= 0) {
+        east_tree_key_error("cycle through key", keys[cycle], key_type);
+        goto unlock;
+    }
+    ArrayTreeBuild b = {.arr = arr, .build_fn = build_fn};
+    result = east_tree_build(order, child_counts, len, node_type, array_tree_build, &b);
+unlock:
+    arr->iter_lock--;
+done:
+    for (size_t i = 0; i < nkeys; i++)
+        east_value_release(keys[i]);
+    free(keys);
+    free(parents);
+    free(order);
+    free(child_counts);
+    east_value_release(index);
+    return result;
+}
+
+/* ================================================================== */
 /* ArrayEncodeCsv                                                     */
 /* ================================================================== */
 
@@ -1668,6 +1770,13 @@ static BuiltinImpl array_group_fold_factory(EastType **tp, size_t ntp)
     (void)ntp;
     return array_group_fold_impl;
 }
+static BuiltinImpl array_to_tree_factory(EastType **tp, size_t ntp)
+{
+    /* tp = [T, K, N] */
+    s_array_tree_key_type = ntp > 1 ? tp[1] : NULL;
+    s_array_tree_node_type = ntp > 2 ? tp[2] : NULL;
+    return array_to_tree_impl;
+}
 static BuiltinImpl array_encode_csv_factory(EastType **tp, size_t ntp)
 {
     csv_encode_struct_type_ctx = (ntp > 0) ? tp[0] : NULL;
@@ -1725,5 +1834,6 @@ void east_register_array_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "ArrayFlattenToSet", array_flatten_to_set_factory);
     builtin_registry_register(reg, "ArrayFlattenToDict", array_flatten_to_dict_factory);
     builtin_registry_register(reg, "ArrayGroupFold", array_group_fold_factory);
+    builtin_registry_register(reg, "ArrayToTree", array_to_tree_factory);
     builtin_registry_register(reg, "ArrayEncodeCsv", array_encode_csv_factory);
 }

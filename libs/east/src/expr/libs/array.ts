@@ -25,7 +25,7 @@ export default {
    * const makeRange = East.function([], ArrayType(IntegerType), ($) => {
    *   $.return(East.Array.range(0n, 5n));
    * });
-   * const compiled = East.compile(makeRange.toIR(), []);
+   * const compiled = East.compile(makeRange, []);
    * compiled();  // [0n, 1n, 2n, 3n, 4n]
    * ```
    *
@@ -35,7 +35,7 @@ export default {
    * const makeRangeStep = East.function([], ArrayType(IntegerType), ($) => {
    *   $.return(East.Array.range(1n, 10n, 2n));
    * });
-   * const compiled = East.compile(makeRangeStep.toIR(), []);
+   * const compiled = East.compile(makeRangeStep, []);
    * compiled();  // [1n, 3n, 5n, 7n, 9n]
    * ```
    */
@@ -70,7 +70,7 @@ export default {
    * const makeLinspace = East.function([], ArrayType(FloatType), ($) => {
    *   $.return(East.Array.linspace(0.0, 1.0, 11n));
    * });
-   * const compiled = East.compile(makeLinspace.toIR(), []);
+   * const compiled = East.compile(makeLinspace, []);
    * compiled();  // [0.0, 0.1, 0.2, ..., 0.9, 1.0]
    * ```
    *
@@ -80,7 +80,7 @@ export default {
    * const makeLinspace2 = East.function([], ArrayType(FloatType), ($) => {
    *   $.return(East.Array.linspace(0.0, 10.0, 5n));
    * });
-   * const compiled = East.compile(makeLinspace2.toIR(), []);
+   * const compiled = East.compile(makeLinspace2, []);
    * compiled();  // [0.0, 2.5, 5.0, 7.5, 10.0]
    * ```
    */
@@ -113,7 +113,7 @@ export default {
    * const makeSquares = East.function([], ArrayType(IntegerType), ($) => {
    *   $.return(East.Array.generate(5n, IntegerType, ($, i) => i.multiply(i)));
    * });
-   * const compiled = East.compile(makeSquares.toIR(), []);
+   * const compiled = East.compile(makeSquares, []);
    * compiled();  // [0n, 1n, 4n, 9n, 16n]
    * ```
    *
@@ -123,7 +123,7 @@ export default {
    * const makeItems = East.function([], ArrayType(StringType), ($) => {
    *   $.return(East.Array.generate(3n, StringType, ($, i) => Expr.str`Item ${i}`));
    * });
-   * const compiled = East.compile(makeItems.toIR(), []);
+   * const compiled = East.compile(makeItems, []);
    * compiled();  // ["Item 0", "Item 1", "Item 2"]
    * ```
    */

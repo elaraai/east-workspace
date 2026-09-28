@@ -40,7 +40,7 @@ import type { ExprType } from "./types.js";
  *   // Access fields with dot notation
  *   $.return(Expr.str`Hello, ${person.name}! You are ${person.age} years old.`);
  * });
- * const compiled = East.compile(greet.toIR(), []);
+ * const compiled = East.compile(greet, []);
  * compiled({ name: "Alice", age: 30n });  // "Hello, Alice! You are 30 years old."
  * ```
  *
@@ -50,7 +50,7 @@ import type { ExprType } from "./types.js";
  * const birthday = East.function([PersonType], PersonType, ($, person) => {
  *   $.return({ ...person, age: person.age.add(1n) });
  * });
- * const compiled = East.compile(birthday.toIR(), []);
+ * const compiled = East.compile(birthday, []);
  * compiled({ name: "Bob", age: 25n });  // { name: "Bob", age: 26n }
  * ```
  */

@@ -4,7 +4,7 @@
  */
 import type { AST } from "../ast.js";
 import { get_location_id } from "../location.js";
-import { SetType, BooleanType, FunctionType, IntegerType, type EastType, NullType, NeverType, DictType, printType, FloatType, isTypeEqual, ArrayType, VariantType, StringType } from "../types.js";
+import { SetType, BooleanType, FunctionType, IntegerType, type EastType, NullType, NeverType, DictType, printType, FloatType, isTypeEqual, ArrayType, VariantType, StringType, OptionType } from "../types.js";
 import { valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
 import type { BooleanExpr } from "./boolean.js";
 import { equal, notEqual } from "./block.js";
@@ -36,7 +36,7 @@ import { none, some } from "../containers/variant.js";
  *   }));
  *   $.return(uniqueItems);
  * });
- * const compiled = East.compile(buildSet.toIR(), []);
+ * const compiled = East.compile(buildSet, []);
  * compiled(["apple", "banana", "apple", "cherry"]);  // Set(["apple", "banana", "cherry"])
  * ```
  *
@@ -46,7 +46,7 @@ import { none, some } from "../containers/variant.js";
  * const unionSets = East.function([SetType(IntegerType), SetType(IntegerType)], SetType(IntegerType), ($, set1, set2) => {
  *   $.return(set1.union(set2));
  * });
- * const compiled = East.compile(unionSets.toIR(), []);
+ * const compiled = East.compile(unionSets, []);
  * compiled(new Set([1n, 2n, 3n]), new Set([3n, 4n, 5n]));  // Set([1n, 2n, 3n, 4n, 5n])
  * ```
  */
@@ -65,7 +65,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const getSize = East.function([SetType(StringType)], IntegerType, ($, set) => {
    *   $.return(set.size());
    * });
-   * const compiled = East.compile(getSize.toIR(), []);
+   * const compiled = East.compile(getSize, []);
    * compiled(new Set(["a", "b", "c"]));  // 3n
    * compiled(new Set());  // 0n
    * ```
@@ -92,7 +92,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const hasElement = East.function([SetType(StringType), StringType], BooleanType, ($, set, element) => {
    *   $.return(set.has(element));
    * });
-   * const compiled = East.compile(hasElement.toIR(), []);
+   * const compiled = East.compile(hasElement, []);
    * const set = new Set(["a", "b", "c"]);
    * compiled(set, "b");  // true
    * compiled(set, "d");  // false
@@ -126,7 +126,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   $(set.insert(element));
    *   $.return(null);
    * });
-   * const compiled = East.compile(insertElement.toIR(), []);
+   * const compiled = East.compile(insertElement, []);
    * const set = new Set(["a", "b"]);
    * compiled(set, "c");  // set now has Set(["a", "b", "c"])
    * // compiled(set, "a") would throw error (duplicate element)
@@ -159,7 +159,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const tryInsertElement = East.function([SetType(StringType), StringType], BooleanType, ($, set, element) => {
    *   $.return(set.tryInsert(element));
    * });
-   * const compiled = East.compile(tryInsertElement.toIR(), []);
+   * const compiled = East.compile(tryInsertElement, []);
    * const set = new Set(["a", "b"]);
    * compiled(set, "c");  // true (set now has Set(["a", "b", "c"]))
    * compiled(set, "a");  // false (element already exists, set unchanged)
@@ -195,7 +195,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   $(set.delete(element));
    *   $.return(null);
    * });
-   * const compiled = East.compile(deleteElement.toIR(), []);
+   * const compiled = East.compile(deleteElement, []);
    * const set = new Set(["a", "b", "c"]);
    * compiled(set, "b");  // set now has Set(["a", "c"])
    * // compiled(set, "d") would throw error (element not found)
@@ -228,7 +228,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const tryDeleteElement = East.function([SetType(StringType), StringType], BooleanType, ($, set, element) => {
    *   $.return(set.tryDelete(element));
    * });
-   * const compiled = East.compile(tryDeleteElement.toIR(), []);
+   * const compiled = East.compile(tryDeleteElement, []);
    * const set = new Set(["a", "b", "c"]);
    * compiled(set, "b");  // true (set now has Set(["a", "c"]))
    * compiled(set, "d");  // false (element not found, set unchanged)
@@ -260,7 +260,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   $(set.clear());
    *   $.return(null);
    * });
-   * const compiled = East.compile(clearSet.toIR(), []);
+   * const compiled = East.compile(clearSet, []);
    * const set = new Set(["a", "b", "c"]);
    * compiled(set);  // set is now Set([])
    * ```
@@ -290,7 +290,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   $(set1.unionInPlace(set2));
    *   $.return(null);
    * });
-   * const compiled = East.compile(unionInPlace.toIR(), []);
+   * const compiled = East.compile(unionInPlace, []);
    * const set1 = new Set([1n, 2n, 3n]);
    * const set2 = new Set([3n, 4n, 5n]);
    * compiled(set1, set2);  // set1 now has Set([1n, 2n, 3n, 4n, 5n])
@@ -321,7 +321,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const unionSets = East.function([SetType(IntegerType), SetType(IntegerType)], SetType(IntegerType), ($, set1, set2) => {
    *   $.return(set1.union(set2));
    * });
-   * const compiled = East.compile(unionSets.toIR(), []);
+   * const compiled = East.compile(unionSets, []);
    * compiled(new Set([1n, 2n, 3n]), new Set([3n, 4n, 5n]));  // Set([1n, 2n, 3n, 4n, 5n])
    * ```
    */
@@ -348,7 +348,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const intersectSets = East.function([SetType(IntegerType), SetType(IntegerType)], SetType(IntegerType), ($, set1, set2) => {
    *   $.return(set1.intersection(set2));
    * });
-   * const compiled = East.compile(intersectSets.toIR(), []);
+   * const compiled = East.compile(intersectSets, []);
    * compiled(new Set([1n, 2n, 3n]), new Set([2n, 3n, 4n]));  // Set([2n, 3n])
    * ```
    */
@@ -375,7 +375,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const diffSets = East.function([SetType(IntegerType), SetType(IntegerType)], SetType(IntegerType), ($, set1, set2) => {
    *   $.return(set1.difference(set2));
    * });
-   * const compiled = East.compile(diffSets.toIR(), []);
+   * const compiled = East.compile(diffSets, []);
    * compiled(new Set([1n, 2n, 3n]), new Set([2n, 3n, 4n]));  // Set([1n])
    * ```
    */
@@ -402,7 +402,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const symDiffSets = East.function([SetType(IntegerType), SetType(IntegerType)], SetType(IntegerType), ($, set1, set2) => {
    *   $.return(set1.symmetricDifference(set2));
    * });
-   * const compiled = East.compile(symDiffSets.toIR(), []);
+   * const compiled = East.compile(symDiffSets, []);
    * compiled(new Set([1n, 2n, 3n]), new Set([2n, 3n, 4n]));  // Set([1n, 4n])
    * ```
    */
@@ -429,7 +429,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const checkSubset = East.function([SetType(IntegerType), SetType(IntegerType)], BooleanType, ($, set1, set2) => {
    *   $.return(set1.isSubsetOf(set2));
    * });
-   * const compiled = East.compile(checkSubset.toIR(), []);
+   * const compiled = East.compile(checkSubset, []);
    * compiled(new Set([1n, 2n]), new Set([1n, 2n, 3n]));  // true
    * compiled(new Set([1n, 4n]), new Set([1n, 2n, 3n]));  // false
    * ```
@@ -457,7 +457,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const checkSuperset = East.function([SetType(IntegerType), SetType(IntegerType)], BooleanType, ($, set1, set2) => {
    *   $.return(set1.isSupersetOf(set2));
    * });
-   * const compiled = East.compile(checkSuperset.toIR(), []);
+   * const compiled = East.compile(checkSuperset, []);
    * compiled(new Set([1n, 2n, 3n]), new Set([1n, 2n]));  // true
    * compiled(new Set([1n, 2n]), new Set([1n, 2n, 3n]));  // false
    * ```
@@ -485,7 +485,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const checkDisjoint = East.function([SetType(IntegerType), SetType(IntegerType)], BooleanType, ($, set1, set2) => {
    *   $.return(set1.isDisjointFrom(set2));
    * });
-   * const compiled = East.compile(checkDisjoint.toIR(), []);
+   * const compiled = East.compile(checkDisjoint, []);
    * compiled(new Set([1n, 2n]), new Set([3n, 4n]));  // true
    * compiled(new Set([1n, 2n]), new Set([2n, 3n]));  // false
    * ```
@@ -512,7 +512,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const copySet = East.function([SetType(StringType)], SetType(StringType), ($, set) => {
    *   $.return(set.copy());
    * });
-   * const compiled = East.compile(copySet.toIR(), []);
+   * const compiled = East.compile(copySet, []);
    * const set = new Set(["a", "b", "c"]);
    * const copy = compiled(set);  // Set(["a", "b", "c"])
    * // Modifying copy doesn't affect set
@@ -541,7 +541,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const filterEven = East.function([SetType(IntegerType)], SetType(IntegerType), ($, set) => {
    *   $.return(set.filter(($, x) => x.modulo(2n).equal(0n)));
    * });
-   * const compiled = East.compile(filterEven.toIR(), []);
+   * const compiled = East.compile(filterEven, []);
    * compiled(new Set([1n, 2n, 3n, 4n, 5n, 6n]));  // Set([2n, 4n, 6n])
    * ```
    */
@@ -672,7 +672,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *   }));
    *   $.return(null);
    * });
-   * const compiled = East.compile(printElements.toIR(), []);
+   * const compiled = East.compile(printElements, []);
    * compiled(new Set(["a", "b", "c"]));  // Iterates over all elements
    * ```
    */
@@ -704,7 +704,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const mapToLengths = East.function([SetType(StringType)], DictType(StringType, IntegerType), ($, set) => {
    *   $.return(set.map(($, str) => str.size()));
    * });
-   * const compiled = East.compile(mapToLengths.toIR(), []);
+   * const compiled = East.compile(mapToLengths, []);
    * compiled(new Set(["a", "hello", "world"]));  // Map([["a", 1n], ["hello", 5n], ["world", 5n]])
    * ```
    */
@@ -784,7 +784,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const sumSet = East.function([SetType(IntegerType)], IntegerType, ($, set) => {
    *   $.return(set.reduce(($, acc, element) => acc.add(element), 0n));
    * });
-   * const compiled = East.compile(sumSet.toIR(), []);
+   * const compiled = East.compile(sumSet, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // 10n
    * ```
    */
@@ -822,7 +822,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const runningTotal = East.function([SetType(IntegerType)], ArrayType(IntegerType), ($, set) => {
    *   $.return(set.scan(($, acc, element) => acc.add(element), 0n));
    * });
-   * const compiled = East.compile(runningTotal.toIR(), []);
+   * const compiled = East.compile(runningTotal, []);
    * compiled(new Set([1n, 2n, 3n]));  // [1n, 3n, 6n]
    * compiled(new Set());              // []
    * ```
@@ -864,7 +864,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const setToArray = East.function([SetType(IntegerType)], ArrayType(IntegerType), ($, set) => {
    *   $.return(set.toArray());
    * });
-   * const compiled = East.compile(setToArray.toIR(), []);
+   * const compiled = East.compile(setToArray, []);
    * compiled(new Set([1n, 2n, 3n]));  // [1n, 2n, 3n]
    * ```
    *
@@ -879,7 +879,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const doubleToArray = East.function([SetType(IntegerType)], ArrayType(IntegerType), ($, set) => {
    *   $.return(set.toArray(($, x) => x.multiply(2n)));
    * });
-   * const compiled = East.compile(doubleToArray.toIR(), []);
+   * const compiled = East.compile(doubleToArray, []);
    * compiled(new Set([1n, 2n, 3n]));  // [2n, 4n, 6n]
    * ```
    */
@@ -922,7 +922,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const extractFirstChar = East.function([SetType(StringType)], SetType(StringType), ($, set) => {
    *   $.return(set.toSet(($, str) => str.substring(0n, 1n)));
    * });
-   * const compiled = East.compile(extractFirstChar.toIR(), []);
+   * const compiled = East.compile(extractFirstChar, []);
    * compiled(new Set(["apple", "apricot", "banana", "blueberry"]));  // Set(["a", "b"])
    * ```
    */
@@ -978,7 +978,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     ($, existing, newVal, key) => existing  // Keep first value on conflict
    *   ));
    * });
-   * const compiled = East.compile(convertToDict.toIR(), []);
+   * const compiled = East.compile(convertToDict, []);
    * compiled(new Set(["hi", "bye", "up"]));  // { 2n: "HI", 3n: "BYE" }
    * ```
    *
@@ -988,7 +988,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const identityDict = East.function([SetType(StringType)], DictType(StringType, StringType), ($, items) => {
    *   $.return(items.toDict());  // Same key and value
    * });
-   * const compiled = East.compile(identityDict.toIR(), []);
+   * const compiled = East.compile(identityDict, []);
    * compiled(new Set(["a", "b"]));  // { "a": "a", "b": "b" }
    * ```
    */
@@ -1047,7 +1047,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     return result;
    *   }));
    * });
-   * const compiled = East.compile(expandRanges.toIR(), []);
+   * const compiled = East.compile(expandRanges, []);
    * compiled(new Set([2n, 3n]));  // [0n, 1n, 0n, 1n, 2n]
    * ```
    */
@@ -1093,7 +1093,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     return multiples;
    *   }));
    * });
-   * const compiled = East.compile(generateMultiples.toIR(), []);
+   * const compiled = East.compile(generateMultiples, []);
    * compiled(new Set([2n, 3n]));  // Set([4n, 6n, 9n])  (6n appears once)
    * ```
    */
@@ -1142,7 +1142,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     return stats;
    *   }));
    * });
-   * const compiled = East.compile(wordStats.toIR(), []);
+   * const compiled = East.compile(wordStats, []);
    * compiled(new Set(["hi", "bye"]));  // { "hi_count": 2n, "hi_double": 4n, "bye_count": 3n, "bye_double": 6n }
    * ```
    */
@@ -1178,6 +1178,64 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
   }
 
   /**
+   * Builds a tree of any depth from the set's elements, in a node type of your own; each element is its own key.
+   *
+   * `parentFn` names each element's parent; `buildFn` turns an element and its children's built nodes into its
+   * node. The result is the roots.
+   *
+   * @param node - The node type `buildFn` returns; its `children` argument is an Array of it
+   * @param parentFn - Function taking an element and returning its parent, or `none` for a root
+   * @param buildFn - Function taking (element, children) and returning the element's node
+   * @returns An ArrayExpr of the root nodes, in set order
+   *
+   * @throws East runtime error if the parents form a cycle, naming the first element in set order on the cycle
+   *
+   * @remarks
+   * - An element whose parent is not in the set (an orphan) becomes a root.
+   * - `buildFn` runs once per element, children before parents; `children` holds the built children in set
+   *   order. Every `parentFn` runs first, and the cycle check comes before any `buildFn`.
+   * - `node` can be any type: a recursive node type builds a tree value, a non-recursive one folds bottom-up.
+   * - The walk is iterative, so building costs no stack at any depth. A recursive node value is still limited
+   *   in depth on the C and Python runtimes, which collect and free a value recursively: tens of thousands of
+   *   levels.
+   *
+   * @example
+   * ```ts
+   * // Each number's parent is the number without its last digit
+   * const NodeType = RecursiveType(self => StructType({ id: IntegerType, children: ArrayType(self) }));
+   *
+   * const nest = East.function([SetType(IntegerType)], ArrayType(NodeType), ($, ids) => {
+   *   $.return(ids.toTree(
+   *     NodeType,
+   *     ($, id) => id.lessThan(10n).ifElse(() => none, () => some(id.divide(10n))),
+   *     ($, id, children) => ({ id, children }),
+   *   ));
+   * });
+   * const compiled = East.compile(nest, []);
+   * compiled(new Set([1n, 2n, 12n, 13n, 123n]));
+   * // [{ id: 1n, children: [
+   * //   { id: 12n, children: [{ id: 123n, children: [] }] },
+   * //   { id: 13n, children: [] },
+   * // ] }, { id: 2n, children: [] }]
+   * ```
+   *
+   * @see {@link ArrayExpr.toTree} for elements that carry their own key.
+   */
+  toTree<N extends EastType>(node: N, parentFn: SubtypeExprOrValue<FunctionType<[K], OptionType<K>>>, buildFn: SubtypeExprOrValue<FunctionType<[K, ArrayType<NoInfer<N>>], NoInfer<N>>>): ArrayExpr<N> {
+    const parentFnAst = valueOrExprToAstTyped(parentFn, FunctionType([this.key_type as EastType], OptionType(this.key_type as EastType)));
+    const buildFnAst = valueOrExprToAstTyped(buildFn, FunctionType([this.key_type as EastType, ArrayType(node)], node));
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: ArrayType(node),
+      loc_id: get_location_id(),
+      builtin: "SetToTree",
+      type_parameters: [this.key_type as EastType, node],
+      arguments: [this[AstSymbol], parentFnAst, buildFnAst],
+    }) as ArrayExpr<N>;
+  }
+
+  /**
    * Groups elements by a key and performs a fold/reduce operation on each group.
    *
    * @param keyFn - Function that maps each element to a group key
@@ -1197,7 +1255,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     ($, acc, x) => acc.add(x)
    *   ));
    * });
-   * const compiled = East.compile(groupSum.toIR(), []);
+   * const compiled = East.compile(groupSum, []);
    * compiled(new Set([1n, 2n, 3n, 4n, 5n, 6n]));  // { "even": 12n, "odd": 9n }
    * ```
    */
@@ -1238,7 +1296,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const groupByParity = East.function([SetType(IntegerType)], DictType(IntegerType, ArrayType(IntegerType)), ($, numbers) => {
    *   $.return(numbers.groupToArrays(($, x) => x.remainder(2n)));
    * });
-   * const compiled = East.compile(groupByParity.toIR(), []);
+   * const compiled = East.compile(groupByParity, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // { 0n: [2n, 4n], 1n: [1n, 3n] }
    * ```
    */
@@ -1279,7 +1337,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const groupByParity = East.function([SetType(IntegerType)], DictType(IntegerType, SetType(IntegerType)), ($, numbers) => {
    *   $.return(numbers.groupToSets(($, x) => x.remainder(2n)));
    * });
-   * const compiled = East.compile(groupByParity.toIR(), []);
+   * const compiled = East.compile(groupByParity, []);
    * compiled(new Set([1n, 2n, 1n, 2n]));  // { 0n: Set([2n]), 1n: Set([1n]) }
    * ```
    */
@@ -1330,7 +1388,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     ($, existing, newVal, key) => existing  // Keep first on conflict
    *   ));
    * });
-   * const compiled = East.compile(nestedGroup.toIR(), []);
+   * const compiled = East.compile(nestedGroup, []);
    * compiled(new Set([1n, -2n, 3n, -4n]));  // { "even": { "negative": -2n, "positive": ... }, "odd": { ... } }
    * ```
    */
@@ -1410,7 +1468,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const countByParity = East.function([SetType(IntegerType)], DictType(IntegerType, IntegerType), ($, numbers) => {
    *   $.return(numbers.groupSize(($, x) => x.remainder(2n)));
    * });
-   * const compiled = East.compile(countByParity.toIR(), []);
+   * const compiled = East.compile(countByParity, []);
    * compiled(new Set([1n, 2n, 3n, 4n, 5n, 6n]));  // { 0n: 3n, 1n: 3n }
    * ```
    */
@@ -1444,7 +1502,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     ($, x) => x.greaterThan(0n)
    *   ));
    * });
-   * const compiled = East.compile(allPositive.toIR(), []);
+   * const compiled = East.compile(allPositive, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // { 0n: true, 1n: true }
    * ```
    */
@@ -1481,7 +1539,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    *     ($, x) => x.greaterThan(3n)
    *   ));
    * });
-   * const compiled = East.compile(anyLarge.toIR(), []);
+   * const compiled = East.compile(anyLarge, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // { 0n: true, 1n: false }
    * ```
    */
@@ -1515,7 +1573,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const sumByParity = East.function([SetType(IntegerType)], DictType(IntegerType, IntegerType), ($, numbers) => {
    *   $.return(numbers.groupSum(($, x) => x.remainder(2n)));
    * });
-   * const compiled = East.compile(sumByParity.toIR(), []);
+   * const compiled = East.compile(sumByParity, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // { 0n: 6n, 1n: 4n }
    * ```
    */
@@ -1558,7 +1616,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const meanByParity = East.function([SetType(IntegerType)], DictType(IntegerType, FloatType), ($, numbers) => {
    *   $.return(numbers.groupMean(($, x) => x.remainder(2n)));
    * });
-   * const compiled = East.compile(meanByParity.toIR(), []);
+   * const compiled = East.compile(meanByParity, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // { 0n: 3.0, 1n: 2.0 }
    * ```
    */
@@ -1608,7 +1666,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const allPositive = East.function([SetType(IntegerType)], BooleanType, ($, numbers) => {
    *   $.return(numbers.every(($, n) => n.greaterThan(0n)));
    * });
-   * const compiled = East.compile(allPositive.toIR(), []);
+   * const compiled = East.compile(allPositive, []);
    * compiled(new Set([1n, 2n, 3n]));    // true
    * compiled(new Set([1n, -2n, 3n]));   // false
    * compiled(new Set([]));              // true (empty set)
@@ -1620,7 +1678,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const allTrue = East.function([SetType(BooleanType)], BooleanType, ($, flags) => {
    *   $.return(flags.every());
    * });
-   * const compiled = East.compile(allTrue.toIR(), []);
+   * const compiled = East.compile(allTrue, []);
    * compiled(new Set([true, true]));   // true
    * compiled(new Set([true, false]));  // false
    * ```
@@ -1703,7 +1761,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const hasNegative = East.function([SetType(IntegerType)], BooleanType, ($, numbers) => {
    *   $.return(numbers.some(($, n) => n.lessThan(0n)));
    * });
-   * const compiled = East.compile(hasNegative.toIR(), []);
+   * const compiled = East.compile(hasNegative, []);
    * compiled(new Set([1n, 2n, 3n]));    // false
    * compiled(new Set([1n, -2n, 3n]));   // true
    * compiled(new Set([]));              // false (empty set)
@@ -1715,7 +1773,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const anyTrue = East.function([SetType(BooleanType)], BooleanType, ($, flags) => {
    *   $.return(flags.some());
    * });
-   * const compiled = East.compile(anyTrue.toIR(), []);
+   * const compiled = East.compile(anyTrue, []);
    * compiled(new Set([false, false]));  // false
    * compiled(new Set([false, true]));   // true
    * ```
@@ -1791,7 +1849,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const sumNumbers = East.function([SetType(IntegerType)], IntegerType, ($, numbers) => {
    *   $.return(numbers.sum());
    * });
-   * const compiled = East.compile(sumNumbers.toIR(), []);
+   * const compiled = East.compile(sumNumbers, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // 10n
    * ```
    *
@@ -1801,7 +1859,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const sumLengths = East.function([SetType(StringType)], IntegerType, ($, words) => {
    *   $.return(words.sum(($, word) => word.size()));
    * });
-   * const compiled = East.compile(sumLengths.toIR(), []);
+   * const compiled = East.compile(sumLengths, []);
    * compiled(new Set(["hi", "bye"]));  // 5n (2 + 3)
    * ```
    */
@@ -1847,7 +1905,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const average = East.function([SetType(IntegerType)], FloatType, ($, numbers) => {
    *   $.return(numbers.mean());
    * });
-   * const compiled = East.compile(average.toIR(), []);
+   * const compiled = East.compile(average, []);
    * compiled(new Set([1n, 2n, 3n, 4n]));  // 2.5
    * compiled(new Set([]));                // NaN
    * ```
@@ -1858,7 +1916,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const avgLength = East.function([SetType(StringType)], FloatType, ($, words) => {
    *   $.return(words.mean(($, word) => word.size()));
    * });
-   * const compiled = East.compile(avgLength.toIR(), []);
+   * const compiled = East.compile(avgLength, []);
    * compiled(new Set(["hi", "hello"]));  // 3.5 ((2 + 5) / 2)
    * ```
    */
@@ -1899,7 +1957,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const isEqual = East.function([SetType(IntegerType), SetType(IntegerType)], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled(new Set([1n, 2n, 3n]), new Set([1n, 2n, 3n]));  // true
    * compiled(new Set([1n, 2n]), new Set([1n, 2n, 3n]));      // false
    * ```
@@ -1919,7 +1977,7 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * const isNotEqual = East.function([SetType(IntegerType), SetType(IntegerType)], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled(new Set([1n, 2n]), new Set([1n, 2n, 3n]));      // true
    * compiled(new Set([1n, 2n, 3n]), new Set([1n, 2n, 3n]));  // false
    * ```

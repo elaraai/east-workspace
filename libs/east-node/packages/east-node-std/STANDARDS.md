@@ -68,7 +68,7 @@ All **exported** platform function definitions MUST include comprehensive TypeDo
  *     $.return(null);
  * });
  *
- * const compiled = East.compile(processFile.toIR(), FileSystem.Implementation);
+ * const compiled = East.compile(processFile, FileSystem.Implementation);
  * compiled("data.txt");  // Reads and logs the contents of data.txt
  * ```
  *
@@ -122,7 +122,7 @@ Each property in the exported object MUST have complete TypeDoc documentation.
  * });
  *
  * // Use East.compile() for synchronous implementations
- * const compiled = East.compile(generateId.toIR(), Crypto.Implementation);
+ * const compiled = East.compile(generateId, Crypto.Implementation);
  * compiled();  // "550e8400-e29b-41d4-a716-446655440000"
  * ```
  *
@@ -154,7 +154,7 @@ export const Crypto = {
      *     return $.return(Crypto.uuid());
      * });
      *
-     * const compiled = East.compile(createRecord.toIR(), Crypto.Implementation);
+     * const compiled = East.compile(createRecord, Crypto.Implementation);
      * compiled();  // "550e8400-e29b-41d4-a716-446655440000"
      * ```
      */
@@ -175,7 +175,7 @@ export const Crypto = {
      *     return $.return(Crypto.hashSha256(password));
      * });
      *
-     * const compiled = East.compile(hashPassword.toIR(), Crypto.Implementation);
+     * const compiled = East.compile(hashPassword, Crypto.Implementation);
      * compiled("secret");  // "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b"
      * ```
      */

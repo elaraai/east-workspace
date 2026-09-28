@@ -22,7 +22,7 @@ import type { ExprType, SubtypeExprOrValue } from "./types.js";
  *   const counter = $.let(East.value(ref(42n)));
  *   $.return(counter.get());
  * });
- * const compiled = East.compile(getRefValue.toIR(), []);
+ * const compiled = East.compile(getRefValue, []);
  * compiled();  // 42n
  * ```
  *
@@ -34,7 +34,7 @@ import type { ExprType, SubtypeExprOrValue } from "./types.js";
  *   $(counter.update(newValue));
  *   $.return(counter.get());
  * });
- * const compiled = East.compile(updateRef.toIR(), []);
+ * const compiled = East.compile(updateRef, []);
  * compiled(100n);  // 100n
  * ```
  */
@@ -54,7 +54,7 @@ export class RefExpr<T extends any> extends Expr<RefType<T>> {
    *   const counter = $.let(East.value(ref(42n)));
    *   $.return(counter.get());
    * });
-   * const compiled = East.compile(getRefValue.toIR(), []);
+   * const compiled = East.compile(getRefValue, []);
    * compiled();  // 42n
    * ```
    */
@@ -82,7 +82,7 @@ export class RefExpr<T extends any> extends Expr<RefType<T>> {
    *   $(counter.update(newValue));
    *   $.return(counter.get());
    * });
-   * const compiled = East.compile(updateRef.toIR(), []);
+   * const compiled = East.compile(updateRef, []);
    * compiled(100n);  // 100n
    * ```
    *
@@ -116,7 +116,7 @@ export class RefExpr<T extends any> extends Expr<RefType<T>> {
    *   $(counter.merge(delta, ($, current, newVal) => current.add(newVal)));
    *   $.return(counter.get());
    * });
-   * const compiled = East.compile(incrementRef.toIR(), []);
+   * const compiled = East.compile(incrementRef, []);
    * compiled(5n);  // 15n
    * ```
    *

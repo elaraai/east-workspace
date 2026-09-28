@@ -32,7 +32,7 @@ import { equal, notEqual } from "./block.js";
  * const conditional = East.function([BooleanType, IntegerType, IntegerType], IntegerType, ($, condition, x, y) => {
  *   $.return(condition.ifElse(() => x, () => y));
  * });
- * const compiled = East.compile(conditional.toIR(), []);
+ * const compiled = East.compile(conditional, []);
  * compiled(true, 10n, 20n);   // 10n
  * compiled(false, 10n, 20n);  // 20n
  * ```
@@ -52,7 +52,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const negate = East.function([BooleanType], BooleanType, ($, x) => {
    *   $.return(x.not());
    * });
-   * const compiled = East.compile(negate.toIR(), []);
+   * const compiled = East.compile(negate, []);
    * compiled(true);   // false
    * compiled(false);  // true
    * ```
@@ -85,7 +85,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const shortCircuitOr = East.function([BooleanType, BooleanType], BooleanType, ($, a, b) => {
    *   $.return(a.or(() => b));  // b only evaluated if a is false
    * });
-   * const compiled = East.compile(shortCircuitOr.toIR(), []);
+   * const compiled = East.compile(shortCircuitOr, []);
    * compiled(true, false);   // true (doesn't evaluate second operand)
    * compiled(false, true);   // true
    * compiled(false, false);  // false
@@ -112,7 +112,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const shortCircuitAnd = East.function([BooleanType, BooleanType], BooleanType, ($, a, b) => {
    *   $.return(a.and(() => b));  // b only evaluated if a is true
    * });
-   * const compiled = East.compile(shortCircuitAnd.toIR(), []);
+   * const compiled = East.compile(shortCircuitAnd, []);
    * compiled(false, true);   // false (doesn't evaluate second operand)
    * compiled(true, true);    // true
    * compiled(true, false);   // false
@@ -139,7 +139,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const bitwiseOr = East.function([BooleanType, BooleanType], BooleanType, ($, a, b) => {
    *   $.return(a.bitOr(b));  // Both operands always evaluated
    * });
-   * const compiled = East.compile(bitwiseOr.toIR(), []);
+   * const compiled = East.compile(bitwiseOr, []);
    * compiled(true, false);   // true
    * compiled(false, true);   // true
    * compiled(false, false);  // false
@@ -174,7 +174,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const bitwiseAnd = East.function([BooleanType, BooleanType], BooleanType, ($, a, b) => {
    *   $.return(a.bitAnd(b));  // Both operands always evaluated
    * });
-   * const compiled = East.compile(bitwiseAnd.toIR(), []);
+   * const compiled = East.compile(bitwiseAnd, []);
    * compiled(true, true);    // true
    * compiled(true, false);   // false
    * compiled(false, false);  // false
@@ -207,7 +207,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const exclusiveOr = East.function([BooleanType, BooleanType], BooleanType, ($, a, b) => {
    *   $.return(a.bitXor(b));
    * });
-   * const compiled = East.compile(exclusiveOr.toIR(), []);
+   * const compiled = East.compile(exclusiveOr, []);
    * compiled(true, false);   // true
    * compiled(false, true);   // true
    * compiled(true, true);    // false
@@ -245,7 +245,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const max = East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => {
    *   $.return(a.greaterThan(b).ifElse(() => a, () => b));
    * });
-   * const compiled = East.compile(max.toIR(), []);
+   * const compiled = East.compile(max, []);
    * compiled(10n, 20n);  // 20n
    * compiled(30n, 15n);  // 30n
    *
@@ -286,7 +286,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const isEqual = East.function([BooleanType, BooleanType], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled(true, true);     // true
    * compiled(false, false);   // true
    * compiled(true, false);    // false
@@ -307,7 +307,7 @@ export class BooleanExpr extends Expr<BooleanType> {
    * const isNotEqual = East.function([BooleanType, BooleanType], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled(true, false);    // true
    * compiled(false, true);    // true
    * compiled(true, true);     // false

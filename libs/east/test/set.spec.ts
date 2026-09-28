@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, Expr, IntegerType, SetType, StringType, some, none, DictType, BooleanType, StructType } from "../src/index.js";
+import { East, Expr, IntegerType, SetType, StringType, some, none, DictType, BooleanType, StructType, ArrayType, OptionType, RecursiveType } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./set.examples.js";
 
@@ -726,6 +726,51 @@ await describe("Set", (test) => {
             new Map([[0n, 8.0], [1n, 6.0]])
         ))
     })
+
+    assert.examples(test, {
+        setToTree: ex.setToTree,
+    });
+
+    const SetTreeNodeType = RecursiveType(self => StructType({ id: IntegerType, children: ArrayType(self) }));
+
+    test("toTree - roots and children in set order, build children first", $ => {
+        const ids = $.const(new Set([13n, 2n, 123n, 1n, 12n]), SetType(IntegerType));
+        const calls = $.let([], ArrayType(StringType));
+        const tree = $.let(ids.toTree(
+            SetTreeNodeType,
+            ($, id) => { $(calls.pushLast(Expr.str`parent ${id}`)); return id.lessThan(10n).ifElse(() => none, () => some(id.divide(10n))); },
+            ($, id, children) => { $(calls.pushLast(Expr.str`build ${id}`)); return { id, children }; },
+        ));
+        $(assert.equal(tree, [
+            {
+                id: 1n, children: [
+                    { id: 12n, children: [{ id: 123n, children: [] }] },
+                    { id: 13n, children: [] },
+                ],
+            },
+            { id: 2n, children: [] },
+        ]));
+        $(assert.equal(calls, ["parent 1", "parent 2", "parent 12", "parent 13", "parent 123", "build 123", "build 12", "build 13", "build 1", "build 2"]));
+    });
+
+    test("toTree - an orphan becomes a root, and an empty set builds none", $ => {
+        // 61's parent 6 is not in the set
+        const ids = $.const(new Set([5n, 7n, 51n, 61n]), SetType(IntegerType));
+        $(assert.equal(ids.toTree(IntegerType, (_$, id) => id.lessThan(10n).ifElse(() => none, () => some(id.divide(10n))), (_$, _id, children) => children.sum().add(1n)), [2n, 1n, 1n]));
+
+        const empty = $.const(new Set<bigint>(), SetType(IntegerType));
+        $(assert.equal(empty.toTree(IntegerType, (_$, id) => some(id), (_$, _id, children) => children.sum().add(1n)), []));
+    });
+
+    test("toTree - a cycle is refused, naming the first element on it", $ => {
+        // 1 -> 2 -> 3 -> 1
+        const loop = $.const(new Set([1n, 2n, 3n]), SetType(IntegerType));
+        $(assert.throws(loop.toTree(IntegerType, (_$, id) => some(id.remainder(3n).add(1n)), (_$, _id, children) => children.sum().add(1n)), /^toTree: cycle through key 1$/));
+
+        // An element that is its own parent; a String key prints quoted
+        const named = $.const(new Set(["a", "b"]), SetType(StringType));
+        $(assert.throws(named.toTree(IntegerType, (_$, name) => East.equal(name, "b").ifElse(() => some(name), () => East.value(none, OptionType(StringType))), (_$, _name, children) => children.sum().add(1n)), /^toTree: cycle through key "b"$/));
+    });
 
     test("Equality method aliases", $ => {
         // Test short aliases (eq, ne)

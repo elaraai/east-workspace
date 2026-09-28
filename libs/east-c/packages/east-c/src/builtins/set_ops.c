@@ -5,6 +5,7 @@
 #include "east/compiler.h"
 #include "east/serialization.h"
 #include "east/values.h"
+#include "tree.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -644,6 +645,72 @@ static EastValue *set_group_fold_impl(EastValue **args, size_t n)
     return result;
 }
 
+/* SetToTree (set, parent_fn, build_fn) -> Array<N> (#948). An element is its
+ * own key. K and N are set by the factory immediately before the impl runs;
+ * the impl copies them before its first callback, which may run another
+ * toTree. */
+static _Thread_local EastType *s_set_tree_key_type = NULL;
+static _Thread_local EastType *s_set_tree_node_type = NULL;
+
+typedef struct {
+    EastValue *set;
+    EastValue *build_fn;
+} SetTreeBuild;
+
+static EastValue *set_tree_build(void *ctx, size_t i, EastValue *children)
+{
+    SetTreeBuild *b = ctx;
+    EastValue *call_args[] = {east_set_at(b->set, i), children};
+    return call_fn(b->build_fn, call_args, 2);
+}
+
+static EastValue *set_to_tree_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastType *key_type = s_set_tree_key_type;
+    EastType *node_type = s_set_tree_node_type;
+    EastValue *s = args[0];
+    EastValue *parent_fn = args[1];
+    EastValue *build_fn = args[2];
+    size_t len = east_set_len(s);
+    EastValue *result = NULL;
+    ptrdiff_t *parents = malloc((len + 1) * sizeof(ptrdiff_t));
+    size_t *order = malloc((len + 1) * sizeof(size_t));
+    size_t *child_counts = malloc((len + 1) * sizeof(size_t));
+    if (!parents || !order || !child_counts) {
+        east_builtin_error("out of memory");
+        goto done;
+    }
+    s->iter_lock++;
+    for (size_t i = 0; i < len; i++) {
+        EastValue *call_args[] = {east_set_at(s, i)};
+        EastValue *parent = call_fn(parent_fn, call_args, 1);
+        if (!parent) goto unlock;
+        parents[i] = strcmp(east_variant_case_name(parent), "some") == 0
+                         ? east_tree_sorted_index(s, parent->data.variant.value)
+                         : -1;
+        east_value_release(parent);
+    }
+    ptrdiff_t cycle;
+    if (!east_tree_order(parents, len, order, child_counts, &cycle)) {
+        east_builtin_error("out of memory");
+        goto unlock;
+    }
+    if (cycle >= 0) {
+        east_tree_key_error("cycle through key", east_set_at(s, (size_t)cycle), key_type);
+        goto unlock;
+    }
+    SetTreeBuild b = {.set = s, .build_fn = build_fn};
+    result = east_tree_build(order, child_counts, len, node_type, set_tree_build, &b);
+unlock:
+    s->iter_lock--;
+done:
+    free(parents);
+    free(order);
+    free(child_counts);
+    return result;
+}
+
 /* --- factory functions --- */
 
 static BuiltinImpl set_generate_factory(EastType **tp, size_t ntp)
@@ -833,6 +900,14 @@ static BuiltinImpl set_group_fold_factory(EastType **tp, size_t ntp)
     return set_group_fold_impl;
 }
 
+static BuiltinImpl set_to_tree_factory(EastType **tp, size_t ntp)
+{
+    /* tp = [K, N] */
+    s_set_tree_key_type = ntp > 0 ? tp[0] : NULL;
+    s_set_tree_node_type = ntp > 1 ? tp[1] : NULL;
+    return set_to_tree_impl;
+}
+
 /* --- registration --- */
 
 void east_register_set_builtins(BuiltinRegistry *reg)
@@ -868,4 +943,5 @@ void east_register_set_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "SetFlattenToSet", set_flatten_to_set_factory);
     builtin_registry_register(reg, "SetFlattenToDict", set_flatten_to_dict_factory);
     builtin_registry_register(reg, "SetGroupFold", set_group_fold_factory);
+    builtin_registry_register(reg, "SetToTree", set_to_tree_factory);
 }

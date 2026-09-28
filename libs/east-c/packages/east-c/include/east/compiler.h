@@ -104,6 +104,17 @@ EastCompiledFn *east_compile_fn(IRNode *fn_node, PlatformRegistry *platform,
 EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args);
 void east_compiled_fn_free(EastCompiledFn *fn);
 
+/* The error an East call nested too deeply raises — identical across the TS,
+ * C and Python runtimes (compliance-tested), so runaway recursion is one
+ * catchable East error everywhere rather than a crash (#948). */
+#define EAST_CALL_DEPTH_MSG "call stack exhausted: East calls nested too deeply"
+
+/* Whether this thread's stack is too far used for another East call: the
+ * stack pointer is within the headroom kept above the thread's stack limit.
+ * Always false on a stack whose bounds are unknown or that is not the
+ * thread's own (a fiber). Checked at every East call (stack_guard.c). */
+bool east_stack_exhausted(void);
+
 /* Build a function VALUE backed by a foreign-runtime invoke hook (e.g. a
  * Python callable). `invoke` is called with (self, args, n); read your handle
  * from `self->invoke_userdata`. `invoke_release` runs once when the value is

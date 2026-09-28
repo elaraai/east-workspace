@@ -112,7 +112,7 @@ export class TypedExpr { ... }
  * const getByte = East.function([BlobType, IntegerType], IntegerType, ($, blob, offset) => {
  *   $.return(blob.getUint8(offset));
  * });
- * const compiled = East.compile(getByte.toIR(), []);
+ * const compiled = East.compile(getByte, []);
  * const blob = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
  * compiled(blob, 0n);  // 72n (ASCII 'H')
  * compiled(blob, 1n);  // 101n (ASCII 'e')
@@ -255,7 +255,7 @@ All examples for East expression methods (classes in `/src/expr/` and `/src/expr
  * const getSize = East.function([BlobType], IntegerType, ($, blob) => {
  *   $.return(blob.size());
  * });
- * const compiled = East.compile(getSize.toIR(), []);
+ * const compiled = East.compile(getSize, []);
  * const text = "hello";
  * const blob = new TextEncoder().encode(text);
  * compiled(blob);  // 5n (5 bytes for "hello")
@@ -284,7 +284,7 @@ All examples for East expression methods (classes in `/src/expr/` and `/src/expr
  * const doubleNumbers = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr) => {
  *   $.return(arr.map(($, x, i) => x.multiply(2n)));
  * });
- * const compiled = East.compile(doubleNumbers.toIR(), []);
+ * const compiled = East.compile(doubleNumbers, []);
  * compiled([1n, 2n, 3n]);  // [2n, 4n, 6n]
  * ```
  */
@@ -296,7 +296,7 @@ All examples for East expression methods (classes in `/src/expr/` and `/src/expr
  * const makeLinspace = East.function([], ArrayType(FloatType), ($) => {
  *   $.return(East.Array.linspace(0.0, 1.0, 5n));
  * });
- * const compiled = East.compile(makeLinspace.toIR(), []);
+ * const compiled = East.compile(makeLinspace, []);
  * compiled();  // [0.0, 0.25, 0.5, 0.75, 1.0]
  * ```
  */
@@ -309,7 +309,7 @@ All examples for East expression methods (classes in `/src/expr/` and `/src/expr
  *   $(arr.pushLast(value));  // Mutate the array
  *   $.return(arr);
  * });
- * const compiled = East.compile(appendValue.toIR(), []);
+ * const compiled = East.compile(appendValue, []);
  * const myArray = [1n, 2n, 3n];
  * compiled(myArray, 4n);  // [1n, 2n, 3n, 4n]
  * ```
@@ -323,6 +323,8 @@ When adding or modifying examples in `/src/expr/` or `/src/expr/libs/`:
 2. Use `mcp__east-mcp__east_compile` tool to validate it compiles without errors
 3. If compilation fails, fix the example code
 4. Only commit examples that successfully compile
+
+`East.compile` takes the function `East.function` built — `East.compile(fn, [])`, never `East.compile(fn.toIR(), [])`. `make lint` enforces this in every comment under `src/` (`doc-examples/compile-takes-the-function`, which `eslint --fix` corrects).
 
 ### Examples for Regular Classes
 
@@ -348,8 +350,7 @@ For regular classes (compiler, IR, types, etc.), examples MUST:
  *
  * @example
  * ```ts
- * const ir = myEastFunction.toIR();
- * const compiled = East.compile(ir, [log.implement(console.log)]);
+ * const compiled = East.compile(myEastFunction, [log.implement(console.log)]);
  * const result = compiled({ x: 5, y: 10 });
  * console.log(result);  // Expected output
  * ```

@@ -338,6 +338,31 @@ class SetExpression(Expression):
             out,
         )
 
+    def to_tree(self, node: EastType, parent: Any, build: Any) -> ArrayExpression:
+        """Traced SetToTree: a tree of any depth from the set's elements, in a
+        node type of your own; each element is its own key (TS ``toTree``).
+
+        ``parent(element)`` names its parent as an Option — ``none`` for a
+        root; one not in the set (an orphan) makes a root too.
+        ``build(element, children)`` turns an element and its children's
+        built nodes (an ``Array<node>`` in set order) into its node, children
+        before parents. Every ``parent`` runs first, and a cycle is refused
+        before any ``build``. The result is the roots in set order. A cycle
+        is an East runtime error naming the first element on it; the walk is
+        iterative."""
+        elem_t = self._elem()
+        parent_t = _option_type(elem_t)
+        parent_node, p_out = self._callback(parent, out_hint=parent_t)
+        if p_out != parent_t:
+            raise ExpressionError(
+                f".to_tree() parent must return an Option of the element type, got {p_out.type}")
+        build_node, b_out = _trace_inner_fn(build, [elem_t, ArrayType(node)], out_hint=node)
+        if b_out != node:
+            raise ExpressionError(f".to_tree() build returns {b_out.type}, the node type is {node.type}")
+        out = ArrayType(node)
+        return self._expr(
+            _builtin("SetToTree", out, [elem_t, node], [self.ir, parent_node, build_node]), out)
+
     # ── folds ───────────────────────────────────────────────────────────
 
     def reduce(self, fn: Any, init: Any) -> Expression:

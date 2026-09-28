@@ -215,6 +215,7 @@ _SIGNATURES: dict[str, Any] = {
     "ArrayFlattenToSet": lambda T, K2: [ArrayType(T), FN],
     "ArrayFlattenToDict": lambda T, K2, T2: [ArrayType(T), FN, FN],
     "ArrayGroupFold": lambda T, K2, T2: [ArrayType(T), FN, FN, FN],
+    "ArrayToTree": lambda T, K, N: [ArrayType(T), FN, FN, FN],
     # ── set ──
     "SetGenerate": lambda K: [IntegerType, FN, FN],
     "SetSize": lambda K: [SetType(K)],
@@ -247,6 +248,7 @@ _SIGNATURES: dict[str, Any] = {
     "SetFlattenToSet": lambda K, K2: [SetType(K), FN],
     "SetFlattenToDict": lambda K, K2, T2: [SetType(K), FN, FN],
     "SetGroupFold": lambda K, K2, T2: [SetType(K), FN, FN, FN],
+    "SetToTree": lambda K, N: [SetType(K), FN, FN],
     # ── dict ──
     "DictGenerate": lambda K, V: [IntegerType, FN, FN, FN],
     "DictSize": lambda K, V: [DictType(K, V)],
@@ -284,6 +286,7 @@ _SIGNATURES: dict[str, Any] = {
     "DictFlattenToSet": lambda K, V, K2: [DictType(K, V), FN],
     "DictFlattenToDict": lambda K, V, K2, V2: [DictType(K, V), FN, FN],
     "DictGroupFold": lambda K, V, K2, T2: [DictType(K, V), FN, FN, FN],
+    "DictToTree": lambda K, V, N: [DictType(K, V), FN, FN],
     # ── vector ──
     "VectorLength": lambda T: [VectorType(T)],
     "VectorGet": lambda T: [VectorType(T), IntegerType],

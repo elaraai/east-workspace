@@ -1086,6 +1086,10 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
     /* ----- IR_CALL / IR_CALL_ASYNC --------------------------------- */
     case IR_CALL:
     case IR_CALL_ASYNC: {
+        /* A call nested too deeply is a catchable East error, not a C stack
+         * overflow (#948). */
+        if (east_stack_exhausted()) return eval_error_at(node, EAST_CALL_DEPTH_MSG);
+
         /* An inline callee — a Function node as the call target, which is
          * how the TypeScript builder splices a helper into a caller — would
          * be evaluated into a closure, called once and freed. Its frame is
@@ -2195,6 +2199,8 @@ const EastSourceMap *east_get_source_map(void)
 EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
 {
     if (!fn) return eval_error("null function");
+    /* A builtin's callback, a host's call: the same guard as an IR call. */
+    if (east_stack_exhausted()) return eval_error(EAST_CALL_DEPTH_MSG);
 
     /* Foreign-runtime dispatch: if the function provides a custom invoke
      * hook (e.g. a callback into an embedding host), delegate to it.  Skips the

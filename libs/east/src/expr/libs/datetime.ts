@@ -23,7 +23,7 @@ export default {
    * const fromEpoch = East.function([IntegerType], DateTimeType, ($, ms) => {
    *   $.return(East.DateTime.fromEpochMilliseconds(ms));
    * });
-   * const compiled = East.compile(fromEpoch.toIR(), []);
+   * const compiled = East.compile(fromEpoch, []);
    * compiled(0n);              // 1970-01-01T00:00:00.000Z
    * compiled(1609459200000n);  // 2021-01-01T00:00:00.000Z
    * ```
@@ -62,7 +62,7 @@ export default {
    * const makeDate = East.function([IntegerType], DateTimeType, ($, year) => {
    *   $.return(East.DateTime.fromComponents(year, 1n, 15n));
    * });
-   * const compiled = East.compile(makeDate.toIR(), []);
+   * const compiled = East.compile(makeDate, []);
    * compiled(2025n);  // 2025-01-15T00:00:00.000Z
    * ```
    *
@@ -71,7 +71,7 @@ export default {
    * const makeDateTime = East.function([], DateTimeType, ($) => {
    *   $.return(East.DateTime.fromComponents(2025n, 1n, 15n, 14n, 30n, 0n, 500n));
    * });
-   * const compiled = East.compile(makeDateTime.toIR(), []);
+   * const compiled = East.compile(makeDateTime, []);
    * compiled();  // 2025-01-15T14:30:00.500Z
    * ```
    */
@@ -106,7 +106,7 @@ export default {
    * const parseDate = East.function([StringType], DateTimeType, ($, dateStr) => {
    *   $.return(East.DateTime.parseFormatted(dateStr, "YYYY-MM-DD"));
    * });
-   * const compiled = East.compile(parseDate.toIR(), []);
+   * const compiled = East.compile(parseDate, []);
    * compiled("2025-01-15");  // 2025-01-15T00:00:00.000Z
    * ```
    *
@@ -115,7 +115,7 @@ export default {
    * const parseDateTime = East.function([StringType], DateTimeType, ($, str) => {
    *   $.return(East.DateTime.parseFormatted(str, "MM/DD/YYYY HH:mm"));
    * });
-   * const compiled = East.compile(parseDateTime.toIR(), []);
+   * const compiled = East.compile(parseDateTime, []);
    * compiled("01/15/2025 14:30");  // 2025-01-15T14:30:00.000Z
    * ```
    */
@@ -133,7 +133,7 @@ export default {
    * const roundMs = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownMillisecond(dt, step));
    * });
-   * const compiled = East.compile(roundMs.toIR(), []);
+   * const compiled = East.compile(roundMs, []);
    * // Round down to nearest 100ms
    * compiled(East.DateTime.fromEpochMilliseconds(1234n), 100n);  // Rounded to 1200ms
    * ```
@@ -159,7 +159,7 @@ export default {
    * const roundSec = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownSecond(dt, step));
    * });
-   * const compiled = East.compile(roundSec.toIR(), []);
+   * const compiled = East.compile(roundSec, []);
    * // Round down to nearest 30 seconds
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 0n, 45n), 30n);  // Rounds to 30s
    * ```
@@ -186,7 +186,7 @@ export default {
    * const roundMin = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownMinute(dt, step));
    * });
-   * const compiled = East.compile(roundMin.toIR(), []);
+   * const compiled = East.compile(roundMin, []);
    * // Round down to nearest 15 minutes
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 22n), 15n);  // Rounds to 15 min
    * ```
@@ -213,7 +213,7 @@ export default {
    * const roundHour = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownHour(dt, step));
    * });
-   * const compiled = East.compile(roundHour.toIR(), []);
+   * const compiled = East.compile(roundHour, []);
    * // Round down to nearest 6 hours
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 8n), 6n);  // Rounds to 6:00
    * ```
@@ -240,7 +240,7 @@ export default {
    * const roundUpMs = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundUpMillisecond(dt, step));
    * });
-   * const compiled = East.compile(roundUpMs.toIR(), []);
+   * const compiled = East.compile(roundUpMs, []);
    * // Round up to nearest 100ms
    * compiled(East.DateTime.fromEpochMilliseconds(1234n), 100n);  // Rounds to 1300ms
    * ```
@@ -271,7 +271,7 @@ export default {
    * const roundNearMs = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundNearestMillisecond(dt, step));
    * });
-   * const compiled = East.compile(roundNearMs.toIR(), []);
+   * const compiled = East.compile(roundNearMs, []);
    * // Round to nearest 100ms
    * compiled(East.DateTime.fromEpochMilliseconds(1234n), 100n);  // Rounds to 1200ms
    * compiled(East.DateTime.fromEpochMilliseconds(1289n), 100n);  // Rounds to 1300ms
@@ -307,7 +307,7 @@ export default {
    * const roundUpSec = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundUpSecond(dt, step));
    * });
-   * const compiled = East.compile(roundUpSec.toIR(), []);
+   * const compiled = East.compile(roundUpSec, []);
    * // Round up to nearest 30 seconds
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 0n, 15n), 30n);  // Rounds to 30s
    * ```
@@ -339,7 +339,7 @@ export default {
    * const roundNearSec = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundNearestSecond(dt, step));
    * });
-   * const compiled = East.compile(roundNearSec.toIR(), []);
+   * const compiled = East.compile(roundNearSec, []);
    * // Round to nearest 30 seconds
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 0n, 22n), 30n);  // Rounds to 30s
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 0n, 38n), 30n);  // Rounds to 30s
@@ -376,7 +376,7 @@ export default {
    * const roundUpMin = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundUpMinute(dt, step));
    * });
-   * const compiled = East.compile(roundUpMin.toIR(), []);
+   * const compiled = East.compile(roundUpMin, []);
    * // Round up to nearest 15 minutes
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 22n), 15n);  // Rounds to 30 min
    * ```
@@ -408,7 +408,7 @@ export default {
    * const roundNearMin = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundNearestMinute(dt, step));
    * });
-   * const compiled = East.compile(roundNearMin.toIR(), []);
+   * const compiled = East.compile(roundNearMin, []);
    * // Round to nearest 15 minutes
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 22n), 15n);  // Rounds to 15 min
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 38n), 15n);  // Rounds to 45 min
@@ -445,7 +445,7 @@ export default {
    * const roundUpHr = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundUpHour(dt, step));
    * });
-   * const compiled = East.compile(roundUpHr.toIR(), []);
+   * const compiled = East.compile(roundUpHr, []);
    * // Round up to nearest 6 hours
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 8n), 6n);  // Rounds to 12:00
    * ```
@@ -477,7 +477,7 @@ export default {
    * const roundNearHr = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundNearestHour(dt, step));
    * });
-   * const compiled = East.compile(roundNearHr.toIR(), []);
+   * const compiled = East.compile(roundNearHr, []);
    * // Round to nearest 6 hours
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 8n), 6n);  // Rounds to 6:00
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 10n), 6n);  // Rounds to 12:00
@@ -514,7 +514,7 @@ export default {
    * const roundDownD = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownDay(dt, step));
    * });
-   * const compiled = East.compile(roundDownD.toIR(), []);
+   * const compiled = East.compile(roundDownD, []);
    * // Round down to nearest day
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 12n, 30n), 1n);  // Rounds to start of day
    * ```
@@ -542,7 +542,7 @@ export default {
    * const roundUpD = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundUpDay(dt, step));
    * });
-   * const compiled = East.compile(roundUpD.toIR(), []);
+   * const compiled = East.compile(roundUpD, []);
    * // Round up to nearest day
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 12n, 30n), 1n);  // Rounds to next day start
    * ```
@@ -574,7 +574,7 @@ export default {
    * const roundNearD = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundNearestDay(dt, step));
    * });
-   * const compiled = East.compile(roundNearD.toIR(), []);
+   * const compiled = East.compile(roundNearD, []);
    * // Round to nearest day
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 8n), 1n);  // Rounds to start of day
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 16n), 1n);  // Rounds to next day start
@@ -611,7 +611,7 @@ export default {
    * const roundDownWk = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownWeek(dt, step));
    * });
-   * const compiled = East.compile(roundDownWk.toIR(), []);
+   * const compiled = East.compile(roundDownWk, []);
    * // Round down to nearest Monday
    * compiled(East.DateTime.fromComponents(2025n, 1n, 3n), 1n);  // Rounds to previous Monday
    * ```
@@ -646,7 +646,7 @@ export default {
    * const roundUpWk = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundUpWeek(dt, step));
    * });
-   * const compiled = East.compile(roundUpWk.toIR(), []);
+   * const compiled = East.compile(roundUpWk, []);
    * // Round up to nearest Monday
    * compiled(East.DateTime.fromComponents(2025n, 1n, 3n), 1n);  // Rounds to next Monday
    * ```
@@ -686,7 +686,7 @@ export default {
    * const roundNearWk = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundNearestWeek(dt, step));
    * });
-   * const compiled = East.compile(roundNearWk.toIR(), []);
+   * const compiled = East.compile(roundNearWk, []);
    * // Round to nearest Monday
    * compiled(East.DateTime.fromComponents(2025n, 1n, 3n), 1n);  // Rounds to closest Monday
    * ```
@@ -730,7 +730,7 @@ export default {
    * const roundDownMo = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownMonth(dt, step));
    * });
-   * const compiled = East.compile(roundDownMo.toIR(), []);
+   * const compiled = East.compile(roundDownMo, []);
    * // Round down to nearest month (first day of the month at midnight)
    * compiled(East.DateTime.fromComponents(2025n, 1n, 15n), 1n);  // Rounds to Jan 1, 2025
    * // Round down to nearest quarter (Jan 1, Apr 1, Jul 1, Oct 1)
@@ -766,7 +766,7 @@ export default {
    * const roundDownYr = East.function([DateTimeType, IntegerType], DateTimeType, ($, dt, step) => {
    *   $.return(East.DateTime.roundDownYear(dt, step));
    * });
-   * const compiled = East.compile(roundDownYr.toIR(), []);
+   * const compiled = East.compile(roundDownYr, []);
    * // Round down to nearest year (January 1st at midnight)
    * compiled(East.DateTime.fromComponents(2025n, 6n, 15n), 1n);  // Rounds to Jan 1, 2025
    * // Round down to nearest decade
