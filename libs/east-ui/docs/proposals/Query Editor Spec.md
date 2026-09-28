@@ -403,7 +403,7 @@ Filters match the typed text anywhere in the label (or name), case-insensitively
 | Part ("PART") | year "2026", month "2026-03", weekday "Tuesday" | "Part" | — |
 | Date ("DATE") | Date fields | Fields | Fields from the checked type |
 | Value (model input; "VALUE") | A typed value | "Typed" | Values from the dataset summary |
-| Add a step ("ADD A STEP") | The steps that fit the shape at that point (§6.3); with an empty query, or when the typed text matches, up to 5 saved and recent queries on the same source | "Add a step" · "Start from a saved query" / "Replace with a saved query" | Only steps that fit the current shape |
+| Add a step ("ADD A STEP") | The steps that fit the shape at that point (§6.3); with an empty query, or when the typed text matches, up to 5 saved and recent queries on the same source that this editor can open (§12.2) | "Add a step" · "Start from a saved query" / "Replace with a saved query" | Only steps that fit the current shape |
 | Queries ("QUERIES", from Saved ▾) | "New query on {name}" (`fa-plus`) for every bound data source, the current source first (§13.2); then every saved and recent query (`fa-bookmark` / `fa-clock-rotate-left`, detail "{source} · {when}") | "Start" · "Recent" · "Saved" | Recent and saved queries |
 
 ### 6.3 Add-step options
@@ -843,13 +843,26 @@ The queries popover (§6.2 "Queries"): "New query on {name}" starts an empty que
 save state, and runs it.
 
 Product (#935): saved queries are a **bound record** handed to the editor (`saved`, a `Record.bind`
-handle — the editor only accepts bound sources): a Dict from name to `{ datasets, name, program, saved_at }`
+handle — the editor only accepts bound sources): a Dict from name to `{ name, program, root, saved_at }`
 (`QueryEditor.Types.Saved`), written through the record's patch mutation, so a save is audited and two
-people saving at once don't lose each other's work. Without `saved`, Save is hidden and Saved ▾ lists only
-recent queries. Recent queries are per viewer (the last 10 runs, in browser storage, keyed by the editor's
-`id`). "When" labels: "Saved · today", "Saved · Tue", "Saved · 12 Sep" (from `saved_at`); recent "Today
-09:12", "Yesterday", "Mon". A saved query that reads a data source the editor isn't bound to is listed
-disabled ("Reads {name}, which isn't here").
+people saving at once don't lose each other's work.
+
+- `program` is the canonical jq, as **text**. It is not the parsed `JqType` tree, whose type changes as the
+  grammar grows and which reads as a deep variant wherever the record is shown raw; text and tree convert
+  exactly (#920's round trip), and the checker parses it on load. It is not the query's translation to IR
+  either, which the route makes on every run.
+- `root` is the `{ name, path }` of each data source the program reads, in root order (e3-types'
+  `QueryRootEntryType`, the entries a run sends). A saved query reads the datasets it was written for, not
+  whatever another page binds under the same name.
+
+Without `saved`, Save is hidden and Saved ▾ lists only recent queries. Recent queries are per viewer (the
+last 10 runs, in browser storage, keyed by the editor's `id`), with the same fields. "When" labels: "Saved ·
+today", "Saved · Tue", "Saved · 12 Sep" (from `saved_at`); recent "Today 09:12", "Yesterday", "Mon".
+
+A saved or recent query opens only when each of its `root` entries is one of the editor's data sources, same
+name and same path. Otherwise it is listed disabled: "Reads {name}, which isn't here" when the editor has no
+data source of that name, and "Reads {path}, not this editor's {name}" when its data source of that name is
+another dataset (`{path}` as e3 prints a dataset path, `.inputs.orders`).
 
 ### 12.3 Save state
 
@@ -1054,7 +1067,8 @@ BY · TOTAL · OF · SORT BY · ORDER · ADD FIELD · LIST · PART · DATE · AD
 Placeholders: "Find a query" (queries), "Type or pick a value" (values), "Type to filter" (the rest).
 Empty: "Type a value, then press ⏎." / "Nothing matches." Hints: "Values from the dataset summary" · "Only
 steps that fit the current shape" · "Recent and saved queries" · "Fields from the checked type". Keys: "↑↓ ⏎
-esc". Items: "Use “{x}”" · "New query on {name}" · "Reads {name}, which isn't here" · "all rows together" /
+esc". Items: "Use “{x}”" · "New query on {name}" · "Reads {name}, which isn't here" · "Reads {path}, not this
+editor's {name}" · "all rows together" /
 "one row of totals" · "every condition holds" / "at least one holds" · "check the items in the list" · "start
 of month · {n} {plural}" · "{n} {plural}" · "lowest" · "median" · "average" · "highest" · "add up" · "count" ·
 "count different" · "newest first" · "oldest first" · "Z to A" · "A to Z" · "highest first" · "lowest first"
@@ -1241,6 +1255,7 @@ Where the brief (`SPEC.md`) and the mock disagree, or where the mock takes a dem
 | The Run button's hover text is computed but never shown | "Run · ⌘⏎" / "Running…" | The shortcut is discoverable |
 | A computed right-hand status text ("checked as you edit · 5 steps") is never shown | Not shown | The brief's status line has no such text |
 | Saved queries live in the browser (`localStorage` `qe-saved-v1`, 20 at most) | A bound record with a patch mutation (§12.2); recent queries stay per viewer | Shared, audited, not lost with a browser |
+| A saved query is its steps, with its data sources by name (`{ name, q: { source, steps } }`) | The canonical jq as text, and the `{ name, path }` of every data source it reads; it opens only where each is bound (§12.2) | The saved artefact is the jq (§1); a query saved on one page never reads another page's dataset of the same name |
 | "New query on {source}" starts on the current source only | One per bound data source (§13.2) | The keyboard path for a drop |
 | The drop target is for chat result cards, over HTML5 drag | For Library cards of the bound sources, over the shared drag layer (§13.3) | One drag system per page; chat is not in #875 |
 | The table and tree are the mock's own drawing, column widths estimated from character counts (truncating the DateTime column) | east-ui's Table and ValueTree renderers, read-only | One implementation; the renderers measure |
