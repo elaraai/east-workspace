@@ -391,7 +391,8 @@ describe("checkJq: rewrites and inference", () => {
 });
 
 describe("QUERY.md", () => {
-  const doc = readFileSync(new URL("../../devdocs/QUERY.md", import.meta.url), "utf8");
+  // A Windows checkout may give the document CRLF line endings; the tables are written with LF.
+  const doc = readFileSync(new URL("../../devdocs/QUERY.md", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 
   test("§10's catalog tables and §12's templates are what the catalog and messages.ts make now", () => {
     assert.ok(withCatalogTables(doc) === doc, "devdocs/QUERY.md is stale: run `make query-corpus` in libs/east");
