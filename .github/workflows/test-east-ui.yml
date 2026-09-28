@@ -8,6 +8,9 @@ on:
       - "libs/east/**"
       - "libs/east-node/**"
       - "libs/e3/**"
+      # The East rules gate these packages' lint (#963): a rule change runs it.
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
   pull_request:
     branches: [main]
@@ -16,6 +19,8 @@ on:
       - "libs/east/**"
       - "libs/east-node/**"
       - "libs/e3/**"
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
 
 concurrency:
@@ -57,6 +62,16 @@ jobs:
       - name: Build east-py-datascience TypeScript (dependency)
         working-directory: libs/east-py/packages/east-py-datascience
         run: pnpm run build
+
+      # `make lint` runs the East rules through eslint-plugin-east (#963),
+      # which loads east-diagnostics' rules from its dist.
+      - name: Build east-diagnostics (dependency)
+        working-directory: libs/east-diagnostics
+        run: make build
+
+      - name: Build eslint-plugin-east (dependency)
+        working-directory: libs/eslint-plugin-east
+        run: make build
 
       - name: Build east-ui packages
         working-directory: libs/east-ui
