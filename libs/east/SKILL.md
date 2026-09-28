@@ -118,15 +118,17 @@ Task → What do you need?
     │   │   ├─ Reduce → .reduce(), .scan(), .every(), .some(), .sum(), .mean(), .maximum(), .minimum(),
     │   │   │   .findMaximum(), .findMinimum()
     │   │   ├─ Convert → .stringJoin(), .toSet(), .toDict(), .flattenToSet(), .flattenToDict(), .encodeCsv()
-    │   │   └─ Group → .groupReduce(), .groupSize(), .groupSum(), .groupMean(), .groupMinimum(), .groupMaximum(),
-    │   │       .groupToArrays(), .groupToSets(), .groupToDicts(), .groupEvery(), .groupSome()
+    │   │   ├─ Group → .groupReduce(), .groupSize(), .groupSum(), .groupMean(), .groupMinimum(), .groupMaximum(),
+    │   │   │   .groupToArrays(), .groupToSets(), .groupToDicts(), .groupEvery(), .groupSome()
+    │   │   └─ Tree → .toTree(Node, key, parent, build) — flat parent-keyed rows to nested nodes (below)
     │   ├─ Set
     │   │   ├─ Read and mutate → .size(), .has(), .insert(), .tryInsert(), .delete(), .tryDelete(), .clear(), .unionInPlace()
     │   │   ├─ Set ops → .copy(), .union(), .intersection(), .difference(), .symmetricDifference(), .isSubsetOf(),
     │   │   │   .isSupersetOf(), .isDisjointFrom()
     │   │   └─ Set and Dict alike → transform .map(), .filter(), .filterMap(), .forEach(), .firstMap();
     │   │       reduce .reduce(), .scan(), .every(), .some(), .sum(), .mean();
-    │   │       convert .toArray(), .toSet(), .toDict(), .flattenToArray(), .flattenToSet(), .flattenToDict();
+    │   │       convert .toArray(), .toSet(), .toDict(), .flattenToArray(), .flattenToSet(), .flattenToDict(),
+    │   │       .toTree(Node, parent, build) (an element / a key is its own key; Dict callbacks take (value, key));
     │   │       group .groupReduce(), .groupSize(), .groupSum(), .groupMean(), .groupToArrays(), .groupToSets(),
     │   │       .groupToDicts(), .groupEvery(), .groupSome()
     │   ├─ Dict → .size(), .has(), .get(), .tryGet(), .keys(), .getKeys(), .insert(), .insertOrUpdate(), .update(),
@@ -242,6 +244,33 @@ $.try($ => {
     $.assign(result, -1n);
 }).finally($ => { /* cleanup */ });
 ```
+
+### Trees from flat rows, and recursion
+
+`toTree` builds nested data — any depth, your own node type — from rows that
+name their key and their parent's key. `build` runs once per row, children
+first; the result is the roots in source order.
+
+```typescript
+const Row = StructType({ id: StringType, parent: OptionType(StringType), name: StringType });
+const Node = RecursiveType(self => StructType({ name: StringType, children: ArrayType(self) }));
+
+const nest = East.function([ArrayType(Row)], ArrayType(Node), ($, rows) =>
+    rows.toTree(Node, ($, r) => r.id, ($, r) => r.parent, ($, r, _i, children) => ({ name: r.name, children })));
+```
+
+- A row whose parent is `none` is a root, and so is an orphan (its parent key
+  is not in the rows). A repeated key ❗ `toTree: duplicate key <key>`; a cycle
+  ❗ `toTree: cycle through key <key>` — both before any `build`.
+- A non-recursive `Node` folds bottom-up: `IntegerType` with
+  `children.sum().add(1n)` is each root's subtree size.
+- **Recursion** — a function calling itself through a captured variable
+  (`$.let(fn, FunctionType(...))`, then `$.assign(fn, East.function(...))`) —
+  is for shallow depths, in the hundreds. Deeper, a call ❗
+  `call stack exhausted: East calls nested too deeply`, a catchable error on
+  every runtime. Walk deep data with `$.while` or `toTree`, which is iterative;
+  the C and Python runtimes still bound a recursive VALUE's depth to tens of
+  thousands of levels.
 
 ### Platform functions
 

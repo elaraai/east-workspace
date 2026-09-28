@@ -11,7 +11,9 @@ import { EastError } from "../../error.js";
 import { isFrozenValue } from "../../frozen.js";
 import type { Location, SourceMap } from "../../location.js";
 import type { PlatformFunction } from "../../platform.js";
+import { printFor } from "../../serialization/east.js";
 import type { EastTypeValue } from "../../type_of_type.js";
+import { buildTree, treeOrder } from "./tree.js";
 
 /** The builtins for Arrays. @internal */
 export const array_builtins = {
@@ -629,6 +631,38 @@ export const array_builtins = {
           result.set(k, new_val);
         }
         return result;
+      } finally {
+        unlockForIteration(array);
+      }
+    }
+  },
+  ArrayToTree: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, K: EastTypeValue, _N: EastTypeValue) => {
+    const compare = compareFor(K);
+    const print = printFor(K);
+    return (array: any[], keyFn: (x: any, i: bigint) => any, parentFn: (x: any, i: bigint) => option<any>, buildFn: (x: any, i: bigint, children: any[]) => any) => {
+      lockForIteration(array);
+      try {
+        const n = array.length;
+        const keys: any[] = [];
+        const index = new SortedMap<any, number>([], compare);
+        for (let i = 0; i < n; i++) {
+          const k = call_function(loc_id, source_map, keyFn, array[i], BigInt(i));
+          if (index.has(k)) {
+            throw new EastError(`toTree: duplicate key ${print(k)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+          }
+          index.set(k, i);
+          keys.push(k);
+        }
+        const parents = new Int32Array(n);
+        for (let i = 0; i < n; i++) {
+          const p: option<any> = call_function(loc_id, source_map, parentFn, array[i], BigInt(i));
+          parents[i] = p.type === "some" ? (index.get(p.value) ?? -1) : -1;
+        }
+        const { order, childCounts, cycle } = treeOrder(parents);
+        if (cycle >= 0) {
+          throw new EastError(`toTree: cycle through key ${print(keys[cycle])}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+        }
+        return buildTree(order, childCounts, (i, children) => call_function(loc_id, source_map, buildFn, array[i], BigInt(i), children));
       } finally {
         unlockForIteration(array);
       }

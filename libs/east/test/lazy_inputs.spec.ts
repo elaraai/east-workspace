@@ -406,6 +406,27 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
       inputs: [table, new Map<bigint, string>([[1n, "-u1"], [200n, "-u2"]])],
     },
     {
+      // Each element's parent is the key below it, so every collection is
+      // one chain, folded into subtree sizes; the Set and Dict walk their
+      // keys in the order a lazy input serves them.
+      label: "corpus.toTree",
+      fn: East.function([Arr, IntSet, Table], ArrayType(StringType), ($, a, s, d) => {
+        const out = $.let([], ArrayType(StringType));
+        $(out.pushLast(East.print(a.toTree(IntegerType,
+          (_$, x, _i) => x,
+          (_$, x, _i) => x.greater(0n).ifElse(() => some(x.subtract(1n)), () => none),
+          (_$, _x, _i, children) => children.sum().add(1n)))));
+        $(out.pushLast(East.print(s.toTree(IntegerType,
+          (_$, x) => x.greater(0n).ifElse(() => some(x.subtract(1n)), () => none),
+          (_$, _x, children) => children.sum().add(1n)))));
+        $(out.pushLast(East.print(d.toTree(IntegerType,
+          (_$, _v, k) => k.greater(0n).ifElse(() => some(k.subtract(1n)), () => none),
+          (_$, _v, _k, children) => children.sum().add(1n)))));
+        return out;
+      }),
+      inputs: [nums, intSet, table],
+    },
+    {
       label: "corpus.clears",
       fn: East.function([Arr, Tags, Table], NullType, ($, a, s, d) => {
         $(a.clear());

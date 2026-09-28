@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, VariantType, NullType, RecursiveType, variant, StructType, StringType, ArrayType, DictType, example } from "@elaraai/east";
+import { East, BooleanType, IntegerType, VariantType, NullType, RecursiveType, variant, StructType, StringType, ArrayType, DictType, example } from "@elaraai/east";
 
 const LinkedListType = RecursiveType(self => VariantType({
     nil: NullType,
@@ -112,6 +112,36 @@ export const recursiveUnwrap = example({
     }),
     inputs: [],
     returns: false,
+});
+
+// The RecursiveExpr TypeDoc example, as written there: a function taking a
+// recursive value walks it in a loop — it cannot call itself by name.
+const IntListType = RecursiveType(self => VariantType({
+    nil: NullType,
+    cons: StructType({ head: IntegerType, tail: self }),
+}));
+
+export const recursiveSumList = example({
+    keywords: ["recursive", "RecursiveType", "unwrap", "while", "match", "linked list", "walk", "loop"],
+    description: "Sum a recursive linked list by walking it in a loop, unwrapping one node at a time",
+    fn: East.function([IntListType], IntegerType, ($, list) => {
+        const sum = $.let(0n);
+        const current = $.let(list, IntListType);
+        $.while(true, ($, label) => {
+            $.match(current.unwrap(), {
+                nil: ($) => {
+                    $.break(label);
+                },
+                cons: ($, node) => {
+                    $.assign(sum, sum.add(node.head));
+                    $.assign(current, node.tail);
+                },
+            });
+        });
+        return sum;
+    }),
+    inputs: [variant("cons", { head: 1n, tail: variant("cons", { head: 2n, tail: variant("cons", { head: 3n, tail: variant("nil", null) }) }) })],
+    returns: 6n,
 });
 
 // ---------------------------------------------------------------------------

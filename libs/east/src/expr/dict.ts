@@ -1433,6 +1433,69 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     }) as DictExpr<any, any>;
   }
 
+  /**
+   * Builds a tree of any depth from the dictionary's entries, in a node type of your own; each entry's key is its key.
+   *
+   * `parentFn` names each entry's parent key; `buildFn` turns an entry and its children's built nodes into its
+   * node. The result is the roots.
+   *
+   * @param node - The node type `buildFn` returns; its `children` argument is an Array of it
+   * @param parentFn - Function taking (value, key) and returning the parent's key, or `none` for a root
+   * @param buildFn - Function taking (value, key, children) and returning the entry's node
+   * @returns An ArrayExpr of the root nodes, in key order
+   *
+   * @throws East runtime error if the parents form a cycle, naming the first key in key order on the cycle
+   *
+   * @remarks
+   * - An entry whose parent key is not in the dictionary (an orphan) becomes a root.
+   * - `buildFn` runs once per entry, children before parents; `children` holds the built children in key
+   *   order. Every `parentFn` runs first, and the cycle check comes before any `buildFn`.
+   * - `node` can be any type: a recursive node type builds a tree value, a non-recursive one folds bottom-up.
+   * - The walk is iterative, so building costs no stack at any depth. A recursive node value is still limited
+   *   in depth on the C and Python runtimes, which collect and free a value recursively: tens of thousands of
+   *   levels.
+   *
+   * @example
+   * ```ts
+   * const EntryType = StructType({ name: StringType, parent: OptionType(StringType) });
+   * const NodeType = RecursiveType(self => StructType({ id: StringType, name: StringType, children: ArrayType(self) }));
+   *
+   * const nest = East.function([DictType(StringType, EntryType)], ArrayType(NodeType), ($, entries) => {
+   *   $.return(entries.toTree(
+   *     NodeType,
+   *     ($, entry, id) => entry.parent,
+   *     ($, entry, id, children) => ({ id, name: entry.name, children }),
+   *   ));
+   * });
+   * const compiled = East.compile(nest, []);
+   * compiled(new Map([
+   *   ["animals", { name: "Animals", parent: none }],
+   *   ["birds", { name: "Birds", parent: some("animals") }],
+   *   ["mammals", { name: "Mammals", parent: some("animals") }],
+   *   ["whales", { name: "Whales", parent: some("mammals") }],
+   * ]));
+   * // [{ id: "animals", name: "Animals", children: [
+   * //   { id: "birds", name: "Birds", children: [] },
+   * //   { id: "mammals", name: "Mammals", children: [{ id: "whales", name: "Whales", children: [] }] },
+   * // ] }]
+   * ```
+   *
+   * @see {@link ArrayExpr.toTree} for elements that carry their own key.
+   */
+  toTree<N extends EastType>(node: N, parentFn: SubtypeExprOrValue<FunctionType<[T, K], OptionType<K>>>, buildFn: SubtypeExprOrValue<FunctionType<[T, K, ArrayType<NoInfer<N>>], NoInfer<N>>>): ArrayExpr<N> {
+    const parentFnAst = valueOrExprToAstTyped(parentFn, FunctionType([this.value_type as EastType, this.key_type as EastType], OptionType(this.key_type as EastType)));
+    const buildFnAst = valueOrExprToAstTyped(buildFn, FunctionType([this.value_type as EastType, this.key_type as EastType, ArrayType(node)], node));
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: ArrayType(node),
+      loc_id: get_location_id(),
+      builtin: "DictToTree",
+      type_parameters: [this.key_type as EastType, this.value_type as EastType, node],
+      arguments: [this[AstSymbol], parentFnAst, buildFnAst],
+    }) as ArrayExpr<N>;
+  }
+
   /** Group entries by key and perform a fold/reduce operation on each group.
    *
    * @param keyFn - Function that maps each value and key to a group key

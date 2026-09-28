@@ -4,7 +4,7 @@
  */
 import type { AST } from "../ast.js";
 import { get_location_id } from "../location.js";
-import { SetType, BooleanType, FunctionType, IntegerType, type EastType, NullType, NeverType, DictType, printType, FloatType, isTypeEqual, ArrayType, VariantType, StringType } from "../types.js";
+import { SetType, BooleanType, FunctionType, IntegerType, type EastType, NullType, NeverType, DictType, printType, FloatType, isTypeEqual, ArrayType, VariantType, StringType, OptionType } from "../types.js";
 import { valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
 import type { BooleanExpr } from "./boolean.js";
 import { equal, notEqual } from "./block.js";
@@ -1175,6 +1175,64 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
       type_parameters: [this.key_type as EastType, keyType as EastType, valueType as EastType],
       arguments: [this[AstSymbol], fnAst, onConflictAst],
     }) as DictExpr<any, any>;
+  }
+
+  /**
+   * Builds a tree of any depth from the set's elements, in a node type of your own; each element is its own key.
+   *
+   * `parentFn` names each element's parent; `buildFn` turns an element and its children's built nodes into its
+   * node. The result is the roots.
+   *
+   * @param node - The node type `buildFn` returns; its `children` argument is an Array of it
+   * @param parentFn - Function taking an element and returning its parent, or `none` for a root
+   * @param buildFn - Function taking (element, children) and returning the element's node
+   * @returns An ArrayExpr of the root nodes, in set order
+   *
+   * @throws East runtime error if the parents form a cycle, naming the first element in set order on the cycle
+   *
+   * @remarks
+   * - An element whose parent is not in the set (an orphan) becomes a root.
+   * - `buildFn` runs once per element, children before parents; `children` holds the built children in set
+   *   order. Every `parentFn` runs first, and the cycle check comes before any `buildFn`.
+   * - `node` can be any type: a recursive node type builds a tree value, a non-recursive one folds bottom-up.
+   * - The walk is iterative, so building costs no stack at any depth. A recursive node value is still limited
+   *   in depth on the C and Python runtimes, which collect and free a value recursively: tens of thousands of
+   *   levels.
+   *
+   * @example
+   * ```ts
+   * // Each number's parent is the number without its last digit
+   * const NodeType = RecursiveType(self => StructType({ id: IntegerType, children: ArrayType(self) }));
+   *
+   * const nest = East.function([SetType(IntegerType)], ArrayType(NodeType), ($, ids) => {
+   *   $.return(ids.toTree(
+   *     NodeType,
+   *     ($, id) => id.lessThan(10n).ifElse(() => none, () => some(id.divide(10n))),
+   *     ($, id, children) => ({ id, children }),
+   *   ));
+   * });
+   * const compiled = East.compile(nest, []);
+   * compiled(new Set([1n, 2n, 12n, 13n, 123n]));
+   * // [{ id: 1n, children: [
+   * //   { id: 12n, children: [{ id: 123n, children: [] }] },
+   * //   { id: 13n, children: [] },
+   * // ] }, { id: 2n, children: [] }]
+   * ```
+   *
+   * @see {@link ArrayExpr.toTree} for elements that carry their own key.
+   */
+  toTree<N extends EastType>(node: N, parentFn: SubtypeExprOrValue<FunctionType<[K], OptionType<K>>>, buildFn: SubtypeExprOrValue<FunctionType<[K, ArrayType<NoInfer<N>>], NoInfer<N>>>): ArrayExpr<N> {
+    const parentFnAst = valueOrExprToAstTyped(parentFn, FunctionType([this.key_type as EastType], OptionType(this.key_type as EastType)));
+    const buildFnAst = valueOrExprToAstTyped(buildFn, FunctionType([this.key_type as EastType, ArrayType(node)], node));
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: ArrayType(node),
+      loc_id: get_location_id(),
+      builtin: "SetToTree",
+      type_parameters: [this.key_type as EastType, node],
+      arguments: [this[AstSymbol], parentFnAst, buildFnAst],
+    }) as ArrayExpr<N>;
   }
 
   /**

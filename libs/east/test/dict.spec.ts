@@ -2,7 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { ArrayType, BooleanType, DictType, East, Expr, IntegerType, none, SetType, some, StringType } from "../src/index.js";
+import { ArrayType, BooleanType, DictType, East, Expr, IntegerType, none, OptionType, RecursiveType, SetType, some, StringType, StructType } from "../src/index.js";
+import type { option } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./dict.examples.js";
 
@@ -739,6 +740,46 @@ await describe("Dict", (test) => {
             new Map([["a", "[a]: apple=5, apricot=7, "], ["b", "[b]: banana=3, berry=8, "]])
         ))
     })
+
+    assert.examples(test, {
+        dictToTree: ex.dictToTree,
+    });
+
+    const DictTreeNodeType = RecursiveType(self => StructType({ id: StringType, children: ArrayType(self) }));
+
+    test("toTree - callbacks take (value, key); roots and children in key order, build children first", $ => {
+        // Each value is its parent's key, of the key's own type: swapping (value, key) would build a different tree
+        const parents = $.const(new Map([["c", "b"], ["a", ""], ["d", "a"], ["b", "a"]]), DictType(StringType, StringType));
+        const calls = $.let([], ArrayType(StringType));
+        const tree = $.let(parents.toTree(
+            DictTreeNodeType,
+            ($, parent, id) => { $(calls.pushLast(Expr.str`parent ${id}`)); return East.equal(parent, "").ifElse(() => none, () => some(parent)); },
+            ($, _parent, id, children) => { $(calls.pushLast(Expr.str`build ${id}`)); return { id, children }; },
+        ));
+        $(assert.equal(tree, [
+            {
+                id: "a", children: [
+                    { id: "b", children: [{ id: "c", children: [] }] },
+                    { id: "d", children: [] },
+                ],
+            },
+        ]));
+        $(assert.equal(calls, ["parent a", "parent b", "parent c", "parent d", "build c", "build b", "build d", "build a"]));
+    });
+
+    test("toTree - an orphan becomes a root, and an empty dict builds none", $ => {
+        const parents = $.const(new Map<bigint, option<bigint>>([[1n, some(0n)], [2n, some(1n)], [3n, none]]), DictType(IntegerType, OptionType(IntegerType)));
+        $(assert.equal(parents.toTree(IntegerType, (_$, parent) => parent, (_$, _parent, _id, children) => children.sum().add(1n)), [2n, 1n]));
+
+        const empty = $.const(new Map(), DictType(IntegerType, OptionType(IntegerType)));
+        $(assert.equal(empty.toTree(IntegerType, (_$, parent) => parent, (_$, _parent, _id, children) => children.sum().add(1n)), []));
+    });
+
+    test("toTree - a cycle is refused, naming the first key on it", $ => {
+        // x -> y -> x, with w below the cycle: w sorts first, but the message names x, the first key ON the cycle
+        const parents = $.const(new Map([["w", "x"], ["x", "y"], ["y", "x"]]), DictType(StringType, StringType));
+        $(assert.throws(parents.toTree(IntegerType, (_$, parent) => some(parent), (_$, _parent, _id, children) => children.sum().add(1n)), /^toTree: cycle through key "x"$/));
+    });
 
     test("Equality method aliases", $ => {
         // Test short aliases (eq, ne)

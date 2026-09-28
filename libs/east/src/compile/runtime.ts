@@ -57,6 +57,23 @@ export function getContextValue(ctx: RuntimeContext, name: string): ContextValue
  * task input fails the same way everywhere. */
 export const FROZEN_MESSAGE = "cannot mutate a frozen value (task inputs are immutable) — copy first";
 
+/** @internal The error an East call nested too deeply raises — identical
+ * across the TS, C and Python runtimes (compliance-tested), so runaway
+ * recursion is one catchable East error everywhere rather than a crash. */
+export const CALL_DEPTH_MESSAGE = "call stack exhausted: East calls nested too deeply";
+
+/** @internal The error to throw for `e` at an East call site: JavaScript's
+ * stack overflow becomes the East error {@link CALL_DEPTH_MESSAGE} at this
+ * call's location, which a program can catch; anything else is thrown as it
+ * is. Converting where the overflow is caught may itself overflow — the new
+ * `RangeError` then reaches the next call site out, which tries again with
+ * more stack. */
+export function callDepthErrorAt(e: unknown, loc_id: bigint, source_map: SourceMap | null): unknown {
+  return e instanceof RangeError && /call stack/i.test(e.message)
+    ? new EastError(CALL_DEPTH_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] })
+    : e;
+}
+
 /** @internal Track iteration locks to prevent concurrent modification */
 export const iterationLocks = new WeakMap<any, number>();
 
@@ -105,7 +122,7 @@ export function call_function(loc_id: bigint, source_map: SourceMap | null, comp
     } else if (e instanceof BreakException) {
       throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
     } else {
-      throw(e);
+      throw callDepthErrorAt(e, loc_id, source_map);
     }
   }
 }

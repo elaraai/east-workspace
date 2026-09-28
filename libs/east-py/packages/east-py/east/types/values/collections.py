@@ -794,6 +794,42 @@ class EastArray(MutableSequence, Generic[T]):
         combine_cb = EastFunction(_combine_cb(combine, k2, t2), [t2, t2, k2], t2)
         return _call_builtin("ArrayToDict", [self.element_type, k2, t2], [self, key_cb, val_cb, combine_cb], DictType(k2, t2))
 
+    def to_tree(self, node: EastType, key: Any, parent: Any, build: Any) -> EastArray:
+        """Build a tree of any depth from flat, parent-keyed elements, in a
+        node type of your own (east-c ArrayToTree; TS ``toTree``).
+
+        Every ``key`` runs first, then every ``parent``, and a cycle is
+        refused before any ``build``; ``build`` runs once per element,
+        children before parents. The walk is iterative.
+
+        Args:
+            node: The East type ``build`` returns; ``children`` is an Array of it.
+            key: ``key(element[, index]) -> key``; keys must be data types.
+            parent: ``parent(element[, index]) -> some(parent key) | none`` —
+                ``none`` for a root; a key not in the array (an orphan) makes
+                a root too.
+            build: ``build(element, index, children) -> node``; ``children``
+                holds the element's children's built nodes in array order.
+
+        Returns:
+            The root nodes, in array order.
+
+        Raises:
+            EastError: ``toTree: duplicate key <key>`` for a key that repeats
+                an earlier one, or ``toTree: cycle through key <key>`` naming
+                the first key in array order on a cycle.
+        """
+        from east.types.types import ArrayType, IntegerType, OptionType, is_data_type
+
+        k_t = _function_out_type(key, _elem_in(key, self.element_type))
+        if not is_data_type(k_t):
+            raise TypeError(f"to_tree() keys must be data types, got {k_t.type}")
+        key_cb = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k_t)
+        parent_cb = EastFunction(_idx_cb(parent), [self.element_type, IntegerType], OptionType(k_t))
+        build_cb = EastFunction(build, [self.element_type, IntegerType, ArrayType(node)], node)
+        return _call_builtin("ArrayToTree", [self.element_type, k_t, node],
+                             [self, key_cb, parent_cb, build_cb], ArrayType(node))
+
     def map(self, fn: Any, out: EastType | None = None) -> EastArray:
         """Apply ``fn`` to each element, producing a new array (east-c ArrayMap).
 
@@ -2417,6 +2453,35 @@ class EastSet(Generic[T]):
             "SetToDict", [self.element_type, k2, t2], [self, key_cb, value_cb, combine_cb], DictType(k2, t2)
         )
 
+    def to_tree(self, node: EastType, parent: Any, build: Any) -> EastArray:
+        """Build a tree of any depth from the set's elements, in a node type of
+        your own; each element is its own key (east-c SetToTree; TS ``toTree``).
+
+        Every ``parent`` runs first, and a cycle is refused before any
+        ``build``; ``build`` runs once per element, children before parents.
+        The walk is iterative.
+
+        Args:
+            node: The East type ``build`` returns; ``children`` is an Array of it.
+            parent: ``parent(element) -> some(parent) | none`` — ``none`` for a
+                root; one not in the set (an orphan) makes a root too.
+            build: ``build(element, children) -> node``; ``children`` holds the
+                element's children's built nodes in set order.
+
+        Returns:
+            The root nodes, in set order.
+
+        Raises:
+            EastError: ``toTree: cycle through key <element>`` naming the first
+                element in set order on a cycle.
+        """
+        from east.types.types import ArrayType, OptionType
+
+        parent_cb = EastFunction(parent, [self.element_type], OptionType(self.element_type))
+        build_cb = EastFunction(build, [self.element_type, ArrayType(node)], node)
+        return _call_builtin("SetToTree", [self.element_type, node],
+                             [self, parent_cb, build_cb], ArrayType(node))
+
     def map(self, fn: Any, out: EastType | None = None) -> EastDict:
         """Map each element to a value, keyed by the element itself (east-c SetMap → Dict).
 
@@ -3988,6 +4053,36 @@ class EastDict(Generic[K, V]):
         # fail at run time on a Dict alone (#525).
         combine_cb = EastFunction(_combine_cb(combine, k2, v2), [v2, v2, k2], v2)
         return _call_builtin("DictToDict", [self.key_type, self.value_type, k2, v2], [self, key_cb, value_cb, combine_cb], DictType(k2, v2))
+
+    def to_tree(self, node: EastType, parent: Any, build: Any) -> EastArray:
+        """Build a tree of any depth from the dict's entries, in a node type of
+        your own; each entry's key is its key (east-c DictToTree; TS ``toTree``).
+
+        Every ``parent`` runs first, and a cycle is refused before any
+        ``build``; ``build`` runs once per entry, children before parents.
+        The walk is iterative.
+
+        Args:
+            node: The East type ``build`` returns; ``children`` is an Array of it.
+            parent: ``parent(value[, key]) -> some(parent key) | none`` —
+                ``none`` for a root; a key not in the dict (an orphan) makes a
+                root too.
+            build: ``build(value, key, children) -> node``; ``children`` holds
+                the entry's children's built nodes in key order.
+
+        Returns:
+            The root nodes, in key order.
+
+        Raises:
+            EastError: ``toTree: cycle through key <key>`` naming the first key
+                in key order on a cycle.
+        """
+        from east.types.types import ArrayType, OptionType
+
+        parent_cb = EastFunction(_kv_cb(parent), [self.value_type, self.key_type], OptionType(self.key_type))
+        build_cb = EastFunction(build, [self.value_type, self.key_type, ArrayType(node)], node)
+        return _call_builtin("DictToTree", [self.key_type, self.value_type, node],
+                             [self, parent_cb, build_cb], ArrayType(node))
 
     def flatten_to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
         """Concatenate per-entry arrays into one array (east-c

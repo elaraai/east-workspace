@@ -1373,6 +1373,31 @@ await describe("Function", (test) => {
         $(assert.equal(get(), 3n));
     });
 
+    // =========================================================================
+    // Recursion through a captured variable (#948): shallow depths agree on
+    // every runtime; a call nested too deeply is one catchable East error
+    // =========================================================================
+
+    test("recursion through a captured variable agrees at 200 deep", $ => {
+        const sumTo = $.let(East.function([IntegerType], IntegerType, (_$, _k) => 0n), FunctionType([IntegerType], IntegerType));
+        $.assign(sumTo, East.function([IntegerType], IntegerType, (_$, k) => East.lessEqual(k, 0n).ifElse(() => 0n, () => k.add(sumTo(k.subtract(1n))))));
+        $(assert.equal(sumTo(200n), 20100n));
+    });
+
+    test("recursion nested too deeply is a catchable East error", $ => {
+        const runaway = $.let(East.function([IntegerType], IntegerType, (_$, _k) => 0n), FunctionType([IntegerType], IntegerType));
+        $.assign(runaway, East.function([IntegerType], IntegerType, (_$, k) => runaway(k.add(1n))));
+        $(assert.throws(runaway(0n), /^call stack exhausted: East calls nested too deeply$/));
+
+        const caught = $.let("");
+        $.try($ => {
+            $(runaway(0n));
+        }).catch(($, message) => {
+            $.assign(caught, message);
+        });
+        $(assert.equal(caught, "call stack exhausted: East calls nested too deeply"));
+    });
+
     test("outer closure with shared mutable capture preserves sharing (no serialization)", $ => {
         // First verify the behavior without serialization
         const IncType = FunctionType([], NullType);

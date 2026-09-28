@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, IntegerType, FloatType, SetType, StringType, BooleanType, DictType, some, none, example } from "@elaraai/east";
+import { East, IntegerType, FloatType, SetType, StringType, BooleanType, DictType, ArrayType, StructType, RecursiveType, some, none, example } from "@elaraai/east";
 
 // ---------------------------------------------------------------------------
 // Set Creation and Basic Ops
@@ -540,3 +540,31 @@ export const setGroupReduce = example({
     returns: new Map([[0n, 12n], [1n, 14n]]),
 });
 
+// ---------------------------------------------------------------------------
+// Trees
+// ---------------------------------------------------------------------------
+
+const SetTreeNodeType = RecursiveType(self => StructType({ id: IntegerType, children: ArrayType(self) }));
+
+export const setToTree = example({
+    keywords: ["set", "SetType", "toTree", "tree", "hierarchy", "nest", "parent", "RecursiveType"],
+    description: "Build a tree from a set whose elements are their own keys: each number's parent is the number without its last digit",
+    fn: East.function([], ArrayType(SetTreeNodeType), ($) => {
+        const ids = $.const(new Set([1n, 2n, 12n, 13n, 123n]), SetType(IntegerType));
+        return ids.toTree(
+            SetTreeNodeType,
+            (_$, id) => id.lessThan(10n).ifElse(() => none, () => some(id.divide(10n))),
+            (_$, id, children) => ({ id, children }),
+        );
+    }),
+    inputs: [],
+    returns: [
+        {
+            id: 1n, children: [
+                { id: 12n, children: [{ id: 123n, children: [] }] },
+                { id: 13n, children: [] },
+            ],
+        },
+        { id: 2n, children: [] },
+    ],
+});

@@ -237,6 +237,19 @@ function carrySourceMap(ast: AST, own: SourceMap | undefined | null): AST {
 export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, visited?: Set<any>, loc_id = get_location_id()): AST & { type: T } {
   if (value instanceof Expr) {
     const valueType = value[TypeSymbol];
+    // A callback type whose output is `undefined` asks for the output to be
+    // inferred — a lambda gets it from its body (Expr.function below); a
+    // function expression brings its own, so only its inputs are checked.
+    if ((type.type === "Function" || type.type === "AsyncFunction") && type.output === undefined) {
+      if (valueType.type !== type.type) {
+        throw new Error(`Expected ${type.type === "Function" ? "a function" : "an async function"} taking (${type.inputs.map(t => printType(t)).join(", ")}), got ${printType(valueType)}`);
+      }
+      const expected = { ...type, output: valueType.output } as T;
+      if (!isSubtype(valueType, expected)) {
+        throw typeMismatchError(valueType, expected, { loc_id });
+      }
+      return astUnderCurrentSourceMap(value) as AST & { type: T };
+    }
     if (!isSubtype(valueType, type)) {
       throw typeMismatchError(valueType, type, { loc_id });
     }

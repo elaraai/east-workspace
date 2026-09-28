@@ -13,6 +13,7 @@ import type { Location, SourceMap } from "../../location.js";
 import type { PlatformFunction } from "../../platform.js";
 import { printFor } from "../../serialization/east.js";
 import type { EastTypeValue } from "../../type_of_type.js";
+import { buildTree, treeOrder } from "./tree.js";
 
 /** The builtins for Dicts. @internal */
 export const dict_builtins = {
@@ -518,6 +519,29 @@ export const dict_builtins = {
           result.set(k2, new_val);
         }
         return result;
+      } finally {
+        unlockForIteration(d);
+      }
+    }
+  },
+  DictToTree: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, _N: EastTypeValue) => {
+    const compare = compareFor(K);
+    const print = printFor(K);
+    return (d: Map<any, any>, parentFn: (v: any, k: any) => option<any>, buildFn: (v: any, k: any, children: any[]) => any) => {
+      lockForIteration(d);
+      try {
+        const entries = [...d];
+        const index = new SortedMap<any, number>(entries.map(([k], i) => [k, i]), compare);
+        const parents = new Int32Array(entries.length);
+        for (let i = 0; i < entries.length; i++) {
+          const p: option<any> = call_function(loc_id, source_map, parentFn, entries[i]![1], entries[i]![0]);
+          parents[i] = p.type === "some" ? (index.get(p.value) ?? -1) : -1;
+        }
+        const { order, childCounts, cycle } = treeOrder(parents);
+        if (cycle >= 0) {
+          throw new EastError(`toTree: cycle through key ${print(entries[cycle]![0])}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+        }
+        return buildTree(order, childCounts, (i, children) => call_function(loc_id, source_map, buildFn, entries[i]![1], entries[i]![0], children));
       } finally {
         unlockForIteration(d);
       }

@@ -66,6 +66,7 @@ await describe("Recursive", (test) => {
 
     assert.examples(test, {
         recursiveUnwrap: ex.recursiveUnwrap,
+        recursiveSumList: ex.recursiveSumList,
     });
 
     test("Unwrapping", $ => {

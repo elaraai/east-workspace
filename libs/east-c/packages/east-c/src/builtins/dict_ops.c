@@ -5,6 +5,7 @@
 #include "east/compiler.h"
 #include "east/serialization.h"
 #include "east/values.h"
+#include "tree.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -840,6 +841,72 @@ static EastValue *dict_group_fold_impl(EastValue **args, size_t n)
     return result;
 }
 
+/* DictToTree (dict, parent_fn, build_fn) -> Array<N> (#948). The dict key is
+ * the element's key; callbacks take (value, key). K and N are set by the
+ * factory immediately before the impl runs; the impl copies them before its
+ * first callback, which may run another toTree. */
+static _Thread_local EastType *s_dict_tree_key_type = NULL;
+static _Thread_local EastType *s_dict_tree_node_type = NULL;
+
+typedef struct {
+    EastValue *dict;
+    EastValue *build_fn;
+} DictTreeBuild;
+
+static EastValue *dict_tree_build(void *ctx, size_t i, EastValue *children)
+{
+    DictTreeBuild *b = ctx;
+    EastValue *call_args[] = {east_dict_val_at(b->dict, i), east_dict_key_at(b->dict, i), children};
+    return call_fn(b->build_fn, call_args, 3);
+}
+
+static EastValue *dict_to_tree_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastType *key_type = s_dict_tree_key_type;
+    EastType *node_type = s_dict_tree_node_type;
+    EastValue *d = args[0];
+    EastValue *parent_fn = args[1];
+    EastValue *build_fn = args[2];
+    size_t len = east_dict_len(d);
+    EastValue *result = NULL;
+    ptrdiff_t *parents = malloc((len + 1) * sizeof(ptrdiff_t));
+    size_t *order = malloc((len + 1) * sizeof(size_t));
+    size_t *child_counts = malloc((len + 1) * sizeof(size_t));
+    if (!parents || !order || !child_counts) {
+        east_builtin_error("out of memory");
+        goto done;
+    }
+    d->iter_lock++;
+    for (size_t i = 0; i < len; i++) {
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
+        EastValue *parent = call_fn(parent_fn, call_args, 2);
+        if (!parent) goto unlock;
+        parents[i] = strcmp(east_variant_case_name(parent), "some") == 0
+                         ? east_tree_sorted_index(d, parent->data.variant.value)
+                         : -1;
+        east_value_release(parent);
+    }
+    ptrdiff_t cycle;
+    if (!east_tree_order(parents, len, order, child_counts, &cycle)) {
+        east_builtin_error("out of memory");
+        goto unlock;
+    }
+    if (cycle >= 0) {
+        east_tree_key_error("cycle through key", east_dict_key_at(d, (size_t)cycle), key_type);
+        goto unlock;
+    }
+    DictTreeBuild b = {.dict = d, .build_fn = build_fn};
+    result = east_tree_build(order, child_counts, len, node_type, dict_tree_build, &b);
+unlock:
+    d->iter_lock--;
+done:
+    free(parents);
+    free(order);
+    free(child_counts);
+    return result;
+}
+
 /* --- factory functions --- */
 
 static BuiltinImpl dict_generate_factory(EastType **tp, size_t ntp)
@@ -1037,6 +1104,14 @@ static BuiltinImpl dict_group_fold_factory(EastType **tp, size_t ntp)
     return dict_group_fold_impl;
 }
 
+static BuiltinImpl dict_to_tree_factory(EastType **tp, size_t ntp)
+{
+    /* tp = [K, V, N] */
+    s_dict_tree_key_type = ntp > 0 ? tp[0] : NULL;
+    s_dict_tree_node_type = ntp > 2 ? tp[2] : NULL;
+    return dict_to_tree_impl;
+}
+
 /* --- registration --- */
 
 void east_register_dict_builtins(BuiltinRegistry *reg)
@@ -1077,4 +1152,5 @@ void east_register_dict_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "DictFlattenToSet", dict_flatten_to_set_factory);
     builtin_registry_register(reg, "DictFlattenToDict", dict_flatten_to_dict_factory);
     builtin_registry_register(reg, "DictGroupFold", dict_group_fold_factory);
+    builtin_registry_register(reg, "DictToTree", dict_to_tree_factory);
 }

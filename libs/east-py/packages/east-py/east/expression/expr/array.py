@@ -47,6 +47,7 @@ from east.types.types import (
     StringType,
     StructType,
     VectorType,
+    is_data_type,
 )
 
 if TYPE_CHECKING:
@@ -381,6 +382,39 @@ class ArrayExpression(Expression):
     def unique(self) -> SetExpression:
         """Traced distinct elements (ArrayToSet with the identity key)."""
         return self.to_set()
+
+    def to_tree(self, node: EastType, key: Any, parent: Any, build: Any) -> ArrayExpression:
+        """Traced ArrayToTree: a tree of any depth from flat, parent-keyed
+        elements, in a node type of your own (TS ``toTree``).
+
+        ``key(element, index)`` names each element's key and
+        ``parent(element, index)`` its parent's key as an Option — ``none``
+        for a root; a key not in the array (an orphan) makes a root too.
+        ``build(element, index, children)`` turns an element and its
+        children's built nodes (an ``Array<node>`` in array order) into its
+        node, children before parents. Every ``key`` runs first, then every
+        ``parent``, and a cycle is refused before any ``build``. The result
+        is the roots in array order. A repeated key or a cycle is an East
+        runtime error naming the key; the walk is iterative."""
+        elem_t = self._elem()
+        key_node, k_t = self._callback(key)
+        if not is_data_type(k_t):
+            raise ExpressionError(f".to_tree() keys must be data types, got {k_t.type}")
+        parent_t = _option_type(k_t)
+        parent_node, p_out = self._callback(parent, out_hint=parent_t)
+        if p_out != parent_t:
+            raise ExpressionError(
+                f".to_tree() parent must return an Option of the key type, got {p_out.type}")
+        build_node, b_out = _trace_inner_fn(
+            build, [elem_t, IntegerType, ArrayType(node)], out_hint=node)
+        if b_out != node:
+            raise ExpressionError(f".to_tree() build returns {b_out.type}, the node type is {node.type}")
+        out = ArrayType(node)
+        return self._expr(
+            _builtin("ArrayToTree", out, [elem_t, k_t, node],
+                     [self.ir, key_node, parent_node, build_node]),
+            out,
+        )
 
     def to_vector(self) -> VectorExpression:
         """Traced VectorFromArray on an Array of Float/Integer/Boolean

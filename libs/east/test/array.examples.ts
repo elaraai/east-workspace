@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, Expr, ArrayType, IntegerType, FloatType, StringType, BooleanType, some, none, SetType, DictType, StructType, example } from "@elaraai/east";
+import { East, Expr, ArrayType, IntegerType, FloatType, StringType, BooleanType, some, none, SetType, DictType, StructType, OptionType, RecursiveType, example } from "@elaraai/east";
 import type { option } from "@elaraai/east";
 
 // ---------------------------------------------------------------------------
@@ -904,6 +904,94 @@ export const arrayGroupToDicts = example({
         [0n, new Map([[2n, 2n], [4n, 4n], [6n, 6n]])],
         [1n, new Map([[1n, 1n], [3n, 3n], [5n, 5n]])],
     ]),
+});
+
+// ---------------------------------------------------------------------------
+// Trees
+// ---------------------------------------------------------------------------
+
+const TreeRowType = StructType({ id: StringType, parent: OptionType(StringType), name: StringType });
+const TreeNodeType = RecursiveType(self => StructType({ name: StringType, children: ArrayType(self) }));
+const KeyedTreeNodeType = RecursiveType(self => StructType({ name: StringType, children: DictType(StringType, self) }));
+
+export const arrayToTree = example({
+    keywords: ["array", "ArrayType", "toTree", "tree", "hierarchy", "nest", "parent", "flat", "RecursiveType"],
+    description: "Build a tree of any depth from flat rows that name their own key and their parent's key",
+    fn: East.function([], ArrayType(TreeNodeType), ($) => {
+        const rows = $.const([
+            { id: "animals", parent: none, name: "Animals" },
+            { id: "birds", parent: some("animals"), name: "Birds" },
+            { id: "mammals", parent: some("animals"), name: "Mammals" },
+            { id: "whales", parent: some("mammals"), name: "Whales" },
+            { id: "plants", parent: none, name: "Plants" },
+        ], ArrayType(TreeRowType));
+        return rows.toTree(
+            TreeNodeType,
+            (_$, row) => row.id,
+            (_$, row) => row.parent,
+            (_$, row, _i, children) => ({ name: row.name, children }),
+        );
+    }),
+    inputs: [],
+    returns: [
+        {
+            name: "Animals", children: [
+                { name: "Birds", children: [] },
+                { name: "Mammals", children: [{ name: "Whales", children: [] }] },
+            ],
+        },
+        { name: "Plants", children: [] },
+    ],
+});
+
+export const arrayToTreeSubtreeSize = example({
+    keywords: ["array", "ArrayType", "toTree", "tree", "fold", "bottom-up", "subtree", "rollup", "aggregation"],
+    description: "Fold a parent-keyed array bottom-up: a non-recursive node type gives each root's subtree size",
+    fn: East.function([], ArrayType(IntegerType), ($) => {
+        const rows = $.const([
+            { id: 1n, parent: none },
+            { id: 2n, parent: some(1n) },
+            { id: 3n, parent: some(2n) },
+            { id: 4n, parent: some(1n) },
+            { id: 5n, parent: none },
+        ], ArrayType(StructType({ id: IntegerType, parent: OptionType(IntegerType) })));
+        return rows.toTree(
+            IntegerType,
+            (_$, row) => row.id,
+            (_$, row) => row.parent,
+            (_$, _row, _i, children) => children.sum().add(1n),
+        );
+    }),
+    inputs: [],
+    returns: [4n, 1n],
+});
+
+export const arrayToTreeDictChildren = example({
+    keywords: ["array", "ArrayType", "toTree", "tree", "DictType", "keyed", "children", "RecursiveType"],
+    description: "Build a tree whose children are a Dict keyed by name, turning each built children array into a dict",
+    fn: East.function([], ArrayType(KeyedTreeNodeType), ($) => {
+        const rows = $.const([
+            { id: "animals", parent: none, name: "Animals" },
+            { id: "birds", parent: some("animals"), name: "Birds" },
+            { id: "mammals", parent: some("animals"), name: "Mammals" },
+            { id: "whales", parent: some("mammals"), name: "Whales" },
+        ], ArrayType(TreeRowType));
+        return rows.toTree(
+            KeyedTreeNodeType,
+            (_$, row) => row.id,
+            (_$, row) => row.parent,
+            (_$, row, _i, children) => ({ name: row.name, children: children.toDict((_$, child) => child.unwrap().name) }),
+        );
+    }),
+    inputs: [],
+    returns: [
+        {
+            name: "Animals", children: new Map([
+                ["Birds", { name: "Birds", children: new Map() }],
+                ["Mammals", { name: "Mammals", children: new Map([["Whales", { name: "Whales", children: new Map() }]]) }],
+            ]),
+        },
+    ],
 });
 
 // ---------------------------------------------------------------------------

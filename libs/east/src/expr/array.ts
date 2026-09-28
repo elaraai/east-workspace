@@ -2456,6 +2456,103 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
   }
 
   /**
+   * Builds a tree of any depth from flat, parent-keyed elements, in a node type of your own.
+   *
+   * Each element names its own key (`keyFn`) and its parent's key (`parentFn`); `buildFn` turns
+   * an element and its children's built nodes into its node. The result is the roots.
+   *
+   * @param node - The node type `buildFn` returns; its `children` argument is an Array of it
+   * @param keyFn - Function taking (element, index) and returning the element's key
+   * @param parentFn - Function taking (element, index) and returning its parent's key, or `none` for a root
+   * @param buildFn - Function taking (element, index, children) and returning the element's node
+   * @returns An ArrayExpr of the root nodes, in array order
+   *
+   * @throws East runtime error if two elements have the same key, naming the key at the element that repeats it
+   * @throws East runtime error if the parents form a cycle, naming the first key in array order on the cycle
+   *
+   * @remarks
+   * - An element whose parent key is not in the array (an orphan) becomes a root.
+   * - `buildFn` runs once per element, children before parents; `children` holds the built children in array
+   *   order. Every `keyFn` runs first, then every `parentFn`, and the cycle check comes before any `buildFn`.
+   * - `node` can be any type. A recursive node type builds a tree value; a non-recursive one makes `toTree` a
+   *   bottom-up fold, e.g. `IntegerType` with `children.sum().add(1n)` gives each root's subtree size.
+   * - The walk is iterative, so building costs no stack at any depth. A recursive node value is still limited
+   *   in depth on the C and Python runtimes, which collect and free a value recursively: tens of thousands of
+   *   levels.
+   *
+   * @example
+   * ```ts
+   * const RowType = StructType({ id: StringType, parent: OptionType(StringType), name: StringType });
+   * const NodeType = RecursiveType(self => StructType({ name: StringType, children: ArrayType(self) }));
+   *
+   * const nest = East.function([ArrayType(RowType)], ArrayType(NodeType), ($, rows) => {
+   *   $.return(rows.toTree(
+   *     NodeType,
+   *     ($, row, i) => row.id,
+   *     ($, row, i) => row.parent,
+   *     ($, row, i, children) => ({ name: row.name, children }),
+   *   ));
+   * });
+   * const compiled = East.compile(nest, []);
+   * compiled([
+   *   { id: "animals", parent: none, name: "Animals" },
+   *   { id: "birds", parent: some("animals"), name: "Birds" },
+   *   { id: "mammals", parent: some("animals"), name: "Mammals" },
+   *   { id: "whales", parent: some("mammals"), name: "Whales" },
+   * ]);
+   * // [{ name: "Animals", children: [
+   * //   { name: "Birds", children: [] },
+   * //   { name: "Mammals", children: [{ name: "Whales", children: [] }] },
+   * // ] }]
+   * ```
+   *
+   * @example
+   * ```ts
+   * // A non-recursive node type folds bottom-up: the size of each root's subtree
+   * const RowType = StructType({ id: IntegerType, parent: OptionType(IntegerType) });
+   *
+   * const sizes = East.function([ArrayType(RowType)], ArrayType(IntegerType), ($, rows) => {
+   *   $.return(rows.toTree(
+   *     IntegerType,
+   *     ($, row, i) => row.id,
+   *     ($, row, i) => row.parent,
+   *     ($, row, i, children) => children.sum().add(1n),
+   *   ));
+   * });
+   * const compiled = East.compile(sizes, []);
+   * compiled([
+   *   { id: 1n, parent: none },
+   *   { id: 2n, parent: some(1n) },
+   *   { id: 3n, parent: some(2n) },
+   *   { id: 4n, parent: none },
+   * ]);  // [3n, 1n]
+   * ```
+   *
+   * @see {@link toDict} to index elements by key without nesting them.
+   */
+  toTree<N extends EastType, K>(node: N, keyFn: Expr<FunctionType<[T, IntegerType], K>>, parentFn: SubtypeExprOrValue<FunctionType<[T, IntegerType], OptionType<NoInfer<K>>>>, buildFn: SubtypeExprOrValue<FunctionType<[T, IntegerType, ArrayType<NoInfer<N>>], NoInfer<N>>>): ArrayExpr<N>
+  toTree<N extends EastType, KeyFn extends (($: BlockBuilder<NeverType>, x: ExprType<T>, i: IntegerExpr) => any)>(node: N, keyFn: KeyFn, parentFn: SubtypeExprOrValue<FunctionType<[T, IntegerType], OptionType<TypeOf<ReturnType<NoInfer<KeyFn>>>>>>, buildFn: SubtypeExprOrValue<FunctionType<[T, IntegerType, ArrayType<NoInfer<N>>], NoInfer<N>>>): ArrayExpr<N>
+  toTree(node: EastType, keyFn: any, parentFn: any, buildFn: any): ArrayExpr<any> {
+    const keyFnAst = valueOrExprToAstTyped(keyFn, FunctionType([this.value_type, IntegerType], undefined));
+    const keyType = keyFnAst.type.output as EastType;
+    if (!isDataType(keyType)) {
+      throw new Error(`Can only key a tree by data types, got ${printType(keyType)}`);
+    }
+
+    const parentFnAst = valueOrExprToAstTyped(parentFn, FunctionType([this.value_type, IntegerType], OptionType(keyType)));
+    const buildFnAst = valueOrExprToAstTyped(buildFn, FunctionType([this.value_type, IntegerType, ArrayType(node)], node));
+
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type: ArrayType(node),
+      loc_id: get_location_id(),
+      builtin: "ArrayToTree",
+      type_parameters: [this.value_type as EastType, keyType, node],
+      arguments: [this[AstSymbol], keyFnAst, parentFnAst, buildFnAst],
+    }) as ArrayExpr<any>;
+  }
+
+  /**
    * Group array elements by a key function, initialize each group, and reduce within each group.
    *
    * This method partitions the array into groups based on a key function, initializes each group

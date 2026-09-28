@@ -416,6 +416,31 @@ class DictExpression(Expression):
             self.east_type,
         )
 
+    def to_tree(self, node: EastType, parent: Any, build: Any) -> ArrayExpression:
+        """Traced DictToTree: a tree of any depth from the dict's entries, in a
+        node type of your own; each entry's key is its key (TS ``toTree``).
+
+        ``parent(value, key)`` names the parent's key as an Option — ``none``
+        for a root; a key not in the dict (an orphan) makes a root too.
+        ``build(value, key, children)`` turns an entry and its children's
+        built nodes (an ``Array<node>`` in key order) into its node, children
+        before parents. Every ``parent`` runs first, and a cycle is refused
+        before any ``build``. The result is the roots in key order. A cycle
+        is an East runtime error naming the first key on it; the walk is
+        iterative."""
+        k_t, v_t = self._key(), self._value()
+        parent_t = _option_type(k_t)
+        parent_node, p_out = self._callback(parent, out_hint=parent_t)
+        if p_out != parent_t:
+            raise ExpressionError(
+                f".to_tree() parent must return an Option of the key type, got {p_out.type}")
+        build_node, b_out = _trace_inner_fn(build, [v_t, k_t, ArrayType(node)], out_hint=node)
+        if b_out != node:
+            raise ExpressionError(f".to_tree() build returns {b_out.type}, the node type is {node.type}")
+        out = ArrayType(node)
+        return self._expr(
+            _builtin("DictToTree", out, [k_t, v_t, node], [self.ir, parent_node, build_node]), out)
+
     # ── folds ───────────────────────────────────────────────────────────
 
     def reduce(self, fn: Any, init: Any) -> Expression:

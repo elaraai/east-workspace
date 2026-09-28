@@ -74,6 +74,15 @@ from east.utils.ordering import (
 
 _decode_ir = decode_json_for(IRType)
 
+# The replay interprets Call nodes in python, so its call depth is bounded by
+# python's recursion limit rather than a stack: past this many interpreted
+# calls it raises the error every runtime raises for a call nested too deeply
+# (east-c's EAST_CALL_DEPTH_MSG, TypeScript's CALL_DEPTH_MESSAGE — the corpus
+# pins the text), and run_program raises python's limit enough to reach it.
+_MAX_INTERPRETED_CALL_DEPTH = 256
+_CALL_DEPTH_MESSAGE = "call stack exhausted: East calls nested too deeply"
+_PY_FRAMES_PER_CALL = 32
+
 # The current file's compiled program — loaded exactly as the compiled
 # runners load it (compile_from_json: wrapper decode, source-map install,
 # platform-signature validation) and held so the replay can install the
@@ -357,6 +366,7 @@ class EagerEvaluator:
     def __init__(self, report: Report | None = None):
         self.report = report if report is not None else Report()
         self.test_depth = 0
+        self.call_depth = 0
         self._canon_memo: dict[int, Any] = {}
         # Pending capture write-backs: (native callable, defining Env,
         # [(name, type), …]) per carrier whose captures include MUTABLE
@@ -402,9 +412,16 @@ class EagerEvaluator:
 
     def run_program(self, ir: EastVariant) -> Report:
         """Run an exported spec program (an argless (Async)Function head)."""
+        import sys
+
         assert ir.type in ("Function", "AsyncFunction"), ir.type
-        with _program_source_map():
-            self.call(Closure(ir, Env()), [])
+        limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(max(limit, _MAX_INTERPRETED_CALL_DEPTH * _PY_FRAMES_PER_CALL))
+        try:
+            with _program_source_map():
+                self.call(Closure(ir, Env()), [])
+        finally:
+            sys.setrecursionlimit(limit)
         return self.report
 
     # ── closures ──
@@ -564,7 +581,14 @@ class EagerEvaluator:
             return clo
         if kind in ("Call", "CallAsync"):
             fn = self.eval(p["function"], env)
-            return self.call(fn, [self.eval(a, env) for a in p["arguments"]])
+            args = [self.eval(a, env) for a in p["arguments"]]
+            if self.call_depth >= _MAX_INTERPRETED_CALL_DEPTH:
+                raise EastError(_CALL_DEPTH_MESSAGE, [])
+            self.call_depth += 1
+            try:
+                return self.call(fn, args)
+            finally:
+                self.call_depth -= 1
         if kind == "While":
             label = p["label"]["name"]
             while self._truth(self.eval(p["predicate"], env)):
@@ -974,6 +998,9 @@ _ROWS: dict[str, Any] = {
     "ArrayGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]))
     if not isinstance(a[0], Expression) else _unsup("traced group_reduce"),
+    # toTree takes its node type first: the result's element type
+    "ArrayToTree": lambda ev, n, a: a[0].to_tree(
+        child_type(_out(n)), _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "ArrayFlattenToArray": lambda ev, n, a: a[0].flat_map(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flat_map(_cb(ev, a[1])),
     "ArrayFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
@@ -1033,6 +1060,7 @@ _ROWS: dict[str, Any] = {
     # SetScan mirrors SetReduce's (set, fn, init) argument order (#524).
     "SetScan": lambda ev, n, a: a[0].scan(_cb(ev, a[1]), a[2]),
     "SetGroupFold": lambda ev, n, a: a[0].group_reduce(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    "SetToTree": lambda ev, n, a: a[0].to_tree(child_type(_out(n)), _cb(ev, a[1]), _cb(ev, a[2])),
     "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
     "SetFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
@@ -1080,6 +1108,7 @@ _ROWS: dict[str, Any] = {
     "DictToDict": lambda ev, n, a: a[0].to_dict(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "DictGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    "DictToTree": lambda ev, n, a: a[0].to_tree(child_type(_out(n)), _cb(ev, a[1]), _cb(ev, a[2])),
     "DictFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
     "DictFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))

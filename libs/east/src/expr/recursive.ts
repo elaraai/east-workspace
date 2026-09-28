@@ -32,14 +32,31 @@ import { valueOrExprToAstTyped } from "./ast.js";
  *   cons: StructType({ head: IntegerType, tail: self })
  * }));
  *
- * // Create and work with linked lists
+ * // Sum a list by walking it in a loop, unwrapping one node at a time
  * const sumList = East.function([LinkedListType], IntegerType, ($, list) => {
- *   $.return(list.unwrap().match({
- *     nil: ($) => 0n,
- *     cons: ($, node) => node.head.add(sumList(node.tail))
- *   }));
+ *   const sum = $.let(0n);
+ *   const current = $.let(list, LinkedListType);
+ *   $.while(true, ($, label) => {
+ *     $.match(current.unwrap(), {
+ *       nil: ($) => {
+ *         $.break(label);
+ *       },
+ *       cons: ($, node) => {
+ *         $.assign(sum, sum.add(node.head));
+ *         $.assign(current, node.tail);
+ *       },
+ *     });
+ *   });
+ *   return sum;
  * });
+ * const compiled = East.compile(sumList, []);
+ * compiled(variant("cons", { head: 1n, tail: variant("cons", { head: 2n, tail: variant("cons", { head: 3n, tail: variant("nil", null) }) }) }));  // 6n
  * ```
+ *
+ * A function cannot call itself by its own name — the `const` is not yet
+ * assigned while its body is built. Walk a recursive value with a loop as
+ * above, build one from flat parent-keyed data with `toTree`, or recurse
+ * through a function held in a variable (`$.let`, then `$.assign`).
  */
 export class RecursiveExpr<T> extends Expr<RecursiveType<T>> {
   constructor(private nodeType: T, ast: AST, factory: ToExpr) {

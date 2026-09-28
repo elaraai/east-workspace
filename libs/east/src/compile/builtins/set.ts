@@ -13,6 +13,7 @@ import type { Location, SourceMap } from "../../location.js";
 import type { PlatformFunction } from "../../platform.js";
 import { printFor } from "../../serialization/east.js";
 import type { EastTypeValue } from "../../type_of_type.js";
+import { buildTree, treeOrder } from "./tree.js";
 
 /** The builtins for Sets. @internal */
 export const set_builtins = {
@@ -361,6 +362,29 @@ export const set_builtins = {
           result.set(k2, new_val);
         }
         return result;
+      } finally {
+        unlockForIteration(s);
+      }
+    }
+  },
+  SetToTree: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _N: EastTypeValue) => {
+    const compare = compareFor(K);
+    const print = printFor(K);
+    return (s: Set<any>, parentFn: (k: any) => option<any>, buildFn: (k: any, children: any[]) => any) => {
+      lockForIteration(s);
+      try {
+        const keys = [...s];
+        const index = new SortedMap<any, number>(keys.map((k, i) => [k, i]), compare);
+        const parents = new Int32Array(keys.length);
+        for (let i = 0; i < keys.length; i++) {
+          const p: option<any> = call_function(loc_id, source_map, parentFn, keys[i]);
+          parents[i] = p.type === "some" ? (index.get(p.value) ?? -1) : -1;
+        }
+        const { order, childCounts, cycle } = treeOrder(parents);
+        if (cycle >= 0) {
+          throw new EastError(`toTree: cycle through key ${print(keys[cycle])}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+        }
+        return buildTree(order, childCounts, (i, children) => call_function(loc_id, source_map, buildFn, keys[i], children));
       } finally {
         unlockForIteration(s);
       }
