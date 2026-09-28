@@ -34,8 +34,12 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
   `../../docs/conventions/EAST_CODEGEN.md` §6.
 - `src/datetime_format/` — format specifiers, printers, parsers.
 - `src/query/` — typed jq queries over East values (#875): the wire types
-  (`types.ts`; python twins `east/query/types.py`). Normative spec
-  `devdocs/QUERY.md`. The shared fixture (`test/query.fixture.ts`) and the
+  (`types.ts`; python twins `east/query/types.py`), and in `jq/` the lexer,
+  parser and canonical printer (`lexJq`, `parseJq`, `printJq`; node spans in
+  `spans.ts`, the builtin names in `catalog.ts`), whose round-trip law
+  `test/query.parse.spec.ts` holds over the corpus and generated programs.
+  Normative spec `devdocs/QUERY.md` (§18: grammar and canonical text). The
+  shared fixture (`test/query.fixture.ts`) and the
   corpus (`test/query.corpus.ts`) generate the checked-in
   `test/fixtures/query-fixture.beast2` and `query-corpus.beast2`, which the
   other runtimes read; `make query-corpus` rewrites both, and a spec fails
