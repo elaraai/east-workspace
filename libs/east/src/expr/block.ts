@@ -90,11 +90,22 @@ export function fromAst<T extends AST>(ast: T): Expr<T["type"]> {
 /**
  * Compile a function expression into a JavaScript function.
  *
+ * @remarks
+ * `f` is typed as an expression OF a function type, so `I` and `O` are read
+ * from the expression's East type. Typed as `FunctionExpr<I, O>`, TypeScript
+ * inferred them from the class's members instead, and a `RecursiveType`
+ * output (a UI component, a tree) came back as its unrolled variant, which
+ * then refused the very function it came from.
+ *
  * @param f the function expression to compile
  * @param platform the platform functions available during compilation
  * @returns the compiled function
+ * @throws {Error} When `f` is not a function built by `East.function`
  */
-export function compile<I extends any[], O>(f: FunctionExpr<I, O>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => ValueTypeOf<O>  {
+export function compile<I extends any[], O>(f: Expr<FunctionType<I, O>>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => ValueTypeOf<O>  {
+  if (!(f instanceof FunctionExpr)) {
+    throw new Error(`East.compile expects a function built by East.function, got an expression of type ${printType(Expr.type(f))}`);
+  }
   // EastIR.compile activates the SourceMap attached to the IR (captured at
   // East.function build time) so loc_ids resolve end-to-end without the
   // caller needing to manage scopes.
@@ -104,11 +115,19 @@ export function compile<I extends any[], O>(f: FunctionExpr<I, O>, platform: Pla
 /**
  * Compile an async function expression into a JavaScript function.
  *
+ * @remarks
+ * Typed like {@link compile}: `I` and `O` are read from the expression's East
+ * type, so a `RecursiveType` output keeps its type.
+ *
  * @param f the async function expression to compile
  * @param platform the platform functions available during compilation
  * @returns the compiled async function
+ * @throws {Error} When `f` is not a function built by `East.asyncFunction`
  */
-export function compileAsync<I extends any[], O>(f: AsyncFunctionExpr<I, O>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => Promise<ValueTypeOf<O>>  {
+export function compileAsync<I extends any[], O>(f: Expr<AsyncFunctionType<I, O>>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => Promise<ValueTypeOf<O>>  {
+  if (!(f instanceof AsyncFunctionExpr)) {
+    throw new Error(`East.compileAsync expects a function built by East.asyncFunction, got an expression of type ${printType(Expr.type(f))}`);
+  }
   return f.toIR().compile(platform);
 }
 

@@ -13,7 +13,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { system } from "../theme/index.js";
 import { DensityProvider } from "./density.js";
 import { EastChakraTag, type TagValue } from "../display/tag/index.js";
@@ -21,14 +21,12 @@ import { EastChakraComponent } from "../component.js";
 
 afterEach(cleanup);
 
-const none = variant("none", null);
-
 function tagValue(density?: "condensed" | "compact" | "comfortable"): TagValue {
     return {
         label: "Active",
         closable: none,
         onClose: none,
-        density: density ? variant("some", variant(density, null)) : none,
+        density: density ? some(variant(density, null)) : none,
         style: none,
     } as TagValue;
 }
@@ -70,7 +68,7 @@ describe("density cascade", () => {
     test("a Stack value with density provides the cascade to its children", () => {
         const stackValue = variant("Stack", {
             children: [variant("Tag", tagValue())],
-            density: variant("some", variant("condensed", null)),
+            density: some(variant("condensed", null)),
             style: none,
         });
         const viaStack = render(

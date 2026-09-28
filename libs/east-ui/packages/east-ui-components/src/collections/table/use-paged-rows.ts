@@ -12,8 +12,9 @@
  * read: `none` while a window is in flight, and the channel notifies when it
  * lands. What differs is only the collection, which is the whole point of
  * parameterising the row-source contract on it: a Table window is an
- * `Array<Dict<String, Cell>>` in STREAM order, so windows CONCATENATE in offset
- * order, where the Plan's keyed windows merge by key.
+ * `Array<Row>` — whole top-level rows, each followed by its subtree, in
+ * PRE-ORDER (#954) — so windows CONCATENATE in offset order, where the Plan's
+ * keyed windows merge by key.
  *
  * Exhaustion comes from `total()`, never from an empty window — the same
  * source-element contract the Plan learned the hard way (#567 D2). A window
@@ -27,13 +28,14 @@ import type { ValueTypeOf } from "@elaraai/east";
 import { Table } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { planWindows, type RowRange } from "../paged-window-store.js";
+import type { WindowedSourceValue } from "../windowed-source.js";
 
 type TableRootValue = ValueTypeOf<typeof Table.Types.Root>;
-/** The decoded `paged` arm — the source at the Table's own row collection. */
-export type TablePagedSourceValue = Extract<TableRootValue["rows"], { type: "paged" }>["value"];
-/** One decoded table row — the column-keyed cell dict. */
-export type TableRowValue = ValueTypeOf<typeof Table.Types.Root>["rows"] extends never ? never
-    : Map<string, ValueTypeOf<typeof Table.Types.Cell>>;
+/** The decoded windowed arm — `paged`, or `pinned` — the source at the Table's own row collection. */
+export type TablePagedSourceValue = WindowedSourceValue<TableRootValue["rows"]>;
+/** One decoded table row — its cells by column key, its depth in the data's
+ *  tree, and whether it starts collapsed (#954). */
+export type TableRowValue = ValueTypeOf<typeof Table.Types.Row>;
 
 /** Source elements requested per window. */
 export const TABLE_PAGE_SIZE = 200;
@@ -55,11 +57,11 @@ const MAX_PREFIX_WINDOWS = 20;
 
 
 export interface TablePagedRows {
-    /** The loaded rows, in stream order. */
+    /** The loaded rows, in stream order — pre-order, a parent before its subtree. */
     rows: TableRowValue[];
-    /** The source's total ELEMENT count, once known. */
+    /** The source's total ELEMENT count, once known — its top-level rows. */
     total: number | undefined;
-    /** Source elements whose window has landed. */
+    /** Source elements (top-level rows) whose window has landed. */
     loadedElements: number;
     /** Whether a requested window is still in flight. */
     loading: boolean;
@@ -123,8 +125,10 @@ export function useTablePagedRows(
                 loading = true;
                 break;
             }
-            // Stream order — windows CONCATENATE at their offsets.
-            for (const row of win.value) rows.push(row as TableRowValue);
+            // Stream order — windows CONCATENATE at their offsets. A window
+            // holds whole top-level rows with their subtrees, so the prefix is
+            // always a complete pre-order walk of the rows it covers.
+            for (const row of win.value) rows.push(row);
             loadedElements += TABLE_PAGE_SIZE;
         }
         if (total !== undefined) loadedElements = Math.min(loadedElements, total);

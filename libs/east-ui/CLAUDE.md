@@ -34,6 +34,7 @@ design / snapshot workflow:
 | `make design` | Serves the canonical design system (`app_design_system/`, incl. `components/rendered/`) on :5174. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
+| `make test-responsive` | The showcase's Playwright suite (DOM specs at desktop + mobile) over the built showcase, exactly as CI runs it; `SHARD=n/4` runs one CI shard. |
 | `make extension` | Builds the VS Code extension. |
 | `make extension-install` / `make extension-uninstall` | Manage local VS Code install. |
 

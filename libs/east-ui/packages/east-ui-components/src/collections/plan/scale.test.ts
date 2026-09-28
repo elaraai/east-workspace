@@ -8,6 +8,8 @@ import { variant } from "@elaraai/east";
 import { chipAnchor } from "./shell/Ruler.js";
 import { MAX_PLAN_BUCKETS, defaultTickLabel, effectiveResolution, isoWeekUTC, planScale, type PlanResolution } from './scale';
 import type { PlanInstantValue } from "./instant.js";
+import { planMessages, type PlanMessages } from "./messages.js";
+import { planWords } from "./words.js";
 
 const d = (s: string) => new Date(s);
 /** Instants on each arm — REAL East variant values, as the decoder yields them. */
@@ -38,15 +40,30 @@ describe('planScale — time axis', () => {
             expect(dateOf(scale.buckets[6]!.end).toISOString()).toBe("2026-04-06T00:00:00.000Z");
         });
 
-        it('an unaligned window clips the edge buckets on the continuous scale', () => {
-            // Wednesday → Wednesday, two ISO weeks touched at each edge.
+        it('an unaligned window widens OUTWARD to whole periods — no column is a sliver (#949)', () => {
+            // Wednesday → Wednesday touches three ISO weeks; each is drawn whole.
             const scale = time("2026-07-01T00:00:00Z", "2026-07-15T00:00:00Z", "week");
             expect(scale.n).toBe(3);
-            expect(scale.buckets[0]!.x0).toBe(0);                    // clipped to min
-            expect(dateOf(scale.buckets[0]!.start).toISOString()).toBe("2026-07-01T00:00:00.000Z");
-            expect(scale.buckets[2]!.x1).toBe(1);                    // clipped to max
-            // The middle bucket is a full week of the 14-day span.
-            expect(scale.buckets[1]!.x1 - scale.buckets[1]!.x0).toBeCloseTo(7 / 14, 10);
+            expect(dateOf(scale.window.min).toISOString()).toBe("2026-06-29T00:00:00.000Z");
+            expect(dateOf(scale.window.max).toISOString()).toBe("2026-07-20T00:00:00.000Z");
+            expect(dateOf(scale.buckets[0]!.start).toISOString()).toBe("2026-06-29T00:00:00.000Z");
+            expect(dateOf(scale.buckets[2]!.end).toISOString()).toBe("2026-07-20T00:00:00.000Z");
+            for (const b of scale.buckets) expect(b.x1 - b.x0).toBeCloseTo(1 / 3, 10);
+            // A 12-week window at MONTH is whole months — June to September —
+            // never a two-day June sliver beside a two-thirds September.
+            const months = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "month");
+            expect(months.buckets.map(b => b.label)).toEqual(["JUN", "JUL", "AUG", "SEP"]);
+            expect(dateOf(months.window.min).toISOString()).toBe("2026-06-01T00:00:00.000Z");
+            expect(dateOf(months.window.max).toISOString()).toBe("2026-10-01T00:00:00.000Z");
+        });
+
+        it('a window closed a millisecond short of an edge ends at that edge — a slice range, read back', () => {
+            // The canvas writes `[W27, W39)` to a slice as the closed range
+            // ending at W39 − 1 ms (`rangeOf`); read back, it is the same twelve weeks.
+            const scale = time("2026-06-29T00:00:00Z", "2026-09-20T23:59:59.999Z", "week");
+            expect(scale.n).toBe(12);
+            expect(dateOf(scale.window.max).toISOString()).toBe("2026-09-21T00:00:00.000Z");
+            expect(scale.buckets[11]!.x1).toBe(1);
         });
     });
 
@@ -127,6 +144,81 @@ describe('planScale — time axis', () => {
         });
     });
 
+    describe('words for accessible names (#819)', () => {
+        it('an instant is its UTC date, with the time only when it has one', () => {
+            const scale = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week");
+            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("Jun 29, 2026");
+            expect(scale.instantText(t("2026-07-06T14:30:00Z"))).toBe("Jul 6, 2026, 14:30");
+            // An instant of another arm has no words on this axis.
+            expect(scale.instantText(n(3))).toBe("");
+        });
+
+        it('an hour-resolution axis always says the time', () => {
+            const scale = time("2026-06-29T00:00:00Z", "2026-06-30T00:00:00Z", "hour");
+            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("Jun 29, 2026, 00:00");
+            expect(scale.bucketText(scale.buckets[9]!)).toBe("Jun 29, 2026, 09:00");
+        });
+
+        it('a bucket says the period it covers, not its ruler tick — even under a custom format', () => {
+            const week = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week", undefined, "MMM DD");
+            expect(week.buckets[0]!.label).toBe("Jun 29");
+            expect(week.bucketText(week.buckets[0]!)).toBe("Week of Jun 29, 2026");
+            const day = time("2026-03-30T00:00:00Z", "2026-04-06T00:00:00Z", "day");
+            expect(day.bucketText(day.buckets[1]!)).toBe("Tue, Mar 31, 2026");
+            const month = time("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "month");
+            expect(month.bucketText(month.buckets[6]!)).toBe("July 2026");
+            const quarter = time("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "quarter");
+            expect(quarter.bucketText(quarter.buckets[2]!)).toBe("Q3 2026");
+            const year = time("2026-01-01T00:00:00Z", "2028-01-01T00:00:00Z", "year");
+            expect(year.bucketText(year.buckets[1]!)).toBe("2027");
+        });
+    });
+
+    describe('words in the canvas\'s locale (#820)', () => {
+        const de = planWords("de-DE", planMessages);
+        const inDe = (min: string, max: string, resolution: PlanResolution) =>
+            planScale({ kind: "time", window: { min: d(min), max: d(max) }, resolution, words: de })!;
+
+        it('ruler ticks and accessible words are the locale\'s — German weekdays, months and dates', () => {
+            const day = inDe("2026-03-30T00:00:00Z", "2026-04-06T00:00:00Z", "day");
+            expect(day.buckets.map(b => b.label)).toEqual(["MO", "DI", "MI", "DO", "FR", "SA", "SO"]);
+            expect(day.bucketText(day.buckets[1]!)).toBe("Di., 31. März 2026");
+            const week = inDe("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week");
+            expect(week.buckets[0]!.label).toBe("W27");
+            expect(week.instantText(t("2026-06-29T00:00:00Z"))).toBe("29. Juni 2026");
+            expect(week.instantText(t("2026-07-06T14:30:00Z"))).toBe("6. Juli 2026, 14:30");
+            expect(week.bucketText(week.buckets[0]!)).toBe("Week of 29. Juni 2026");
+            const month = inDe("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "month");
+            expect(month.bucketText(month.buckets[6]!)).toBe("Juli 2026");
+        });
+
+        it('a number axis\'s declared format speaks the locale too', () => {
+            const scale = planScale({
+                kind: "number", window: { min: 0, max: 1 }, step: 0.25, words: de,
+                format: variant("number", null) as never,
+            })!;
+            expect(scale.buckets.map(b => b.label)).toEqual(["0", "0,25", "0,5", "0,75"]);
+            expect(scale.instantText(n(0.5))).toBe("0,5");
+        });
+
+        it('the tick and period phrases are the message table\'s', () => {
+            const marked: PlanMessages = {
+                ...planMessages,
+                rulerWeek: ({ week }) => `KW${week}`,
+                rulerQuarter: ({ quarter }) => `${quarter}. Q`,
+                periodWeek: ({ date }) => `Woche ab ${date}`,
+                periodQuarter: ({ quarter, year }) => `${quarter}. Quartal ${year}`,
+            };
+            const words = planWords("de-DE", marked);
+            const week = planScale({ kind: "time", window: { min: d("2026-06-29T00:00:00Z"), max: d("2026-07-13T00:00:00Z") }, resolution: "week", words })!;
+            expect(week.buckets.map(b => b.label)).toEqual(["KW27", "KW28"]);
+            expect(week.bucketText(week.buckets[0]!)).toBe("Woche ab 29. Juni 2026");
+            const quarter = planScale({ kind: "time", window: { min: d("2026-01-01T00:00:00Z"), max: d("2027-01-01T00:00:00Z") }, resolution: "quarter", words })!;
+            expect(quarter.buckets[2]!.label).toBe("3. Q");
+            expect(quarter.bucketText(quarter.buckets[2]!)).toBe("3. Quartal 2026");
+        });
+    });
+
     describe('DST irrelevance (UTC bucketing)', () => {
         it('a window across a European DST change keeps exact 7-day weeks', () => {
             // DST in Europe changed 2026-03-29; UTC bucketing must not care.
@@ -137,15 +229,27 @@ describe('planScale — time axis', () => {
     });
 
     describe('truncation (MAX_PLAN_BUCKETS)', () => {
+        it('a truncated scale SAYS so — the toolbar shows it, never a console warning alone (#811)', () => {
+            const min = d("2026-01-01T00:00:00Z");
+            const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const scale = planScale({ kind: "time", window: { min, max }, resolution: "day" })!;
+            expect(warn).not.toHaveBeenCalled();
+            warn.mockRestore();
+            expect(scale.truncated).toEqual({ shown: MAX_PLAN_BUCKETS });
+            // A window that fits is not truncated — on every axis kind.
+            expect(time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week").truncated).toBeUndefined();
+            expect(planScale({ kind: "number", window: { min: 0, max: 499 }, step: 1 })!.truncated).toBeUndefined();
+            expect(planScale({ kind: "number", window: { min: 0, max: 501 }, step: 1 })!.truncated).toEqual({ shown: MAX_PLAN_BUCKETS });
+            expect(planScale({ kind: "ordinal", values: ["A", "B"] })!.truncated).toBeUndefined();
+        });
+
         it('bucketOf answers −1 past the last bucket instead of piling into the final column (#618)', () => {
             // 600 days at day resolution truncates the GRID to 500 buckets;
             // the window — and the continuous axis — stays 600 days wide.
             const min = d("2026-01-01T00:00:00Z");
             const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
-            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
             const scale = planScale({ kind: "time", window: { min, max }, resolution: "day" })!;
-            expect(warn).toHaveBeenCalledOnce();
-            warn.mockRestore();
             expect(scale.n).toBe(MAX_PLAN_BUCKETS);
             const lastEnd = dateOf(scale.buckets[MAX_PLAN_BUCKETS - 1]!.end);
             // Inside the covered range: the last bucket, as before.
@@ -192,9 +296,7 @@ describe('planScale — time axis', () => {
         it('the right overscan starts at the COVERED edge of a truncated axis (#618)', () => {
             const min = d("2026-01-01T00:00:00Z");
             const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
-            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
             const scale = planScale({ kind: "time", window: { min, max }, resolution: "day" })!;
-            warn.mockRestore();
             const lastEnd = dateOf(scale.buckets[scale.n - 1]!.end);
             const b = scale.renderBucketOf(t(lastEnd))!;
             expect(b.index).toBe(scale.n);
@@ -205,9 +307,11 @@ describe('planScale — time axis', () => {
             expect(scale.renderMax).toBeLessThan(1);
         });
 
-        it('an unaligned window maps the pre-min sliver to the clipped first bucket', () => {
-            // Wednesday-start window: the first period begins Mon 6-29.
+        it('an unaligned window starts on its first whole period — the week before it is overscan', () => {
+            // Wednesday-start window: the first period begins Mon 6-29, and it
+            // is a window bucket, not a sliver outside one (#949).
             const scale = time("2026-07-01T00:00:00Z", "2026-07-15T00:00:00Z", "week");
+            expect(scale.bucketOf(t("2026-06-30T00:00:00Z"))).toBe(0);
             expect(scale.renderBucketOf(t("2026-06-30T00:00:00Z"))).toBe(scale.buckets[0]);
             expect(scale.renderBucketOf(t("2026-06-25T00:00:00Z"))!.index).toBe(-1);
         });
@@ -274,17 +378,29 @@ describe('planScale — number axis (#631)', () => {
         expect(scale.fromNumber(7)).toEqual(n(7));
     });
 
-    it('an unaligned window clips the edge buckets; a fractional step does not drift', () => {
+    it('an unaligned window widens to whole steps (#949); a fractional step does not drift', () => {
         const scale = num(1.5, 4, 1);
-        expect(scale.n).toBe(3);                                    // [1.5,2) [2,3) [3,4)
-        expect(scale.buckets[0]!.x0).toBe(0);
+        expect(scale.n).toBe(3);                                    // [1,2) [2,3) [3,4)
+        expect(scale.window).toEqual({ min: n(1), max: n(4) });
+        expect(scale.buckets[0]!.start).toEqual(n(1));
         expect(scale.buckets[0]!.label).toBe("1");
-        expect(scale.buckets[1]!.x1 - scale.buckets[1]!.x0).toBeCloseTo(1 / 2.5, 10);
+        for (const b of scale.buckets) expect(b.x1 - b.x0).toBeCloseTo(1 / 3, 10);
         const fine = num(0, 1, 0.1);
         expect(fine.n).toBe(10);
         expect(fine.buckets[3]!.label).toBe("0.3");
         expect(fine.bucketOf(n(0.35))).toBe(3);
         expect(fine.bucketOf(n(0.9999))).toBe(9);
+    });
+
+    it('a window closed one float short of an edge ENDS at that edge — a pan from it carries no shortfall', () => {
+        // The canvas writes `[1, 9)` to a float field as the closed range
+        // ending at the next float below 9 (`rangeOf`); read back, the window
+        // is exactly `[1, 9)`, so the next pan starts from 9, not 8.999…
+        const short = 8.999999999999998;
+        const scale = num(1, short, 1);
+        expect(scale.n).toBe(8);
+        expect(scale.window).toEqual({ min: n(1), max: n(9) });
+        expect(scale.offset(scale.window.max, 1)).toEqual(n(10));
     });
 
     it('the now position is a window fraction; off-arm instants position nowhere', () => {
@@ -311,6 +427,9 @@ describe('planScale — number axis (#631)', () => {
             format: variant("percent", null) as never,
         })!;
         expect(scale.buckets.map(b => b.label)).toEqual(["0%", "25%", "50%", "75%"]);
+        // An accessible name speaks the same format (#819).
+        expect(scale.instantText(n(0.5))).toBe("50%");
+        expect(scale.bucketText(scale.buckets[1]!)).toBe("25%");
     });
 
     it('a non-positive step or an inverted window yields no scale', () => {
@@ -367,6 +486,13 @@ describe('planScale — ordinal axis (#631)', () => {
         expect(scale.fromNumber(99)).toEqual(o("SHIP"));
         expect(scale.toNumber(o("PACK"))).toBe(4);
         expect(scale.snap(o("QC"))).toEqual(o("QC"));
+    });
+
+    it('an instant and a bucket are their value in words (#819)', () => {
+        const scale = ord();
+        expect(scale.instantText(o("QC"))).toBe("QC");
+        expect(scale.bucketText(scale.buckets[1]!)).toBe("PREP");
+        expect(scale.instantText(o("DONE"))).toBe("");
     });
 
     it('an empty list yields no scale; a repeated value is one bucket', () => {

@@ -5,13 +5,13 @@
 
 import { memo, useMemo, useCallback } from "react";
 import { Popover as ChakraPopover, Portal } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Popover } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
 // Pre-define equality function at module level
-const popoverEqual = equalFor(Popover.Types.Popover);
+const popoverEqual = equivalentFor(Popover.Types.Popover);
 
 /** East Popover value type */
 export type PopoverValue = ValueTypeOf<typeof Popover.Types.Popover>;

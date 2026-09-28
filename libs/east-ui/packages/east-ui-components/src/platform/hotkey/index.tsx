@@ -4,10 +4,10 @@
  */
 
 import { memo, useEffect } from "react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Hotkey } from "@elaraai/east-ui/internal";
 
-const hotkeyEqual = equalFor(Hotkey.Types.Hotkey);
+const hotkeyEqual = equivalentFor(Hotkey.Types.Hotkey);
 
 export type HotkeyValue = ValueTypeOf<typeof Hotkey.Types.Hotkey>;
 

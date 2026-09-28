@@ -12,8 +12,9 @@
     "templates"
   ],
   "scripts": {
-    "build": "node build.mjs",
-    "test": "node --test \"dist/**/*.spec.js\""
+    "build": "tsc -p tsconfig.json && node build.mjs",
+    "test": "node --test \"dist/**/*.spec.js\"",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "license": "BSL-1.1",
   "repository": {

@@ -62,7 +62,7 @@ function createText(
 
     return East.value(variant("Text", {
         value: value,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

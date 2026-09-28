@@ -11,7 +11,7 @@ import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { boundRangeDomain } from "../../platform/slice/index.js";
-import { tickFormatter } from "../../charts/spec/index.js";
+import { useFormatters } from "../../format/index.js";
 import { EastChakraDateTimeInput } from "../../forms/input/index.js";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -43,22 +43,21 @@ const COMPARE: ReadonlyArray<{ label: string; tag: CompareTag | null }> = [
     { label: "Previous year",   tag: "previousYear" },
 ];
 
-const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-const fmtShort = (d: Date) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
-const fmtFull = (d: Date) => `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-
 /** Resolve a preset tag to the absolute window ending at `anchor` (#195):
  *  wall-clock now for live data, the data's last day when the domain sits
- *  entirely in the past (or future) — so presets always land ON the data. */
+ *  entirely in the past (or future) — so presets always land ON the data.
+ *  Days are UTC days, as East's DateTime is UTC and the slice's matcher
+ *  resolves a preset the same way (#850): the window, its label and the rows
+ *  it keeps never depend on the viewer's timezone. */
 function presetWindow(tag: PresetTag, anchor: Date): { from: Date; to: Date } {
     const to = new Date(anchor);
     let from = new Date(anchor);
     switch (tag) {
-        case "today":   from.setHours(0, 0, 0, 0); break;
-        case "last7d":  from.setDate(from.getDate() - 7); break;
-        case "last30d": from.setDate(from.getDate() - 30); break;
-        case "last90d": from.setDate(from.getDate() - 90); break;
-        case "ytd":     from = new Date(anchor.getFullYear(), 0, 1); break;
+        case "today":   from.setUTCHours(0, 0, 0, 0); break;
+        case "last7d":  from.setUTCDate(from.getUTCDate() - 7); break;
+        case "last30d": from.setUTCDate(from.getUTCDate() - 30); break;
+        case "last90d": from.setUTCDate(from.getUTCDate() - 90); break;
+        case "ytd":     from = new Date(Date.UTC(anchor.getUTCFullYear(), 0, 1)); break;
     }
     return { from, to };
 }
@@ -136,8 +135,8 @@ function ResolutionSeg({ options, active, onPick }: {
 }
 
 /**
- * Renders an East UI `Slice.Range` — a single pill showing the active window
- * (`AUG 14 → SEP 13 · 30d`); clicking opens the `Slice.Edit` picker with the
+ * Renders an East UI `Slice.Range` — a single chip showing the active window
+ * (`AUG 14 – SEP 13 · 30d`); clicking opens the `Slice.Edit` picker with the
  * presets, the compare-with row, and the resolved window. Reads `state.range` /
  * `state.compare` reactively; writes via `setRange` / `setCompare`.
  */
@@ -158,7 +157,12 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
     // A numeric range field (a number-axis Plan's slice, #631) prints its
     // window as numbers; the date presets have no meaning against it.
     const numericWin = resolveNumericWindow(range);
-    const numFmt = tickFormatter(undefined, "linear");
+    // Numbers and dates in the app's locale; dates in UTC, capitalised like
+    // the chip's other words (#850).
+    const words = useFormatters();
+    const numFmt = words.number;
+    const day = (d: Date) => words.monthDay(d).toLocaleUpperCase(words.locale);
+    const span = (from: Date, to: Date) => words.range(from, to).toLocaleUpperCase(words.locale);
     const compareTag = getSomeorUndefined(state.compare)?.type ?? null;
 
     // Resolution segment (Plan spec §8) — configured bucket units beside the
@@ -239,14 +243,18 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(false)}>Done</chakra.button>}
             trigger={
                 <Box css={chip({ tone: range !== undefined ? "brand" : "neutral", numeric: true })} cursor="pointer">
-                    {!framed && <FontAwesomeIcon icon={faCalendar} style={{ fontSize: "10px" }} />}
-                    <Box as="span">{win
-                        ? `${fmtShort(win.from)} → ${fmtShort(win.to)}`
+                    {!framed && <FontAwesomeIcon icon={faCalendar} data-chip-icon="" />}
+                    {/* The range's own bounds — both inclusive, as a slice
+                        range is — with an en dash between them (#949):
+                        numbers close up (`1–8`), dates stand apart
+                        (`JUN 29 – SEP 20`). */}
+                    <Box as="span" data-slice-range-label>{win
+                        ? `${day(win.from)} – ${day(win.to)}`
                         : numericWin
-                            ? `${numFmt(numericWin.from)} → ${numFmt(numericWin.to)}`
+                            ? `${numFmt(numericWin.from)}–${numFmt(numericWin.to)}`
                             : numericField ? "All" : "All time"}</Box>
-                    {dayCount !== undefined && <Box as="span" color="fg.muted">{`${dayCount}d`}</Box>}
-                    <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
+                    {dayCount !== undefined && <Box as="span" data-chip-meta="">{`${dayCount}d`}</Box>}
+                    <FontAwesomeIcon icon={faChevronDown} data-chip-caret="" />
                 </Box>
             }
         >
@@ -288,7 +296,7 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
                 ))}
             </Box>
             {win && (
-                <Box css={edit.resolveLine}>{`Resolves to ${fmtShort(win.from)} – ${fmtFull(win.to)}`}</Box>
+                <Box css={edit.resolveLine}>{`Resolves to ${span(win.from, win.to)}`}</Box>
             )}
             {numericWin && (
                 <Box css={edit.resolveLine}>{`Resolves to ${numFmt(numericWin.from)} – ${numFmt(numericWin.to)}`}</Box>
@@ -299,7 +307,7 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
             )}
             {/* All active: show the data's actual extent instead of a window (#195). */}
             {win === null && domain !== undefined && domain.kind === "datetime" && (
-                <Box css={edit.resolveLine}>{`All data · ${fmtShort(new Date(domain.min))} – ${fmtFull(new Date(domain.max))}`}</Box>
+                <Box css={edit.resolveLine}>{`All data · ${span(new Date(domain.min), new Date(domain.max))}`}</Box>
             )}
         </SliceEditPopover>
     );

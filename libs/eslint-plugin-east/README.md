@@ -60,6 +60,29 @@ Or extend the bundled config: `export default [east.configs.recommended];`
 }]
 ```
 
+`only` runs just the rules it names — every other rule is off, and `disabled`
+still applies. The plugin exports `hostValueRules`: the rules over host code
+that holds decoded East values — how it prints, reads, compares, collects,
+types and builds them. A package that authors East IR by design (a UI factory
+library, a test's program helpers) runs those alone:
+
+```js
+import east, { hostValueRules } from "@elaraai/eslint-plugin-east";
+
+export default [
+  {
+    files: ["src/**/*.ts", "test/**/*.ts"],
+    languageOptions: { parser: tsParser, parserOptions: { projectService: true } },
+    plugins: { east },
+    rules: { "east/east-rules": ["error", { only: hostValueRules }] },
+  },
+];
+```
+
+The rules read type information, so a file linted with none (a snippet a
+test lints with `project: false`) turns `east/east-rules` off rather than
+leaving it to throw.
+
 ## Claude Code plugin
 
 The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:

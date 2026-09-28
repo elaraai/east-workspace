@@ -3,19 +3,19 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * Enforcement:
- *   - Locale-aware formatting (Intl.NumberFormat): this renderer
+ *   - Locale-aware formatting: the shared format module (#850), in the app's locale
  *   - Sentiment → colour mapping: this renderer (theme resolves values)
  *   - Style override priority: style.color > sentiment-derived default > theme
  */
 
 import { memo, useMemo } from "react";
 import { Box, Text as ChakraText } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Numeric } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { formatTick } from "./format-tick";
+import { useFormatters } from "../../format/index.js";
 
-const numericEqual = equalFor(Numeric.Types.Numeric);
+const numericEqual = equivalentFor(Numeric.Types.Numeric);
 
 /** East Numeric value type */
 export type NumericValue = ValueTypeOf<typeof Numeric.Types.Numeric>;
@@ -41,6 +41,8 @@ function sentimentColour(sentimentTag: string | undefined): string | undefined {
  * independently of the digit run.
  */
 export const EastChakraNumeric = memo(function EastChakraNumeric({ value }: EastChakraNumericProps) {
+    // The number, in the app's locale (#850).
+    const words = useFormatters();
     const rendered = useMemo(() => {
         const style = getSomeorUndefined(value.style);
         const sentimentTag = getSomeorUndefined(value.sentiment)?.type;
@@ -51,7 +53,7 @@ export const EastChakraNumeric = memo(function EastChakraNumeric({ value }: East
         const signColor = style ? getSomeorUndefined(style.signColor) : undefined;
         const opacity = style ? getSomeorUndefined(style.opacity) : undefined;
 
-        const formatted = formatTick(value.value, getSomeorUndefined(value.format), showSign);
+        const formatted = words.value(value.value, getSomeorUndefined(value.format), showSign);
         const tintedColor = color ?? sentimentColour(sentimentTag);
         // Inline-friendly default: a 14px tabular mono run that sits in body
         // text. Hero KPIs opt into a display size via `style.textStyle`
@@ -91,7 +93,7 @@ export const EastChakraNumeric = memo(function EastChakraNumeric({ value }: East
                 {formatted}
             </ChakraText>
         );
-    }, [value]);
+    }, [value, words]);
 
     return rendered;
 }, (prev, next) => numericEqual(prev.value, next.value));

@@ -3,18 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Box, Popover, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Box, Popover, Portal, Tooltip, chakra, useSlotRecipe } from "@chakra-ui/react";
 import {
     useReactTable, getCoreRowModel, createColumnHelper,
     type ColumnDef, type ColumnSizingState, type Updater,
 } from "@tanstack/react-table";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faCircleCheck, faTriangleExclamation, faCircleXmark, faCircleInfo, faCircle,
+    faCircleCheck, faTriangleExclamation, faCircleXmark, faCircleInfo, faCircle, faCaretDown,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { VirtualRows } from "../virtual-rows.js";
@@ -27,7 +27,7 @@ import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
-const matrixRootEqual = equalFor(Matrix.Types.Root);
+const matrixRootEqual = equivalentFor(Matrix.Types.Root);
 
 /** East Matrix root value (the `Matrix` variant's data). */
 export type MatrixRootValue = ValueTypeOf<typeof Matrix.Types.Root>;
@@ -49,9 +49,56 @@ export interface EastChakraMatrixProps {
     storageKey: string;
 }
 
-/** Persisted left-pane layout — the row-header column width. */
+/** Persisted layout — the row-header column width, and the viewer's folds. */
 interface MatrixPersistedState {
     columnSizing: ColumnSizingState;
+    /** Nested rows (#955): whether each parent the viewer folded or opened is
+     *  collapsed, by its path (`0.2`) — never its key, so rows that share a
+     *  key fold apart. A parent absent here starts as its row declares. */
+    folds?: Record<string, boolean>;
+}
+
+/** One row of the matrix's tree (#955): a wire row, placed. */
+interface MatrixTreeRow {
+    /** The wire row. */
+    row: MatrixRowValue;
+    /** Its position in the rows' pre-order. */
+    index: number;
+    /** How deep it sits — 0 at the top. */
+    depth: number;
+    /** Its index among its siblings at each depth, joined: `0.2`. */
+    path: string;
+    /** Whether it has children. */
+    parent: boolean;
+}
+
+/**
+ * The matrix's rows placed (#955): the wire's pre-order stream, each row under
+ * the nearest row before it one level shallower. A depth that skips a level is
+ * read as one level below the row before it, and one below zero as zero, so a
+ * malformed stream still draws every row.
+ */
+function treeRowsOf(rows: readonly MatrixRowValue[]): MatrixTreeRow[] {
+    const out: MatrixTreeRow[] = [];
+    // The rows from the top down to the last row placed, and how many
+    // children each has so far; `roots` counts the top level's.
+    const open: { node: MatrixTreeRow; children: number }[] = [];
+    let roots = 0;
+    rows.forEach((row, index) => {
+        const depth = Math.max(0, Math.min(Number(row.depth), open.length));
+        open.length = depth;
+        const above = open[depth - 1];
+        if (above !== undefined) above.node.parent = true;
+        const sibling = above === undefined ? roots++ : above.children++;
+        const node: MatrixTreeRow = {
+            row, index, depth,
+            path: above === undefined ? String(sibling) : `${above.node.path}.${sibling}`,
+            parent: false,
+        };
+        out.push(node);
+        open.push({ node, children: 0 });
+    });
+    return out;
 }
 
 type RecipeStyles = Record<string, Record<string, unknown>>;
@@ -323,6 +370,12 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     // The header cells reuse the shared `table` columnHeader chrome (solid wash +
     // strong bottom rule), identical to Table / Gantt — one source, three views.
     const headerCellStyle = useMemo(() => (tableRecipe({ size }) as unknown as RecipeStyles).columnHeader ?? {}, [tableRecipe, size]);
+    // A nested row's indent and caret are the Table's too (#955): one step
+    // per depth — the Plan's gutter step (#949) — and the Plan's caret.
+    const treeStyles = useMemo(() => {
+        const t = tableRecipe({ size }) as unknown as RecipeStyles;
+        return { indent: t.treeIndent ?? {}, toggle: t.treeToggle ?? {} };
+    }, [tableRecipe, size]);
     // The legend reuses the Slice.Legend rail + item slots (the same swatch · label
     // chips), so a Matrix legend reads identically to a Slice breakdown legend.
     const sliceStyles = useMemo(() => sliceRecipe() as unknown as RecipeStyles, [sliceRecipe]);
@@ -459,16 +512,30 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
 
     const legendEntries = getSomeorUndefined(value.legend);
 
-    const groups = useMemo(() => {
-        const out: { label: string | undefined; rows: { row: MatrixRowValue; index: number }[] }[] = [];
-        value.rows.forEach((row, index) => {
-            const g = getSomeorUndefined(row.group);
-            const last = out[out.length - 1];
-            if (last && last.label === g) last.rows.push({ row, index });
-            else out.push({ label: g, rows: [{ row, index }] });
-        });
+    // ── The rows' tree (#955) ─────────────────────────────────────────────
+    // The wire's pre-order rows, placed; the rows on show are those whose
+    // every ancestor is open — the viewer's folds, persisted by path, over
+    // each parent's declared `collapsed`.
+    const treeRows = useMemo(() => treeRowsOf(value.rows), [value.rows]);
+    // Whether any row has children: a flat matrix draws no indent or caret.
+    const nested = treeRows.some((t) => t.parent);
+    const folds = persistedState.folds;
+    const isClosed = useCallback((t: MatrixTreeRow) => t.parent && (folds?.[t.path] ?? t.row.collapsed), [folds]);
+    const visible = useMemo(() => {
+        const out: MatrixTreeRow[] = [];
+        // Rows deeper than this belong to a closed parent.
+        let hidingBelow = Number.POSITIVE_INFINITY;
+        for (const t of treeRows) {
+            if (t.depth > hidingBelow) continue;
+            hidingBelow = Number.POSITIVE_INFINITY;
+            out.push(t);
+            if (isClosed(t)) hidingBelow = t.depth;
+        }
         return out;
-    }, [value.rows]);
+    }, [treeRows, isClosed]);
+    const toggleFold = useCallback((t: MatrixTreeRow, closed: boolean) => {
+        setPersistedState((prev) => ({ ...prev, folds: { ...(prev.folds ?? {}), [t.path]: !closed } }));
+    }, [setPersistedState]);
 
     const headerNode = (
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
@@ -510,28 +577,13 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
             </Box>
     );
 
-    // Flat virtual-row list: each group head and each data row is one item, so
-    // the shared VirtualRows frame mounts only what's visible when bounded (#320).
-    type MatrixVItem =
-        | { kind: "groupHead"; label: string }
-        | { kind: "row"; row: MatrixRowValue; index: number };
-    const flatRows: MatrixVItem[] = [];
-    for (const group of groups) {
-        if (group.label !== undefined) flatRows.push({ kind: "groupHead", label: group.label });
-        for (const r of group.rows) flatRows.push({ kind: "row", row: r.row, index: r.index });
-    }
-
+    // The rows on show are the virtual list, so the shared VirtualRows frame
+    // mounts only what's visible when bounded (#320).
     const renderRow = (i: number): ReactNode => {
-        const item = flatRows[i];
-        if (item === undefined) return null;
-        if (item.kind === "groupHead") {
-            return (
-                <Box css={base.groupHead} data-slot="groupHead" minWidth={outerMinWidth} display="grid" gridTemplateColumns={outerCols}>
-                    <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{item.label}</Box>
-                </Box>
-            );
-        }
-        const { row, index } = item;
+        const t = visible[i];
+        if (t === undefined) return null;
+        const { row, index } = t;
+        const closed = isClosed(t);
         return (
                         <Box
                             key={index}
@@ -540,6 +592,9 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                             display="grid"
                             gridTemplateColumns={outerCols}
                             minWidth={outerMinWidth}
+                            data-row-key={row.key}
+                            data-depth={nested ? t.depth : undefined}
+                            data-parent={t.parent ? "" : undefined}
                         >
                             {/* Trailing right-gutter mask (#147): stop the row's full-width bottom
                                 rule (base.row) at W−right; `bottom:-1px` covers both the gutter
@@ -559,8 +614,34 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                             data-slot="rowHeader"
                                             style={getCellStyle({ column }, hasFrozen, columnSizing, false)}
                                         >
-                                            <Box css={base.rowHeaderName} data-slot="rowHeaderName">{row.value}</Box>
-                                            {sub !== undefined && <Box css={base.rowHeaderSub} data-slot="rowHeaderSub">{sub}</Box>}
+                                            {/* A nested matrix's header leads with the row's
+                                                indent — one step per depth — and, on a parent,
+                                                the caret that folds its subtree (#955). */}
+                                            {nested && (
+                                                <Box
+                                                    as="span"
+                                                    css={treeStyles.indent}
+                                                    data-slot="treeIndent"
+                                                    style={{ "--table-depth": t.depth } as CSSProperties}
+                                                >
+                                                    {t.parent && (
+                                                        <chakra.button
+                                                            type="button"
+                                                            css={treeStyles.toggle}
+                                                            data-slot="treeToggle"
+                                                            aria-expanded={!closed}
+                                                            aria-label={closed ? "Show children" : "Hide children"}
+                                                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleFold(t, closed); }}
+                                                        >
+                                                            <FontAwesomeIcon icon={faCaretDown} />
+                                                        </chakra.button>
+                                                    )}
+                                                </Box>
+                                            )}
+                                            <Box css={base.rowHeaderText} data-slot="rowHeaderText">
+                                                <Box css={base.rowHeaderName} data-slot="rowHeaderName">{row.value}</Box>
+                                                {sub !== undefined && <Box css={base.rowHeaderSub} data-slot="rowHeaderSub">{sub}</Box>}
+                                            </Box>
                                         </Box>
                                     );
                                 })}
@@ -640,8 +721,8 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
             maxHeight={getSomeorUndefined(value.maxHeight)}
             header={headerNode}
             footer={footerNode}
-            count={flatRows.length}
-            estimateSize={(i) => (flatRows[i]?.kind === "groupHead" ? headerH : rowH)}
+            count={visible.length}
+            estimateSize={() => rowH}
             renderRow={renderRow}
             minWidth={outerMinWidth}
             rootCss={{ ...base.root, ...(gutterActive ? { width: "100%" } : {}) }}

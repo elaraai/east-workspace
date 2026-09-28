@@ -63,13 +63,13 @@ function createCodeBlock(
 
     return East.value(variant("CodeBlock", {
         code: code,
-        language: languageValue !== undefined ? variant("some", languageValue) : variant("none", null),
-        showLineNumbers: showLineNumbersValue !== undefined ? variant("some", showLineNumbersValue) : variant("none", null),
-        highlightLines: style?.highlightLines ? variant("some", style.highlightLines) : variant("none", null),
-        showCopyButton: showCopyButtonValue !== undefined ? variant("some", showCopyButtonValue) : variant("none", null),
-        wordWrap: style?.wordWrap !== undefined ? variant("some", style.wordWrap) : variant("none", null),
-        title: style?.title ? variant("some", style.title) : variant("none", null),
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        language: languageValue !== undefined ? some(languageValue) : none,
+        showLineNumbers: showLineNumbersValue !== undefined ? some(showLineNumbersValue) : none,
+        highlightLines: style?.highlightLines ? some(style.highlightLines) : none,
+        showCopyButton: showCopyButtonValue !== undefined ? some(showCopyButtonValue) : none,
+        wordWrap: style?.wordWrap !== undefined ? some(style.wordWrap) : none,
+        title: style?.title ? some(style.title) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

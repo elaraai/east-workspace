@@ -9,6 +9,8 @@ import {
     OptionType,
     StructType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import {
@@ -128,15 +130,15 @@ function createSeparator(
 
     const styleValue = hasVisualStyle
         ? East.value({
-            orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-            variant: variantValue ? variant("some", variantValue) : variant("none", null),
-            align: alignValue ? variant("some", alignValue) : variant("none", null),
+            orientation: orientationValue ? some(orientationValue) : none,
+            variant: variantValue ? some(variantValue) : none,
+            align: alignValue ? some(alignValue) : none,
         }, SeparatorStyleType)
         : undefined;
 
     return East.value(variant("Separator", {
-        label: labelValue ? variant("some", labelValue) : variant("none", null),
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        label: labelValue ? some(labelValue) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

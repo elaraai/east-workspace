@@ -35,6 +35,9 @@ export interface EastDiagnostic {
 export interface EastRulesOptions {
   /** Rule names to disable. */
   disabled?: readonly string[];
+  /** Rule names to run — every other rule is off (`disabled` still applies).
+   * `hostValueRuleNames` names the set that holds decoded East values. */
+  only?: readonly string[];
   preferExplicitEastType?: {
     /** `"under-determined"` (default) flags only values whose East type can't
      * be inferred (empty `[]` / `{}` / `new Map()` / `new Set()`).

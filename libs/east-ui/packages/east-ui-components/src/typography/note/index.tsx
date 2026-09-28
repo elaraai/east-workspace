@@ -5,12 +5,12 @@
 
 import { memo, useMemo } from "react";
 import { Box, useRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Note } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const noteEqual = equalFor(Note.Types.Note);
+const noteEqual = equivalentFor(Note.Types.Note);
 
 /** East Note value type */
 export type NoteValue = ValueTypeOf<typeof Note.Types.Note>;

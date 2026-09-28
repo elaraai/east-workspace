@@ -16,13 +16,13 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faInbox, faTriangleExclamation, faLock, faClock } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Card } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { DensityProvider } from "../../contracts/density.js";
 
-const cardEqual = equalFor(Card.Types.Card);
+const cardEqual = equivalentFor(Card.Types.Card);
 
 /** East Card value type. */
 export type CardValue = ValueTypeOf<typeof Card.Types.Card>;

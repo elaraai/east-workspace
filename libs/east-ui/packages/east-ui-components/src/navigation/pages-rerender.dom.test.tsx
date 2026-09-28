@@ -102,11 +102,12 @@ describe("issue #114 — Pages switches on navigation", () => {
 
 // Issue #142 — the residual of #114. When BOTH page bodies are themselves
 // `<Reactive>`, the bodies the switcher matches between are `ReactiveComponent`
-// values differing ONLY by a render function. `equalFor` treats every function as
-// equal (comparison.ts), so `EastChakraComponent`'s memo declares overview-body
-// === detail-body and bails the swap — the page never changes. The plain-`Text`
-// guard above can't catch this (its bodies differ structurally). `EastChakraPages`
-// remounts the active page by the route's store version, fixing it.
+// values differing ONLY by a render function. A memo on `equalFor` (every pair of
+// functions compares equal) declared overview-body === detail-body and bailed the
+// swap — the page never changed. The memos compare with `equivalentFor` now
+// (#809), and `EastChakraPages` still remounts the active page by the route's
+// store version, so the new page also mounts fresh. The plain-`Text` guard above
+// can't catch this (its bodies differ structurally).
 const KEY142 = "issue142.route";
 
 function buildReactivePagesValue(): ValueTypeOf<typeof UIComponentType> {
@@ -135,7 +136,7 @@ function navGoB142(): void {
 }
 
 describe("issue #142 — Pages switches when both page bodies are <Reactive>", () => {
-    test("LIVE value switches reactive page on navigation (memo would bail on equalFor)", () => {
+    test("LIVE value switches reactive page on navigation (bodies differ only by render fn)", () => {
         initializeStore(new UIStore());
         const { container } = mount(buildReactivePagesValue());
         expect(container.textContent).toContain("PAGE_A");

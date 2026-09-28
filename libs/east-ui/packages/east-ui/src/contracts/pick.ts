@@ -47,13 +47,12 @@
  *
  * # What this contract deliberately does NOT do
  *
- * It does not ORDER. On a key-ordered surface there is nothing for an order to
- * order: a Plan's rows sit in canonical KEY order (`PlanRowsCollectionType` is
- * a `Dict`, and `applySeries` unions with LAST_WINS), so a series' position in
- * the list resolves key collisions and never row position. The panel's own list
- * order is already `all`'s array order. Ordering becomes real for an adopter
- * whose collection is positional — a Table's columns — and belongs to that
- * adopter, not here.
+ * It does not REORDER. The feed keeps `all`'s declaration order
+ * ({@link Pick.active}), and for a Plan that order IS the layout (#822) — each
+ * series is one block, in the list's order — so an author orders the canvas by
+ * ordering the list, and the panel lists the series in that same order.
+ * Reordering at run time would be a second fact to persist beside the hidden
+ * set, and belongs to the adopter that needs it.
  *
  * @packageDocumentation
  */

@@ -3,27 +3,64 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+/**
+ * The Manual conflict editor's drafts, over real East values: each value is a
+ * `ValueTypeOf` of its East type, decoded from East's own encoding as the Diff
+ * holds it. A draft is East's text for the value and reads back through
+ * East's parsers — so it round-trips, refuses what is not a value (an empty
+ * field is not 0), and reads a DateTime in UTC in every timezone.
+ */
+
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 
 import {
-    BooleanType, IntegerType, FloatType, StringType, DateTimeType,
-    NullType, BlobType,
-    ArrayType, DictType, StructType, VariantType, RefType,
+    ArrayType,
+    BlobType,
+    BooleanType,
+    DateTimeType,
+    DictType,
+    FloatType,
+    IntegerType,
+    NullType,
+    RefType,
+    StringType,
+    StructType,
+    VariantType,
+    decodeBeast2For,
+    encodeBeast2For,
+    equalFor,
     toEastTypeValue,
-    type EastTypeValue,
+    type EastType,
+    type ValueTypeOf,
 } from "@elaraai/east";
 
-import { isPrimitiveLeafType, formatManualDraft, parseManualDraft } from "../../src/diff/manual.js";
+import { formatManualDraft, isPrimitiveLeafType, parseManualDraft } from "../../src/diff/manual.js";
 
-const t = (T: any): EastTypeValue => toEastTypeValue(T);
+/** A value as the Diff holds it: decoded from East's own encoding. */
+function stored<T extends EastType>(type: T, value: ValueTypeOf<T>): ValueTypeOf<T> {
+    return decodeBeast2For(type)(encodeBeast2For(type)(value));
+}
+
+/** The draft reads back as exactly the value it was made from. */
+function assertRoundTrips<T extends EastType>(type: T, value: ValueTypeOf<T>): void {
+    const leafType = toEastTypeValue(type);
+    const held = stored(type, value);
+    const draft = formatManualDraft(leafType, held);
+    const read = parseManualDraft(leafType, draft);
+    assert.ok(read.ok, `the draft ${JSON.stringify(draft)} reads back`);
+    assert.ok(equalFor(type)(read.value as ValueTypeOf<T>, held), `${JSON.stringify(draft)} reads back as the value it came from`);
+}
+
+/** 13:30 on 15 July 2025, UTC — to the minute, as a datetime-local input edits it. */
+const MINUTE = new Date(Date.UTC(2025, 6, 15, 13, 30));
 
 // ============================================================================
-// isPrimitiveLeafType — Manual chooser visibility gate
+// isPrimitiveLeafType — the Manual chooser's visibility gate
 // ============================================================================
 
 describe("isPrimitiveLeafType", () => {
-    for (const [name, T] of [
+    for (const [name, type] of [
         ["Boolean",  BooleanType],
         ["Integer",  IntegerType],
         ["Float",    FloatType],
@@ -31,174 +68,169 @@ describe("isPrimitiveLeafType", () => {
         ["DateTime", DateTimeType],
     ] as const) {
         test(`${name} → true`, () => {
-            assert.equal(isPrimitiveLeafType(t(T)), true);
+            assert.equal(isPrimitiveLeafType(toEastTypeValue(type)), true);
         });
     }
 
-    for (const [name, T] of [
-        ["Null", NullType],
-        ["Blob", BlobType],
-        ["Array<Int>",  ArrayType(IntegerType)],
-        ["Dict",        DictType(StringType, IntegerType)],
-        ["Struct",      StructType({ a: IntegerType })],
-        ["Variant",     VariantType({ x: IntegerType })],
-        ["Ref<Int>",    RefType(IntegerType)],
+    for (const [name, type] of [
+        ["Null",       NullType],
+        ["Blob",       BlobType],
+        ["Array<Int>", ArrayType(IntegerType)],
+        ["Dict",       DictType(StringType, IntegerType)],
+        ["Struct",     StructType({ a: IntegerType })],
+        ["Variant",    VariantType({ x: IntegerType })],
+        ["Ref<Int>",   RefType(IntegerType)],
     ] as const) {
         test(`${name} → false (Manual chooser hidden)`, () => {
-            assert.equal(isPrimitiveLeafType(t(T)), false);
+            assert.equal(isPrimitiveLeafType(toEastTypeValue(type)), false);
         });
     }
-
-    test("null leafType → false", () => {
-        assert.equal(isPrimitiveLeafType(null), false);
-    });
 });
 
 // ============================================================================
-// formatManualDraft — value → input draft
+// formatManualDraft — a value as the input's draft
 // ============================================================================
 
 describe("formatManualDraft", () => {
-    test("Boolean true / false", () => {
-        assert.equal(formatManualDraft(t(BooleanType), true), "true");
-        assert.equal(formatManualDraft(t(BooleanType), false), "false");
+    test("a Boolean, an Integer and a Float draft as East prints them", () => {
+        assert.equal(formatManualDraft(toEastTypeValue(BooleanType), stored(BooleanType, true)), "true");
+        assert.equal(formatManualDraft(toEastTypeValue(IntegerType), stored(IntegerType, 9007199254740993n)), "9007199254740993");
+        assert.equal(formatManualDraft(toEastTypeValue(IntegerType), stored(IntegerType, -9223372036854775808n)), "-9223372036854775808");
+        assert.equal(formatManualDraft(toEastTypeValue(FloatType), stored(FloatType, 1.5)), "1.5");
+        assert.equal(formatManualDraft(toEastTypeValue(FloatType), stored(FloatType, 42)), "42.0");
+        assert.equal(formatManualDraft(toEastTypeValue(FloatType), stored(FloatType, -0)), "-0.0");
     });
 
-    test("Integer (bigint) → decimal string", () => {
-        assert.equal(formatManualDraft(t(IntegerType), 42n), "42");
-        assert.equal(formatManualDraft(t(IntegerType), 9007199254740993n), "9007199254740993");
+    test("a String drafts as itself", () => {
+        assert.equal(formatManualDraft(toEastTypeValue(StringType), stored(StringType, "Mech A")), "Mech A");
+        assert.equal(formatManualDraft(toEastTypeValue(StringType), stored(StringType, "")), "");
     });
 
-    test("Float → decimal string (number coercion)", () => {
-        assert.equal(formatManualDraft(t(FloatType), 1.5), "1.5");
-        assert.equal(formatManualDraft(t(FloatType), 0), "0");
+    test("a DateTime drafts as its UTC minute — what a datetime-local input edits", () => {
+        const instant = new Date(Date.UTC(2025, 6, 15, 13, 30, 45, 123));
+        assert.equal(formatManualDraft(toEastTypeValue(DateTimeType), stored(DateTimeType, instant)), "2025-07-15T13:30");
     });
 
-    test("String passthrough", () => {
-        assert.equal(formatManualDraft(t(StringType), "hello"), "hello");
-        assert.equal(formatManualDraft(t(StringType), ""), "");
-    });
-
-    test("DateTime → datetime-local format (YYYY-MM-DDTHH:mm)", () => {
-        const d = new Date("2025-07-15T13:30:00Z");
-        assert.equal(formatManualDraft(t(DateTimeType), d), "2025-07-15T13:30");
-    });
-
-    test("null/undefined value → empty string", () => {
-        assert.equal(formatManualDraft(t(IntegerType), null), "");
-        assert.equal(formatManualDraft(t(IntegerType), undefined), "");
-    });
-
-    test("null leafType → empty string", () => {
-        assert.equal(formatManualDraft(null, "anything"), "");
+    test("a change that leaves no value (a delete) drafts nothing", () => {
+        assert.equal(formatManualDraft(toEastTypeValue(IntegerType), undefined), "");
     });
 });
 
 // ============================================================================
-// parseManualDraft — input draft → typed value
+// parseManualDraft — East's parsers read the draft
 // ============================================================================
 
 describe("parseManualDraft", () => {
-    test("Integer: valid → bigint", () => {
-        const r = parseManualDraft(t(IntegerType), "42");
-        assert.equal(r.ok, true);
-        if (r.ok) {
-            assert.equal(r.value, 42n);
-            assert.equal(typeof r.value, "bigint");
+    test("an Integer reads as an East Integer, to either end of its 64-bit range", () => {
+        const integer = toEastTypeValue(IntegerType);
+        assert.deepEqual(parseManualDraft(integer, "42"), { ok: true, value: 42n });
+        assert.deepEqual(parseManualDraft(integer, "9223372036854775807"), { ok: true, value: 9223372036854775807n });
+        assert.deepEqual(parseManualDraft(integer, "-9223372036854775808"), { ok: true, value: -9223372036854775808n });
+    });
+
+    test("an Integer draft that is not one is refused — an empty field is not 0", () => {
+        const integer = toEastTypeValue(IntegerType);
+        for (const draft of ["", "1.5", "0x10", "not-a-number", "9223372036854775808"]) {
+            assert.equal(parseManualDraft(integer, draft).ok, false, JSON.stringify(draft));
         }
     });
 
-    test("Integer: large bigint preserves precision", () => {
-        const r = parseManualDraft(t(IntegerType), "9007199254740993");
-        assert.equal(r.ok, true);
-        if (r.ok) assert.equal(r.value, 9007199254740993n);
+    test("a Float reads as an East Float", () => {
+        const float = toEastTypeValue(FloatType);
+        assert.deepEqual(parseManualDraft(float, "3.14"), { ok: true, value: 3.14 });
+        assert.deepEqual(parseManualDraft(float, "1e5"), { ok: true, value: 100000 });
+        const negativeZero = parseManualDraft(float, "-0.0");
+        assert.ok(negativeZero.ok && Object.is(negativeZero.value, -0), "-0.0 reads as negative zero");
     });
 
-    test("Integer: invalid → ok=false", () => {
-        assert.equal(parseManualDraft(t(IntegerType), "not-a-number").ok, false);
-        assert.equal(parseManualDraft(t(IntegerType), "1.5").ok, false);
-    });
-
-    test("Float: valid → number", () => {
-        const r = parseManualDraft(t(FloatType), "3.14");
-        assert.equal(r.ok, true);
-        if (r.ok) {
-            assert.equal(r.value, 3.14);
-            assert.equal(typeof r.value, "number");
+    test("a Float draft that is not one is refused — an empty field is not 0", () => {
+        const float = toEastTypeValue(FloatType);
+        for (const draft of ["", "abc"]) {
+            assert.equal(parseManualDraft(float, draft).ok, false, JSON.stringify(draft));
         }
     });
 
-    test("Float: empty string parses as 0 (Number behaviour) — acceptable for staged drafts", () => {
-        const r = parseManualDraft(t(FloatType), "");
-        assert.equal(r.ok, true);
-        if (r.ok) assert.equal(r.value, 0);
+    test("a Boolean reads as East reads one", () => {
+        const boolean = toEastTypeValue(BooleanType);
+        assert.deepEqual(parseManualDraft(boolean, "false"), { ok: true, value: false });
+        assert.equal(parseManualDraft(boolean, "yes").ok, false);
     });
 
-    test("Float: NaN-producing input → ok=false", () => {
-        assert.equal(parseManualDraft(t(FloatType), "abc").ok, false);
+    test("a String is the draft itself", () => {
+        assert.deepEqual(parseManualDraft(toEastTypeValue(StringType), "hello world"), { ok: true, value: "hello world" });
+        assert.deepEqual(parseManualDraft(toEastTypeValue(StringType), ""), { ok: true, value: "" });
     });
 
-    test("String: passthrough", () => {
-        const r = parseManualDraft(t(StringType), "hello world");
-        assert.equal(r.ok, true);
-        if (r.ok) assert.equal(r.value, "hello world");
+    test("a DateTime reads its minute in UTC", () => {
+        assert.deepEqual(parseManualDraft(toEastTypeValue(DateTimeType), "2025-07-15T13:30"), { ok: true, value: MINUTE });
     });
 
-    test("DateTime: ISO-shaped → Date instance", () => {
-        const r = parseManualDraft(t(DateTimeType), "2025-07-15T13:30");
-        assert.equal(r.ok, true);
-        if (r.ok) {
-            assert.ok(r.value instanceof Date);
-            assert.equal((r.value as Date).getUTCFullYear(), 2025);
+    test("a DateTime draft that is not a minute is refused", () => {
+        const datetime = toEastTypeValue(DateTimeType);
+        for (const draft of ["", "2025-07-15", "not-a-date"]) {
+            assert.equal(parseManualDraft(datetime, draft).ok, false, JSON.stringify(draft));
         }
     });
 
-    test("DateTime: invalid → ok=false", () => {
-        assert.equal(parseManualDraft(t(DateTimeType), "not-a-date").ok, false);
-    });
-
-    test("Boolean / Null / Blob / containers: ok=false (Manual not supported)", () => {
-        assert.equal(parseManualDraft(t(BooleanType), "true").ok, false);
-        assert.equal(parseManualDraft(t(NullType), "anything").ok, false);
-        assert.equal(parseManualDraft(t(BlobType), "anything").ok, false);
-        assert.equal(parseManualDraft(t(ArrayType(IntegerType)), "[]").ok, false);
-        assert.equal(parseManualDraft(t(StructType({ a: IntegerType })), "{}").ok, false);
+    test("the types the editor does not edit read nothing", () => {
+        assert.equal(parseManualDraft(toEastTypeValue(NullType), "null").ok, false);
+        assert.equal(parseManualDraft(toEastTypeValue(BlobType), "0x00").ok, false);
+        assert.equal(parseManualDraft(toEastTypeValue(ArrayType(IntegerType)), "[]").ok, false);
+        assert.equal(parseManualDraft(toEastTypeValue(StructType({ a: IntegerType })), "(a=1)").ok, false);
     });
 });
 
 // ============================================================================
-// Round-trip: format → parse for primitives that support it
+// Round trip — the draft reads back as the value it came from
 // ============================================================================
 
-describe("Manual draft round-trip", () => {
-    test("Integer: format(parse(s)) === s for canonical integer strings", () => {
-        const r = parseManualDraft(t(IntegerType), "42");
-        if (!r.ok) throw new Error("expected parse to succeed");
-        assert.equal(formatManualDraft(t(IntegerType), r.value), "42");
+describe("a draft reads back as the value it came from", () => {
+    test("Boolean", () => {
+        assertRoundTrips(BooleanType, true);
+        assertRoundTrips(BooleanType, false);
     });
 
-    test("Float: parse(format(v)) round-trips integer floats", () => {
-        const initial = 1.5;
-        const draft = formatManualDraft(t(FloatType), initial);
-        const r = parseManualDraft(t(FloatType), draft);
-        if (!r.ok) throw new Error("expected parse to succeed");
-        assert.equal(r.value, initial);
+    test("Integer", () => {
+        for (const value of [0n, -5n, 9007199254740993n, 9223372036854775807n, -9223372036854775808n]) {
+            assertRoundTrips(IntegerType, value);
+        }
     });
 
-    test("String: parse(format(v)) === v", () => {
-        const draft = formatManualDraft(t(StringType), "hello");
-        const r = parseManualDraft(t(StringType), draft);
-        if (!r.ok) throw new Error("expected parse to succeed");
-        assert.equal(r.value, "hello");
+    test("Float", () => {
+        for (const value of [1.5, 42, -0, 0.1 + 0.2, 1e21, -2.5e-8]) {
+            assertRoundTrips(FloatType, value);
+        }
     });
 
-    test("DateTime: parse(format(d)) is the same minute (sub-minute precision lost in datetime-local)", () => {
-        const original = new Date("2025-07-15T13:30:45Z");
-        const draft = formatManualDraft(t(DateTimeType), original);
-        const r = parseManualDraft(t(DateTimeType), draft);
-        if (!r.ok) throw new Error("expected parse to succeed");
-        assert.equal((r.value as Date).getUTCFullYear(), 2025);
-        assert.equal((r.value as Date).getUTCMonth(), 6);
-        assert.equal((r.value as Date).getUTCDate(), 15);
+    test("String", () => {
+        for (const value of ["", "Mech A", "  padded  "]) {
+            assertRoundTrips(StringType, value);
+        }
+    });
+
+    test("DateTime, to the minute", () => {
+        assertRoundTrips(DateTimeType, MINUTE);
     });
 });
+
+for (const tz of ["America/Los_Angeles", "Pacific/Kiritimati"]) {
+    describe(`a DateTime draft is UTC whatever the timezone — TZ=${tz}`, () => {
+        let previous: string | undefined;
+        before(() => { previous = process.env.TZ; process.env.TZ = tz; });
+        after(() => {
+            if (previous === undefined) delete process.env.TZ;
+            else process.env.TZ = previous;
+        });
+
+        test("the process really is off UTC (a local reading would move the instant)", () => {
+            assert.notEqual(MINUTE.getHours(), MINUTE.getUTCHours());
+        });
+
+        test("the minute drafts and reads back as the same instant", () => {
+            const leafType = toEastTypeValue(DateTimeType);
+            assert.equal(formatManualDraft(leafType, MINUTE), "2025-07-15T13:30");
+            assert.deepEqual(parseManualDraft(leafType, "2025-07-15T13:30"), { ok: true, value: MINUTE });
+            assertRoundTrips(DateTimeType, MINUTE);
+        });
+    });
+}

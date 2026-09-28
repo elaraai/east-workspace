@@ -6,6 +6,7 @@
 import {
     type ExprType,
     type SubtypeExprOrValue,
+    type RecursiveType,
     East,
     Expr,
     StructType,
@@ -53,19 +54,21 @@ import {
     TableSelectionModeType,
     type TableSelectionModeLiteral,
     TableAggregateType,
-    TableGroupLevelType,
     type TableAggregateLiteral,
+    TableRowType,
+    TableRowsCollectionType,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
+import { TickFormatType } from "../../format/types.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { StatusValueType } from "../../feedback/status/types.js";
 import { ApprovalStateType, RowRefType, RowReviewType, buildReview } from "../../contracts/review.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
-import { Text } from "../../typography/index.js";
 import { DensityType } from "../../style/interaction.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
-import { mapRowsBlock, reifyAccessor } from "../../shared/reify.js";
+import { reifyAccessor } from "../../shared/reify.js";
+import { preOrderRows, treeElement, type TreeInput, type TreeNode } from "../../shared/tree.js";
 import {
     RowSourceType, resolveRowSource, buildRowSource,
     type PagedSource, type RowSource,
@@ -161,8 +164,8 @@ export interface TablePaginationInput {
  * into `TableSelectionType` internally.
  *
  * @property mode - Selection mode (string literal `"single"` / `"multiple"` / `"range"` or East variant expr)
- * @property selected - Currently-selected row indices
- * @property onChange - Callback fired with the new selected row indices
+ * @property selected - The selected rows' pre-order indices (#954)
+ * @property onChange - Callback fired with the new selected rows' pre-order indices
  */
 export interface TableSelectionInput {
     mode: SubtypeExprOrValue<TableSelectionModeType> | TableSelectionModeLiteral;
@@ -171,31 +174,32 @@ export interface TableSelectionInput {
 }
 
 /**
- * One `groupBy` level (#317) — a group-key accessor over the row, or a config
- * object adding the level's default collapse state. Levels nest in array
- * order (level 0 outermost).
+ * How a Table's rows nest (#954) — the data's own tree, to any depth.
  *
- * @typeParam RowType - The East struct type of a data row
+ * @remarks
+ * `children` returns a row's child rows: more of the SAME row type (an
+ * `Array` of the data's element type), so every row fills the same columns —
+ * a `RecursiveType` row's own field (`r => r.lines`), or a lookup over flat
+ * data (`r => all.filter((_$, c) => c.parent.equal(r.id))`), with the data
+ * holding only the top-level rows. A parent IS the group row: it draws its own
+ * cells, and in a column that declares an `aggregate`, its children's
+ * subtotal. `collapsed` says which parents start closed. The Matrix nests the
+ * same way (#955).
+ *
+ * @typeParam RowType - The row an accessor receives — a struct, or a recursive row's node
  */
-export type TableGroupByInput<RowType extends StructType = StructType> =
-    | ((row: ExprType<RowType>) => SubtypeExprOrValue<NullType | BooleanType | IntegerType | FloatType | StringType | DateTimeType>)
-    | {
-        /** Group-key accessor — rows with equal printed keys share a group. */
-        value: (row: ExprType<RowType>) => SubtypeExprOrValue<NullType | BooleanType | IntegerType | FloatType | StringType | DateTimeType>;
-        /** Whether groups at this level start collapsed (drill-down closed). Default false. */
-        collapsed?: boolean;
-    };
+export type TableTreeInput<RowType extends StructType = StructType> = TreeInput<RowType>;
 
 export interface TableOptions<ColumnKeys extends string = string, RowType extends StructType = StructType> extends TableStyle<ColumnKeys> {
     /**
-     * Row grouping (#317) — nested collapsible group header rows. Each level
-     * is an accessor (or `{ value, collapsed }`); groups keep first-appearance
-     * data order (a P&L's Revenue stays above Cost of Sales under any sort),
-     * sorting reorders members WITHIN their group, and columns with an
-     * `aggregate` show their group subtotal on the header row — so a
-     * collapsed group reads as its subtotal line.
+     * Nested rows (#954) — the data's own tree, to any depth
+     * ({@link TableTreeInput}): `tree={{ children: (r) => r.lines }}`. A parent
+     * draws its own cells, and in each `aggregate` column its children's
+     * subtotal; its caret folds its subtree. Rows keep data order among their
+     * siblings until the table sorts, and a sort orders each parent's children
+     * among themselves. Grouping flat rows is a data step: nest them first.
      */
-    groupBy?: Array<TableGroupByInput<RowType>>;
+    tree?: TableTreeInput<RowType>;
     /** Column-group heading row (type-checked `columnKeys`). */
     columnGroups?: TableColumnGroupInput<ColumnKeys>[];
     /** Single footer row — keys narrowed to the Table's columns. */
@@ -227,7 +231,8 @@ export {
     TableSizeType,
     TableCellRenderContextType,
     TableAggregateType,
-    TableGroupLevelType,
+    TableRowType,
+    TableRowsCollectionType,
     type TableAggregateLiteral,
     type TableSizeLiteral,
     type TableStyle,
@@ -243,7 +248,9 @@ export {
  * @property width - Optional fixed width (CSS value)
  * @property minWidth - Optional minimum width (CSS value)
  * @property maxWidth - Optional maximum width (CSS value)
- * @property render - East render function (required — the factory synthesizes a text default when the author omits it)
+ * @property render - Optional East render function; without one the renderer prints the cell itself (#874)
+ * @property format - Optional `Format.*` spec for the column's number cells and subtotals (#874)
+ * @property aggregate - Optional subtotal a parent row shows in this column — its children's, composed bottom-up (#954)
  */
 export const TableColumnType = StructType({
     key: StringType,
@@ -253,12 +260,16 @@ export const TableColumnType = StructType({
     width: OptionType(StringType),
     minWidth: OptionType(StringType),
     maxWidth: OptionType(StringType),
-    render: FunctionType([TableCellRenderContextType], UIComponentType),
-    // Row grouping (#317) — the aggregate shown for this column on group
-    // header rows, and an optional renderer for the aggregated value (the
-    // cell `render` takes a rowIndex, which a synthetic group row lacks).
+    // Without a render, the renderer prints the cell itself (#874): a number
+    // through `format` when one is declared, else every digit with the
+    // viewer's decimal separator; anything else as East prints it.
+    render: OptionType(FunctionType([TableCellRenderContextType], UIComponentType)),
+    format: OptionType(TickFormatType),
+    // Nested rows (#954) — what a parent row shows in this column: its
+    // children's subtotal. A parent is a real row, so the subtotal draws
+    // through `render` / `format` like any cell — save a `count`, which
+    // counts rows and prints as a whole number.
     aggregate: OptionType(TableAggregateType),
-    aggregateRender: OptionType(FunctionType([LiteralValueType], UIComponentType)),
 });
 
 export type TableColumnType = typeof TableColumnType;
@@ -269,10 +280,11 @@ export type TableColumnType = typeof TableColumnType;
  *
  * @remarks
  * A cell is a bare {@link LiteralValueType} variant (`Null` / `Boolean` /
- * `Integer` / `Float` / `String` / `DateTime` / `Blob`). Rendering always
- * goes through the column's `render` function (`TableColumnType.render`,
- * required — the factory synthesizes a capture-free text default when the
- * author omits it), so the IR carries no per-cell UI content (#206).
+ * `Integer` / `Float` / `String` / `DateTime` / `Blob`). The IR carries no
+ * per-cell UI content (#206): a cell renders through its column's `render`
+ * function when the author gives one, and otherwise the renderer prints it
+ * in the viewer's language, through the column's `format` for a number
+ * (#874).
  */
 export const TableCellType = LiteralValueType;
 export type TableCellType = typeof TableCellType;
@@ -294,7 +306,7 @@ export type TableCellType = typeof TableCellType;
  * `selection`), and behaviour (callbacks); `style` carries visual
  * fields only.
  *
- * @property rows - The row source: the whole mapped collection, or a paged one (#576)
+ * @property rows - The row source: the whole mapped collection, or a paged one (#576) — the rows in pre-order, each with its depth (#954)
  * @property columns - Column definitions
  * @property frozen - Column keys to pin left
  * @property columnGroups - Optional column-group heading row
@@ -316,22 +328,7 @@ export type TableCellType = typeof TableCellType;
  * @property onSortChange - Sort change callback
  * @property style - Optional visual style sub-struct
  */
-/**
- * The Table's own row COLLECTION — one dict of primitive cells per row, in
- * data order.
- *
- * @remarks
- * Table is POSITIONAL: its rows have no identity field, so the collection is an
- * `Array` and a row is addressed by index. That is the counterpart to the
- * Plan's keyed `Dict<String, PlanRow>` (#568), and the reason the row-source
- * contract is parameterised on the COLLECTION rather than the row (#576) — one
- * vocabulary, two differently-shaped components, neither sniffing shapes.
- */
-export const TableRowsCollectionType = ArrayType(DictType(StringType, TableCellType));
-/** Type alias for {@link TableRowsCollectionType}. */
-export type TableRowsCollectionType = typeof TableRowsCollectionType;
-
-/** How a Table's rows arrive: inline, or a window at a time (#576). */
+/** How a Table's rows arrive: inline, or a window at a time (#576) — its rows in pre-order (#954). */
 export const TableRowsType = RowSourceType(TableRowsCollectionType);
 /** Type alias for {@link TableRowsType}. */
 export type TableRowsType = typeof TableRowsType;
@@ -361,7 +358,6 @@ export const TableRootType: StructType<{
     reviewStatus: OptionType<FunctionType<[IntegerType], OptionType<StatusValueType>>>,
     reviewApproval: OptionType<FunctionType<[IntegerType], OptionType<ApprovalStateType>>>,
     slice: OptionType<typeof SliceChromeType>,
-    groupBy: OptionType<ArrayType<typeof TableGroupLevelType>>,
     style: OptionType<TableStyleType>,
 }> = StructType({
     rows: TableRowsType,
@@ -392,9 +388,6 @@ export const TableRootType: StructType<{
     reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
     reviewApproval: OptionType(FunctionType([IntegerType], OptionType(ApprovalStateType))),
     slice: OptionType(SliceChromeType),
-    // Row grouping (#317) — nested levels of per-row printed group keys; the
-    // renderer folds the sorted rows into collapsible group-headed segments.
-    groupBy: OptionType(ArrayType(TableGroupLevelType)),
     style: OptionType(TableStyleType),
 });
 
@@ -417,6 +410,16 @@ interface TableColumnConfigBase {
     header?: SubtypeExprOrValue<StringType>;
     /** Optional East render function called at render time with cell context */
     render?: SubtypeExprOrValue<FunctionType<[TableCellRenderContextType], UIComponentType>>;
+    /**
+     * How the column's number cells print, in the viewer's language — a
+     * `Format.*` spec (`Format.Number()` groups thousands,
+     * `Format.Currency({ currency: "EUR" })`). It formats a parent's
+     * subtotals too (#954). Without one, a number prints every digit, never
+     * grouped, with the viewer's decimal separator: `1234.5` (`1234,5` in
+     * German), and a year stays `2026` (#874). A `render` draws the cells
+     * instead.
+     */
+    format?: SubtypeExprOrValue<TickFormatType>;
     /** Optional cell click handler */
     onCellClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>,
     /** Optional cell double-click handler */
@@ -429,10 +432,17 @@ interface TableColumnConfigBase {
     minWidth?: SubtypeExprOrValue<StringType>;
     /** Maximum column width (CSS value) */
     maxWidth?: SubtypeExprOrValue<StringType>;
-    /** Group-subtotal aggregate for this column (#317) — shown on each group header row when `groupBy` is set. `sum` / `mean` require a numeric (Integer / Float) column value. */
+    /**
+     * What a PARENT row shows in this column (#954): its children's subtotal,
+     * composed bottom-up — `sum` / `mean` / `min` / `max` of what its children
+     * show (a mean of means where they are parents too), or `count`, the leaf
+     * rows beneath it. A subtotal draws through the column's `render` (its
+     * `cellValue` the subtotal — a `mean` is always a Float) or `format`, like
+     * any cell; a `count` counts rows, so it prints as a whole number through
+     * neither. `sum` / `mean` require a numeric (Integer / Float) column
+     * value.
+     */
     aggregate?: TableAggregateLiteral;
-    /** Optional East render function for the aggregated value on group header rows (#317) — receives the aggregated cell value (the cell `render` takes a `rowIndex`, which a synthetic group row lacks). Defaults to plain formatted text. */
-    aggregateRender?: SubtypeExprOrValue<FunctionType<[TableCellType], UIComponentType>>;
 }
 
 
@@ -482,11 +492,13 @@ export type TableColumnConfig<FieldType extends EastType = EastType, RowType ext
  *
  * @remarks
  * Columns can be specified as a simple array of field names, or an object
- * with optional header and render configuration.
+ * with optional header, render and format configuration.
  *
- * When render is not provided, fields render as Text automatically:
- * - String fields: `Text.Root(value)`
- * - Other types: `Text.Root(East.str\`\${value}\`)` (auto string conversion)
+ * When render is not provided, the renderer prints each cell in the viewer's
+ * language (#874):
+ * - a number through the column's `format` when one is declared, otherwise
+ *   every digit, never grouped, with the viewer's decimal separator;
+ * - a string as it is, and any other value as East prints it.
  *
  * @example
  * ```ts
@@ -506,22 +518,39 @@ export type TableColumnConfig<FieldType extends EastType = EastType, RowType ext
  * ```
  */
 
+/**
+ * A data element as the Table's accessors receive it — a recursive element as
+ * its NODE (#954), so an accessor reads its fields directly at every depth
+ * (`(r) => r.lines`), as the Plan's series do.
+ *
+ * @typeParam S - The data's element type
+ */
+export type TableRowNode<S> = TreeNode<S>;
+
+/**
+ * What a Table's `data` may be: an array of struct rows, or of recursive rows
+ * whose node is a struct — the rows `tree.children` nests (#954).
+ */
+export type TableData =
+    | SubtypeExprOrValue<ArrayType<StructType>>
+    | SubtypeExprOrValue<ArrayType<RecursiveType<StructType>>>;
+
 // Helper types to extract struct fields from array data type
 type ExtractStructFields<T> = T extends ArrayType<infer S>
-    ? S extends StructType
-    ? S["fields"]
+    ? TableRowNode<S> extends StructType
+    ? TableRowNode<S>["fields"]
     : never
     : never;
 
-// Helper type to extract the row element type from an array type (always StructType due to constraint)
+// Helper type to extract the row an accessor receives — the struct, or a recursive row's node
 type ExtractRowType<T> = T extends ArrayType<infer S>
-    ? S extends StructType
-    ? S
+    ? TableRowNode<S> extends StructType
+    ? TableRowNode<S>
     : StructType
     : StructType;
 
-type DataFields<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractStructFields<TypeOf<T>>;
-export type DataRowType<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractRowType<TypeOf<T>>;
+type DataFields<T> = ExtractStructFields<TypeOf<T>>;
+export type DataRowType<T> = ExtractRowType<TypeOf<T>>;
 
 // Helper type to extract only primitive field keys from a struct's fields
 type PrimitiveFieldKeys<Fields> = {
@@ -535,7 +564,7 @@ type PrimitiveFieldKeys<Fields> = {
  * - **Array form**: Only primitive field keys allowed (e.g., `["name", "age"]`)
  * - **Object form**: All fields allowed, but complex fields require a `value` function
  */
-export type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type ColumnSpec<T> =
     | PrimitiveFieldKeys<DataFields<NoInfer<T>>>[]
     | { [K in keyof DataFields<NoInfer<T>>]?: TableColumnConfig<DataFields<NoInfer<T>>[K], DataRowType<NoInfer<T>>> };
 
@@ -543,10 +572,13 @@ export type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
 // than the columns object C) keeps inference reliable when C contains render
 // functions or complex field types that would otherwise cause C to widen to
 // the constraint union — which collapses `keyof C` to `never`.
-export type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type DataFieldKeys<T> =
     Extract<keyof DataFields<NoInfer<T>>, string>;
 
-export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
+/** A paged source's row as its accessors receive it — the struct, or a recursive row's node. */
+type PagedRowType<R> = TableRowNode<R> extends StructType ? TableRowNode<R> : StructType;
+
+export function createTable<T extends TableData>(
     data: T,
     columns: ColumnSpec<T>,
     style?: TableOptions<DataFieldKeys<T>, DataRowType<T>>
@@ -554,12 +586,13 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
 /**
  * The PAGED arm (#576): the same table over a windowed source. The row type
  * rides structurally in the source's `page` signature, so columns are checked
- * against it exactly as they are for an inline array.
+ * against it exactly as they are for an inline array. A source of recursive
+ * rows pages its top-level rows, each with its subtree (#954).
  */
-export function createTable<R extends StructType>(
+export function createTable<R extends StructType | RecursiveType<StructType>>(
     data: PagedSource<ArrayType<R>>,
     columns: ColumnSpec<ExprType<ArrayType<R>>>,
-    style?: TableOptions<Extract<keyof R["fields"], string>, R>
+    style?: TableOptions<Extract<keyof PagedRowType<R>["fields"], string>, PagedRowType<R>>
 ): ExprType<UIComponentType>;
 export function createTable(
     data: unknown,
@@ -573,13 +606,10 @@ export function createTable(
     // Table is POSITIONAL, so it speaks `Array<Row>` where the Plan speaks
     // `Dict<String, Row>`; neither component sniffs shapes of its own.
     const resolved = resolveRowSource(data, "Table");
-    const rowType = resolved.elementType as StructType;
-    if ((rowType as { type: string }).type !== "Struct") {
-        throw new Error(
-            `Table: rows must be structs — got ${(rowType as { type: string }).type}. ` +
-            `Map the collection to a struct per row before passing it.`,
-        );
-    }
+    // A recursive row reaches every accessor as its NODE (#954), so the
+    // accessors read its fields directly at every depth.
+    const element = treeElement("Table", resolved.elementType);
+    const { elementType, rowType, nodeOf } = element;
     const field_types = rowType.fields;
 
     // Normalize columns to object format
@@ -624,37 +654,43 @@ export function createTable(
         }
         (col_config as any).valueType = variant(valueTypeTag, null) as EastTypeValue;
 
-        // Row grouping (#317): sum / mean only make sense over numbers — fail
-        // at build time, not with NaN subtotals at render time.
+        // A parent's subtotal (#954): sum / mean only make sense over numbers —
+        // fail at build time, not with NaN subtotals at render time.
         const agg = (col_config as { aggregate?: TableAggregateLiteral }).aggregate;
         if ((agg === "sum" || agg === "mean") && valueTypeTag !== "Integer" && valueTypeTag !== "Float") {
             throw new Error(`Column "${col_key}" has aggregate "${agg}" but a ${valueTypeTag} value — sum/mean require an Integer or Float column value.`);
         }
     }
 
-    // `make` — the DOMAIN collection to the Table's own row collection. The
-    // inline arm applies it to the whole array; the paged arm applies it inside
-    // `page`, so one window's rows are built once per window rather than per
-    // render, and everything downstream sees one row space (#576).
-    const makeRows = (collection: ExprType<EastType>) =>
-        mapRowsBlock(collection as ExprType<ArrayType<StructType>>, DictType(StringType, TableCellType), ($, datum) => {
+    // A row's cells, reified ONCE and called per row: each column's value —
+    // its reified value function, or the field itself (primitive columns).
+    // Cells carry ONLY the sortable primitive; rendering goes through the
+    // column's render function, or the renderer prints the cell (#874).
+    const cellsOf = East.function([elementType], DictType(StringType, TableCellType), ($, element) => {
+        const datum = $.let(nodeOf(element));
         const cells = $.let(new Map(), DictType(StringType, TableCellType));
         for (const [col_key, col_config] of Object.entries(columns_obj)) {
             const field_value = (datum as any)[col_key];
             const valueFn = (col_config as any).valueFn;
-
-            // Cell value: call the column's reified value function, or use the
-            // field value directly (primitive columns). Cells carry ONLY the
-            // sortable primitive — rendering goes through the column's render
-            // function (synthesized default below when the author omits it).
             const cellValue = valueFn !== undefined
                 ? variant(col_config.valueType.type as any, valueFn(field_value, datum))
                 : variant(col_config.valueType.type as any, field_value);
-
             $(cells.insert(col_key, cellValue));
         }
-        return cells
+        return cells;
     });
+
+    // `make` — the DOMAIN collection to the Table's own rows, IN PRE-ORDER: a
+    // parent, then its subtree, each row with its depth and whether it starts
+    // collapsed (#954; the walk shared with the Matrix, `shared/tree.ts`). The
+    // inline arm applies it to the whole array; the paged arm inside `page`,
+    // so a window — whole top-level rows, each with its subtree — is built once
+    // per window rather than per render, and everything downstream sees one
+    // row space (#576).
+    const flatten = preOrderRows("Table", element, TableRowType,
+        (_$, row, depth, collapsed) => East.value({ cells: cellsOf(row), depth, collapsed }, TableRowType),
+        style?.tree);
+    const makeRows = (collection: ExprType<EastType>) => flatten(collection as ExprType<ArrayType<EastType>>);
     const rows_source: RowSource<TableRowsCollectionType> =
         buildRowSource(resolved, TableRowsCollectionType, makeRows);
 
@@ -670,21 +706,13 @@ export function createTable(
             width: config?.width !== undefined ? some(config.width) : none as any,
             minWidth: config?.minWidth !== undefined ? some(config.minWidth) : none as any,
             maxWidth: config?.maxWidth !== undefined ? some(config.maxWidth) : none as any,
+            // No render: the renderer prints the cell in the viewer's language (#874).
             render: config?.render
-                ? East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType))
-                // Synthesized capture-free default: stringify the cell value via
-                // the column's statically-known tag (Slice.config accessor precedent).
-                : East.function([TableCellRenderContextType], UIComponentType, (_$, ctx) =>
-                    Text.Root(East.str`${ctx.cellValue.unwrap((config as any).valueType.type)}`, {
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                    })),
+                ? some(East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType))) as any
+                : none as any,
+            format: config?.format !== undefined ? some(config.format) as any : none as any,
             aggregate: (config as { aggregate?: TableAggregateLiteral } | undefined)?.aggregate !== undefined
                 ? some(variant((config as { aggregate: TableAggregateLiteral }).aggregate, null)) as any
-                : none as any,
-            aggregateRender: (config as { aggregateRender?: unknown } | undefined)?.aggregateRender !== undefined
-                ? some(East.value((config as { aggregateRender: SubtypeExprOrValue<FunctionType<[TableCellType], UIComponentType>> }).aggregateRender, FunctionType([TableCellType], UIComponentType))) as any
                 : none as any,
         });
     }
@@ -817,41 +845,12 @@ export function createTable(
         }, TableSelectionType)
         : undefined;
 
-    // Row grouping (#317) — reify each level's accessor into a real East
-    // function and stamp a PRINTED group key per data row (parallel to
-    // `rows`), so the renderer folds the sorted row model into group-headed
-    // segments without re-deriving keys. Non-string keys go through
-    // `East.print` for a stable text label.
-    if (resolved.kind === "paged" && style?.groupBy !== undefined && style.groupBy.length > 0) {
-        throw new Error(
-            "Table: `groupBy` cannot be combined with a paged source — group keys ride as " +
-            "arrays PARALLEL to the rows, and a window carries no keys for rows it has not " +
-            "loaded, so every group would be computed over whichever prefix happened to land. " +
-            "Group upstream (in the dataset) or bind the whole value with Data.bind.",
-        );
-    }
     if (resolved.kind === "paged" && style?.pagination !== undefined) {
         throw new Error(
             "Table: `pagination` cannot be combined with a paged source — the source is " +
             "already read a window at a time. Drop `pagination`; the table scrolls its windows.",
         );
     }
-    const groupByValue = style?.groupBy !== undefined && style.groupBy.length > 0
-        ? East.value(style.groupBy.map((lvl) => {
-            const accessor = typeof lvl === "function" ? lvl : lvl.value;
-            const collapsed = typeof lvl === "function" ? false : (lvl.collapsed ?? false);
-            const keyFn = reifyAccessor([rowType], accessor as (row: ExprType<StructType>) => SubtypeExprOrValue<StringType>);
-            const outType = (Expr.type(keyFn) as FunctionType).output as EastType;
-            // Guarded above: `groupBy` is refused on a paged source, so the
-            // whole collection is in hand here.
-            const inlineRows = (resolved as Extract<typeof resolved, { kind: "inline" }>).rows;
-            const keys = mapRowsBlock(inlineRows as ExprType<ArrayType<StructType>>, StringType, (_$, datum) =>
-                outType.type === "String"
-                    ? keyFn(datum) as ExprType<StringType>
-                    : East.print(keyFn(datum)));
-            return { keys, collapsed };
-        }), ArrayType(TableGroupLevelType))
-        : undefined;
 
     if (style?.affordances?.includes("brush")) {
         throw new Error("Table does not support the 'brush' affordance — it has no continuous axis. Use it on a Chart or Plan.");
@@ -889,7 +888,6 @@ export function createTable(
         pagination: paginationValue ? some(paginationValue) : none,
         selection: selectionValue ? some(selectionValue) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
-        groupBy: groupByValue ? some(groupByValue) : none,
         onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
         onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
         onRowClick: style?.onRowClick ? some(style.onRowClick) : none,
@@ -928,6 +926,7 @@ interface TableNamespace {
         ApproveEvent: RowRefType;
         Style: typeof TableStyleType;
         Column: typeof TableColumnType;
+        Row: TableRowType;
         Cell: typeof TableCellType;
         Value: typeof LiteralValueType;
         Variant: typeof TableVariantType;
@@ -994,11 +993,13 @@ export const Table: TableNamespace = {
      *
      * @remarks
      * Columns can be specified as a simple array of field names, or an object
-     * with optional header and render configuration.
+     * with optional header, render and format configuration.
      *
-     * When render is not provided, fields render as Text automatically:
-     * - String fields: `Text.Root(value)`
-     * - Other types: `Text.Root(East.str\`\${value}\`)` (auto string conversion)
+     * When render is not provided, the renderer prints each cell in the
+     * viewer's language (#874):
+     * - a number through the column's `format` when one is declared, otherwise
+     *   every digit, never grouped, with the viewer's decimal separator;
+     * - a string as it is, and any other value as East prints it.
      *
      * @example
      * ```ts
@@ -1033,7 +1034,7 @@ export const Table: TableNamespace = {
          * visual-only fields (variant, colour overrides, sticky flags).
          * Mirror of the inline `Table` variant in `component.ts`.
          *
-         * @property rows - Row dict array — each entry maps column key to {@link TableCellType}
+         * @property rows - The rows in pre-order ({@link TableRowType}: each row's cells by column key, its depth and whether it starts collapsed), inline or a paged source of them (#954)
          * @property columns - Column definitions ({@link TableColumnType}, including `dataType` and `valueType`)
          * @property frozen - Column keys to pin left (frozen columns appear first and stay visible during horizontal scroll)
          * @property columnGroups - Optional column-group heading row above the column header (renders a second `<thead>` row)
@@ -1044,7 +1045,7 @@ export const Table: TableNamespace = {
          * @property columnResize - Enable column resize via header drag handle (defaults to true when none)
          * @property virtualization - Enable row virtualization (lazy TanStack Virtual; defaults to true when none)
          * @property density - Density preset — `compact` / `comfortable` / `cozy` ({@link DensityType})
-         * @property rowStatus - `(rowIndex) => StatusToken` — per-row tint via the shared status palette
+         * @property rowStatus - `(rowIndex) => StatusToken` — per-row tint via the shared status palette, by the row's pre-order index
          * @property pagination - Embedded pagination state ({@link TablePaginationType}) — when defined, rows are sliced to the current page and a pager is rendered beneath the table
          * @property selection - Embedded row-selection state ({@link TableSelectionType}) — controlled-mode row selection in `single` / `multiple` / `range` modes
          * @property onCellClick - Cell click callback fired with {@link TableCellClickEventType}
@@ -1060,7 +1061,7 @@ export const Table: TableNamespace = {
         Approval: ApprovalStateType,
         /** The review configuration — the shared row-granularity `RowReviewType` (#264). */
         Review: RowReviewType,
-        /** The per-row approve / reject payload — the shared `RowRefType` (`{ rowIndex }`, unsliced). */
+        /** The per-row approve / reject payload — the shared `RowRefType` (`{ rowIndex }`, the row's pre-order index). */
         ApproveEvent: RowRefType,
         /**
          * East StructType holding every visual field for a Table —
@@ -1107,19 +1108,36 @@ export const Table: TableNamespace = {
          * @property width - Optional fixed CSS width (e.g. "200px", "20%")
          * @property minWidth - Optional CSS minimum width
          * @property maxWidth - Optional CSS maximum width
-         * @property render - `(context: TableCellRenderContextType) => UIComponent` — the cell renderer, required; the factory synthesizes a capture-free `Text.Root` stringify default when the author omits `render`
+         * @property render - Optional `(context: TableCellRenderContextType) => UIComponent` cell renderer; without one the renderer prints the cell in the viewer's language (#874)
+         * @property format - Optional `Format.*` spec ({@link TickFormatType}) for the column's number cells and subtotals (#874)
+         * @property aggregate - Optional subtotal a parent row shows in this column — its children's, composed bottom-up (#954)
          */
         Column: TableColumnType,
+        /**
+         * One row as the renderer receives it (#954) — its cells, its depth
+         * in the data's tree, and whether it starts collapsed.
+         *
+         * @remarks
+         * A Table's rows arrive in PRE-ORDER: each parent, then its
+         * subtree — the rows after it with a greater `depth`. A row's
+         * position in that order is its `rowIndex`; a flat table's rows
+         * are all at depth 0, in data order.
+         *
+         * @property cells - The row's cells by column key
+         * @property depth - How deep the row sits — 0 for a top-level row
+         * @property collapsed - Whether the row starts collapsed (a parent's; a leaf's is false)
+         */
+        Row: TableRowType,
         /**
          * East type for a table body cell — a bare {@link LiteralValueType}
          * variant.
          *
          * @remarks
-         * The cell IS the sortable / filterable primitive value. Rendering
-         * always goes through the column's `render` function
-         * ({@link TableColumnType}.render, required — the factory synthesizes
-         * a capture-free text default when the author omits it), so the IR
-         * carries no per-cell UI content.
+         * The cell IS the sortable / filterable primitive value, and the IR
+         * carries no per-cell UI content: a cell renders through its column's
+         * `render` ({@link TableColumnType}.render) when the author gives one,
+         * and otherwise the renderer prints it in the viewer's language,
+         * through the column's `format` for a number (#874).
          */
         Cell: TableCellType,
         /**
@@ -1172,7 +1190,8 @@ export const Table: TableNamespace = {
          * Used by both `onRowClick` and `onRowDoubleClick` callbacks
          * on the main {@link TableRootType}.
          *
-         * @property rowIndex - The 0-based row index of the clicked row
+         * @property rowIndex - The clicked row's pre-order index (its index in the data, for a flat table)
+         * @property path - The clicked row's path — its index among its siblings at each depth (#954)
          */
         RowClickEvent: TableRowClickEventType,
         /**
@@ -1182,9 +1201,10 @@ export const Table: TableNamespace = {
          * Used by both `onCellClick` and `onCellDoubleClick` callbacks
          * on the main {@link TableRootType}.
          *
-         * @property rowIndex - The 0-based row index
+         * @property rowIndex - The row's pre-order index (its index in the data, for a flat table)
+         * @property path - The row's path — its index among its siblings at each depth (#954)
          * @property columnKey - The column key (matches a row-struct field)
-         * @property cellValue - The cell value as a {@link LiteralValueType}
+         * @property cellValue - The cell value as a {@link LiteralValueType} — a parent's subtotal in an `aggregate` column
          */
         CellClickEvent: TableCellClickEventType,
         /**
@@ -1196,9 +1216,10 @@ export const Table: TableNamespace = {
          * {@link TableRootType}. For controlled selection use
          * {@link Table.Types.Selection}.
          *
-         * @property rowIndex - The 0-based row index that triggered the change
+         * @property rowIndex - The pre-order index of the row that changed
+         * @property path - That row's path — its index among its siblings at each depth (#954)
          * @property selected - Whether the row is now selected (true) or deselected (false)
-         * @property selectedRowsIndices - Full array of currently selected row indices
+         * @property selectedRowsIndices - Every selected row's pre-order index
          */
         RowSelectionEvent: TableRowSelectionEventType,
         /**
@@ -1232,11 +1253,12 @@ export const Table: TableNamespace = {
          * `Column.render` is `(context: CellRenderContext) =>
          * UIComponent`. The renderer constructs a fresh context per
          * cell visit so render functions can build dynamic content
-         * from the row index, column key, or cell value.
+         * from the row index, its path, the column key, or the cell value.
          *
-         * @property rowIndex - The 0-based row index
+         * @property rowIndex - The row's pre-order index (its index in the data, for a flat table)
+         * @property path - The row's path — its index among its siblings at each depth (#954)
          * @property columnKey - The column key
-         * @property cellValue - The cell value as a {@link LiteralValueType}
+         * @property cellValue - The cell value as a {@link LiteralValueType} — a parent's subtotal in an `aggregate` column
          */
         CellRenderContext: TableCellRenderContextType,
         /**
@@ -1262,8 +1284,8 @@ export const Table: TableNamespace = {
          * mutation.
          *
          * @property mode - Selection mode ({@link TableSelectionModeType})
-         * @property selected - Currently-selected row indices
-         * @property onChange - Callback fired with the new selected row indices
+         * @property selected - The selected rows' pre-order indices
+         * @property onChange - Callback fired with the new selected rows' pre-order indices
          */
         Selection: TableSelectionType,
         /**
@@ -1271,9 +1293,8 @@ export const Table: TableNamespace = {
          *
          * @remarks
          * Lives on the main `Table` variant under `pagination`. When
-         * defined, the renderer slices `rows` to the current page,
-         * disables virtualization (the page is small enough that
-         * virtualization is redundant), and renders pager controls
+         * defined, the renderer shows the current page of TOP-LEVEL rows,
+         * each with its whole subtree (#954), and renders pager controls
          * beneath the table. Distinct from the standalone
          * `Pagination` primitive — use that primitive for paging UI
          * outside a Table.

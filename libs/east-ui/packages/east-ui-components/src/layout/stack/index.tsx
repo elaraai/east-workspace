@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { parseCssSize } from "../../style/parse-size.js";
 import { Stack as ChakraStack, type StackProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Stack } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -14,7 +14,7 @@ import { resolveSizingShorthands } from "../sizing.js";
 import { DensityProvider } from "../../contracts/density.js";
 
 // Pre-define the equality function at module level
-const stackEqual = equalFor(Stack.Types.Stack);
+const stackEqual = equivalentFor(Stack.Types.Stack);
 
 /** East Stack value type */
 export type StackValue = ValueTypeOf<typeof Stack.Types.Stack>;

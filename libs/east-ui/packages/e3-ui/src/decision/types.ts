@@ -165,9 +165,10 @@ export type AnswerLiteral = "yes" | "no" | "unknown";
  * `contracts/review.ts`: approved / pending / rejected) is **in-surface**
  * resolution — a row's sign-off inside a grid surface (Table, Roster,
  * Plan). The two stay distinct on purpose; the bridge is host wiring — e.g.
- * a review-enabled surface's `onApprove({ rowIndex })` mapping the row to a
- * case and calling the Decision handle's `resolve(caseId, verdict)`. The two
- * chromes already share the `commitBar` foot recipe.
+ * a Table's `onApprove({ rowIndex })`, or the batch a Plan applies (its
+ * verdicts are drafts of its editing session), mapping the row to a case and
+ * calling the Decision handle's `resolve(caseId, verdict)`. The two chromes
+ * already share the `commitBar` foot recipe.
  *
  * @property accepted - The chosen option's label (empty string accepts the
  *   recommendation itself)

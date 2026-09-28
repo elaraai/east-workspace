@@ -7,10 +7,11 @@
  * Guard for issue #333 at the east-ui-components layer.
  *
  * `<Match>` exists because swapping component A → B at one slot via a plain
- * `variant.match` reconciles the same-shape nodes and keeps A mounted — when
- * both bodies are `<Reactive>`, they differ only by a render function, and
- * `equalFor` treats every function as equal, so the generic memo'd swap bails
- * (the #142 failure Pages solved for the nav case). These tests mount a
+ * `variant.match` reconciles the same-shape nodes into A's mounted instance —
+ * when both bodies are `<Reactive>` they differ only by a render function (a
+ * memo on `equalFor` bailed that swap outright, the #142 failure Pages solved
+ * for the nav case; the memos compare with `equivalentFor` now, #809). Match
+ * remounts the case instead. These tests mount a
  * `Match`-in-`Reactive` value with **both cases `<Reactive>`** — LIVE and
  * after a full beast2 encode → decode — flip the `on` variant through the
  * State store, and assert the case swaps; plus the tag-keying contract:
@@ -42,8 +43,8 @@ const encodeMode = encodeBeast2For(ModeType);
  * the enclosing `Reactive`; `on` is the *reading expression* (`bind.read()`),
  * so the Match closures re-read the store at call time. Both case bodies are
  * their own `<Reactive>` (static text — a Reactive body must not capture the
- * arm payload) — the construction a plain `variant.match` swap cannot switch
- * (function-blind memo).
+ * arm payload) — the construction a plain `variant.match` swap would reconcile
+ * into one mounted instance.
  */
 function buildMatchValue(key: string): ValueTypeOf<typeof UIComponentType> {
     const program = East.function([], UIComponentType, (_$) =>

@@ -38,17 +38,24 @@ import {
     East,
     StringType,
     IntegerType,
+    FloatType,
+    DateTimeType,
     BooleanType,
     NullType,
     OptionType,
     SetType,
     ArrayType,
     DictType,
+    SortedMap,
+    SortedSet,
     none,
+    compareFor,
     encodeBeast2For,
     decodeBeast2For,
     equalFor,
-    type variant,
+    isValueOf,
+    type option,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction, type EastTypeValue } from "@elaraai/east/internal";
 import { Slice, SliceApplyImpl, SliceBindPrimitives, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
@@ -56,42 +63,28 @@ import { getStore, trackKey } from "../state-runtime.js";
 import { registerPlatformImplementation, getRegisteredPlatformImplementations } from "../registry.js";
 
 type Row = Record<string, unknown>;
+/** A slice's state, decoded. */
+type SliceState = ValueTypeOf<typeof Slice.Types.State>;
+/** A slice's config, decoded — the apply engine's own type. */
+export type SliceConfig = Parameters<typeof sliceMatches>[1];
+/** A bound slice's handle. */
+type SliceBind = ValueTypeOf<typeof Slice.Types.Bind>;
 /** A `{ id, label, meta }` search match. */
-type Match = { id: string; label: string; meta: variant };
-
-/** JS-side shape of `Slice.Types.State` after Beast2 decode. */
-interface SliceStateLike {
-    range:         variant;              // option<SliceRange>
-    compare:       variant;              // option<SliceCompare>
-    filters:       variant[];            // SlicePredicate[]
-    cohorts:       SliceCohortLike[];
-    activeCohorts: Set<string>;
-    breakdown:     variant;              // option<SliceBreakdown>
-    search:        variant;              // option<string>
-    visible:       variant;              // option<Set<string>>
-    selectedIndex: variant;              // option<bigint>
-    resolution:    variant;              // option<TimeResolution>
-}
-
-interface SliceCohortLike {
-    id:      string;
-    name:    string;
-    filters: variant[];
-}
+type Match = ValueTypeOf<typeof Slice.Types.SearchMatch>;
 
 const encodeState = encodeBeast2For(Slice.Types.State);
 const decodeState = decodeBeast2For(Slice.Types.State);
-/** Structural predicate equality — nested variant/struct/Date/Set payloads.
- *  (Loose-`variant` boundary cast, same as `writeState` — the runtime shape
- *  is identical to the strict East-generated one the comparator expects.) */
-const predicateEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
+/** Structural predicate equality — nested variant/struct/Date/Set payloads. */
+const predicateEqual = equalFor(Slice.Types.Predicate);
+/** East's order over cohort ids — an active-cohort set is an East Set. */
+const compareStrings = compareFor(StringType);
 
-export const DEFAULT_SLICE_STATE: SliceStateLike = {
+export const DEFAULT_SLICE_STATE: SliceState = {
     range:         none,
     compare:       none,
     filters:       [],
     cohorts:       [],
-    activeCohorts: new Set<string>(),
+    activeCohorts: new SortedSet<string>(undefined, compareStrings),
     breakdown:     none,
     search:        none,
     visible:       none,
@@ -99,26 +92,20 @@ export const DEFAULT_SLICE_STATE: SliceStateLike = {
     resolution:    none,
 };
 
-function readState(key: string): SliceStateLike {
+function readState(key: string): SliceState {
     const encoded = getStore().read(key);
     if (encoded === undefined) return DEFAULT_SLICE_STATE;
-    return decodeState(encoded) as SliceStateLike;
+    return decodeState(encoded);
 }
 
-function writeState(key: string, state: SliceStateLike): void {
-    /* `SliceStateLike` uses the loose `variant` interface for option/variant
-     * fields; the encode function's parameter is the strict East-generated
-     * TS shape (with `[variant_symbol]` and tagged unions). The JS runtime
-     * representation is identical — Beast2 encode only inspects the runtime
-     * `type` / `value` fields. Cast at the boundary to bridge the static
-     * gap. */
-    getStore().write(key, encodeState(state as Parameters<typeof encodeState>[0]));
+function writeState(key: string, state: SliceState): void {
+    getStore().write(key, encodeState(state));
     // Every slice mutation funnels through here — the one choke point the
     // opt-in persistence write-back needs (#168).
     schedulePersist(key);
 }
 
-function updateState(key: string, fn: (s: SliceStateLike) => SliceStateLike): null {
+function updateState(key: string, fn: (s: SliceState) => SliceState): null {
     writeState(key, fn(readState(key)));
     return null;
 }
@@ -207,7 +194,7 @@ export function enableSlicePersistence(key: string, mode: SlicePersistMode): voi
     const blob = readPersistedBlob(key, mode);
     if (blob === undefined) return;
     try {
-        writeState(key, decodeState(base64urlToBytes(blob)) as SliceStateLike);
+        writeState(key, decodeState(base64urlToBytes(blob)));
     } catch {
         /* stale / foreign blob (e.g. an older wire shape) — keep the seed */
     }
@@ -240,7 +227,7 @@ export function resetSlicePersistence(): void {
 }
 
 /** Synthetic single-narrowing state, for per-aspect counts. */
-const only = (patch: Partial<SliceStateLike>): SliceStateLike => ({ ...DEFAULT_SLICE_STATE, ...patch });
+const only = (patch: Partial<SliceState>): SliceState => ({ ...DEFAULT_SLICE_STATE, ...patch });
 
 /** Bound data + config + `toMatch` per slice key — what the data-derived methods
  *  narrow from. The rows entry may be a getter so long-lived handles (a
@@ -249,7 +236,7 @@ const only = (patch: Partial<SliceStateLike>): SliceStateLike => ({ ...DEFAULT_S
  *  key) resolve the current rows / config / `toMatch` live by key. */
 const boundByKey = new Map<string, {
     rows: Row[] | (() => Row[]);
-    config: Parameters<typeof sliceMatches>[1];
+    config: SliceConfig;
     toMatch: ((r: Row) => Match) | undefined;
 }>();
 
@@ -265,8 +252,31 @@ function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
  * now)`. Matching with the caller's config keeps the rail's fields and the
  * component's narrowing in exact agreement.
  */
-export function boundSliceConfig(key: string): Parameters<typeof sliceMatches>[1] | undefined {
+export function boundSliceConfig(key: string): SliceConfig | undefined {
     return boundByKey.get(key)?.config;
+}
+
+/** The field a slice's range narrows on — its spec in the config — or
+ *  `undefined` when the config names no range field, or one it lacks. */
+function rangeFieldOf(config: SliceConfig) {
+    return config.rangeFieldId.type === "some" ? config.fields.get(config.rangeFieldId.value) : undefined;
+}
+
+/** A range field's kinds, as the brush domain reads them. */
+type DomainKind = "datetime" | "integer" | "float";
+
+/**
+ * A range field's value as a number on its brush domain — epoch ms for a
+ * datetime, the value for an integer or a float — read by the field's kind,
+ * the value's East type checked with `isValueOf` as the apply engine checks
+ * a row value. `undefined` for a value of another type.
+ */
+function domainNumber(kind: DomainKind, value: unknown): number | undefined {
+    switch (kind) {
+        case "datetime": return isValueOf(value, DateTimeType) ? (value as ValueTypeOf<DateTimeType>).getTime() : undefined;
+        case "integer":  return isValueOf(value, IntegerType) ? Number(value as ValueTypeOf<IntegerType>) : undefined;
+        case "float":    return isValueOf(value, FloatType) ? value as ValueTypeOf<FloatType> : undefined;
+    }
 }
 
 /**
@@ -277,17 +287,12 @@ export function boundSliceConfig(key: string): Parameters<typeof sliceMatches>[1
  * `"integer"` so the brush writes an `integer` range arm — a `float` arm is
  * inert for bigint values (`isValueOf` guard) and silently filters nothing (#167).
  */
-export function boundRangeDomain(key: string): { kind: "datetime" | "integer" | "float"; min: number; max: number } | undefined {
+export function boundRangeDomain(key: string): { kind: DomainKind; min: number; max: number } | undefined {
     const bound = boundByKey.get(key);
     if (bound === undefined) return undefined;
     const boundRowsList = boundRows(bound);
     if (boundRowsList.length === 0) return undefined;
-    const cfg = bound.config as unknown as {
-        rangeFieldId: { type: string; value: string };
-        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-    };
-    if (cfg.rangeFieldId.type !== "some") return undefined;
-    const field = cfg.fields.get(cfg.rangeFieldId.value);
+    const field = rangeFieldOf(bound.config);
     if (field === undefined) return undefined;
     const kind = field.type === "datetime" ? "datetime" as const
         : field.type === "integer" ? "integer" as const
@@ -295,8 +300,8 @@ export function boundRangeDomain(key: string): { kind: "datetime" | "integer" | 
     let min = Infinity;
     let max = -Infinity;
     for (const r of boundRowsList) {
-        const v = field.value.accessor(r);
-        const n = v instanceof Date ? v.getTime() : Number(v);
+        const n = domainNumber(kind, field.value.accessor(r));
+        if (n === undefined) continue;
         if (n < min) min = n;
         if (n > max) max = n;
     }
@@ -315,30 +320,35 @@ export function boundRangeDomain(key: string): { kind: "datetime" | "integer" | 
  *
  * @param key - the slice's store key
  * @param buckets - number of equal-width bins (callers default this)
+ * @param extent - The HALF-OPEN span to bin over, `[min, max)` on the domain's
+ *   own numbers — a value outside it counts in no bin. The Plan's horizon
+ *   passes the whole periods around the data (#949), so a value at the
+ *   domain's max counts in the period it falls in rather than piling into the
+ *   last bin beside its predecessor. Omitted, the bins span the closed domain.
  * @returns per-bucket row counts (all zeros when nothing matches), or
  *          `undefined` when the slice has no usable range domain
  */
-export function boundRangeHistogram(key: string, buckets: number): number[] | undefined {
+export function boundRangeHistogram(key: string, buckets: number, extent?: { min: number; max: number }): number[] | undefined {
     const bound = boundByKey.get(key);
     const domain = boundRangeDomain(key);
     if (bound === undefined || domain === undefined || buckets < 1) return undefined;
-    const cfg = bound.config as unknown as {
-        rangeFieldId: { type: string; value: string };
-        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-    };
-    const field = cfg.fields.get(cfg.rangeFieldId.value);
+    const field = rangeFieldOf(bound.config);
     if (field === undefined) return undefined;
     const s = readState(key);
     const facetState = { ...s, range: none };
     const now = new Date();
-    const span = domain.max - domain.min;
+    const lo = extent?.min ?? domain.min;
+    const hi = extent?.max ?? domain.max;
+    const span = hi - lo;
     const counts = new Array<number>(buckets).fill(0);
     for (const r of boundRows(bound)) {
-        if (!sliceMatches(facetState as never, bound.config, r as Row, now)) continue;
-        const v = field.value.accessor(r);
-        const n = v instanceof Date ? v.getTime() : Number(v);
-        if (!Number.isFinite(n)) continue;
-        const idx = span <= 0 ? 0 : Math.min(buckets - 1, Math.floor(((n - domain.min) / span) * buckets));
+        if (!sliceMatches(facetState, bound.config, r, now)) continue;
+        const n = domainNumber(domain.kind, field.value.accessor(r));
+        if (n === undefined || !Number.isFinite(n)) continue;
+        // A half-open extent holds `[lo, hi)`; the closed domain holds its max,
+        // which lands in the last bin.
+        if (extent !== undefined && (n < lo || n >= hi)) continue;
+        const idx = span <= 0 ? 0 : Math.min(buckets - 1, Math.floor(((n - lo) / span) * buckets));
         if (idx >= 0) counts[idx]! += 1;
     }
     return counts;
@@ -438,16 +448,15 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
 
 function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown, toMatch: unknown): Record<string, unknown> {
     const k = key as string;
-    const cfg = config as Parameters<typeof sliceMatches>[1];
+    const cfg = config as SliceConfig;
     const rowsSource = data as Row[] | (() => Row[]) | undefined;
     const liveRows = (): Row[] => (typeof rowsSource === "function" ? rowsSource() : rowsSource) ?? [];
     // `toMatch` arrives as `option<(row) => Match>`; unwrap the callable.
-    const toMatchFn = (toMatch as variant | undefined)?.type === "some"
-        ? (toMatch as { value: (r: Row) => Match }).value
-        : undefined;
+    const toMatchOpt = toMatch as option<(r: Row) => Match> | undefined;
+    const toMatchFn = toMatchOpt?.type === "some" ? toMatchOpt.value : undefined;
 
     /* First bind seeds the key with the caller-supplied initial state. */
-    if (!getStore().has(k)) writeState(k, initial as SliceStateLike);
+    if (!getStore().has(k)) writeState(k, initial as SliceState);
     /* Refresh the live bound entry EVERY bind (rows getter / config / toMatch),
      * before the cache check — so a cached handle's primitives always resolve the
      * current rows + config. */
@@ -477,11 +486,8 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
  */
 export function autoDeriveMatches(
     hits: ReadonlyArray<unknown>,
-    config: {
-        searchFieldIds: ReadonlyArray<string>;
-        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-    },
-): Array<{ id: string; label: string; meta: typeof none }> {
+    config: Pick<SliceConfig, "searchFieldIds" | "fields">,
+): Match[] {
     // First searchable field (string or text), else the first such field at all —
     // the same resolution `sliceMatches` applies, so the dropdown offers what the
     // search reads.
@@ -490,9 +496,9 @@ export function autoDeriveMatches(
         ?? [...config.fields].find(([, f]) => searchable(f.type))?.[0];
     if (fieldId === undefined) return [];   // no searchable field → genuinely un-derivable
     const seen = new Set<string>();
-    const out: Array<{ id: string; label: string; meta: typeof none }> = [];
+    const out: Match[] = [];
     for (const r of hits) {
-        const label = sliceFieldText(config as never, fieldId, r as Row);
+        const label = sliceFieldText(config, fieldId, r as Row);
         if (label === undefined) continue;   // never offer a "null"/"undefined" suggestion (cf. autoDeriveFieldHints)
         if (seen.has(label)) continue;   // distinct values only
         seen.add(label);
@@ -507,13 +513,14 @@ const FIELD_HINT_CAP = 50;
 
 /**
  * Distinct field VALUES across the bound rows — the auto-derived autocomplete
- * suggestions for the filter `in`/`notIn`/`eq` value controls (#131). Capped at
- * {@link FIELD_HINT_CAP}; null/undefined skipped. Pure + exported for testing.
+ * suggestions for a string field's `in`/`notIn`/`eq` value controls (#131).
+ * Capped at {@link FIELD_HINT_CAP}. A value that is not a String (null or
+ * undefined in an untyped row) is no hint. Pure + exported for testing.
  *
  * @param rows - the bound rows
- * @param accessor - the field's value accessor
+ * @param accessor - the string field's value accessor
  * @param cap - max distinct values to collect
- * @returns the distinct string values (insertion order), capped
+ * @returns the distinct String values (insertion order), capped
  */
 export function autoDeriveFieldHints(
     rows: ReadonlyArray<unknown>,
@@ -523,35 +530,37 @@ export function autoDeriveFieldHints(
     const seen = new Set<string>();
     for (const r of rows) {
         const v = accessor(r);
-        if (v === undefined || v === null) continue;
-        seen.add(String(v));
+        if (!isValueOf(v, StringType)) continue;
+        seen.add(v as ValueTypeOf<StringType>);
         if (seen.size >= cap) break;
     }
     return [...seen];
 }
 
 export const SliceImpl: PlatformFunction[] = [
+    // The generic platforms hand their arguments over untyped; the handle is a
+    // `Slice.Types.Bind` value.
     Slice.rows.implement((_T: EastTypeValue) => (handle: unknown) => {
-        const k = (handle as { key: string }).key;
+        const k = (handle as SliceBind).key;
         const bound = boundByKey.get(k);
         if (bound === undefined) return [];
         trackKey(k);
         const state = readState(k);
         const now = new Date();
-        return boundRows(bound).filter(r => sliceMatches(state as never, bound.config, r, now));
+        return boundRows(bound).filter(r => sliceMatches(state, bound.config, r, now));
     }),
     // The FULL bound rows, each tagged with whether it passes the active
     // narrowing — the "keep the excluded" feed. `Slice.rows` is this filtered to
     // `matched`; here every row survives, carrying its `matched` flag for a
     // downstream de-emphasis effect (e.g. a Schematic's `excluded`).
     Slice.partition.implement((_T: EastTypeValue) => (handle: unknown) => {
-        const k = (handle as { key: string }).key;
+        const k = (handle as SliceBind).key;
         const bound = boundByKey.get(k);
         if (bound === undefined) return [];
         trackKey(k);
         const state = readState(k);
         const now = new Date();
-        return boundRows(bound).map(r => ({ value: r, matched: sliceMatches(state as never, bound.config, r, now) }));
+        return boundRows(bound).map(r => ({ value: r, matched: sliceMatches(state, bound.config, r, now) }));
     }),
     Slice.bind.implement((_T: EastTypeValue) => bindImpl),
 
@@ -560,104 +569,83 @@ export const SliceImpl: PlatformFunction[] = [
     // (and resolving the bound rows / config / `toMatch` from `boundByKey`). ──
 
     // --- raw read / write ---
-    // (`readState` yields the loose `SliceStateLike`; the platform output is the
-    // strict East `SliceState`. Identical runtime shape — cast at the boundary,
-    // as `writeState` does for the inverse direction.)
-    SliceBindPrimitives.read.implement((key: unknown) => { trackKey(key as string); return readState(key as string) as never; }),
-    SliceBindPrimitives.write.implement((key: unknown, state: unknown) => { writeState(key as string, state as SliceStateLike); return null; }),
+    SliceBindPrimitives.read.implement((key) => { trackKey(key); return readState(key); }),
+    SliceBindPrimitives.write.implement((key, state) => { writeState(key, state); return null; }),
 
     // --- range ---
-    SliceBindPrimitives.setRange.implement((key: unknown, opt: unknown) =>
-        updateState(key as string, s => ({ ...s, range: opt as variant }))),
-    SliceBindPrimitives.setCompare.implement((key: unknown, opt: unknown) =>
-        updateState(key as string, s => ({ ...s, compare: opt as variant }))),
-    SliceBindPrimitives.setResolution.implement((key: unknown, opt: unknown) =>
-        updateState(key as string, s => ({ ...s, resolution: opt as variant }))),
+    SliceBindPrimitives.setRange.implement((key, range) => updateState(key, s => ({ ...s, range }))),
+    SliceBindPrimitives.setCompare.implement((key, compare) => updateState(key, s => ({ ...s, compare }))),
+    SliceBindPrimitives.setResolution.implement((key, resolution) => updateState(key, s => ({ ...s, resolution }))),
 
     // --- filters ---
     // Appending a structurally-equal predicate is a no-op (no write, no
     // re-render) — an accidental double Add can't inflate the active count
     // (#164). Structural equality via East's equalFor, which handles the
     // nested variant/struct/Date/Set payloads correctly.
-    SliceBindPrimitives.addFilter.implement((key: unknown, pred: unknown) => {
-        const k = key as string;
-        const s = readState(k);
+    SliceBindPrimitives.addFilter.implement((key, pred) => {
+        const s = readState(key);
         if (s.filters.some(f => predicateEqual(f, pred))) return null;
-        writeState(k, { ...s, filters: [...s.filters, pred as variant] });
+        writeState(key, { ...s, filters: [...s.filters, pred] });
         return null;
     }),
-    SliceBindPrimitives.removeFilter.implement((key: unknown, idx: unknown) => {
-        const i = Number(idx as bigint);
-        return updateState(key as string, s => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));
+    SliceBindPrimitives.removeFilter.implement((key, index) => {
+        const i = Number(index);
+        return updateState(key, s => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));
     }),
     // Idempotent toggle (#165): append when absent, remove the structurally-
     // equal clause when present — the "filter to this" gesture both narrows
     // and un-narrows.
-    SliceBindPrimitives.toggleFilter.implement((key: unknown, pred: unknown) =>
-        updateState(key as string, s => {
+    SliceBindPrimitives.toggleFilter.implement((key, pred) =>
+        updateState(key, s => {
             const i = s.filters.findIndex(f => predicateEqual(f, pred));
             return i >= 0
                 ? { ...s, filters: s.filters.filter((_, j) => j !== i) }
-                : { ...s, filters: [...s.filters, pred as variant] };
+                : { ...s, filters: [...s.filters, pred] };
         })),
     // "Clear all" must zero every NARROWING the Summary counts — filters,
     // active cohorts, range, and search — not just filters/cohorts (else the
     // count can never reach 0). Breakdown (grouping), visible (legend whitelist)
     // and selectedIndex (selection) are presentation, not narrowings: left alone,
     // matching activeCount/isActive.
-    SliceBindPrimitives.clearFilters.implement((key: unknown) =>
-        updateState(key as string, s => ({
-            ...s, filters: [], activeCohorts: new Set<string>(), range: none, search: none,
+    SliceBindPrimitives.clearFilters.implement((key) =>
+        updateState(key, s => ({
+            ...s, filters: [], activeCohorts: new SortedSet<string>(undefined, compareStrings), range: none, search: none,
         }))),
 
     // --- cohorts ---
-    SliceBindPrimitives.defineCohort.implement((key: unknown, cohort: unknown) => {
-        const c = cohort as SliceCohortLike;
-        return updateState(key as string, s => {
-            if (s.cohorts.some(x => x.id === c.id)) {
-                throw new Error(`[Slice.bind] cohort id "${c.id}" already exists`);
+    SliceBindPrimitives.defineCohort.implement((key, cohort) =>
+        updateState(key, s => {
+            if (s.cohorts.some(x => x.id === cohort.id)) {
+                throw new Error(`[Slice.bind] cohort id "${cohort.id}" already exists`);
             }
-            return { ...s, cohorts: [...s.cohorts, c] };
-        });
-    }),
-    SliceBindPrimitives.updateCohort.implement((key: unknown, id: unknown, cohort: unknown) => {
-        const target = id as string;
-        const c = cohort as SliceCohortLike;
-        return updateState(key as string, s => ({ ...s, cohorts: s.cohorts.map(x => x.id === target ? c : x) }));
-    }),
-    SliceBindPrimitives.removeCohort.implement((key: unknown, id: unknown) => {
-        const target = id as string;
-        return updateState(key as string, s => {
-            const activeCohorts = new Set(s.activeCohorts);
-            activeCohorts.delete(target);
-            return { ...s, cohorts: s.cohorts.filter(c => c.id !== target), activeCohorts };
-        });
-    }),
-    SliceBindPrimitives.toggleCohort.implement((key: unknown, id: unknown) => {
-        const target = id as string;
-        return updateState(key as string, s => {
-            const activeCohorts = new Set(s.activeCohorts);
-            if (activeCohorts.has(target)) activeCohorts.delete(target);
-            else activeCohorts.add(target);
+            return { ...s, cohorts: [...s.cohorts, cohort] };
+        })),
+    SliceBindPrimitives.updateCohort.implement((key, id, cohort) =>
+        updateState(key, s => ({ ...s, cohorts: s.cohorts.map(x => x.id === id ? cohort : x) }))),
+    SliceBindPrimitives.removeCohort.implement((key, id) =>
+        updateState(key, s => {
+            const activeCohorts = new SortedSet(s.activeCohorts, compareStrings);
+            activeCohorts.delete(id);
+            return { ...s, cohorts: s.cohorts.filter(c => c.id !== id), activeCohorts };
+        })),
+    SliceBindPrimitives.toggleCohort.implement((key, id) =>
+        updateState(key, s => {
+            const activeCohorts = new SortedSet(s.activeCohorts, compareStrings);
+            if (activeCohorts.has(id)) activeCohorts.delete(id);
+            else activeCohorts.add(id);
             return { ...s, activeCohorts };
-        });
-    }),
+        })),
 
     // --- breakdown / search / visible / selection ---
-    SliceBindPrimitives.setBreakdown.implement((key: unknown, opt: unknown) =>
-        updateState(key as string, s => ({ ...s, breakdown: opt as variant }))),
-    SliceBindPrimitives.setSearch.implement((key: unknown, opt: unknown) =>
-        updateState(key as string, s => ({ ...s, search: opt as variant }))),
-    SliceBindPrimitives.setVisible.implement((key: unknown, opt: unknown) =>
-        updateState(key as string, s => ({ ...s, visible: opt as variant }))),
-    SliceBindPrimitives.select.implement((key: unknown, opt: unknown) =>
-        updateState(key as string, s => ({ ...s, selectedIndex: opt as variant }))),
+    SliceBindPrimitives.setBreakdown.implement((key, breakdown) => updateState(key, s => ({ ...s, breakdown }))),
+    SliceBindPrimitives.setSearch.implement((key, search) => updateState(key, s => ({ ...s, search }))),
+    SliceBindPrimitives.setVisible.implement((key, visible) => updateState(key, s => ({ ...s, visible }))),
+    SliceBindPrimitives.select.implement((key, selectedIndex) => updateState(key, s => ({ ...s, selectedIndex }))),
 
     // --- derived ---
-    SliceBindPrimitives.isActive.implement((key: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const s = readState(k);
+    SliceBindPrimitives.isActive.implement((key) => {
+        trackKey(key);
+        const s = readState(key);
         // Active iff a NARROWING is set (mirrors activeCount + clearFilters).
         // breakdown (grouping), visible (legend whitelist) and selectedIndex
         // (selection) don't narrow the row set, so they don't count.
@@ -668,10 +656,9 @@ export const SliceImpl: PlatformFunction[] = [
             s.search.type === "some"
         );
     }),
-    SliceBindPrimitives.activeCount.implement((key: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const s = readState(k);
+    SliceBindPrimitives.activeCount.implement((key) => {
+        trackKey(key);
+        const s = readState(key);
         // Count NARROWINGS only — exactly what "clear all" (clearFilters) resets.
         // Breakdown (grouping), visible (legend whitelist) and selectedIndex
         // (selection) don't narrow the row set, so they're excluded; otherwise
@@ -685,117 +672,100 @@ export const SliceImpl: PlatformFunction[] = [
     }),
 
     // --- config-derived metadata (config is static; no reactive tracking) ---
-    SliceBindPrimitives.dimensions.implement((key: unknown) => {
-        const e = boundByKey.get(key as string);
-        return e ? sliceDimensions(e.config as Parameters<typeof sliceDimensions>[0]) : [];
+    SliceBindPrimitives.dimensions.implement((key) => {
+        const e = boundByKey.get(key);
+        return e ? sliceDimensions(e.config) : [];
     }),
-    SliceBindPrimitives.fields.implement((key: unknown) => {
-        const e = boundByKey.get(key as string);
+    SliceBindPrimitives.fields.implement((key) => {
+        const e = boundByKey.get(key);
         if (e === undefined) return [];
-        const base = sliceFields(e.config as Parameters<typeof sliceFields>[0]);
+        const base = sliceFields(e.config);
         // Auto-derive distinct value hints from the bound data for string fields
         // that carry no explicit `hints` (#131) — so picking `in`/`notIn`/`eq` on,
         // e.g., `country` suggests the values actually present. Explicit hints win;
         // free entry stays allowed (suggestions, not an allow-list).
-        const fieldsMap = (e.config as unknown as {
-            fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-        }).fields;
         const rows = boundRows(e);
-        // (Loose `variant` format field vs the strict platform output — same
-        // boundary cast as `writeState`; identical runtime shape.)
         return base.map(f => {
             if (f.hints.length > 0 || f.kind !== "string") return f;
-            const accessor = fieldsMap.get(f.fieldId)?.value?.accessor;
+            const accessor = e.config.fields.get(f.fieldId)?.value.accessor;
             if (accessor === undefined) return f;
             return { ...f, hints: autoDeriveFieldHints(rows, accessor) };
-        }) as never;
+        });
     }),
-    SliceBindPrimitives.searchFieldIds.implement((key: unknown) => {
-        const e = boundByKey.get(key as string);
-        return e ? (e.config as unknown as { searchFieldIds: string[] }).searchFieldIds : [];
+    SliceBindPrimitives.searchFieldIds.implement((key) => {
+        const e = boundByKey.get(key);
+        return e ? [...e.config.searchFieldIds] : [];
     }),
-    SliceBindPrimitives.rangeFieldId.implement((key: unknown) => {
-        const e = boundByKey.get(key as string);
-        // loose `variant` vs strict `option<string>` — identical runtime shape.
-        return (e ? (e.config as unknown as { rangeFieldId: variant }).rangeFieldId : none) as never;
+    SliceBindPrimitives.rangeFieldId.implement((key) => {
+        const e = boundByKey.get(key);
+        return e ? e.config.rangeFieldId : none;
     }),
 
     // --- data-derived results (computed over the bound `rows`) ---
-    SliceBindPrimitives.totalCount.implement((key: unknown) => {
-        const e = boundByKey.get(key as string);
+    SliceBindPrimitives.totalCount.implement((key) => {
+        const e = boundByKey.get(key);
         return BigInt(e ? boundRows(e).length : 0);
     }),
-    SliceBindPrimitives.resultCount.implement((key: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const e = boundByKey.get(k);
+    SliceBindPrimitives.resultCount.implement((key) => {
+        trackKey(key);
+        const e = boundByKey.get(key);
         if (e === undefined) return 0n;
-        const s = readState(k);
+        const s = readState(key);
         const now = new Date();
-        return BigInt(boundRows(e).filter(r => sliceMatches(s as never, e.config, r, now)).length);
+        return BigInt(boundRows(e).filter(r => sliceMatches(s, e.config, r, now)).length);
     }),
-    SliceBindPrimitives.groups.implement((key: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const e = boundByKey.get(k);
+    SliceBindPrimitives.groups.implement((key) => {
+        trackKey(key);
+        const e = boundByKey.get(key);
         if (e === undefined) return [];
-        return sliceBreakdown(readState(k) as never, e.config, boundRows(e), new Date());
+        return sliceBreakdown(readState(key), e.config, boundRows(e), new Date());
     }),
     // Self-excluding facet options (#188): the breakdown groups computed with
     // the breakdown field's OWN filters stripped from the narrowing — a facet
     // must keep showing every option (with live counts) while some are
     // selected. Filters on other fields, range, search, and cohorts still
     // narrow the option counts.
-    SliceBindPrimitives.facetGroups.implement((key: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const e = boundByKey.get(k);
+    SliceBindPrimitives.facetGroups.implement((key) => {
+        trackKey(key);
+        const e = boundByKey.get(key);
         if (e === undefined) return [];
-        const s = readState(k);
+        const s = readState(key);
         if (s.breakdown.type !== "some") return [];
-        const fieldId = (s.breakdown.value as { fieldId: string }).fieldId;
-        const facetState = {
-            ...s,
-            filters: s.filters.filter(f => (f.value as { fieldId: string }).fieldId !== fieldId),
-        };
-        return sliceBreakdown(facetState as never, e.config, boundRows(e), new Date());
+        const fieldId = s.breakdown.value.fieldId;
+        const facetState = { ...s, filters: s.filters.filter(f => f.value.fieldId !== fieldId) };
+        return sliceBreakdown(facetState, e.config, boundRows(e), new Date());
     }),
-    SliceBindPrimitives.series.implement((key: unknown, xFieldId: unknown, valueFieldId: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const e = boundByKey.get(k);
+    SliceBindPrimitives.series.implement((key, xFieldId, valueFieldId) => {
+        trackKey(key);
+        const e = boundByKey.get(key);
         if (e === undefined) return [];
-        // loose point shape (`size`/`color` as bare `none`) vs strict `option<...>`.
-        return sliceSeries(readState(k) as never, e.config, boundRows(e), xFieldId as string, valueFieldId as string, new Date()) as never;
+        return sliceSeries(readState(key), e.config, boundRows(e), xFieldId, valueFieldId, new Date());
     }),
-    SliceBindPrimitives.matches.implement((key: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const e = boundByKey.get(k);
+    SliceBindPrimitives.matches.implement((key) => {
+        trackKey(key);
+        const e = boundByKey.get(key);
         if (e === undefined) return [];
-        const s = readState(k);
+        const s = readState(key);
         const now = new Date();
         const hits = s.search.type === "some"
-            ? boundRows(e).filter(r => sliceMatches(only({ search: s.search }) as never, e.config, r, now))
+            ? boundRows(e).filter(r => sliceMatches(only({ search: s.search }), e.config, r, now))
             : boundRows(e);
-        // `Match.meta` is the loose `variant`; the output is `option<string>`.
-        if (e.toMatch !== undefined) return hits.map(e.toMatch) as never;
+        if (e.toMatch !== undefined) return hits.map(e.toMatch);
         // No `toMatch`: auto-derive distinct search options from the config's
         // first searchable string field so search works out of the box (#129).
-        return autoDeriveMatches(hits, e.config as never) as never;
+        return autoDeriveMatches(hits, e.config);
     }),
-    SliceBindPrimitives.cohortCounts.implement((key: unknown) => {
-        const k = key as string;
-        trackKey(k);
-        const e = boundByKey.get(k);
-        if (e === undefined) return new Map<string, bigint>();
-        const s = readState(k);
+    SliceBindPrimitives.cohortCounts.implement((key) => {
+        trackKey(key);
+        const counts = new SortedMap<string, bigint>(undefined, compareStrings);
+        const e = boundByKey.get(key);
+        if (e === undefined) return counts;
+        const s = readState(key);
         const now = new Date();
-        const out = new Map<string, bigint>();
         for (const c of s.cohorts) {
-            out.set(c.id, BigInt(boundRows(e).filter(r => sliceMatches(only({ filters: c.filters }) as never, e.config, r, now)).length));
+            counts.set(c.id, BigInt(boundRows(e).filter(r => sliceMatches(only({ filters: c.filters }), e.config, r, now)).length));
         }
-        return out;
+        return counts;
     }),
 ];
 

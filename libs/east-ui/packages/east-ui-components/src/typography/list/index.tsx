@@ -13,13 +13,13 @@ import { List as ChakraList, type ListRootProps, Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { List } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { EastChakraComponent } from "../../component";
 
-const listEqual = equalFor(List.Types.List);
+const listEqual = equivalentFor(List.Types.List);
 
 /** East List value type */
 export type ListValue = ValueTypeOf<typeof List.Types.List>;

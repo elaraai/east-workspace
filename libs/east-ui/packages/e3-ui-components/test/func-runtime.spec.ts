@@ -14,15 +14,23 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+    ArrayType,
+    EastTypeValueType,
     FloatType,
     IntegerType,
+    RecursiveType,
     StringType,
+    StructType,
+    canonicalTypeValue,
     encodeBeast2For,
     decodeBeast2For,
+    isTypeValueEqual,
+    printFor,
     toEastTypeValue,
     variant,
     type EastType,
     type EastTypeValue,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { FuncBindHandleType } from "@elaraai/e3-ui/internal";
 import type { ExecuteResult, FunctionSignature } from "@elaraai/e3-api-client";
@@ -111,15 +119,8 @@ async function waitFor(cond: () => boolean, what: string): Promise<void> {
     throw new Error(`waitFor timed out: ${what}`);
 }
 
-type Handle = {
-    call: (...args: unknown[]) => null;
-    read: () => { type: string; value: unknown };
-    status: () => { type: string };
-    error: () => { type: string; value?: { message: string; kind: { type: string }; stderr: string } };
-    pending: () => boolean;
-    cancel: () => null;
-    binding: { name: string };
-};
+/** A handle bound to `forecast(Integer, Float) -> Float`, typed from its East type. */
+type Handle = ValueTypeOf<ReturnType<typeof FuncBindHandleType<[IntegerType, FloatType], FloatType>>>;
 
 const forecastHandleType = (): EastTypeValue =>
     toEastTypeValue(FuncBindHandleType([IntegerType, FloatType], FloatType));
@@ -128,7 +129,7 @@ function newRuntime(signatures: FunctionSignature[] = [signature("forecast", [In
     const api = createStubApi(signatures);
     const runtime = new FuncRuntime();
     runtime.initialize(api, ws);
-    const handle = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+    const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
     return { api, runtime, handle };
 }
 
@@ -303,7 +304,7 @@ describe("FuncRuntime — latest-wins + cancel", () => {
 describe("FuncRuntime — signature validation", () => {
     test("unknown function name parks as failed / invalid; nothing is sent", async () => {
         const { api, runtime } = newRuntime([]);
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
         handle.call(1n, 1.0);
         await waitFor(() => handle.status().type === "failed", "terminal");
         assert.equal(handle.error().value!.kind.type, "invalid");
@@ -313,12 +314,38 @@ describe("FuncRuntime — signature validation", () => {
 
     test("signature mismatch parks as failed / invalid; nothing is sent", async () => {
         const { api, runtime } = newRuntime([signature("forecast", [StringType], FloatType)]);
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
         handle.call(1n, 1.0);
         await waitFor(() => handle.status().type === "failed", "terminal");
         assert.equal(handle.error().value!.kind.type, "invalid");
         assert.match(handle.error().value!.message, /signature mismatch/);
         assert.equal(api.calls.length, 0);
+    });
+
+    test("a recursive signature validates whatever ids its wrappers carry — the deployed list's are not this process's", async () => {
+        const Tree = RecursiveType(self => StructType({ label: StringType, children: ArrayType(self) }));
+        const local = toEastTypeValue(Tree);
+        // The deployed list names the type with its wrappers numbered from 0, as
+        // it reads off the wire; this process names it by type id.
+        const deployed = canonicalTypeValue(local);
+        const printType = printFor(EastTypeValueType);
+        assert.notEqual(printType(deployed), printType(local));
+        assert.ok(isTypeValueEqual(deployed, local));
+
+        const api = createStubApi([{
+            name: "count", inputTypes: [deployed], outputType: toEastTypeValue(IntegerType),
+            runner: variant("east_node", { platforms: [] }),
+        } as unknown as FunctionSignature]);
+        api.respond(successResult(IntegerType, 3n));
+        const runtime = new FuncRuntime();
+        runtime.initialize(api, ws);
+        type TreeHandle = ValueTypeOf<ReturnType<typeof FuncBindHandleType<[typeof Tree], IntegerType>>>;
+        const handle = runtime.buildHandle(toEastTypeValue(FuncBindHandleType([Tree], IntegerType)), "count") as TreeHandle;
+        handle.call({ label: "root", children: [{ label: "a", children: [] }, { label: "b", children: [] }] });
+        await waitFor(() => handle.status().type !== "idle" && handle.status().type !== "running", "terminal");
+        assert.equal(handle.error().type, "none");
+        assert.equal(handle.status().type, "succeeded");
+        assert.equal(handle.read().value, 3n);
     });
 
     test("a failed signature list is retried on the next call", async () => {
@@ -335,7 +362,7 @@ describe("FuncRuntime — signature validation", () => {
         };
         const runtime = new FuncRuntime();
         runtime.initialize(api, ws);
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
 
         handle.call(1n, 1.0);
         await waitFor(() => handle.status().type === "failed", "first terminal");
@@ -354,7 +381,7 @@ describe("FuncRuntime — signature validation", () => {
 describe("FuncRuntime — shared channel + reactivity", () => {
     test("two handles bound to the same name share the tracked channel", async () => {
         const { api, runtime, handle } = newRuntime();
-        const observer = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+        const observer = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
         api.respond(successResult(FloatType, 11.0));
         handle.call(1n, 1.0);
         await waitFor(() => observer.status().type === "succeeded", "observer sees terminal");
@@ -441,7 +468,7 @@ describe("FuncRuntime — scoping + lifecycle", () => {
 
     test("calling without a workspace throws a clear error", () => {
         const runtime = new FuncRuntime();
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
         assert.throws(() => handle.call(1n, 1.0), /no workspace configured/);
     });
 });
@@ -460,7 +487,7 @@ describe("createInMemoryFunctionApi", () => {
         }]);
         const runtime = new FuncRuntime();
         runtime.initialize(api, ws);
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
         handle.call(12n, 1.5);
         await waitFor(() => handle.status().type === "succeeded", "terminal");
         assert.equal(handle.read().value, 18);
@@ -470,7 +497,7 @@ describe("createInMemoryFunctionApi", () => {
         const api = createInMemoryFunctionApi([]);
         const runtime = new FuncRuntime();
         runtime.initialize(api, ws);
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as unknown as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
         handle.call(1n, 1.0);
         await waitFor(() => handle.status().type === "failed", "terminal");
         // Empty list → invalid (name validation fires before the call).

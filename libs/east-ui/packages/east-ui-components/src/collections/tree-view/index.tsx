@@ -9,13 +9,13 @@ import {
     TreeView as ChakraTreeView,
     createTreeCollection,
 } from "@chakra-ui/react";
-import { equalFor, match, some, none, type OptionType, type VariantType, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, match, some, none, type OptionType, type VariantType, type ValueTypeOf } from "@elaraai/east";
 import { TreeView, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraIcon } from "../../display/icon";
 
 // Pre-define equality function at module level
-const treeViewRootEqual = equalFor(TreeView.Types.Root);
+const treeViewRootEqual = equivalentFor(TreeView.Types.Root);
 
 /** East TreeView Root value type */
 export type TreeViewRootValue = ValueTypeOf<typeof TreeView.Types.Root>;

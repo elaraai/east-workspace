@@ -57,6 +57,7 @@ import {
     type ParsedKeyInput,
 } from '@elaraai/east-ui/internal';
 import { EastChakraCombobox } from '../../forms/combobox/index.js';
+import { useFormatters } from '../../format/index.js';
 
 export { parseKeyInput, keyRangePredicates };
 export type { DatasetKeyMatchRange, DatasetKeyQuery, ParsedKeyInput };
@@ -99,6 +100,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const findSeqRef = useRef(0);
     useEffect(() => () => clearTimeout(debounceRef.current), []);
+    // The match counts, in the app's locale (#850).
+    const words = useFormatters();
 
     const runFind = useCallback((query: DatasetKeyQuery) => {
         const seq = ++findSeqRef.current;
@@ -209,8 +212,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
             : !range.found
                 ? 'No matches'
                 : activeIdx === -1
-                    ? `${range.count.toLocaleString()} ${range.count === 1 ? 'match' : 'matches'}`
-                    : `${(activeIdx + 1).toLocaleString()} of ${range.count.toLocaleString()}`;
+                    ? `${words.number(range.count)} ${range.count === 1 ? 'match' : 'matches'}`
+                    : `${words.number(activeIdx + 1)} of ${words.number(range.count)}`;
     const canStep = range !== null && range.found && range.count > 1;
     return (
         <Flex gap={1} align="center" minW="0" onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">

@@ -11,19 +11,25 @@
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { foldTabs, lensCount, lensGaps, lensHits, lensVisible, matchRecord, narrowingActive, nextReach, revealStep, viewName, type LensConfig } from "./lens.js";
+import { sheetMessages } from "./messages.js";
+import { SHEET_WORDS, sheetWords } from "./words.js";
 import type { SliceStateValue } from "./sheet-types.js";
 import type { SheetColumnMeta } from "./model.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => ({ type, value } as SheetCellValue);
-const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)) });
+/** One field's spec in the slice config — a variant per kind, carrying its label, accessor and format. */
+type LensField = LensConfig["fields"] extends Map<string, infer F> ? F : never;
+
+const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
+const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)), lines: [], band: none, subRows: [] });
 const stateOf = (patch: Partial<SliceStateValue>): SliceStateValue => ({
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
     breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none, ...patch,
 } as SliceStateValue);
 /** A column with its field's static type as the wire carries it. */
 const column = (key: string, dataType: unknown): SheetColumnMeta => ({
-    key, header: key, sub: undefined, width: 100, kind: "text", editable: true, register: undefined, base: undefined, dateFormat: undefined,
+    key, header: key, sub: undefined, width: 100, kind: "text", editable: true, register: undefined, options: undefined, level: undefined,
+    actual: undefined, detailCell: undefined, base: undefined, dateFormat: undefined,
     uom: undefined, format: undefined, owner: undefined, accepts: undefined, customParse: undefined, customPrint: undefined,
     raw: { dataType } as never,
 });
@@ -46,31 +52,31 @@ describe("narrowing", () => {
 describe("the match record", () => {
     test("cells decode to their field's value: a bare primitive as is, an Option wrapped, a Link as the link value or its printed text", () => {
         const columns = [column("activity", STRING), column("qty", OPTION_FLOAT), column("stations", LINK), column("text", STRING)];
-        const link = { from: [], to: [{ type: "counted", value: { n: 4n, key: "CNC lathe" } }] };
+        const link = { from: [], to: [variant("counted", { n: 4n, key: "CNC lathe" })] };
         const r = row("a", { activity: cell("String", "Machining"), qty: cell("Float", 1200), stations: cell("Link", link), text: cell("Link", link) });
         const rec = matchRecord(r, columns);
         expect(rec["activity"]).toBe("Machining");
-        expect(rec["qty"]).toEqual({ type: "some", value: 1200 });
+        expect(rec["qty"]).toEqual(some(1200));
         expect(rec["stations"]).toBe(link);
         expect(rec["text"]).toBe("4 × CNC lathe");
         const blank = matchRecord(row("b", { activity: cell("Null", null), qty: cell("Null", null) }), columns);
         expect(blank["activity"]).toBeUndefined();
-        expect(blank["qty"]).toEqual({ type: "none", value: null });
+        expect(blank["qty"]).toEqual(none);
         expect("stations" in blank).toBe(true);
     });
 
     test("hits come from the slice engine — a string field by value, a text field through its projection; a failing projection is not a match", () => {
-        const config = {
-            fields: new Map<string, unknown>([
+        const config: LensConfig = {
+            fields: new Map<string, LensField>([
                 ["activity", variant("string", { label: "Activity", accessor: (r: { activity: string }) => r.activity, format: none })],
                 ["stations", variant("text", { label: "Stations", accessor: (r: { stations: { to: { value: { key: string } }[] } }) => r.stations.to.map((m) => m.value.key).join(", "), format: none })],
             ]),
-            rangeFieldId: none, searchFieldIds: ["activity", "stations"], breakdownFieldIds: [],
-        } as unknown as LensConfig;
+            rangeFieldId: none, searchFieldIds: ["activity", "stations"], breakdownFieldIds: [], fieldHints: new Map(),
+        };
         const columns = [column("activity", STRING), column("stations", LINK)];
         const rows = [
             row("a", { activity: cell("String", "Painting"), stations: cell("Link", { from: [], to: [] }) }),
-            row("b", { activity: cell("String", "Machining"), stations: cell("Link", { from: [], to: [{ type: "identified", value: { key: "M2140" } }] }) }),
+            row("b", { activity: cell("String", "Machining"), stations: cell("Link", { from: [], to: [variant("identified", { key: "M2140" })] }) }),
             row("c", { activity: cell("String", "Machining"), stations: cell("Null", null) }),
         ];
         expect(lensHits(stateOf({ search: some("paint") }), config, rows, columns)).toEqual([true, false, false]);
@@ -130,10 +136,17 @@ describe("visibility, gaps and reveals", () => {
     });
 
     test("the count line and a view's name", () => {
-        expect(lensCount([true, false, true, false], [true, true, true, false])).toBe("2 matches · 1 context");
-        expect(lensCount([true, false], [true, false])).toBe("1 match");
+        expect(lensCount([true, false, true, false], [true, true, true, false], SHEET_WORDS)).toBe("2 matches · 1 context");
+        expect(lensCount([true, false], [true, false], SHEET_WORDS)).toBe("1 match");
+        // The counts print in the app's locale (#850).
+        const many = Array.from({ length: 1500 }, () => true);
+        expect(lensCount(many, many, sheetWords("de-DE", sheetMessages))).toBe("1.500 matches");
+        // The line is the sheet's words (#861).
+        expect(lensCount([true, false], [true, true], sheetWords("en-US", { ...sheetMessages, lensCount: ({ count, context }) => `${count}|${context}` }))).toBe("1|1");
         expect(viewName("paint", 3)).toBe("paint");
         expect(viewName("   ", 3)).toBe("view 3");
+        // An unnamed view takes the sheet's name for it (#861).
+        expect(viewName("   ", 3, (seq) => `Ansicht ${seq}`)).toBe("Ansicht 3");
         expect(viewName("a very long search query indeed", 1)).toBe("a very long sea…");
     });
 });

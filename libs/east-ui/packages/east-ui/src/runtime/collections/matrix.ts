@@ -7,20 +7,21 @@
  * `<Matrix>` tag — see the export's JSDoc.
  */
 
-import type { SubtypeExprOrValue, ArrayType, StructType } from "@elaraai/east";
 import {
     Matrix as MatrixFactory,
     type MatrixConfig,
+    type MatrixData,
     type RowElement,
 } from "../../collections/matrix/index.js";
 import type { UIElement } from "../runtime.js";
 
 /**
  * Maps `props` to `Matrix.Root(data, config)`, threading the data-row generic
- * `T` so the {@link MatrixConfig} closures (`rowKey` / `cell` / `groupBy` …)
- * infer their row parameter from the data schema.
+ * `T` so the {@link MatrixConfig} closures (`rowKey` / `cell` / `tree` …)
+ * infer their row parameter from the data schema — a recursive row's node
+ * (#955).
  */
-function MatrixTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
+function MatrixTag<T extends MatrixData>(
     props: { data: T } & MatrixConfig<RowElement<T>>,
 ): UIElement {
     const { data, ...config } = props;
@@ -32,10 +33,11 @@ function MatrixTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
  * coloured segments. Use it for capacity / utilisation / allocation grids: each
  * row maps to a record, each column to an axis key, and the `cell` closure
  * builds the cell's segments from the row and column. The config closures
- * (`rowKey`, `rowHeader`, `rowSublabel`, `groupBy`, `cell`) and the display
- * options (`orientation`, `minLabelSize`, `legend`, interaction callbacks) live
- * on {@link MatrixConfig}. Segments can be drag-resizable and cells can carry
- * status markers and click popovers.
+ * (`rowKey`, `rowHeader`, `rowSublabel`, `cell`), the nesting (`tree` — rows
+ * carry their children to any depth, a parent a full row with its own cells,
+ * #955) and the display options (`orientation`, `minLabelSize`, `legend`,
+ * interaction callbacks) live on {@link MatrixConfig}. Segments can be
+ * drag-resizable and cells can carry status markers and click popovers.
  *
  * @example
  * ```tsx

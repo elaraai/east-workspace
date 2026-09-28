@@ -37,7 +37,7 @@ const VITE_CONFIG = path.join(SNAPSHOT_ROOT, 'vite.config.ts');
 const TEST_DIR = path.resolve(PKG_ROOT, '../east-ui/test');
 const OUT_DIR = path.join(PKG_ROOT, 'dist-examples');
 
-function parseArgs(argv: string[]): { file?: string; example?: string } {
+function parseArgs(argv: string[]): { file: string | undefined; example: string | undefined } {
     let file: string | undefined;
     let example: string | undefined;
     for (const arg of argv) {

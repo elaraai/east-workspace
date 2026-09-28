@@ -8,12 +8,12 @@ import {
     DataList as ChakraDataList,
     type DataListRootProps,
 } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { DataList } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 
-const dataListRootEqual = equalFor(DataList.Types.Root);
+const dataListRootEqual = equivalentFor(DataList.Types.Root);
 
 /** East DataList Root value type. */
 export type DataListRootValue = ValueTypeOf<typeof DataList.Types.Root>;

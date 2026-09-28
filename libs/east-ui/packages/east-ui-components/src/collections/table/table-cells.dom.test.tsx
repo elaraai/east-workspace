@@ -1,0 +1,158 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * A Table cell with no `render` prints itself, in the viewer's language
+ * (#874). A number with no declared format keeps every digit and is never
+ * grouped, with the viewer's decimal separator, so a year or an id prints as
+ * stored in every language; a column that declares a `Format.*` spec prints
+ * its cells, and a parent's subtotals (#954), through it. In English every
+ * undeclared cell reads exactly as East prints it — what the factory's old
+ * default showed. The table is built by the east-ui factory and COMPILED, so
+ * the renderer reads what an author's program produces — here a nested one.
+ */
+
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { render, cleanup } from "@testing-library/react";
+import { ChakraProvider } from "@chakra-ui/react";
+import { I18nProvider } from "@react-aria/i18n";
+import {
+    ArrayType, BlobType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType,
+    printFor, type ValueTypeOf,
+} from "@elaraai/east";
+import { Format, Table, UIComponentType } from "@elaraai/east-ui/internal";
+import { system } from "../../theme/index.js";
+import { initializeStore } from "../../platform/state-runtime.js";
+import { UIStore } from "../../platform/state-store.js";
+import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
+import { EastChakraComponent } from "../../component.js";
+
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+
+beforeEach(() => { initializeStore(new UIStore()); });
+afterEach(cleanup);
+
+type UIValue = ValueTypeOf<typeof UIComponentType>;
+
+// ── Fixtures, at module scope ───────────────────────────────────────────────
+
+/** An order line — every cell kind, and two declared formats — or a region
+ *  holding its lines (#954). */
+const LineType = RecursiveType((self) => StructType({
+    region: StringType, year: IntegerType, id: IntegerType, qty: FloatType, whole: FloatType,
+    revenue: FloatType, fee: FloatType, shipped: BooleanType, at: DateTimeType,
+    lines: ArrayType(self),
+}));
+const AT = [new Date(Date.UTC(2026, 5, 29, 22, 30)), new Date(Date.UTC(2026, 5, 30, 8, 0))];
+const LINES = [
+    { region: "North", year: 2026n, id: 1234567n, qty: 1234.5, whole: 1234, revenue: 1234.5, fee: 12.5, shipped: true, at: AT[0]!, lines: [] },
+    { region: "North", year: 2026n, id: 1234568n, qty: 0.25, whole: 2, revenue: 1000, fee: 7, shipped: false, at: AT[1]!, lines: [] },
+];
+/** The North region: its own quarter-less cells, and its two lines. */
+const REGIONS = [
+    { region: "North", year: 2026n, id: 0n, qty: 0, whole: 0, revenue: 0, fee: 0, shipped: false, at: AT[0]!, lines: LINES },
+];
+
+/** The table, with no `render` anywhere: the region's revenue sums its lines
+ *  through the declared number format; the fee column COUNTS the lines, so
+ *  its currency format must not reach the count. Unvirtualized, so jsdom
+ *  mounts every row. */
+const TABLE = East.compile(East.function([], UIComponentType, ($) => {
+    const regions = $.const(REGIONS, ArrayType(LineType));
+    return Table.Root(regions, {
+        region: { header: "Region" },
+        year: { header: "Year" },
+        id: { header: "Id" },
+        qty: { header: "Qty" },
+        whole: { header: "Whole" },
+        revenue: { header: "Revenue", format: Format.Number(), aggregate: "sum" },
+        fee: { header: "Fee", format: Format.Currency({ currency: "EUR" }), aggregate: "count" },
+        shipped: { header: "Shipped" },
+        at: { header: "At" },
+    }, { virtualization: false, tree: { children: (r) => r.lines } });
+}), getRegisteredPlatformImplementations())() as UIValue;
+
+/** A digest — a Blob, which no column prints as a number — and a note that is
+ *  Null. Neither is a primitive field, so each column reads it through a
+ *  value function. */
+const DigestRow = StructType({ name: StringType, digest: BlobType, note: NullType });
+const DIGESTS = [{ name: "a", digest: new Uint8Array([0x0a, 0xff]), note: null }];
+const DIGEST_TABLE = East.compile(East.function([], UIComponentType, ($) => {
+    const rows = $.const(DIGESTS, ArrayType(DigestRow));
+    return Table.Root(rows, {
+        name: { header: "Name" },
+        digest: { header: "Digest", value: (d) => d },
+        note: { header: "Note", value: (n) => n },
+    }, { virtualization: false });
+}), getRegisteredPlatformImplementations())() as UIValue;
+
+/** A euro amount as `Intl` prints it in a locale — the oracle for the fee column. */
+const eur = (locale: string, n: number): string => new Intl.NumberFormat(locale, { style: "currency", currency: "EUR" }).format(n);
+
+function renderIn(locale: string, value: UIValue = TABLE) {
+    return render(
+        <ChakraProvider value={system}>
+            <I18nProvider locale={locale}>
+                <EastChakraComponent value={value} storageKey={`table-cells-${locale}`} />
+            </I18nProvider>
+        </ChakraProvider>,
+    );
+}
+
+/** Each line's cell texts, in column order — the rows one level down. */
+function memberRows(container: HTMLElement): string[][] {
+    return [...container.querySelectorAll('tbody tr[data-depth="1"]')]
+        .map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent ?? ""));
+}
+
+/** The region's subtotals, in column order. */
+function groupTotals(container: HTMLElement): string[] {
+    return [...container.querySelectorAll('tbody tr[data-depth="0"] td[data-subtotal]')].map((el) => el.textContent ?? "");
+}
+
+// ── German ──────────────────────────────────────────────────────────────────
+
+describe("a Table cell prints itself in the viewer's language (#874)", () => {
+    test("German: an undeclared number has every digit and a decimal comma; a declared format groups; a year and an id print as stored", () => {
+        const { container } = renderIn("de-DE");
+        expect(memberRows(container)).toEqual([
+            ["North", "2026", "1234567", "1234,5", "1234,0", "1.234,5", eur("de-DE", 12.5), "true", "2026-06-29T22:30:00.000"],
+            ["North", "2026", "1234568", "0,25", "2,0", "1.000", eur("de-DE", 7), "false", "2026-06-30T08:00:00.000"],
+        ]);
+    });
+
+    test("German: a declared format formats its sum's subtotal; a count counts, in no column's format", () => {
+        const { container } = renderIn("de-DE");
+        expect(groupTotals(container)).toEqual(["2.234,5", "2"]);
+    });
+
+    test("English: every undeclared cell is East's own text, exactly as before", () => {
+        const { container } = renderIn("en-US");
+        const int = printFor(IntegerType);
+        const float = printFor(FloatType);
+        const date = printFor(DateTimeType);
+        const bool = printFor(BooleanType);
+        expect(memberRows(container)).toEqual(LINES.map((l) => [
+            l.region, int(l.year), int(l.id), float(l.qty), float(l.whole),
+            new Intl.NumberFormat("en-US").format(l.revenue), eur("en-US", l.fee), bool(l.shipped), date(l.at),
+        ]));
+        // The same text the factory's default printed: a whole float keeps its `.0`.
+        expect(memberRows(container)[0]![4]).toBe("1234.0");
+        expect(groupTotals(container)).toEqual(["2,234.5", "2"]);
+    });
+});
+
+describe("a cell that is no number or string prints as East prints it (#874)", () => {
+    test("a Blob prints its bytes, and a Null prints null, in any language", () => {
+        for (const locale of ["en-US", "de-DE"]) {
+            const { container, unmount } = renderIn(locale, DIGEST_TABLE);
+            const cells = [...container.querySelectorAll("tbody tr td")].map((td) => td.textContent ?? "");
+            expect(cells).toEqual(["a", printFor(BlobType)(DIGESTS[0]!.digest), printFor(NullType)(null)]);
+            expect(cells.slice(1)).toEqual(["0x0aff", "null"]);
+            unmount();
+        }
+    });
+});

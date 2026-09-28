@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { eastOwnDirs, normalizeFramePath, resolveLocIds, setLocationBasePath, SourceMap } from "./location.js";
+import { eastOwnDirs, get_location, normalizeFramePath, resolveLocIds, setLocationBasePath, setLocationCapture, SourceMap } from "./location.js";
 
 describe("normalizeFramePath", () => {
   // Reset to the automatic (cwd) base after every test so cases don't leak.
@@ -276,6 +276,104 @@ describe("error source locations (issue #381)", () => {
       stacks.some(s => s.some(l => l.filename.includes("location.spec"))),
       "the module-scope value's locations should be re-interned into the function's map",
     );
+  });
+});
+
+describe("setLocationCapture (#834)", () => {
+  // Capture is a stack walk per node, and an attached inspector makes V8
+  // walk up to 200 frames for every Error — a host that cannot use the
+  // locations (a bundled browser app) switches it off.
+  afterEach(() => setLocationCapture(true));
+
+  /** A small body: a const, an index and a return — several nodes. */
+  async function build() {
+    const { East, IntegerType, ArrayType } = await import("./index.js");
+    return East.function([], IntegerType, ($) => {
+      const values = $.const([1n, 2n], ArrayType(IntegerType));
+      return values.get(0n);
+    }) as any;
+  }
+
+  /** How many Errors `fn` constructs, counted through the global binding
+   *  East's capture reads. */
+  function errorsConstructedBy(fn: () => void): number {
+    const original = globalThis.Error;
+    let count = 0;
+    globalThis.Error = new Proxy(original, {
+      construct(target, args, newTarget) {
+        count++;
+        return Reflect.construct(target, args, newTarget);
+      },
+    });
+    try {
+      fn();
+    } finally {
+      globalThis.Error = original;
+    }
+    return count;
+  }
+
+  test("off, a built function carries no location — its map holds only the reserved empty entry", async () => {
+    setLocationCapture(false);
+    const ir = (await build()).toIR();
+    assert.deepEqual(ir.source_map.entries(), [[]]);
+    assert.deepEqual(get_location(), []);
+  });
+
+  test("off, a compile-time error names an unknown location", async () => {
+    const { East, IntegerType } = await import("./index.js");
+    setLocationCapture(false);
+    assert.throws(
+      () => East.function([], IntegerType, ($) => {
+        const c = $.const(1n, IntegerType);
+        $.assign(c as any, 2n);
+        return c;
+      }),
+      (e: Error) => {
+        assert.doesNotMatch(e.message, /loc_id \d+/, `raw loc_id in: ${e.message}`);
+        assert.doesNotMatch(e.message, /location\.spec/, `a location despite capture off: ${e.message}`);
+        assert.match(e.message, /an unknown location/, `no unknown location in: ${e.message}`);
+        return true;
+      },
+    );
+  });
+
+  test("off, a binding recovers no name from its call site", async () => {
+    const { East, IntegerType } = await import("./index.js");
+    const named = () => East.function([], IntegerType, ($) => {
+      const total = $.let(0n);
+      return total.add(1n);
+    });
+    setLocationCapture(false);
+    const offSource = East.toSource(named());
+    setLocationCapture(true);
+    const onSource = East.toSource(named());
+    assert.match(onSource, /const total = \$\.let\(0n\)/);
+    assert.doesNotMatch(offSource, /\btotal\b/, `a call-site name despite capture off: ${offSource}`);
+  });
+
+  test("switched back on, a function built afterwards carries this spec's frames again", async () => {
+    setLocationCapture(false);
+    await build();
+    setLocationCapture(true);
+    const frames = ((await build()).toIR().source_map.entries().flat(2) as { filename: string }[]);
+    assert.ok(frames.length > 0, "expected captured locations");
+    assert.ok(frames.every(l => l.filename.includes("location.spec")));
+  });
+
+  test("off, a build constructs no Error at all — the stack walk is what it saves", async () => {
+    const { East, IntegerType, ArrayType } = await import("./index.js");
+    const body = () => {
+      East.function([], IntegerType, ($) => {
+        const values = $.const([1n, 2n], ArrayType(IntegerType));
+        const total = $.let(0n);
+        $.assign(total, values.get(0n));
+        return total;
+      });
+    };
+    assert.ok(errorsConstructedBy(body) > 0, "with capture on, every node constructs one");
+    setLocationCapture(false);
+    assert.equal(errorsConstructedBy(body), 0);
   });
 });
 

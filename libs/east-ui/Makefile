@@ -22,7 +22,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive test-responsive-bank \
+.PHONY: build test lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
@@ -192,8 +192,7 @@ help:
 	@echo "  design            - Serve app_design_system/ (canonical design system) on :5174"
 	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
 	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
-	@echo "  test-responsive               - Playwright responsive sweep (desktop + mobile) over the showcase catalog"
-	@echo "  test-responsive-bank          - Bank/refresh the per-component visual goldens (committed)"
+	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile), exactly as CI runs it (SHARD=n/4 optional)"
 	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
 	@echo "  extension         - Build and package VS Code extension"
 	@echo "  extension-install - Install VS Code extension"
@@ -203,17 +202,17 @@ help:
 	@echo "Dependencies are managed by pnpm from the monorepo root."
 	@echo "Run 'pnpm install' from the workspace root to install deps."
 
-## Responsive validation suite (#357, epic #345) — Playwright drives the
-## built showcase over every catalog page at desktop + mobile viewports.
-## On hosts Playwright can't provision a browser for (non-LTS Ubuntu), set
+## The responsive suite (#357, #833): Playwright drives the BUILT showcase
+## over every catalog page at desktop + mobile viewports. These are DOM specs
+## (packages/east-ui-showcase/tests/responsive/) with no pixel comparisons.
+## CI runs exactly this target, sharded: `make test-responsive SHARD=1/4`.
+##
+## It serves what `make build` built, building the showcase only when its
+## dist is missing, so rebuild after a change. A failing spec leaves its
+## screenshot and trace under packages/east-ui-showcase/test-results/. On
+## hosts Playwright can't provision a browser for (non-LTS Ubuntu), set
 ## E3_UI_CHROMIUM_PATH (or PW_EXECUTABLE_PATH) to a Chrome/Chromium binary.
 test-responsive:
 	-pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
-	pnpm --filter @elaraai/east-ui-showcase run test:responsive
-
-## Bank / refresh the per-component visual goldens the responsive suite
-## compares against (tests/responsive/__goldens__/ — committed). Run after
-## an INTENTIONAL visual change, review the diff, commit the updated PNGs.
-test-responsive-bank:
-	-pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
-	pnpm --filter @elaraai/east-ui-showcase run test:responsive:bank
+	@test -f packages/east-ui-showcase/dist/index.html || $(MAKE) --no-print-directory build-showcase
+	pnpm --filter @elaraai/east-ui-showcase run test:responsive $(if $(SHARD),--shard=$(SHARD))

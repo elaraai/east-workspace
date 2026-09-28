@@ -8,13 +8,13 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { EditableChip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
-const editableChipEqual = equalFor(EditableChip.Types.EditableChip);
+const editableChipEqual = equivalentFor(EditableChip.Types.EditableChip);
 
 /** East EditableChip value type. */
 export type EditableChipValue = ValueTypeOf<typeof EditableChip.Types.EditableChip>;

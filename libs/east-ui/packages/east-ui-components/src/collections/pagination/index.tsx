@@ -11,12 +11,12 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Pagination } from "@elaraai/east-ui/internal";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { getSomeorUndefined } from "../../utils";
 
-const paginationEqual = equalFor(Pagination.Types.Pagination);
+const paginationEqual = equivalentFor(Pagination.Types.Pagination);
 
 /** East Pagination value type. */
 export type PaginationValue = ValueTypeOf<typeof Pagination.Types.Pagination>;

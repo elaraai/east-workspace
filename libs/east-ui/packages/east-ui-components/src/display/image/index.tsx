@@ -5,12 +5,12 @@
 
 import { memo, useEffect, useMemo, useState } from "react";
 import { chakra } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Image } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 
-const imageEqual = equalFor(Image.Types.Image);
+const imageEqual = equivalentFor(Image.Types.Image);
 
 /** East Image value type. */
 export type ImageValue = ValueTypeOf<typeof Image.Types.Image>;

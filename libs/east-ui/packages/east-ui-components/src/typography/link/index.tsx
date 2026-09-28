@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Link as ChakraLink, type LinkProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Link } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
-const linkEqual = equalFor(Link.Types.Link);
+const linkEqual = equivalentFor(Link.Types.Link);
 
 /** East Link value type */
 export type LinkValue = ValueTypeOf<typeof Link.Types.Link>;

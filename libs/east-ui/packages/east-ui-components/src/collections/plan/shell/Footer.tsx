@@ -18,7 +18,8 @@
 import { Box } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { transportLabel, type PlanTransport } from "./transport.js";
+import { transportLine, type PlanTransport } from "./transport.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type FooterItemValue = ValueTypeOf<typeof Plan.Types.FooterItem>;
@@ -33,14 +34,14 @@ export interface PlanFooterProps {
 
 /** The 28px footer band (renders nothing without items or transport). */
 export function PlanFooter({ styles, items, transport }: PlanFooterProps) {
+    const words = usePlanWords();
     if (items.length === 0 && transport === undefined) return null;
     return (
         <Box css={styles.footer} data-slot="footer">
             {items.map((item, i) => {
                 const tone = item.tone.type === "some" ? item.tone.value.type : undefined;
-                const end = item.end.type === "some" && item.end.value;
                 return (
-                    <Box key={i} css={styles.footerItem} data-tone={tone} data-end={end ? "" : undefined}>
+                    <Box key={i} css={styles.footerItem} data-tone={tone} data-end={item.end ? "" : undefined}>
                         {item.text}
                     </Box>
                 );
@@ -48,7 +49,7 @@ export function PlanFooter({ styles, items, transport }: PlanFooterProps) {
             {transport !== undefined && (
                 <Box css={styles.footerItem} data-end="" data-slot="footerTransport"
                     data-partial={transport.partial ? "" : undefined}>
-                    {transport.loading ? `${transportLabel(transport)} · Loading…` : transportLabel(transport)}
+                    {transportLine(transport, words)}
                 </Box>
             )}
         </Box>

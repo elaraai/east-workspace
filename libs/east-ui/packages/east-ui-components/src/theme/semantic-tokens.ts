@@ -17,6 +17,15 @@ import { defineSemanticTokens } from "@chakra-ui/react";
 
 export const semanticTokens = defineSemanticTokens({
     colors: {
+        /** Stable group identity colours, shared by markers and rails. */
+        sheet: { group: {
+            "1": { value: "{colors.brand.solid}" },
+            "2": { value: { base: "#85739a", _dark: "#b6a3cf" } },
+            "3": { value: { base: "#9a7a4f", _dark: "#c9aa7f" } },
+            "4": { value: { base: "#6c859f", _dark: "#9ab3cd" } },
+            "5": { value: { base: "#8a8655", _dark: "#b9b585" } },
+            "6": { value: { base: "#a8757f", _dark: "#d7a4ae" } },
+        } },
         /* ─── colorPalette virtual mappings ────────────────────
          *
          * Chakra v3 resolves `colorPalette.solid`, `colorPalette.contrast`,
@@ -126,6 +135,18 @@ export const semanticTokens = defineSemanticTokens({
             "2": { value: { base: "#88b8bd", _dark: "#3d6e76" } },
             "3": { value: { base: "#4d8e95", _dark: "#579aa2" } },
             "4": { value: { base: "#2b4b55", _dark: "#83c7cc" } },
+        },
+
+        /* The ink a label takes on each `brandHeat` step — at least 4.5:1 on
+         * that step in its own mode (#949): the deep ink on the light steps,
+         * paper on the darkest light step, and in dark the pale ink until the
+         * steps brighten past it. */
+        brandHeatInk: {
+            "0": { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
+            "1": { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
+            "2": { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
+            "3": { value: { base: "{colors.brand.900}", _dark: "{colors.brand.900}" } },
+            "4": { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
         },
 
         /* Overlay tints — semi-transparent ink for backdrops + scroll thumbs.

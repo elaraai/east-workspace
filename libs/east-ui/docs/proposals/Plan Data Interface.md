@@ -342,11 +342,13 @@ data engineering, not component machinery.)
 There is no skeleton dataset. The client learns structure from the pages
 it loads, and the pager's `totalElements` bounds what it hasn't:
 
-- **Ordering is a data property.** A paged source's dataset must be
-  ordered so the config's `groupBy` keys are contiguous — the same ask any
-  database makes; for derived data it's one sort in the producing
-  expression, for inputs a stated contract. Contiguity makes an unloaded
-  group a contiguous unknown range, never scattered holes.
+- **Ordering — superseded (#822, #823).** This asked a paged source to sort
+  its rows so `groupBy` keys were contiguous. The shipped contract needs no
+  such ordering: `groupBy` is gone, hierarchy comes from the data's own
+  nesting (a group is one entry holding its members), a window holds its
+  entries whole, and each top-level series is a block that pages on its own.
+  See [`PLAN_MIGRATION.md`](../PLAN_MIGRATION.md) — "Rows as a stream (#822)"
+  and "Blocks (#823)".
 - **Scrollbar / totals:** the stored count gives the extent estimate, and
   virtualizers are estimate-then-correct machines (`estimateSize` +
   `measureElement`) — heights refine as windows load. Collapsing a
@@ -418,9 +420,8 @@ erased; the renderer consumes the same contract as every other paged
 component (`page(offset, limit) → Option<Dict<String, PlanRowType>>`,
 `total()` for the scrollbar estimate, `seek` for key navigation). Because
 the canvas keys ARE the source keys, a window's rows land under the keys
-that window's elements have, and a `seek` row indexes the same space. The ordering ask
-(§3.7) applies to the one dataset: rows sorted so series membership and
-groupBy keys are contiguous. Slice narrowing stays client-side over
+that window's elements have, and a `seek` row indexes the same space. (The
+ordering ask this section made is superseded — see §3.7.) Slice narrowing stays client-side over
 loaded rows; server narrowing is an author's derived dataset, never
 component machinery. (Impl note: new platform primitives must be added to
 the two hard-coded e3-ui-components arrays — `UITaskPreview` +

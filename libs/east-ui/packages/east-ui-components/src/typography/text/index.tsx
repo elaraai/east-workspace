@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Text as ChakraText, type TextProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Text } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
-const textEqual = equalFor(Text.Types.Text);
+const textEqual = equivalentFor(Text.Types.Text);
 
 /** East Text value type */
 export type TextValue = ValueTypeOf<typeof Text.Types.Text>;

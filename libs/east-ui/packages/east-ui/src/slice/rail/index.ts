@@ -29,10 +29,14 @@ export interface SliceRailOptions {
     slice: SubtypeExprOrValue<SliceBindType>;
     /**
      * Rail affordances, in order. Plain strings or variant expressions. The
-     * rail renders them in one row that never wraps: chips fold along the
-     * compress ladder (whole chips → `+M more` within a family → family count
-     * chips → one `N narrowed` chip), and under compression every chip opens
-     * the sectioned `Slice.Edit` popover floating over whatever sits below.
+     * rail renders them in one row that never wraps, and folds as the row's
+     * width asks, one step at a time: a filter's trailing clause chips into
+     * `+M more`, then each affordance into a summary chip (search and range
+     * first, the filter builder last), then those into one chip that names
+     * the rail's contents, then the icon alone. Every folded chip opens the
+     * sectioned `Slice.Edit` popover floating over whatever sits below. The
+     * fold follows the width alone — never an animation through the steps
+     * between (#952).
      */
     affordances?: SliceRailAffordance[];
     /**

@@ -12,13 +12,13 @@ import {
     type AccordionRootProps,
     type AccordionItemProps,
 } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Accordion } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const accordionEqual = equalFor(Accordion.Types.Accordion);
-const accordionItemEqual = equalFor(Accordion.Types.Item);
+const accordionEqual = equivalentFor(Accordion.Types.Accordion);
+const accordionItemEqual = equivalentFor(Accordion.Types.Item);
 
 /** East Accordion value type. */
 export type AccordionValue = ValueTypeOf<typeof Accordion.Types.Accordion>;

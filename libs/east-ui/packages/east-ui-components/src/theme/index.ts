@@ -88,6 +88,7 @@ import { breadcrumbSlotRecipe } from "./slot-recipes/breadcrumb.js";
 import { fieldSlotRecipe } from "./slot-recipes/field.js";
 import { comboboxSlotRecipe } from "./slot-recipes/combobox.js";
 import { tagsInputSlotRecipe } from "./slot-recipes/tagsInput.js";
+import { dateFieldSlotRecipe } from "./slot-recipes/dateField.js";
 import { numberInputSlotRecipe } from "./slot-recipes/numberInput.js";
 import { fileUploadSlotRecipe } from "./slot-recipes/fileUpload.js";
 import { paginationSlotRecipe } from "./slot-recipes/pagination.js";
@@ -126,8 +127,10 @@ import { showMoreSlotRecipe } from "./slot-recipes/showMore.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { eyebrowRowSlotRecipe } from "./slot-recipes/eyebrowRow.js";
 import { commitBarSlotRecipe } from "./slot-recipes/commitBar.js";
+import { editHistorySlotRecipe } from "./slot-recipes/editHistory.js";
 import { reviewChromeSlotRecipe } from "./slot-recipes/reviewChrome.js";
 import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
+import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 
 const config = defineConfig({
     globalCss,
@@ -206,6 +209,7 @@ const config = defineConfig({
             combobox:        comboboxSlotRecipe,
             tagsInput:       tagsInputSlotRecipe,
             numberInput:     numberInputSlotRecipe,
+            dateField:       dateFieldSlotRecipe,
             fileUpload:      fileUploadSlotRecipe,
             pagination:      paginationSlotRecipe,
             dataList:        dataListSlotRecipe,
@@ -243,8 +247,10 @@ const config = defineConfig({
             status:          statusSlotRecipe,
             eyebrowRow:      eyebrowRowSlotRecipe,
             commitBar:       commitBarSlotRecipe,
+            editHistory:     editHistorySlotRecipe,
             reviewChrome:    reviewChromeSlotRecipe,
             decisionQueue:   decisionQueueSlotRecipe,
+            toolbar:         toolbarSlotRecipe,
         },
     },
 });

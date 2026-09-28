@@ -46,6 +46,23 @@ export {
     type EastChakraPlanProps,
 } from "./plan";
 
+// The Plan's words (#820) — its message table, and the provider that
+// overrides it for a subtree (its locale is react-aria's `I18nProvider`).
+export {
+    PlanMessagesProvider,
+    planMessages,
+    type PlanMessages,
+    type PlanMessagesProviderProps,
+    type PlanAxisWord,
+    type PlanChartLayerWord,
+    type PlanFocusTagWord,
+    type PlanGrainWord,
+    type PlanHorizonUnit,
+    type PlanMarkWord,
+    type PlanPart,
+    type PlanStateWord,
+} from "./plan/messages.js";
+
 export {
     EastChakraLibrary,
     type LibraryValue,
@@ -103,6 +120,21 @@ export {
     type SheetCellValue,
     type EastChakraSheetProps,
 } from "./sheet";
+
+// The Sheet's words (#861) — its message table, and the provider that
+// overrides it for a subtree (its locale is react-aria's `I18nProvider`).
+export {
+    SheetMessagesProvider,
+    sheetMessages,
+    type SheetMessages,
+    type SheetMessagesProviderProps,
+    type SheetArityWord,
+    type SheetHalfWord,
+    type SheetHistoryWord,
+    type SheetLevelWord,
+    type SheetScopeWord,
+    type SheetToneWord,
+} from "./sheet/messages.js";
 
 export {
     EastChakraBlend,

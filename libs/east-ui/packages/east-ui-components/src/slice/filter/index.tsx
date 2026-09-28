@@ -7,9 +7,10 @@ import { memo, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faChevronDown } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf } from "@elaraai/east";
+import { none, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFormatters } from "../../format/index.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -24,17 +25,21 @@ type PredicateValue = ValueTypeOf<typeof Slice.Types.Predicate>;
 
 export interface EastChakraSliceFilterProps {
     value: SliceFilterValue;
+    /** Compact only: how many trailing clause chips fold into `+N more`, as
+     *  the shared toolbar decides it (#952) — it folds them as forms of its
+     *  one ladder. Absent, the chips fold to fit the row by their own measure. */
+    foldChips?: number | undefined;
 }
 
 /**
  * Renders an East UI `Slice.Filter`. **Compact** (in a `Slice.Frame` eyebrow):
- * one row of as many brand pills as fit with remove `×`, a `+N more` pill opening a
- * `Slice.Edit` list, and a dashed `+ filter` pill opening the builder popover.
+ * one row of as many brand chips as fit with remove `×`, a `+N more` chip opening a
+ * `Slice.Edit` list, and a dashed `+ FILTER` chip opening the builder popover.
  * **Focused** (standalone): the same chip rail plus a `SHOWING N {unit}` footer
  * (result **of** total). The add-filter builder always lives in a `Slice.Edit`
  * popover, so opening it never re-flows the surface.
  */
-export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value }: EastChakraSliceFilterProps) {
+export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value, foldChips }: EastChakraSliceFilterProps) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
@@ -44,6 +49,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     useSliceReactivity(slice.key);
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
     const compact = density === "compact";
+    // Counts and clause dates, in the app's locale (#850).
+    const words = useFormatters();
 
     const state = slice.read();
     const filters = state.filters;
@@ -53,8 +60,13 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
 
     // Compact eyebrow is one row that never wraps/clips — Priority+ overflow: as
     // many clause chips as fit, the rest collapse into `+N more`. The hook
-    // measures the rendered chips once per resize / count change (see its doc).
-    const { rowRef, visibleCount, measuring } = useOverflowCount(filters.length);
+    // measures the rendered chips once per resize / count change (see its doc)
+    // — unless the shared toolbar decides the fold (`foldChips`, #952).
+    const controlled = foldChips !== undefined;
+    const ownFold = useOverflowCount(filters.length, !controlled);
+    const rowRef = ownFold.rowRef;
+    const visibleCount = controlled ? Math.max(0, filters.length - foldChips) : ownFold.visibleCount;
+    const measuring = !controlled && ownFold.measuring;
 
     // null = closed; "add" = add-builder; "more" = overflow list; "save" =
     // save-as-cohort form; a number = editing the clause at that index.
@@ -72,7 +84,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
         const name = cohortName.trim();
         if (name === "") return;
         const id = uniqueSlug(name, state.cohorts.map(c => c.id));
-        slice.defineCohort({ id, name, filters: [...filters] });
+        // A saved filter set is a standalone cohort — it ANDs with everything.
+        slice.defineCohort({ id, name, filters: [...filters], group: none });
         slice.toggleCohort(id);
         setCohortName("");
         setOpen(null);
@@ -87,8 +100,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             label={<>{"Edit · "}<Box as="span" css={edit.clauseField}>{pred.value.fieldId}</Box></>}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Cancel</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "brand", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer" flexShrink={0}>
-                    <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
+                <Box css={chip({ tone: "brand", numeric: true })} cursor="pointer" flexShrink={0}>
+                    <Box as="span" whiteSpace="nowrap">{formatPredicate(pred, words)}</Box>
                     <chakra.button type="button" cursor="pointer" color="link" flexShrink="0" onClick={e => { e.stopPropagation(); slice.removeFilter(BigInt(i)); }} aria-label="Remove filter">×</chakra.button>
                 </Box>
             }
@@ -107,7 +120,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             size="lg"
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Done</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "dashed", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer">
+                <Box css={chip({ tone: "dashed", numeric: true, caps: true })} cursor="pointer" data-slice-add="filter">
                     <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                     <Box as="span">{compact ? "filter" : "add filter"}</Box>
                 </Box>
@@ -171,7 +184,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                                     </>
                                 )}
                             trigger={
-                                <Box css={chip({ tone: "more", numeric: true, shape: "pill" })} cursor="pointer">
+                                <Box css={chip({ tone: "more", numeric: true })} cursor="pointer">
                                     <Box as="span">{`+${measuring ? filters.length : overflow} more`}</Box>
                                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
                                 </Box>
@@ -185,7 +198,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                             )}
                             {(open === "more" || open === "save") && filters.map((pred, i) => (
                                 <Box key={i} css={edit.moreRow}>
-                                    <Box as="span">{formatPredicate(pred)}</Box>
+                                    <Box as="span">{formatPredicate(pred, words)}</Box>
                                     {open === "more" && (
                                         <chakra.button type="button" css={edit.moreRowRemove} onClick={() => slice.removeFilter(BigInt(i))} aria-label="Remove filter">×</chakra.button>
                                     )}
@@ -214,7 +227,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                 {/* Result OF total (#169) — "1,284 of 50,000 events" gives the
                     denominator context a bare count lacks. */}
                 <Box as="span" css={frame.footerLabel}>
-                    {`SHOWING ${Number(slice.resultCount()).toLocaleString()}${Number(slice.totalCount()) > 0 ? ` OF ${Number(slice.totalCount()).toLocaleString()}` : ""}${unit !== undefined ? ` ${unit}` : ""}`}
+                    {`SHOWING ${words.number(Number(slice.resultCount()))}${Number(slice.totalCount()) > 0 ? ` OF ${words.number(Number(slice.totalCount()))}` : ""}${unit !== undefined ? ` ${unit}` : ""}`}
                 </Box>
             </Box>
         </Box>

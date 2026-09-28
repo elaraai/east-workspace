@@ -7,12 +7,12 @@ import { memo, useMemo, useCallback } from "react";
 import { Box, Flex, FileUpload as ChakraFileUpload, type FileUploadRootProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUpFromBracket } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { FileUpload } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level
-const fileUploadEqual = equalFor(FileUpload.Types.FileUpload);
+const fileUploadEqual = equivalentFor(FileUpload.Types.FileUpload);
 
 /** East FileUpload value type */
 export type FileUploadValue = ValueTypeOf<typeof FileUpload.Types.FileUpload>;

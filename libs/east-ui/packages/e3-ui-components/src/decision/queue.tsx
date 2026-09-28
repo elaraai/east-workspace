@@ -32,32 +32,34 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useRecipe, useSlotRecipe } from '@chakra-ui/react';
 import { variant, type ValueTypeOf } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
 import { DecisionQueue } from '@elaraai/e3-ui/internal';
 import { sliceMatches } from '@elaraai/east-ui/internal';
 import {
     EastChakraComponent,
     implementUIComponent,
     getSomeorUndefined,
-    formatTick,
+    useFormatters,
     SliceRailCluster,
     usePersistedState,
     useSliceReactivity,
     useContainerBelow,
-    type TickFormatOpt,
+    type Formatters,
 } from '@elaraai/east-ui-components';
 
 import { boundSliceConfig } from '@elaraai/east-ui-components/platform';
 
-import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
-import { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleRefValue } from './handle-runtime.js';
+import { useDecisionHandle, type UseDecisionHandleResult } from './handle-runtime.js';
 import { EvidenceFacet, OptionsFacet, JudgementFacet } from './facets.js';
-import { normalizeTypeValue, type TypeNode } from './lever-editor.js';
-import { URGENCY_GROUP_LABEL, buildGroups, type GroupOption, type QueueGroup } from './grouping.js';
-import { URGENCY_RANK, type Decision, type UrgencyKind } from './types.js';
+import { useConstraintContract, type ConstraintContract } from './contract.js';
+import { URGENCY_GROUP_LABEL, buildGroups, compareByUrgency, type GroupOption, type QueueGroup } from './grouping.js';
+import { type Decision, type UrgencyKind } from './types.js';
 
 type DecisionQueueValue = ValueTypeOf<typeof DecisionQueue.Component.schema>;
 type FacetKey = 'evidence' | 'options' | 'judgement' | 'modify';
+/** The author's per-kind probe editor — the payload's own East function. */
+type ModifyFn = Extract<DecisionQueueValue['modify'], { type: 'some' }>['value'];
+/** The author's per-decision Evidence canvas — the payload's own East function. */
+type EvidenceFn = Extract<DecisionQueueValue['evidence'], { type: 'some' }>['value'];
 
 const FACETS: ReadonlyArray<{ key: FacetKey; label: string }> = [
     { key: 'evidence', label: 'Evidence' },
@@ -92,12 +94,14 @@ interface DecisionQueueToolbarState {
     collapsed: string[];
 }
 
-function decisionValue(d: Decision, n: number, showSign = false): string {
-    return formatTick(n, getSomeorUndefined(d.format) as TickFormatOpt, showSign);
+/** A decision value through its declared format, in the app's locale (#850). */
+function decisionValue(words: Formatters, d: Decision, n: number, showSign = false): string {
+    return words.value(n, getSomeorUndefined(d.format), showSign);
 }
 
-/** Deadline qualifier for the urgency flag — "overdue 2h" / "due 4pm". */
-function deadlineSuffix(d: Decision): string {
+/** Deadline qualifier for the urgency flag — "overdue 2h" / "due 16:00" (the
+ *  deadline's UTC time, in the app's locale — #850). */
+function deadlineSuffix(d: Decision, words: Formatters): string {
     const deadline = getSomeorUndefined(d.deadline);
     if (deadline === undefined) return '';
     if (d.urgency.type === 'overdue') {
@@ -106,29 +110,8 @@ function deadlineSuffix(d: Decision): string {
         if (hours < 48) return ` ${hours}h`;
         return ` ${Math.round(hours / 24)}d`;
     }
-    if (d.urgency.type === 'due') {
-        const h = deadline.getHours();
-        const m = deadline.getMinutes();
-        const meridiem = h >= 12 ? 'pm' : 'am';
-        const clock = h % 12 === 0 ? 12 : h % 12;
-        return m === 0 ? ` ${clock}${meridiem}` : ` ${clock}:${String(m).padStart(2, '0')}${meridiem}`;
-    }
+    if (d.urgency.type === 'due') return ` ${words.time(deadline)}`;
     return '';
-}
-
-/** Walk the judgements binding's registered type to the contract's case
- *  payload types — what the lever editor and constraint chips dispatch on. */
-function useLeverPayloads(ref: DecisionHandleRefValue | null): Record<string, TypeNode> {
-    const cache = getReactiveDatasetCache();
-    const workspace = cache.getConfig().workspace ?? '';
-    return useMemo(() => {
-        if (!ref) return {};
-        const judgements = getBindingTypes(workspace, ref.judgements.source as TreePath);
-        if (!judgements?.sourceType) return {};
-        const root = normalizeTypeValue(judgements.sourceType);
-        const constraint = root.value?.fields?.['constraints']?.value;
-        return constraint?.type === 'Variant' ? (constraint.cases ?? {}) : {};
-    }, [ref, workspace]);
 }
 
 // =============================================================================
@@ -141,9 +124,10 @@ interface RowProps {
     handle: UseDecisionHandleResult;
     selected: boolean;
     narrow: boolean;
-    leverPayloads: Record<string, TypeNode>;
-    modify: ((d: Decision, update: (next: Decision) => void) => unknown) | undefined;
-    evidence: ((d: Decision) => unknown) | undefined;
+    /** The solution's constraint contract; `undefined` until its type is registered. */
+    contract: ConstraintContract | undefined;
+    modify: ModifyFn | undefined;
+    evidence: EvidenceFn | undefined;
     defaultFacet: FacetKey;
     /** Author include-list of data facets; `null` ⇒ all. `modify` stays callback-gated. */
     facetInclude: ReadonlySet<FacetKey> | null;
@@ -153,11 +137,12 @@ interface RowProps {
     storageKey: string;
 }
 
-const Row = memo(function Row({ decision, handle, selected, narrow, leverPayloads, modify, evidence, defaultFacet, facetInclude, apply, reject, leaving, storageKey }: RowProps) {
+const Row = memo(function Row({ decision, handle, selected, narrow, contract, modify, evidence, defaultFacet, facetInclude, apply, reject, leaving, storageKey }: RowProps) {
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const status = useSlotRecipe({ key: 'status' });
     const tabs = useSlotRecipe({ key: 'facetTabs' });
     const button = useRecipe({ key: 'button' });
+    const words = useFormatters();
     const rs = dq({});
     const ts = tabs({});
     const st = status({ status: URGENCY_TONE[decision.urgency.type], size: 'md' });
@@ -189,11 +174,14 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const handleReject = useCallback(() => { reject(decision); }, [reject, decision]);
 
     // Host slots — `UIComponentType` values rendered by the nested dispatcher.
-    const probe = useMemo<unknown>(() => {
+    // The probe's `update` is an East `(Decision) => Null` — it stages the edit.
+    const stageUpdate = handle.update;
+    const updateDecision = useCallback((next: Decision): null => { stageUpdate(next); return null; }, [stageUpdate]);
+    const probe = useMemo(() => {
         if (!selected || facet !== 'modify' || !modify) return null;
-        return modify(decision, handle.update);
-    }, [selected, facet, modify, decision, handle.update]);
-    const canvas = useMemo<unknown>(() => {
+        return modify(decision, updateDecision);
+    }, [selected, facet, modify, decision, updateDecision]);
+    const canvas = useMemo(() => {
         if (!selected || facet !== 'evidence' || !evidence) return null;
         return evidence(decision);
     }, [selected, facet, evidence, decision]);
@@ -256,7 +244,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const urgency = (
         <Box as="span" css={st.root} flexShrink={0}>
             <Box as="span" css={st.indicator} />
-            <Box as="span" css={st.label}>{decision.urgency.type}{deadlineSuffix(decision)}</Box>
+            <Box as="span" css={st.label}>{decision.urgency.type}{deadlineSuffix(decision, words)}</Box>
         </Box>
     );
     // Value-axis descriptor: when `signed` is false, the headline value reads
@@ -264,7 +252,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const valueSigned = getSomeorUndefined(decision.valueAxis)?.signed ?? true;
     const valueText = (
         <Text fontFamily="mono" fontWeight="semibold" textAlign="right" {...(valueSigned && decision.value >= 0 && selected ? { color: 'fg.success' } : {})}>
-            {decisionValue(decision, decision.value, valueSigned && selected)}
+            {decisionValue(words, decision, decision.value, valueSigned && selected)}
         </Text>
     );
 
@@ -301,16 +289,16 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
                     {facet === 'evidence' && (
                         <EvidenceFacet decision={decision}>
                             {canvas != null && (
-                                <EastChakraComponent value={canvas as never} storageKey={`${storageKey}-evidence-${decision.id}`} />
+                                <EastChakraComponent value={canvas} storageKey={`${storageKey}-evidence-${decision.id}`} />
                             )}
                         </EvidenceFacet>
                     )}
                     {facet === 'options' && <OptionsFacet decision={decision} narrow={narrow} />}
                     {facet === 'judgement' && (
-                        <JudgementFacet decision={decision} handle={handle} leverPayloads={leverPayloads} />
+                        <JudgementFacet decision={decision} handle={handle} contract={contract} />
                     )}
                     {facet === 'modify' && probe != null && (
-                        <EastChakraComponent value={probe as never} storageKey={`${storageKey}-modify-${decision.id}`} />
+                        <EastChakraComponent value={probe} storageKey={`${storageKey}-modify-${decision.id}`} />
                     )}
                 </Box>
             )}
@@ -333,11 +321,12 @@ const RoutineGroup = memo(function RoutineGroup({ routine, acceptAll, leaving, n
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const status = useSlotRecipe({ key: 'status' });
     const button = useRecipe({ key: 'button' });
+    const words = useFormatters();
     const rs = dq({});
     const st = status({ status: 'neutral', size: 'md' });
 
     const total = useMemo(() => routine.reduce((acc, d) => acc + d.value, 0), [routine]);
-    const format = routine[0] ? (getSomeorUndefined(routine[0].format) as TickFormatOpt) : undefined;
+    const format = routine[0] ? getSomeorUndefined(routine[0].format) : undefined;
 
     const handleAcceptAll = useCallback(() => {
         if (acceptAll) acceptAll(routine);
@@ -358,14 +347,14 @@ const RoutineGroup = memo(function RoutineGroup({ routine, acceptAll, leaving, n
                             <Text as="span" fontFamily="mono">{d.id}</Text>
                             <Text as="span" color="fg.muted"> · {d.kind}</Text>
                         </Box>
-                        <Box css={rs.routineValue}>{decisionValue(d, d.value)}</Box>
+                        <Box css={rs.routineValue}>{decisionValue(words, d, d.value)}</Box>
                     </Box>
                 </Box>
             ))}
             <Box css={rs.summary} {...(narrow ? { marginLeft: '0', flexWrap: 'wrap' } : {})}>
-                <Box as="span" css={rs.summaryCap}>{routine.length} routine</Box>
+                <Box as="span" css={rs.summaryCap}>{words.number(routine.length)} routine</Box>
                 <Text as="span" color="fg.subtle">·</Text>
-                <Text as="span" fontFamily="mono" fontWeight="semibold">{formatTick(total, format)}</Text>
+                <Text as="span" fontFamily="mono" fontWeight="semibold">{words.value(total, format)}</Text>
                 <Text as="span" color="fg.muted">total</Text>
                 {acceptAll && (
                     <Box as="button" css={button({ variant: 'solid', size: 'xs' })} ml="auto" onClick={handleAcceptAll}>
@@ -393,9 +382,10 @@ interface GroupHeadProps {
 const GroupHead = memo(function GroupHead({ group, collapsible, collapsed, onToggle, acceptAll }: GroupHeadProps) {
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const button = useRecipe({ key: 'button' });
+    const words = useFormatters();
     const rs = dq({});
 
-    const format = group.decisions[0] ? (getSomeorUndefined(group.decisions[0].format) as TickFormatOpt) : undefined;
+    const format = group.decisions[0] ? getSomeorUndefined(group.decisions[0].format) : undefined;
 
     const handleToggle = useCallback(() => {
         if (collapsible) onToggle(group.label);
@@ -408,9 +398,9 @@ const GroupHead = memo(function GroupHead({ group, collapsible, collapsed, onTog
     return (
         <Box css={rs.groupHead} {...(collapsible ? { 'data-collapsible': '' } : {})} onClick={handleToggle}>
             {collapsible && <Box as="span" css={rs.groupCaret}>{collapsed ? '▸' : '▾'}</Box>}
-            <Box as="span" css={rs.groupLabel}>{group.label} · {group.decisions.length}</Box>
+            <Box as="span" css={rs.groupLabel}>{group.label} · {words.number(group.decisions.length)}</Box>
             <Box as="span" css={rs.groupSummary}>
-                {formatTick(group.total, format)}{group.pastSla > 0 ? ` · ${group.pastSla} past SLA` : ''}
+                {words.value(group.total, format)}{group.pastSla > 0 ? ` · ${words.number(group.pastSla)} past SLA` : ''}
             </Box>
             {acceptAll && (
                 <Box as="button" css={button({ variant: 'solid', size: 'xs' })} onClick={handleAcceptAll}>
@@ -438,22 +428,21 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     // Group-by toggle pills share the slice vocabulary: the `chip` recipe,
     // brand tone when active (the Library toolbar precedent).
     const chip = useRecipe({ key: 'chip' });
+    const words = useFormatters();
 
     const handleRef = value.handle;
     const handle = useDecisionHandle(handleRef);
     const decisions = handle.decisions;
-    const leverPayloads = useLeverPayloads(handleRef);
+    const contract = useConstraintContract(handleRef);
 
     // The slice is author-owned (a `Slice.bind` handle passed in the payload,
     // the `Table` pattern); `affordances` lists what mounts in the rail. Its
     // narrowing applies whether or not a rail shows — a seeded state with no
     // rail is an invisible author scope.
     const railAffordances = getSomeorUndefined(value.affordances);
-    // The decoded handle's closures re-bind by key on decode (issue #106);
-    // narrow to the methods this view reads. `read()` yields the decoded
-    // SliceState (cast `as never` at use).
-    const sliceHandle = (getSomeorUndefined(value.slice) ?? null) as { key: string; read: () => unknown } | null;
-    useSliceReactivity(sliceHandle?.key as string | undefined);
+    // The decoded handle's closures re-bind by key on decode (issue #106).
+    const sliceHandle = getSomeorUndefined(value.slice) ?? null;
+    useSliceReactivity(sliceHandle?.key);
     // Read at render level: the handle's identity is stable across slice
     // writes, so the narrowing memo must depend on the state value itself
     // (a fresh decode per write — the subscription above drives the render).
@@ -499,17 +488,10 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     useEffect(() => () => { for (const t of timersRef.current) clearTimeout(t); }, []);
 
     const heading = getSomeorUndefined(value.heading) ?? 'Decisions waiting';
-    const onApply = useMemo(() => getSomeorUndefined(value.onApply) as ((d: Decision) => unknown) | undefined, [value.onApply]);
-    const onReject = useMemo(() => getSomeorUndefined(value.onReject) as ((d: Decision) => unknown) | undefined, [value.onReject]);
-    const modify = useMemo(
-        () => getSomeorUndefined(value.modify) as
-            ((d: Decision, update: (next: Decision) => void) => unknown) | undefined,
-        [value.modify],
-    );
-    const evidence = useMemo(
-        () => getSomeorUndefined(value.evidence) as ((d: Decision) => unknown) | undefined,
-        [value.evidence],
-    );
+    const onApply = useMemo(() => getSomeorUndefined(value.onApply), [value.onApply]);
+    const onReject = useMemo(() => getSomeorUndefined(value.onReject), [value.onReject]);
+    const modify = useMemo(() => getSomeorUndefined(value.modify), [value.modify]);
+    const evidence = useMemo(() => getSomeorUndefined(value.evidence), [value.evidence]);
     const defaultFacet = (getSomeorUndefined(value.defaultFacet)?.type ?? 'evidence') as FacetKey;
     // Author include-list of data facets (`null` ⇒ all). `modify` stays callback-gated.
     const facetInclude = useMemo<ReadonlySet<FacetKey> | null>(() => {
@@ -573,20 +555,13 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
         // so the rail's fields and the narrowing always agree.
         const sliceConfig = sliceHandle !== null ? boundSliceConfig(sliceHandle.key) : undefined;
         const live = sliceState !== null && sliceConfig !== undefined
-            ? scoped.filter(d => sliceMatches(sliceState as never, sliceConfig as never, d as never, now))
+            ? scoped.filter(d => sliceMatches(sliceState, sliceConfig, d, now))
             : scoped;
         const merged = [...live];
         for (const { decision } of exiting.values()) {
             if (!merged.some(d => d.id === decision.id)) merged.push(decision);
         }
-        merged.sort((a, b) => {
-            const r = URGENCY_RANK[a.urgency.type] - URGENCY_RANK[b.urgency.type];
-            if (r !== 0) return r;
-            const da = getSomeorUndefined(a.deadline)?.getTime() ?? Infinity;
-            const db = getSomeorUndefined(b.deadline)?.getTime() ?? Infinity;
-            if (da !== db) return da - db;
-            return b.value - a.value;
-        });
+        merged.sort(compareByUrgency);
         return {
             merged,
             active: merged.filter(d => d.urgency.type !== 'routine'),
@@ -630,7 +605,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
             handle={handle}
             selected={selectedId === d.id}
             narrow={narrow}
-            leverPayloads={leverPayloads}
+            contract={contract}
             modify={modify}
             evidence={evidence}
             defaultFacet={defaultFacet}
@@ -657,17 +632,17 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
                 {sliceHandle !== null && railAffordances !== undefined && (
                     <Box display="flex" alignItems="center" minWidth="0" flex="1" justifyContent="flex-end" marginRight="10px">
                         <SliceRailCluster
-                            slice={sliceHandle as never}
+                            slice={sliceHandle}
                             affordanceKinds={railAffordances.map(a => a.type)}
                         />
                     </Box>
                 )}
                 <Box css={es.meta} gap="10px">
-                    <Box as="span"><Text as="span" color="fg" fontWeight="semibold">{visible}</Text>{narrow ? '' : ' decisions'}</Box>
+                    <Box as="span"><Text as="span" color="fg" fontWeight="semibold">{words.number(visible)}</Text>{narrow ? '' : ' decisions'}</Box>
                     {pastSla > 0 && (
                         <>
                             <Box as="span" css={es.sep}>·</Box>
-                            <Box as="span"><Text as="span" color="fg.danger" fontWeight="semibold">{pastSla}</Text>{narrow ? ' SLA' : ' past SLA'}</Box>
+                            <Box as="span"><Text as="span" color="fg.danger" fontWeight="semibold">{words.number(pastSla)}</Text>{narrow ? ' SLA' : ' past SLA'}</Box>
                         </>
                     )}
                 </Box>

@@ -3,17 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo, useCallback, type CSSProperties } from "react";
-import { Box, HStack, Text } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronUp, faChevronDown, faAnglesDown, faThumbtack } from "@fortawesome/free-solid-svg-icons";
-import { flexRender } from "@tanstack/react-table";
-import type { Column, Header, SortingState, Table } from "@tanstack/react-table";
-import { coarseHitArea } from "../../style/hit-area.js";
-
-/* Touch (#351): 36px tap halo on the 24px pin/sort controls (36, not 44 —
- * pin and sort sit adjacent; full halos would swallow each other). */
-const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
+import { useMemo, type CSSProperties } from "react";
+import { Box } from "@chakra-ui/react";
+import type { Column, Header, Table } from "@tanstack/react-table";
 
 // The custom column meta the Table attaches. Declared here in
 // the shared module so any consumer of these helpers carries the typing.
@@ -44,130 +36,6 @@ export function getCommonPinningStyles<TData>(column: Column<TData, unknown>): C
     };
 }
 
-// ── Column pinning hook ─────────────────────────────────────────────
-
-export interface UseColumnPinningOpts {
-    frozenFromValue: string[];
-    persistedPinnedColumns: string[] | undefined;
-    setPersistedPinnedColumns: (updater: (prev: string[]) => string[]) => void;
-}
-
-export function useColumnPinning({ frozenFromValue, persistedPinnedColumns, setPersistedPinnedColumns }: UseColumnPinningOpts) {
-    const pinnedColumns = useMemo(
-        () => persistedPinnedColumns ?? [...frozenFromValue],
-        [persistedPinnedColumns, frozenFromValue]
-    );
-
-    const columnPinning = useMemo(() => ({
-        left: pinnedColumns,
-        right: [] as string[],
-    }), [pinnedColumns]);
-
-    const hasFrozen = pinnedColumns.length > 0;
-
-    const toggleColumnPin = useCallback((columnId: string) => {
-        setPersistedPinnedColumns(current => {
-            const isPinned = current.includes(columnId);
-            return isPinned
-                ? current.filter(id => id !== columnId)
-                : [...current, columnId];
-        });
-    }, [setPersistedPinnedColumns]);
-
-    return { pinnedColumns, columnPinning, hasFrozen, toggleColumnPin };
-}
-
-// ── Header cell controls (pin + sort) ───────────────────────────────
-
-export interface HeaderControlsProps<TData> {
-    header: Header<TData, unknown>;
-    toggleColumnPin: (columnId: string) => void;
-    getSortIndex: (columnId: string) => number | undefined;
-    enableMultiSort: boolean;
-    enableColumnResizing: boolean;
-}
-
-export function HeaderControls<TData>({
-    header,
-    toggleColumnPin,
-    getSortIndex,
-    enableMultiSort,
-    enableColumnResizing,
-}: HeaderControlsProps<TData>) {
-    const sortIndex = getSortIndex(header.id);
-    const isSorted = header.column.getIsSorted();
-    const sortDirection = isSorted || null;
-    const icon = !isSorted ? faAnglesDown : sortDirection === 'asc' ? faChevronUp : faChevronDown;
-    const isPinned = header.column.getIsPinned();
-
-    return (
-        <>
-            <HStack justify="space-between" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
-                {/* Bare span so the consumer's `columnHeader` slot governs the
-                    type (mono / 10px / 0.16em / uppercase) — identical to the
-                    Table's header. Don't set a competing fontSize here. */}
-                <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                </Box>
-                {/* Controls are hidden until the header is hovered (the consumer's
-                    header cell reveals `.col-controls`), except a pinned/sorted
-                    column keeps its indicator visible. Mirrors the Table. */}
-                <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
-                    // Hover parity (#351): no hover ⇒ controls stay visible
-                    // at reduced emphasis instead of invisible.
-                    css={{
-                        opacity: isPinned || isSorted ? 1 : 0,
-                        "@media (hover: none)": { opacity: isPinned || isSorted ? 1 : 0.6 },
-                    }}
-                    transition="opacity 0.15s">
-                    {/* Pin toggle */}
-                    <Box
-                        as="button"
-                        aria-label={isPinned ? `Unpin ${header.id}` : `Pin ${header.id}`}
-                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleColumnPin(header.id); }}
-                        color={isPinned ? "fg.default" : "fg.muted"}
-                        _hover={{ color: "fg.default", bg: "bg.emphasized" }}
-                        transition="color 0.15s"
-                        cursor="pointer"
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="center"
-                        w="24px" h="24px" css={coarseControlHalo}
-                        borderRadius="sm"
-                    >
-                        <FontAwesomeIcon icon={faThumbtack} style={{ width: '10px', height: '10px', transform: isPinned ? undefined : 'rotate(45deg)' }} />
-                    </Box>
-                    {/* Sort button */}
-                    {header.column.getCanSort() && (
-                        <Box
-                            as="button"
-                            aria-label={`Sort by ${header.id}`}
-                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); header.column.toggleSorting(undefined, enableMultiSort); }}
-                            color={isSorted ? "fg.default" : "fg.muted"}
-                            _hover={{ color: "fg.default", bg: "bg.emphasized" }}
-                            cursor="pointer"
-                            display="flex"
-                            alignItems="center"
-                            justifyContent="center"
-                            w="24px" h="24px" css={coarseControlHalo}
-                            borderRadius="sm"
-                            position="relative"
-                        >
-                            <FontAwesomeIcon icon={icon} style={{ width: '10px', height: '10px' }} />
-                            {isSorted && sortIndex && enableMultiSort && (
-                                <Text fontSize="7px" fontWeight="bold" color="fg.muted" lineHeight="1" position="absolute" top="4px" right="4px">
-                                    {sortIndex}
-                                </Text>
-                            )}
-                        </Box>
-                    )}
-                </HStack>
-            </HStack>
-            {enableColumnResizing && <ColumnResizeHandle header={header} />}
-        </>
-    );
-}
-
 // ── Shared header divider bar + resize handle ───────────────────────
 
 /** The vertical grip/divider bar shown between header columns — 2px × 16px,
@@ -185,9 +53,9 @@ export function ColumnDividerBar() {
     return <Box css={{ ...DIVIDER_BAR, opacity: 0.4 }} pointerEvents="none" />;
 }
 
-/** The interactive resize handle (drag to resize) showing the grip bar. Used by
- *  HeaderControls, and directly by surfaces that want resize WITHOUT the pin /
- *  sort controls (a frozen left pane makes pinning moot). */
+/** The interactive resize handle (drag to resize) showing the grip bar, for
+ *  surfaces that resize WITHOUT the Table's pin / sort controls (a frozen left
+ *  pane makes pinning moot). */
 export function ColumnResizeHandle<TData>({ header }: { header: Header<TData, unknown> }) {
     if (!header.column.getCanResize()) return null;
     return (
@@ -243,15 +111,6 @@ export function getCellStyle<TData>(
             : { width: `var(--col-${cell.column.id}-size)`, flex: hasFrozen ? 'none' : (columnSizing[cell.column.id] || meta?.width) ? 'none' : 1 }
         ),
         ...pinningStyles,
-    };
-}
-
-// ── Sort index helper ───────────────────────────────────────────────
-
-export function createGetSortIndex(sorting: SortingState) {
-    return (columnId: string) => {
-        const idx = sorting.findIndex(s => s.id === columnId);
-        return idx >= 0 ? idx + 1 : undefined;
     };
 }
 

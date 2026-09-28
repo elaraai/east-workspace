@@ -7,12 +7,12 @@ import { memo, useMemo, useCallback } from "react";
 import { Collapsible as ChakraCollapsible, Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Collapsible } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const collapsibleEqual = equalFor(Collapsible.Types.Collapsible);
+const collapsibleEqual = equivalentFor(Collapsible.Types.Collapsible);
 
 export type CollapsibleValue = ValueTypeOf<typeof Collapsible.Types.Collapsible>;
 

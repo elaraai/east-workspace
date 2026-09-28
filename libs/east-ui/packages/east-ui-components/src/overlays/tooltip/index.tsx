@@ -5,14 +5,14 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Popover as ChakraPopover, Portal, Tooltip as ChakraTooltip, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Tooltip } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useHoverCapable } from "../../contracts/index.js";
 
 // Pre-define equality function at module level
-const tooltipEqual = equalFor(Tooltip.Types.Tooltip);
+const tooltipEqual = equivalentFor(Tooltip.Types.Tooltip);
 
 /** Long-press delay before a touch shows the tooltip (#347). */
 const LONG_PRESS_MS = 500;

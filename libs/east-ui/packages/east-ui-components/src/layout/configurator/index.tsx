@@ -23,13 +23,13 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "
 import { Box, IconButton, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight, faChevronUp, faChevronDown } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Configurator } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 
-const configuratorEqual = equalFor(Configurator.Types.Configurator);
+const configuratorEqual = equivalentFor(Configurator.Types.Configurator);
 
 /** East Configurator value type */
 export type ConfiguratorValue = ValueTypeOf<typeof Configurator.Types.Configurator>;

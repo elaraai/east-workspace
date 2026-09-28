@@ -42,6 +42,13 @@ export interface SliceCohortOptions {
     mode?: "toggle" | "manage";
     /** Show the `+ cohort` authoring pill. Defaults to true in `manage` mode, false in `toggle`. */
     allowCreate?: SubtypeExprOrValue<BooleanType>;
+    /**
+     * Show ONE family of cohorts — those whose `group` equals it — without its
+     * caption, so a host can mount one surface per family (`group: "state"`
+     * beside `group: "status"`). Absent = every cohort: the standalone ones
+     * first, then each family as its own captioned run of chips.
+     */
+    group?: SubtypeExprOrValue<StringType>;
 }
 
 /** Options for `Slice.Presets` — `Slice.Cohort` pinned to `mode: "toggle"`. */
@@ -51,10 +58,13 @@ export type SlicePresetsOptions = Omit<SliceCohortOptions, "mode">;
  * Creates a `Slice.Cohort` — developer-defined, toggleable segment chips bound
  * to a slice. Each cohort in `state.cohorts` renders as a chip (swatch · name ·
  * live count, active ones brand-tinted); the chip's **primary click toggles the
- * cohort on/off** via `slice.toggleCohort(id)`. In `manage` mode (the default)
- * a secondary pencil opens the editor popover (clauses + Apply / Remove) and a
- * `+ cohort` pill authors new ones; `mode: "toggle"` renders a pure preset bar
- * with no authoring affordances. Cohort sizes come from `slice.cohortCounts()`.
+ * cohort on/off** via `slice.toggleCohort(id)`. Cohorts that share a `group`
+ * render as one captioned run — a family of alternatives that OR with each
+ * other and AND with the rest — and `group` shows a single family. In `manage`
+ * mode (the default) a secondary pencil opens the editor popover (clauses,
+ * family, Apply / Remove) and a `+ cohort` pill authors new ones; `mode:
+ * "toggle"` renders a pure preset bar with no authoring affordances. Cohort
+ * sizes come from `slice.cohortCounts()`.
  *
  * @param options - The bound slice plus mode / authoring / detail-meta options
  * @returns An East expression of type `UIComponentType`
@@ -93,6 +103,7 @@ function createSliceCohort(
         editOpen:        options.editOpen !== undefined ? some(options.editOpen) : none,
         mode:            options.mode !== undefined ? some(variant(options.mode, null)) : none,
         allowCreate:     options.allowCreate !== undefined ? some(options.allowCreate) : none,
+        group:           options.group !== undefined ? some(options.group) : none,
     }), UIComponentType);
 }
 

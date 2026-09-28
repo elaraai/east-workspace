@@ -26,6 +26,7 @@
  */
 
 import { some, variant } from "@elaraai/east";
+import { formatDateTime, tokenizeDateTimeFormat } from "@elaraai/east/internal";
 import type { ValueTreeLeafValue, ValueTreeNodeValue, ValueTreeStepValue } from "./materialize.js";
 
 /** Rows at depth < this start expanded when the host sets no `openDepth`
@@ -34,6 +35,9 @@ export const DEFAULT_OPEN_DEPTH = 1;
 
 /** Leaf preview parts a struct row's summary surfaces. */
 export const PREVIEW_PARTS = 3;
+
+/** How a datetime leaf reads — its UTC instant to the second, through East's formatter. */
+const LEAF_DATETIME = tokenizeDateTimeFormat("YYYY-MM-DD HH:mm:ss");
 
 /**
  * The kind of a flattened row.
@@ -323,7 +327,7 @@ export function fmtLeaf(leaf: ValueTreeLeafValue): string {
         case "integer": return String(leaf.value);
         case "float": return String(leaf.value);
         case "boolean": return leaf.value ? "true" : "false";
-        case "datetime": return leaf.value.toISOString().replace("T", " ").slice(0, 19);
+        case "datetime": return formatDateTime(leaf.value, LEAF_DATETIME);
         default: return "—";
     }
 }

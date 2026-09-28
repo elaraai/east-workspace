@@ -4,8 +4,9 @@
  */
 
 import { Box, Container, Stack, Text } from "@chakra-ui/react";
-import { EastFunction, type EastFunctionProps } from "@elaraai/east-ui-components";
+import { EastFunction } from "@elaraai/east-ui-components";
 import type { CatalogEntry } from "../catalog";
+import { exampleIr } from "./example-ir";
 
 /**
  * Isolated-file route — when the URL carries `?file=<pathKey>` (e.g.
@@ -40,7 +41,7 @@ export function IsolatedFileView({ entries }: { entries: readonly CatalogEntry[]
                             <Box layerStyle="frame" p="6" bg="bg.surface" minH="160px">
                                 {example.tier === "live" ? (
                                     <EastFunction
-                                        ir={example.fn.toIR() as EastFunctionProps["ir"]}
+                                        ir={exampleIr(example)}
                                         storageKey={`snapshot-${pathKey}-${example.name}`}
                                     />
                                 ) : (

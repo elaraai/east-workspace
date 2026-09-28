@@ -12,7 +12,9 @@
  * source whose window is an ARRAY of index entries, which is how a read
  * through a record's index keeps index order instead of re-sorting by the
  * row's own key. It is recognised by the entry's shape rather than announced
- * by a flag, so the shape is what has to be pinned.
+ * by a flag, so the shape is what has to be pinned. Whether a windowed source
+ * is PINNED — it names its snapshot, `revision` and `refresh` — picks the arm
+ * it builds, whichever window it serves.
  */
 
 import { test, describe } from "node:test";
@@ -41,6 +43,11 @@ const EntryType = StructType({
 /** A paged source over `collection`, the way a component receives one. */
 const sourceOver = (collection: unknown): unknown =>
     Paged.of("records.plans", collection as never);
+
+/** A pinned source over `collection` — one that names its snapshot, as a
+ *  dataset's handle does. */
+const pinnedOver = (collection: unknown): unknown =>
+    Paged.pinned("records.plans", collection as never);
 
 describe("resolveRowSource", () => {
     test("classifies a window of index entries as ordered, recovering both keys", () => {
@@ -87,6 +94,29 @@ describe("resolveRowSource", () => {
             assert.equal(
                 resolveRowSource(sourceOver(East.value([] as never, ArrayType(element))), "Table").kind,
                 "paged", label);
+        }
+    });
+
+    test("a source that names its snapshot is pinned — a keyed window and an index window alike", () => {
+        const keyed = resolveRowSource(
+            pinnedOver(East.value(new Map() as never, DictType(StringType, RowType))), "Table");
+        assert.equal(keyed.kind, "paged");
+        assert.equal(keyed.kind === "paged" && keyed.pinned, true);
+
+        const ordered = resolveRowSource(
+            pinnedOver(East.value([] as never, ArrayType(EntryType))), "Table");
+        assert.equal(ordered.kind, "ordered");
+        assert.equal(ordered.kind === "ordered" && ordered.pinned, true);
+    });
+
+    test("a source that names no snapshot is not pinned", () => {
+        for (const collection of [
+            East.value([] as never, ArrayType(RowType)),
+            East.value([] as never, ArrayType(EntryType)),
+        ]) {
+            const resolved = resolveRowSource(sourceOver(collection), "Table");
+            assert.notEqual(resolved.kind, "inline");
+            assert.equal(resolved.kind !== "inline" && resolved.pinned, false);
         }
     });
 

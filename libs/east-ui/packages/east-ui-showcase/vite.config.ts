@@ -119,6 +119,15 @@ export default defineConfig(({ command }) => {
       },
       rollupOptions: {
         external: (id: string) => id.startsWith('node:'),
+        /* A member read off a namespace import that its module does not
+         * export — `e3.recordIndex` against a shim that lacks it — is only a
+         * warning to Rollup, which compiles the read to `undefined`: the
+         * bundle builds and the whole showcase then fails to load. Fail the
+         * build instead, naming the binding and its importer. */
+        onwarn(warning, warn) {
+          if (warning.code === 'MISSING_EXPORT') throw new Error(warning.message);
+          warn(warning);
+        },
       },
     },
     optimizeDeps: {

@@ -21,16 +21,18 @@
 
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Text, chakra, useRecipe } from '@chakra-ui/react';
-import { none, some, variant } from '@elaraai/east';
-import { EastChakraSelect, getSomeorUndefined, formatTick, type TickFormatOpt } from '@elaraai/east-ui-components';
+import { FloatType, compareFor, none, some, variant } from '@elaraai/east';
+import { EastChakraSelect, getSomeorUndefined, useFormatters, type Formatters } from '@elaraai/east-ui-components';
 
 import type { UseDecisionHandleResult, Judgement, ConstraintValue } from './handle-runtime.js';
-import { LeverEditor, leverPayloadEditable, type TypeNode } from './lever-editor.js';
+import { LeverEditor, leverPayloadEditable } from './lever-editor.js';
+import type { ConstraintContract } from './contract.js';
 import { formatConstraint } from './constraint-format.js';
 import type { Decision } from './types.js';
 
-function fmt(d: Decision, n: number, showSign = false): string {
-    return formatTick(n, getSomeorUndefined(d.format) as TickFormatOpt, showSign);
+/** A decision value through its declared format, in the app's locale (#850). */
+function fmt(words: Formatters, d: Decision, n: number, showSign = false): string {
+    return words.value(n, getSomeorUndefined(d.format), showSign);
 }
 
 const caption = { textStyle: 'caption.eyebrow', color: 'fg.muted' } as const;
@@ -47,6 +49,7 @@ export interface EvidenceFacetProps {
 }
 
 export const EvidenceFacet = memo(function EvidenceFacet({ decision, children }: EvidenceFacetProps) {
+    const words = useFormatters();
     const stakes = getSomeorUndefined(decision.stakes);
     const downside = getSomeorUndefined(decision.downside);
     const confidence = getSomeorUndefined(decision.confidence);
@@ -57,8 +60,8 @@ export const EvidenceFacet = memo(function EvidenceFacet({ decision, children }:
                 <Text {...caption} color="fg">Why this is recommended</Text>
                 <Text {...caption}>
                     {stakes !== undefined && <>stakes <Text as="span" fontFamily="mono" fontWeight="semibold">{stakes.type}</Text> · </>}
-                    {downside !== undefined && <>if wrong <Text as="span" fontFamily="mono" fontWeight="semibold" color="fg.danger">{fmt(decision, downside, true)}</Text> · </>}
-                    {confidence !== undefined && <>confidence <Text as="span" fontFamily="mono" fontWeight="semibold">{Math.round(confidence * 100)}%</Text></>}
+                    {downside !== undefined && <>if wrong <Text as="span" fontFamily="mono" fontWeight="semibold" color="fg.danger">{fmt(words, decision, downside, true)}</Text> · </>}
+                    {confidence !== undefined && <>confidence <Text as="span" fontFamily="mono" fontWeight="semibold">{words.percent(confidence)}</Text></>}
                 </Text>
             </Box>
             {detail !== undefined && <Text fontSize="12.5px" color="fg.muted">{detail}</Text>}
@@ -85,7 +88,7 @@ export const EvidenceFacet = memo(function EvidenceFacet({ decision, children }:
 // Options — the ranked stack with zero-anchored bars.
 // =============================================================================
 
-interface RankedOption {
+export interface RankedOption {
     rank: number;
     label: string;
     value: number;
@@ -95,9 +98,18 @@ interface RankedOption {
     recommended: boolean;
 }
 
-function rankOptions(d: Decision): RankedOption[] {
+const compareValues = compareFor(FloatType);
+
+/**
+ * The Options facet's stack: the recommendation first, then its alternatives,
+ * the greater value first — values compared as East compares them.
+ *
+ * @param d - The decision
+ * @returns The ranked options
+ */
+export function rankOptions(d: Decision): RankedOption[] {
     const alternatives = [...d.alternatives]
-        .sort((a, b) => b.value - a.value)
+        .sort((a, b) => compareValues(b.value, a.value))
         .map(a => ({
             label: a.label,
             value: a.value,
@@ -119,10 +131,10 @@ function rankOptions(d: Decision): RankedOption[] {
     ].map((o, i) => ({ ...o, rank: i + 1 }));
 }
 
-function metaLine(o: RankedOption): string {
+function metaLine(o: RankedOption, words: Formatters): string {
     const parts: string[] = [];
     if (o.recommended) parts.push('recommended');
-    if (o.confidence !== undefined) parts.push(`${Math.round(o.confidence * 100)}% conf`);
+    if (o.confidence !== undefined) parts.push(`${words.percent(o.confidence)} conf`);
     if (!o.recommended && o.note !== undefined) parts.push(o.note);
     return parts.join(' · ');
 }
@@ -134,6 +146,7 @@ export interface OptionsFacetProps {
 }
 
 export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: OptionsFacetProps) {
+    const words = useFormatters();
     const options = rankOptions(decision);
     const maxUp = Math.max(...options.map(o => Math.max(o.value, 0)), 1e-9);
     const maxDown = Math.max(...options.map(o => Math.abs(o.downside ?? 0)), 1e-9);
@@ -156,12 +169,12 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
         );
         return (
             <Box display="flex" flexDirection="column" gap="10px">
-                <Text {...caption} color="fg">Options · {options.length} evaluated</Text>
+                <Text {...caption} color="fg">Options · {words.number(options.length)} evaluated</Text>
                 {options.map(o => (
                     <Box key={o.rank} display="flex" flexDirection="column" gap="4px" pl="8px" {...(o.recommended ? { boxShadow: 'inset 2px 0 0 var(--chakra-colors-accent-brand)' } : {})}>
                         <Text fontSize="12.5px"><Text as="span" fontFamily="mono" color="fg.subtle">{o.rank}</Text> <Text as="span" fontWeight={o.recommended ? 'semibold' : 'normal'}>{o.label}</Text></Text>
-                        {meter(upLabel, o.value / maxUp, fmt(decision, o.value, signed), signed ? 'success' : 'neutral')}
-                        {meter('If wrong', (o.downside ?? 0) / maxDown, o.downside !== undefined ? fmt(decision, o.downside, true) : '—', 'danger')}
+                        {meter(upLabel, o.value / maxUp, fmt(words, decision, o.value, signed), signed ? 'success' : 'neutral')}
+                        {meter('If wrong', (o.downside ?? 0) / maxDown, o.downside !== undefined ? fmt(words, decision, o.downside, true) : '—', 'danger')}
                     </Box>
                 ))}
             </Box>
@@ -171,7 +184,7 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
     return (
         <Box display="flex" flexDirection="column" gap="6px">
             <Box display="grid" gridTemplateColumns="minmax(180px, 1.1fr) 1fr 1fr" alignItems="baseline" gap="8px">
-                <Text {...caption} color="fg">Options · {options.length} evaluated</Text>
+                <Text {...caption} color="fg">Options · {words.number(options.length)} evaluated</Text>
                 <Text {...caption} textAlign="center">If wrong</Text>
                 <Text {...caption} textAlign="right">{upLabel}</Text>
             </Box>
@@ -191,14 +204,14 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
                         <Box minW={0} pl={o.recommended ? '6px' : '0'} display="flex" alignItems="baseline" gap="6px">
                             <Text as="span" fontFamily="mono" fontSize="11px" color="fg.subtle" flexShrink={0}>{o.rank}</Text>
                             <Text as="span" fontSize="12.5px" fontWeight={o.recommended ? 'semibold' : 'normal'} flexShrink={0}>{o.label}</Text>
-                            {metaLine(o) !== '' && (
-                                <Text as="span" fontFamily="mono" fontSize="10.5px" color="fg.muted" minW={0} truncate>{metaLine(o)}</Text>
+                            {metaLine(o, words) !== '' && (
+                                <Text as="span" fontFamily="mono" fontSize="10.5px" color="fg.muted" minW={0} truncate>{metaLine(o, words)}</Text>
                             )}
                         </Box>
                         <Box display="flex" justifyContent="flex-end" alignItems="center" gap="6px" height="16px">
                             {o.downside !== undefined && (
                                 <>
-                                    <Text fontSize="10.5px" fontFamily="mono" color="fg.danger" flexShrink={0}>{fmt(decision, o.downside, true)}</Text>
+                                    <Text fontSize="10.5px" fontFamily="mono" color="fg.danger" flexShrink={0}>{fmt(words, decision, o.downside, true)}</Text>
                                     <Box height="12px" width={`${Math.round(downFrac * 100)}%`} bg="fg.danger" opacity={0.55} />
                                 </>
                             )}
@@ -207,7 +220,7 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
                             {o.value > 0 && (
                                 <>
                                     <Box height="12px" width={`${Math.round(upFrac * 100)}%`} bg={signed ? 'fg.success' : 'fg.subtle'} opacity={0.6} />
-                                    <Text fontSize="10.5px" fontFamily="mono" color={signed ? 'fg.success' : 'fg.muted'} flexShrink={0}>{fmt(decision, o.value, signed)}</Text>
+                                    <Text fontSize="10.5px" fontFamily="mono" color={signed ? 'fg.success' : 'fg.muted'} flexShrink={0}>{fmt(words, decision, o.value, signed)}</Text>
                                 </>
                             )}
                         </Box>
@@ -231,11 +244,13 @@ const ANSWERS = [
 export interface JudgementFacetProps {
     decision: Decision;
     handle: UseDecisionHandleResult;
-    /** Contract case name → payload type, walked off the judgements binding. */
-    leverPayloads: Record<string, TypeNode>;
+    /** The solution's constraint contract, walked off the judgements binding;
+     *  `undefined` until its type is registered. */
+    contract: ConstraintContract | undefined;
 }
 
-export const JudgementFacet = memo(function JudgementFacet({ decision, handle, leverPayloads }: JudgementFacetProps) {
+export const JudgementFacet = memo(function JudgementFacet({ decision, handle, contract }: JudgementFacetProps) {
+    const words = useFormatters();
     const button = useRecipe({ key: 'button' });
     const input = useRecipe({ key: 'input' });
 
@@ -248,11 +263,12 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
     }, [knowledge, stagedKnowledge, handle, decision.id]);
 
     const levers = useMemo(
-        () => decision.levers.filter(l => leverPayloadEditable(leverPayloads[l.case])),
-        [decision.levers, leverPayloads],
+        () => decision.levers.filter(l => leverPayloadEditable(contract?.payloads.get(l.case))),
+        [decision.levers, contract],
     );
     const [leverCase, setLeverCase] = useState(levers[0]?.case ?? '');
     const activeLever = levers.find(l => l.case === leverCase) ?? levers[0];
+    const activePayload = activeLever === undefined ? undefined : contract?.payloads.get(activeLever.case);
 
     const gate = handle.commitStateFor(decision.id);
     const gateHint = gate?.type === 'gated'
@@ -313,8 +329,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                     {judgement.constraints.length > 0 && (
                         <Box display="flex" gap="12px" flexWrap="wrap">
                             {judgement.constraints.map((c, i) => {
-                                const tag = (c as unknown as { type: string }).type;
-                                const f = formatConstraint(c, leverPayloads[tag], decision.levers);
+                                const f = formatConstraint(c, contract, decision.levers, words);
                                 return (
                                     <Text key={i} as="span" fontFamily="mono" fontSize="11px">
                                         <Text as="span" color="accent.brand" fontWeight="semibold">{f.lever}</Text>{' '}
@@ -325,7 +340,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                             })}
                         </Box>
                     )}
-                    {activeLever !== undefined && (
+                    {activeLever !== undefined && activePayload !== undefined && (
                         <Box display="flex" alignItems="center" gap="8px" flexWrap="wrap">
                             {levers.length > 1 ? (
                                 <Box flexShrink={0} css={{ '& [data-scope=select][data-part=root]': { width: 'auto', minWidth: '160px' } }}>
@@ -347,7 +362,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                                 <LeverEditor
                                     key={activeLever.case}
                                     leverCase={activeLever.case}
-                                    payload={leverPayloads[activeLever.case]!}
+                                    payload={activePayload}
                                     onInject={onInject}
                                 />
                             </Box>

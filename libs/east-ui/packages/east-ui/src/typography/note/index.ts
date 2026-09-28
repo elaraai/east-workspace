@@ -93,7 +93,7 @@ function createNote(
     return East.value(variant("Note", {
         body: bodyExpr,
         variant: variantValue,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

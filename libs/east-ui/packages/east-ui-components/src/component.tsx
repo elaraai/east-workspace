@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
-import { match, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { match, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
 
 // Import implemented components
@@ -127,8 +127,11 @@ import { EastChakraMatch } from "./reactive/match.js";
 import { EastChakraPages } from "./navigation/pages.js";
 import { EastChakraExtension } from "./extension/index.js";
 
-// Pre-define the equality function at module level
-const uiComponentEqual = equalFor(UIComponentType);
+// The memo comparer is `equivalentFor`, not `equalFor` (#809): equalFor treats
+// every pair of functions as equal, so a value whose only change is a closure —
+// a `render` or `on*` that captured new data — would bail here, and every
+// renderer below would keep calling the stale closure.
+const uiComponentEqual = equivalentFor(UIComponentType);
 
 export interface EastChakraComponentProps {
     value: ValueTypeOf<UIComponentType>;
@@ -213,9 +216,8 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             NavList: (v) => <EastChakraNavList value={v} />,
             // Pages — the content-switcher. `render()` reads nav.current() (tracked) and
             // matches the active route. EastChakraPages keys the reactive subtree by the
-            // route's store version so the active page REMOUNTS on navigation — the page
-            // bodies are ReactiveComponents that equalFor can't tell apart (functions
-            // compare equal), so the generic memo'd swap would otherwise bail (#114).
+            // route's store version so the active page REMOUNTS on navigation (#114) — a
+            // new route mounts fresh, never inheriting the previous page's local state.
             Pages: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Pages")} />,
             // Route — Pages generalized to any slot (#333): identical payload +
             // remount mechanism, so it reuses the Pages renderer.

@@ -3,15 +3,17 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Select as ChakraSelect, createListCollection, type SelectRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Select } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
-const selectRootEqual = equalFor(Select.Types.Root);
+const selectRootEqual = equivalentFor(Select.Types.Root);
+const selectRootDataEqual = equalFor(Select.Types.Root);
 
 /** East Select Root value type */
 export type SelectRootValue = ValueTypeOf<typeof Select.Types.Root>;
@@ -70,9 +72,7 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value, ariaLabe
     const onOpenChangeFn = useMemo(() => getSomeorUndefined(value.onOpenChange), [value.onOpenChange]);
     const isMultiple = useMemo(() => getSomeorUndefined(value.multiple), [value.multiple]);
 
-    useEffect(() => {
-        setProps(() => toChakraSelect(value));
-    }, [value]);
+    useValueSync(value, selectRootDataEqual, () => setProps(toChakraSelect(value)));
 
     const collection = useMemo(() => {
         const items = value.items.map(item => ({

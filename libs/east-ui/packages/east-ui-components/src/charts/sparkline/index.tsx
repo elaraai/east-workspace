@@ -5,12 +5,12 @@
 
 import { memo, useMemo } from "react";
 import { useChakraContext } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Sparkline } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level
-const sparklineEqual = equalFor(Sparkline.Types.Sparkline);
+const sparklineEqual = equivalentFor(Sparkline.Types.Sparkline);
 
 /** East Sparkline value type */
 export type SparklineValue = ValueTypeOf<typeof Sparkline.Types.Sparkline>;

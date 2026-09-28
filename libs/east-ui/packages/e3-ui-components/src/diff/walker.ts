@@ -24,6 +24,10 @@
 import {
     type EastTypeValue,
     type PatchLeafOp,
+    type PatchPathSegment,
+    type PatchVisitor,
+    StringType,
+    parseFor,
     walkPatch,
     pathToString,
     pathDisplay,
@@ -35,6 +39,9 @@ import {
 
 export type LeafOp = PatchLeafOp;
 
+/** One leaf as East's walker reports it. */
+type LeafEvent = Parameters<PatchVisitor["leaf"]>[0];
+
 /** A leaf change — one user-visible before/after pair. */
 export interface LeafNode {
     kind: "leaf";
@@ -43,9 +50,14 @@ export interface LeafNode {
     /** Last segment, for display. */
     label: string;
     op: LeafOp;
-    leafType: EastTypeValue | null;
-    before: any;
-    after: any;
+    /** The leaf's East type — the walker always knows it. */
+    leafType: LeafEvent["type"];
+    /** The value before the change, a value of `leafType` — `undefined` for
+     *  an insert. */
+    before: LeafEvent["before"];
+    /** The value after the change, a value of `leafType` — `undefined` for a
+     *  delete. */
+    after: LeafEvent["after"];
     /** Set when the patch's expectation at this leaf disagrees with the
      *  actual base value (overlay-mode drift). When present, the row should
      *  render a warning badge with `actual` so the user can see what the
@@ -79,22 +91,22 @@ export function collectLeaves(node: DiffNode, into: LeafNode[] = []): LeafNode[]
     return into;
 }
 
+const readString = parseFor(StringType);
+
 /**
- * Display label for the last path segment. For "key" segments produced by
- * Dict / Set traversal, the underlying east walker uses `printFor(elemType)`
- * which JSON-quotes strings (`"foo"`) so the path identity round-trips
- * unambiguously. The label is for *display only* — strip the surrounding
- * quotes so the user sees `foo` instead of `"foo"`. Path identity (used as
- * a resolution-map key) stays quoted via `pathToString`.
+ * Display label for the last path segment. A "key" segment (Dict / Set
+ * traversal) is the key as East prints it — a String key quoted (`"foo"`),
+ * so the path identity round-trips unambiguously. The label is for *display
+ * only*: a String key shows as East reads it back (`foo`); any other key, and
+ * a string East cannot read back, shows as printed. Path identity (used as a
+ * resolution-map key) stays the printed form via `pathToString`.
  */
-function leafDisplayLabel(seg: { kind: string; key?: string } & Record<string, unknown>): string {
-    if (seg.kind === "key" && typeof seg.key === "string"
-        && seg.key.length >= 2 && seg.key.startsWith('"') && seg.key.endsWith('"')) {
-        // JSON-style string key — show the inner without round-trip quotes.
-        try { return JSON.parse(seg.key) as string; }
-        catch { /* fall through */ }
+function leafDisplayLabel(seg: PatchPathSegment): string {
+    if (seg.kind === "key") {
+        const read = readString(seg.key);
+        if (read.success) return read.value;
     }
-    return pathDisplay(seg as Parameters<typeof pathDisplay>[0]);
+    return pathDisplay(seg);
 }
 
 // =============================================================================
@@ -106,13 +118,13 @@ function leafDisplayLabel(seg: { kind: string; key?: string } & Record<string, u
  * the patch is unchanged (no events fire).
  *
  * @param typeValue - Runtime EastTypeValue of the value being patched.
- * @param patch     - The patch (`PatchTypeOf<T>`).
+ * @param patch     - The patch (`PatchTypeOf<T>`), as East's walker takes it.
  * @param rootLabel - Display label for the root node (the renderer fills in
  *   the binding name here).
  */
 export function walkPatchToTree(
     typeValue: EastTypeValue,
-    patch: any,
+    patch: Parameters<typeof walkPatch>[1],
     rootLabel: string,
 ): DiffNode | null {
     // Stack of in-progress group nodes. Top of stack is the current parent.

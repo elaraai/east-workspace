@@ -404,7 +404,7 @@ export class BindRuntime {
             // tree size) for nested struct/variant trees.
             if (existing.mode === info.mode
                 && existing.hasPatchDataset === info.hasPatchDataset
-                && existing.sourceType === info.sourceType) {
+                && Object.is(existing.sourceType, info.sourceType)) {
                 return;
             }
             const shapeChanged = existing.mode !== info.mode
@@ -622,7 +622,7 @@ export class BindRuntime {
 
         const bindingDescriptor = {
             source: sourcePath,
-            patch:  patchPath ? variant("some", patchPath) : variant("none", null),
+            patch:  patchPath ? some(patchPath) : none,
             mode:   variant(mode, null),
         };
 

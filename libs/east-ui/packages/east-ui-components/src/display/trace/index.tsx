@@ -12,13 +12,14 @@
 
 import { memo, Fragment, useEffect, useMemo } from "react";
 import { Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Trace } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity, type Density } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { useFormatters } from "../../format/index.js";
 
-const traceEqual = equalFor(Trace.Types.Trace);
+const traceEqual = equivalentFor(Trace.Types.Trace);
 
 /** East Trace value type. */
 export type TraceValue = ValueTypeOf<typeof Trace.Types.Trace>;
@@ -35,10 +36,6 @@ const CATEGORICAL = [
 const DIVERGE_WARM = "var(--chakra-colors-orange-500)";
 const PAST_BASE = "var(--chakra-colors-bg-muted)";
 const FUTURE_BASE = "var(--chakra-colors-bg-surface)";
-
-function fmt(v: number): string {
-    return Number.isInteger(v) ? String(v) : v.toFixed(1);
-}
 
 /** Resolved fill for one step. */
 interface Fill {
@@ -77,6 +74,9 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
     const density: Density = localDensity ?? inheritedDensity ?? "comfortable";
     const styles = recipe({ density });
+    // Step values as bare ticks — whole, else one decimal, never grouped — in
+    // the app's locale (#850).
+    const words = useFormatters();
 
     const scale = useMemo(() => getSomeorUndefined(value.scale)?.type ?? "brand", [value.scale]);
     const future = useMemo(() => getSomeorUndefined(value.future)?.type ?? "ghost", [value.future]);
@@ -187,10 +187,10 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                                 } else if (hot) {
                                     stepStyle.color = "var(--chakra-colors-bg-surface)";
                                 }
-                                const title = `${axis?.[i] ? `${axis[i]} · ` : ""}${track.name} ${fmt(v)} · ${isFuture ? "predicted" : "measured"}`;
+                                const title = `${axis?.[i] ? `${axis[i]} · ` : ""}${track.name} ${words.tick(v)} · ${isFuture ? "predicted" : "measured"}`;
                                 return (
                                     <ChakraBox key={`step.${ti}.${i}`} css={styles.step} style={stepStyle} title={title}>
-                                        <ChakraBox as="span" css={styles.value}>{fmt(v)}</ChakraBox>
+                                        <ChakraBox as="span" css={styles.value}>{words.tick(v)}</ChakraBox>
                                     </ChakraBox>
                                 );
                             })}

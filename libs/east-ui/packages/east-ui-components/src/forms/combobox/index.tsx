@@ -3,15 +3,17 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useState, useMemo, useCallback, useEffect } from "react";
+import { memo, useState, useMemo, useCallback } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Combobox as ChakraCombobox, createListCollection } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Combobox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
-const comboboxRootEqual = equalFor(Combobox.Types.Root);
+const comboboxRootEqual = equivalentFor(Combobox.Types.Root);
+const comboboxRootDataEqual = equalFor(Combobox.Types.Root);
 
 /** East Combobox Root value type */
 export type ComboboxRootValue = ValueTypeOf<typeof Combobox.Types.Root>;
@@ -67,9 +69,7 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
 
     const [inputValue, setInputValue] = useState("");
 
-    useEffect(() => {
-        setProps(() => toChakraCombobox(value));
-    }, [value]);
+    useValueSync(value, comboboxRootDataEqual, () => setProps(toChakraCombobox(value)));
 
     const allItems = useMemo(() => {
         return value.items.map(item => ({

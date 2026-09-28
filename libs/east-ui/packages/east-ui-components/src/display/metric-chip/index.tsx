@@ -7,13 +7,13 @@ import { memo, useMemo } from "react";
 import { Box, HStack, Text as ChakraText, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { MetricChip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
-const metricChipEqual = equalFor(MetricChip.Types.MetricChip);
+const metricChipEqual = equivalentFor(MetricChip.Types.MetricChip);
 
 /** East MetricChip value type. */
 export type MetricChipValue = ValueTypeOf<typeof MetricChip.Types.MetricChip>;

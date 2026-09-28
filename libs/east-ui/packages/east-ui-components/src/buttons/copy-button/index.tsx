@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Clipboard, Button, IconButton, Box, type ButtonProps, type IconButtonProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { CopyButton } from "@elaraai/east-ui/internal";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCopy, faCheck } from "@fortawesome/free-solid-svg-icons";
 import { getSomeorUndefined } from "../../utils";
 
-const copyButtonEqual = equalFor(CopyButton.Types.CopyButton);
+const copyButtonEqual = equivalentFor(CopyButton.Types.CopyButton);
 
 /** East CopyButton value type. */
 export type CopyButtonValue = ValueTypeOf<typeof CopyButton.Types.CopyButton>;

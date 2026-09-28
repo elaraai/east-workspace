@@ -21,6 +21,17 @@ first. Grep/sed are for *locating* files, never a substitute for reading
 them; API shapes inferred from fragments have caused real regressions and
 rework here. This is a hard requirement with no alternative.
 
+## HARD RULE: East values through East
+
+An East value is printed, read, compared, ordered, collected and typed
+through East's utilities — never a JavaScript stand-in — and tested over
+real, decoded East values. `printFor` / `parseFor`, `equalFor` / `compareFor`,
+`SortedSet` / `SortedMap` for object keys, `ValueTypeOf<…>`, and
+`variant()` / `some()` / `none` — never `String()`, `new Date(text)`, `===`,
+`typeof`, a struct-keyed `Map` or a `{ type, value }` literal or cast. See
+[`docs/conventions/EAST_TS_INTEROP.md`](docs/conventions/EAST_TS_INTEROP.md);
+the UI packages' `make lint` fails on each of these.
+
 ## What this repo is
 
 The **East monorepo** — a pnpm + uv + cmake workspace containing all
@@ -138,7 +149,9 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
 "system-type, don't delete".
 
 - [`docs/conventions/EAST_TS_INTEROP.md`](docs/conventions/EAST_TS_INTEROP.md)
-  — `isValueOf`, `compareFor`, `variant()`, `$.let`/`$.const` rules.
+  — `isValueOf`, `compareFor`, `variant()`, `$.let`/`$.const` rules, and
+  printing, reading, collecting, typing and testing decoded East values —
+  with the lint rule that enforces each.
 - [`docs/conventions/EAST_PY_INTEROP.md`](docs/conventions/EAST_PY_INTEROP.md)
   — Python sibling: `compare_for`/`equal_for`, `variant()`/`some`/`none`, eager
   methods delegate to east-c, `coerce_to`/`assert_value_of` at the boundary.

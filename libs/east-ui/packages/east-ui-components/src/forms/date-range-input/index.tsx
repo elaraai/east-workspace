@@ -3,10 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useState, useMemo, useRef } from "react";
 import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { DateRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
@@ -18,8 +18,10 @@ import {
     TimeInput,
     TimeSegment,
 } from "../input/date";
+import { useValueSync } from "../../hooks/useValueSync";
 
-const dateRangeInputEqual = equalFor(DateRangeInput.Types.Root);
+const dateRangeInputEqual = equivalentFor(DateRangeInput.Types.Root);
+const dateRangeInputDataEqual = equalFor(DateRangeInput.Types.Root);
 
 export type DateRangeInputValue = ValueTypeOf<typeof DateRangeInput.Types.Root>;
 
@@ -70,13 +72,15 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
     const precision = (getSomeorUndefined(value.precision)?.type as Precision | undefined) ?? "date";
     const presets = getSomeorUndefined(value.presets);
 
-    const startDate = useMemo(() => value.startValue instanceof Date ? value.startValue : new Date(value.startValue), [value.startValue]);
-    const endDate = useMemo(() => value.endValue instanceof Date ? value.endValue : new Date(value.endValue), [value.endValue]);
+    const startDate = value.startValue;
+    const endDate = value.endValue;
 
     const [localStart, setLocalStart] = useState<DateTimeBits>(() => dateToBits(startDate));
     const [localEnd, setLocalEnd] = useState<DateTimeBits>(() => dateToBits(endDate));
-    useEffect(() => { setLocalStart(dateToBits(startDate)); }, [startDate]);
-    useEffect(() => { setLocalEnd(dateToBits(endDate)); }, [endDate]);
+    useValueSync(value, dateRangeInputDataEqual, () => {
+        setLocalStart(dateToBits(startDate));
+        setLocalEnd(dateToBits(endDate));
+    });
 
     // Cross-handler refs — read latest peer-bits without stale closures.
     const startRef = useRef(localStart);
@@ -214,10 +218,7 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
                         size="xs"
                         variant="subtle"
                         disabled={disabled}
-                        onClick={() => handlePreset(
-                            p.start instanceof Date ? p.start : new Date(p.start),
-                            p.end instanceof Date ? p.end : new Date(p.end),
-                        )}
+                        onClick={() => handlePreset(p.start, p.end)}
                     >
                         {p.label}
                     </Button>

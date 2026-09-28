@@ -32,14 +32,16 @@ goes in a pure module with unit tests, not in the component.
    the paint gate compares identities, never deep-equals. Every new
    paint-relevant feature extends the short-circuit's field tuple.
 3. **Interactive-state pattern** (package CLAUDE.md) everywhere: local
-   state + `useEffect([value.X])` replace-on-prop-change + compute-next
-   OUTSIDE updaters; PURE functional updaters only.
+   state + replace-on-prop-change keyed on the value's DATA
+   (`data = useDataStable(value, schematicDataEqual)` — the memo lets a
+   closure-only change through, #809, and that must never replace an
+   edit) + compute-next OUTSIDE updaters; PURE functional updaters only.
 
 **Local-first editing (the form-input model)**
-4. All local edits are overlays REPLACED by a reactive prop change:
+4. All local edits are overlays REPLACED by a reactive DATA change:
    `linkEdits` {created, createdNets, retarget, deleted} on
-   `[value.links]`-ish, `itemMoves` on `[value.items]`. The ONE seam into
-   the painter is `paintValue` (`{...value, items: movedItems, links:
+   `[data.links, data.nets]`, `itemMoves` on `[data.items]`. The ONE seam
+   into the painter is `paintValue` (`{...data, items: movedItems, links:
    effectiveLinks, nets: effectiveNets}`); never feed edits to paint any
    other way. `movedItems` applies UPSTREAM of the working set so centers /
    r-tree / LOD / nav / link+net endpoints follow moves for free.
@@ -106,6 +108,5 @@ goes in a pure module with unit tests, not in the component.
 | IR contract | `east-ui/test/collections/schematic.spec.ts` + `.examples.tsx` | Factory encodings (absent ⇒ `none`), examples↔tests parity, plugin index |
 | Visual | showcase snapshots (CI) | Pixel regressions — REQUIRED after paint-path changes |
 
-Vite build does NOT typecheck this package: run
-`./node_modules/.bin/tsc -p tsconfig.json --noEmit` (or `make lint`) —
-that is the real gate, alongside eslint.
+`make build` type-checks this package before vite bundles it
+(`pnpm typecheck`, #589); `make lint` runs eslint.

@@ -35,7 +35,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Box, Skeleton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import {
     ValueTree,
     flattenRows,
@@ -70,7 +70,7 @@ import { EastChakraSelect } from "../../forms/select/index.js";
 // renderer package unchanged.
 export type { ValueTreePagedRow, ValueTreePaging };
 
-const valueTreeEqual = equalFor(ValueTree.Types.Root);
+const valueTreeEqual = equivalentFor(ValueTree.Types.Root);
 
 /** East ValueTree payload value type. */
 export type ValueTreeValue = ValueTypeOf<typeof ValueTree.Types.Root>;

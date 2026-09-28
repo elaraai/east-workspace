@@ -7,13 +7,13 @@ import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
 import { Box as ChakraBox, Drawer as ChakraDrawer, Portal, IconButton, type DrawerRootProps, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faExpand, faCompress } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Drawer } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
 // Pre-define equality function at module level
-const drawerEqual = equalFor(Drawer.Types.Drawer);
+const drawerEqual = equivalentFor(Drawer.Types.Drawer);
 
 /** East Drawer value type */
 export type DrawerValue = ValueTypeOf<typeof Drawer.Types.Drawer>;

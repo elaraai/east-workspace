@@ -23,36 +23,42 @@ import { useState, useRef, useLayoutEffect, type RefObject } from "react";
  * measuring clone — one read, then collapse. A `ResizeObserver` re-triggers the
  * measure so it re-fits (and re-grows) on container resize.
  *
+ * A row whose fold is decided elsewhere — a filter inside the shared toolbar
+ * (#952), which folds its chips as forms of its own ladder — passes
+ * `enabled: false`: nothing is measured or observed, and every item counts
+ * as visible.
+ *
  * @param count - Number of `data-overflow-item` children.
+ * @param enabled - Whether the row measures itself (default `true`).
  * @returns `rowRef` for the row, `visibleCount` (leading items that fit), and
  *          `measuring` (true during the all-items measure pass — render every
  *          item, no collapse, while it's set).
  */
-export function useOverflowCount(count: number): {
+export function useOverflowCount(count: number, enabled = true): {
     rowRef: RefObject<HTMLDivElement | null>;
     visibleCount: number;
     measuring: boolean;
 } {
     const rowRef = useRef<HTMLDivElement | null>(null);
     const [visibleCount, setVisibleCount] = useState(count);
-    const [measuring, setMeasuring] = useState(true);
+    const [measuring, setMeasuring] = useState(enabled);
 
     // Re-enter the measure pass whenever the item count changes…
-    useLayoutEffect(() => { setMeasuring(true); }, [count]);
+    useLayoutEffect(() => { if (enabled) setMeasuring(true); }, [count, enabled]);
     // …or the available space changes. Observe the *parent* (a layout-sized
     // container), never the row itself — the row is shrink-to-fit, so collapsing
     // resizes it and observing it would re-trigger the measure in a loop.
     useLayoutEffect(() => {
         const bound = rowRef.current?.parentElement;
-        if (!bound) return;
+        if (!enabled || !bound) return;
         const ro = new ResizeObserver(() => setMeasuring(true));
         ro.observe(bound);
         return () => ro.disconnect();
-    }, []);
+    }, [enabled]);
 
     // While measuring, all items are in flow: read edges, then collapse.
     useLayoutEffect(() => {
-        if (!measuring) return;
+        if (!enabled || !measuring) return;
         const row = rowRef.current;
         if (!row) return;
         const items = Array.from(row.querySelectorAll<HTMLElement>("[data-overflow-item]"));
@@ -78,7 +84,7 @@ export function useOverflowCount(count: number): {
         }
         setMeasuring(false);
         setVisibleCount(n);
-    }, [measuring]);
+    }, [measuring, enabled]);
 
-    return { rowRef, visibleCount, measuring };
+    return enabled ? { rowRef, visibleCount, measuring } : { rowRef, visibleCount: count, measuring: false };
 }

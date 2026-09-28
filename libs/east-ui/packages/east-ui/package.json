@@ -166,6 +166,7 @@
   },
   "devDependencies": {
     "@elaraai/east-node-std": "workspace:*",
+    "@elaraai/eslint-plugin-east": "workspace:*",
     "@fortawesome/fontawesome-common-types": "^7.1.0",
     "@types/node": "^22.18.1",
     "@typescript-eslint/eslint-plugin": "^8.42.0",

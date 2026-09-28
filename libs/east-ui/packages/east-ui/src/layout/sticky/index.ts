@@ -11,6 +11,8 @@ import {
     StringType,
     StructType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -78,15 +80,15 @@ function createSticky(
 
     return East.value(variant("Sticky", {
         content: content_expr,
-        offset: options?.offset ? variant("some", options.offset) : variant("none", null),
-        boundary: boundaryValue ? variant("some", boundaryValue) : variant("none", null),
+        offset: options?.offset ? some(options.offset) : none,
+        boundary: boundaryValue ? some(boundaryValue) : none,
         style: (options && (options.background !== undefined || options.borderColor !== undefined || options.shadowColor !== undefined))
-            ? variant("some", East.value({
-                background: options.background ? variant("some", options.background) : variant("none", null),
-                borderColor: options.borderColor ? variant("some", options.borderColor) : variant("none", null),
-                shadowColor: options.shadowColor ? variant("some", options.shadowColor) : variant("none", null),
+            ? some(East.value({
+                background: options.background ? some(options.background) : none,
+                borderColor: options.borderColor ? some(options.borderColor) : none,
+                shadowColor: options.shadowColor ? some(options.shadowColor) : none,
             }, StickyStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 

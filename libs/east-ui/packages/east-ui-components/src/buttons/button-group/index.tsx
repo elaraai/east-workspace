@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { Group as ChakraGroup, type GroupProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { ButtonGroup } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -15,7 +15,7 @@ import { EastChakraCopyButton } from "../copy-button";
 import { EastChakraCloseButton } from "../close-button";
 import { EastChakraToggle } from "../toggle";
 
-const buttonGroupEqual = equalFor(ButtonGroup.Types.ButtonGroup);
+const buttonGroupEqual = equivalentFor(ButtonGroup.Types.ButtonGroup);
 
 export type ButtonGroupValue = ValueTypeOf<typeof ButtonGroup.Types.ButtonGroup>;
 

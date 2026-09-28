@@ -8,13 +8,13 @@
 
 import { memo, useMemo } from "react";
 import { Separator as ChakraSeparator, type SeparatorProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Separator } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
 // Pre-define the equality function at module level
-const separatorEqual = equalFor(Separator.Types.Separator);
+const separatorEqual = equivalentFor(Separator.Types.Separator);
 
 /** East Separator value type */
 export type SeparatorValue = ValueTypeOf<typeof Separator.Types.Separator>;

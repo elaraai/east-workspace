@@ -10,8 +10,8 @@
  * composes the same pieces:
  *
  * - {@link useReviewController} — the optimistic per-row decisions state
- *   (the mandatory interactive-state pattern: local `useState`, `useEffect`
- *   re-sync on value change, `queueMicrotask` for the East callbacks).
+ *   (the mandatory interactive-state pattern: local `useState`, re-synced on
+ *   a data change, `queueMicrotask` for the East callbacks).
  * - {@link DecisionButtons} — the per-row Approve / Reject pair (shared
  *   `button` recipe, so it matches the DecisionQueue).
  * - {@link ReviewFoot} — the batch foot on the shared `commitBar` recipe
@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { type OptionType, type ValueTypeOf } from "@elaraai/east";
 import { type RowReviewType, type ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -79,6 +79,10 @@ export interface ReviewFootModel {
     hasApproveAll: boolean;
     hasRejectAll: boolean;
     hasRerun: boolean;
+    /** Whether Approve all / Reject all cannot act now — a surface whose
+     *  verdicts are drafts (the Plan, #880) while its session takes no
+     *  gesture. Absent ⇒ they can. */
+    batchDisabled?: boolean | undefined;
     /** Approve every subject. */
     approveAll(): void;
     /** Reject every subject. */
@@ -109,10 +113,11 @@ export interface ReviewController extends ReviewFootModel {
  *
  * @remarks
  * Seeds the local decision map from the rows' `approval` fields and re-syncs
- * whenever `approvals` changes identity — memoise it from the component's
- * value (`useMemo(() => value.rows.map(r => r.approval), [value])`) so the
- * reset tracks data changes, not re-renders. Callbacks fire through
- * `queueMicrotask` per the interactive-state pattern.
+ * whenever `approvals` changes identity — memoise it from the component
+ * value's DATA (`const data = useDataStable(value, dataEqual)`, then
+ * `useMemo(() => data.rows.map(r => r.approval), [data])`) so the reset
+ * tracks data changes, not re-renders or closure-only changes (#809).
+ * Callbacks fire through `queueMicrotask` per the interactive-state pattern.
  */
 export function useReviewController(
     review: RowReviewValue | undefined,
@@ -207,6 +212,18 @@ export function DecisionButtons({ rowIndex, controller }: {
     );
 }
 
+/** The batch foot's button words — a surface that speaks its own message
+ *  table (the Plan, #820) passes them; English otherwise. The Rerun button's
+ *  label is the author's (`review.rerunLabel`). */
+export interface ReviewFootLabels {
+    /** The approve-all button. */
+    approveAll: string;
+    /** The reject-all button. */
+    rejectAll: string;
+}
+
+const FOOT_LABELS: ReviewFootLabels = { approveAll: "Approve all", rejectAll: "Reject all" };
+
 /**
  * The batch review foot on the shared `commitBar` recipe (the same block the
  * Diff + DecisionQueue commit bars use), mounted outside any scrolling grid
@@ -214,12 +231,14 @@ export function DecisionButtons({ rowIndex, controller }: {
  * `review.summary` component; the buttons are Reject all / Rerun / Approve
  * all (left→right). Renders `null` when the foot has nothing to show.
  */
-export function ReviewFoot({ controller, storageKey }: {
+export function ReviewFoot({ controller, storageKey, labels = FOOT_LABELS }: {
     /** The surface's batch-review model — a full {@link ReviewController}
      *  satisfies this, as does a surface with non-index-keyed verdicts. */
     controller: ReviewFootModel;
     /** Storage key prefix for the summary component subtree. */
     storageKey: string;
+    /** The buttons' words — English when omitted. */
+    labels?: ReviewFootLabels | undefined;
 }) {
     const commitRecipe = useSlotRecipe({ key: "commitBar" });
     const cs = useMemo(() => commitRecipe({}) as unknown as Record<string, Record<string, unknown>>, [commitRecipe]);
@@ -238,16 +257,19 @@ export function ReviewFoot({ controller, storageKey }: {
             </Box>
             <Box css={cs.btnRow}>
                 {controller.hasRejectAll && (
-                    <Box as="button" css={btn({ variant: "danger", size: "md" })}
-                        onClick={controller.rejectAll}>Reject all</Box>
+                    <chakra.button type="button" css={btn({ variant: "danger", size: "md" })}
+                        disabled={controller.batchDisabled === true} data-review-batch="reject"
+                        onClick={controller.rejectAll}>{labels.rejectAll}</chakra.button>
                 )}
                 {controller.hasRerun && (
-                    <Box as="button" css={btn({ variant: "outline", size: "md" })}
-                        onClick={controller.rerun}>{controller.rerunLabel}</Box>
+                    <chakra.button type="button" css={btn({ variant: "outline", size: "md" })}
+                        data-review-batch="rerun"
+                        onClick={controller.rerun}>{controller.rerunLabel}</chakra.button>
                 )}
                 {controller.hasApproveAll && (
-                    <Box as="button" css={btn({ variant: "solid", size: "md" })}
-                        onClick={controller.approveAll}>Approve all</Box>
+                    <chakra.button type="button" css={btn({ variant: "solid", size: "md" })}
+                        disabled={controller.batchDisabled === true} data-review-batch="approve"
+                        onClick={controller.approveAll}>{labels.approveAll}</chakra.button>
                 )}
             </Box>
         </Box>

@@ -62,6 +62,17 @@ describe("window ledger — the frozen slot rate", () => {
         expect(slotHeight(l, 9)).toBe(12_000);
     });
 
+    test("the rate is what the first window DREW, however tall its elements (#855)", () => {
+        // A grouped sheet's element is its band and its lines: 42 + 3 × 36 = 150px.
+        let l = createLedger(2_000, PAGE);
+        l = observeWindow(l, 0, { px: 200 * 150, rows: 600 });
+        expect(l.slotPx).toBe(150);
+        // An unvisited window is described as tall as the first one's rows drew,
+        // so the extent is the whole source's from the first landing.
+        expect(slotHeight(l, 7)).toBe(200 * 150);
+        expect(documentHeight(l)).toBe(2_000 * 150);
+    });
+
     test("the rate is clamped so a huge source stays inside the browser's height limit", () => {
         // 4,000,000 elements at a naive 32px/element would be 1.28e8 px — well
         // past Blink's ~3.3e7 element-height clamp, where offsets stop being

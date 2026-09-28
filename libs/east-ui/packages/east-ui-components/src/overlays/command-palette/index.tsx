@@ -5,11 +5,11 @@
 
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { Box, Button, Dialog as ChakraDialog, Kbd, Portal, Text, chakra, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { CommandPalette } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
-const commandPaletteEqual = equalFor(CommandPalette.Types.CommandPalette);
+const commandPaletteEqual = equivalentFor(CommandPalette.Types.CommandPalette);
 
 export type CommandPaletteValue = ValueTypeOf<typeof CommandPalette.Types.CommandPalette>;
 

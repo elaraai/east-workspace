@@ -11,13 +11,13 @@ import {
     type TabsTriggerProps,
     type TabsContentProps,
 } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Tabs } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const tabsEqual = equalFor(Tabs.Types.Tabs);
-const tabsItemEqual = equalFor(Tabs.Types.Item);
+const tabsEqual = equivalentFor(Tabs.Types.Tabs);
+const tabsItemEqual = equivalentFor(Tabs.Types.Item);
 
 /** East Tabs value type. */
 export type TabsValue = ValueTypeOf<typeof Tabs.Types.Tabs>;

@@ -15,20 +15,26 @@
  * covered separately by `test/platform/slice.spec.ts`.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none, equalFor } from "@elaraai/east";
+import {
+    IntegerType, OptionType, SetType, SortedSet, StringType,
+    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { buildSliceHandle } from "../platform/slice/index.js";
+import { sliceConfig } from "../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";
+import { EastChakraSliceBreakdown } from "./breakdown/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
-import { EastChakraSliceRail, affordanceDescriptor } from "./rail/index.js";
+import { EastChakraSliceRail, affordanceDescriptor, rangeBounds, rangeOfWindow } from "./rail/index.js";
 import { railAffordanceKinds } from "./rail-kinds.js";
 import { EastChakraSliceRange } from "./range/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
@@ -36,6 +42,13 @@ import { EastChakraSliceSummary } from "./summary/index.js";
 
 /** Structural predicate equality — the same comparator the real impl uses. */
 const predEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
+
+/** East's equality over Integer and String sets, and East's order for their
+ *  members: a built set is an East Set, which iterates in that order. */
+const equalIntegerSets = equalFor(SetType(IntegerType));
+const compareIntegers = compareFor(IntegerType);
+const equalStringSets = equalFor(SetType(StringType));
+const compareStrings = compareFor(StringType);
 
 /** Minimal `SliceBind` closure over mutable JS state — mirrors the runtime
  *  impl. `derived` overrides the data-derived stubs (groups, fields, …) for
@@ -263,7 +276,9 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(filters.length).toBe(1);
         expect(filters[0].type).toBe("integer");
         expect(filters[0].value.op.type).toBe("in");
-        expect(filters[0].value.op.value).toEqual(new Set([10n, 20n]));  // "abc" dropped
+        const members = filters[0].value.op.value;
+        expect(equalIntegerSets(members, new SortedSet([10n, 20n], compareIntegers))).toBe(true);  // "abc" dropped
+        expect([...members]).toEqual([10n, 20n]);                                                   // in East's order
     });
 
     // Regression (crashed live in the showcase): OPENING the edit builder for
@@ -286,7 +301,9 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         const filters = slice.read().filters;
         expect(filters.length).toBe(1);
         expect(filters[0].value.op.type).toBe("in");
-        expect(filters[0].value.op.value).toEqual(new Set([10n, 20n, 30n, 40n, 50n]));  // typed again
+        const members = filters[0].value.op.value;
+        expect(equalIntegerSets(members, new SortedSet([10n, 20n, 30n, 40n, 50n], compareIntegers))).toBe(true);  // typed again
+        expect([...members]).toEqual([10n, 20n, 30n, 40n, 50n]);
     });
 
     test("editing a datetime 'between' clause seeds the min–max date pair without crashing", async () => {
@@ -406,7 +423,7 @@ describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil 
 
         const toggle = screen.getByRole("button", { name: "Toggle cohort EU" });
         expect(toggle.getAttribute("aria-pressed")).toBe("false");
-        expect(screen.getByText(/1\.2k/)).toBeTruthy();          // live count on the chip
+        expect(screen.getByText(/1\.2K/)).toBeTruthy();          // live count on the chip, compact in the locale (#850)
 
         fireEvent.click(toggle);
         expect(slice.read().activeCohorts.has("eu")).toBe(true);  // ON
@@ -447,6 +464,95 @@ describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil 
     });
 });
 
+describe("Slice.Cohort — families (`group`): captioned runs of alternatives", () => {
+    const familyCohorts = () => [
+        { id: "mine",      name: "Mine",      group: none,           filters: [variant("string", { fieldId: "owner",  op: variant("eq", "me") })] },
+        { id: "proposed",  name: "PROPOSED",  group: some("state"),  filters: [variant("string", { fieldId: "state",  op: variant("eq", "PROPOSED") })] },
+        { id: "scheduled", name: "SCHEDULED", group: some("state"),  filters: [variant("string", { fieldId: "state",  op: variant("eq", "SCHEDULED") })] },
+        { id: "ready",     name: "READY",     group: some("status"), filters: [variant("string", { fieldId: "status", op: variant("eq", "READY") })] },
+    ];
+    const familyValue = (slice: unknown, extra: Record<string, unknown> = {}): any =>
+        ({ slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: none, mode: some(variant("toggle", null)), group: none, ...extra });
+
+    test("the standalone cohort leads the plain run; each family renders under its own caption, in first-seen order", () => {
+        const slice = fakeSlice({ cohorts: familyCohorts() });
+        ui(<EastChakraSliceCohort value={familyValue(slice)} />);
+        const families = screen.getAllByRole("group").map(g => g.getAttribute("aria-label"));
+        expect(families).toEqual(["state cohorts", "status cohorts"]);
+        expect(screen.getByText("state")).toBeTruthy();       // the caption
+        expect(screen.getByText("status")).toBeTruthy();
+        // Mine sits outside every family; SCHEDULED sits inside the state family.
+        expect(screen.getByRole("button", { name: "Toggle cohort Mine" }).closest("[role=group]")).toBeNull();
+        expect(screen.getByRole("button", { name: "Toggle cohort SCHEDULED" }).closest("[role=group]")?.getAttribute("aria-label")).toBe("state cohorts");
+    });
+
+    test("the preset bar hides an empty family member unless it is on; standalone and manage-mode cohorts always show", () => {
+        const counts = () => new Map([["mine", 0n], ["proposed", 0n], ["scheduled", 4n], ["ready", 0n]]);
+        const first = ui(<EastChakraSliceCohort value={familyValue(fakeSlice({ cohorts: familyCohorts(), activeCohorts: new Set(["ready"]) }, { cohortCounts: counts }))} />);
+        expect(screen.queryByRole("button", { name: "Toggle cohort PROPOSED" })).toBeNull();     // empty, off → hidden
+        expect(screen.getByRole("button", { name: "Toggle cohort SCHEDULED" })).toBeTruthy();   // has rows
+        expect(screen.getByRole("button", { name: "Toggle cohort READY" })).toBeTruthy();       // empty but ON → shown, so it can be turned off
+        expect(screen.getByRole("button", { name: "Toggle cohort Mine" })).toBeTruthy();        // standalone → always shown
+        first.unmount();
+        // The authoring surface shows every member — an empty one is still editable.
+        ui(<EastChakraSliceCohort value={familyValue(fakeSlice({ cohorts: familyCohorts() }, { cohortCounts: counts }), { mode: none })} />);
+        expect(screen.getByRole("button", { name: "Toggle cohort PROPOSED" })).toBeTruthy();
+    });
+
+    test("group=<family> shows that family alone, uncaptioned — one surface per family", () => {
+        const slice = fakeSlice({ cohorts: familyCohorts() });
+        ui(<EastChakraSliceCohort value={familyValue(slice, { group: some("status") })} />);
+        expect(screen.getByRole("button", { name: "Toggle cohort READY" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Toggle cohort SCHEDULED" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Toggle cohort Mine" })).toBeNull();
+        expect(screen.queryByText("status")).toBeNull();      // the host names the family
+    });
+
+    test("authoring in manage mode stores the typed family as group: some(...) and a blank one as none", async () => {
+        const slice = fakeSlice();
+        ui(<EastChakraSliceCohort value={familyValue(slice, { mode: none, editOpen: some(true) })} />);
+        const user = userEvent.setup();
+        fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Late" } });
+        fireEvent.change(screen.getByLabelText("Cohort family"), { target: { value: "risk" } });
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "≥");
+        await user.click(screen.getByRole("spinbutton"));
+        await user.paste("30");
+        fireEvent.click(screen.getByText("Add"));
+        fireEvent.click(screen.getByText("Apply"));
+        const cohorts = slice.read().cohorts;
+        expect(cohorts.length).toBe(1);
+        expect(cohorts[0].group).toEqual(some("risk"));
+    });
+
+    test("against the REAL store: members of one family OR; families AND with each other and with a standalone cohort", () => {
+        initializeStore(new UIStore());
+        const cfg = sliceConfig({
+            state:  variant("string", { label: "State",  accessor: (r: { state: string }) => r.state, format: none }),
+            status: variant("string", { label: "Status", accessor: (r: { status: string }) => r.status, format: none }),
+            owner:  variant("string", { label: "Owner",  accessor: (r: { owner: string }) => r.owner, format: none }),
+        });
+        const initial = {
+            range: none, compare: none, filters: [], cohorts: familyCohorts(), activeCohorts: new Set(["proposed", "scheduled"]),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const rows = [
+            { state: "PROPOSED",  status: "READY", owner: "me" },
+            { state: "SCHEDULED", status: "READY", owner: "me" },
+            { state: "SCHEDULED", status: "HELD",  owner: "you" },
+            { state: "DONE",      status: "READY", owner: "me" },
+        ];
+        const handle: any = buildSliceHandle("real.families", cfg, initial, rows, none);
+        expect(handle.resultCount()).toBe(3n);                  // PROPOSED or SCHEDULED
+        act(() => { handle.toggleCohort("ready"); });
+        expect(handle.resultCount()).toBe(2n);                  // … and READY
+        act(() => { handle.toggleCohort("mine"); });
+        expect(handle.resultCount()).toBe(2n);                  // … and mine (both READY rows are mine)
+        act(() => { handle.toggleCohort("proposed"); });
+        expect(handle.resultCount()).toBe(1n);                  // SCHEDULED ∧ READY ∧ mine
+    });
+});
+
 describe("Slice.Legend — the facet bar (#188): in-set multi-select over self-excluding options", () => {
     const legendGroups = () => [
         { key: "EU", count: 3n, color: "{colors.brand.600}" },
@@ -466,19 +572,21 @@ describe("Slice.Legend — the facet bar (#188): in-set multi-select over self-e
         let filters = slice.read().filters;
         expect(filters.length).toBe(1);
         expect(filters[0].value.op.type).toBe("in");
-        expect(filters[0].value.op.value).toEqual(new Set(["EU"]));
+        expect(equalStringSets(filters[0].value.op.value, new SortedSet(["EU"], compareStrings))).toBe(true);
 
-        // Second selection ORs within the field — never an impossible AND.
+        // Second selection ORs within the field — never an impossible AND —
+        // into an East Set, which iterates in East's order.
         fireEvent.click(screen.getByLabelText("Filter to NA"));
         filters = slice.read().filters;
         expect(filters.length).toBe(1);
-        expect(filters[0].value.op.value).toEqual(new Set(["EU", "NA"]));
+        expect(equalStringSets(filters[0].value.op.value, new SortedSet(["EU", "NA"], compareStrings))).toBe(true);
+        expect([...filters[0].value.op.value]).toEqual(["EU", "NA"]);
 
         // Un-clicking removes a member; the options never disappeared (facet
         // items come from facetGroups, still all rendered).
         expect(screen.getByLabelText("Filter to APAC")).toBeTruthy();
         fireEvent.click(screen.getByLabelText("Filter to EU"));
-        expect(slice.read().filters[0].value.op.value).toEqual(new Set(["NA"]));
+        expect(equalStringSets(slice.read().filters[0].value.op.value, new SortedSet(["NA"], compareStrings))).toBe(true);
 
         // Emptying the selection drops the managed filter entirely.
         fireEvent.click(screen.getByLabelText("Filter to NA"));
@@ -526,6 +634,24 @@ describe("Slice.Legend — the facet bar (#188): in-set multi-select over self-e
         expect(screen.queryByLabelText("Filter to EU")).not.toBeNull();
         expect(screen.queryByLabelText("Filter to other")).toBeNull();  // synthetic bucket — inert
         expect(screen.getByText("other")).toBeTruthy();                 // …but still shown
+    });
+});
+
+describe("Slice.Breakdown — the roll-up limit is an East Integer, printed and read by East", () => {
+    const equalBreakdowns = equalFor(OptionType(Slice.Types.Breakdown));
+
+    test("the select shows the limit as East prints it; a pick writes the Integer East reads, and 'all' writes none", () => {
+        const slice = fakeSlice({ breakdown: some({ fieldId: "region", limit: some(25n) }) });
+        ui(<EastChakraSliceBreakdown value={{ slice, density: some(variant("focused", null)) } as never} />);
+
+        const select = screen.getByLabelText("Roll-up limit") as HTMLSelectElement;
+        expect(select.value).toBe("25");
+
+        fireEvent.change(select, { target: { value: "10" } });
+        expect(equalBreakdowns(slice.read().breakdown, some({ fieldId: "region", limit: some(10n) }))).toBe(true);
+
+        fireEvent.change(select, { target: { value: "all" } });
+        expect(equalBreakdowns(slice.read().breakdown, some({ fieldId: "region", limit: none }))).toBe(true);
     });
 });
 
@@ -587,12 +713,9 @@ describe("Slice.Rail brush — formatted axis + count histogram, rich by default
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
-    const currencyCfg = {
-        fields: new Map<string, unknown>([
-            ["qty", { type: "integer", value: { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: some(variant("currency", { code: "USD", compact: true })) } }],
-        ]),
-        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const currencyCfg = sliceConfig({
+        qty: variant("integer", { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: some(variant("currency", { code: "USD", compact: true })) }),
+    }, { rangeFieldId: some("qty") });
     const rows = [
         { qty: 0n }, { qty: 100n }, { qty: 150n }, { qty: 200n },
         { qty: 900n }, { qty: 950n }, { qty: 1000n },
@@ -629,13 +752,41 @@ describe("Slice.Rail brush — formatted axis + count histogram, rich by default
     });
 });
 
+describe("Slice.Rail brush — the window's bounds follow the applied range's arm", () => {
+    /** A range as the store holds it: decoded from East's own encoding. */
+    const stored = (range: ValueTypeOf<typeof Slice.Types.Range>) =>
+        decodeBeast2For(Slice.Types.Range)(encodeBeast2For(Slice.Types.Range)(range));
+
+    test("a range of the field's kind gives its bounds on the domain's numbers", () => {
+        const from = new Date("2025-03-01T00:00:00Z");
+        const to = new Date("2025-03-28T00:00:00Z");
+        expect(rangeBounds(stored(variant("datetime", { from, to })), "datetime")).toEqual({ from: from.getTime(), to: to.getTime() });
+        expect(rangeBounds(stored(variant("integer", { from: 200n, to: 400n })), "integer")).toEqual({ from: 200, to: 400 });
+        expect(rangeBounds(stored(variant("float", { from: 0.25, to: 0.75 })), "float")).toEqual({ from: 0.25, to: 0.75 });
+    });
+
+    test("a preset has no literal bounds, and an arm that is not the field's kind (inert in the engine) draws no window", () => {
+        expect(rangeBounds(stored(variant("datetimePreset", variant("last7d", null))), "datetime")).toBeUndefined();
+        expect(rangeBounds(stored(variant("integer", { from: 0n, to: 100n })), "datetime")).toBeUndefined();
+        expect(rangeBounds(stored(variant("datetime", { from: new Date(0), to: new Date(1) })), "integer")).toBeUndefined();
+    });
+
+    test("a brushed window writes the range in the field's kind — an Integer field gets the whole Integers it spans", () => {
+        const equalRanges = equalFor(Slice.Types.Range);
+        const from = new Date("2025-03-01T00:00:00Z");
+        const to = new Date("2025-03-28T00:00:00Z");
+        expect(equalRanges(rangeOfWindow("datetime", from.getTime(), to.getTime()), stored(variant("datetime", { from, to })))).toBe(true);
+        expect(equalRanges(rangeOfWindow("integer", 199.4, 400.2), stored(variant("integer", { from: 199n, to: 401n })))).toBe(true);
+        expect(equalRanges(rangeOfWindow("float", 0.25, 0.75), stored(variant("float", { from: 0.25, to: 0.75 })))).toBe(true);
+        // …and reads back as the window it spans.
+        expect(rangeBounds(rangeOfWindow("integer", 200, 400), "integer")).toEqual({ from: 200, to: 400 });
+    });
+});
+
 describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", () => {
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["qty", { type: "integer", value: { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: none } }],
-        ]),
-        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        qty: variant("integer", { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: none }),
+    }, { rangeFieldId: some("qty") });
     // Domain 0..1000 over a 1000px-wide mocked track → px === domain units.
     const rows = [{ qty: 0n }, { qty: 300n }, { qty: 600n }, { qty: 1000n }];
     const initial = {
@@ -707,12 +858,9 @@ describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", (
 });
 
 describe("Slice.Range — presets anchor to the DATA's date range; All clears (#195)", () => {
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["day", { type: "datetime", value: { label: "Day", accessor: (r: { day: Date }) => r.day, format: none } }],
-        ]),
-        rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        day: variant("datetime", { label: "Day", accessor: (r: { day: Date }) => r.day, format: none }),
+    }, { rangeFieldId: some("day") });
     // Historical rows — wall-clock presets would miss every one of them.
     const rows = [
         { day: new Date("2025-03-01") }, { day: new Date("2025-03-10") },
@@ -734,13 +882,9 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         const user = userEvent.setup();
         await user.click(screen.getByText("7d"));
 
-        const applied = handle.read().range as { type: string; value: { type: string; value: { from: Date; to: Date } } };
-        expect(applied.type).toBe("some");
-        expect(applied.value.type).toBe("datetime");                     // pinned, not a rolling preset tag
-        const { from, to } = applied.value.value;
-        expect(to.getTime()).toBe(new Date("2025-03-28").getTime());    // anchored to the data max
-        // ~7 days (setDate keeps wall time; allow a DST hour either way).
-        expect(Math.abs(to.getTime() - from.getTime() - 7 * 86_400_000)).toBeLessThanOrEqual(3_600_000);
+        // Pinned — not a rolling preset tag — anchored to the data max, and exactly
+        // 7 days: presets step UTC days, so no timezone's DST moves them (#850).
+        expect(handle.read().range).toEqual(some(variant("datetime", { from: new Date("2025-03-21"), to: new Date("2025-03-28") })));
         // The window lands ON the data: [Mar 21, Mar 28] holds exactly the Mar 28 row.
         expect(Number(handle.resultCount())).toBe(1);
     });
@@ -759,6 +903,48 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         expect((handle.read().range as { type: string }).type).toBe("none");
         expect(Number(handle.resultCount())).toBe(4);
         expect(screen.getByText(/All data ·/)).toBeTruthy();
+    });
+
+    // #850 — a preset's window is whole UTC days, and the pill names those
+    // days, in any timezone. In Los Angeles the data's last instant (01:30 UTC
+    // on 29 June) is still the 28th: read locally, "Last day" would start at
+    // the 28th's midnight and keep the row from the evening before.
+    describe("in a timezone west of UTC, a preset is whole UTC days (#850)", () => {
+        const last = new Date("2026-06-29T01:30:00Z");
+        beforeEach(() => { vi.stubEnv("TZ", "America/Los_Angeles"); });
+        afterEach(() => { vi.unstubAllEnvs(); });
+        const mountOver = (key: string, days: ReadonlyArray<Date>) => {
+            initializeStore(new UIStore());
+            const handle: any = buildSliceHandle(key, cfg, initial, days.map(day => ({ day })), none);
+            ui(<EastChakraSliceRange value={{ slice: handle, editOpen: some(true) } as any} />);
+            return handle;
+        };
+
+        test("the process really is in Los Angeles (a local reading says the 28th)", () => {
+            expect(new Intl.DateTimeFormat("en-US", { day: "numeric" }).format(last)).toBe("28");
+        });
+
+        test("'Last day' pins the data's last UTC day, and the pill and the resolve line name it", async () => {
+            const handle = mountOver("range.utc.day", [new Date("2026-06-28T23:00:00Z"), last]);
+            await userEvent.setup().click(screen.getByText("Last day"));
+            const { from, to } = handle.read().range.value.value as { from: Date; to: Date };
+            expect(from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
+            expect(to.getTime()).toBe(last.getTime());
+            expect(Number(handle.resultCount())).toBe(1);            // the 23:00Z row is the day before
+            // The range's own bounds, joined by an en dash (#949).
+            expect(screen.getByText("JUN 29 – JUN 29")).toBeTruthy();
+            expect(screen.getByText("Resolves to JUN 29, 2026")).toBeTruthy();
+        });
+
+        test("'YTD' starts on 1 January UTC, while it is still the old year in Los Angeles", async () => {
+            const newYear = new Date("2026-01-01T01:30:00Z");
+            const handle = mountOver("range.utc.ytd", [new Date("2025-12-31T23:00:00Z"), newYear]);
+            await userEvent.setup().click(screen.getByText("YTD"));
+            const { from } = handle.read().range.value.value as { from: Date; to: Date };
+            expect(from.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+            expect(Number(handle.resultCount())).toBe(1);
+            expect(screen.getByText("Resolves to JAN 1, 2026")).toBeTruthy();
+        });
     });
 });
 
@@ -825,13 +1011,10 @@ describe("Slice.Search — combobox drives the query", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)", () => {
-    const realCfg = {
-        fields: new Map<string, unknown>([
-            ["scenario", { type: "string",  value: { label: "Scenario", accessor: (r: { scenario: string }) => r.scenario } }],
-            ["sessions", { type: "integer", value: { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions } }],
-        ]),
-        rangeFieldId: none, searchFieldIds: ["scenario"], breakdownFieldIds: [],
-    };
+    const realCfg = sliceConfig({
+        scenario: variant("string",  { label: "Scenario", accessor: (r: { scenario: string }) => r.scenario, format: none }),
+        sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
+    }, { searchFieldIds: ["scenario"] });
     const realInitial = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
@@ -867,13 +1050,10 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
 
     test("the legend facet narrows the REAL store rows while its options never disappear (#188)", async () => {
         initializeStore(new UIStore());
-        const bdCfg = {
-            fields: new Map<string, unknown>([
-                ["region",   { type: "string",  value: { label: "Region",   accessor: (r: { region: string }) => r.region } }],
-                ["sessions", { type: "integer", value: { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions } }],
-            ]),
-            rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: ["region"],
-        };
+        const bdCfg = sliceConfig({
+            region:   variant("string",  { label: "Region",   accessor: (r: { region: string }) => r.region, format: none }),
+            sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
+        }, { breakdownFieldIds: ["region"] });
         const bdInitial = { ...realInitial, breakdown: some({ fieldId: "region", limit: none }) };
         const handle: any = buildSliceHandle("real.legend", bdCfg, bdInitial, [
             { region: "EU", sessions: 1n }, { region: "EU", sessions: 2n }, { region: "NA", sessions: 3n },
@@ -965,6 +1145,15 @@ describe("rail summary descriptors — capability when idle, active when narrowi
         expect(affordanceDescriptor("cohort", avail, dims)).toMatchObject({ text: "2 cohorts", active: false });
         const active = { ...(avail as object), activeCohorts: new Set(["eu", "bulk"]) } as never;
         expect(affordanceDescriptor("cohort", active, dims)).toMatchObject({ text: "EU +1", active: true });
+    });
+    test("cohort with families: the idle chip names the families, not the size of the bag", () => {
+        const families = { ...base, cohorts: [
+            { id: "p", name: "PROPOSED", group: some("state"), filters: [] },
+            { id: "s", name: "SCHEDULED", group: some("state"), filters: [] },
+            { id: "r", name: "READY", group: some("status"), filters: [] },
+            { id: "mine", name: "Mine", group: none, filters: [] },
+        ] } as never;
+        expect(affordanceDescriptor("presets", families, dims)).toMatchObject({ text: "state · status", active: false });
     });
     test("search: 'Search' idle, quoted query active", () => {
         expect(affordanceDescriptor("search", base as never, dims)).toMatchObject({ text: "Search", active: false });

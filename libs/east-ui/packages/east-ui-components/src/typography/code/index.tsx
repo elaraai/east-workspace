@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Code as ChakraCode, type CodeProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Code } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
-const codeEqual = equalFor(Code.Types.Code);
+const codeEqual = equivalentFor(Code.Types.Code);
 
 /** East Code value type */
 export type CodeValue = ValueTypeOf<typeof Code.Types.Code>;

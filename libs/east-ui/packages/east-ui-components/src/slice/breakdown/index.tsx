@@ -7,9 +7,10 @@ import { memo, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFilter } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf, some, none } from "@elaraai/east";
+import { IntegerType, type ValueTypeOf, none, parseFor, printFor, some } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFormatters } from "../../format/index.js";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -24,8 +25,12 @@ export interface EastChakraSliceBreakdownProps {
 }
 
 const DEFAULT_LIMIT = 5;
-/** Top-N cut options offered by the roll-up `<select>`; "all" clears the limit. */
+/** Top-N cut options offered by the roll-up `<select>`, each an Integer as East
+ *  prints it; "all" clears the limit. */
 const LIMIT_OPTIONS = ["5", "10", "25", "all"] as const;
+/** The limit as the select's option spells it, and the pick read back. */
+const printLimit = printFor(IntegerType);
+const readLimit = parseFor(IntegerType);
 
 /**
  * Renders an East UI `Slice.Breakdown` — dimension chips (active one
@@ -44,6 +49,8 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
     // `editor` renders the flat compact form; its edit surfaces inline via the editor-density disclosure.
     const compact = density !== "focused";
+    // The series counts, in the app's locale (#850).
+    const words = useFormatters();
     const dimensions = slice.dimensions();
     const groups = slice.groups();
 
@@ -85,7 +92,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
         return (
             <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" flexShrink="0">
                 {activeDim !== undefined && (
-                    <Box css={chip({ tone: "brand", numeric: true, shape: "pill" })}>
+                    <Box css={chip({ tone: "brand", numeric: true })}>
                         <Box as="span">{activeDim.label}</Box>
                         <chakra.button type="button" cursor="pointer" color="link" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
                     </Box>
@@ -97,7 +104,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                         label="Split by"
                         footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setPickOpen(false)}>Done</chakra.button>}
                         trigger={
-                            <Box css={chip({ tone: "dashed", numeric: true, shape: "pill" })} cursor="pointer">
+                            <Box css={chip({ tone: "dashed", numeric: true, caps: true })} cursor="pointer">
                                 <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                                 <Box as="span">dimension</Box>
                             </Box>
@@ -119,7 +126,9 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     }
     const setLimit = (v: string) => {
         if (active === undefined) return;
-        slice.setBreakdown(some({ fieldId: active, limit: v === "all" ? none : some(BigInt(v)) }));
+        // A top-N option reads as the Integer it prints; "all" reads as none.
+        const read = readLimit(v);
+        slice.setBreakdown(some({ fieldId: active, limit: read.success ? some(read.value) : none }));
     };
 
     const topN = limit !== undefined ? Number(limit) : DEFAULT_LIMIT;
@@ -163,7 +172,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     <>
                                         <Box as="span" width="8px" height="8px" borderRadius="full" background={SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length]} />
                                         <Box as="span" fontWeight="semibold" color={applied ? "{colors.brand.700}" : "fg"}>{g.key}</Box>
-                                        <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg.muted">{Number(g.count).toLocaleString()}</Box>
+                                        <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg.muted">{words.number(Number(g.count))}</Box>
                                         {applied && (
                                             <Box as="span" color="link" fontSize="9px">
                                                 <FontAwesomeIcon icon={faFilter} />
@@ -216,7 +225,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     fontSize="{fontSizes.xs}"
                                     lineHeight="1"
                                 >
-                                    {`+${moreCount} more · ${moreTotal.toLocaleString()}`}
+                                    {`+${moreCount} more · ${words.number(moreTotal)}`}
                                 </Box>
                             )}
                         </Box>
@@ -229,7 +238,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                         <Box as="span" css={styles.footerLabel}>ROLL-UP</Box>
                         <chakra.select
                             css={{ ...selectCss, cursor: "pointer" }}
-                            value={limit !== undefined ? limit.toString() : "all"}
+                            value={limit !== undefined ? printLimit(limit) : "all"}
                             onChange={e => setLimit(e.target.value)}
                             aria-label="Roll-up limit"
                         >

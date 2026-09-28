@@ -4,28 +4,40 @@
  */
 
 /**
- * The Plan toolbar (44px, `Plan Spec.html` §1) — slice chrome + the
- * resolution segment. Slice affordances mount through the shared
- * `SliceRailCluster` (the rail's measured ladder, verbatim); `resolution`
- * renders the WEEK/DAY `seg` strip (a slice write via the machine), `summary`
- * the right-edge `N of M · narrowings` line.
+ * The Plan toolbar (44px, `Plan Spec.html` §1) — slice chrome and the grain
+ * and resolution segments, in the §2 zone order: [cohort · filter · search]
+ * [GROUP · RESOURCE] [range] [resolution] … [summary] [Series] [history].
+ * The GROUP · RESOURCE strip is the canvas's own (#632): a canvas with a root
+ * group mounts it, slice or no slice, between the search and the range.
+ *
+ * It is one row of the shared toolbar (#952), folded on one ladder: the
+ * slice rail's two clusters first — the narrowing affordances and the range,
+ * merged in the rail's order — then the Plan's own items (the user's
+ * decision, 2026-09-27): the summary shortens to its count, the resolution
+ * segment folds into a one-chip menu, then the grain segment does, and last
+ * the summary hides.
  */
 
-import { useMemo, useState } from "react";
-import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Pick, Slice } from "@elaraai/east-ui/internal";
-import { SliceRailCluster } from "../../../slice/rail/index.js";
+import { HOST_RANK, useSliceToolbarItems } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
+import { radioGroupKey } from "../../../primitives/radio-group.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
+import { Toolbar, type ToolbarItem } from "../../../toolbar/index.js";
 import { usePlanDispatch } from "../context.js";
+import { PLAN_GRAINS, type PlanGrain } from "../plan-state.js";
 import { DatasetKeySearch } from "../../key-search/index.js";
 import { SliceEditPopover } from "../../../slice/edit/index.js";
 import { EastChakraPickPanel } from "../../../pick/panel/index.js";
 import { SliceDensityContext } from "../../../slice/density.js";
 import { transportLabel, type PlanTransport } from "./transport.js";
+import { usePlanWords } from "../words.js";
+import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "./Diagnostics.js";
 import type { PlanSearch } from "../use-seek.js";
 
 /** Narrowing affordances whose meaning CHANGES on a paged canvas: they narrow
@@ -34,28 +46,98 @@ import type { PlanSearch } from "../use-seek.js";
  *  replaced outright by the key search rather than badged. */
 const NARROWING_KINDS = new Set(["filter", "cohort", "presets", "breakdown", "search"]);
 
+/** The Plan's own fold ranks, after every step of the slice rail's (#952):
+ *  the summary shortens, the resolution then the grain segment fold into
+ *  their menus, and the summary hides. */
+const PLAN_RANK = {
+    summaryShort: HOST_RANK,
+    resolution: HOST_RANK + 1,
+    grain: HOST_RANK + 2,
+    summaryHide: HOST_RANK + 3,
+} as const;
+
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 /** The decoded pick bind — DERIVED from the East type, never mirrored (#617). */
 type PickBindValue = ValueTypeOf<typeof Pick.Types.Bind>;
 
-/** The compact chrome segment strip (`seg` recipe). */
-export function Seg({ items, active, onPick }: {
-    items: ReadonlyArray<{ key: string; label: string }>;
+/** A segment strip's props — shared by the strip and its one-chip menu. */
+interface SegProps<K extends string> {
+    /** What the strip picks — its radio group's (the menu's) accessible name. */
+    label: string;
+    /** Which strip it is, as `data-plan-seg` (`data-plan-segmenu`) says. */
+    name: string;
+    /** The segments, in order. */
+    items: ReadonlyArray<{ key: K; label: string }>;
+    /** The checked segment's key — any other string checks none. */
     active: string;
-    onPick: (key: string) => void;
-}) {
+    /** Picks a segment. */
+    onPick: (key: K) => void;
+}
+
+/**
+ * The compact chrome segment strip (`seg` recipe) — a radio group (#632).
+ * It is ONE tab stop, on the checked segment (the first while none is);
+ * ← / → and Home / End move between the segments and pick the one they land
+ * on, as the WAI-ARIA radio group pattern has it, and a click, Enter or Space
+ * picks the one it is on.
+ */
+export function Seg<K extends string>({ label, name, items, active, onPick }: SegProps<K>) {
     const seg = useSlotRecipe({ key: "seg" });
     const ss = useMemo(() => seg({}) as unknown as Styles, [seg]);
+    const stop = items.some((it) => it.key === active) ? active : items[0]?.key;
+    // The radio group's keys (shared with the Sheet's context switch): handled, so the canvas's own keys skip them.
+    const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+        radioGroupKey(e, (j) => {
+            const it = items[j];
+            if (it !== undefined && it.key !== active) onPick(it.key);
+        });
+    };
     return (
-        <Box css={ss.root} data-slot="seg">
+        <Box css={ss.root} data-slot="seg" data-plan-seg={name} role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
             {items.map((it) => (
-                <Box key={it.key} as="button" css={ss.item} data-state={it.key === active ? "on" : undefined}
+                <chakra.button key={it.key} type="button" css={ss.item} role="radio"
+                    aria-checked={it.key === active} tabIndex={it.key === stop ? 0 : -1}
+                    data-state={it.key === active ? "on" : undefined}
                     onClick={() => onPick(it.key)}>
                     {it.label}
-                </Box>
+                </chakra.button>
             ))}
         </Box>
+    );
+}
+
+/**
+ * A segment strip folded into one chip (#952) — the checked segment and a
+ * caret, opening a menu of every segment; picking one does what the strip's
+ * press does. The narrow layout's resolution chip, and the wide toolbar's
+ * segments once the row is short of room.
+ */
+export function SegMenu<K extends string>({ label, name, items, active, onPick }: SegProps<K>) {
+    const chip = useRecipe({ key: "chip" });
+    const current = items.find((it) => it.key === active);
+    return (
+        <ChakraMenu.Root onSelect={(d) => {
+            const it = items.find((x) => x.key === d.value);
+            if (it !== undefined) onPick(it.key);
+        }}>
+            <ChakraMenu.Trigger asChild>
+                <chakra.button type="button" css={chip({ tone: "neutral", numeric: true })} data-slot="segMenu"
+                    data-plan-segmenu={name} aria-label={label}>
+                    {current?.label ?? active}
+                    <Box as="span" data-chip-caret="">{"▾"}</Box>
+                </chakra.button>
+            </ChakraMenu.Trigger>
+            <Portal>
+                <ChakraMenu.Positioner>
+                    <ChakraMenu.Content>
+                        {items.map((it) => (
+                            <ChakraMenu.Item key={it.key} value={it.key}>{it.label}</ChakraMenu.Item>
+                        ))}
+                    </ChakraMenu.Content>
+                </ChakraMenu.Positioner>
+            </Portal>
+        </ChakraMenu.Root>
     );
 }
 
@@ -68,6 +150,10 @@ export interface PlanToolbarProps {
     resolution: string;
     /** The resolution segment options (`[]` ⇒ no segment). */
     resolutions: ReadonlyArray<string>;
+    /** The active grain, when the canvas has a root group for it to fold —
+     *  it mounts the GROUP · RESOURCE segment (#632). Absent on a canvas with
+     *  no root group, where the grain changes nothing. */
+    grain?: PlanGrain | undefined;
     /** Paged transport state — omitted on an inline canvas. */
     transport?: PlanTransport | undefined;
     /** Key search over the source — mounted IN PLACE of the slice `search`
@@ -76,11 +162,25 @@ export interface PlanToolbarProps {
     /** The bound series library (#590) — mounts the right-edge Series button,
      *  which opens the library in the shared slice-editor popover. */
     pick?: PickBindValue | undefined;
+    /** The canvas's local failures, as chips (#811) — skipped rows, a source
+     *  or search failure, a truncated axis. */
+    diagnostics?: PlanDiagnostics | undefined;
+    /** The editing session's history bar (#880) — Undo, Redo, Discard and
+     *  Apply over the drafts — at the right edge, as on the Sheet. */
+    history?: ReactNode;
 }
 
 /** The 44px toolbar band. */
-export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, transport, search, pick }: PlanToolbarProps) {
+export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, grain, transport, search, pick, diagnostics, history }: PlanToolbarProps) {
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
+    // The segments' strips — every grain and resolution, by its name (#820).
+    const grainItems = useMemo(
+        () => PLAN_GRAINS.map((g) => ({ key: g, label: words.m.grainName({ grain: g }) })),
+        [words]);
+    const resolutionItems = useMemo(
+        () => resolutions.map((r) => ({ key: r, label: words.m.resolutionName({ resolution: r }) })),
+        [resolutions, words]);
     const btn = useRecipe({ key: "button" });
     const [libraryOpen, setLibraryOpen] = useState(false);
     // Self-subscribe on the slice key (#611): a store write does not change
@@ -90,13 +190,12 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
     // and the scope badge honest on a chrome-only bound slice, where a state
     // change re-derives no rows.
     const sliceVersion = useSliceReactivity(slice?.key);
-    // Rail-cluster affordances (the Table adopter pattern): route the listed
-    // kinds through `railAffordanceKinds` (auto-appended cohort etc.), then
-    // drop the kinds that mount as Plan chrome bands rather than rail chips —
-    // `brush` (the horizon strip), `legend`, and the Plan's two new arms
-    // (`resolution` segment, `summary` count line). `range` splits into its
-    // own cluster so the §2 zone order holds: [cohort · filter · search]
-    // [range] [resolution] [summary].
+    // Rail affordances: route the listed kinds through `railAffordanceKinds`
+    // (auto-appended cohort etc.), then drop the kinds that mount as Plan
+    // chrome bands rather than rail chips — `brush` (the horizon strip),
+    // `legend`, and the Plan's own arms (`resolution` segment, `summary`
+    // count line). `range` is a cluster of its own, between the segments, so
+    // the §2 zone order holds.
     // A seek-capable paged source replaces `search` entirely: filtering the
     // loaded prefix and seeking the whole source are different operations, and
     // mounting both would offer the same word for both meanings.
@@ -109,71 +208,90 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
     );
     const clusterKinds = useMemo(() => railKinds.filter((k) => k !== "range"), [railKinds]);
     const rangeKinds = useMemo(() => railKinds.filter((k) => k === "range"), [railKinds]);
+    const rail = useSliceToolbarItems(slice, [
+        { key: "cluster", kinds: clusterKinds },
+        { key: "range", kinds: rangeKinds },
+    ]);
     // A narrowing affordance on a paged canvas reports over the LOADED prefix
     // while looking like it reports over the whole source — so say so, rather
     // than removing a capability the user can still use on what has landed.
     const scoped = transport !== undefined && clusterKinds.some((k) => NARROWING_KINDS.has(k));
     const showSummary = slice !== undefined && affordances.includes("summary");
+    // The summary line, and what a row short of room keeps of it.
     const summary = useMemo(() => {
         if (!showSummary || slice === undefined) return undefined;
         // `N of M matching` counts what the slice narrowed. On a paged canvas
         // that M is the prefix, not the source, so the honest count is the
-        // transport's — in ELEMENTS (#567 D9).
-        if (transport !== undefined) return transportLabel(transport);
+        // transport's — in ELEMENTS (#567 D9), already a count.
+        if (transport !== undefined) return { full: transportLabel(transport, words), short: undefined };
         const total = Number(slice.totalCount());
         const result = Number(slice.resultCount());
         const active = Number(slice.activeCount());
-        return `${result} of ${total}${active > 0 ? ` · ${active} narrowing${active > 1 ? "s" : ""}` : ""}`;
+        return {
+            full: words.m.summary({ result: words.number(result), total: words.number(total), n: active, active: words.number(active) }),
+            short: words.m.summaryShort({ result: words.number(result), total: words.number(total) }),
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of the count reads: they move with the STORE, not with any prop (#611)
-    }, [showSummary, slice, transport, sliceVersion]);
+    }, [showSummary, slice, transport, sliceVersion, words]);
+
+    const summaryLine = (text: string) => <Box css={styles.footerItem} data-slot="toolbarSummary">{text}</Box>;
+    const items: ReadonlyArray<ToolbarItem | false | undefined> = [
+        rail.find((it) => it.key === "cluster"),
+        scoped && { key: "scope", forms: [<Box css={styles.footerItem} data-slot="scopeBadge">{words.m.scopeBadge()}</Box>] },
+        search !== undefined && {
+            key: "seek",
+            forms: [<DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find}
+                onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />],
+        },
+        // The grain is canvas state, not a slice write: the segment drives the
+        // same `grain.set` the `g` key does, bound slice or not. It leads the
+        // group — after the search, before the range, where the §1 mock puts it.
+        grain !== undefined && {
+            key: "grain",
+            rank: PLAN_RANK.grain,
+            forms: [
+                <Seg label={words.m.grainLabel()} name="grain" items={grainItems} active={grain}
+                    onPick={(g) => dispatch({ t: "grain.set", grain: g })} />,
+                <SegMenu label={words.m.grainLabel()} name="grain" items={grainItems} active={grain}
+                    onPick={(g) => dispatch({ t: "grain.set", grain: g })} />,
+            ],
+        },
+        rail.find((it) => it.key === "range"),
+        // The segment is a SLICE write (`slice.setResolution`) — without a
+        // bound slice the effect runner drops it, so mounting it would offer
+        // a control that does nothing. The unbound-canvas fallback story is
+        // #572's (resolution persist fallback); until then, no slice ⇒ no
+        // segment.
+        slice !== undefined && resolutions.length > 0 && {
+            key: "resolution",
+            rank: PLAN_RANK.resolution,
+            forms: [
+                <Seg label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
+                    onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />,
+                <SegMenu label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
+                    onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />,
+            ],
+        },
+        hasDiagnostics(diagnostics) && { key: "diagnostics", forms: [<PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />] },
+        // The right edge: the summary line, the library button, the history bar.
+        summary !== undefined && {
+            key: "summary",
+            side: "end",
+            ...(summary.short !== undefined
+                ? { rank: [PLAN_RANK.summaryShort, PLAN_RANK.summaryHide], forms: [summaryLine(summary.full), summaryLine(summary.short), null] }
+                : { rank: PLAN_RANK.summaryHide, forms: [summaryLine(summary.full), null] }),
+        },
+        pick !== undefined && {
+            key: "series",
+            side: "end",
+            forms: [<PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen} btn={btn} styles={styles} />],
+        },
+        history !== undefined && { key: "history", side: "end", forms: [history] },
+    ];
 
     return (
         <Box css={styles.toolbar} data-slot="toolbar">
-            {/* The cluster folds all the way to its icon; this floor is that
-                icon's width, so the fixed groups beside it never crush it. */}
-            {slice !== undefined && clusterKinds.length > 0 && (
-                <Box display="flex" flex="1 1 0" minWidth="min(100%, 52px)" data-slot="toolbarCluster">
-                    <SliceRailCluster slice={slice} affordanceKinds={clusterKinds} />
-                </Box>
-            )}
-            {scoped && (
-                <Box css={styles.footerItem} data-slot="scopeBadge">loaded rows only</Box>
-            )}
-            {search !== undefined && (
-                <DatasetKeySearch keyType={search.keyType} onFind={search.find}
-                    onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />
-            )}
-            <Box css={styles.toolbarGroup}>
-                {slice !== undefined && rangeKinds.length > 0 && (
-                    <SliceRailCluster slice={slice} affordanceKinds={rangeKinds} />
-                )}
-                {/* The segment is a SLICE write (`slice.setResolution`) —
-                    without a bound slice the effect runner drops it, so
-                    mounting it would offer a control that does nothing. The
-                    unbound-canvas fallback story is #572's (resolution
-                    persist fallback); until then, no slice ⇒ no segment. */}
-                {slice !== undefined && resolutions.length > 0 && (
-                    <Seg
-                        items={resolutions.map((r) => ({ key: r, label: r.toUpperCase() }))}
-                        active={resolution}
-                        onPick={(r) => dispatch({ t: "resolution.set", resolution: r })}
-                    />
-                )}
-            </Box>
-            {/* The right edge: the summary line, then the library button. Both
-                are trailing chrome, so they share one auto-margined group
-                rather than each claiming `marginLeft: auto` and fighting. */}
-            {(summary !== undefined || pick !== undefined) && (
-                <Box css={styles.toolbarTrailing} data-slot="toolbarTrailing">
-                    {summary !== undefined && (
-                        <Box css={styles.footerItem} data-slot="toolbarSummary">{summary}</Box>
-                    )}
-                    {pick !== undefined && (
-                        <PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen}
-                            btn={btn} styles={styles} />
-                    )}
-                </Box>
-            )}
+            <Toolbar gap="md" items={items} />
         </Box>
     );
 }
@@ -206,25 +324,29 @@ function PlanLibraryButton({ pick, open, onOpenChange, btn, styles }: {
     // that changes no rows (a zero-row series) re-renders nothing, and the
     // per-render read below never runs again (#611).
     useSliceReactivity(pick.key);
+    const words = usePlanWords();
     const hidden = new Set(pick.state.read());
     const shown = pick.items.filter((i) => !hidden.has(i.id)).length;
+    const series = words.m.seriesButton();
     return (
         <SliceEditPopover
             open={open}
             onOpenChange={onOpenChange}
             size="lg"
             flush
-            label={<>Series · <Box as="span" css={styles.toolbarLibraryCount}>{`${shown} of ${pick.items.length}`}</Box></>}
+            label={<>{series} · <Box as="span" css={styles.toolbarLibraryCount}>
+                {words.m.seriesCount({ shown: words.number(shown), total: words.number(pick.items.length) })}
+            </Box></>}
             trigger={
                 <chakra.button type="button" css={btn({ variant: "ghost", size: "xs" })}
-                    data-slot="planLibraryTrigger" aria-label="Series library" aria-expanded={open}>
+                    data-slot="planLibraryTrigger" aria-label={words.m.seriesLibrary()} aria-expanded={open}>
                     <FontAwesomeIcon icon={faLayerGroup} style={{ fontSize: "11px" }} />
-                    <Box as="span">Series</Box>
+                    <Box as="span">{series}</Box>
                 </chakra.button>
             }
         >
             <SliceDensityContext.Provider value="editor">
-                <EastChakraPickPanel value={{ pick, title: "Series" }} />
+                <EastChakraPickPanel value={{ pick, title: series }} />
             </SliceDensityContext.Provider>
         </SliceEditPopover>
     );

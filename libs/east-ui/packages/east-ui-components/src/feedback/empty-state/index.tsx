@@ -7,12 +7,12 @@ import { memo, useMemo } from "react";
 import { EmptyState as ChakraEmptyState, Box as ChakraBox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { EmptyState } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const emptyStateEqual = equalFor(EmptyState.Types.EmptyState);
+const emptyStateEqual = equivalentFor(EmptyState.Types.EmptyState);
 
 export type EmptyStateValue = ValueTypeOf<typeof EmptyState.Types.EmptyState>;
 

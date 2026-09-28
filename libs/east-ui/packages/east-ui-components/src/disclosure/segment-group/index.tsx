@@ -5,12 +5,12 @@
 
 import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { SegmentGroup as ChakraSegmentGroup, type SegmentGroupRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { SegmentGroup } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const segmentGroupEqual = equalFor(SegmentGroup.Types.SegmentGroup);
+const segmentGroupEqual = equivalentFor(SegmentGroup.Types.SegmentGroup);
 
 export type SegmentGroupValue = ValueTypeOf<typeof SegmentGroup.Types.SegmentGroup>;
 

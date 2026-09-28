@@ -65,8 +65,8 @@ function createHeading(
 
     return East.value(variant("Heading", {
         value: value,
-        as: asValue ? variant("some", asValue) : variant("none", null),
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        as: asValue ? some(asValue) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

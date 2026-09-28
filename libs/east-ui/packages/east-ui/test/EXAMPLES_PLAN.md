@@ -68,9 +68,10 @@ As of #571 (Gantt / Planner / AlignedStack retired into `Plan`):
 ## Cascade for any consolidation / example change
 
 1. Rewrite the sibling spec (examples↔tests contract).
-2. Update probe/golden references in the same PR.
+2. Update probe / responsive-spec references in the same PR.
 3. `make test && make lint` in `libs/east-ui`.
-4. Re-bank responsive goldens if the component is in the catalog.
+4. `make build && make test-responsive` in `libs/east-ui` (the responsive
+   suite, which CI also runs).
 5. Regenerate the plugin search index (coordinate first).
 6. Regenerate rendered design captures
    (`make east-ui-examples-html-all` + `node scripts/design-example-cards.mjs`).

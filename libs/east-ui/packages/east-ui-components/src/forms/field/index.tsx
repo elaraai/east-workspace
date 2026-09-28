@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Box, Field as ChakraField, type FieldRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Field } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
 // Pre-define equality function at module level
-const fieldEqual = equalFor(Field.Types.Field);
+const fieldEqual = equivalentFor(Field.Types.Field);
 
 /** East Field value type */
 export type FieldValue = ValueTypeOf<typeof Field.Types.Field>;

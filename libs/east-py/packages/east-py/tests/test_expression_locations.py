@@ -32,6 +32,7 @@ from east import (
     SourceMap,
     StringType,
     set_location_base_path,
+    set_location_capture,
 )
 from east.expression import capture_callback, trace
 from east.expression.location import (
@@ -223,6 +224,44 @@ def test_nodes_outside_a_build_carry_no_location():
         with source_map_scope() as nested:
             assert nested is source_map   # a nested build shares the map
     assert current_source_map() is None
+
+
+# ─── The capture switch (#834) ──────────────────────────────────────────────
+
+
+def test_capture_off_builds_without_locations():
+    try:
+        set_location_capture(False)
+        assert capture_frames() == ()
+        with source_map_scope():
+            assert location_id() == UNKNOWN_LOC_ID
+        fn = _build_divider()
+        assert fn._east_source_map.entries() == [()]
+        assert _frames(_raises(fn, 1)) == []
+    finally:
+        set_location_capture(True)
+    # Switched back on, a build records its frames again.
+    assert _frames(_raises(_build_divider(), 1))[0][1] == DIVIDER_BODY_LINE
+
+
+def test_capture_off_takes_no_stack_walk(monkeypatch):
+    # The walk puts every frame through the author filter; with capture off
+    # it must not start — that walk is what the switch saves.
+    import east.expression.location as location
+
+    def walked(_filename):
+        raise AssertionError("walked the stack")
+
+    monkeypatch.setattr(location, "_author_path", walked)
+    with pytest.raises(AssertionError, match="walked the stack"):
+        capture_frames()
+    try:
+        set_location_capture(False)
+        assert capture_frames() == ()
+        with source_map_scope():
+            assert location_id() == UNKNOWN_LOC_ID
+    finally:
+        set_location_capture(True)
 
 
 def test_source_map_interns_stacks_by_content():

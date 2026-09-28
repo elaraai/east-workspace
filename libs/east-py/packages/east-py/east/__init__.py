@@ -72,6 +72,7 @@ from east.expression import (  # noqa: E402
     if_else,
     least,
     set_location_base_path,
+    set_location_capture,
 )
 from east.namespace import East  # noqa: E402
 from east.runtime.compiler import (  # noqa: E402
@@ -160,7 +161,9 @@ __all__ = [
     "greatest",
     "least",
     # authoring-frame source maps (#626): the map an East.function carries,
-    # and the base directory recorded paths are relativized against
+    # the base directory recorded paths are relativized against, and the
+    # switch that builds without recording them (#834)
     "SourceMap",
     "set_location_base_path",
+    "set_location_capture",
 ]

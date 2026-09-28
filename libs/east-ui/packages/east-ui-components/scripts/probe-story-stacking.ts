@@ -28,7 +28,7 @@ const SNAPSHOT_ROOT = path.join(PKG_ROOT, 'snapshot');
 function parseArg(name: string, fallback: string): string {
     for (const arg of process.argv.slice(2)) {
         const m = new RegExp(`^--${name}=(.+)$`).exec(arg);
-        if (m) return m[1];
+        if (m?.[1] !== undefined) return m[1];
     }
     return fallback;
 }

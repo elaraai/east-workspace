@@ -21,7 +21,7 @@ import type { SheetKind } from "./model.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
-import type { SheetCellValue, SheetMemberValue, SheetViewValue } from "./values.js";
+import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetViewValue } from "./values.js";
 
 /** The slice's narrowing — the decoded `Slice.Types.State` a view snapshots. */
 export type SliceStateValue = ValueTypeOf<typeof Slice.Types.State>;
@@ -37,7 +37,12 @@ export interface LensState {
     reveals: ReadonlySet<number>;
     /** How far each band control has reached (`${band}:${where}` → presses) — the 1 · 3 · 10 · all escalation. */
     steps: ReadonlyMap<string, number>;
+    /** A grouped sheet's fold overrides (#740): group id → folded. Persist into views like the reveals. */
+    folds: ReadonlyMap<string, boolean>;
 }
+
+/** What a row-space index holds: a row, a blank padding row, or a group summary. */
+export type SheetRowKind = "row" | "blank" | "group";
 
 /** The view tabs' own state (B§8); whether the active tab is dirty is derived by the component from the slice. */
 export interface TabsState {
@@ -84,6 +89,8 @@ export interface EditBuffer {
     hi: number;
     /** Opened by a printable key — caret at the end, nothing selected. */
     seeded: boolean;
+    /** The text the editor opened with, when it opened on the cell's own value (not a key, not a link) — a commit of that same text writes nothing (#852). */
+    opened?: string | undefined;
     /** The link editor's state — present on a link / set column. */
     link?: LinkEdit;
 }
@@ -123,6 +130,47 @@ export interface Rejections {
     follows: ReadonlySet<string>;
 }
 
+/**
+ * A row as a message names it (#861): a row by its number, or on a grouped
+ * sheet a line by its number in its group (`title` its group's, `noun` the
+ * host's word for a group) — worded at render.
+ */
+export type SheetRowRef =
+    | { line: false; number: number }
+    | { line: true; number: number; title: string | undefined; noun: string | undefined };
+
+/**
+ * What a gesture leaves in the footer's `aria-live` line (#861): a message of
+ * the Sheet's table by its id, with its parameters as data — counts raw, a
+ * row as a {@link SheetRowRef}, a noun `undefined` where the host declares
+ * none — so the reducer knows no locale; the footer words it (`noticeText`).
+ * `issue` names the issue the history bar went to; `text` carries words that
+ * are not the Sheet's own (an error a host's callback threw).
+ */
+export type SheetNotice =
+    | { id: "groupOpened" | "groupFolded"; noun: string | undefined }
+    | { id: "groupsOpened" | "groupsFolded"; n: number; noun: string | undefined; nouns: string | undefined }
+    | { id: "subRowsShownAll"; n: number; noun: string | undefined }
+    | { id: "subRowsHidAll"; noun: string | undefined }
+    | { id: "subRowsShown"; n: number }
+    | { id: "subRowsHid" | "rowLeft" | "tabReverted" | "proposalDeselected" | "rowFillDismissed" | "discarded" | "newRow" }
+    | { id: "membersAdded" | "membersRemoved" | "predictedTaken"; n: number }
+    | { id: "lockedHalf"; driver: string | undefined }
+    | { id: "tabSaved"; name: string; query: boolean }
+    | { id: "tabClosed"; name: string; active: boolean }
+    | { id: "tabUpdated"; name: string }
+    | { id: "fillTaken"; column: string; meta: string | undefined }
+    | { id: "rowFilled"; n: number; row: SheetRowRef }
+    | { id: "proposalTaken"; label: string | undefined; more: boolean }
+    | { id: "proposalRejected"; to: string | undefined; from: string | undefined }
+    | { id: "fillDismissed"; column: string }
+    | { id: "deleted"; n: number; what: "rows" | "lines" | "groups"; noun: string | undefined; nouns: string | undefined; again: boolean }
+    | { id: "pasted"; rows: number; cols: number; skipped: number }
+    | { id: "copied"; rows: number; cols: number }
+    | { id: "newGroup"; noun: string | undefined }
+    | { id: "issue"; where: string; message: string }
+    | { id: "text"; text: string };
+
 /** All ephemeral UI state — one object, one reducer. */
 export interface SheetUiState {
     /** The ring. */
@@ -133,8 +181,8 @@ export interface SheetUiState {
     edit: EditBuffer | null;
     /** The hovered cell (the ✓ take button's home). */
     hover: CellRef | null;
-    /** The footer's `aria-live` line. */
-    msg: string;
+    /** The footer's `aria-live` line — the message the last gesture left (#861). */
+    msg: SheetNotice | null;
     /** Rows appended past the padding with ↓ on the last row. */
     appended: number;
     /** The copilot's pending suggestions. */
@@ -169,9 +217,21 @@ export type SheetEvent =
     | { t: "half.down"; side: 0 | 1 }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
     | { t: "select.set"; r: number; c: number }
-    /** The rows changed underneath (a new value, a landed window): clamp. */
-    | { t: "rows.changed" }
-    | { t: "msg"; msg: string }
+    /** A key's move the component finishes (#860): the ring lands where a `seek.step` or `seek.edge` was headed once its window arrives — reported and scrolled to, as a key's move is. */
+    | { t: "select.move"; r: number; c: number }
+    /**
+     * The rows changed underneath (a new value, a landed window): clamp.
+     * `moved` says where each row-space index from before now sits — a row
+     * by its identity, a padding row by its place among the padding — so the
+     * ring, a range, the editor, the hover and the armed fill follow their
+     * rows when rows move under them: a window landing above, a new
+     * revision, a host's write-back (#854). `null` for a row that LEFT the
+     * row space: an editor on it closes, since it would sit over another row
+     * and its text would land there (#877); every other place keeps its
+     * index, clamped. `undefined` where nothing is known of the row.
+     */
+    | { t: "rows.changed"; moved?: ((r: number) => number | null | undefined) | undefined }
+    | { t: "msg"; msg: SheetNotice }
     | { t: "clipboard.copy" }
     | { t: "clipboard.paste"; text: string }
     /** The copilot runner's result for an anchor (`null` = nothing to suggest). */
@@ -201,8 +261,8 @@ export type SheetEvent =
     | { t: "lens.narrowed" }
     /** A tab is picked (`null` = the whole sheet): the leaving tab keeps its context and reveals, an unsaved query is discarded. */
     | { t: "tab.switch"; id: string | null }
-    /** A tab opens WITHOUT persisting the one it leaves — the initial `activeView`. */
-    | { t: "tab.open"; id: string }
+    /** A tab opens WITHOUT persisting the one it leaves — the initial `activeView`; `folds`, the ones the last session left on it, when newer than the view's (#857). */
+    | { t: "tab.open"; id: string; folds?: ReadonlyMap<string, boolean> | undefined }
     /** `+ TAB` — snapshot the current narrowing, context and reveals as a view. */
     | { t: "tab.create" }
     /** × or a middle click — the active tab falls back to the sheet. */
@@ -218,7 +278,14 @@ export type SheetEvent =
     /** A tab dropped before the tab at `to` (`to` = the count appends). */
     | { t: "tab.reorder"; id: string; to: number }
     /** A key in the rail's search box the tabs claim: ⏎ updates a dirty tab; esc reverts a dirty tab, returns a clean one to the sheet, or clears the search. */
-    | { t: "search.key"; key: string };
+    | { t: "search.key"; key: string }
+    // ── Grouped rows (#740) ──
+    /** The chevron, or Space with the ring on a band: the group folds or opens; `all` (⌥ on the chevron) applies the band's new state to every group. */
+    | { t: "fold.toggle"; r: number; all?: boolean }
+    /** The header corner's fold-all, or ⇧Space on a band: every group folds (`true`) or opens. */
+    | { t: "fold.all"; folded: boolean }
+    /** A line's chevron, or Space with the ring on a line that has sub rows (#844): they show or hide; `all` (⌥ on the chevron, ⇧Space) takes every line of its group the same way. */
+    | { t: "subRows.toggle"; r: number; all?: boolean };
 
 /** Where an edit came from (the wire `SheetSourceType` tags). */
 export type EditSource = "typed" | "pasted" | "fill" | "row" | "pattern";
@@ -245,6 +312,16 @@ export type SheetEffect =
     | { t: "emit.select"; r: number; c: number }
     /** Bring a row into view. */
     | { t: "scroll.to"; r: number }
+    /**
+     * ↓ past the last resident row, or ↑ above the first, on a paged sheet
+     * whose source goes on (#860): the component asks for the window beyond,
+     * and the ring moves `dir` onto its row, at column `c`, once it lands.
+     */
+    | { t: "seek.step"; dir: 1 | -1; c: number }
+    /** ⌘Home / ⌘End on a paged sheet not at that end (#860): the component jumps the source there, and the ring lands on its first or last row, at column `c`. */
+    | { t: "seek.edge"; edge: "first" | "last"; c: number }
+    /** Move the ring to a row by ID once the body has re-formed (a fold-all keeps the ring on its group's band). */
+    | { t: "select.id"; id: string; c: number }
     /** Re-ask the copilot for the edited row after the kind's latency (`instant` = 150 ms). */
     | { t: "schedule.suggest"; latency: "instant" | "idle" }
     /** The views changed — `onViewsChange`. */
@@ -260,14 +337,25 @@ export interface SheetMachineCtx {
     rowCount: number;
     /** Declared columns. */
     colCount: number;
+    /** Grouped sheets have source key search and fold controls, without local lenses or views. */
+    grouped?: boolean;
     /** A lens narrows the sheet — ↓ on the last row must not append. */
     lensActive: boolean;
     /** The inline arm, or an exhausted paged source — ↓ on the last row may append. */
     canAppend: boolean;
+    /**
+     * Whether the row space holds the source's first and last rows (#860): on
+     * a paged sheet an unloaded run lies past an end that is not, and a move
+     * across it asks the component for its window (`seek.step`, `seek.edge`).
+     * Absent ⇒ both ends are here (the inline arm).
+     */
+    edges?: { atStart: boolean; atEnd: boolean } | undefined;
+    /** How many rows a page moves — the rows the frame shows (#860); absent ⇒ ten. */
+    pageRows?: (() => number) | undefined;
     /** Whether the cell may be edited (column editable, not stamped, sheet not read-only, row not owned where that matters). */
     editableAt: (r: number, c: number) => boolean;
-    /** The column kind. */
-    kindAt: (c: number) => SheetKind;
+    /** The kind of the cell at a row and column — a band's cell under the column, else the column's. */
+    kindAt: (r: number, c: number) => SheetKind;
     /** Parse a buffer for a cell. */
     parse: (r: number, c: number, text: string) => ParseOutcome;
     /** The candidates for a buffer (the entry menu when empty). */
@@ -290,6 +378,10 @@ export interface SheetMachineCtx {
     driverColumn?: string | undefined;
     /** The 1-based row number at a row-space index (the footer's messages). */
     numberAt?: (r: number) => number;
+    /** How the footer's messages name a row — a row, or on a grouped sheet a line of its group (#740, G3); worded at render (#861). */
+    rowRefAt?: (r: number) => SheetRowRef;
+    /** A new view's name when there is no query to name it from (#861) — the sheet's words, stored with the view. */
+    viewName?: ((seq: number) => string) | undefined;
     /** The saved views, in order — the component's local layer over `views`. */
     views?: readonly SheetViewValue[];
     /** The slice's current narrowing (`undefined` without a bound slice). */
@@ -298,6 +390,20 @@ export interface SheetMachineCtx {
     emptyNarrowing?: SliceStateValue | undefined;
     /** Whether the active tab's saved narrowing differs from the slice's — derived by the component. */
     dirty?: boolean;
+    /** What the row-space index holds (#740); absent ⇒ every index is a row or a blank. */
+    rowKindAt?: (r: number) => SheetRowKind | undefined;
+    /** A group's band at a row-space index (#740): its id, its fold, and the row-space range of its lines (`undefined` when it has none or is folded). */
+    groupAt?: (r: number) => { id: string; folded: boolean; lines: { r0: number; r1: number } | undefined } | undefined;
+    /** The columns one cell spans (#740): a band's title spans its first columns; `undefined` ⇒ one column. */
+    spanAt?: (r: number, c: number) => { c0: number; c1: number } | undefined;
+    /** Every group's id in sheet order, the ones a lens hides included: what fold-all folds. */
+    groupIds?: readonly string[] | undefined;
+    /** Whether a row-space row is a LOOSE row between the groups (#846) — a grouped sheet's row that belongs to no group. */
+    looseAt?: ((r: number) => boolean) | undefined;
+    /** The word the messages use for a group (#844) — the host's. */
+    groupNoun?: SheetNounValue | undefined;
+    /** A line's SUB ROWS at a row-space index (#844): the line's id (the key they open under), how many, whether they show, and every line of its group that has sub rows. `undefined` = not a line, or a line with none. */
+    lineSubRowsAt?: ((r: number) => { id: string; count: number; open: boolean; group: readonly string[] } | undefined) | undefined;
 }
 
 /** What the link editor asks about its cell — built by the component per render. */
@@ -316,8 +422,8 @@ export interface LinkEditCtx {
     predicted: (side: 0 | 1, groups: LinkGroups, typed: string) => SheetMemberValue[];
     /** The cell for the halves — `null` when both are empty. */
     cell: (groups: LinkGroups) => SheetCellValue | null;
-    /** The driver member's name, for the hop-into-a-locked-half message. */
-    driverName: string;
+    /** The driver member's name, for the hop-into-a-locked-half message — `undefined` when the row names none (#861: the words say "this row"). */
+    driverName: string | undefined;
 }
 
 /** One transition's result. */
@@ -329,14 +435,14 @@ export interface Transition {
 /** The empty rejection memory. */
 export const NO_REJECTIONS: Rejections = { fills: new Set(), follows: new Set() };
 
-/** The lens with nothing revealed. */
-export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map() };
+/** The lens with nothing revealed and no fold overridden. */
+export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map(), folds: new Map() };
 
-/** The initial UI state — `active` is the initial view tab, if the sheet opens on one. */
-export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null): SheetUiState {
+/** The initial UI state — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
+export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetUiState {
     return {
-        sel, selEnd: null, edit: null, hover: null, msg: "", appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
-        lens: EMPTY_LENS,
+        sel, selEnd: null, edit: null, hover: null, msg: null, appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
+        lens: folds === undefined || folds.size === 0 ? EMPTY_LENS : { ...EMPTY_LENS, folds },
         tabs: { active, seq: 1, renaming: null, renameVal: "" },
     };
 }

@@ -3,30 +3,31 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { variant, equalFor } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
+import { DateTimeType, IntegerType, SortedSet, StringType, compareFor, equalFor, variant } from "@elaraai/east";
+import { readSliceGroupKey, sliceGroupKey } from "@elaraai/east-ui/internal";
 import { type PredicateValue } from "./predicate-format.js";
 
 export { type PredicateValue } from "./predicate-format.js";
 
-/** Structural predicate equality — drives the gesture's applied/pressed state
- *  and the toggle symmetry (the same comparator the platform impl uses). */
-export const predicateEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
+const compareIntegers = compareFor(IntegerType);
+const compareStrings = compareFor(StringType);
+const equalInstants = equalFor(DateTimeType);
 
 /**
  * Build the equality predicate a "filter to this" gesture toggles for a
  * breakdown group (#165): given the breakdown field's kind and a group key
- * (the stable `breakdownKeyOf` string — ISO for Dates), produce the typed
- * `Slice.Types.Predicate` that keeps exactly that group's rows.
+ * (its `sliceGroupKey`, read back through East by `readSliceGroupKey`),
+ * produce the typed `Slice.Types.Predicate` that keeps exactly that group's
+ * rows.
  *
  * Kinds map to the operator each family can express equality with:
- * `string` → `eq`, `integer` → `eq` (parsed), `boolean` → `is`, `datetime` →
- * a closed `between` on the exact instant. Returns `undefined` when no
- * equality predicate exists for the kind (`float` is ordered-only) or the key
- * doesn't parse back — callers hide the gesture rather than emit a broken
- * clause. The top-N `other` roll-up bucket is not a field value; callers must
- * skip it (its key never parses for non-string kinds, but for string kinds
- * only the caller knows `other` is synthetic).
+ * `string` → `eq`, `integer` → `eq`, `boolean` → `is`, `datetime` → a closed
+ * `between` on the exact instant. Returns `undefined` when no equality
+ * predicate exists for the kind (`float` is ordered-only) or the key does not
+ * read as the kind's value — callers hide the gesture rather than emit a
+ * broken clause. The top-N `other` roll-up bucket is not a field value;
+ * callers must skip it (its key never reads for non-string kinds, but for
+ * string kinds only the caller knows `other` is synthetic).
  *
  * @param kind - the breakdown field's primitive kind (from `slice.fields()`)
  * @param fieldId - the active breakdown field id
@@ -36,21 +37,20 @@ export const predicateEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y:
 export function breakdownKeyPredicate(kind: string, fieldId: string, key: string): PredicateValue | undefined {
     switch (kind) {
         case "string":
-            return variant("string", { fieldId, op: variant("eq", key) }) as PredicateValue;
+            return variant("string", { fieldId, op: variant("eq", key) });
         case "integer": {
-            try { return variant("integer", { fieldId, op: variant("eq", BigInt(key)) }) as PredicateValue; }
-            catch { return undefined; }
+            const value = readSliceGroupKey("integer", key);
+            return value === undefined ? undefined : variant("integer", { fieldId, op: variant("eq", value) });
         }
-        case "boolean":
-            return key === "true" || key === "false"
-                ? variant("boolean", { fieldId, op: variant("is", key === "true") }) as PredicateValue
-                : undefined;
+        case "boolean": {
+            const value = readSliceGroupKey("boolean", key);
+            return value === undefined ? undefined : variant("boolean", { fieldId, op: variant("is", value) });
+        }
         case "datetime": {
-            const d = new Date(key);
-            if (Number.isNaN(d.getTime())) return undefined;
             // Closed interval on the exact instant — the datetime family's
             // equality (it has no `eq` op; `between` from==to matches exactly).
-            return variant("datetime", { fieldId, op: variant("between", { from: d, to: d }) }) as PredicateValue;
+            const instant = readSliceGroupKey("datetime", key);
+            return instant === undefined ? undefined : variant("datetime", { fieldId, op: variant("between", { from: instant, to: instant }) });
         }
         default:
             return undefined;
@@ -66,36 +66,44 @@ export function breakdownKeyPredicate(kind: string, fieldId: string, key: string
 // pure over decoded values, applied atomically via one `slice.write`.
 // ---------------------------------------------------------------------------
 
-/** Parse a stable group key (breakdownKeyOf output) back to the field's typed
- *  value. `undefined` = not expressible (float kinds, unparseable keys). */
-function parseGroupKey(kind: string, key: string): string | bigint | boolean | Date | undefined {
-    switch (kind) {
-        case "string": return key;
-        case "integer": { try { return BigInt(key); } catch { return undefined; } }
-        case "boolean": return key === "true" ? true : key === "false" ? false : undefined;
-        case "datetime": { const d = new Date(key); return Number.isNaN(d.getTime()) ? undefined : d; }
-        default: return undefined;
+/** True when this filter is the facet-MANAGED one for (kind, fieldId):
+ *  string/integer `in` or `eq`, boolean `is`, datetime `between`. */
+function isManagedFilter(filter: PredicateValue, kind: string, fieldId: string): boolean {
+    if (filter.type !== kind || filter.value.fieldId !== fieldId) return false;
+    switch (filter.type) {
+        case "string":
+        case "integer":
+            return filter.value.op.type === "in" || filter.value.op.type === "eq";
+        case "boolean":
+            return filter.value.op.type === "is";
+        case "datetime":
+            return filter.value.op.type === "between";
+        default:
+            return false;
     }
 }
 
-/** A predicate's body, loosely typed at the decoded boundary. */
-type PredBody = { fieldId: string; op: { type: string; value: unknown } };
-
-/** True when this filter is the facet-MANAGED one for (kind, fieldId):
- *  string/integer `in` or `eq`, boolean `is`, datetime `between`. */
-function isManagedFilter(f: PredicateValue, kind: string, fieldId: string): boolean {
-    if (f.type !== kind) return false;
-    const body = f.value as PredBody;
-    if (body.fieldId !== fieldId) return false;
-    if (kind === "string" || kind === "integer") return body.op.type === "in" || body.op.type === "eq";
-    if (kind === "boolean") return body.op.type === "is";
-    if (kind === "datetime") return body.op.type === "between";
-    return false;
+/** The group keys a facet-managed filter selects, each spelled as the groups
+ *  spell their keys. A `between` selects a group only when it pins one
+ *  instant. */
+function selectedKeysOf(managed: PredicateValue): Set<string> {
+    const op = managed.value.op;
+    switch (op.type) {
+        case "in":
+            return new Set([...op.value].map(member => sliceGroupKey(member)));
+        case "eq":
+        case "is":
+            return new Set([sliceGroupKey(op.value)]);
+        case "between":
+            return equalInstants(op.value.from, op.value.to) ? new Set([sliceGroupKey(op.value.from)]) : new Set();
+        default:
+            return new Set();
+    }
 }
 
 /**
  * The group keys currently selected by the field's facet-managed filter —
- * stringified with the same stable encoding as group keys, so callers can
+ * spelled with `sliceGroupKey`, as the groups spell theirs, so callers can
  * test `selected.has(group.key)` directly. Empty when no managed filter.
  *
  * @param filters - the decoded `state.filters`
@@ -105,13 +113,24 @@ function isManagedFilter(f: PredicateValue, kind: string, fieldId: string): bool
  */
 export function selectedFieldKeys(filters: ReadonlyArray<PredicateValue>, kind: string, fieldId: string): Set<string> {
     const managed = filters.find(f => isManagedFilter(f, kind, fieldId));
-    if (managed === undefined) return new Set();
-    const op = (managed.value as PredBody).op;
-    if (op.type === "in") return new Set([...(op.value as Set<unknown>)].map(v => String(v)));
-    if (op.type === "eq" || op.type === "is") return new Set([String(op.value)]);
-    // datetime between — selected only when it pins one exact instant.
-    const { from, to } = op.value as { from: Date; to: Date };
-    return from.getTime() === to.getTime() ? new Set([from.toISOString()]) : new Set();
+    return managed === undefined ? new Set() : selectedKeysOf(managed);
+}
+
+/** A string field's managed `in` filter over the selected keys: an East Set,
+ *  in East's order. */
+function stringIn(fieldId: string, keys: ReadonlySet<string>): PredicateValue {
+    return variant("string", { fieldId, op: variant("in", new SortedSet(keys, compareStrings)) });
+}
+
+/** An integer field's managed `in` filter over the selected keys, each read
+ *  back through East: an East Set, in East's order. */
+function integerIn(fieldId: string, keys: ReadonlySet<string>): PredicateValue {
+    const members = new SortedSet<bigint>(undefined, compareIntegers);
+    for (const key of keys) {
+        const member = readSliceGroupKey("integer", key);
+        if (member !== undefined) members.add(member);
+    }
+    return variant("integer", { fieldId, op: variant("in", members) });
 }
 
 /**
@@ -134,20 +153,21 @@ export function nextFieldFilters(
     fieldId: string,
     key: string,
 ): PredicateValue[] | undefined {
-    const v = parseGroupKey(kind, key);
-    if (v === undefined) return undefined;
+    const pinned = breakdownKeyPredicate(kind, fieldId, key);
+    if (pinned === undefined) return undefined;
     const rest = filters.filter(f => !isManagedFilter(f, kind, fieldId));
     const selected = selectedFieldKeys(filters, kind, fieldId);
+    // The clicked group, spelled as the selection spells it.
+    const clicked = selectedKeysOf(pinned);
+    const on = [...clicked].every(k => selected.has(k));
 
     if (kind === "string" || kind === "integer") {
-        if (selected.has(key)) selected.delete(key); else selected.add(key);
+        for (const k of clicked) {
+            if (on) selected.delete(k); else selected.add(k);
+        }
         if (selected.size === 0) return rest;
-        const members = kind === "integer"
-            ? new Set([...selected].map(k => BigInt(k)))
-            : new Set([...selected]);
-        return [...rest, variant(kind, { fieldId, op: variant("in", members) }) as unknown as PredicateValue];
+        return [...rest, kind === "integer" ? integerIn(fieldId, selected) : stringIn(fieldId, selected)];
     }
     // boolean / datetime: replace-single — clicking the selected key clears it.
-    if (selected.has(kind === "datetime" ? (v as Date).toISOString() : key)) return rest;
-    return [...rest, breakdownKeyPredicate(kind, fieldId, key)!];
+    return on ? rest : [...rest, pinned];
 }

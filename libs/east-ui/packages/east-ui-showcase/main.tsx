@@ -1,6 +1,10 @@
-// MUST stay first — registers the global error handlers before the eager
-// `catalog` import below can throw, so a load-time crash surfaces as the
-// copyable error alert rather than a blank page.
+// First: the built showcase builds its East functions without capturing
+// source locations, so this precedes every module that builds East, the
+// component libraries the error overlay imports included.
+import "./source-locations";
+// MUST precede the catalog: registers the global error handlers before the
+// eager `catalog` import below can throw, so a load-time crash surfaces as
+// the copyable error alert rather than a blank page.
 import "./install-error-overlay";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

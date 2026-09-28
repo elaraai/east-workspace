@@ -7,13 +7,13 @@ import { memo, useMemo } from "react";
 import { Box, IconButton, Text, Flex } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCopy } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { CodeBlock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
-const codeBlockEqual = equalFor(CodeBlock.Types.CodeBlock);
+const codeBlockEqual = equivalentFor(CodeBlock.Types.CodeBlock);
 
 /** East CodeBlock value type */
 export type CodeBlockValue = ValueTypeOf<typeof CodeBlock.Types.CodeBlock>;

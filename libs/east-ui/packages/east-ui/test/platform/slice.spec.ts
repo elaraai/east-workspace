@@ -19,9 +19,15 @@ import {
     BooleanType,
     StructType,
     ArrayType,
+    SortedSet,
+    compareFor,
+    decodeBeast2For,
+    encodeBeast2For,
+    equalFor,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { type ExprType } from "@elaraai/east";
-import { Slice, SliceApplyImpl, sliceBreakdown, sliceFields, sliceFieldText, sliceSeries } from "@elaraai/east-ui/internal";
+import { Slice, SliceApplyImpl, readSliceGroupKey, sliceBreakdown, sliceFields, sliceFieldText, sliceGroupKey, sliceMatches, slicePredicateMatches, sliceSeries } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
@@ -171,7 +177,7 @@ describeEast("Slice", (test) => {
     // Cohort, Breakdown, State construction
     // -----------------------------------------------------------------------
 
-    test("SliceCohort holds typed AND-of-predicates", $ => {
+    test("SliceCohort holds typed AND-of-predicates and an optional group", $ => {
         const c = $.const(East.value({
             id:   "power-users",
             name: "Power users",
@@ -179,15 +185,28 @@ describeEast("Slice", (test) => {
                 variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
                 variant("string",  { fieldId: "country",  op: variant("eq",  "US") }),
             ],
+            group: none,
         }, Slice.Types.Cohort));
         const intFilter = $.let(c.filters.get(0n).unwrap("integer"));
         const strFilter = $.let(c.filters.get(1n).unwrap("string"));
         $(Assert.equal(c.id,   "power-users"));
         $(Assert.equal(c.name, "Power users"));
+        $(Assert.equal(c.group.getTag(), "none"));
         $(Assert.equal(intFilter.fieldId, "sessions"));
         $(Assert.equal(intFilter.op.unwrap("gte"), 10n));
         $(Assert.equal(strFilter.fieldId, "country"));
         $(Assert.equal(strFilter.op.unwrap("eq"), "US"));
+    });
+
+    test("Slice.state takes a cohort's group as a bare string, and fills none in when it is omitted", $ => {
+        const s = $.const(Slice.state({
+            cohorts: [
+                { id: "scheduled", name: "Scheduled", group: "state", filters: [variant("string", { fieldId: "state", op: variant("eq", "SCHEDULED") })] },
+                { id: "mine",      name: "Mine",                      filters: [variant("string", { fieldId: "owner", op: variant("eq", "me") })] },
+            ],
+        }));
+        $(Assert.equal(s.cohorts.get(0n).group.unwrap("some"), "state"));
+        $(Assert.equal(s.cohorts.get(1n).group.getTag(), "none"));
     });
 
     test("SliceBreakdown carries fieldId + optional top-N", $ => {
@@ -876,6 +895,38 @@ describeEast("Slice", (test) => {
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rUS5),  false));
     });
 
+    test("apply.matches: cohorts sharing a group OR with each other; groups AND with each other and with a standalone cohort", $ => {
+        const RowType = StructType({ state: StringType, status: StringType, owner: StringType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { state: { label: "State" }, status: { label: "Status" }, owner: { label: "Owner" } },
+        }));
+        const cohorts = [
+            { id: "proposed",  name: "Proposed",  group: "state",  filters: [variant("string", { fieldId: "state",  op: variant("eq", "PROPOSED") })] },
+            { id: "scheduled", name: "Scheduled", group: "state",  filters: [variant("string", { fieldId: "state",  op: variant("eq", "SCHEDULED") })] },
+            { id: "ready",     name: "Ready",     group: "status", filters: [variant("string", { fieldId: "status", op: variant("eq", "READY") })] },
+            { id: "mine",      name: "Mine",                       filters: [variant("string", { fieldId: "owner",  op: variant("eq", "me") })] },
+        ];
+        const proposedReady   = $.const(East.value({ state: "PROPOSED",  status: "READY", owner: "me"  }, RowType));
+        const scheduledReady  = $.const(East.value({ state: "SCHEDULED", status: "READY", owner: "me"  }, RowType));
+        const scheduledHeld   = $.const(East.value({ state: "SCHEDULED", status: "HELD",  owner: "me"  }, RowType));
+        const doneReady       = $.const(East.value({ state: "DONE",      status: "READY", owner: "me"  }, RowType));
+        const scheduledReadyTheirs = $.const(East.value({ state: "SCHEDULED", status: "READY", owner: "you" }, RowType));
+        // Two members of one group: either state passes (OR within the group).
+        const twoStates = $.const(Slice.state({ cohorts, activeCohorts: new Set(["proposed", "scheduled"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, proposedReady), true));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, scheduledHeld), true));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, doneReady),     false));
+        // A member of each group: both groups must pass (AND across groups).
+        const stateAndStatus = $.const(Slice.state({ cohorts, activeCohorts: new Set(["scheduled", "ready"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, scheduledReady), true));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, scheduledHeld),  false));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, proposedReady),  false));
+        // A standalone cohort ANDs with a group, as it always has.
+        const withMine = $.const(Slice.state({ cohorts, activeCohorts: new Set(["scheduled", "mine"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], withMine, cfg, scheduledReady),       true));
+        $(Assert.equal(Slice.apply.matches([RowType], withMine, cfg, scheduledReadyTheirs), false));
+    });
+
     test("apply.matches: inactive cohort is ignored", $ => {
         const RowType = StructType({ sessions: IntegerType });
         const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } } }));
@@ -1197,6 +1248,19 @@ describeEast("Slice", (test) => {
         $(Assert.equal(bd.get(0n).key, "2023-06-01T00:00:00.000Z"));
     });
 
+    test("apply.breakdown: a float breakdown key is the Float as East prints it — -0.0 and 0.0 are two groups", $ => {
+        const RowType = StructType({ x: FloatType });
+        const cfg = $.let(Slice.config(RowType, { fields: { x: { label: "X" } }, breakdownFieldIds: ["x"] }));
+        const state = $.const(Slice.state({ breakdown: some({ fieldId: "x", limit: none }) }));
+        const data = $.const([{ x: 42.0 }, { x: 42.0 }, { x: 0.0 }, { x: -0.0 }], ArrayType(RowType));
+        const bd = $.let(Slice.apply.breakdown([RowType], state, cfg, data), ArrayType(Slice.Types.BreakdownGroup));
+        $(Assert.equal(bd.length(), 3n));
+        $(Assert.equal(bd.get(0n).key, "42.0"));
+        $(Assert.equal(bd.get(0n).count, 2n));
+        $(Assert.equal(bd.get(1n).key, "0.0"));
+        $(Assert.equal(bd.get(2n).key, "-0.0"));
+    });
+
     test("apply.breakdown: a non-positive top-N limit means 'no limit' (no collapse into one 'other' bucket)", $ => {
         const RowType = StructType({ region: StringType });
         const cfg = $.let(Slice.config(RowType, { fields: { region: { label: "Region" } }, breakdownFieldIds: ["region"] }));
@@ -1391,11 +1455,13 @@ describeEast("Slice", (test) => {
 
 type EngineState  = Parameters<typeof sliceBreakdown>[0];
 type EngineConfig = Parameters<typeof sliceBreakdown>[1];
+/** One field's spec in a config — a variant per kind, carrying its label, accessor and format. */
+type EngineField  = EngineConfig["fields"] extends Map<string, infer F> ? F : never;
 
 /** A full engine state with every narrowing off, patched per test. */
 const engineState = (patch: Partial<EngineState>): EngineState => ({
-    range: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: none, visible: none, selectedIndex: none,
+    range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+    breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     ...patch,
 });
 
@@ -1404,15 +1470,16 @@ const engineConfig: EngineConfig = {
     rangeFieldId: none,
     searchFieldIds: [],
     breakdownFieldIds: ["when", "region"],
+    fieldHints: new Map(),
 };
 
 pureTest("a text field is searched through its projection (fail-open) and never listed as a filterable field", () => {
-    const fields = new Map<string, unknown>([
+    const fields = new Map<string, EngineField>([
         ["activity", variant("string", { label: "Activity", accessor: (r: { activity: string }) => r.activity, format: none })],
         ["stations", variant("text", { label: "Work centres", accessor: (r: { stations: string[] }) => r.stations.join(" > "), format: none })],
-        ["broken",   variant("text", { label: "Broken", accessor: () => { throw new Error("no"); }, format: none })],
+        ["broken",   variant("text", { label: "Broken", accessor: (): string => { throw new Error("no"); }, format: none })],
     ]);
-    const config = { ...engineConfig, fields: fields as EngineConfig["fields"], searchFieldIds: ["activity", "stations", "broken"] };
+    const config: EngineConfig = { ...engineConfig, fields, searchFieldIds: ["activity", "stations", "broken"] };
     const row = { activity: "Machining", stations: ["M2140", "M2141"] };
     nodeAssert.equal(sliceFieldText(config, "activity", row), "Machining");
     nodeAssert.equal(sliceFieldText(config, "stations", row), "M2140 > M2141");
@@ -1501,4 +1568,127 @@ pureTest("sliceSeries applies the top-N limit roll-up identically to sliceBreakd
     const onlyOther = sliceSeries(visibleState, engineConfig, rows, "day", "sessions", now);
     nodeAssert.equal(onlyOther.length, 1);
     nodeAssert.equal(onlyOther[0]!.key, "other");
+});
+
+// ===========================================================================
+// Group keys are spelled and read through East — a facet gesture (Slice.Legend,
+// Slice.Breakdown) reads a group's key back into the value it names.
+// ===========================================================================
+
+pureTest("a group key spells a value as East does, and reads back to the same East value", () => {
+    const equalInstants = equalFor(DateTimeType);
+    const instant = new Date(Date.UTC(2026, 0, 2, 3, 4, 5, 6));
+    // A String as itself; an Integer and a Boolean as East prints them; a
+    // DateTime as its ISO-8601 UTC instant.
+    nodeAssert.equal(sliceGroupKey("EU"), "EU");
+    nodeAssert.equal(sliceGroupKey(9007199254740993n), "9007199254740993");
+    nodeAssert.equal(sliceGroupKey(false), "false");
+    nodeAssert.equal(sliceGroupKey(instant), "2026-01-02T03:04:05.006Z");
+    // A Float as East prints it — so -0.0 and 0.0, two East values, key apart.
+    nodeAssert.equal(sliceGroupKey(42), "42.0");
+    nodeAssert.equal(sliceGroupKey(-0), "-0.0");
+    nodeAssert.equal(sliceGroupKey(0), "0.0");
+    // Each key reads back to the value it names.
+    nodeAssert.equal(readSliceGroupKey("string", sliceGroupKey("EU")), "EU");
+    nodeAssert.equal(readSliceGroupKey("integer", sliceGroupKey(9007199254740993n)), 9007199254740993n);
+    nodeAssert.equal(readSliceGroupKey("boolean", sliceGroupKey(false)), false);
+    nodeAssert.ok(equalInstants(readSliceGroupKey("datetime", sliceGroupKey(instant))!, instant));
+});
+
+pureTest("a key that is not its kind's spelling names no value — where BigInt and new Date would read one", () => {
+    nodeAssert.equal(readSliceGroupKey("integer", ""), undefined);                          // BigInt("") is 0n
+    nodeAssert.equal(readSliceGroupKey("integer", "0x10"), undefined);                      // BigInt("0x10") is 16n
+    nodeAssert.equal(readSliceGroupKey("integer", "9223372036854775808"), undefined);       // past 64 bits
+    nodeAssert.equal(readSliceGroupKey("boolean", "True"), undefined);
+    nodeAssert.equal(readSliceGroupKey("datetime", "2026-01-02"), undefined);               // a date alone
+    nodeAssert.equal(readSliceGroupKey("datetime", "2026-01-02T03:04:05.006"), undefined);  // no zone: new Date reads local time
+});
+
+// ===========================================================================
+// One clause, tested as the engine tests it — exported, so a surface that
+// narrows by a Slice clause outside a bound slice (the Experiment's population)
+// narrows exactly as the Slice does. Clauses are decoded from East's own
+// encoding, as a surface holds them.
+// ===========================================================================
+
+type Clause = ValueTypeOf<typeof Slice.Types.Predicate>;
+const encodeClause = encodeBeast2For(Slice.Types.Predicate);
+const decodeClause = decodeBeast2For(Slice.Types.Predicate);
+const clause = (c: Clause): Clause => decodeClause(encodeClause(c));
+
+pureTest("a clause compares as East does — every digit of an Integer, a DateTime's bounds inclusive", () => {
+    const big = 9007199254740993n;
+    // As floats the two are one number, so a float comparison cannot order them.
+    nodeAssert.equal(Number(big), Number(big - 1n));
+    nodeAssert.equal(slicePredicateMatches(clause(variant("integer", { fieldId: "n", op: variant("gt", big - 1n) })), { n: big }), true);
+    nodeAssert.equal(slicePredicateMatches(clause(variant("integer", { fieldId: "n", op: variant("lte", big - 1n) })), { n: big }), false);
+
+    const from = new Date(Date.UTC(2026, 0, 1));
+    const to = new Date(Date.UTC(2026, 0, 31));
+    const between = clause(variant("datetime", { fieldId: "at", op: variant("between", { from, to }) }));
+    nodeAssert.equal(slicePredicateMatches(between, { at: new Date(from) }), true);
+    nodeAssert.equal(slicePredicateMatches(between, { at: new Date(to) }), true);
+    nodeAssert.equal(slicePredicateMatches(between, { at: new Date(to.getTime() + 1) }), false);
+    nodeAssert.equal(slicePredicateMatches(clause(variant("datetime", { fieldId: "at", op: variant("before", to) })), { at: from }), true);
+    nodeAssert.equal(slicePredicateMatches(clause(variant("datetime", { fieldId: "at", op: variant("after", to) })), { at: from }), false);
+});
+
+pureTest("a String clause: membership in its East Set, and every text operator", () => {
+    const holds = (op: ValueTypeOf<typeof Slice.Types.StringOp>, s: string): boolean =>
+        slicePredicateMatches(clause(variant("string", { fieldId: "s", op })), { s });
+    const regions = new SortedSet(["EU", "US"], compareFor(StringType));
+    nodeAssert.equal(holds(variant("in", regions), "US"), true);
+    nodeAssert.equal(holds(variant("notIn", regions), "US"), false);
+    nodeAssert.equal(holds(variant("contains", "ort"), "North"), true);
+    nodeAssert.equal(holds(variant("startsWith", "No"), "North"), true);
+    nodeAssert.equal(holds(variant("endsWith", "No"), "North"), false);
+    nodeAssert.equal(holds(variant("matches", "^N.*h$"), "North"), true);
+    nodeAssert.equal(holds(variant("matches", "("), "North"), false);        // a half-typed pattern narrows to nothing
+    nodeAssert.equal(holds(variant("isEmpty", null), "  "), true);
+    nodeAssert.equal(holds(variant("isNotEmpty", null), "  "), false);
+});
+
+pureTest("a value of another type, or a field the row lacks, never satisfies a clause", () => {
+    const five = clause(variant("integer", { fieldId: "n", op: variant("eq", 5n) }));
+    nodeAssert.equal(slicePredicateMatches(five, { n: 5n }), true);
+    nodeAssert.equal(slicePredicateMatches(five, { n: 5 }), false);           // a Float is no Integer
+    nodeAssert.equal(slicePredicateMatches(five, { m: 5n }), false);          // no `n`
+    const shipped = clause(variant("boolean", { fieldId: "b", op: variant("is", true) }));
+    nodeAssert.equal(slicePredicateMatches(shipped, { b: true }), true);
+    nodeAssert.equal(slicePredicateMatches(shipped, { b: "true" }), false);
+});
+
+// ===========================================================================
+// Presets resolve on UTC days (#850). East's DateTime is a UTC instant, so a
+// preset keeps the same rows in every timezone. The `apply.matches` preset
+// tests above read the wall clock and run in the CI's own timezone, so they
+// cannot see this; here `now` is pinned and the process runs in Los Angeles,
+// where each window below starts earlier if read in local time.
+// ===========================================================================
+
+pureTest("datetime presets resolve on UTC days in a timezone west of UTC (#850)", () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+        const config: EngineConfig = { ...engineConfig, rangeFieldId: some("when") };
+        const keeps = (preset: ValueTypeOf<typeof Slice.Types.DateTimePreset>["type"], now: string, when: string): boolean =>
+            sliceMatches(engineState({ range: some(variant("datetimePreset", variant(preset, null))) }), config, { when: new Date(when) }, new Date(now));
+
+        // The process really is in Los Angeles: 01:30 UTC on 29 June is still the 28th there.
+        nodeAssert.equal(new Date("2026-06-29T01:30:00Z").getDate(), 28);
+
+        // today starts at 00:00 UTC on the 29th; the 28th's local midnight is 07:00Z the day before.
+        nodeAssert.equal(keeps("today", "2026-06-29T01:30:00Z", "2026-06-29T00:00:00Z"), true);
+        nodeAssert.equal(keeps("today", "2026-06-29T01:30:00Z", "2026-06-28T23:00:00Z"), false);
+        // ytd starts at 00:00 UTC on 1 January 2026, while it is still 2025 in Los Angeles.
+        nodeAssert.equal(keeps("ytd", "2026-01-01T01:30:00Z", "2026-01-01T00:00:00Z"), true);
+        nodeAssert.equal(keeps("ytd", "2026-01-01T01:30:00Z", "2025-12-31T23:00:00Z"), false);
+        // last7d is seven UTC days, even across the end of daylight saving on 1 November:
+        // seven local days would be an hour longer, and start at 11:00Z.
+        nodeAssert.equal(keeps("last7d", "2026-11-03T12:00:00Z", "2026-10-27T12:00:00Z"), true);
+        nodeAssert.equal(keeps("last7d", "2026-11-03T12:00:00Z", "2026-10-27T11:30:00Z"), false);
+    } finally {
+        if (previous === undefined) delete process.env.TZ;
+        else process.env.TZ = previous;
+    }
 });

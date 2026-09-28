@@ -12,7 +12,35 @@
  * @packageDocumentation
  */
 
-import { type Decision, type UrgencyKind } from './types.js';
+import { DateTimeType, FloatType, compareFor } from '@elaraai/east';
+import { URGENCY_RANK, type Decision, type UrgencyKind } from './types.js';
+
+const compareInstants = compareFor(DateTimeType);
+const compareValues = compareFor(FloatType);
+
+/**
+ * The queue's order: by urgency (overdue → due → routine), then the nearest
+ * deadline first — a row with none after every row with one — then the greater
+ * value first. Deadlines and values compare as East compares them, so a `NaN`
+ * value takes its one place in East's order rather than scrambling the sort.
+ *
+ * @param a - A row
+ * @param b - Another row
+ * @returns Negative when `a` comes first, positive when `b` does, else 0
+ */
+export function compareByUrgency(a: Decision, b: Decision): number {
+    const rank = URGENCY_RANK[a.urgency.type] - URGENCY_RANK[b.urgency.type];
+    if (rank !== 0) return rank;
+    const da = a.deadline.type === 'some' ? a.deadline.value : undefined;
+    const db = b.deadline.type === 'some' ? b.deadline.value : undefined;
+    if (da !== undefined && db !== undefined) {
+        const byDeadline = compareInstants(da, db);
+        if (byDeadline !== 0) return byDeadline;
+    } else if (da !== db) {
+        return da === undefined ? 1 : -1;
+    }
+    return compareValues(b.value, a.value);
+}
 
 /** Section labels for the built-in urgency grouping. */
 export const URGENCY_GROUP_LABEL: Record<UrgencyKind, string> = {

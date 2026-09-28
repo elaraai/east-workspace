@@ -3,7 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { isEastSet, type ValueTypeOf, variant } from "@elaraai/east";
+import {
+    IntegerType,
+    SortedSet,
+    StringType,
+    compareFor,
+    isEastSet,
+    isValueOf,
+    parseFor,
+    printFor,
+    variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { ClauseBuilder, type ClauseKind, type ClauseOpSpec, type ClauseSubmitValue } from "../forms/clause-builder/index.js";
 
@@ -11,6 +22,11 @@ import { ClauseBuilder, type ClauseKind, type ClauseOpSpec, type ClauseSubmitVal
 export type SliceFieldValue = ValueTypeOf<typeof Slice.Types.Field>;
 /** A built predicate value (`Slice.Types.Predicate`). */
 type PredicateValue = ValueTypeOf<typeof Slice.Types.Predicate>;
+
+const readInteger = parseFor(IntegerType);
+const printInteger = printFor(IntegerType);
+const compareIntegers = compareFor(IntegerType);
+const compareStrings = compareFor(StringType);
 
 /** Operator choices per field kind — tag drives the predicate, glyph the label. */
 const STRING_OPS: ReadonlyArray<ClauseOpSpec> = [
@@ -79,9 +95,10 @@ export interface SlicePredicateBuilderProps {
  * `string[]` for set inputs and `{ min, max }` for range inputs; the East op
  * types want typed Sets and `{ from, to }` ranges:
  *
- * - string `in`/`notIn` — `string[]` → `Set<string>`
- * - integer `in` — `string[]` → `Set<bigint>` via a safe parse; a malformed
- *   entry ("abc", "1.5") is dropped, never a crash (#166)
+ * - string `in`/`notIn` — `string[]` → an East `Set<String>`
+ * - integer `in` — `string[]` → an East `Set<Integer>`, each entry read by
+ *   East's parser; a malformed entry ("abc", "1.5", one past 64 bits) is
+ *   dropped, never a crash (#166)
  * - datetime `between` — `{ min, max }` Dates → `{ from, to }` (`DateTimeRangeType`)
  *
  * @param kind - the field's primitive kind
@@ -94,13 +111,14 @@ export function predicateOpValue(kind: string, op: string, raw: unknown): unknow
     if (op === "in" || op === "notIn") {
         const entries = raw as string[];
         if (kind === "integer") {
-            const parsed = new Set<bigint>();
-            for (const e of entries) {
-                try { parsed.add(BigInt(e.trim())); } catch { /* drop malformed entry */ }
+            const members = new SortedSet<bigint>(undefined, compareIntegers);
+            for (const entry of entries) {
+                const read = readInteger(entry);
+                if (read.success) members.add(read.value);
             }
-            return parsed.size > 0 ? parsed : undefined;
+            return members.size > 0 ? members : undefined;
         }
-        return new Set(entries);
+        return new SortedSet<string>(entries, compareStrings);
     }
     if (op === "between" && kind === "datetime") {
         const { min, max } = raw as { min: Date; max: Date };
@@ -112,8 +130,8 @@ export function predicateOpValue(kind: string, op: string, raw: unknown): unknow
 /**
  * The inverse of {@link predicateOpValue}: convert a predicate op's typed
  * payload into the shape the shared clause CONTROLS edit, for seeding the
- * builder in edit mode. Set members become the TagsInput's string entries
- * (bigints stringify — `predicateOpValue` parses them back on submit), and a
+ * builder in edit mode. Set members become the TagsInput's string entries (an
+ * Integer as East prints it — `predicateOpValue` reads it back on submit), and a
  * datetime `between`'s `{ from, to }` becomes the range pair's `{ min, max }`.
  * Without this an integer in-set seeded the validity check with bigints
  * (`s.trim is not a function` at mount) and a between seed fed the whole
@@ -126,7 +144,9 @@ export function predicateOpValue(kind: string, op: string, raw: unknown): unknow
  */
 export function predicateControlValue(kind: string, op: string, raw: unknown): unknown {
     if (op === "in" || op === "notIn") {
-        return isEastSet(raw) ? [...raw].map(v => String(v)) : raw;
+        return isEastSet(raw)
+            ? [...raw].map(member => (kind === "integer" ? printInteger(member as bigint) : member as string))
+            : raw;
     }
     if (op === "between" && kind === "datetime") {
         const { from, to } = raw as { from: Date; to: Date };
@@ -136,12 +156,16 @@ export function predicateControlValue(kind: string, op: string, raw: unknown): u
 }
 
 export function SlicePredicateBuilder({ fields, onAdd, initial, lockField, submitLabel }: SlicePredicateBuilderProps) {
-    const seed = initial as { type: string; value: { fieldId: string; op: { type: string; value: unknown } } } | undefined;
-
     const onSubmit = (clause: ClauseSubmitValue) => {
         const opValue = predicateOpValue(clause.kind, clause.op, clause.value);
         if (opValue === undefined) return;
-        onAdd(variant(clause.kind, { fieldId: clause.fieldId, op: variant(clause.op, opValue) }) as PredicateValue);
+        const predicate = variant(clause.kind, { fieldId: clause.fieldId, op: variant(clause.op, opValue) });
+        // The clause's kind and op are strings at run time, so East checks the
+        // built value is a `Slice.Types.Predicate` before it leaves the builder.
+        if (!isValueOf(predicate, Slice.Types.Predicate)) {
+            throw new Error(`SlicePredicateBuilder: a ${clause.kind} "${clause.op}" clause built no Slice predicate`);
+        }
+        onAdd(predicate as PredicateValue);
     };
 
     return (
@@ -149,11 +173,11 @@ export function SlicePredicateBuilder({ fields, onAdd, initial, lockField, submi
             fields={fields.map(f => ({ id: f.fieldId, label: f.label, kind: f.kind as ClauseKind, hints: f.hints }))}
             opsFor={kind => OPS_BY_KIND[kind] ?? STRING_OPS}
             onSubmit={onSubmit}
-            {...(seed !== undefined ? {
+            {...(initial !== undefined ? {
                 initial: {
-                    fieldId: seed.value.fieldId,
-                    op: seed.value.op.type,
-                    value: predicateControlValue(seed.type, seed.value.op.type, seed.value.op.value),
+                    fieldId: initial.value.fieldId,
+                    op: initial.value.op.type,
+                    value: predicateControlValue(initial.type, initial.value.op.type, initial.value.op.value),
                 },
             } : {})}
             {...(lockField !== undefined ? { lockField } : {})}

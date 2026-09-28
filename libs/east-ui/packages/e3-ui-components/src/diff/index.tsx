@@ -48,6 +48,7 @@ import {
     decodeBeast2For,
     encodeBeast2For,
     equalFor,
+    equivalentFor,
     ConflictError,
     detectConflictsFor,
     mergeWithResolutionsFor,
@@ -65,7 +66,7 @@ import {
 } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { Diff, DiffBindingType } from "@elaraai/e3-ui/internal";
-import { implementUIComponent } from "@elaraai/east-ui-components";
+import { implementUIComponent, useDataStable, useFormatters } from "@elaraai/east-ui-components";
 
 import {
     getStagedStore,
@@ -82,14 +83,17 @@ import {
     type GroupNode,
 } from "./walker.js";
 import { formatLeafValue, formatBindingLabel } from "./format.js";
-import { isPrimitiveLeafType, formatManualDraft, parseManualDraft } from "./manual.js";
+import { isPrimitiveLeafType, formatManualDraft, parseManualDraft, type ManualValue } from "./manual.js";
 
 // =============================================================================
 // Types — pulled from the IR carrier so this stays in sync.
 // =============================================================================
 
 type DiffValue = ValueTypeOf<typeof Diff.Component.schema>;
-const diffValueEqual = equalFor(Diff.Component.schema);
+// The memo compares closures too (`onCommitted` / `onDiscarded`, #809); the
+// bindings and the conflict-state reset key on the value's DATA instead.
+const diffValueEqual = equivalentFor(Diff.Component.schema);
+const diffValueDataEqual = equalFor(Diff.Component.schema);
 
 /**
  * What "Apply" does for this binding. Determined by the binding's mode +
@@ -280,7 +284,7 @@ function deriveBindings(
 
         const sourceType = types.sourceType;
         const patchType  = types.patchType;
-        const label      = formatBindingLabel(sourcePath as ReadonlyArray<unknown>);
+        const label      = formatBindingLabel(sourcePath);
         const decodeSource = decodeBeast2For(sourceType);
 
         // ----- Resolve the userPatch (the in-flight change) -------------
@@ -491,6 +495,8 @@ interface RowProps {
 }
 
 const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions, onDiscard, annotation, metrics }: RowProps) {
+    // Leaf values, in the app's locale (#850).
+    const words = useFormatters();
     const handleDiscard = useCallback(() => onDiscard(bindingPathStr, row.path), [onDiscard, bindingPathStr, row.path]);
     return (
         <Box
@@ -522,7 +528,7 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
                         <FontAwesomeIcon icon={faTriangleExclamation} />{" "}
                         {row.stale.actual === undefined
                             ? "stale — source no longer has this entry"
-                            : `stale — source actually has ${formatLeafValue(row.leafType, row.stale.actual)}`}
+                            : `stale — source actually has ${formatLeafValue(row.leafType, row.stale.actual, words)}`}
                     </Text>
                 )}
                 {annotation && (
@@ -534,13 +540,13 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
             <HStack gap="16px" align="center">
                 <HStack gap="6px" wrap="wrap">
                     {row.before !== undefined && (
-                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.danger"><FontAwesomeIcon icon={faMinus} /></Box> {formatLeafValue(row.leafType, row.before)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.danger"><FontAwesomeIcon icon={faMinus} /></Box> {formatLeafValue(row.leafType, row.before, words)}</Chip>
                     )}
                     {row.before !== undefined && row.after !== undefined && (
                         <Box as="span" color="fg.subtle" fontSize="11px"><FontAwesomeIcon icon={faArrowRight} /></Box>
                     )}
                     {row.after !== undefined && (
-                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.success"><FontAwesomeIcon icon={faPlus} /></Box> {formatLeafValue(row.leafType, row.after)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.success"><FontAwesomeIcon icon={faPlus} /></Box> {formatLeafValue(row.leafType, row.after, words)}</Chip>
                     )}
                 </HStack>
                 {showActions && (
@@ -551,11 +557,17 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
     );
 });
 
+/** What a side of a conflict shows when its change leaves the leaf no value —
+ *  a delete. */
+const REMOVED = "(removed)";
+
 interface ConflictRowProps {
     row: LeafNode;
     depth: number;
     bindingPathStr: string;
-    serverValue: any;
+    /** The server's value at this leaf — a value of `row.leafType`, or
+     *  `undefined` where the server's change leaves none. */
+    serverValue: unknown;
     resolution: Resolution | undefined;
     /** Stable handler — receives the binding pathStr and the leaf path. */
     onResolve: (bindingPathStr: string, leafPath: string, r: Resolution) => void;
@@ -563,14 +575,15 @@ interface ConflictRowProps {
 }
 
 const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serverValue, resolution, onResolve, metrics }: ConflictRowProps) {
-    const yoursStr  = formatLeafValue(row.leafType, row.after);
-    const theirsStr = formatLeafValue(row.leafType, serverValue);
+    const words = useFormatters();
+    const yoursStr  = row.after === undefined ? REMOVED : formatLeafValue(row.leafType, row.after, words);
+    const theirsStr = serverValue === undefined ? REMOVED : formatLeafValue(row.leafType, serverValue, words);
     const isYours   = resolution?.type === "keepA";
     const isTheirs  = resolution?.type === "keepB";
     const isManual  = resolution?.type === "manual";
     const handleKeepA  = useCallback(() => onResolve(bindingPathStr, row.path, { type: "keepA" }), [onResolve, bindingPathStr, row.path]);
     const handleKeepB  = useCallback(() => onResolve(bindingPathStr, row.path, { type: "keepB" }), [onResolve, bindingPathStr, row.path]);
-    const handleManual = useCallback((value: any) => onResolve(bindingPathStr, row.path, { type: "manual", value }), [onResolve, bindingPathStr, row.path]);
+    const handleManual = useCallback((value: ManualValue) => onResolve(bindingPathStr, row.path, { type: "manual", value }), [onResolve, bindingPathStr, row.path]);
     const supportsManual = isPrimitiveLeafType(row.leafType);
     return (
         <Box
@@ -625,7 +638,7 @@ const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serv
                     <ManualOption
                         selected={isManual}
                         leafType={row.leafType}
-                        value={isManual ? (resolution as { type: "manual"; value: any }).value : row.after}
+                        value={resolution?.type === "manual" ? resolution.value : row.after}
                         onChange={handleManual}
                     />
                 )}
@@ -692,9 +705,10 @@ function ManualOption({
     selected, leafType, value, onChange,
 }: {
     selected: boolean;
-    leafType: EastTypeValue | null;
-    value: any;
-    onChange: (next: any) => void;
+    leafType: EastTypeValue;
+    /** A value of `leafType`, or `undefined` where the change leaves none. */
+    value: unknown;
+    onChange: (next: ManualValue) => void;
 }) {
     return (
         <Box
@@ -727,9 +741,10 @@ function ManualOption({
 function ManualEditor({
     leafType, value, onChange,
 }: {
-    leafType: EastTypeValue | null;
-    value: any;
-    onChange: (next: any) => void;
+    leafType: EastTypeValue;
+    /** A value of `leafType`, or `undefined` where the change leaves none. */
+    value: unknown;
+    onChange: (next: ManualValue) => void;
 }) {
     const [draft, setDraft] = useState<string>(() => formatManualDraft(leafType, value));
     // Sync if the upstream selected value changes externally (e.g. user
@@ -738,14 +753,12 @@ function ManualEditor({
         setDraft(formatManualDraft(leafType, value));
     }, [leafType, value]);
 
-    const fire = useCallback((parsed: any) => {
+    const fire = useCallback((parsed: ManualValue) => {
         queueMicrotask(() => onChange(parsed));
     }, [onChange]);
 
-    if (!leafType) return null;
-
     if (leafType.type === "Boolean") {
-        const checked = !!value;
+        const checked = value === true;
         return (
             <Box
                 as="button"
@@ -968,9 +981,12 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     const [resolutions, setResolutions] = useState<Map<string, Resolution>>(new Map());
     const [committing, setCommitting] = useState(false);
 
+    // Changes identity on a DATA change only — a new `onCommitted` closure must
+    // not re-derive the bindings or drop the conflict resolutions (#809).
+    const data = useDataStable(value, diffValueDataEqual);
     const irBindings = useMemo(
-        () => (value.bindings ?? []) as ValueTypeOf<typeof DiffBindingType>[],
-        [value.bindings],
+        () => (data.bindings ?? []) as ValueTypeOf<typeof DiffBindingType>[],
+        [data.bindings],
     );
     const interactive = !(getOpt(value.readonly) ?? false);
     const onCommittedFn = getOpt(value.onCommitted) as (() => void) | undefined;
@@ -1015,7 +1031,7 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     useEffect(() => {
         setConflicts(null);
         setResolutions(new Map());
-    }, [value, stagedVersion, datasetVersion]);
+    }, [data, stagedVersion, datasetVersion]);
 
     // Hide bindings with no leaves — covers the "buffered === snapshot" edge
     // case where StagedStore still holds an entry but the user reverted it.

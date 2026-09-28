@@ -22,7 +22,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { type ValueTypeOf } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
+import { pathToString, type TreePath } from '@elaraai/e3-types';
 import { DiffBindingType } from '@elaraai/e3-ui/internal';
 import {
     defaultBindRuntime,
@@ -36,7 +36,7 @@ import {
 
 type DiffBindingValue = ValueTypeOf<typeof DiffBindingType>;
 
-const EMPTY_PATH = [] as unknown as TreePath;
+const EMPTY_PATH: TreePath = [];
 
 export interface UseBindingValueResult<T> {
     /** Current value (buffered if staged, otherwise server). `null` until the
@@ -89,10 +89,10 @@ function useBindingVersion(
 export function useBindingValue<T>(binding: DiffBindingValue | null): UseBindingValueResult<T> {
     const cache = getReactiveDatasetCache();
     const workspace = cache.getConfig().workspace ?? '';
-    const sourcePath = (binding ? binding.source : EMPTY_PATH) as TreePath;
+    const sourcePath = binding ? binding.source : EMPTY_PATH;
     const mode = binding ? binding.mode.type : 'direct';
     const patchPath = binding && binding.patch.type === 'some'
-        ? (binding.patch.value as TreePath)
+        ? binding.patch.value
         : undefined;
 
     const version = useBindingVersion(workspace, sourcePath, patchPath);
@@ -111,7 +111,7 @@ export function useBindingValue<T>(binding: DiffBindingValue | null): UseBinding
         } catch (e) {
             // Surface the read/decode failure instead of swallowing it into a perpetual
             // "loading" state — the renderer shows the error and devtools shows the cause.
-            console.error(`[Experiment] failed to read binding "${String(sourcePath)}":`, e);
+            console.error(`[Experiment] failed to read binding "${pathToString(sourcePath)}":`, e);
             return { value: null as T | null, pending: false, error: e };
         }
         // `version` drives recompute when buffers / server values change.

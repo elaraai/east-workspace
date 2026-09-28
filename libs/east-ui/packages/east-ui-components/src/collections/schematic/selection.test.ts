@@ -6,13 +6,13 @@
 /**
  * Unit tests for the pure selection rules (`selection.ts`) — the managed slice
  * `in`-clause splice (the selection→slice bridge) and the marquee hit
- * collection. Fixtures follow the `slice.dom.test.tsx` precedent: minimal
- * decoded-value shapes built with `variant()` (never hand-rolled tag objects),
- * cast where the full struct would be noise.
+ * collection. Fixtures are real East values typed from the Slice's East types,
+ * built with `variant()` / `some` / `none` and East Sets.
  */
 
 import { describe, it, expect } from "vitest";
-import { variant } from "@elaraai/east";
+import { SortedSet, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui/internal";
 import RBush from "rbush";
 import {
     EMPTY_STRING_SET,
@@ -26,13 +26,18 @@ import {
     sliceWithSelection,
 } from "./selection";
 
-const inClause = (fieldId: string, keys: string[]): SlicePredicateValue =>
-    variant("string", { fieldId, op: variant("in", new Set(keys)) }) as SlicePredicateValue;
-const eqClause = (fieldId: string, v: string): SlicePredicateValue =>
-    variant("string", { fieldId, op: variant("eq", v) }) as SlicePredicateValue;
+const compareStrings = compareFor(StringType);
 
-const state = (filters: SlicePredicateValue[]): SliceStateValue =>
-    ({ filters, search: "untouched", cohorts: ["untouched"] } as unknown as SliceStateValue);
+const inClause = (fieldId: string, keys: string[]): SlicePredicateValue =>
+    variant("string", { fieldId, op: variant("in", new SortedSet(keys, compareStrings)) });
+const eqClause = (fieldId: string, v: string): SlicePredicateValue =>
+    variant("string", { fieldId, op: variant("eq", v) });
+
+/** A slice state holding `filters`, the rest of it set so a splice must leave it alone. */
+const state = (filters: SlicePredicateValue[]): SliceStateValue => ({
+    range: none, compare: none, filters, cohorts: [], activeCohorts: new SortedSet<string>(undefined, compareStrings),
+    breakdown: none, search: some("untouched"), visible: none, selectedIndex: none, resolution: none,
+});
 
 describe("sameStringSet", () => {
     it("is order-free equality over string sets", () => {
@@ -65,7 +70,7 @@ describe("sliceWithSelection", () => {
         expect(out.filters).toHaveLength(2);
         expect(out.filters[0]).toBe(s.filters[0]);                       // other clause untouched, position kept
         expect([...managedSelectionSet(out.filters, "id")].sort()).toEqual(["A", "B"]);
-        expect((out as unknown as { search: string }).search).toBe("untouched");   // non-filter fields preserved
+        expect(out.search).toBe(s.search);                               // non-filter fields preserved
         expect(s.filters).toHaveLength(1);                               // input not mutated
     });
 
@@ -92,6 +97,19 @@ describe("sliceWithSelection", () => {
         const out = sliceWithSelection(s, "id", ["A"]);
         expect([...managedSelectionSet(out.filters, "other")].sort()).toEqual(["X"]);
         expect([...managedSelectionSet(out.filters, "id")].sort()).toEqual(["A"]);
+    });
+
+    it("builds the clause's set as an East Set — in East's order, whatever order the keys come in", () => {
+        // JavaScript's default sort (UTF-16 code units) puts the astral key
+        // before U+FF5E; East orders strings by code point, so it goes last.
+        const astral = "\u{1F600}";
+        const fullwidth = "～";
+        expect([astral, fullwidth].sort()).toEqual([astral, fullwidth]);
+        const out = sliceWithSelection(state([]), "id", new Set([astral, fullwidth, "a"]));
+        expect([...managedSelectionSet(out.filters, "id")]).toEqual(["a", fullwidth, astral]);
+        // …the order East's own encoding gives the state back in.
+        const stored = decodeBeast2For(Slice.Types.State)(encodeBeast2For(Slice.Types.State)(out));
+        expect([...managedSelectionSet(stored.filters, "id")]).toEqual(["a", fullwidth, astral]);
     });
 });
 

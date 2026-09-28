@@ -3,14 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { Textarea as ChakraTextarea, type TextareaProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Textarea } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
-const textareaEqual = equalFor(Textarea.Types.Textarea);
+const textareaEqual = equivalentFor(Textarea.Types.Textarea);
+const textareaDataEqual = equalFor(Textarea.Types.Textarea);
 
 /** East Textarea value type */
 export type TextareaValue = ValueTypeOf<typeof Textarea.Types.Textarea>;
@@ -66,9 +68,7 @@ export const EastChakraTextarea = memo(function EastChakraTextarea({ value }: Ea
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useEffect(() => {
-        setProps(() => toChakraTextarea(value));
-    }, [value]);
+    useValueSync(value, textareaDataEqual, () => setProps(toChakraTextarea(value)));
 
     const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const next = e.target.value;

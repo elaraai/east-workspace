@@ -53,6 +53,7 @@ import {
     some,
     type EastTypeValue,
     type option,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
@@ -279,9 +280,9 @@ const NO_VALUE_ERRORS = new Set(["dataset_unassigned", "dataset_null"]);
 
 /** The decoded descriptor arguments as a selector. */
 function toSelector(indexArg: unknown, joinArg: unknown): PagedSelector {
-    const index = indexArg as { type: string; value: unknown } | undefined;
+    const index = indexArg as option<string> | undefined;
     return {
-        index: index !== undefined && index.type === "some" ? index.value as string : null,
+        index: index !== undefined && index.type === "some" ? index.value : null,
         join: joinArg === true,
     };
 }
@@ -406,16 +407,16 @@ export function pagedSeekKey(
  * (`exactOptionalPropertyTypes`).
  */
 export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX): DatasetFindQuery {
-    const q = query as { type: string; value: unknown };
+    const q = query as ValueTypeOf<typeof SeekQueryType>;
     const scope = selector.index === null ? {} : { index: selector.index };
-    if (q.type === "key") return { key: q.value as string, ...scope };
-    if (q.type === "prefix") return { prefix: q.value as string, ...scope };
+    if (q.type === "key") return { key: q.value, ...scope };
+    if (q.type === "prefix") return { prefix: q.value, ...scope };
     if (q.type === "range") {
         // A half-open bound on a leading prefix of the FLATTENED key — an
         // empty side is an open end, which the wire says by omitting it. Open
         // at both ends it names no run, and a server refuses it with an error
         // the retry gate would keep re-asking, so it is refused here instead.
-        const r = q.value as { from: string[]; to: string[] };
+        const r = q.value;
         const from = [...r.from];
         const to = [...r.to];
         if (from.length === 0 && to.length === 0) {
@@ -423,10 +424,10 @@ export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX):
         }
         return from.length === 0 ? { to, ...scope } : to.length === 0 ? { from, ...scope } : { from, to, ...scope };
     }
-    const f = q.value as { values: string[]; prefix: { type: string; value: unknown } };
+    const f = q.value;
     const fields = [...f.values];
     return f.prefix.type === "some"
-        ? { fields, prefix: f.prefix.value as string, ...scope }
+        ? { fields, prefix: f.prefix.value, ...scope }
         : { fields, ...scope };
 }
 

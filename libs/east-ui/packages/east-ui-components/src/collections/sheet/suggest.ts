@@ -24,25 +24,25 @@
  * @packageDocumentation
  */
 
-import { cellIsBlank, rawCellText, type SheetKind } from "./model.js";
+import { NULL_CELL, cellIsBlank, rawCellText, type SheetKind } from "./model.js";
 import type { PendingFill, PendingRow, Rejections, Suggestions } from "./sheet-types.js";
-import type { SheetCellValue, SheetContextValue, SheetRowValue } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetProposalValue, SheetProposerValue, SheetProviderValue, SheetRowValue } from "./values.js";
 
 /** The copilot's latency per kind (B§3): deterministic kinds fire fast, the rest wait for a pause in typing. */
 export const LATENCY_MS = { instant: 150, idle: 1100 } as const;
 
-/** One provider on the wire — the compiled closure and its arm. */
-export interface WireProvider {
-    type: "sync" | "async";
-    value: (ctx: SheetContextValue) => unknown;
-}
+/** A provider or a proposer on the wire — the compiled closure under its `sync` / `async` arm. */
+export type WireProvider = SheetProviderValue | SheetProposerValue;
+
+/** What a synchronous fill provider returns — `Option<Fill>`. */
+type FillOutcome = ReturnType<Extract<SheetProviderValue, { type: "sync" }>["value"]>;
 
 /** One column's fill providers. */
 export interface FillColumn {
     key: string;
     kind: SheetKind;
     editable: boolean;
-    providers: readonly WireProvider[];
+    providers: readonly SheetProviderValue[];
 }
 
 /** What one run reads. */
@@ -54,7 +54,7 @@ export interface SuggestInput {
     /** The column being edited — not filled, unless it is a link (predicted into). */
     skipKey: string | undefined;
     columns: readonly FillColumn[];
-    proposers: readonly WireProvider[];
+    proposers: readonly SheetProposerValue[];
     /** At most this many proposed rows. */
     ahead: number;
     /** The slot below the anchor is occupied — never propose into it. */
@@ -113,7 +113,7 @@ export function hashRow(row: SheetRowValue): string {
 
 /** The fill an East `Option<Fill>` value carries. */
 function fillOf(out: unknown, index: number): PendingFill | null {
-    const o = out as { type: string; value: { value: SheetCellValue; meta: string } } | null | undefined;
+    const o = out as FillOutcome | null | undefined;
     if (o === null || o === undefined || o.type !== "some") return null;
     if (cellIsBlank(o.value.value)) return null;
     return { cell: o.value.value, meta: o.value.meta, index };
@@ -121,7 +121,7 @@ function fillOf(out: unknown, index: number): PendingFill | null {
 
 /** The rows an East `Array<Proposal>` value carries. */
 function rowsOf(out: unknown): PendingRow[] {
-    const list = out as readonly { cells: ReadonlyMap<string, SheetCellValue>; meta: string }[] | null | undefined;
+    const list = out as readonly SheetProposalValue[] | null | undefined;
     if (list === null || list === undefined || !Array.isArray(list)) return [];
     return list.map((p) => ({ cells: p.cells, meta: p.meta }));
 }
@@ -183,7 +183,7 @@ export function runSuggest(input: SuggestInput): SuggestOutcome {
             if (ctxFor !== undefined) return ctxFor;
             if (occupied) {
                 const cells = new Map(provisional.cells);
-                cells.set(col.key, { type: "Null", value: null } as SheetCellValue);
+                cells.set(col.key, NULL_CELL);
                 ctxFor = input.contextOf({ ...provisional, cells });
             } else ctxFor = context();
             return ctxFor;
@@ -223,7 +223,7 @@ export function runSuggest(input: SuggestInput): SuggestOutcome {
         const admit = (list: PendingRow[]): PendingRow[] => list
             .filter((r) => {
                 const cell = input.driverColumn !== undefined ? r.cells.get(input.driverColumn) : undefined;
-                const to = cell !== undefined && cell.type === "String" ? (cell.value as string) : "";
+                const to = cell !== undefined && cell.type === "String" ? cell.value : "";
                 return !(input.driverKey !== undefined && to !== "" && input.rejected.follows.has(`${input.driverKey}>${to}`));
             })
             .slice(0, input.ahead);

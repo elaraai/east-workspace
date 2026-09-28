@@ -262,7 +262,47 @@ export function locationsFromStack(stack: string | undefined): Location[] {
   return frames;
 }
 
+// ── Capture switch ─────────────────────────────────────────────────────
+
+let captureEnabled = true;
+
+/**
+ * Switches source-location capture on or off for every East expression built
+ * from now on. It is on by default.
+ *
+ * @param enabled - `false` to build without capturing locations, `true` to
+ *   capture them again
+ *
+ * @remarks
+ * Every expression node East builds records where it was written. It reads
+ * a `new Error().stack` as the node is constructed and filters it to the
+ * author's frames. That is a stack walk per node. While an inspector is
+ * attached (DevTools, Playwright, or a debugger with the `Runtime` domain
+ * enabled), V8 captures up to 200 frames for every `Error` it constructs, so
+ * a host that builds many functions spends most of its build time here.
+ *
+ * Switch it off where the locations cannot serve anyone. A bundled browser
+ * app is the case: East shares a file with the code that calls it, so the
+ * frame filter drops every frame and each captured location is empty anyway.
+ *
+ * While it is off, a node carries no location ({@link UNKNOWN_LOC_ID}), so an
+ * error it raises names "an unknown location". `$.let` and `$.const` recover
+ * no binding name from their call site either, so the variable prints as
+ * `_N`: the name is read from the same capture. A function built while
+ * capture was off stays location-free after it is switched back on.
+ *
+ * @example
+ * ```ts
+ * // A browser app's entry, before any module that builds East functions:
+ * setLocationCapture(false);
+ * ```
+ */
+export function setLocationCapture(enabled: boolean): void {
+  captureEnabled = enabled;
+}
+
 function capture_stack_frames(): Location[] {
+  if (!captureEnabled) return [];
   return locationsFromStack(new Error().stack);
 }
 

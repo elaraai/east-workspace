@@ -366,7 +366,7 @@ export const sliceCrossFilterDashboard = example({
 
 export const sliceExpressiveFilters = example({
     keywords: ["Slice", "Filter", "startsWith", "isEmpty", "isNotEmpty", "between", "in", "set", "preview", "predicates", "expressive", "presets", "cohort", "dedupe", "duplicate", "narrow", "summary", "compress", "contents", "Presets", "Cohort", "toggle", "segments", "preset", "on", "off", "counts"],
-    description: "The widened filter vocabulary plus the presets surfaces, one captioned row each — expressive filters (`sku starts with SKU-`, `note is not empty` (value-less presence chip), `day between JAN 5 – MAR 28` (datetime range op), and `qty in 10, 20, 30 +2` (integer set-membership previewing 3 of 5 members so a big set stays a legible chip); the Table and `N of M` footer read the composed narrowing), presets rail (a squeezed Table `slice` chrome mounting `[\"presets\", \"filter\", \"search\"]`: the presets bar already IS the cohort surface, so no duplicate `cohort` band is auto-appended (#319), and the collapsed chip names its contents rather than the placeholder \"narrow\"), presets bar (`Slice.Presets` = `Slice.Cohort` with `mode: \"toggle\"` (#163): developer-seeded cohorts as pure on/off segment chips with live counts, narrowing the Table below via `Slice.rows` with `Slice.Summary` reflecting the active narrowings)",
+    description: "The widened filter vocabulary plus the presets surfaces, one captioned row each — expressive filters (`sku starts with SKU-`, `note is not empty` (value-less presence chip), `day between JAN 5 – MAR 28` (datetime range op), and `qty in 10, 20, 30 +2` (integer set-membership previewing 3 of 5 members so a big set stays a legible chip); the Table and `N of M` footer read the composed narrowing), presets rail (a squeezed Table `slice` chrome mounting `[\"presets\", \"filter\", \"search\"]`: the presets bar already IS the cohort surface, so no duplicate `cohort` band is auto-appended (#319), and the collapsed chip names its contents rather than the placeholder \"narrow\"), presets bar (`Slice.Presets` = `Slice.Cohort` with `mode: \"toggle\"` (#163): developer-seeded cohorts as pure on/off segment chips with live counts — the `EU` and `NA` cohorts share the `region` group, a captioned family of alternatives that OR with each other and AND with the standalone `Bulk orders` — narrowing the Table below via `Slice.rows` with `Slice.Summary` reflecting the active narrowings)",
     fn: East.function([], UIComponentType, (_$) => {
         const OrderType = StructType({ sku: StringType, note: StringType, day: DateTimeType, qty: IntegerType });
         const cfg = Slice.config(OrderType, {
@@ -449,9 +449,12 @@ export const sliceExpressiveFilters = example({
                         { sku: "C-300", region: "APAC", qty: 23n },
                     ], ArrayType(PresetOrderType));
                     const slice = $.let(Slice.bind([PresetOrderType], "ex.slice.presets", barCfg, Slice.state({
+                        // `EU` and `NA` form the `region` family — alternatives that OR
+                        // with each other; `Bulk orders` stands alone and ANDs with them.
                         cohorts: [
-                            { id: "eu",   name: "EU",          filters: [variant("string",  { fieldId: "region", op: variant("eq", "EU") })] },
-                            { id: "bulk", name: "Bulk orders", filters: [variant("integer", { fieldId: "qty",    op: variant("gte", 20n) })] },
+                            { id: "eu",   name: "EU",          group: "region", filters: [variant("string",  { fieldId: "region", op: variant("eq", "EU") })] },
+                            { id: "na",   name: "NA",          group: "region", filters: [variant("string",  { fieldId: "region", op: variant("eq", "NA") })] },
+                            { id: "bulk", name: "Bulk orders",                  filters: [variant("integer", { fieldId: "qty",    op: variant("gte", 20n) })] },
                         ],
                         activeCohorts: new Set(["bulk"]),
                     }), data, none));

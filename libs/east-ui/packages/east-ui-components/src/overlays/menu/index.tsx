@@ -7,13 +7,13 @@ import { memo, useMemo } from "react";
 import { Box as ChakraBox, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { type IconName } from "@fortawesome/fontawesome-svg-core";
-import { equalFor, match, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Menu } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
 // Pre-define equality function at module level
-const menuEqual = equalFor(Menu.Types.Menu);
+const menuEqual = equivalentFor(Menu.Types.Menu);
 
 /** East Menu value type */
 export type MenuValue = ValueTypeOf<typeof Menu.Types.Menu>;

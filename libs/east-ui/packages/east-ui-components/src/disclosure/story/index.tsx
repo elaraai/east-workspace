@@ -22,8 +22,8 @@
  *   shortens the fade.
  *
  * State follows the mandatory interactive pattern (CLAUDE.md): local
- * useState drives the UI, `useEffect([value])` re-syncs on IR changes,
- * callbacks fire via `queueMicrotask` outside updaters. The optional
+ * useState drives the UI, `useValueSync` re-syncs when the IR value's data
+ * changes, callbacks fire via `queueMicrotask` outside updaters. The optional
  * `active` binding is a plain closure struct (read/write/has) with no
  * visible key, so external writes are observed via a global store
  * subscription (`useSyncExternalStore` on `getStore()`).
@@ -31,24 +31,25 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Box as ChakraBox } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Story, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { getStore } from "../../platform/state-runtime";
 import { usePrefersReducedMotion } from "../../contracts/reduced-motion";
+import { useValueSync } from "../../hooks/useValueSync";
 
 type StoryValue = ValueTypeOf<typeof Story.Types.Story>;
 type StoryStepValue = ValueTypeOf<typeof Story.Types.Step>;
 type StoryProgressValue = ValueTypeOf<typeof Story.Types.Progress>;
 type UIComponentValue = ValueTypeOf<typeof UIComponentType>;
 type ActiveBinding = ValueTypeOf<typeof Story.Types.ActiveBinding>;
-type ProgressBinding = ValueTypeOf<typeof Story.Types.ProgressBinding>;
 
 // Pre-define equality functions at module level
-const storyEqual = equalFor(Story.Types.Story);
-const storyStepEqual = equalFor(Story.Types.Step);
-const storyProgressEqual = equalFor(Story.Types.Progress);
+const storyEqual = equivalentFor(Story.Types.Story);
+const storyDataEqual = equalFor(Story.Types.Story);
+const storyStepEqual = equivalentFor(Story.Types.Step);
+const storyProgressEqual = equivalentFor(Story.Types.Progress);
 
 /** Whether the static override disables the scrollport (one keyframe, no driver). */
 function isStaticForScrollport(value: StoryValue): boolean {
@@ -85,19 +86,18 @@ let warnedNonStepChild = false;
 function extractSteps(children: UIComponentValue[]): ExtractedStep[] {
     const steps: ExtractedStep[] = [];
     for (const child of children) {
-        const tagged = child as unknown as { type: string; value: unknown };
-        if (tagged.type === "StoryStep") {
-            const step = tagged.value as StoryStepValue;
+        if (child.type === "StoryStep") {
+            const step = child.value;
             steps.push({
                 id: step.id,
                 eyebrow: getSomeorUndefined(step.eyebrow),
                 title: getSomeorUndefined(step.title),
-                stage: getSomeorUndefined(step.stage) as UIComponentValue | undefined,
-                body: step.body as UIComponentValue[],
+                stage: getSomeorUndefined(step.stage),
+                body: step.body,
             });
         } else if (!warnedNonStepChild) {
             warnedNonStepChild = true;
-            console.warn(`Story: skipping non-StoryStep child (got '${tagged.type}'). Story children should be Story.Step components.`);
+            console.warn(`Story: skipping non-StoryStep child (got '${child.type}'). Story children should be Story.Step components.`);
         }
     }
     return steps;
@@ -378,7 +378,7 @@ export interface EastChakraStoryProps {
  * progress spine, and the sticky stage holding the active keyframe.
  */
 export const EastChakraStory = memo(function EastChakraStory({ value, storageKey }: EastChakraStoryProps) {
-    const steps = useMemo(() => extractSteps(value.steps as UIComponentValue[]), [value.steps]);
+    const steps = useMemo(() => extractSteps(value.steps), [value.steps]);
     const total = steps.length;
 
     const style = getSomeorUndefined(value.style);
@@ -393,8 +393,8 @@ export const EastChakraStory = memo(function EastChakraStory({ value, storageKey
     const staticActiveId = getSomeorUndefined(value.activeStep);
     const isStatic = staticActiveId !== undefined;
 
-    const activeBinding = useMemo(() => getSomeorUndefined(value.active), [value.active]) as ActiveBinding | undefined;
-    const progressBinding = useMemo(() => getSomeorUndefined(value.progress), [value.progress]) as ProgressBinding | undefined;
+    const activeBinding = useMemo(() => getSomeorUndefined(value.active), [value.active]);
+    const progressBinding = useMemo(() => getSomeorUndefined(value.progress), [value.progress]);
     const onStepEnterFn = useMemo(() => getSomeorUndefined(value.onStepEnter), [value.onStepEnter]);
     const onStepExitFn = useMemo(() => getSomeorUndefined(value.onStepExit), [value.onStepExit]);
 
@@ -432,15 +432,14 @@ export const EastChakraStory = memo(function EastChakraStory({ value, storageKey
     const activeRef = useRef(active);
     activeRef.current = active;
 
-    // Re-sync local state when the IR value changes (rule 2)
-    useEffect(() => {
+    // Re-sync local state when the IR value's data changes (rule 2)
+    useValueSync(value, storyDataEqual, () => {
         if (isStatic) {
             setActive(Math.max(0, steps.findIndex(s => s.id === staticActiveId)));
         } else {
             setActive(prev => Math.max(0, Math.min(total - 1, prev)));
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value, total]);
+    });
 
     /** Apply a scroll-driven (or click-driven) activation: local state first,
      *  then binding write + enter/exit handlers via queueMicrotask. */
@@ -748,8 +747,8 @@ export const EastChakraStoryStep = memo(function EastChakraStoryStep({ value, st
         id: value.id,
         eyebrow: getSomeorUndefined(value.eyebrow),
         title: getSomeorUndefined(value.title),
-        stage: getSomeorUndefined(value.stage) as UIComponentValue | undefined,
-        body: value.body as UIComponentValue[],
+        stage: getSomeorUndefined(value.stage),
+        body: value.body,
     }), [value]);
     return (
         <StoryStepBlock
@@ -780,7 +779,7 @@ export interface EastChakraStoryProgressProps {
  */
 export const EastChakraStoryProgress = memo(function EastChakraStoryProgress({ value }: EastChakraStoryProgressProps) {
     const count = Number(value.count);
-    const binding = useMemo(() => getSomeorUndefined(value.active), [value.active]) as ActiveBinding | undefined;
+    const binding = useMemo(() => getSomeorUndefined(value.active), [value.active]);
     const bound = useActiveBindingValue(binding);
 
     // Internal fallback state when unbound (the chrome is still browsable)

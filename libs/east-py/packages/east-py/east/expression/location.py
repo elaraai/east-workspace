@@ -29,7 +29,9 @@ map, exactly as ``ensure_source_map`` does in TS.
 
 Capture is per NODE at build time and never per call: a compiled function
 carries its map on the C side and resolves an error's ``loc_id`` only when
-one is raised.
+one is raised. A host that builds many functions and never reads their
+locations switches capture off with :func:`set_location_capture` (the twin
+of TypeScript's ``setLocationCapture``, #834).
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ __all__ = [
     "location_id",
     "normalize_frame_path",
     "set_location_base_path",
+    "set_location_capture",
     "source_map_scope",
 ]
 
@@ -335,13 +338,40 @@ def author_frames_of(tb: Any) -> tuple[Location, ...]:
     return tuple(frames)
 
 
+_capture_enabled = True
+
+
+def set_location_capture(enabled: bool) -> None:
+    """Switch source-location capture on or off for every build from now on.
+
+    On by default. Every node a build constructs records the author's frames,
+    a walk of the live python stack. A host that builds many functions and
+    never reads their locations can switch that off. While it is off,
+    :func:`capture_frames` returns ``()`` and :func:`location_id` returns
+    ``UNKNOWN_LOC_ID`` without walking the stack, so an error raised by such
+    a node carries no location. Binding names read their own frame
+    (``naming.py``) and are unaffected. A function built while capture was
+    off stays location-free after it is switched back on. The twin of
+    TypeScript's ``setLocationCapture``.
+
+    Args:
+        enabled: ``False`` to build without capturing locations, ``True`` to
+            capture them again.
+    """
+    global _capture_enabled
+    _capture_enabled = enabled
+
+
 def capture_frames() -> tuple[Location, ...]:
     """The author's frames of the current call, innermost first.
 
     East's own frames, the standard library and installed packages are
     dropped (see the module notes), paths are normalized, and columns are
-    1-based. Empty when no author frame is on the stack.
+    1-based. Empty when no author frame is on the stack, or while capture is
+    switched off (:func:`set_location_capture`).
     """
+    if not _capture_enabled:
+        return ()
     frame = sys._getframe(1)
     out: list[Location] = []
     while frame is not None:

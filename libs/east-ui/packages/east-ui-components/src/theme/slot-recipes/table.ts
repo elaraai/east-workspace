@@ -12,18 +12,27 @@
  *     padding. Right-aligned / mono numeric cells are a per-cell
  *     concern — author them with a `render` UIComponent.
  *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600.
+ *   - Header controls (#951): the label, then one row of 24 px pin / sort
+ *     buttons, shown while the header is hovered or holds focus, and a
+ *     resize grip on its right edge.
+ *   - Nested rows (#954), the Plan's gutter voice (#949): a row's first cell
+ *     indents one step per depth — a 14 px caret and its 6 px gap — so a
+ *     child's label starts where its parent's does; a parent's subtotal
+ *     cells are semibold.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
     slots: [
-        "root", "header", "body", "row", "cell", "columnHeader",
-        "footer", "caption", "scrollArea", "groupHead", "groupHeadCell",
-        "groupHeadAggregate",
+        "root", "header", "body", "row", "cell", "cellText", "columnHeader",
+        "columnHeaderContent", "columnHeaderLabel", "columnControls",
+        "columnControl", "columnSortIndex", "columnResizer",
+        "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
     ],
     base: {
         root: {
@@ -50,40 +59,128 @@ export const tableSlotRecipe = defineSlotRecipe({
             textAlign: "left",
             whiteSpace: "nowrap",
         },
-        // Row grouping (#317) — group header rows, one visual family with the
-        // Matrix groupHead band (bg.panel wash, mono micro-label).
-        groupHead: {
-            background: "bg.panel",
-            minHeight: "28px",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
-            cursor: "pointer",
-            _hover: { background: "bg.muted" },
+        // A header's content (#951): its label, then its controls.
+        columnHeaderContent: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "{spacing.2}",
+            width: "100%",
+            // Clear of the resize grip on the header's right edge.
+            "&[data-resizable]": { paddingRight: "4px" },
         },
-        groupHeadCell: {
-            fontFamily: "mono",
-            fontSize: "10.5px",
-            fontWeight: "600",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
+        columnHeaderLabel: {
+            flex: "1",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            // An aligned stack's day column centres its label on the shared axis.
+            "&[data-align=center]": { textAlign: "center" },
+        },
+        // The pin and sort controls: one row beside the label. They show
+        // while the header is hovered or holds focus, and stay shown for a
+        // pinned or sorted column (`data-active`); where nothing hovers
+        // (touch) they rest at reduced emphasis.
+        columnControls: {
+            display: "flex",
+            alignItems: "center",
+            flexShrink: 0,
+            opacity: 0,
+            transitionProperty: "opacity",
+            transitionDuration: "{durations.fast}",
+            "@media (hover: none)": { opacity: 0.6 },
+            "th:hover &": { opacity: 1 },
+            "th:focus-within &": { opacity: 1 },
+            "&[data-active]": { opacity: 1 },
+        },
+        // One control: a 24 px button, its 10 px icon in the muted ink until
+        // hovered or active. The tap halo is 36 px, not 44: the pair sits
+        // adjacent, and full halos would swallow each other.
+        columnControl: {
+            ...coarseHitArea({ position: true, size: 36 }),
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "24px",
+            height: "24px",
+            borderRadius: "sm",
             color: "fg.muted",
-            paddingX: "{spacing.3}",
-            paddingY: "{spacing.1}",
-            fontFeatureSettings: '"tnum" 1',
+            cursor: "pointer",
+            transitionProperty: "color, background",
+            transitionDuration: "{durations.fast}",
+            _hover: { color: "fg.default", background: "bg.emphasized" },
+            "&[data-active]": { color: "fg.default" },
+            "& svg": { width: "10px", height: "10px" },
+            // The pin tilts while its column is unpinned.
+            "&[data-control=pin]:not([data-active]) svg": { transform: "rotate(45deg)" },
         },
-        // Aggregate cells stay at MEMBER-cell scale (an accounting subtotal
-        // matches its member numbers, just heavier) — only the group LABEL
-        // wears the mono micro-label treatment.
-        groupHeadAggregate: {
-            fontFamily: "body",
-            fontSize: "{fontSizes.control}",
-            fontWeight: "600",
-            letterSpacing: "normal",
-            textTransform: "none",
-            color: "fg",
-            paddingX: "{spacing.3}",
-            paddingY: "{spacing.1}",
-            fontFeatureSettings: '"tnum" 1',
+        // A multi-column sort's rank, in its sort control's corner.
+        columnSortIndex: {
+            position: "absolute",
+            top: "4px",
+            right: "4px",
+            fontSize: "7px",
+            fontWeight: "bold",
+            lineHeight: "1",
+            color: "fg.muted",
+        },
+        // The resize grip: a 6 px hit zone on the header's right edge, drawing
+        // a 1 px line over its middle 40% while the header is hovered.
+        columnResizer: {
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: "6px",
+            cursor: "ew-resize",
+            zIndex: 10,
+            _before: {
+                content: '""',
+                position: "absolute",
+                right: "2px",
+                top: "30%",
+                bottom: "30%",
+                width: "1px",
+                background: "bg.emphasized",
+                opacity: 0,
+                transitionProperty: "opacity",
+                transitionDuration: "{durations.moderate}",
+            },
+            "th:hover &": { _before: { opacity: 1 } },
+            _hover: { _before: { opacity: 1, background: "fg.muted" } },
+        },
+        // Nested rows (#954): the lead of a row's first cell — one step per
+        // depth (`--table-depth`, the row's depth, set by the renderer), then
+        // a parent's caret. The step is the caret and its gap, so a leaf
+        // child's label starts exactly where its parent's does — the Plan's
+        // gutter rule (#949).
+        treeIndent: {
+            display: "inline-flex",
+            alignItems: "center",
+            flexShrink: 0,
+            paddingLeft: "calc(var(--table-depth, 0) * 20px)",
+        },
+        // A parent's caret — the Plan's (14 px, the subtle ink, pointing
+        // right while its children are hidden) as a button that folds them.
+        treeToggle: {
+            ...coarseHitArea({ position: true }),
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "14px",
+            height: "14px",
+            marginRight: "6px",
+            padding: 0,
+            flexShrink: 0,
+            borderRadius: "sm",
+            fontSize: "11px",
+            color: "fg.subtle",
+            cursor: "pointer",
+            transitionProperty: "color, transform",
+            transitionDuration: "{durations.fast}",
+            _hover: { color: "fg.default" },
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "1px" },
+            "&[aria-expanded=false]": { transform: "rotate(-90deg)" },
         },
         cell: {
             fontSize: "{fontSizes.control}",
@@ -100,6 +197,16 @@ export const tableSlotRecipe = defineSlotRecipe({
             // shared density token keep text centred).
             verticalAlign: "middle",
             color: "fg",
+            // A parent's subtotal (#954) — an accounting subtotal: its
+            // children's scale, heavier.
+            "&[data-subtotal]": { fontWeight: "semibold" },
+        },
+        // The text a cell prints itself when its column has no `render`
+        // (#874) — one line, cut with an ellipsis in a narrow column.
+        cellText: {
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
         },
         row: { transitionProperty: "background", transitionDuration: "{durations.fast}" },
         footer: {

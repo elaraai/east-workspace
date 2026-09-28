@@ -322,10 +322,58 @@ function resolvesWithinOwnPackage(sourceFileName, specifierText) {
 // ../east-diagnostics/dist/src/rules/prefer-some-none.js
 var NAME3 = "prefer-some-none";
 var CODE3 = 990003;
+function membersOf(types) {
+  return types.flatMap((type) => type.isUnion() ? type.types : [type]);
+}
+function literalsOf(type) {
+  return membersOf([type]).flatMap((m) => m.isStringLiteral() ? [m.value] : []);
+}
+function variantMembers(expected, at, ctx) {
+  const out = [];
+  for (const member of membersOf(expected)) {
+    if (isEastExprType(member))
+      continue;
+    if (ctx.checker.getPropertyOfType(member, "value") === void 0)
+      continue;
+    const tag = ctx.checker.getPropertyOfType(member, "type");
+    if (tag === void 0)
+      continue;
+    out.push({ member, tags: literalsOf(ctx.checker.getTypeOfSymbolAtLocation(tag, at)) });
+  }
+  return out;
+}
+function propertyTypes(types, name, at, ctx) {
+  return membersOf(types).flatMap((m) => {
+    const prop = ctx.checker.getPropertyOfType(m, name);
+    return prop === void 0 ? [] : [ctx.checker.getTypeOfSymbolAtLocation(prop, at)];
+  });
+}
+function uninformative(type, ctx) {
+  const t = ctx.ts;
+  return (type.flags & (t.TypeFlags.Any | t.TypeFlags.Unknown | t.TypeFlags.TypeParameter)) !== 0;
+}
+function expectedTypes(e, ctx, depth = 0) {
+  const t = ctx.ts;
+  const parent = e.parent;
+  if (depth < 8 && t.isPropertyAssignment(parent) && parent.initializer === e && (t.isIdentifier(parent.name) || t.isStringLiteral(parent.name))) {
+    const literal = expectedTypes(parent.parent, ctx, depth + 1);
+    if (literal.length > 0)
+      return propertyTypes(literal, parent.name.text, e, ctx);
+  }
+  if (depth < 8 && t.isCallExpression(parent) && parent.arguments[1] === e && t.isIdentifier(parent.expression) && parent.expression.text === "variant" && resolvesToEastImport(parent.expression, ctx.checker, t)) {
+    const tag = parent.arguments[0];
+    if (tag === void 0 || !t.isStringLiteralLike(tag))
+      return [];
+    const matches = variantMembers(expectedTypes(parent, ctx, depth + 1), e, ctx).filter((m) => m.tags.includes(tag.text));
+    return propertyTypes(matches.map((m) => m.member), "value", e, ctx);
+  }
+  const direct = ctx.checker.getContextualType(e);
+  return direct !== void 0 && !uninformative(direct, ctx) ? [direct] : [];
+}
 var preferSomeNone = {
   name: NAME3,
   code: CODE3,
-  description: 'Prefer some()/none over variant("some", \u2026)/variant("none", null).',
+  description: 'Prefer some()/none over variant("some", \u2026)/variant("none", null) for an Option.',
   check(node, ctx) {
     const t = ctx.ts;
     if (!t.isCallExpression(node))
@@ -341,6 +389,8 @@ var preferSomeNone = {
     const tag = first.text;
     if (tag !== "some" && tag !== "none")
       return;
+    if (variantMembers(expectedTypes(node, ctx), node, ctx).some((m) => m.tags.some((other) => other !== "some" && other !== "none")))
+      return;
     const sf = ctx.sourceFile;
     const start = node.getStart(sf);
     ctx.report({
@@ -348,7 +398,7 @@ var preferSomeNone = {
       code: CODE3,
       start,
       length: node.getEnd() - start,
-      messageText: tag === "some" ? 'Use `some(value)` instead of `variant("some", value)`.' : 'Use `none` instead of `variant("none", null)`.',
+      messageText: (tag === "some" ? 'Use `some(value)` instead of `variant("some", value)`.' : 'Use `none` instead of `variant("none", null)`.') + " If this is the case of a variant that is not an Option, type the value it builds (`ValueTypeOf<typeof T>`) so the case can be told apart.",
       category: "warning"
     });
   }
@@ -372,16 +422,48 @@ function expectsVariant(type) {
   }
   return false;
 }
+function propertyNamed(node, name, t) {
+  for (const p of node.properties) {
+    if ((t.isPropertyAssignment(p) || t.isShorthandPropertyAssignment(p)) && (t.isIdentifier(p.name) || t.isStringLiteral(p.name)) && p.name.text === name) {
+      return p;
+    }
+  }
+  return void 0;
+}
+function spelledAsVariant(node, ctx) {
+  const t = ctx.ts;
+  if (node.properties.length !== 2)
+    return false;
+  const tag = propertyNamed(node, "type", t);
+  if (tag === void 0 || propertyNamed(node, "value", t) === void 0)
+    return false;
+  const tagType = ctx.checker.getTypeAtLocation(t.isPropertyAssignment(tag) ? tag.initializer : tag.name);
+  const members = tagType.isUnion() ? tagType.types : [tagType];
+  return members.every((m) => (m.flags & t.TypeFlags.StringLike) !== 0);
+}
+function publishedShape(type, t) {
+  const members = (type.isUnion() ? type.types : [type]).filter((m) => (m.flags & (t.TypeFlags.Null | t.TypeFlags.Undefined)) === 0);
+  return members.length > 0 && members.every((m) => {
+    if ((m.flags & t.TypeFlags.Object) === 0)
+      return false;
+    const declarations = (m.aliasSymbol ?? m.symbol)?.declarations ?? [];
+    return declarations.length > 0 && declarations.every((d) => d.getSourceFile().isDeclarationFile);
+  });
+}
 var noHandrolledVariant = {
   name: NAME4,
   code: CODE4,
-  description: "Disallow plain object literals where an East variant/option is expected; use variant()/some()/none.",
+  description: "Disallow a variant built as a plain `{ type, value }` object literal \u2014 where a variant is expected, or anywhere in East source; use variant()/some()/none.",
   check(node, ctx) {
     const t = ctx.ts;
     if (!t.isObjectLiteralExpression(node))
       return;
+    if (propertyNamed(node, "type", t) === void 0)
+      return;
     const contextualType = ctx.checker.getContextualType(node);
-    if (contextualType === void 0 || !expectsVariant(contextualType))
+    const inVariantSlot = contextualType !== void 0 && expectsVariant(contextualType);
+    const byHand = !inVariantSlot && importsEastPackage(ctx.sourceFile, t) && spelledAsVariant(node, ctx) && (contextualType === void 0 || !publishedShape(contextualType, t));
+    if (!inVariantSlot && !byHand)
       return;
     const sf = ctx.sourceFile;
     const start = node.getStart(sf);
@@ -390,7 +472,7 @@ var noHandrolledVariant = {
       code: CODE4,
       start,
       length: node.getEnd() - start,
-      messageText: 'Hand-rolled variant: build with `variant("Tag", value)`, `some(value)`, or `none` from @elaraai/east \u2014 never a plain `{ type, value }` object literal.',
+      messageText: 'Hand-rolled variant: build with `variant("Tag", value)`, `some(value)`, or `none` from @elaraai/east \u2014 never a plain `{ type, value }` object literal, which lacks the symbol East\'s variants carry.',
       category: "warning"
     });
   }
@@ -1440,20 +1522,24 @@ function isJsx2(node, t) {
 function isHostTemplate(e, t) {
   return t.isTemplateExpression(unparen(e, t));
 }
-function isEastValueConstructor(expr, t) {
+function hasIrArgument(call, ctx) {
+  return call.arguments.some((a) => isEastExprType(ctx.checker.getTypeAtLocation(a)) || containsEastBuilder(a, ctx));
+}
+function isEastValueConstructor(expr, ctx) {
+  const t = ctx.ts;
   if (t.isCallExpression(expr)) {
     const callee = expr.expression;
     if (t.isIdentifier(callee) && VALUE_CONSTRUCTORS.has(callee.text))
-      return true;
+      return hasIrArgument(expr, ctx);
     return t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression) && callee.expression.text === "East" && callee.name.text === "value";
   }
-  return t.isIdentifier(expr) && expr.text === "none";
+  return false;
 }
 function isEastBuilderCall(call, ctx) {
   const t = ctx.ts;
   const callee = call.expression;
   if (t.isIdentifier(callee) && VALUE_CONSTRUCTORS.has(callee.text))
-    return true;
+    return hasIrArgument(call, ctx);
   const root = chainRootReceiver(callee, ctx);
   if (t.isIdentifier(root) && root.text === "East")
     return true;
@@ -1480,7 +1566,7 @@ function returnBuildsEast(r, ctx) {
     return false;
   if (isEastDefinitionType(ctx.checker.getTypeAtLocation(r)))
     return false;
-  if (isEastValueConstructor(r, t))
+  if (isEastValueConstructor(r, ctx))
     return true;
   if (isEastExprType(ctx.checker.getTypeAtLocation(r)))
     return true;
@@ -1489,6 +1575,62 @@ function returnBuildsEast(r, ctx) {
   if (isEastExprType(rootType) || isBlockBuilderType(rootType))
     return true;
   return containsEastBuilder(r, ctx);
+}
+function buildsEastProgram(root, ctx) {
+  const t = ctx.ts;
+  if (!t.isIdentifier(root))
+    return false;
+  if (isBlockBuilderType(ctx.checker.getTypeAtLocation(root)))
+    return true;
+  if (!resolvesToEastImport(root, ctx.checker, t))
+    return false;
+  if (root.text === "East")
+    return true;
+  const imp = importDeclarationOf(ctx.checker.getSymbolAtLocation(root), t);
+  return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text === "@elaraai/e3";
+}
+function flowsIntoEastProgram(call, ctx) {
+  const t = ctx.ts;
+  let node = call;
+  for (; ; ) {
+    const parent = node.parent;
+    if (parent === void 0)
+      return false;
+    if (t.isArrayLiteralExpression(parent) || t.isObjectLiteralExpression(parent) || t.isPropertyAssignment(parent) || t.isParenthesizedExpression(parent) || t.isSpreadElement(parent) || t.isTemplateSpan(parent) || t.isTemplateExpression(parent) || t.isNewExpression(parent)) {
+      node = parent;
+      continue;
+    }
+    if (t.isCallExpression(parent) && parent.expression !== node) {
+      return buildsEastProgram(chainRootReceiver(parent.expression, ctx), ctx);
+    }
+    return false;
+  }
+}
+function feedsEastProgram(name, ctx) {
+  const t = ctx.ts;
+  const symbol = ctx.checker.getSymbolAtLocation(name);
+  if (symbol === void 0)
+    return false;
+  let found = false;
+  const visit = (n) => {
+    if (found)
+      return;
+    if (t.isCallExpression(n) && t.isIdentifier(n.expression) && ctx.checker.getSymbolAtLocation(n.expression) === symbol) {
+      if (insideBlockScope(n, ctx) || flowsIntoEastProgram(n, ctx)) {
+        found = true;
+        return;
+      }
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(ctx.sourceFile);
+  return found;
+}
+function isValueConstruction(e, t) {
+  const r = unparen(e, t);
+  if (t.isIdentifier(r))
+    return r.text === "none";
+  return t.isCallExpression(r) && t.isIdentifier(r.expression) && VALUE_CONSTRUCTORS.has(r.expression.text);
 }
 function returnExpressions2(fn, t) {
   if (fn.body === void 0)
@@ -1516,12 +1658,16 @@ var noModuleScopeEastMacro = {
       return;
     let fn;
     let reportNode;
+    let nameNode;
     if (t.isFunctionDeclaration(node) && node.body !== void 0) {
       fn = node;
       reportNode = node.name ?? node;
+      nameNode = node.name;
     } else if (t.isVariableDeclaration(node) && node.initializer !== void 0 && (t.isArrowFunction(node.initializer) || t.isFunctionExpression(node.initializer))) {
       fn = node.initializer;
       reportNode = node.name;
+      if (t.isIdentifier(node.name))
+        nameNode = node.name;
     }
     if (fn === void 0 || reportNode === void 0)
       return;
@@ -1535,9 +1681,10 @@ var noModuleScopeEastMacro = {
       return;
     if (rs.length === 0)
       return;
-    const everyBuildsEast = rs.every((r) => returnBuildsEast(r, ctx));
-    const everyHostKey = rs.every((r) => isHostTemplate(r, t));
-    if (!everyBuildsEast && !everyHostKey)
+    const everyBuildsIr = rs.every((r) => returnBuildsEast(r, ctx));
+    const everyBuildsValue = !everyBuildsIr && rs.every((r) => returnBuildsEast(r, ctx) || isValueConstruction(r, t));
+    const everyHostKey = !everyBuildsIr && !everyBuildsValue && rs.every((r) => isHostTemplate(r, t));
+    if (!everyBuildsIr && !((everyBuildsValue || everyHostKey) && nameNode !== void 0 && feedsEastProgram(nameNode, ctx)))
       return;
     const sf = ctx.sourceFile;
     const start = reportNode.getStart(sf);
@@ -1895,6 +2042,158 @@ var noBuildTimeClock = {
   }
 };
 
+// ../east-diagnostics/dist/src/east-value.js
+function declaredByEast(decl) {
+  const file = decl.getSourceFile().fileName.replace(/\\/g, "/");
+  return /(?:@elaraai\/east|\/libs\/east)\/(?:dist\/)?src\//.test(file);
+}
+function declaredByEastPackage(decl) {
+  const sf = decl.getSourceFile();
+  return sf.isDeclarationFile && /(?:\/@elaraai\/|\/libs\/)/.test(sf.fileName.replace(/\\/g, "/"));
+}
+function constituents(type, t) {
+  const members = type.isUnion() ? type.types : [type];
+  return members.filter((m) => (m.flags & (t.TypeFlags.Null | t.TypeFlags.Undefined | t.TypeFlags.Void)) === 0);
+}
+function isStructConstituent(type, t) {
+  return (type.symbol?.declarations ?? []).some((d) => t.isMappedTypeNode(d) && declaredByEast(d));
+}
+function isVariantConstituent(type, checker) {
+  if ((type.flags & 1) !== 0)
+    return false;
+  for (const prop of checker.getPropertiesOfType(type)) {
+    if (!String(prop.escapedName).startsWith("__@variant_symbol"))
+      continue;
+    if ((prop.declarations ?? []).some(declaredByEast))
+      return true;
+  }
+  return false;
+}
+function isSortedConstituent(type) {
+  const name = type.symbol?.name;
+  return (name === "SortedSet" || name === "SortedMap") && (type.symbol?.declarations ?? []).some(declaredByEast);
+}
+function isEastValueShape(type, ctx) {
+  if (isEastExprType(type))
+    return false;
+  return constituents(type, ctx.ts).some((m) => isStructConstituent(m, ctx.ts) || isVariantConstituent(m, ctx.checker) || isSortedConstituent(m));
+}
+function isRecordShape(type, ctx) {
+  return constituents(type, ctx.ts).some((m) => isStructConstituent(m, ctx.ts) || isVariantConstituent(m, ctx.checker));
+}
+function jsPrintDiffers(type, t) {
+  const same = t.TypeFlags.StringLike | t.TypeFlags.BigIntLike | t.TypeFlags.BooleanLike;
+  return constituents(type, t).some((m) => (m.flags & same) === 0);
+}
+function isGlobalBuiltin(id, ctx) {
+  const declarations = ctx.checker.getSymbolAtLocation(id)?.declarations ?? [];
+  return declarations.length > 0 && declarations.every((d) => {
+    const file = d.getSourceFile();
+    return ctx.program?.isSourceFileDefaultLibrary(file) ?? /\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(file.fileName.replace(/\\/g, "/"));
+  });
+}
+function skipValueWrappers(e, t) {
+  let cur = e;
+  for (; ; ) {
+    if (t.isParenthesizedExpression(cur) || t.isNonNullExpression(cur) || t.isAsExpression(cur) || t.isTypeAssertionExpression(cur) || t.isSatisfiesExpression(cur)) {
+      cur = cur.expression;
+    } else {
+      return cur;
+    }
+  }
+}
+var ELEMENT_READS = /* @__PURE__ */ new Set(["get", "at"]);
+function isEastValueExpression(e, ctx) {
+  return eastValueExpression(e, ctx, 0);
+}
+function eastValueExpression(e, ctx, depth) {
+  const t = ctx.ts;
+  const expr = skipValueWrappers(e, t);
+  const type = ctx.checker.getTypeAtLocation(expr);
+  if (isEastExprType(type))
+    return false;
+  if (isEastValueShape(type, ctx))
+    return true;
+  if (t.isPropertyAccessExpression(expr)) {
+    return isRecordShape(ctx.checker.getTypeAtLocation(expr.expression), ctx);
+  }
+  if (t.isElementAccessExpression(expr)) {
+    return eastValueExpression(expr.expression, ctx, depth);
+  }
+  if (t.isCallExpression(expr) && t.isPropertyAccessExpression(expr.expression) && ELEMENT_READS.has(expr.expression.name.text)) {
+    return eastValueExpression(expr.expression.expression, ctx, depth);
+  }
+  if (t.isIdentifier(expr) && depth < 3) {
+    const decl = ctx.checker.getSymbolAtLocation(expr)?.valueDeclaration;
+    if (decl !== void 0 && t.isVariableDeclaration(decl) && decl.initializer !== void 0 && t.isVariableDeclarationList(decl.parent) && (decl.parent.flags & t.NodeFlags.Const) !== 0) {
+      return eastValueExpression(decl.initializer, ctx, depth + 1);
+    }
+  }
+  return false;
+}
+function isValueConstructorCall(call, ctx) {
+  const t = ctx.ts;
+  const callee = call.expression;
+  return t.isIdentifier(callee) && (callee.text === "variant" || callee.text === "some") && resolvesToEastImport(callee, ctx.checker, t);
+}
+function parameterTypeAt(signature, index, call, ctx) {
+  const t = ctx.ts;
+  const params = signature.getParameters();
+  if (params.length === 0)
+    return void 0;
+  const param = params[Math.min(index, params.length - 1)];
+  const type = ctx.checker.getTypeOfSymbolAtLocation(param, call);
+  const declaration = param.valueDeclaration;
+  if (declaration !== void 0 && t.isParameter(declaration) && declaration.dotDotDotToken !== void 0) {
+    return ctx.checker.getTypeArguments(type)[0];
+  }
+  return type;
+}
+function flowOf(e, ctx) {
+  const t = ctx.ts;
+  if (insideBlockScope(e, ctx))
+    return "program";
+  let node = e;
+  let east = false;
+  for (; ; ) {
+    const parent = node.parent;
+    if (parent === void 0)
+      return east ? "value" : "host";
+    if (t.isParenthesizedExpression(parent) || t.isAsExpression(parent) || t.isSatisfiesExpression(parent) || t.isNonNullExpression(parent) || t.isTypeAssertionExpression(parent) || t.isArrayLiteralExpression(parent) || t.isSpreadElement(parent)) {
+      node = parent;
+      continue;
+    }
+    if (t.isPropertyAssignment(parent) && parent.initializer === node || t.isShorthandPropertyAssignment(parent)) {
+      const literal = parent.parent;
+      const contextual = ctx.checker.getContextualType(literal);
+      if (contextual !== void 0 && isRecordShape(contextual, ctx))
+        east = true;
+      node = literal;
+      continue;
+    }
+    const args = t.isCallExpression(parent) || t.isNewExpression(parent) ? parent.arguments ?? [] : [];
+    if ((t.isCallExpression(parent) || t.isNewExpression(parent)) && args.includes(node)) {
+      if (t.isCallExpression(parent) && isValueConstructorCall(parent, ctx)) {
+        east = true;
+        node = parent;
+        continue;
+      }
+      const signature = ctx.checker.getResolvedSignature(parent);
+      const declaration = signature?.getDeclaration();
+      if (signature !== void 0 && declaration !== void 0 && declaredByEastPackage(declaration)) {
+        const index = args.indexOf(node);
+        const param = parameterTypeAt(signature, index, parent, ctx);
+        return param !== void 0 && isEastExprType(param) ? "program" : "value";
+      }
+      return east ? "value" : "host";
+    }
+    return east ? "value" : "host";
+  }
+}
+function landsInEastSlot(e, ctx) {
+  return flowOf(e, ctx) === "value";
+}
+
 // ../east-diagnostics/dist/src/rules/no-handrolled-value-type-mirror.js
 var NAME23 = "no-handrolled-value-type-mirror";
 var CODE23 = 990028;
@@ -1922,70 +2221,165 @@ function eastTypeValueInFile(name, ctx) {
   }
   return false;
 }
+function membersOf2(node) {
+  return node.members;
+}
+function mentionsEastImport(typeNode, ctx) {
+  const t = ctx.ts;
+  let found = false;
+  const visit = (n) => {
+    if (found)
+      return;
+    if (t.isTypeReferenceNode(n)) {
+      const name = t.isIdentifier(n.typeName) ? n.typeName : t.isQualifiedName(n.typeName) ? leftmost(n.typeName, t) : void 0;
+      if (name !== void 0 && resolvesToEastImport(name, ctx.checker, t)) {
+        found = true;
+        return;
+      }
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(typeNode);
+  return found;
+}
+function leftmost(q, t) {
+  let cur = q;
+  while (t.isQualifiedName(cur))
+    cur = cur.left;
+  return cur;
+}
+function holdsEastValue(shape, ctx) {
+  const t = ctx.ts;
+  return membersOf2(shape).some((m) => t.isPropertySignature(m) && m.type !== void 0 && isEastValueShape(ctx.checker.getTypeFromTypeNode(m.type), ctx));
+}
+function isFactoryInput(node, ctx) {
+  const t = ctx.ts;
+  const sf = ctx.sourceFile;
+  return membersOf2(node).some((m) => {
+    const type = t.isPropertySignature(m) ? m.type : void 0;
+    return type !== void 0 && /\b(?:SubtypeExprOrValue|ExprType)</.test(type.getText(sf));
+  });
+}
+function isVariantShapedLiteral(node, t) {
+  if (!t.isTypeLiteralNode(node))
+    return false;
+  const names = new Set(node.members.flatMap((m) => m.name !== void 0 && t.isIdentifier(m.name) ? [m.name.text] : []));
+  return names.has("type") && names.has("value");
+}
+function report2(ctx, node, messageText) {
+  const start = node.getStart(ctx.sourceFile);
+  ctx.report({ ruleName: NAME23, code: CODE23, start, length: node.getEnd() - start, messageText, category: "suggestion" });
+}
 var noHandrolledValueTypeMirror = {
   name: NAME23,
   code: CODE23,
-  description: "A hand-authored interface mirroring an in-scope East type \u2014 derive it with ValueTypeOf<typeof XType> instead.",
+  description: "A hand-authored type mirroring an East type (Foo beside FooType, a *Like stand-in, an `as { type; value }` assertion) \u2014 derive it with ValueTypeOf<typeof XType> instead.",
   check(node, ctx) {
     const t = ctx.ts;
+    if (t.isAsExpression(node) || t.isTypeAssertionExpression(node)) {
+      if (!isVariantShapedLiteral(node.type, t))
+        return;
+      if (!importsEastPackage(ctx.sourceFile, t))
+        return;
+      report2(ctx, node.type, "This `{ type, value }` assertion hand-mirrors an East variant \u2014 it hides the value's real type. Narrow the typed value on its tag (`v.type === \u2026`), or type it with `ValueTypeOf<typeof XType>`.");
+      return;
+    }
     let name;
+    let shape;
     if (t.isInterfaceDeclaration(node)) {
       name = node.name;
+      shape = node;
     } else if (t.isTypeAliasDeclaration(node) && t.isTypeLiteralNode(node.type)) {
       name = node.name;
+      shape = node.type;
     }
-    if (name === void 0)
+    if (name === void 0 || shape === void 0)
       return;
     if (!importsEastPackage(ctx.sourceFile, t))
       return;
+    if (isFactoryInput(shape, ctx))
+      return;
+    if (name.text.length > "Like".length && name.text.endsWith("Like") && (mentionsEastImport(shape, ctx) || holdsEastValue(shape, ctx))) {
+      report2(ctx, name, `\`${name.text}\` is a loose stand-in for an East value's type \u2014 it drifts silently when the East type changes. Type the value with \`ValueTypeOf<typeof XType>\` of the East type it holds.`);
+      return;
+    }
     const base = name.text.endsWith("Value") ? name.text.slice(0, -"Value".length) : name.text;
     const counterpart = `${base}Type`;
     if (counterpart === name.text)
       return;
     if (!eastTypeValueInFile(counterpart, ctx))
       return;
-    const sf = ctx.sourceFile;
-    const start = name.getStart(sf);
-    ctx.report({
-      ruleName: NAME23,
-      code: CODE23,
-      start,
-      length: name.getEnd() - start,
-      messageText: `\`${name.text}\` hand-mirrors the East type \`${counterpart}\` \u2014 it drifts silently when the East type gains a field. Derive it: \`type ${name.text} = ValueTypeOf<typeof ${counterpart}>\`.`,
-      category: "suggestion"
-    });
+    report2(ctx, name, `\`${name.text}\` hand-mirrors the East type \`${counterpart}\` \u2014 it drifts silently when the East type gains a field. Derive it: \`type ${name.text} = ValueTypeOf<typeof ${counterpart}>\`.`);
   }
 };
 
 // ../east-diagnostics/dist/src/rules/no-host-comparison-on-east-values.js
 var NAME24 = "no-host-comparison-on-east-values";
 var CODE24 = 990029;
-var VALUE_SHAPE_NAMES = /* @__PURE__ */ new Set(["variant", "option", "SortedMap", "SortedSet"]);
-function isEastValueShapeType(type) {
-  const seen = /* @__PURE__ */ new Set();
-  const stack = [type];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (current === void 0 || seen.has(current))
-      continue;
-    seen.add(current);
-    const name = current.aliasSymbol?.name ?? current.symbol?.name;
-    if (name !== void 0 && VALUE_SHAPE_NAMES.has(name))
-      return true;
-    if (current.isUnionOrIntersection())
-      stack.push(...current.types);
-  }
-  return false;
-}
 function isNullish(e, t) {
   return e.kind === t.SyntaxKind.NullKeyword || t.isIdentifier(e) && e.text === "undefined";
+}
+function isEastObject(e, ctx) {
+  const type = ctx.checker.getTypeAtLocation(e);
+  if (isEastValueShape(type, ctx))
+    return true;
+  const objectLike = (type.flags & ctx.ts.TypeFlags.Object) !== 0 || type.isUnion() && type.types.some((m) => (m.flags & ctx.ts.TypeFlags.Object) !== 0);
+  return objectLike && isEastValueExpression(e, ctx);
+}
+function returnedExpressions(fn, t) {
+  if (!t.isBlock(fn.body))
+    return [fn.body];
+  const out = [];
+  const visit = (n) => {
+    if (t.isFunctionLike(n))
+      return;
+    if (t.isReturnStatement(n) && n.expression !== void 0)
+      out.push(n.expression);
+    t.forEachChild(n, visit);
+  };
+  t.forEachChild(fn.body, visit);
+  return out;
+}
+function subtractingComparator(call, ctx) {
+  const t = ctx.ts;
+  const callee = call.expression;
+  if (!t.isPropertyAccessExpression(callee) || callee.name.text !== "sort" && callee.name.text !== "toSorted")
+    return void 0;
+  const fn = call.arguments[0];
+  if (fn === void 0 || !t.isArrowFunction(fn) && !t.isFunctionExpression(fn))
+    return void 0;
+  for (const r of returnedExpressions(fn, t)) {
+    const e = skipValueWrappers(r, t);
+    if (t.isBinaryExpression(e) && e.operatorToken.kind === t.SyntaxKind.MinusToken && (isEastValueExpression(e.left, ctx) || isEastValueExpression(e.right, ctx))) {
+      return e;
+    }
+  }
+  return void 0;
 }
 var noHostComparisonOnEastValues = {
   name: NAME24,
   code: CODE24,
-  description: "Flag ===/!==/</> on decoded East values (variants, options, SortedMap/SortedSet) \u2014 use equalFor(T) / compareFor(T).",
+  description: "Flag ===/!==/</> and subtracting sort comparators on decoded East values \u2014 use equalFor(T) / compareFor(T).",
   check(node, ctx) {
     const t = ctx.ts;
+    const sf = ctx.sourceFile;
+    if (t.isCallExpression(node)) {
+      if (!importsEastPackage(sf, t))
+        return;
+      const subtraction = subtractingComparator(node, ctx);
+      if (subtraction === void 0)
+        return;
+      const start2 = subtraction.getStart(sf);
+      ctx.report({
+        ruleName: NAME24,
+        code: CODE24,
+        start: start2,
+        length: subtraction.getEnd() - start2,
+        messageText: "A comparator that subtracts East values mis-orders them \u2014 a `NaN` makes it inconsistent and an Integer past 2^53 rounds. Order with `compareFor(T)` (`xs.sort((a, b) => compare(a.v, b.v))`).",
+        category: "warning"
+      });
+      return;
+    }
     if (!t.isBinaryExpression(node))
       return;
     const k = t.SyntaxKind;
@@ -1994,22 +2388,20 @@ var noHostComparisonOnEastValues = {
     const relational = op === k.LessThanToken || op === k.LessThanEqualsToken || op === k.GreaterThanToken || op === k.GreaterThanEqualsToken;
     if (!equality && !relational)
       return;
-    if (!importsEastPackage(ctx.sourceFile, t))
+    if (!importsEastPackage(sf, t))
       return;
     if (isNullish(node.left, t) || isNullish(node.right, t))
       return;
-    const leftShaped = isEastValueShapeType(ctx.checker.getTypeAtLocation(node.left));
-    const rightShaped = isEastValueShapeType(ctx.checker.getTypeAtLocation(node.right));
-    if (!leftShaped && !rightShaped)
+    const flagged = equality ? isEastObject(node.left, ctx) || isEastObject(node.right, ctx) : isEastValueShape(ctx.checker.getTypeAtLocation(node.left), ctx) || isEastValueShape(ctx.checker.getTypeAtLocation(node.right), ctx);
+    if (!flagged)
       return;
-    const sf = ctx.sourceFile;
     const start = node.getStart(sf);
     ctx.report({
       ruleName: NAME24,
       code: CODE24,
       start,
       length: node.getEnd() - start,
-      messageText: equality ? "Host equality on a decoded East value compares object identity \u2014 two equal variants are never `===`. Use `equalFor(T)(a, b)`." : "Host ordering on a decoded East value compares the wrong representation. Use `compareFor(T)` / `lessFor(T)` (e.g. `arr.sort(compareFor(T))`).",
+      messageText: equality ? "Host equality on a decoded East value compares object identity \u2014 two equal structs, variants, DateTimes or Sets are never `===`. Use `equalFor(T)(a, b)`, or `Object.is(a, b)` where you mean the same object." : "Host ordering on a decoded East value compares the wrong representation. Use `compareFor(T)` / `lessFor(T)` (e.g. `arr.sort(compareFor(T))`).",
       category: "warning"
     });
   }
@@ -2217,6 +2609,227 @@ var noInlineCredentials = {
   }
 };
 
+// ../east-diagnostics/dist/src/rules/no-host-print-of-east-values.js
+var NAME28 = "no-host-print-of-east-values";
+var CODE28 = 990033;
+var PRINTING_METHODS = /* @__PURE__ */ new Set(["toString", "toISOString", "toJSON"]);
+var CSS_UNIT = /^(?:px|r?em|ch|fr|deg|turn|[sdl]?v(?:h|w|min|max))(?![A-Za-z])/;
+function writesCssLength(span, ctx) {
+  if (!CSS_UNIT.test(span.literal.text))
+    return false;
+  const type = ctx.checker.getTypeAtLocation(span.expression);
+  const members = type.isUnion() ? type.types : [type];
+  return members.every((m) => (m.flags & ctx.ts.TypeFlags.NumberLike) !== 0);
+}
+function printedValue(node, ctx) {
+  const t = ctx.ts;
+  if (t.isCallExpression(node)) {
+    const callee = node.expression;
+    if (t.isIdentifier(callee) && callee.text === "String" && node.arguments.length === 1 && isGlobalBuiltin(callee, ctx)) {
+      return [node.arguments[0]];
+    }
+    if (t.isPropertyAccessExpression(callee)) {
+      if (t.isIdentifier(callee.expression) && callee.expression.text === "JSON" && callee.name.text === "stringify" && node.arguments.length > 0 && isGlobalBuiltin(callee.expression, ctx)) {
+        return [node.arguments[0]];
+      }
+      if (PRINTING_METHODS.has(callee.name.text))
+        return [callee.expression];
+    }
+    return [];
+  }
+  if (t.isTemplateExpression(node) && !t.isTaggedTemplateExpression(node.parent)) {
+    return node.templateSpans.filter((span) => !writesCssLength(span, ctx)).map((span) => span.expression);
+  }
+  if (t.isBinaryExpression(node) && node.operatorToken.kind === t.SyntaxKind.PlusToken) {
+    const stringy = (e) => (ctx.checker.getTypeAtLocation(e).flags & t.TypeFlags.StringLike) !== 0;
+    if (stringy(node.left))
+      return [node.right];
+    if (stringy(node.right))
+      return [node.left];
+  }
+  return [];
+}
+var noHostPrintOfEastValues = {
+  name: NAME28,
+  code: CODE28,
+  description: "Flag String()/toString()/toISOString()/JSON.stringify/template printing of a decoded East value JavaScript prints differently \u2014 use printFor(T) or the locale Formatters.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node) && !t.isTemplateExpression(node) && !t.isBinaryExpression(node))
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    for (const value of printedValue(node, ctx)) {
+      if (!jsPrintDiffers(ctx.checker.getTypeAtLocation(value), t))
+        continue;
+      if (!isEastValueExpression(value, ctx))
+        continue;
+      const sf = ctx.sourceFile;
+      const start = value.getStart(sf);
+      ctx.report({
+        ruleName: NAME28,
+        code: CODE28,
+        start,
+        length: value.getEnd() - start,
+        messageText: "JavaScript prints this East value its own way \u2014 `5` for East's `5.0`, a DateTime in local time or with a `Z`, `[object Object]` for a struct. Print it with `printFor(T)`, or in the viewer's language with the locale `Formatters`.",
+        category: "warning"
+      });
+    }
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-host-parse-to-east-values.js
+var NAME29 = "no-host-parse-to-east-values";
+var CODE29 = 990034;
+var PARSERS = /* @__PURE__ */ new Set(["BigInt", "Number", "parseFloat", "parseInt"]);
+function isText(e, ctx) {
+  return (ctx.checker.getTypeAtLocation(e).flags & ctx.ts.TypeFlags.StringLike) !== 0;
+}
+function literalText(e, t) {
+  return t.isStringLiteral(e) || t.isNoSubstitutionTemplateLiteral(e) ? e.text : void 0;
+}
+var ZONELESS_DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+function parsesText(node, ctx) {
+  const t = ctx.ts;
+  const misread = (text, date) => {
+    if (!isText(text, ctx))
+      return false;
+    const literal = literalText(text, t);
+    return literal === void 0 || date && ZONELESS_DATE_TIME.test(literal);
+  };
+  if (t.isCallExpression(node)) {
+    const callee = node.expression;
+    const text = node.arguments[0];
+    if (text === void 0)
+      return false;
+    if (t.isIdentifier(callee))
+      return PARSERS.has(callee.text) && isGlobalBuiltin(callee, ctx) && misread(text, false);
+    if (!t.isPropertyAccessExpression(callee) || !t.isIdentifier(callee.expression) || !isGlobalBuiltin(callee.expression, ctx))
+      return false;
+    if (callee.expression.text === "JSON" && callee.name.text === "parse")
+      return misread(text, false);
+    if (callee.expression.text === "Date" && callee.name.text === "parse")
+      return misread(text, true);
+    return false;
+  }
+  if (t.isNewExpression(node) && t.isIdentifier(node.expression) && node.expression.text === "Date") {
+    const text = node.arguments?.[0];
+    return node.arguments?.length === 1 && text !== void 0 && isGlobalBuiltin(node.expression, ctx) && misread(text, true);
+  }
+  return false;
+}
+var noHostParseToEastValues = {
+  name: NAME29,
+  code: CODE29,
+  description: "Flag BigInt()/Number()/parseFloat()/parseInt()/JSON.parse()/new Date() reading text into an East slot \u2014 use parseFor(T) or East's datetime format.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node) && !t.isNewExpression(node))
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    if (!parsesText(node, ctx))
+      return;
+    if (!landsInEastSlot(node, ctx))
+      return;
+    const sf = ctx.sourceFile;
+    const start = node.getStart(sf);
+    ctx.report({
+      ruleName: NAME29,
+      code: CODE29,
+      start,
+      length: node.getEnd() - start,
+      messageText: 'A JavaScript parser reads this text into an East value wrongly \u2014 `BigInt("")` is 0, `BigInt("0x10")` is 16, `new Date(text)` reads local time. Read it with `parseFor(T)` (or East\'s datetime format) and act on its `success`.',
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-js-type-dispatch-on-east-values.js
+var NAME30 = "no-js-type-dispatch-on-east-values";
+var CODE30 = 990035;
+var noJsTypeDispatchOnEastValues = {
+  name: NAME30,
+  code: CODE30,
+  description: "Flag typeof / instanceof on a decoded East value \u2014 dispatch on its East type (isValueOf) or its variant tag.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    let target;
+    if (t.isTypeOfExpression(node))
+      target = node.expression;
+    else if (t.isBinaryExpression(node) && node.operatorToken.kind === t.SyntaxKind.InstanceOfKeyword)
+      target = node.left;
+    if (target === void 0)
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    if (!isEastValueExpression(target, ctx))
+      return;
+    const sf = ctx.sourceFile;
+    const start = node.getStart(sf);
+    ctx.report({
+      ruleName: NAME30,
+      code: CODE30,
+      start,
+      length: node.getEnd() - start,
+      messageText: "`typeof` / `instanceof` asks JavaScript what this East value is, and loses its East type. Dispatch on its East type (`isValueOf(v, T)`, or the type it already has) or on its variant tag (`v.type`).",
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-js-collection-for-east-collection.js
+var NAME31 = "no-js-collection-for-east-collection";
+var CODE31 = 990036;
+function keyTypeOf(node, ctx) {
+  const t = ctx.ts;
+  const type = ctx.checker.getTypeAtLocation(node);
+  if ((type.flags & t.TypeFlags.Object) === 0 || (type.objectFlags & t.ObjectFlags.Reference) === 0)
+    return void 0;
+  return ctx.checker.getTypeArguments(type)[0];
+}
+function keyedByIdentity(type, t) {
+  const primitive = t.TypeFlags.StringLike | t.TypeFlags.NumberLike | t.TypeFlags.BigIntLike | t.TypeFlags.BooleanLike | t.TypeFlags.EnumLike | t.TypeFlags.ESSymbolLike | t.TypeFlags.Null | t.TypeFlags.Undefined;
+  const members = type.isUnion() ? type.types : [type];
+  return members.some((m) => {
+    if (m.isIntersection())
+      return m.types.every((part) => (part.flags & primitive) === 0);
+    return (m.flags & (t.TypeFlags.Object | t.TypeFlags.NonPrimitive)) !== 0;
+  });
+}
+var noJsCollectionForEastCollection = {
+  name: NAME31,
+  code: CODE31,
+  description: "Flag new Set()/new Map() of object keys (structs, variants, DateTimes, Blobs) landing in an East Set or Dict \u2014 build SortedSet/SortedMap with compareFor(K).",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isNewExpression(node) || !t.isIdentifier(node.expression))
+      return;
+    const kind = node.expression.text;
+    if (kind !== "Set" && kind !== "Map")
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    if (!isGlobalBuiltin(node.expression, ctx))
+      return;
+    const key = keyTypeOf(node, ctx);
+    if (key === void 0 || !keyedByIdentity(key, t))
+      return;
+    if (!landsInEastSlot(node, ctx))
+      return;
+    const sf = ctx.sourceFile;
+    const start = node.getStart(sf);
+    ctx.report({
+      ruleName: NAME31,
+      code: CODE31,
+      start,
+      length: node.getEnd() - start,
+      messageText: kind === "Set" ? "A JavaScript `Set` finds a struct, variant, DateTime or Blob member by identity, so an equal value built elsewhere misses it. Build `new SortedSet(values, compareFor(K))`." : "A JavaScript `Map` finds a struct, variant, DateTime or Blob key by identity, so an equal key built elsewhere misses its entry. Build `new SortedMap(entries, compareFor(K))`.",
+      category: "warning"
+    });
+  }
+};
+
 // ../east-diagnostics/dist/src/rules/index.js
 var allRules = [
   // East-side idiom hygiene (original set)
@@ -2251,7 +2864,14 @@ var allRules = [
   requireExampleReturns,
   noDuplicateDefinitionName,
   // secrets hygiene: IR is content-addressed and replicated — no literal creds
-  noInlineCredentials
+  noInlineCredentials,
+  // host code holding DECODED East values: print, read, dispatch and collect
+  // them through East (#963) — with noHostComparisonOnEastValues and
+  // noHandrolledValueTypeMirror above
+  noHostPrintOfEastValues,
+  noHostParseToEastValues,
+  noJsTypeDispatchOnEastValues,
+  noJsCollectionForEastCollection
 ];
 
 // ../east-diagnostics/dist/src/run.js
@@ -2268,7 +2888,8 @@ function runEastRules(tsModule, program, sourceFile, checker, options = {}, rule
     report: (d) => diagnostics.push(d)
   };
   const disabled = new Set(options.disabled ?? []);
-  const active = rules.filter((rule) => !disabled.has(rule.name));
+  const only = options.only === void 0 ? void 0 : new Set(options.only);
+  const active = rules.filter((rule) => !disabled.has(rule.name) && (only === void 0 || only.has(rule.name)));
   const visit = (node) => {
     for (const rule of active)
       rule.check(node, ctx);

@@ -67,10 +67,10 @@ function createNumeric(
 
     return East.value(variant("Numeric", {
         value: valueExpr,
-        format: style?.format ? variant("some", style.format) : variant("none", null),
-        sentiment: sentimentValue ? variant("some", sentimentValue) : variant("none", null),
-        showSign: showSignValue !== undefined ? variant("some", showSignValue) : variant("none", null),
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        format: style?.format ? some(style.format) : none,
+        sentiment: sentimentValue ? some(sentimentValue) : none,
+        showSign: showSignValue !== undefined ? some(showSignValue) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

@@ -3,15 +3,115 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
-import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Configurator, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { Paged, State, Style, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures (consolidation epic #455, pass 5 — one live instance
 // per configurator; column systems and presence-typed chrome are their own
 // examples).
 // ============================================================================
+
+/** A P&L line — a section, a category or an account, holding its own lines (#954). */
+const PnlLine = RecursiveType((self) => StructType({
+    account: StringType,
+    q1: FloatType, q2: FloatType, q3: FloatType, q4: FloatType, fy: FloatType,
+    lines: ArrayType(self),
+}));
+
+/** Sections hold categories, categories hold accounts; a parent's own quarters are 0 — its column shows its lines' subtotal. */
+const PNL = [
+    { account: "Revenue", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+        { account: "Product sales", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+            { account: "Product line A", q1: 210000.0, q2: 232500.0, q3: 198000.0, q4: 251500.0, fy: 892000.0, lines: [] },
+            { account: "Product line B", q1: 118000.0, q2: 141000.0, q3: 122500.0, q4: 133500.0, fy: 515000.0, lines: [] },
+        ] },
+        { account: "Services", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+            { account: "Consulting", q1: 18500.0, q2: 27000.0, q3: 33500.0, q4: 24000.0, fy: 103000.0, lines: [] },
+        ] },
+    ] },
+    { account: "Cost of sales", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+        { account: "Materials", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+            { account: "Raw materials", q1: 62000.0, q2: 58000.0, q3: 44000.0, q4: 71000.0, fy: 235000.0, lines: [] },
+        ] },
+        { account: "Production", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+            { account: "Direct labour", q1: 55000.0, q2: 55000.0, q3: 57500.0, q4: 57500.0, fy: 225000.0, lines: [] },
+        ] },
+    ] },
+    { account: "Operating expenses", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+        { account: "Sales & marketing", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+            { account: "Marketing", q1: 19500.0, q2: 22000.0, q3: 30500.0, q4: 28000.0, fy: 100000.0, lines: [] },
+        ] },
+        { account: "Administration", q1: 0.0, q2: 0.0, q3: 0.0, q4: 0.0, fy: 0.0, lines: [
+            { account: "Salaries", q1: 47500.0, q2: 47500.0, q3: 47500.0, q4: 47500.0, fy: 190000.0, lines: [] },
+        ] },
+    ] },
+];
+
+/** An order line, or the region holding its lines (#954). A region's own figures are 0 —
+ *  its columns show its lines' subtotals. */
+const OrderLine = RecursiveType((self) => StructType({
+    line: StringType,
+    year: IntegerType,
+    sku: IntegerType,
+    qty: FloatType,
+    revenue: FloatType,
+    margin: FloatType,
+    lines: ArrayType(self),
+}));
+
+/** Two regions of order lines — every number cell kind, a year and a SKU that print as stored. */
+const ORDERS = [
+    { line: "North", year: 0n, sku: 0n, qty: 0.0, revenue: 0.0, margin: 0.0, lines: [
+        { line: "SO-1001", year: 2026n, sku: 100245n, qty: 1234.5, revenue: 18250.75, margin: 0.2125, lines: [] },
+        { line: "SO-1002", year: 2026n, sku: 100246n, qty: 88.25, revenue: 9400.0, margin: 0.184, lines: [] },
+    ] },
+    { line: "South", year: 0n, sku: 0n, qty: 0.0, revenue: 0.0, margin: 0.0, lines: [
+        { line: "SO-2001", year: 2025n, sku: 200112n, qty: 410.0, revenue: 26125.5, margin: 0.231, lines: [] },
+    ] },
+];
+
+/** A bill-of-materials part — an assembly holds its parts (#954). `cost` is the part's
+ *  extended cost; an assembly's own is 0, and its column shows its parts' subtotal. */
+const BomPart = RecursiveType((self) => StructType({
+    part: StringType,
+    sku: StringType,
+    qty: IntegerType,
+    cost: FloatType,
+    parts: ArrayType(self),
+}));
+
+/** Two top-level assemblies, four deep: a bicycle (frame set, drivetrain, a wheel set of two wheels) and a tool kit. */
+const BOM = [
+    { part: "Bicycle", sku: "BK-100", qty: 1n, cost: 0.0, parts: [
+        { part: "Frame set", sku: "FS-10", qty: 1n, cost: 0.0, parts: [
+            { part: "Frame", sku: "FR-1", qty: 1n, cost: 420.0, parts: [] },
+            { part: "Fork", sku: "FK-2", qty: 1n, cost: 180.0, parts: [] },
+        ] },
+        { part: "Drivetrain", sku: "DT-20", qty: 1n, cost: 0.0, parts: [
+            { part: "Crankset", sku: "CR-3", qty: 1n, cost: 145.0, parts: [] },
+            { part: "Chain", sku: "CH-4", qty: 1n, cost: 32.0, parts: [] },
+            { part: "Cassette", sku: "CS-5", qty: 1n, cost: 68.0, parts: [] },
+        ] },
+        { part: "Wheel set", sku: "WS-30", qty: 1n, cost: 0.0, parts: [
+            { part: "Front wheel", sku: "WF-31", qty: 1n, cost: 0.0, parts: [
+                { part: "Rim", sku: "RM-6", qty: 1n, cost: 55.0, parts: [] },
+                { part: "Hub", sku: "HB-7", qty: 1n, cost: 48.0, parts: [] },
+                { part: "Spokes", sku: "SP-8", qty: 32n, cost: 11.2, parts: [] },
+            ] },
+            { part: "Rear wheel", sku: "WR-32", qty: 1n, cost: 0.0, parts: [
+                { part: "Rim", sku: "RM-6", qty: 1n, cost: 55.0, parts: [] },
+                { part: "Hub", sku: "HB-9", qty: 1n, cost: 62.0, parts: [] },
+                { part: "Spokes", sku: "SP-8", qty: 32n, cost: 11.2, parts: [] },
+            ] },
+        ] },
+    ] },
+    { part: "Tool kit", sku: "TK-40", qty: 1n, cost: 0.0, parts: [
+        { part: "Multi-tool", sku: "MT-11", qty: 1n, cost: 24.0, parts: [] },
+        { part: "Pump", sku: "PM-12", qty: 1n, cost: 29.0, parts: [] },
+    ] },
+];
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],
@@ -186,44 +286,37 @@ export const tableGroupedColumns = example({
 });
 
 /**
- * Nested P&L (#317) — groupBy [section, category] folds accounts into
- * collapsible group rows; sum aggregates render as currency subtotals on the
- * group headers; Net income rides footerRows.
+ * Nested P&L (#954) — sections hold categories, categories hold accounts: the
+ * data's own tree (`tree.children`). Every parent is its group row: its
+ * quarters are its lines' subtotals (`aggregate: "sum"`), drawn by the same
+ * currency render as the accounts. Operating expenses starts collapsed; Net
+ * income rides footerRows.
  */
 export const tablePnl = example({
-    keywords: ["Table", "Root", "groupBy", "rowGroups", "collapse", "aggregate", "sum", "aggregateRender", "P&L", "#317", "footerRows"],
-    description: "Nested P&L — two-level row grouping with currency subtotals and a Net income footer",
+    keywords: ["Table", "Root", "tree", "children", "nested", "RecursiveType", "collapse", "collapsed", "aggregate", "sum", "subtotal", "render", "P&L", "#954", "footerRows"],
+    description: "Nested P&L — sections, categories and accounts from the data's own tree, with currency subtotals on every parent and a Net income footer",
     fn: East.function([], UIComponentType, ($) => {
+        const pnl = $.const(PNL, ArrayType(PnlLine));
+        // One render for every cell: an account's own amount, a parent's subtotal.
         const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
             <Text width="100%" textAlign="right">{East.Float.printCurrency(ctx.cellValue.unwrap("Float"))}</Text>
-        )));
-        const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (
-            <Text width="100%" textAlign="right" fontWeight="semibold">{East.Float.printCurrency(v.unwrap("Float"))}</Text>
         )));
         return (
             <Table
                 variant="line"
-                data={[
-                    { section: "Revenue", category: "Product sales", account: "Product line A", q1: 210000.0, q2: 232500.0, q3: 198000.0, q4: 251500.0, fy: 892000.0 },
-                    { section: "Revenue", category: "Product sales", account: "Product line B", q1: 118000.0, q2: 141000.0, q3: 122500.0, q4: 133500.0, fy: 515000.0 },
-                    { section: "Revenue", category: "Services", account: "Consulting", q1: 18500.0, q2: 27000.0, q3: 33500.0, q4: 24000.0, fy: 103000.0 },
-                    { section: "Cost of sales", category: "Materials", account: "Raw materials", q1: 62000.0, q2: 58000.0, q3: 44000.0, q4: 71000.0, fy: 235000.0 },
-                    { section: "Cost of sales", category: "Production", account: "Direct labour", q1: 55000.0, q2: 55000.0, q3: 57500.0, q4: 57500.0, fy: 225000.0 },
-                    { section: "Operating expenses", category: "Sales & marketing", account: "Marketing", q1: 19500.0, q2: 22000.0, q3: 30500.0, q4: 28000.0, fy: 100000.0 },
-                    { section: "Operating expenses", category: "Administration", account: "Salaries", q1: 47500.0, q2: 47500.0, q3: 47500.0, q4: 47500.0, fy: 190000.0 },
-                ]}
+                data={pnl}
                 columns={{
-                    account: { header: "Account", width: "220px" },
-                    q1: { header: "Q1", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    q2: { header: "Q2", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    q3: { header: "Q3", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    q4: { header: "Q4", aggregate: "sum", render: money, aggregateRender: moneyTotal },
-                    fy: { header: "FY", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                    account: { header: "Account", width: "260px" },
+                    q1: { header: "Q1", aggregate: "sum", render: money },
+                    q2: { header: "Q2", aggregate: "sum", render: money },
+                    q3: { header: "Q3", aggregate: "sum", render: money },
+                    q4: { header: "Q4", aggregate: "sum", render: money },
+                    fy: { header: "FY", aggregate: "sum", render: money },
                 }}
-                groupBy={[
-                    r => r.section,
-                    { value: r => r.category, collapsed: true },
-                ]}
+                tree={{
+                    children: (r) => r.lines,
+                    collapsed: (r) => r.account.equal("Operating expenses"),
+                }}
                 footerRows={[
                     {
                         account: { content: <Text fontWeight="bold">Net income</Text> },
@@ -234,6 +327,101 @@ export const tablePnl = example({
                         fy: { content: <Text width="100%" textAlign="right" fontWeight="bold">$430,000.00</Text> },
                     },
                 ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Number cells in the viewer's language (#874) — with no `render`, a cell
+ * prints itself. An undeclared number keeps every digit, never grouped, with
+ * the viewer's decimal separator (`1234.5`, `1234,5` in German), so a year
+ * or a SKU prints as stored; a column that declares a `Format.*` spec prints
+ * its cells through it. Each region is a parent row (#954), and its subtotals
+ * print by the same rules: the latest year as stored, the quantities' sum
+ * bare, the revenue's sum in euros, the margins' mean as a percent — and the
+ * SKU column counts the lines, a count in no column's format.
+ */
+export const tableNumberFormats = example({
+    keywords: ["Table", "Root", "format", "Format", "Currency", "Percent", "number", "decimal", "locale", "language", "viewer", "I18nProvider", "aggregate", "sum", "mean", "max", "count", "subtotal", "tree", "#874", "#954"],
+    description: "Number cells in the viewer's language — undeclared numbers keep every digit; Format.* columns format their cells and each region's subtotals",
+    fn: East.function([], UIComponentType, ($) => {
+        const orders = $.const(ORDERS, ArrayType(OrderLine));
+        return (
+            <Table
+                variant="line"
+                data={orders}
+                columns={{
+                    line: { header: "Line" },
+                    year: { header: "Year", aggregate: "max" },
+                    sku: { header: "SKU · lines", aggregate: "count" },
+                    qty: { header: "Qty", aggregate: "sum" },
+                    revenue: { header: "Revenue", format: Format.Currency({ currency: "EUR" }), aggregate: "sum" },
+                    margin: { header: "Margin", format: Format.Percent({ maximumFractionDigits: 1n }), aggregate: "mean" },
+                }}
+                tree={{ children: (r) => r.lines }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Nested rows, four deep (#954) — a bill of materials from the data's own
+ * tree (`tree.children`). A parent is its assembly's row: `cost` subtotals its
+ * parts through the column's currency format, `sku` counts the leaf parts
+ * beneath it, and the wheel set starts collapsed. A sort orders each
+ * assembly's parts among themselves.
+ */
+export const tableTree = example({
+    keywords: ["Table", "Root", "tree", "children", "nested", "RecursiveType", "depth", "collapsed", "aggregate", "sum", "count", "subtotal", "format", "Format", "Currency", "bill of materials", "#954"],
+    description: "A four-deep bill of materials from the data's own tree — cost subtotals in the column's currency format, a leaf-part count and a collapsed assembly",
+    fn: East.function([], UIComponentType, ($) => {
+        const bom = $.const(BOM, ArrayType(BomPart));
+        return (
+            <Table
+                variant="line"
+                data={bom}
+                columns={{
+                    part: { header: "Part", width: "240px" },
+                    sku: { header: "SKU · parts", aggregate: "count" },
+                    qty: { header: "Qty" },
+                    cost: { header: "Cost", format: Format.Currency({ currency: "EUR" }), aggregate: "sum" },
+                }}
+                tree={{
+                    children: (p) => p.parts,
+                    collapsed: (p) => p.part.equal("Wheel set"),
+                }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Nested rows over a PAGED source (#954) — the same bill of materials, served
+ * one top-level assembly per window (`pageLimit: 1`). A window holds whole
+ * top-level rows with their subtrees, so every subtotal is exact over what has
+ * loaded, exactly as inline.
+ */
+export const tableTreePaged = example({
+    keywords: ["Table", "Root", "tree", "children", "nested", "paged", "Paged", "Paged.of", "pageLimit", "window", "subtotal", "aggregate", "#954", "#576"],
+    description: "The bill of materials over a paged source — windows of whole top-level assemblies, subtotals exact as inline",
+    fn: East.function([], UIComponentType, ($) => {
+        const bom = $.const(BOM, ArrayType(BomPart));
+        const source = $.const(Paged.of("table-tree-bom", bom, { pageLimit: 1 }));
+        return (
+            <Table
+                variant="line"
+                data={source}
+                columns={{
+                    part: { header: "Part", width: "240px" },
+                    sku: { header: "SKU · parts", aggregate: "count" },
+                    qty: { header: "Qty" },
+                    cost: { header: "Cost", format: Format.Currency({ currency: "EUR" }), aggregate: "sum" },
+                }}
+                tree={{ children: (p) => p.parts }}
             />
         );
     }),

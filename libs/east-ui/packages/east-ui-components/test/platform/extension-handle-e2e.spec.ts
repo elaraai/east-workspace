@@ -20,7 +20,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { East, StructType, FunctionType, FloatType, NullType, decodeBeast2For } from "@elaraai/east";
+import { BlobType, East, StructType, FunctionType, FloatType, NullType, decodeBeast2For, isValueOf } from "@elaraai/east";
 import { EastUI, UIComponentType, State } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "../../src/platform/registry.js";
 import { initializeStore } from "../../src/platform/state-runtime.js";
@@ -43,19 +43,19 @@ test("#106 e2e — an EastUI.component payload capturing a State.bind handle rou
             $.return(Probe.Root(East.value({ onChange }, ProbeSchema)));
         }),
         platform,
-    )() as unknown as { type: string; value: { kind: string; payload: Uint8Array } };
+    )();
 
     // 2. It encoded to an Extension variant with an opaque payload blob.
-    assert.equal(component.type, "Extension");
+    assert.ok(component.type === "Extension", `an Extension component, not a ${component.type}`);
     assert.equal(component.value.kind, "HandleProbeE2E");
     const payloadBytes = component.value.payload;
-    assert.ok(payloadBytes instanceof Uint8Array && payloadBytes.length > 0);
+    assert.ok(isValueOf(payloadBytes, BlobType) && payloadBytes.length > 0);
 
     // 3. Decode the payload exactly as the webview registry does — against a FRESH
     //    store (the decoder side). The captured handle must re-bind here.
     const decoderStore = new UIStore();
     initializeStore(decoderStore);
-    const decoded = decodeBeast2For(ProbeSchema, { platform })(payloadBytes) as { onChange: (v: number) => null };
+    const decoded = decodeBeast2For(ProbeSchema, { platform })(payloadBytes);
 
     // 4. Invoke the decoded callback — it must write to the DECODER's store.
     decoded.onChange(42.0);

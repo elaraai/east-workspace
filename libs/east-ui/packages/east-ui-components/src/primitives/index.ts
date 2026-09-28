@@ -12,3 +12,4 @@
  */
 
 export { Pill, type PillProps, type PillSize } from "./pill.js";
+export { radioGroupKey } from "./radio-group.js";

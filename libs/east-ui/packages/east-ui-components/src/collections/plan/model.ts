@@ -5,52 +5,222 @@
 
 /**
  * The Plan's decoded-value view model (`Plan Spec.md` §6.2) — pure selectors
- * over the flat `parent`-keyed rows: the row-tree index, the visible-row
- * derivation (grain × collapsed subtrees), and per-row height
- * estimation for the virtualizer. No React, no DOM.
+ * over the canvas rows: the row-tree index, the visible-row derivation (grain
+ * × collapsed subtrees), and per-row height estimation for the virtualizer. No
+ * React, no DOM.
  *
- * Rows arrive in the collection's canonical KEY order (the IR's row collection
- * is a `Dict`, decoded as a `SortedMap` — #568), and every traversal here
- * walks the TREE the `parent` keys encode rather than that flat order, so a
- * subtree need not be contiguous and no derivation depends on the container.
+ * Rows arrive as BLOCKS (#823) — the series list's blocks in layout order, each
+ * an ordered stream (#822) whose order IS the render order, each parent before
+ * its descendants — and the canvas draws the blocks one after another. A row
+ * carries a typed id and the block it came from; {@link toCanvasRows} keys
+ * every row by its id's canonical text, which is what every map, DOM attribute
+ * and piece of view state here keys by. The visible walk follows the STREAM and
+ * hides by the explicit `parent` keys — never a tree walk, because a parent's
+ * descendants need not follow it directly (an entry's children under `views`
+ * come after all of its view rows). The derivations still walk the tree, since
+ * a bottom-up aggregate is the same in any order.
+ *
+ * A row's height is a function of facts read off the row once
+ * ({@link heightFactsOf}) and of the UI state ({@link factsHeight}); a paged
+ * window keeps those facts, and nothing else, after its rows are evicted
+ * ({@link windowSkeleton}), so the bands that stand for evicted windows follow
+ * a collapse, a chart toggle or the grain exactly (#823).
+ *
+ * The derivations (`derive.ts`), the body items and link graph
+ * (`body-items.ts`), the instant walks (`row-instants.ts`) and the tree walks
+ * (`row-tree.ts`) live beside it and are re-exported here (#815).
  *
  * @packageDocumentation
  */
 
-import { none, some, type ValueTypeOf } from "@elaraai/east";
+import { none, some, type OptionType, type StringType, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from "./plan-state.js";
-import { instantKey, instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
+import type { PlanGrain, PlanUiState, RowKey } from "./plan-state.js";
+import type { PlanAxisKind } from "./instant.js";
+import { ancestorsOf } from "./row-tree.js";
+import { rowKeyOf } from "./row-key.js";
+import { derivePlan, type PlanDerived } from "./derive.js";
+import { PLAN_GEOMETRY, planGeometry } from "./geometry.js";
+import { appendAll } from "./reductions.js";
+
+// The model's other halves, one import path for all of it (#815).
+export { forEachInstant, axisKindMismatches, type PlanAxisMismatch } from "./row-instants.js";
+export {
+    tableRollupSeries, deriveBands, deriveHeatCells, deriveTableCells, deriveTableSeries, derivePlan, stableDerived,
+    type DerivedBand, type HeatScale, type PlanRowDiagnostic, type PlanDerived,
+} from "./derive.js";
+export {
+    linkedRowKeys, bodyItemKey, rowItemKey, placeFailures, firstDiagnosticItem, elideForFocus, deriveLinkFamily,
+    type FocusGap, type PlanBand, type PlanWindowFailure, type PlanBodyItem, type LinkFamily,
+} from "./body-items.js";
 
 /** The decoded Plan root value. */
 export type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
-/** One decoded flat row. */
-export type PlanRowValue = ValueTypeOf<typeof Plan.Types.Row>;
+/** One decoded WIRE row — the IR's `PlanRowType` value, as the source serves it. */
+export type PlanWireRow = ValueTypeOf<typeof Plan.Types.Row>;
+/** One decoded WIRE block — the IR's `PlanBlockType` value (#823): a data
+ *  series' rows, which a paged canvas pages on its own, or fixed rows no entry
+ *  produces (a section's header, hand-built rows). */
+export type PlanWireBlock = ValueTypeOf<typeof Plan.Types.Block>;
+export { rowKeyOf, rowIdOfKey, rowKeyWords, type PlanRowId } from "./row-key.js";
 /** One decoded link edge (the R1 graph / K8 ribbon shape). */
 export type PlanLinkValue = ValueTypeOf<typeof Plan.Types.Link>;
 
-/** The flat rows indexed for traversal. */
+/**
+ * One CANVAS row — a wire row keyed for the canvas (#822).
+ *
+ * @remarks
+ * `key` is the canonical `.east` text of the row's typed `id`
+ * ({@link rowKeyOf}): the index every map, DOM attribute and piece of view
+ * state keys by, and what a drag names the row with. `parent` is the parent's
+ * key. The typed `id` rides along for every payload that names the row — a
+ * callback never sees the text.
+ */
+export type PlanRowValue = Omit<PlanWireRow, "parent"> & {
+    /** The row's key — the canonical text of its id; unique on the canvas. */
+    readonly key: RowKey;
+    /** The key of the row it nests under (`none` at the top of the stream). */
+    readonly parent: ValueTypeOf<OptionType<StringType>>;
+    /** When this row repeats the id an earlier row in its stream carries: that
+     *  row's key. The row keeps a unique key and renders as a diagnostic
+     *  (#811) — never a silent drop. */
+    readonly duplicateOf: RowKey | undefined;
+    /** The block the row came from — its place in the canvas's layout (#823). */
+    readonly block: number;
+};
+
+/**
+ * Key a stream of wire rows for the canvas — each row's `key` its id's
+ * canonical text and its `parent` the parent's.
+ *
+ * @remarks
+ * Ids are unique by construction (series keys are unique across the series
+ * tree and a path is unique within a collection) except where hand-built rows
+ * repeat a key. A repeat keeps a distinct key — its text with `#n` appended,
+ * which no printed id can end with — and names the row it repeats in
+ * `duplicateOf`, so it renders as a diagnostic in place.
+ *
+ * @param wire - The rows in stream order
+ * @param block - The block they came from (#823)
+ * @param seen - The ids keyed so far on the canvas, and how often — shared
+ *   across a canvas's blocks so a repeat in a later block is caught too
+ * @returns The canvas rows, in the same order
+ */
+export function toCanvasRows(
+    wire: ReadonlyArray<PlanWireRow>,
+    block: number = 0,
+    seen: Map<RowKey, number> = new Map(),
+): PlanRowValue[] {
+    return wire.map((row): PlanRowValue => {
+        const text = rowKeyOf(row.id);
+        const repeats = seen.get(text) ?? 0;
+        seen.set(text, repeats + 1);
+        return {
+            ...row,
+            key: repeats === 0 ? text : `${text}#${repeats}`,
+            parent: row.parent.type === "some" ? some(rowKeyOf(row.parent.value)) : none,
+            duplicateOf: repeats === 0 ? undefined : text,
+            block,
+        };
+    });
+}
+
+/** Each decoded inline canvas's rows — keyed once per decoded block list. */
+const canvasRowsCache = new WeakMap<ReadonlyArray<PlanWireBlock>, readonly PlanRowValue[]>();
+
+/**
+ * The canvas rows of an inline canvas — every block's rows in layout order,
+ * keyed across the whole canvas ({@link toCanvasRows}), once per decoded
+ * block list.
+ *
+ * @remarks
+ * The controller and the canvas both read a root's inline rows. A decoded
+ * value is never mutated, so its array's identity names its rows, and the two
+ * share one keying — and one set of row objects.
+ *
+ * @param blocks - A decoded inline canvas's blocks
+ * @returns Its canvas rows
+ */
+export function canvasRowsOf(blocks: ReadonlyArray<PlanWireBlock>): readonly PlanRowValue[] {
+    const cached = canvasRowsCache.get(blocks);
+    if (cached !== undefined) return cached;
+    const seen = new Map<RowKey, number>();
+    const rows: PlanRowValue[] = [];
+    blocks.forEach((b, i) => appendAll(rows, toCanvasRows(b.rows, i, seen)));
+    canvasRowsCache.set(blocks, rows);
+    return rows;
+}
+
+/**
+ * Key a paged canvas's resident rows across its blocks — each block's windows
+ * were keyed on their own when they were read, so a later block repeating an
+ * id an earlier block carries (a bound series list naming one series twice)
+ * is re-keyed here, exactly as {@link canvasRowsOf} keys the same rows inline.
+ *
+ * @param rows - The resident rows, block by block
+ * @returns The same rows — the same array when nothing repeats
+ */
+export function keyAcrossBlocks(rows: readonly PlanRowValue[]): readonly PlanRowValue[] {
+    const counts = new Map<RowKey, number>();
+    let out: PlanRowValue[] | undefined;
+    rows.forEach((row, i) => {
+        const text = row.duplicateOf ?? row.key;
+        const n = counts.get(text) ?? 0;
+        counts.set(text, n + 1);
+        const key = n === 0 ? text : `${text}#${n}`;
+        if (key === row.key) {
+            out?.push(row);
+            return;
+        }
+        out ??= rows.slice(0, i);
+        out.push({ ...row, key, duplicateOf: n === 0 ? undefined : text });
+    });
+    return out ?? rows;
+}
+
+/**
+ * Whether a row's derived numbers — its member count and its strip — can
+ * cover rows from more than one paged window (#822).
+ *
+ * @remarks
+ * Only a TOP-LEVEL section header's can: its members are its series' entries,
+ * which the source's windows share out. Every other parent derives from one
+ * entry's subtree, which the entry carries whole and a window holds whole, or
+ * from hand-built rows every window serves complete — so its numbers are
+ * exact whether the canvas is inline or paged, loaded or not. A section adds
+ * no path segment, so one at the top (or inside another at the top) sits at
+ * the empty path; one inside an entry sits at that entry's path, and its
+ * members are that entry's.
+ *
+ * @param row - A canvas row
+ * @returns Whether its derived numbers depend on which windows have landed
+ */
+export function spansWindows(row: PlanRowValue): boolean {
+    return row.id.type === "section" && row.id.value.path.length === 0;
+}
+
+/** The canvas rows indexed for traversal. */
 export interface PlanRowIndex {
-    /** Rows in the collection's canonical key order. */
+    /** Rows in STREAM order — the render order. */
     rows: ReadonlyArray<PlanRowValue>;
     /** Row lookup by key. */
     byKey: ReadonlyMap<RowKey, PlanRowValue>;
-    /** Direct children (key order) by parent key. */
+    /** Direct children (stream order) by parent key. */
     children: ReadonlyMap<RowKey, PlanRowValue[]>;
-    /** Root rows (`parent: none`), key order. */
+    /** Top rows (`parent: none`), stream order. */
     roots: ReadonlyArray<PlanRowValue>;
-    /** Nesting depth by key (roots = 0). */
+    /** Nesting depth by key (top rows = 0). */
     depth: ReadonlyMap<RowKey, number>;
-    /** Group-strip keys that the IR declares initially collapsed. */
+    /** The keys of rows the IR declares initially collapsed — any row with
+     *  children may be (#822). */
     initiallyCollapsed: ReadonlySet<RowKey>;
 }
 
 /**
  * Build the row index once per decoded value.
  *
- * @param rows - The decoded rows in collection order (a keyed collection's
- *   values, already in key order — the caller flattens the `SortedMap`)
- * @returns The tree index every other selector walks
+ * @param rows - The canvas rows in stream order ({@link toCanvasRows})
+ * @returns The index every other selector walks
  */
 export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
     const byKey = new Map<RowKey, PlanRowValue>();
@@ -74,9 +244,7 @@ export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
     for (const root of roots) walk(root, 0);
     const initiallyCollapsed = new Set<RowKey>();
     for (const row of rows) {
-        if (row.kind.type === "group" && row.kind.value.collapsed.type === "some" && row.kind.value.collapsed.value) {
-            initiallyCollapsed.add(row.key);
-        }
+        if (row.collapsed) initiallyCollapsed.add(row.key);
     }
     return { rows, byKey, children, roots, depth, initiallyCollapsed };
 }
@@ -93,104 +261,99 @@ export interface VisibleRow {
 /**
  * The visible rows for the current UI state — the §5/§6 derivation:
  *
- * - `resource` grain (default): depth-first walk; a collapsed group strip (or
- *   collapsed nesting parent) keeps its own line and hides its subtree.
- * - `group` grain: every root group collapses to its summary strip; non-group
- *   roots stay.
+ * - `resource` grain (default): the stream, in order; a collapsed row keeps
+ *   its own line and hides exactly its descendants.
+ * - `group` grain: every top-level group strip collapses to its summary
+ *   strip; other top rows stay.
+ *
+ * The walk follows the STREAM and hides a row whose parent is hidden or
+ * collapsed — by the explicit `parent` keys, never a tree walk, since a
+ * parent's descendants need not follow it directly (#822: an entry's children
+ * under `views` follow all of its view rows while nesting under the first).
+ * A parent precedes its descendants, so one pass suffices. A row whose parent
+ * is nowhere in the stream is not drawn — it derives nothing either
+ * (`derivePlan` walks the same tree).
  *
  * Pinned rows are excluded here — they render above the virtualised body,
- * under the ruler (`pinnedRows`).
+ * under the ruler (`pinnedRows`) — and so are their descendants.
  */
 export function visibleRows(
     index: PlanRowIndex,
-    ui: PlanUiState,
+    /** The UI facts the rows follow — the grain and the collapsed set. */
+    ui: Pick<PlanUiState, "grain" | "collapsed">,
     /** Keys a links focus must reveal — a collapsed subtree CONTAINING one
      *  auto-expands for the focus and restores on return (R1). */
     reveal?: ReadonlySet<RowKey>,
 ): VisibleRow[] {
     const out: VisibleRow[] = [];
     const grain: PlanGrain = ui.grain;
-    const isPinned = (row: PlanRowValue) => row.pinned.type === "some" && row.pinned.value;
+    const isPinned = (row: PlanRowValue) => row.pinned;
     // "Must this subtree stay open for the focus?" answered ONCE: the set of
     // strict ANCESTORS of every revealed key, built by walking `parent`
-    // pointers upward — O(reveal × depth). (It used to recurse down the
-    // children per visited row, O(n²) under a links focus on wide trees —
-    // #616.)
+    // pointers upward — O(reveal × depth) (#616).
     const revealAncestors = ancestorsOf(index, reveal);
-    const walk = (row: PlanRowValue, depth: number) => {
-        if (isPinned(row)) return;
-        const kids = index.children.get(row.key) ?? [];
+    // The rows whose descendants are out of view: collapsed, pinned, or
+    // themselves hidden.
+    const closed = new Set<RowKey>();
+    for (const row of index.rows) {
+        if (row.parent.type === "some" && closed.has(row.parent.value)) {
+            closed.add(row.key);
+            continue;
+        }
+        if (isPinned(row)) {
+            closed.add(row.key);
+            continue;
+        }
+        const depth = index.depth.get(row.key);
+        if (depth === undefined) continue;
         const isGroup = row.kind.type === "group";
         const collapsed = (ui.collapsed.has(row.key) || (grain === "group" && isGroup && depth === 0))
             && !revealAncestors.has(row.key);
         out.push({ row, depth, collapsed });
-        if (!collapsed) for (const child of kids) walk(child, depth + 1);
-    };
-    for (const root of index.roots) walk(root, 0);
-    return out;
-}
-
-/** The strict ancestors of every key in `keys` — "which subtrees contain one"
- *  as a set, via upward `parent` walks (each ancestor visited once). */
-function ancestorsOf(index: PlanRowIndex, keys: ReadonlySet<RowKey> | undefined): ReadonlySet<RowKey> {
-    const out = new Set<RowKey>();
-    if (keys === undefined) return out;
-    for (const key of keys) {
-        let parent = index.byKey.get(key)?.parent;
-        while (parent !== undefined && parent.type === "some" && !out.has(parent.value)) {
-            out.add(parent.value);
-            parent = index.byKey.get(parent.value)?.parent;
-        }
+        if (collapsed) closed.add(row.key);
     }
     return out;
 }
 
 /** The pinned rows (IR order) — rendered above the virtualised body. */
 export function pinnedRows(index: PlanRowIndex): PlanRowValue[] {
-    return index.rows.filter((row) => row.pinned.type === "some" && row.pinned.value);
+    return index.rows.filter((row) => row.pinned);
 }
 
 // ── Row heights (the §8 sheet; px) ─────────────────────────────────────────
+// Every height below is an entry of the ONE geometry table (`geometry.ts`,
+// #817) — the table the recipe reads too, as CSS variables. These names are
+// its default-density entries, kept for the code and tests that name them.
 
-/** Default span/bucket/cards/table row height. */
-export const ROW_H = 32;
+/** Default span/bucket/cards/table row height. Tables share it: numerals need
+ *  no less room than a bar does, and a table row at the dense height beside
+ *  default rows read as a mistake. */
+export const ROW_H = PLAN_GEOMETRY.default.row;
 /** Dense row height (`density: compact`). */
-export const ROW_H_DENSE = 24;
+export const ROW_H_DENSE = PLAN_GEOMETRY.dense.row;
 /** Group band height. */
-export const GROUP_H = 26;
+export const GROUP_H = PLAN_GEOMETRY.default.group;
 /** Group summary heat-strip height (collapsed group with cells). */
-export const GROUP_STRIP_H = 28;
+export const GROUP_STRIP_H = PLAN_GEOMETRY.default.groupStrip;
 /** Chart spark / expanded heights. */
-export const CHART_SPARK_H = 32;
-export const CHART_EXPANDED_H = 88;
-/** Heat ROW height — 22px cells (§8) + the 3px top/bottom recipe insets. */
-export const HEAT_ROW_H = 28;
-/** Table row height — the SHARED default (32 / 24 dense), like span,
- *  buckets and cards. It used to be a fixed 24, which is `ROW_H_DENSE`: a
- *  table row sat at dense height while every neighbour sat at default, so a
- *  canvas mixing a table row with anything else had one row visibly shorter
- *  than the rest for no reason a reader could infer. Numerals need no less
- *  room than a bar does. */
-
-/**
- * A visible row's pixel height — the virtualizer estimate AND the rendered
- * height (rows are fixed-height by kind; `measureElement` still corrects any
- * drift).
- */
+export const CHART_SPARK_H = PLAN_GEOMETRY.default.chartSpark;
+export const CHART_EXPANDED_H = PLAN_GEOMETRY.default.chartExpanded;
+/** Heat ROW height — 22px cells (§8) + the 3px insets above and below. */
+export const HEAT_ROW_H = PLAN_GEOMETRY.default.heatRow;
 /** Two-line-gutter row minimum (the §8 sheet: row min-height 42px). */
-export const ROW_H_STACKED = 42;
+export const ROW_H_STACKED = PLAN_GEOMETRY.default.rowStacked;
 /** Links-focus rail height — a LONE unrelated row collapses, never removed (R1). */
-export const RAIL_H = 11;
+export const RAIL_H = PLAN_GEOMETRY.default.rail;
 /** Expand-focus CONTEXT STRIP height (R2) — an unfocused row compresses to
  *  this, keeping its marks on the shared axis at {@link STRIP_MARK_H}. Taller
  *  than the links rail on purpose: a rail only has to carry a status dot,
  *  a strip has to carry the row's actual marks. */
-export const STRIP_H = 16;
+export const STRIP_H = PLAN_GEOMETRY.default.strip;
 /** The mark height inside a context strip — v2's "bars reduced to 7px marks". */
-export const STRIP_MARK_H = 7;
+export const STRIP_MARK_H = PLAN_GEOMETRY.default.stripMark;
 /** Links-focus gap-band height — a RUN of unrelated rows elides to one
  *  double-height band wearing the ⋯ icon (R1 at scale). */
-export const GAP_H = 22;
+export const GAP_H = PLAN_GEOMETRY.default.gap;
 
 /** The row-focus height context (R1 rails / R2 strips) threaded to {@link rowHeight}. */
 export interface PlanFocusCtx {
@@ -222,16 +385,107 @@ export function pxOf(size: string): number | undefined {
     return Number.isFinite(n) ? n : undefined;
 }
 
-export function rowHeight(
-    v: VisibleRow,
+/**
+ * What a row's kind contributes to its height — the part of the kind a height
+ * reads, and nothing else (#823).
+ *
+ * - `group` — whether a collapsed band shows a summary strip.
+ * - `chart` — its declared fixed px, whether it is declared expanded, and the
+ *   px its expanded state opens to.
+ * - `table` — how many lines a vertical multi-position stack prints (0 when it
+ *   does not stack).
+ * - `buckets` — how many lanes its cells hold.
+ * - `heat`, `row` — every other kind: one height each.
+ */
+export type RowKindHeight =
+    | { t: "group"; strip: boolean }
+    | { t: "chart"; fixed: number | undefined; expanded: boolean; expandedPx: number | undefined }
+    | { t: "heat" }
+    | { t: "table"; lines: number }
+    | { t: "buckets"; lanes: number }
+    | { t: "row" };
+
+/**
+ * Everything a row's height depends on besides the UI state, read once from
+ * the row and its derived numbers (#823). With the UI state it gives the
+ * height ({@link factsHeight}), and it is what an evicted paged window keeps of
+ * each of its rows ({@link WindowSkeleton}): no content, only these.
+ */
+export interface RowHeightFacts {
+    /** The row's own declared px (`height`), when it is a px size. */
+    explicit: number | undefined;
+    /** It renders as a diagnostic row (#811) — its message, never its marks. */
+    diagnostic: boolean;
+    /** A two-line gutter (a sub line, or the stacked flag) — floors the row. */
+    twoLine: boolean;
+    /** What its kind contributes. */
+    kind: RowKindHeight;
+}
+
+/**
+ * A row's height facts.
+ *
+ * @param row - The canvas row
+ * @param derived - The derived numbers, when available. A subtotal parent
+ *   carries NO series of its own — its positions are derived — so without
+ *   this a vertical multi-position subtotal would measure as a single line and
+ *   render taller than the virtualizer was told.
+ * @returns Its facts
+ */
+export function heightFactsOf(row: PlanRowValue, derived?: PlanDerived): RowHeightFacts {
+    const explicit = row.height.type === "some" ? pxOf(row.height.value) : undefined;
+    const twoLine = row.gutter.stacked || row.gutter.sub.type === "some";
+    const diagnostic = derived?.diagnostics.has(row.key) === true;
+    const k = row.kind;
+    let kind: RowKindHeight;
+    switch (k.type) {
+        case "group":
+            kind = { t: "group", strip: k.value.summary.type !== "none" };
+            break;
+        case "chart": {
+            const h = k.value.height;
+            kind = {
+                t: "chart",
+                fixed: h.type === "fixed" ? pxOf(h.value) : undefined,
+                expanded: h.type === "expanded",
+                expandedPx: k.value.expandedHeight.type === "some" ? pxOf(k.value.expandedHeight.value) : undefined,
+            };
+            break;
+        }
+        case "heat": kind = { t: "heat" }; break;
+        case "table": {
+            // A vertical multi-series stack grows the row, one line per series.
+            const n = derived?.tableSeries.get(row.key)?.length ?? k.value.series.length;
+            kind = { t: "table", lines: k.value.split.type === "vertical" && n > 1 ? n : 0 };
+            break;
+        }
+        case "buckets": kind = { t: "buckets", lanes: k.value.lanes.length }; break;
+        default: kind = { t: "row" };
+    }
+    return { explicit, diagnostic, twoLine, kind };
+}
+
+/**
+ * A row's pixel height from its facts and the UI state — the ONE height
+ * arithmetic: the rendered rows ({@link rowHeight}) and the paged ledger's
+ * windows ({@link skeletonHeight}) both come through here, so a band that
+ * stands for evicted rows is exactly as tall as those rows draw (#823).
+ *
+ * @param f - The row's facts
+ * @param key - The row's key
+ * @param collapsed - Whether its subtree is collapsed
+ * @param dense - Whether the canvas is dense
+ * @param chartsExpanded - The chart rows the user expanded
+ * @param focus - The row focus, when one is active (R1 rails / R2 strips)
+ * @returns The height, px
+ */
+export function factsHeight(
+    f: RowHeightFacts,
+    key: RowKey,
+    collapsed: boolean,
     dense: boolean,
     chartsExpanded: ReadonlySet<RowKey>,
     focus?: PlanFocusCtx,
-    /** The derived numbers, when available. A subtotal parent carries NO
-     *  series of its own — its positions are derived — so without this a
-     *  vertical multi-position subtotal would estimate as a single line and
-     *  render taller than the virtualizer was told. */
-    derived?: PlanDerived,
 ): number {
     // Row focus compresses the DATA rows it is not about; group bands always
     // fall through to their wayfinding height, because a wall of strips is
@@ -242,790 +496,214 @@ export function rowHeight(
     // focus strips every other row to 16px, where its marks survive at 7px on
     // the same axis. The FOCUSED row falls through to its normal kind height
     // in both cases — R2 grows the canvas under the row, not the row itself.
-    if (focus !== undefined && v.row.kind.type !== "group") {
+    const g = planGeometry(dense);
+    if (focus !== undefined && f.kind.t !== "group") {
         if (focus.kind === "links") {
-            const inFamily = v.row.key === focus.key || (focus.family?.has(v.row.key) ?? false);
-            if (!inFamily) return RAIL_H;
-        } else if (v.row.key !== focus.key) {
-            return STRIP_H;
+            const inFamily = key === focus.key || (focus.family?.has(key) ?? false);
+            if (!inFamily) return g.rail;
+        } else if (key !== focus.key) {
+            return g.strip;
         } else if (focus.renderPx !== undefined && focus.renderPx > 0) {
             // The FOCUSED row grows by its render — the row's own marks keep
             // their band at the top, the render fills the rest, and the gutter
             // spans both. Recursing with the focus dropped gets the row's
             // natural kind height without duplicating the switch below.
-            return rowHeight(v, dense, chartsExpanded, undefined, derived) + focus.renderPx;
+            return factsHeight(f, key, collapsed, dense, chartsExpanded, undefined) + focus.renderPx;
         }
     }
-    const explicit = v.row.height.type === "some" ? pxOf(v.row.height.value) : undefined;
-    if (explicit !== undefined) return explicit;
-    const kind = v.row.kind;
-    // Any two-line gutter (a sub line, or the stacked flag) floors the row at
-    // 42px on every data kind — a one-line height would clip the sub text.
-    const twoLine = (v.row.gutter.stacked.type === "some" && v.row.gutter.stacked.value)
-        || v.row.gutter.sub.type === "some";
-    const floor = (h: number) => (twoLine ? Math.max(h, ROW_H_STACKED) : h);
-    switch (kind.type) {
-        case "group": {
-            const hasStrip = v.collapsed
-                && (kind.value.summary.type === "some" || kind.value.summaryAggregate.type === "some");
-            return hasStrip ? GROUP_STRIP_H : GROUP_H;
-        }
+    if (f.explicit !== undefined) return f.explicit;
+    // Any two-line gutter floors the row at 42px on every data kind — a
+    // one-line height would clip the sub text.
+    const floor = (h: number) => (f.twoLine ? Math.max(h, g.rowStacked) : h);
+    // A diagnostic row (#811) draws its message, never its marks — one line
+    // at the shared default; a diagnosed group keeps its band and drops the
+    // strip it cannot place.
+    if (f.diagnostic) return f.kind.t === "group" ? g.group : floor(g.row);
+    switch (f.kind.t) {
+        case "group": return collapsed && f.kind.strip ? g.groupStrip : g.group;
         case "chart": {
-            const h = kind.value.height;
-            if (h.type === "fixed") {
-                const px = pxOf(h.value);
-                if (px !== undefined) return px;
-            }
-            const expanded = h.type === "expanded" || chartsExpanded.has(v.row.key);
+            if (f.kind.fixed !== undefined) return f.kind.fixed;
             // The two-line floor applies to a chart's DEFAULT heights like
             // every other kind: a spark row is 32px, and a 42px sub-line does
             // not fit in it — it clipped, which is what the floor exists to
             // prevent. A DECLARED px (`fixed`, `expandedHeight`) is the
             // author's word and stays unfloored, the same rule the row-level
             // `height` override above follows.
-            if (!expanded) return floor(CHART_SPARK_H);
+            if (!f.kind.expanded && !chartsExpanded.has(key)) return floor(g.chartSpark);
             // A declared expandedHeight overrides the 88px expanded default —
             // an expandable spark can open to a full composition height.
-            const eh = kind.value.expandedHeight.type === "some" ? pxOf(kind.value.expandedHeight.value) : undefined;
-            return eh ?? floor(CHART_EXPANDED_H);
+            return f.kind.expandedPx ?? floor(g.chartExpanded);
         }
-        case "heat": return floor(HEAT_ROW_H);
-        case "table": {
-            const base = dense ? ROW_H_DENSE : ROW_H;
-            // A vertical multi-series stack grows the row (~11px per line).
-            const n = derived?.tableSeries.get(v.row.key)?.length ?? kind.value.series.length;
-            if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(base, 6 + n * 11));
-            return floor(base);
-        }
+        case "heat": return floor(g.heatRow);
+        case "table":
+            return f.kind.lines > 1 ? floor(Math.max(g.row, g.tablePad + f.kind.lines * g.tableLine)) : floor(g.row);
         case "buckets": {
-            // Laned rows grow — the Planner cell grid: 22px min cells,
-            // 2px gaps, 3px lane padding (§4·K2).
-            const n = kind.value.lanes.length;
-            if (n > 1) return floor(6 + n * 22 + (n - 1) * 2);
-            return floor(dense ? ROW_H_DENSE : ROW_H);
+            // Laned rows grow — the Planner cell grid: a cell per lane, a gap
+            // between, lane padding above and below (§4·K2).
+            const n = f.kind.lanes;
+            return n > 1 ? floor(2 * g.lanePad + n * g.laneCell + (n - 1) * g.laneGap) : floor(g.row);
         }
-        default: return floor(dense ? ROW_H_DENSE : ROW_H);
+        case "row": return floor(g.row);
     }
+}
+
+/**
+ * A visible row's pixel height — the virtualizer's size for it AND the height
+ * it renders at (rows are fixed-height by kind), from the density's geometry
+ * table ({@link planGeometry}).
+ *
+ * @param v - The visible row
+ * @param dense - Whether the canvas is dense
+ * @param chartsExpanded - The chart rows the user expanded
+ * @param focus - The row focus, when one is active (R1 rails / R2 strips)
+ * @param derived - The derived numbers, when available ({@link heightFactsOf})
+ * @returns The height, px
+ */
+export function rowHeight(
+    v: VisibleRow,
+    dense: boolean,
+    chartsExpanded: ReadonlySet<RowKey>,
+    focus?: PlanFocusCtx,
+    derived?: PlanDerived,
+): number {
+    return factsHeight(heightFactsOf(v.row, derived), v.row.key, v.collapsed, dense, chartsExpanded, focus);
+}
+
+// ── Window skeletons — the heights of evicted rows (#823) ──────────────────
+
+/**
+ * What a paged window keeps of one block's rows once they are evicted (#823):
+ * per row, in stream order, its key, where its parent sits, whether it is
+ * pinned, its declared collapse and its height facts. No content — enough to
+ * say exactly how tall the rows would draw under any UI state, so a band that
+ * stands for them follows a collapse, a chart toggle or the grain without the
+ * window being read again.
+ */
+export interface WindowSkeleton {
+    /** Each row's key. */
+    readonly keys: readonly RowKey[];
+    /** Each row's parent's index here — −1 when it nests under a row outside
+     *  the window (the section header its block sits under) or none. */
+    readonly parents: readonly number[];
+    /** Whether the row is at the top of the canvas (no parent at all) — the
+     *  group grain folds a group row there. */
+    readonly top: readonly boolean[];
+    /** Whether the row is pinned — pinned rows draw above the body. */
+    readonly pinned: readonly boolean[];
+    /** Whether the row declares itself collapsed. */
+    readonly declared: readonly boolean[];
+    /** Each row's height facts. */
+    readonly facts: readonly RowHeightFacts[];
+}
+
+/**
+ * One window's skeleton — computed ONCE, when the window lands.
+ *
+ * @remarks
+ * A window holds its entries whole (#823), so its own rows derive everything
+ * a height reads — a subtotal parent's derived positions, which rows are
+ * diagnostic rows. A block's top rows may nest under a row no window holds
+ * (a section's header, a fixed block): for the derivation they are the
+ * window's roots, and they stay open whatever that header does — when the
+ * header folds, the canvas hides the whole block, bands and all.
+ *
+ * @param rows - One block's rows from one window, in stream order
+ * @param axisKind - The axis kind — a row on another arm measures as the
+ *   diagnostic row it renders as
+ * @returns The skeleton
+ */
+export function windowSkeleton(rows: readonly PlanRowValue[], axisKind?: PlanAxisKind): WindowSkeleton {
+    const at = new Map<RowKey, number>();
+    rows.forEach((r, i) => at.set(r.key, i));
+    // Rows whose parent is outside the window root the derivation.
+    const rooted = rows.map((r) => (r.parent.type === "some" && !at.has(r.parent.value) ? { ...r, parent: none } : r));
+    const derived = derivePlan(indexRows(rooted), undefined, axisKind);
+    return {
+        keys: rows.map((r) => r.key),
+        parents: rows.map((r) => (r.parent.type === "some" ? at.get(r.parent.value) ?? -1 : -1)),
+        top: rows.map((r) => r.parent.type === "none"),
+        pinned: rows.map((r) => r.pinned),
+        declared: rows.map((r) => r.collapsed),
+        facts: rows.map((r) => heightFactsOf(r, derived)),
+    };
+}
+
+/** The UI state a skeleton's height reads. */
+export interface SkeletonUi {
+    /** The active grain. */
+    grain: PlanGrain;
+    /** Whether a row's subtree is collapsed — given its key and whether it
+     *  declares itself collapsed (a paged row may not have been seeded yet). */
+    collapsed: (key: RowKey, declared: boolean) => boolean;
+    /** The chart rows the user expanded. */
+    chartsExpanded: ReadonlySet<RowKey>;
+}
+
+/** No chart expanded. */
+const NO_CHARTS: ReadonlySet<RowKey> = new Set();
+
+/**
+ * The UI state a window rests at — its declared collapse, no chart expanded,
+ * no focus — under a grain.
+ *
+ * @param grain - The DECLARED grain
+ * @returns The state
+ */
+export function restUi(grain: PlanGrain): SkeletonUi {
+    return { grain, collapsed: (_key, declared) => declared, chartsExpanded: NO_CHARTS };
+}
+
+/**
+ * How tall a window's rows draw under a UI state — the visible-row walk
+ * ({@link visibleRows}) and the height arithmetic ({@link factsHeight}) over
+ * the skeleton, so the number is the one the body would draw the same rows at.
+ *
+ * @param sk - The window's skeleton
+ * @param ui - The UI state
+ * @param dense - Whether the canvas is dense
+ * @param focus - An expand focus, when one is active — its context strips
+ *   (a links focus elides runs of rows across windows, which no window's
+ *   height can say; its windows measure as though unfocused)
+ * @returns The height, px
+ */
+export function skeletonHeight(sk: WindowSkeleton, ui: SkeletonUi, dense: boolean, focus?: PlanFocusCtx): number {
+    const closed = new Array<boolean>(sk.keys.length).fill(false);
+    let sum = 0;
+    for (let i = 0; i < sk.keys.length; i++) {
+        const p = sk.parents[i]!;
+        if ((p >= 0 && closed[p]) || sk.pinned[i]) {
+            closed[i] = true;
+            continue;
+        }
+        const key = sk.keys[i]!;
+        const f = sk.facts[i]!;
+        const collapsed = ui.collapsed(key, sk.declared[i]!) || (ui.grain === "group" && f.kind.t === "group" && sk.top[i]!);
+        sum += factsHeight(f, key, collapsed, dense, ui.chartsExpanded, focus?.kind === "expand" ? focus : undefined);
+        if (collapsed) closed[i] = true;
+    }
+    return sum;
 }
 
 /**
  * The pixel height a window's rows render AT REST (#613) — declared collapse
  * applied, chart expansion at its declared state, no focus context, pinned
- * rows excluded (they render in the header, not the body).
- *
- * The window ledger freezes a window's FIRST measurement, and seeds its
- * frozen slot rate from the first window ever measured — so the recorded
- * number must not depend on transient UI state. Measuring through the live
- * state recorded strip-compressed rows when a window landed during an expand
- * focus, full heights for rows an IR-collapsed group renders hidden, and
- * whatever a chart toggle happened to be at the moment — breaking the
- * band px == rendered px equality the eviction-moves-nothing invariant
- * rests on, and (worst) poisoning the slot rate for the life of the source
- * when the FIRST window landed mid-focus.
- *
- * A window is a complete forest (#577: any union of whole windows is
- * orphan-free), so its own index derives everything {@link rowHeight}
- * consults — including a subtotal parent's derived positions.
+ * rows excluded (they render in the header, not the body). What the window
+ * ledger seeds its slot rate from: a rate taken from whatever the UI state
+ * happened to be when the first window landed (mid-focus, say) would describe
+ * every unvisited window wrongly for the life of the source.
  *
  * @param windowRows - One window's rows, as the source served them
  * @param grain - The DECLARED grain (`value.grain`; user grain is transient)
  * @param dense - The declared density
+ * @param axisKind - The axis kind — a row on another arm measures as the
+ *   diagnostic row it renders as
  * @returns The at-rest pixel height of the window's body rows
  */
 export function windowRestHeight(
     windowRows: ReadonlyArray<PlanRowValue>,
     grain: PlanGrain,
     dense: boolean,
+    axisKind?: PlanAxisKind,
 ): number {
-    const index = indexRows(windowRows);
-    const rest = initialPlanState(grain, index.initiallyCollapsed);
-    const derived = derivePlan(index);
-    return visibleRows(index, rest).reduce(
-        (sum, v) => sum + rowHeight(v, dense, rest.chartsExpanded, undefined, derived), 0);
-}
-
-// ── Instants (#631) ────────────────────────────────────────────────────────
-
-/**
- * Visit every instant a row carries — each arm's instant fields, whatever
- * the kind — so the axis-kind checks and the fit-to-data extent walk one
- * list rather than each keeping a copy of the row vocabulary.
- *
- * @param row - The decoded row
- * @param visit - Called once per instant (interval ENDS flagged, so an
- *   ordinal end can be read inclusively)
- */
-export function forEachInstant(row: PlanRowValue, visit: (t: PlanInstantValue, end: boolean) => void): void {
-    const kind = row.kind;
-    switch (kind.type) {
-        case "span":
-            for (const r of kind.value.runs) { visit(r.start, false); visit(r.end, true); }
-            for (const d of kind.value.decisions) visit(d.at, false);
-            for (const p of kind.value.ports) visit(p.at, false);
-            break;
-        case "buckets":
-            for (const e of kind.value.events) visit(e.at, false);
-            for (const m of kind.value.markers) visit(m.at, false);
-            break;
-        case "chart":
-            for (const layer of kind.value.layers) {
-                switch (layer.type) {
-                    case "line": case "area": case "column": case "scatter": case "band":
-                        for (const p of layer.value.points) visit(p.t, false);
-                        break;
-                    case "refBand": visit(layer.value.from, false); visit(layer.value.to, true); break;
-                    case "refDot": visit(layer.value.t, false); break;
-                    case "refLine": break;
-                }
-            }
-            break;
-        case "heat": {
-            const cells = kind.value.cells;
-            if (cells.type === "heat") for (const c of cells.value.cells) visit(c.at, false);
-            else for (const c of cells.value) visit(c.at, false);
-            break;
-        }
-        case "table":
-            for (const s of kind.value.series) for (const c of s.cells) visit(c.at, false);
-            break;
-        case "cards":
-            for (const c of kind.value.chips) { visit(c.from, false); visit(c.to, true); }
-            break;
-        case "events":
-            for (const m of kind.value.marks) visit(m.at, false);
-            break;
-        case "group": {
-            const summary = kind.value.summary;
-            if (summary.type === "some") {
-                const cells = summary.value;
-                if (cells.type === "heat") for (const c of cells.value.cells) visit(c.at, false);
-                else for (const c of cells.value) visit(c.at, false);
-            }
-            break;
-        }
-    }
-}
-
-/**
- * Every instant a row set touches ON the axis's arm, as numbers — the
- * fit-to-data window fallback. Instants of another arm are skipped (they are
- * the mismatch diagnostic's business, not the axis's); an ordinal axis has
- * no extent to fit (its list is its window).
- *
- * @param rows - The decoded rows
- * @param kind - The axis kind
- * @returns The `[min, max]` extent, or `undefined` when nothing positions
- */
-export function dataExtent(rows: ReadonlyArray<PlanRowValue>, kind: PlanAxisKind): { min: number; max: number } | undefined {
-    if (kind === "ordinal") return undefined;
-    let min = Infinity;
-    let max = -Infinity;
-    for (const row of rows) {
-        forEachInstant(row, (t) => {
-            if (t.type !== kind) return;
-            const n = instantOrder(t);
-            if (n < min) min = n;
-            if (n > max) max = n;
-        });
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return undefined;
-    return { min, max };
-}
-
-/** One row whose instants ride another arm than the axis — the diagnostic's subject. */
-export interface PlanAxisMismatch {
-    /** The offending row's key. */
-    row: RowKey;
-    /** The arm its instants ride (the first one found). */
-    found: PlanAxisKind;
-}
-
-/**
- * The rows whose instants do NOT ride the axis's arm — the Planner's
- * single-axis-kind rule, enforced at render time (#631). A mixed arm is a
- * diagnostic naming the row and the axis kind, never a silent misplacement:
- * the canvas refuses to draw until the data agrees with its declaration.
- *
- * @param index - The row-tree index
- * @param kind - The axis kind
- * @returns One entry per offending row, in collection order
- */
-export function axisKindMismatches(index: PlanRowIndex, kind: PlanAxisKind): PlanAxisMismatch[] {
-    const out: PlanAxisMismatch[] = [];
-    for (const row of index.rows) {
-        let found: PlanAxisKind | undefined;
-        forEachInstant(row, (t) => { if (found === undefined && t.type !== kind) found = t.type; });
-        if (found !== undefined) out.push({ row: row.key, found });
-    }
-    return out;
-}
-
-// ── Renderer-side derivations (§4.2 — the Table idiom) ─────────────────────
-//
-// The IR carries DECLARATIONS (`rollup` + `unit`, `aggregate` + scale,
-// `summaryAggregate`, `format`); the numbers — rollup bands, per-bucket
-// aggregates, subtotal cells, strip summaries — are derived here over the
-// decoded values, exactly as Table's renderer computes its group subtotals.
-//
-// Instants are ordered on their own arm (`instantOrder`): epoch ms, the
-// value, or — for an ordinal axis — the declared index, which the caller
-// passes in as `ordinal`. Without it ordinal cells keep their insertion
-// order, which is what the ledger's height measure needs and all it needs.
-
-type RunValue = ValueTypeOf<typeof Plan.Types.Run>;
-type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
-type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
-type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
-
-/**
- * A table row's AGGREGABLE positions — the ones a parent subtotals.
- *
- * `rollup: some(true)` NARROWS: flag a position and only the flagged ones roll
- * up, which is how a row says "the actual is the number, the Δ beside it is
- * commentary". Flag nothing and EVERY position rolls up, so a subtotal mirrors
- * the shape of the rows it totals — a parent over `act`/`Δ` children shows an
- * act subtotal beside a Δ subtotal rather than silently dropping one.
- *
- * (It used to return one position's cells unconditionally — the unflagged case
- * fell back to `series[0]`, so a multi-value row's second position vanished
- * into a parent that looked complete.)
- */
-export function tableRollupSeries(series: readonly TableSeriesValue[]): readonly TableSeriesValue[] {
-    const flagged = series.filter((x) => x.rollup.type === "some" && x.rollup.value);
-    return flagged.length > 0 ? flagged : series;
-}
-
-/** One derived rollup band (`×k · qty`, pessimistic state). */
-export interface DerivedBand {
-    from: PlanInstantValue;
-    /** The band's end — on an ordinal axis the LAST bucket covered (inclusive). */
-    to: PlanInstantValue;
-    /** Peak concurrency inside the band. */
-    count: number;
-    /** Summed quantity caption (`"146 t"`) — absent unless a unit is declared and every member carries `qty`. */
-    quantity: string | undefined;
-    /** The least-certain member's lifecycle state. */
-    state: RunValue["state"];
-}
-
-/** Certainty rank — lower is less certain; bands wear the minimum. */
-const STATE_RANK: Record<string, number> = {
-    estimated: 0, proposed: 1, confirmed: 2, "in-progress": 3, actual: 3, rejected: 4,
-};
-
-/** An interval END on its arm — an ordinal end names its last bucket, so it
- *  closes one bucket LATER than its own index (the scale's `endFracOf` rule). */
-function endOrder(t: PlanInstantValue, ordinal: ReadonlyMap<string, number> | undefined): number {
-    const n = instantOrder(t, ordinal);
-    return t.type === "ordinal" ? n + 1 : n;
-}
-
-/** Union-merge one run set into bands (rejected runs excluded). */
-function mergeBands(
-    runs: readonly RunValue[],
-    unit: string | undefined,
-    ordinal: ReadonlyMap<string, number> | undefined,
-): DerivedBand[] {
-    const startOf = (r: RunValue) => instantOrder(r.start, ordinal);
-    const endOf = (r: RunValue) => endOrder(r.end, ordinal);
-    const active = runs
-        .filter((r) => r.state.type !== "rejected" && Number.isFinite(startOf(r)) && Number.isFinite(endOf(r)))
-        .slice()
-        .sort((a, b) => startOf(a) - startOf(b));
-    if (active.length === 0) return [];
-    const groups: { members: RunValue[]; from: PlanInstantValue; to: PlanInstantValue; toN: number }[] = [];
-    for (const r of active) {
-        const last = groups[groups.length - 1];
-        if (last !== undefined && startOf(r) < last.toN) {
-            last.members.push(r);
-            if (endOf(r) > last.toN) { last.to = r.end; last.toN = endOf(r); }
-        } else {
-            groups.push({ members: [r], from: r.start, to: r.end, toN: endOf(r) });
-        }
-    }
-    return groups.map((g) => {
-        let count = 1;
-        for (const m of g.members) {
-            const c = g.members.filter((x) => startOf(x) <= startOf(m) && endOf(x) > startOf(m)).length;
-            if (c > count) count = c;
-        }
-        const missing = g.members.some((m) => m.qty.type === "none");
-        const total = g.members.reduce((acc, m) => acc + (m.qty.type === "some" ? m.qty.value : 0), 0);
-        const quantity = unit !== undefined && !missing ? `${total.toFixed(0)} ${unit}` : undefined;
-        let state = g.members[0]!.state;
-        for (const m of g.members) {
-            if ((STATE_RANK[m.state.type] ?? 3) < (STATE_RANK[state.type] ?? 3)) state = m.state;
-        }
-        return { from: g.from, to: g.to, count, quantity, state };
-    });
-}
-
-/**
- * Derive a rollup parent's bands from its subtree's runs.
- *
- * @param runs - The subtree's runs
- * @param rollup - The declared mode
- * @param unit - The declared quantity unit
- * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
- * @returns The bands, in start order
- */
-export function deriveBands(
-    runs: readonly RunValue[],
-    rollup: "union" | "byStatus" | "sum",
-    unit: string | undefined,
-    ordinal?: ReadonlyMap<string, number>,
-): DerivedBand[] {
-    if (rollup === "byStatus") {
-        const order: string[] = [];
-        const byTag = new Map<string, RunValue[]>();
-        for (const r of runs) {
-            if (r.state.type === "rejected") continue;
-            const tag = r.state.type;
-            const list = byTag.get(tag);
-            if (list !== undefined) list.push(r);
-            else { byTag.set(tag, [r]); order.push(tag); }
-        }
-        return order.flatMap((tag) => mergeBands(byTag.get(tag)!, unit, ordinal));
-    }
-    return mergeBands(runs, unit, ordinal);
-}
-
-/**
- * Group cells by the INSTANT they name, in axis order — instants with a
- * comparable order sort; an ordinal set without its index map (the ledger's
- * height measure) keeps insertion order, which is all a height needs.
- */
-function groupByInstant<C extends { at: PlanInstantValue }>(
-    cells: readonly C[],
-    ordinal: ReadonlyMap<string, number> | undefined,
-): { at: PlanInstantValue; members: C[] }[] {
-    const groups = new Map<string, { at: PlanInstantValue; members: C[] }>();
-    for (const c of cells) {
-        const k = instantKey(c.at);
-        const g = groups.get(k);
-        if (g !== undefined) g.members.push(c);
-        else groups.set(k, { at: c.at, members: [c] });
-    }
-    const out = [...groups.values()];
-    const orders = out.map((g) => instantOrder(g.at, ordinal));
-    if (orders.every((n) => Number.isFinite(n))) {
-        const rank = new Map(out.map((g, i) => [g, orders[i]!]));
-        out.sort((a, b) => rank.get(a)! - rank.get(b)!);
-    }
-    return out;
-}
-
-/**
- * Derive per-bucket aggregated heat cells (mean / max / sum; no-data skipped).
- *
- * @param cells - The children's cells
- * @param mode - The declared aggregate
- * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
- * @returns One cell per distinct instant, in axis order
- */
-export function deriveHeatCells(
-    cells: readonly HeatCellValue[],
-    mode: "mean" | "max" | "sum",
-    ordinal?: ReadonlyMap<string, number>,
-): HeatCellValue[] {
-    // Derived cells are REAL East option values (`some`/`none` — never a
-    // hand-rolled `{ type, value }` literal, which lacks the encoder symbol
-    // and breaks the day one is encoded or symbol-compared; #617).
-    return groupByInstant(cells, ordinal).map((g): HeatCellValue => {
-        const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
-        let v: number | undefined;
-        if (vals.length > 0) {
-            const total = vals.reduce((a, b) => a + b, 0);
-            v = mode === "sum" ? total : mode === "max" ? Math.max(...vals) : total / vals.length;
-        }
-        return {
-            at: g.at,
-            value: v !== undefined ? some(v) : none,
-            label: v !== undefined ? some(v.toFixed(0)) : none,
-        };
-    });
-}
-
-/**
- * Derive per-bucket table subtotal cells (the Table #317 vocabulary) — raw
- * values only; text and tone are renderer-derived through the row's shared
- * `TickFormatType` format.
- *
- * @param cells - The children's cells
- * @param mode - The declared aggregate
- * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
- * @returns One cell per distinct instant, in axis order
- */
-export function deriveTableCells(
-    cells: readonly TableCellValue[],
-    mode: "sum" | "mean" | "min" | "max" | "count",
-    ordinal?: ReadonlyMap<string, number>,
-): TableCellValue[] {
-    return groupByInstant(cells, ordinal).map((g): TableCellValue => {
-        const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
-        let v: number | undefined;
-        if (mode === "count") v = vals.length;
-        else if (vals.length > 0) {
-            const total = vals.reduce((a, b) => a + b, 0);
-            v = mode === "sum" ? total
-                : mode === "mean" ? total / vals.length
-                : mode === "min" ? Math.min(...vals)
-                : Math.max(...vals);
-        }
-        return {
-            at: g.at,
-            value: v !== undefined ? some(v) : none,
-            text: none,
-            tone: none,
-        };
-    });
-}
-
-/**
- * Derive a parent's subtotal SERIES — position by position.
- *
- * Position `i` of the parent aggregates position `i` of every child that has
- * one, and inherits that position's declarations (format / tone / strong /
- * rollup) from the first child carrying it, so the subtotal is styled like the
- * numbers it totals rather than as anonymous plain text.
- *
- * @param positions - Each child's aggregable positions (see {@link tableRollupSeries})
- * @param mode - The declared aggregate
- * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
- * @returns One derived series per position
- */
-export function deriveTableSeries(
-    positions: ReadonlyArray<readonly TableSeriesValue[]>,
-    mode: "sum" | "mean" | "min" | "max" | "count",
-    ordinal?: ReadonlyMap<string, number>,
-): TableSeriesValue[] {
-    const width = positions.reduce((m, p) => Math.max(m, p.length), 0);
-    const out: TableSeriesValue[] = [];
-    for (let i = 0; i < width; i++) {
-        const at = positions.map((p) => p[i]).filter((s): s is TableSeriesValue => s !== undefined);
-        if (at.length === 0) continue;
-        const style = at[0]!;
-        out.push({
-            cells: deriveTableCells(at.flatMap((s) => s.cells), mode, ordinal),
-            format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup,
-        });
-    }
-    return out;
-}
-
-/** The heat-arm cells of a row (empty for other kinds / arms). */
-function heatCellsOf(row: PlanRowValue): readonly HeatCellValue[] {
-    if (row.kind.type !== "heat") return [];
-    const cells = row.kind.value.cells;
-    return cells.type === "heat" ? cells.value.cells : [];
-}
-
-/** A heat row's DECLARED scale (`min` / `max` / `warnAt`), when its cells
- *  ride the heat arm. */
-function heatScaleOf(row: PlanRowValue): HeatScale | undefined {
-    if (row.kind.type !== "heat" || row.kind.value.cells.type !== "heat") return undefined;
-    const { min, max, warnAt } = row.kind.value.cells.value;
-    return {
-        min: min.type === "some" ? min.value : undefined,
-        max: max.type === "some" ? max.value : undefined,
-        warnAt: warnAt.type === "some" ? warnAt.value : undefined,
-    };
-}
-
-/** A heat scale as plain numbers — `undefined` where nothing is declared. */
-export interface HeatScale {
-    min: number | undefined;
-    max: number | undefined;
-    warnAt: number | undefined;
-}
-
-/**
- * The scale a derived group strip INHERITS from the heat rows it summarises.
- *
- * A strip painted on its own extent puts the coolest bucket at zero depth —
- * a blank tile with a number floating in it — which reads as no data, not as
- * the minimum. A `mean` or `max` of rows declared on 0–100 is itself on
- * 0–100, so the strip takes the children's scale: the widest declared span
- * (every child must declare the bound for it to hold), and the tightest
- * warn threshold. A `sum` outgrows its members' scale and keeps the extent.
- */
-function inheritedScale(children: readonly PlanRowValue[], mode: string): HeatScale | undefined {
-    if (mode === "sum") return undefined;
-    const scales = children.map(heatScaleOf).filter((s): s is HeatScale => s !== undefined);
-    if (scales.length === 0) return undefined;
-    const mins = scales.map((s) => s.min);
-    const maxs = scales.map((s) => s.max);
-    const warns = scales.map((s) => s.warnAt).filter((w): w is number => w !== undefined);
-    const min = mins.every((m): m is number => m !== undefined) ? Math.min(...mins) : undefined;
-    const max = maxs.every((m): m is number => m !== undefined) ? Math.max(...maxs) : undefined;
-    const warnAt = warns.length > 0 ? Math.min(...warns) : undefined;
-    if (min === undefined && max === undefined && warnAt === undefined) return undefined;
-    return { min, max, warnAt };
-}
-
-/** Every span run across a subtree (any depth). */
-function subtreeRuns(index: PlanRowIndex, key: RowKey): RunValue[] {
-    const out: RunValue[] = [];
-    const walk = (k: RowKey) => {
-        for (const child of index.children.get(k) ?? []) {
-            if (child.kind.type === "span") out.push(...child.kind.value.runs);
-            walk(child.key);
-        }
-    };
-    walk(key);
-    return out;
-}
-
-/** The per-value derived numbers, computed once per decoded root. */
-export interface PlanDerived {
-    /** Rollup bands by span-parent row key. */
-    bands: ReadonlyMap<RowKey, DerivedBand[]>;
-    /** Aggregated cells by heat-parent row key. */
-    heatCells: ReadonlyMap<RowKey, HeatCellValue[]>;
-    /** Subtotal SERIES by table-parent row key — one derived position per
-     *  aggregable position of the children, so a parent renders the same
-     *  shape its members do. */
-    tableSeries: ReadonlyMap<RowKey, TableSeriesValue[]>;
-    /** Strip summary cells by group row key. */
-    groupSummary: ReadonlyMap<RowKey, HeatCellValue[]>;
-    /** The scale a derived strip inherits from its heat members (see
-     *  `inheritedScale`) — absent when it paints on its own extent. */
-    groupSummaryScale: ReadonlyMap<RowKey, HeatScale>;
-    /** Direct-member count by group row key — the `"8 rs"` gutter meta.
-     *  Derived here, not baked into the IR: a group parent synthesized per
-     *  paged window would otherwise carry THAT window's count (#568). */
-    groupMembers: ReadonlyMap<RowKey, number>;
-}
-
-/**
- * Derive every declared rollup / aggregate / summary over the decoded rows.
- *
- * @remarks
- * The walk is an explicit POST-ORDER traversal from the roots: a declared
- * parent whose children are themselves declared parents aggregates their
- * DERIVED cells, so nesting composes to arbitrary depth — and it is correct
- * for ANY container order. (It used to walk the flat array in reverse, which
- * was only right while that array happened to be depth-first; under a keyed
- * collection a parent can sort before its children, and feeding a bottom-up
- * aggregation the wrong order yields wrong numbers, not an error — #568.)
- *
- * Rows outside the tree — a `parent` naming a key that does not exist — are
- * unreachable from the roots and derive nothing, exactly as they render
- * nothing (`visibleRows` walks the same tree).
- *
- * @param index - The row-tree index
- * @param ordinal - The ordinal axis's value → index map (orders ordinal cells; omit on other axes)
- * @returns Every derived number, keyed by row
- */
-export function derivePlan(index: PlanRowIndex, ordinal?: ReadonlyMap<string, number>): PlanDerived {
-    const bands = new Map<RowKey, DerivedBand[]>();
-    const heatCells = new Map<RowKey, HeatCellValue[]>();
-    const tableSeries = new Map<RowKey, TableSeriesValue[]>();
-    const groupSummary = new Map<RowKey, HeatCellValue[]>();
-    const groupSummaryScale = new Map<RowKey, HeatScale>();
-    const groupMembers = new Map<RowKey, number>();
-    // A row's effective cells — its own, or (for declared parents) its
-    // already-derived cells from the bottom-up walk.
-    const resolvedHeatCells = (row: PlanRowValue): readonly HeatCellValue[] => {
-        const own = heatCellsOf(row);
-        if (own.length > 0) return own;
-        return heatCells.get(row.key) ?? [];
-    };
-    const resolvedTableSeries = (row: PlanRowValue): readonly TableSeriesValue[] => {
-        if (row.kind.type !== "table") return [];
-        const own = tableRollupSeries(row.kind.value.series);
-        if (own.length > 0) return own;
-        return tableSeries.get(row.key) ?? [];
-    };
-    const visit = (row: PlanRowValue): void => {
-        const children = index.children.get(row.key) ?? [];
-        // Descendants first — a declared parent reads its children's DERIVED
-        // cells, which must already be in the maps.
-        for (const child of children) visit(child);
-        const kind = row.kind;
-        if (kind.type === "span" && kind.value.rollup.type === "some") {
-            const unit = kind.value.unit.type === "some" ? kind.value.unit.value : undefined;
-            const runs = [...kind.value.runs, ...subtreeRuns(index, row.key)];
-            bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, unit, ordinal));
-        }
-        if (kind.type === "heat" && kind.value.aggregate.type === "some"
-            && heatCellsOf(row).length === 0 && children.length > 0) {
-            heatCells.set(row.key, deriveHeatCells(
-                children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type, ordinal));
-        }
-        if (kind.type === "table" && kind.value.aggregate.type === "some"
-            && tableRollupSeries(kind.value.series).length === 0 && children.length > 0) {
-            const positions = children.map(resolvedTableSeries).filter((p) => p.length > 0);
-            if (positions.length > 0) {
-                tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type, ordinal));
-            }
-        }
-        if (kind.type === "group") {
-            groupMembers.set(row.key, children.length);
-            if (kind.value.summaryAggregate.type === "some") {
-                const mode = kind.value.summaryAggregate.value.type;
-                groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode, ordinal));
-                const scale = inheritedScale(children, mode);
-                if (scale !== undefined) groupSummaryScale.set(row.key, scale);
-            }
-        }
-    };
-    for (const root of index.roots) visit(root);
-    return { bands, heatCells, tableSeries, groupSummary, groupSummaryScale, groupMembers };
-}
-
-// ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────
-
-/** Every row key any link edge touches — the rows that grow the `links` control. */
-export function linkedRowKeys(links: readonly PlanLinkValue[]): ReadonlySet<RowKey> {
-    const out = new Set<RowKey>();
-    for (const l of links) { out.add(l.fromRow); out.add(l.toRow); }
-    return out;
-}
-
-/** One elided run in a links focus — replaces N consecutive unrelated rows. */
-export interface FocusGap {
-    /** Stable key (the first elided row's key). */
-    key: string;
-    /** Data rows hidden inside the run (collapsed subtrees counted through). */
-    rows: number;
-    /** Group bands hidden inside the run. */
-    groups: number;
-    /** Pessimistic status tone across the hidden rows (undefined ⇒ quiet). */
-    tone: string | undefined;
-}
-
-/**
- * A run of source elements that is NOT resident (#577), rendered as one band.
- *
- * Its height comes from the window ledger, so the band and the rows that
- * replace it occupy exactly the same space — scrolling in loads content without
- * moving anything below it, and eviction puts the band back with nothing
- * shifting either.
- */
-export interface PlanBand {
-    at: "head" | "tail";
-    /** First source element the band covers. */
-    from: number;
-    /** Last source element the band covers (inclusive). */
-    to: number;
-    /** The band's pixel height. */
-    px: number;
-}
-
-/** One line of the canvas body: a row, the R2 developer render, an elided run
- *  (R1), or an unloaded run of the source (#577).
- *
- *  The R2 developer render is NOT an item here — it renders inside the
- *  focused row, which grows to hold it (see {@link PlanFocusCtx.renderPx}).
- *  Expand focus still stays inside the virtualizer either way; putting the
- *  render in the row is what lets the GUTTER grow with it. */
-export type PlanBodyItem =
-    | { kind: "row"; row: VisibleRow }
-    | { kind: "gap"; gap: FocusGap }
-    | { kind: "band"; band: PlanBand };
-
-/** Status severity rank — higher is worse; gaps wear the worst hidden tone. */
-const TONE_RANK: Record<string, number> = { info: 1, neutral: 1, success: 0, warning: 2, danger: 3 };
-
-/**
- * Elide a links-focus row list for scale (R1): family rows and the focus keep
- * full height; a group keeps its wayfinding band ONLY while its subtree holds
- * family; every other row is elidable. A lone elidable data row stays an 11px
- * rail (today's rhythm); any longer run — including family-less group bands
- * and their subtrees — coalesces into ONE double-height gap band, so a
- * thousand-tank canvas gathers to family + a handful of bands.
- */
-export function elideForFocus(
-    vis: ReadonlyArray<VisibleRow>,
-    index: PlanRowIndex,
-    focus: PlanFocusCtx,
-): PlanBodyItem[] {
-    const kept = (key: RowKey): boolean => key === focus.key || (focus.family?.has(key) ?? false);
-    // "Does this group's subtree hold family?" precomputed as the kept keys'
-    // ancestor set — O(family × depth), not a per-row downward recursion
-    // (#616; the same fix as `visibleRows`' reveal test).
-    const keptAncestors = ancestorsOf(index, new Set([focus.key, ...(focus.family ?? [])]));
-    const subtreeHasFamily = (key: RowKey): boolean => keptAncestors.has(key);
-    const subtreeDataRows = (key: RowKey): number =>
-        (index.children.get(key) ?? []).reduce(
-            (n, c) => n + (c.kind.type === "group" ? 0 : 1) + subtreeDataRows(c.key), 0);
-    const worse = (a: string | undefined, b: string | undefined): string | undefined =>
-        b === undefined ? a : a === undefined || (TONE_RANK[b] ?? 0) > (TONE_RANK[a] ?? 0) ? b : a;
-
-    const out: PlanBodyItem[] = [];
-    let run: VisibleRow[] = [];
-    const flush = () => {
-        if (run.length === 0) return;
-        if (run.length === 1 && run[0]!.row.kind.type !== "group") {
-            out.push({ kind: "row", row: run[0]! });
-        } else {
-            const gap: FocusGap = { key: `gap-${run[0]!.row.key}`, rows: 0, groups: 0, tone: undefined };
-            for (const v of run) {
-                if (v.row.kind.type === "group") {
-                    gap.groups += 1;
-                    // A collapsed elided group hides its whole subtree —
-                    // count those rows through, they're part of the gap.
-                    if (v.collapsed) gap.rows += subtreeDataRows(v.row.key);
-                } else {
-                    gap.rows += 1;
-                }
-                gap.tone = worse(gap.tone, v.row.status.type === "some" ? v.row.status.value.type : undefined);
-            }
-            out.push({ kind: "gap", gap });
-        }
-        run = [];
-    };
-    for (const v of vis) {
-        const isGroup = v.row.kind.type === "group";
-        const keep = kept(v.row.key) || (isGroup && subtreeHasFamily(v.row.key));
-        if (keep) {
-            flush();
-            out.push({ kind: "row", row: v });
-        } else {
-            run.push(v);
-        }
-    }
-    flush();
-    return out;
-}
-
-/** A focused row's transitive family over the link graph. */
-export interface LinkFamily {
-    /** Rows reaching the focus via edges (any depth). */
-    upstream: ReadonlySet<RowKey>;
-    /** Rows reachable from the focus via edges (any depth). */
-    downstream: ReadonlySet<RowKey>;
-    /** Union of both (the full-height set, focus excluded). */
-    all: ReadonlySet<RowKey>;
-}
-
-/**
- * Derive the focused row's transitive upstream + downstream family — the
- * links-focus gather set (R1). Any depth, wherever the rows live; a row
- * reachable both ways lands in both sets (rendered as the `LINKED` tag).
- */
-export function deriveLinkFamily(links: readonly PlanLinkValue[], key: RowKey): LinkFamily {
-    const fwd = new Map<RowKey, RowKey[]>();
-    const rev = new Map<RowKey, RowKey[]>();
-    for (const l of links) {
-        (fwd.get(l.fromRow) ?? fwd.set(l.fromRow, []).get(l.fromRow)!).push(l.toRow);
-        (rev.get(l.toRow) ?? rev.set(l.toRow, []).get(l.toRow)!).push(l.fromRow);
-    }
-    const walk = (edges: ReadonlyMap<RowKey, RowKey[]>): Set<RowKey> => {
-        const seen = new Set<RowKey>();
-        const queue = [key];
-        while (queue.length > 0) {
-            const k = queue.pop()!;
-            for (const next of edges.get(k) ?? []) {
-                if (next === key || seen.has(next)) continue;
-                seen.add(next);
-                queue.push(next);
-            }
-        }
-        return seen;
-    };
-    const downstream = walk(fwd);
-    const upstream = walk(rev);
-    return { upstream, downstream, all: new Set([...upstream, ...downstream]) };
+    return skeletonHeight(windowSkeleton(windowRows, axisKind), restUi(grain), dense);
 }

@@ -9,7 +9,9 @@
  * Lifted from the Planner's review chrome (PR #76) so every grid surface
  * (Table, Roster, Board, Plan) speaks one approval vocabulary and
  * wears identical chrome: a per-subject Approve / Reject **decision column**
- * plus a batch **`commitBar` foot** (Approve all / Reject all / Rerun).
+ * plus a batch **`commitBar` foot** (Approve all / Reject all / Rerun). The
+ * Plan speaks the same verdicts through the same chrome, but drafts them in
+ * its editing session (#880) rather than through these callbacks.
  *
  * The vocabulary is deliberately two-axis:
  *

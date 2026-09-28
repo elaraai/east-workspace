@@ -11,13 +11,13 @@ import { fas } from "@fortawesome/free-solid-svg-icons";
 import { far } from "@fortawesome/free-regular-svg-icons";
 import { fab } from "@fortawesome/free-brands-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { IconButton, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 library.add(fas, far, fab);
 
-const iconButtonEqual = equalFor(IconButton.Types.IconButton);
+const iconButtonEqual = equivalentFor(IconButton.Types.IconButton);
 
 /** East IconButton value type — label required on main; state + behaviour on main. */
 export type IconButtonValue = ValueTypeOf<typeof IconButton.Types.IconButton>;

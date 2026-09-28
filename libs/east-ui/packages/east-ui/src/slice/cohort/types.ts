@@ -49,6 +49,12 @@ export type SliceCohortModeType = typeof SliceCohortModeType;
  *                             (default) = toggling chips + pencil/`+ cohort` authoring.
  * @property allowCreate     - Show the `+ cohort` authoring pill. Defaults to
  *                             true in `manage` mode, false in `toggle` mode.
+ * @property group           - Show ONE family only: the cohorts whose `group`
+ *                             equals it, uncaptioned — for a host that mounts
+ *                             one surface per family. Absent = every cohort,
+ *                             the standalone ones first and each family as its
+ *                             own captioned run. Appended last: wire-order
+ *                             compatibility.
  */
 export const SliceCohortPickerType = StructType({
     slice:           SliceBindType,
@@ -59,5 +65,6 @@ export const SliceCohortPickerType = StructType({
     editOpen:        OptionType(BooleanType),
     mode:            OptionType(SliceCohortModeType),
     allowCreate:     OptionType(BooleanType),
+    group:           OptionType(StringType),
 });
 export type SliceCohortPickerType = typeof SliceCohortPickerType;

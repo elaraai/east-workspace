@@ -322,6 +322,10 @@ the same on east-c or east-node. Paths are relative to the working directory;
 `set_location_base_path(dir)` (from `east`) pins the base for reproducible
 fixtures. An error inside a callback a builtin invokes (`arr.map(...)` and
 friends) resolves to the builtin's call site, on every runner.
+`set_location_capture(False)` (from `east`) builds without recording any
+locations: there is then no stack walk per node, and an error raised by such a
+function carries no location. Binding names are read separately and keep
+working. The TypeScript twin is `setLocationCapture`.
 
 ### Every body takes the block first — the TypeScript `$` twin
 

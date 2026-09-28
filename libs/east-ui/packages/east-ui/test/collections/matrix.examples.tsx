@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, NullType, RecursiveType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Badge, Box, Configurator, Matrix, Reactive, SegmentGroup, Slider, Text, VStack } from "@elaraai/east-ui";
 
@@ -13,21 +13,47 @@ import { Badge, Box, Configurator, Matrix, Reactive, SegmentGroup, Slider, Text,
 // examples).
 // ============================================================================
 
+/** A resource — a team, or a person on it (#955). A team is a row of its own: its bars are the team's booking. */
+const Resource = RecursiveType((self) => StructType({
+    name: StringType,
+    role: StringType,
+    booked: DictType(StringType, FloatType),
+    members: ArrayType(self),
+}));
+
+/** A booking row — a team (`team` empty) or a person on one (#955): one struct, so a team's children are a lookup among the rows. */
+const Booking = StructType({
+    name: StringType,
+    role: StringType,
+    team: StringType,
+    booked: DictType(StringType, FloatType),
+});
+
+/** Two teams and their people; a team's own booking is its people's mean. */
+const TEAMS = [
+    { name: "Web", role: "Team", booked: new Map([["mon", 0.40], ["tue", 0.65], ["wed", 0.575], ["thu", 0.675], ["fri", 0.40]]), members: [
+        { name: "Alice", role: "Senior PM", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85], ["thu", 0.60], ["fri", 0.30]]), members: [] },
+        { name: "Bob", role: "Designer", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30], ["thu", 0.75], ["fri", 0.50]]), members: [] },
+    ] },
+    { name: "Batch", role: "Team", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90], ["thu", 0.20], ["fri", 0.65]]), members: [
+        { name: "Carol", role: "Engineer", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90], ["thu", 0.20], ["fri", 0.65]]), members: [] },
+    ] },
+];
+
 /**
- * Heat-grid — rows × days, each cell a booked/free weight bar, rows grouped by
- * team. The base configuration: utilisation read as bar fill, no labels.
+ * Heat-grid — resources × days, each cell a booked/free weight bar. People nest
+ * under their teams (#955): a team is a full row with its own bars, and its
+ * caret folds its people. The base configuration: utilisation read as bar
+ * fill, no labels.
  */
 export const matrixHeatGrid = example({
-    keywords: ["Matrix", "heat-grid", "segment", "booked", "free", "group", "groupBy", "utilization", "capacity"],
-    description: "Heat-grid: resources × days, each cell a booked/free weight bar; rows grouped by team",
-    fn: East.function([], UIComponentType, (_$) => {
+    keywords: ["Matrix", "heat-grid", "segment", "booked", "free", "tree", "children", "nested", "RecursiveType", "team", "utilization", "capacity", "#955"],
+    description: "Heat-grid: resources × days, each cell a booked/free weight bar; people nest under their teams, each team a row with its own bars",
+    fn: East.function([], UIComponentType, ($) => {
+        const teams = $.const(TEAMS, ArrayType(Resource));
         return (
             <Matrix
-                data={[
-                    { name: "Alice", role: "Senior PM", team: "Web", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85], ["thu", 0.60], ["fri", 0.30]]) },
-                    { name: "Bob", role: "Designer", team: "Web", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30], ["thu", 0.75], ["fri", 0.50]]) },
-                    { name: "Carol", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90], ["thu", 0.20], ["fri", 0.65]]) },
-                ]}
+                data={teams}
                 columns={[
                     Matrix.column({ key: "mon", label: "Mon" }),
                     Matrix.column({ key: "tue", label: "Tue" }),
@@ -38,7 +64,7 @@ export const matrixHeatGrid = example({
                 rowKey={r => r.name}
                 rowHeader="Resource"
                 rowSublabel={r => r.role}
-                groupBy={r => r.team}
+                tree={{ children: (r) => r.members }}
                 cell={(r, col) => Matrix.cell({ segments: [
                     Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
                     Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
@@ -51,7 +77,9 @@ export const matrixHeatGrid = example({
 });
 
 /**
- * THE Matrix configurator (pass 5) — ONE live 200-row allocation grid: the
+ * THE Matrix configurator (pass 5) — ONE live 200-row allocation grid, its
+ * people nested under two teams (#955), each team a row with its own bars —
+ * a team's children LOOKED UP among flat rows (the data holds the teams): the
  * orientation axis feeds every cell's orientation override, the size axis
  * feeds the maxHeight / height expressions (auto / bounded scroll / fill — an
  * empty size reads as unbounded), markers fire from the DATA (overbooked
@@ -59,30 +87,27 @@ export const matrixHeatGrid = example({
  * aside.
  */
 export const matrixVariants = example({
-    keywords: ["Matrix", "segment", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick", "maxHeight", "bounded", "fill", "#320", "group", "groupBy", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
-    description: "Matrix configurator — orientation and size axes on one live 200-row grid; markers fire from the data, popovers compose on every cell, segment drags log to the aside",
-    fn: East.function([], UIComponentType, (_$) => {
-        const MATRIX_BOOKED_SHAPES = [
+    keywords: ["Matrix", "segment", "drag", "resize", "onSegmentChange", "minLabelSize", "weight", "allocation", "vertical", "orientation", "capacity", "stacked", "utilization", "bar", "marker", "status", "ring", "corner", "tooltip", "danger", "warning", "overbooked", "popover", "click", "detail", "onCellClick", "maxHeight", "bounded", "fill", "#320", "tree", "children", "nested", "lookup", "filter", "#955", "Reactive", "State", "SegmentGroup", "Configurator", "getTag", "configurator"],
+    description: "Matrix configurator — orientation and size axes on one live 200-row grid nested under two teams; markers fire from the data, popovers compose on every cell, segment drags log to the aside",
+    fn: East.function([], UIComponentType, ($) => {
+        const shapes = $.const([
             new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]),
             new Map([["mon", 0.90], ["tue", 0.30], ["wed", 0.55]]),
             new Map([["mon", 0.20], ["tue", 0.95], ["wed", 0.40]]),
             new Map([["mon", 0.60], ["tue", 0.50], ["wed", 0.75]]),
-        ];
-        const MATRIX_GRID_DATA = East.Array.range(0n, 200n).map((_$, i) => ({
+        ], ArrayType(DictType(StringType, FloatType)));
+        // 200 people, 100 on each team.
+        const people = $.let(East.Array.range(0n, 200n).map((_$, i) => ({
             name: East.str`Res ${i}`,
             role: i.remainder(3n).equals(0n).ifElse(() => "Senior PM", () => "Engineer"),
             team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
-            booked: i.remainder(4n).equals(0n).ifElse(
-                () => MATRIX_BOOKED_SHAPES[0]!,
-                () => i.remainder(4n).equals(1n).ifElse(
-                    () => MATRIX_BOOKED_SHAPES[1]!,
-                    () => i.remainder(4n).equals(2n).ifElse(
-                        () => MATRIX_BOOKED_SHAPES[2]!,
-                        () => MATRIX_BOOKED_SHAPES[3]!,
-                    ),
-                ),
-            ),
-        }));
+            booked: shapes.get(i.remainder(4n)),
+        })), ArrayType(Booking));
+        // The two teams — the top-level rows, each with its own booking.
+        const teams = $.let([
+            { name: "Web", role: "Team", team: "", booked: shapes.get(3n) },
+            { name: "Batch", role: "Team", team: "", booked: shapes.get(1n) },
+        ], ArrayType(Booking));
         return (
         <Reactive>{$ => {
             const orientations = $.const([
@@ -129,7 +154,7 @@ export const matrixVariants = example({
                     preview={
                         <Box width="100%" height={boxHeight} overflow="hidden">
                             <Matrix
-                                data={MATRIX_GRID_DATA}
+                                data={teams}
                                 columns={[
                                     Matrix.column({ key: "mon", label: "Mon" }),
                                     Matrix.column({ key: "tue", label: "Tue" }),
@@ -138,7 +163,7 @@ export const matrixVariants = example({
                                 rowKey={r => r.name}
                                 rowHeader="Resource"
                                 rowSublabel={r => r.role}
-                                groupBy={r => r.team}
+                                tree={{ children: (r) => people.filter((_$, p) => p.team.equal(r.name)) }}
                                 minLabelSize={28.0}
                                 cell={(r, col) => Matrix.cell({
                                     orientation,
@@ -180,7 +205,7 @@ export const matrixVariants = example({
                         ),
                     }}
                     spec={[
-                        Configurator.Spec("Rows", "200 · grouped"),
+                        Configurator.Spec("Rows", "200 · two teams"),
                     ]}
                 />
             );

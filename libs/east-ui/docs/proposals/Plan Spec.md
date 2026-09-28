@@ -903,6 +903,28 @@ Non-negotiable transition rules (unit-tested as a table):
   `a`/`r` → apply/reject the focused decision (delegates to review
   controller) · `⌘wheel` → zoom about cursor (emits `slice.setRange`).
 
+  > **REVISED 2026-09-24 — the shipped map is a treegrid's (#819).** The body
+  > is a `treegrid`: every row, group band, ⋯ gap band and paged-window band
+  > (loading or failed) is a `row` at its `aria-rowindex`, written onto the
+  > row from one positions store so a collapse or a landing window renumbers
+  > without rendering a row (`root/grid.ts`), with ONE tab stop roving
+  > between them. The map is a pure model (`root/keyboard.ts`): ↑ / ↓ step,
+  > Home / End go to the first / last, PgUp / PgDn move a viewport (stopping
+  > on a band), → / ← open / close a section or `expandable` chart and step
+  > to its first child / its parent, Enter does the row's click (selection is
+  > idempotent — drilling is the row's own expand control), Space toggles. A
+  > step onto an unloaded band demands its window and moves on to the row
+  > once it lands. Tab walks a row's widgets (controls, elements in time
+  > order, the expand render's tabbables, review buttons); ← / → step its
+  > elements; Enter / Space on an element does its click (popover, row
+  > selection, the element callback); Esc returns to the row, then runs the
+  > ladder. The canvas-wide keys are `esc` · `n` · `[` `]` · `g`; `/`, `f`,
+  > `a` / `r` and `⌘wheel` are not bound (search and filter are the slice
+  > chrome's own controls, and Tab reaches the decision column's buttons). A
+  > polite live region (`root/announce.tsx`) announces selection, collapse,
+  > row focus, grain, resolution and window landings, and every element and
+  > colour-only cell has words (`a11y.ts`).
+
 The component runs effects in one place (`runEffects`): slice writes through
 the bind handle, East callbacks via `queueMicrotask` (the mandatory
 interactive-state pattern), scrolls via the virtualizer handle.
@@ -969,8 +991,10 @@ review gate. All numerals `font-mono` with `"tnum" 1`.
 **Verification loop** (mandatory, per `[east-ui mock fidelity]`): screenshot
 the HTML spec per-section via `?only=sN` (+ `?theme=dark`) at native zoom;
 render the matching Plan example via `e3-ui shot`; compare side-by-side and
-iterate until they match. The showcase gains Plan golden specs; the §1 target
-state becomes the flagship shot.
+iterate until they match. The §1 target state becomes the flagship shot. The
+loop is review, not a CI gate: the showcase's responsive suite asserts the
+Plan's geometry in the DOM (`plan-geometry.spec.ts`), and holds no pixel
+goldens (#833).
 
 ---
 
@@ -1047,7 +1071,10 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
   `data-state="obs|appr|prop"`, `data-stuck`, `data-over`), review optimism,
   drag probe with canDrop veto (⊘), cursor readout, virtualisation windows.
 - **Shots** — per-§ side-by-sides vs `?only=sN` captures, light + dark,
-  desktop + 356pt; goldens in the showcase.
+  desktop + 356pt, for review.
+- **Browser geometry** — the showcase's responsive suite measures the
+  rendered Plan against its model (`plan-geometry.spec.ts`: item heights,
+  ribbon registration). It holds no pixel goldens (#833).
 
 ---
 
