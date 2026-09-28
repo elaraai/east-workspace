@@ -272,7 +272,8 @@ its children, Struct fields in declared order and Dict entries in key order.
 Array<String>, one
 
 **Assignment.** `=`, `|=`, `+=`, `-=`, `*=`, `/=`, `%=` and `//=` follow jq
-1.8's path semantics, typed as §5 types construction.
+1.8's path semantics, typed as §5 types construction, over the paths §15.5
+lists (§13.23).
 
 ```jq
 first(.orders[]) | .total += 1 | .total
@@ -879,6 +880,10 @@ before a type is `an` before a vowel.
 | `type_mismatch` | type_mismatch: {form} needs {a\|an} {K} key; {key} is {T}. |
 | `type_mismatch` | type_mismatch: {key} is {T}, and a dict's keys must be immutable. |
 | `type_mismatch` | type_mismatch: .[a:b] needs Integer bounds, got {T}. |
+| `type_mismatch` | type_mismatch: {form} is updated with an array, not {T}. |
+| `type_mismatch` | type_mismatch: {form} cannot update part of a string; update the whole string. |
+| `unsupported` | unsupported: {key} gives more or fewer than one value; an update's keys and bounds give one each. |
+| `type_mismatch` | type_mismatch: an update through {path} keeps each value's type, but here {A} would become {B}. |
 | `type_mismatch` | type_mismatch: {form} on a struct needs a literal field name; a computed name needs a dict. |
 | `type_mismatch` | type_mismatch: {op} compares {L} with {R}. |
 | `type_mismatch` | type_mismatch: Integer == Float is never true here. |
@@ -969,13 +974,17 @@ interpolates only the pattern's named groups.
 
 ### 13.9 `tostring` and `tojson` are East's
 
-`tostring` prints a non-string as East text, and `tojson` uses East's JSON
-codec.
+`tostring` prints a non-string as East text, and so do string interpolation,
+`@text`, `@html`, `@uri`, `@base64` and `@base32`, which jq defines by it: a
+whole Float prints as `3.0`, where jq prints `3`. `tojson` and `@json` use
+East's JSON codec, which writes an Integer as a string (`"5"`). `join`,
+`@csv`, `@tsv` and `@sh` print a number as jq does (`3`, `2.5`).
 
 ### 13.10 Order is East's total order
 
 `sort`, `group_by`, `unique`, `min`, `max` and `keys` order values as East
-does (§11).
+does (§11). NaN is the greatest number, where jq orders it below every
+number: `[1.0, nan] | sort` keeps NaN last, and jq puts it first.
 
 ### 13.11 Function values are callable, and inspecting them is tooling
 
@@ -1018,7 +1027,8 @@ A builtin with no definition by East's builtins is `unsupported`, saying why
 and integers; `JOIN`, whose pairs mix two types; `fromjson`, whose result has
 no static type; `implode`, `explode`, `@base64d` and `@base32d`; the capture
 builtins (§13.8); `have_decnum` and `have_literal_numbers`; and the math
-builtins East's Float lacks (`atan`, `cbrt`, `gamma`, …).
+builtins East's Float lacks (`atan`, `cbrt`, `gamma`, …). `builtins` lists
+those a query may call, each arity once: 158 names where jq 1.8.1 lists 226.
 
 ### 13.18 `ascii_downcase` and `ascii_upcase` map all of Unicode
 
@@ -1044,6 +1054,31 @@ raises an error.
 
 A variant reads as `{type, value}` (§8), but `.[]` on one is `not_iterable`,
 and `iterables` drops it: read `.type` and `.value`.
+
+### 13.23 An update's path is a subset of jq's, and keeps types
+
+An update's path is made of field reads, indexes, slices, `.[]`, a variant's
+`.value`, `select`, the type selectors (`numbers`, `strings`, …), `empty`,
+`..`, `recurse`, `recurse(.a[])` and `|` (§15.5). `,`, `if`, `//`,
+`first(f)` and a `def` there are `unsupported`, and an index or a slice bound
+gives one value. Along these paths:
+
+- a struct field an update never gives a value is removed, as jq removes the
+  key; one it gives no value only sometimes raises an error there, since a
+  struct cannot lose a field for some values and keep it for others;
+- an index past the end of an array raises an error, where jq pads the array
+  with nulls;
+- an update through `..` or `recurse` gives each value it reaches back with
+  its own type: `(.. | numbers) |= . * 1.5` on Integers is a type error, where
+  jq mixes the types;
+- a variant's `.type` is not updated, and `..` walks through a variant to its
+  payload, not its case's name.
+
+### 13.24 `reduce` and `foreach` keep their state through an update with no output
+
+Where the update gives no output for an element, the state stays as it was:
+`reduce range(3) as $x (1; if $x == 1 then empty else . * 2 end)` is `4`. jq
+1.8 makes the state `null` there, and raises an error at `null * 2`.
 
 ---
 
@@ -1235,8 +1270,9 @@ first(.orders[] | select(.total > 1000)) | .id
   raises no error.
 - **`reduce` and `foreach`** loop over the source with an accumulator of the
   checker's settled type (§5). The update runs on the state as it was, and its
-  last output becomes the state; `foreach` gives each of its outputs, through
-  `extract` when there is one.
+  last output becomes the state, which stays as it was when the update gives
+  none (§13.24); `foreach` gives each of its outputs, through `extract` when
+  there is one.
 - **Errors are East errors.** `error(v)` raises `v`'s East text (§13.14). An
   arithmetic error is the builtin's own (`Division by zero` from an integer
   `%`); `/` by zero raises `Division by zero`, as jq raises an error.
@@ -1268,17 +1304,45 @@ def fact: if . <= 1 then 1 else . * (. - 1 | fact) end; 5 | fact
 
 ### 15.5 Updates
 
-`=`, `|=` and the arithmetic updates rebuild the value along their path:
-fields, indexes and keys, `.[]`, `select(f)` and `|` of these. A new field
-gives the Struct type the checker inferred (§5).
+`=`, `|=` and the arithmetic updates rebuild the value along their path. A
+path is made of (§13.23):
 
-- `|=` takes the update's first output at each position; where it gives none,
-  an array element or a dict key is deleted, and a struct field, which cannot
-  be, is an error.
+- field reads, `.[k]` indexes and keys, `.[a:b]` slices and `.[]`, each with
+  `?` naming nothing on a value it does not apply to. An index's key and a
+  slice's bounds are taken on that step's own input, as in jq, and give one
+  value each;
+- a variant's `.value`: the payload, in each case narrowing leaves;
+- `select(f)` and the type selectors (`numbers`, `strings`, `objects`, …):
+  the value where the filter keeps it, narrowed as the filter narrows it, and
+  as it was elsewhere;
+- `empty`, which names nothing;
+- `..`, `recurse` and `recurse(.a.b[])`, which walk the value in pre-order:
+  each value is updated, then the values inside it that it had before its own
+  update, so what an update adds is not walked. Each value keeps its type, and
+  a recursive value is walked by a function reached through a reference;
+- `|` of these.
+
+A new field gives the Struct type the checker inferred (§5).
+
+- `|=` takes the update's first output at each position. Where it gives none,
+  an array element, a slice or a dict key is deleted, all at once as jq 1.8
+  deletes them (`(.[] | select(. > 1)) |= empty` on `[3, 1, 2]` is `[1]`); a
+  struct field is removed where the update never gives a value (§13.23); and
+  `.` itself is `null`.
 - `=` and `op=` take their value on `.`, once for each of its outputs.
 - `del(p)` deletes every path `p` names at once, each path's indexes and bounds
   taken on the input, as jq deletes them: `del(.[0], .[2])` on `[1, 2, 3, 4]`
   is `[2, 4]`.
+
+```jq
+.orders[:4] | map(.id) | .[1:3] |= map(. * 10)
+```
+→ `[1001, 10020, 10030, 1004]` · Array<Integer>, one
+
+```jq
+.bom | (recurse(.children[]) | .cost) |= . * 2 | [recurse(.children[]) | .cost] | add
+```
+→ `554.3000000000001` · Float, one (every part's cost doubled)
 
 ### 15.6 Inputs and paging
 

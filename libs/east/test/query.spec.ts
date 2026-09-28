@@ -13,7 +13,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  ArrayType, DictType, EastError, East, Expr, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
+  ArrayType, DictType, EastError, East, Expr, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
   SummaryLeafType, SummaryType, checkJq, compareFor, equalFor, evaluateJq, printFor, QueryError, some, summaryProgram, translateJq,
   type EastType, type ValueTypeOf,
 } from "../src/index.js";
@@ -283,6 +283,32 @@ describe("the translation", () => {
     const Numbers = ArrayType(IntegerType);
     assertValue(Numbers, evaluateJq("map_values(select(. > 1))", [1n, 2n, 3n], { inputType: Numbers }), [2n, 3n]);
     assertValue(Numbers, evaluateJq(".[] |= empty", [1n, 2n, 3n], { inputType: Numbers }), []);
+  });
+
+  test("an update's index past the end of an array is an error, where jq pads with nulls (§13.23)", () => {
+    assert.throws(() => evaluateJq(".[5] |= 3", [1n, 2n], { inputType: ArrayType(IntegerType) }), (e: unknown) => {
+      assert.ok(e instanceof QueryError);
+      assert.equal(e.diagnostics[0]!.code, "runtime");
+      return true;
+    });
+  });
+
+  test("a struct field an update gives no value only sometimes raises an error there (§13.23)", () => {
+    const Point = StructType({ x: IntegerType, y: IntegerType });
+    assertValue(Point, evaluateJq(".x |= select(. > 0)", { x: 1n, y: 2n }, { inputType: Point }), { x: 1n, y: 2n });
+    assert.throws(() => evaluateJq(".x |= select(. > 0)", { x: -1n, y: 2n }, { inputType: Point }), /cannot be deleted/);
+  });
+
+  test("a walk updates the values inside a value that it had before its own update, as jq's paths are", () => {
+    const Part = RecursiveType(self => StructType({ children: ArrayType(self), sku: StringType }));
+    const tree = { children: [{ children: [{ children: [], sku: "C" }], sku: "B" }], sku: "A" };
+    const skus = evaluateJq("(.. | objects | .children) |= . + . | [recurse(.children[]) | .sku]", tree, { inputType: Part });
+    assertValue(ArrayType(StringType), skus, ["A", "B", "C", "C", "B", "C"]);
+  });
+
+  test("a literal the checker made a Float for one kind of value stays whole for another", () => {
+    const Row = StructType({ n: IntegerType, x: FloatType });
+    assertValue(Row, evaluateJq("(.. | numbers) |= . + 1", { n: 1n, x: 0.5 }, { inputType: Row }), { n: 2n, x: 1.5 });
   });
 
   test("evaluateJq caches a query's compiled function", () => {

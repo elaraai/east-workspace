@@ -31,7 +31,7 @@ import {
   ArrayType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NeverType, NullType, OptionType, RefType,
   StringType, StructType, VariantType, isSubtype, isTypeEqual, printType, type EastType,
 } from "../../types.js";
-import type { CheckJqResult } from "./check.js";
+import { UPDATE_SELECTORS, walkSteps, type CheckJqResult } from "./check.js";
 import { casesOf, membersOf, nullablePayload, unify, unifyShape, unwrap, type Facts, type Result, type Shape } from "./shapes.js";
 import { childPath, jqChildren, toQuerySpan, type JqNode, type JqPattern } from "./spans.js";
 import { BUILTIN_RULES, FORMATS } from "./translate-builtins.js";
@@ -114,6 +114,17 @@ export interface Update {
   readonly value: Expr;
   readonly optional: boolean;
 }
+
+/**
+ * What gives a position's new value in an update, from its old value: the
+ * new value, or `undefined` when the update never gives one there.
+ *
+ * @internal
+ */
+export type UpdateFn = ($: Block, old: Expr) => Update | undefined;
+
+/** What walks one position of `..` in an update: its value now, and its value before any update, whose positions are walked. */
+type WalkFn = ($: Block, current: Expr, old: Expr) => Update | undefined;
 
 /** A `def` or a filter parameter in scope. */
 type Binding =
@@ -246,10 +257,19 @@ export class Translator {
     return this.value(null, NullType, path);
   }
 
-  /** A value as a wider type it is a subtype of. */
+  /**
+   * A value as a wider type it is a subtype of. A recursive type equals its
+   * node to East's type checks, but a value passes between the two through
+   * its wrapper, which this adds or takes away.
+   */
   as(e: Expr, type: EastType): Expr {
-    if (isTypeEqual(this.type(e), type)) return e;
-    if (!isSubtype(this.type(e), type)) throw this.gap(`${printType(this.type(e))} is not a ${printType(type)}`);
+    const from = this.type(e);
+    if (type.type === "Recursive" && from.type !== "Recursive" && from.type !== "Never") {
+      return this.mk({ ast_type: "WrapRecursive", type, loc_id: UNKNOWN_LOC_ID, value: this.ast(this.as(e, type.node as EastType)) });
+    }
+    if (from.type === "Recursive" && type.type !== "Recursive") return this.as(this.open(e), type);
+    if (isTypeEqual(from, type)) return e;
+    if (!isSubtype(from, type)) throw this.gap(`${printType(from)} is not a ${printType(type)}`);
     return this.mk({ ast_type: "As", type, loc_id: UNKNOWN_LOC_ID, value: this.ast(e) });
   }
 
@@ -674,13 +694,16 @@ export class Translator {
    */
   widenTo($: Block, e: Expr, to: EastType, path: string): Expr {
     const from = this.type(e);
-    if (isTypeEqual(from, to)) return e;
+    if (isTypeEqual(from, to)) return this.as(e, to);
     if (from.type === "Never") return this.as(e, to);
     const toPayload = nullablePayload(to);
     if (toPayload !== undefined) {
       if (from.type === "Null") return this.none(to);
-      if (nullablePayload(from) !== undefined) {
-        if (isSubtype(from, to)) return this.as(e, to);
+      const fromPayload = nullablePayload(from);
+      if (fromPayload !== undefined) {
+        // An option of Never is always none; East's casts do not take a Never inside a type.
+        if (fromPayload.type === "Never") { this.bind($, e, "none"); return this.none(to); }
+        if (isSubtype(from, to) && !holdsNever(from)) return this.as(e, to);
         return this.matchValue(e, {
           none: () => this.none(to),
           some: ($2, p) => this.some(this.widenTo($2, p, toPayload, path), to),
@@ -698,9 +721,14 @@ export class Translator {
       const c = this.constant(e);
       if (c !== undefined && Number.isInteger(c.value as number)) return this.int(c.value as number, path);
     }
-    if (isSubtype(from, to)) return this.as(e, to);
+    if (isSubtype(from, to) && !holdsNever(from)) return this.as(e, to);
     const f = this.type(this.open(e));
     const t = to.type === "Recursive" ? to.node as EastType : to;
+    // A collection of Never is always empty: it is an empty one of the wider type.
+    const empty = (value: unknown): Expr => { this.bind($, e, "empty"); return this.as(this.value(value, t), to); };
+    if (f.type === "Array" && t.type === "Array" && (f.value as EastType).type === "Never") return empty([]);
+    if (f.type === "Dict" && t.type === "Dict" && (f.value as EastType).type === "Never") return empty(new Map());
+    if (f.type === "Set" && t.type === "Set" && (f.key as EastType).type === "Never") return empty(new Set());
     if (f.type === "Array" && t.type === "Array") {
       const out = this.declare($, this.emptyArray(t.value as EastType), "array");
       this.forEach($, e, ($2, item) => this.push($2, out, item, path), path);
@@ -742,7 +770,7 @@ export class Translator {
   emitAs($: Block, e: Expr, to: EastType, path: string, emit: Emit): void {
     if (this.ended($)) return;
     const from = this.type(e);
-    if (isTypeEqual(from, to)) { emit($, e); return; }
+    if (isTypeEqual(from, to)) { emit($, this.as(e, to)); return; }
     if (nullablePayload(to) === undefined) {
       if (from.type === "Null") return;
       if (nullablePayload(from) !== undefined) {
@@ -1452,13 +1480,25 @@ export class Translator {
       });
       return;
     }
+    // A literal the checker made a Float, for an instance of this node whose
+    // other operand is a Float, stays one in every instance; where this
+    // instance's result is an Integer, it is its whole number.
+    const integral = this.result(path, env);
+    const whole = integral !== null && unifyShape(integral.shape)?.type === "Integer";
     // jq takes the right side's outputs first, and the left side's for each.
     this.collected(right, rightPath, $, x, env, ($2, b) => {
       this.collected(left, leftPath, $2, x, env, ($3, a) => {
         if (COMPARISONS.has(op)) emit($3, this.compare($3, op, a, b, path));
-        else this.give($3, this.arith($3, op, a, b, path), emit);
+        else this.give($3, this.arith($3, op, whole ? this.integer(a, path) : a, whole ? this.integer(b, path) : b, path), emit);
       });
     });
+  }
+
+  /** A Float constant with a whole value, as an Integer; anything else as it is. */
+  private integer(e: Expr, path: string): Expr {
+    if (this.type(e).type !== "Float") return e;
+    const c = this.constant(e);
+    return c !== undefined && Number.isInteger(c.value as number) ? this.int(c.value as number, path) : e;
   }
 
   /** A comparison: East's order within a kind, jq's order across kinds (null, booleans, numbers, strings, arrays, objects). */
@@ -1941,13 +1981,13 @@ export class Translator {
     const input = this.expr(x, path);
     if (op === "|=") {
       // Each position's new value is the update's first output on the old one; none deletes it.
-      emit($, this.modify($, input, target, targetPath, env, x, ($2, old) => this.firstOf(value, valuePath, $2, old, env)));
+      emit($, this.whole(this.modify($, input, target, targetPath, env, ($2, old) => this.firstOf(value, valuePath, $2, old, env)), path));
       return;
     }
     // `=` and the arithmetic updates take their value on `.`, once for each of its outputs.
     this.collected(value, valuePath, $, x, env, ($2, v) => {
       const bound = this.bind($2, v, "update");
-      emit($2, this.modify($2, input, target, targetPath, env, x, ($3, old) => {
+      emit($2, this.whole(this.modify($2, input, target, targetPath, env, ($3, old) => {
         if (op === "=") return { value: bound, optional: false };
         const operator = op.slice(0, -1);
         if (operator === "//") {
@@ -1959,8 +1999,19 @@ export class Translator {
           return { value: cell, optional: false };
         }
         return { value: this.arith($3, operator, old, bound, path), optional: false };
-      }));
+      }), path));
     });
+  }
+
+  /** What an update gives: the value, `null` where it deleted `.` itself (an optional value's `none`), as jq gives it. */
+  private whole(update: Update | undefined, path: string): Expr {
+    return update === undefined ? this.null(path) : update.value;
+  }
+
+  /** The type of an update's new value: an optional one's payload. */
+  updateType(update: Update): EastType {
+    const t = this.type(update.value);
+    return update.optional ? parts(t).cases["some"]! : t;
   }
 
   /** The first output of a filter: exactly it when there is always one, else an option whose `none` is no output. */
@@ -1980,106 +2031,238 @@ export class Translator {
   }
 
   /**
-   * A value with the positions a path names replaced: `f` gives each
-   * position's new value from its old one.
+   * A value with the positions a path names updated: `f` gives each
+   * position's new value from its old one, or none, which deletes it.
+   *
+   * @returns the value updated; an option of it, none where `.` itself was
+   *   deleted; or `undefined` where it always is
    */
-  modify($: Block, v: Expr, target: JqNode, path: string, env: Env, root: Value, f: ($: Block, old: Expr) => Update | undefined): Expr {
+  modify($: Block, v: Expr, target: JqNode, path: string, env: Env, f: UpdateFn): Update | undefined {
+    const at = (step: string): string => childPath(path, step);
+    const present = (value: Expr): Update => ({ value, optional: false });
     switch (target.type) {
       case "identity":
-        return this.required($, f($, v), path);
+        return f($, v);
       case "pipe":
-        return this.modify($, v, target.value.left, childPath(path, "pipe.left"), env, root, ($2, inner) =>
-          ({ value: this.modify($2, inner, target.value.right, childPath(path, "pipe.right"), env, root, f), optional: false }));
-      case "field":
-        return this.modify($, v, target.value.target, childPath(path, "field.target"), env, root, ($2, inner) =>
-          ({ value: this.setField($2, inner, target.value.name, path, f), optional: false }));
+        return this.modify($, v, target.value.left, at("pipe.left"), env, ($2, inner) =>
+          this.modify($2, inner, target.value.right, at("pipe.right"), env, f));
+      case "field": {
+        const { name, optional } = target.value;
+        return this.modify($, v, target.value.target, at("field.target"), env, ($2, inner) => present(this.setField($2, inner, name, optional, path, env, f)));
+      }
       case "index": {
-        const literal = this.literalOf(target.value.index);
-        const keyPath = childPath(path, "index.index");
-        return this.modify($, v, target.value.target, childPath(path, "index.target"), env, root, ($2, inner) => {
-          if (literal?.type.type === "String" && this.type(this.open(inner)).type !== "Dict") return { value: this.setField($2, inner, literal.value as string, path, f), optional: false };
-          const key = this.one(target.value.index, keyPath, $2, root, env, this.typeAt(keyPath, this.envFor(keyPath, env, root)));
-          return { value: this.setIndex($2, inner, key, path, f), optional: false };
+        const { index, optional } = target.value;
+        const literal = this.literalOf(index);
+        const keyPath = at("index.index");
+        // The key is taken on the index's own input, as jq takes it.
+        const key = literal?.type.type === "String" ? undefined : this.one(index, keyPath, $, v, env, this.typeAt(keyPath, this.envFor(keyPath, env, v)));
+        return this.modify($, v, target.value.target, at("index.target"), env, ($2, inner) => {
+          if (key !== undefined) return present(this.setIndex($2, inner, key, optional, path, f));
+          const name = literal!.value as string;
+          return present(this.type(this.open(inner)).type === "Dict"
+            ? this.setIndex($2, inner, this.str(name, path), optional, path, f)
+            : this.setField($2, inner, name, optional, path, env, f));
         });
       }
+      case "slice": {
+        const { from, optional, to } = target.value;
+        // The bounds are taken on the slice's own input, as jq takes them.
+        const bound = (option: typeof from, step: string): Expr | undefined => option.type === "none" ? undefined
+          : this.one(option.value as JqNode, at(step), $, v, env, this.typeAt(at(step), this.envFor(at(step), env, v)));
+        const a = bound(from, "slice.from.some");
+        const b = bound(to, "slice.to.some");
+        return this.modify($, v, target.value.target, at("slice.target"), env, ($2, inner) => present(this.setSlice($2, inner, a, b, optional, path, f)));
+      }
       case "iterate":
-        return this.modify($, v, target.value.target, childPath(path, "iterate.target"), env, root, ($2, inner) =>
-          ({ value: this.setEach($2, inner, path, f), optional: false }));
+        return this.modify($, v, target.value.target, at("iterate.target"), env, ($2, inner) => present(this.setEach($2, inner, target.value.optional, path, f)));
+      case "descend":
+        return this.walkUpdate($, v, undefined, path, f);
       case "call": {
-        if (target.value.name === "select" && target.value.args.length === 1) {
-          const out = this.declare($, v, "selected", true, this.type(v));
-          this.gen(target.value.args[0]!, childPath(path, "call.args[0]"), $, v, env, ($2, c) => {
-            this.branch($2, this.truthy(c, path), $3 => {
-              const next = this.required($3, f($3, v), path);
-              this.assign($3, out, this.widenTo($3, next, this.type(v), path));
-            }, () => {}, path);
-          });
-          return out;
+        const { args, name } = target.value;
+        if (name === "select" && args.length === 1) {
+          const conditionPath = at("call.args[0]");
+          return this.selected($, v, path, f, ($2, value, then) => this.narrowed($2, value, conditionPath, env, ($3, opened) => {
+            this.gen(args[0]!, conditionPath, $3, opened, env, ($4, c) =>
+              this.branch($4, this.truthy(c, path), $5 => then($5, this.expr(opened, path)), () => {}, path));
+          }));
         }
-        if (target.value.name === "empty" && target.value.args.length === 0) return v;
-        throw this.gap(`assigning to ${target.value.name}(…)`);
+        if (UPDATE_SELECTORS.has(name) && args.length === 0) {
+          return this.selected($, v, path, f, ($2, value, then) => this.genBuiltin(name, [], [], path, $2, value, env, then));
+        }
+        if (name === "empty" && args.length === 0) return present(v);
+        if (name === "recurse" && args.length <= 1) return this.walkUpdate($, v, args[0], path, f);
+        throw this.gap(`assigning to ${name}(…)`);
       }
       default:
         throw this.gap(`assigning to ${this.text(path)}`);
     }
   }
 
-  /** An update's value where the position cannot be deleted: a struct field, `.` itself. */
-  required($: Block, update: Update | undefined, path: string): Expr {
-    if (update === undefined) throw this.gap("an update that gives no value where one is needed");
+  /**
+   * An update where a filter keeps the value (`select(f)`, `numbers`):
+   * `each` calls `then` with the value, narrowed, each time the filter keeps
+   * it, and `f` gives the new value there; where it is not kept, it stays.
+   */
+  private selected($: Block, v: Expr, path: string, f: UpdateFn, each: ($: Block, value: Expr, then: Emit) => void): Update | undefined {
+    const old = this.bind($, v, "selected");
+    const T = this.type(old);
+    const mark = $.statements.length;
+    let cell: { variable: Expr; type: EastType; value: EastType; optional: boolean } | undefined;
+    each($, old, ($2, kept) => {
+      const next = f($2, kept);
+      if (cell === undefined) {
+        // The updated value's type, known from the update's, declared before the filter runs.
+        const given = next === undefined ? NeverType : this.updateType(next);
+        const value = sameType(T, given) ? T : unify(T, given) ?? T;
+        const optional = next === undefined || next.optional;
+        const type = optional ? OptionType(value) : value;
+        const init = this.block();
+        const start = this.widenTo(init, old, value, path);
+        const variable: VariableAST = { ast_type: "Variable", type, loc_id: UNKNOWN_LOC_ID, mutable: true, name: "selected" };
+        $.statements.splice(mark, 0, ...init.statements, { ast_type: "Let", type: NullType, loc_id: UNKNOWN_LOC_ID, variable, value: this.ast(optional ? this.some(start, type) : start) });
+        cell = { variable: fromAst(variable) as Expr, type, value, optional };
+      }
+      const c = cell;
+      const set = ($3: Block, w: Expr): void => {
+        const widened = this.widenTo($3, w, c.value, path);
+        this.assign($3, c.variable, c.optional ? this.some(widened, c.type) : widened);
+      };
+      if (next === undefined) {
+        if (c.optional) this.assign($2, c.variable, this.none(c.type));
+        else this.raise($2, UNDELETABLE, path);
+        return;
+      }
+      if (!next.optional || !c.optional) { set($2, this.required($2, next, path)); return; }
+      this.match($2, next.value, { some: set, none: $3 => this.assign($3, c.variable, this.none(c.type)) }, path);
+    });
+    return cell === undefined ? { value: old, optional: false } : { value: cell.variable, optional: cell.optional };
+  }
+
+  /** An update's value where the position cannot be deleted (a struct field, a variant's payload): an error where it has none. */
+  required($: Block, update: Update, path: string): Expr {
     if (!update.optional) return update.value;
-    const payload = nullablePayload(this.type(update.value))!;
+    const payload = this.updateType(update);
     return this.matchValue(update.value, {
-      none: $2 => { this.raise($2, "an update gave no value for a struct field, which cannot be deleted", path); return this.placeholder(payload); },
+      none: $2 => { this.raise($2, UNDELETABLE, path); return this.placeholder(payload); },
       some: (_$2, p) => p,
     }, payload, path);
   }
 
-  /** A struct with one field replaced or added, or a dict with one string key set. */
-  setField($: Block, v: Expr, name: string, path: string, f: ($: Block, old: Expr) => Update | undefined): Expr {
+  /**
+   * A position that cannot be deleted: its new value, or where the update
+   * never gives one, an error raised there (and a value of its type for the
+   * code after, which never runs).
+   */
+  private kept($: Block, update: Update | undefined, type: EastType, path: string): Expr {
+    if (update !== undefined) return this.required($, update, path);
+    this.raise($, UNDELETABLE, path);
+    return this.placeholder(type);
+  }
+
+  /**
+   * A struct of some fields' values: of the original's type, recursive
+   * wrapper and all, when its fields' types are the original's.
+   */
+  private rebuilt(original: Expr, types: Record<string, EastType>, values: Record<string, Expr>): Expr {
+    const type = StructType(types);
+    const t = this.type(original);
+    return this.struct(t.type === "Recursive" && isTypeEqual(t.node as EastType, type) ? t : type, values);
+  }
+
+  /**
+   * A struct with one field replaced or added, or deleted by an update that
+   * gives none; a dict's string key set; a variant's payload; `null` made a
+   * struct. With `?`, a value of another kind is unchanged.
+   */
+  setField($: Block, v: Expr, name: string, optional: boolean, path: string, env: Env, f: UpdateFn): Expr {
     const e = this.open(v);
     const t = this.type(e);
+    if (t.type === "Variant" && nullablePayload(t) === undefined && name === "value") return this.setPayload(e, path, env, f);
     if (t.type === "Null") {
-      const next = this.required($, f($, this.null(path)), path);
-      return this.struct(StructType({ [name]: this.type(next) }), { [name]: next });
+      const next = f($, this.null(path));
+      if (next === undefined) return e;
+      const value = this.required($, next, path);
+      return this.struct(StructType({ [name]: this.type(value) }), { [name]: value });
     }
     if (t.type === "Struct") {
       const fields = t.fields as Record<string, EastType>;
       const s = this.bind($, e, "struct");
-      const next = this.required($, f($, name in fields ? this.field(s, name) : this.null(path)), path);
+      const next = f($, name in fields ? this.field(s, name) : this.null(path));
       const values: Record<string, Expr> = {};
       const types: Record<string, EastType> = {};
+      const put = (field: string, value: Expr): void => { values[field] = value; types[field] = this.type(value); };
       for (const field of Object.keys(fields)) {
-        values[field] = field === name ? next : this.field(s, field);
-        types[field] = this.type(values[field]!);
+        if (field !== name) put(field, this.field(s, field));
+        else if (next !== undefined) put(field, this.required($, next, path));
       }
-      if (!(name in fields)) { values[name] = next; types[name] = this.type(next); }
-      return this.struct(StructType(types), values);
+      if (!(name in fields) && next !== undefined) put(name, this.required($, next, path));
+      return this.rebuilt(v, types, values);
     }
-    if (t.type === "Dict") return this.setIndex($, e, this.str(name, path), path, f);
+    if (t.type === "Dict") return this.setIndex($, e, this.str(name, path), optional, path, f);
+    if (optional) return v;
     throw this.gap(`.${name} = … on ${printType(t)}`);
   }
 
-  /** An array or dict with one element replaced, or deleted when the update gives none. */
-  setIndex($: Block, v: Expr, key: Expr, path: string, f: ($: Block, old: Expr) => Update | undefined): Expr {
+  /**
+   * A variant with its payload updated, in each case the checker found it can
+   * hold there; in the others it is as it was. A payload cannot be deleted.
+   */
+  private setPayload(v: Expr, path: string, env: Env, f: UpdateFn): Expr {
+    const t = this.type(v);
+    const payloads = t.cases as Record<string, EastType>;
+    const updated = this.checked.updatedCases(path, env.instance, t) ?? Object.keys(payloads);
+    const built = Object.entries(payloads).map(([name, type]) => {
+      const variable: VariableAST = { ast_type: "Variable", type, loc_id: UNKNOWN_LOC_ID, mutable: false, name: "payload" };
+      const block = this.block();
+      const payload = fromAst(variable) as Expr;
+      const value = updated.includes(name) ? this.kept(block, f(block, payload), type, path) : payload;
+      return { name, type, variable, block, value };
+    });
+    // The variant's new type, from its payloads' new types.
+    const cases: Record<string, EastType> = {};
+    for (const b of built) cases[b.name] = this.ended(b.block) ? b.type : this.type(b.value);
+    const V = VariantType(cases);
+    const out: Record<string, { variable: VariableAST; body: AST }> = {};
+    for (const b of built) {
+      if (this.ended(b.block)) {
+        out[b.name] = { variable: b.variable, body: { ast_type: "Block", type: NeverType, loc_id: UNKNOWN_LOC_ID, statements: b.block.statements } };
+        continue;
+      }
+      const wrapped = this.ast(this.variantOf(V, b.name, b.value));
+      out[b.name] = { variable: b.variable, body: b.block.statements.length === 0 ? wrapped : { ast_type: "Block", type: V, loc_id: UNKNOWN_LOC_ID, statements: [...b.block.statements, wrapped] } };
+    }
+    return this.mk({ ast_type: "Match", type: V, loc_id: this.loc(path), variant: this.ast(v), cases: out });
+  }
+
+  /** An array without the element at an index. */
+  private without($: Block, array: Expr, i: Expr, path: string): Expr {
+    const kept = this.declare($, this.emptyArray(this.type(array).value as EastType), "array");
+    this.forEach($, array, ($2, item, index) => this.ifElse($2, this.not(this.eq(index!, i, path), path), $3 => this.push($3, kept, item, path), undefined, path), path);
+    return kept;
+  }
+
+  /**
+   * An array or dict with one element replaced, or deleted where the update
+   * gives none; an empty struct or `null` made a dict. With `?`, a value of
+   * another kind is unchanged.
+   */
+  setIndex($: Block, v: Expr, key: Expr, optional: boolean, path: string, f: UpdateFn): Expr {
     const e = this.open(v);
     const t = this.type(e);
     if (t.type === "Array") {
       const element = t.value as EastType;
-      const out = this.declare($, this.b("ArrayCopy", [element], [e], t, path), "array");
+      const source = this.bind($, e, "array");
       const i = this.declare($, this.widenTo($, key, IntegerType, path), "index");
-      this.ifElse($, this.lt(i, this.int(0), path), $2 => this.assign($2, i, this.add(i, this.size(out, path), path)), undefined, path);
-      const next = f($, this.b("ArrayGet", [element], [out, i], element, path));
-      if (next === undefined) return out;
-      const set = ($2: Block, w: Expr): void => this.stmt($2, this.b("ArrayUpdate", [element], [out, i, this.widenTo($2, w, element, path)], NullType, path));
+      this.ifElse($, this.lt(i, this.int(0), path), $2 => this.assign($2, i, this.add(i, this.size(source, path), path)), undefined, path);
+      const next = f($, this.b("ArrayGet", [element], [source, i], element, path));
+      if (next === undefined) return this.without($, source, i, path);
+      const E = unify(element, this.updateType(next)) ?? element;
+      const out = this.declare($, isTypeEqual(E, element) ? this.b("ArrayCopy", [element], [source], t, path) : this.widenTo($, source, ArrayType(E), path), "array");
+      const set = ($2: Block, w: Expr): void => this.stmt($2, this.b("ArrayUpdate", [E], [out, i, this.widenTo($2, w, E, path)], NullType, path));
       if (!next.optional) { set($, next.value); return out; }
-      const kept = this.declare($, this.emptyArray(element), "array");
-      this.match($, next.value, {
-        some: set,
-        none: $2 => this.forEach($2, out, ($3, item, index) => this.ifElse($3, this.not(this.eq(index!, i, path), path), $4 => this.push($4, kept, item, path), undefined, path), path),
-      }, path);
-      this.match($, next.value, { some: $2 => this.assign($2, kept, out) }, path);
-      return kept;
+      const result = this.declare($, out, "array");
+      this.match($, next.value, { some: set, none: $2 => this.assign($2, result, this.without($2, out, i, path)) }, path);
+      return result;
     }
     if (t.type === "Dict" || t.type === "Null" || (t.type === "Struct" && Object.keys(t.fields as object).length === 0)) {
       const K = t.type === "Dict" ? t.key as EastType : this.type(key);
@@ -2092,12 +2275,12 @@ export class Translator {
         : this.null(path);
       const next = f($, old);
       if (next === undefined) {
-        if (t.type !== "Dict") return this.value(new Map(), DictType(K, NullType));
+        if (t.type !== "Dict") return this.value(new Map(), DictType(K, NeverType));
         const out = this.declare($, this.b("DictCopy", [K, V0], [e], t, path), "dict");
         this.stmt($, this.b("DictTryDelete", [K, V0], [out, k], BooleanType, path));
         return out;
       }
-      const nextType = next.optional ? nullablePayload(this.type(next.value))! : this.type(next.value);
+      const nextType = this.updateType(next);
       const V = V0.type === "Never" ? nextType : unify(V0, nextType) ?? V0;
       const D = DictType(K, V);
       const out = this.declare($, t.type === "Dict" ? this.b("DictCopy", [K, V], [this.widenTo($, e, D, path)], D, path) : this.value(new Map(), D), "dict");
@@ -2111,11 +2294,53 @@ export class Translator {
       }
       return out;
     }
+    if (optional) return v;
     throw this.gap(`.[k] = … on ${printType(t)}`);
   }
 
-  /** Every element, dict value or struct field replaced; an element or value with no new value is deleted. */
-  setEach($: Block, v: Expr, path: string, f: ($: Block, old: Expr) => Update | undefined): Expr {
+  /**
+   * An array with a slice replaced by the array the update gives, or deleted
+   * where it gives none; `null`'s slice is null, so the update's array is
+   * the value. With `?`, a value of another kind is unchanged.
+   */
+  setSlice($: Block, v: Expr, a: Expr | undefined, b: Expr | undefined, optional: boolean, path: string, f: UpdateFn): Expr {
+    const e = this.open(v);
+    const t = this.type(e);
+    if (t.type === "Null") {
+      const next = f($, this.null(path));
+      return next === undefined ? e : next.value;
+    }
+    if (t.type === "Array") {
+      const element = t.value as EastType;
+      const source = this.bind($, e, "array");
+      const length = this.declare($, this.size(source, path), "length", false);
+      const start = this.boundOf($, a, this.int(0), length, path);
+      const end = this.boundOf($, b, length, length, path);
+      this.ifElse($, this.lt(end, start, path), $2 => this.assign($2, end, start), undefined, path);
+      const before = this.bind($, this.b("ArraySlice", [element], [source, this.int(0), start], t, path), "before");
+      const after = this.bind($, this.b("ArraySlice", [element], [source, end, length], t, path), "after");
+      const next = f($, this.b("ArraySlice", [element], [source, start, end], t, path));
+      const removed = (): Expr => this.b("ArrayConcat", [element], [before, after], t, path);
+      if (next === undefined) return removed();
+      const E = unify(element, parts(this.updateType(next)).value) ?? element;
+      const A = ArrayType(E);
+      const spliced = ($2: Block, middle: Expr): Expr => this.b("ArrayConcat", [E], [
+        this.b("ArrayConcat", [E], [this.widenTo($2, before, A, path), this.widenTo($2, middle, A, path)], A, path),
+        this.widenTo($2, after, A, path),
+      ], A, path);
+      if (!next.optional) return this.bind($, spliced($, next.value), "array");
+      return this.bind($, this.matchValue(next.value, { some: ($2, middle) => spliced($2, middle), none: $2 => this.widenTo($2, removed(), A, path) }, A, path), "array");
+    }
+    if (optional) return v;
+    throw this.gap(`.[a:b] = … on ${printType(t)}`);
+  }
+
+  /**
+   * Every element, dict value or struct field replaced; an element or value
+   * with no new value is deleted, and a field whose update never gives one.
+   * With `?`, a value of another kind is unchanged.
+   */
+  setEach($: Block, v: Expr, optional: boolean, path: string, f: UpdateFn): Expr {
     const e = this.open(v);
     const t = this.type(e);
     if (t.type === "Array" || t.type === "Dict") {
@@ -2155,12 +2380,197 @@ export class Translator {
       const values: Record<string, Expr> = {};
       const types: Record<string, EastType> = {};
       for (const name of Object.keys(t.fields as object)) {
-        values[name] = this.required($, f($, this.field(s, name)), path);
+        const next = f($, this.field(s, name));
+        if (next === undefined) continue;
+        values[name] = this.required($, next, path);
         types[name] = this.type(values[name]!);
       }
-      return this.struct(StructType(types), values);
+      return this.rebuilt(v, types, values);
     }
+    if (optional) return v;
     throw this.gap(`.[] |= … on ${printType(t)}`);
+  }
+
+  /**
+   * `..`, `recurse` or `recurse(.a[])` in an update's path: in pre-order,
+   * each position the walk visits is updated by `f`, then the positions
+   * inside it that it had before its update, in turn. A value of a recursive
+   * type is walked by a function its own positions call, through a
+   * reference, each declared before the walk.
+   */
+  private walkUpdate($: Block, v: Expr, child: JqNode | undefined, path: string, f: UpdateFn): Update | undefined {
+    const steps = child === undefined ? undefined : walkSteps(child);
+    if (child !== undefined && steps === undefined) throw this.gap(`assigning through ${this.text(path)}`);
+    const mark = $.statements.length;
+    const declarations = this.block();
+    const definitions = this.block();
+    const cells: { type: EastType; cell: Expr; fnType: EastType }[] = [];
+    // A position: updated, then the positions inside it.
+    const visit = ($2: Block, current: Expr, old: Expr): Update | undefined => {
+      const K = this.type(current);
+      const next = f($2, current);
+      if (next === undefined) return undefined;
+      const inside = ($3: Block, w: Expr): Expr => steps === undefined
+        ? this.walkInside($3, this.widenTo($3, w, K, path), old, path, node)
+        : this.walkAlong($3, this.widenTo($3, w, K, path), old, steps.fields, path, node);
+      if (!next.optional) return { value: this.bind($2, inside($2, next.value), "walked"), optional: false };
+      const option = OptionType(K);
+      const value = this.matchValue(next.value, { none: () => this.none(option), some: ($3, w) => this.some(inside($3, w), option) }, option, path);
+      return { value: this.bind($2, value, "walked"), optional: true };
+    };
+    // A recursive position, walked by its kind's function.
+    const call = ($2: Block, current: Expr, old: Expr): Update => {
+      const R = this.type(current);
+      const option = OptionType(R);
+      let entry = cells.find(c => isTypeEqual(c.type, R));
+      if (entry === undefined) {
+        const fnType = FunctionType([R, R], option);
+        const placeholder = this.lambda([R, R], option, [], () => this.none(option), path);
+        const cell = this.declare(declarations, this.mk({ ast_type: "NewRef", type: RefType(fnType), loc_id: UNKNOWN_LOC_ID, value: this.ast(placeholder) }), "walk", false);
+        entry = { type: R, cell, fnType };
+        cells.push(entry);
+        const fn = this.lambda([R, R], option, ["value", "old"], ($f, value, previous) => {
+          const u = visit($f, value, previous);
+          if (u === undefined) return this.none(option);
+          return u.optional ? u.value : this.some(u.value, option);
+        }, path);
+        this.stmt(definitions, this.b("RefUpdate", [fnType], [cell, fn], NullType, path));
+      }
+      const fn = this.b("RefGet", [entry.fnType], [entry.cell], entry.fnType, path);
+      return { value: this.bind($2, this.callFn(fn, [current, old], path), "walked"), optional: true };
+    };
+    const node: WalkFn = ($2, current, old) => this.type(current).type === "Recursive" ? call($2, current, old) : visit($2, current, old);
+    const result = node($, v, v);
+    // The functions, declared before the walk that calls them, and each given its body once every one is declared.
+    $.statements.splice(mark, 0, ...declarations.statements, ...definitions.statements);
+    return result;
+  }
+
+  /**
+   * A value with the positions `..` finds inside it walked: an option's
+   * value's positions, a variant's payload (its case's name is not a
+   * position), and the elements, dict values and struct fields of
+   * {@link Translator.walkElements}; only those `old`, the value before its
+   * own update, had.
+   */
+  private walkInside($: Block, w: Expr, old: Expr, path: string, node: WalkFn): Expr {
+    const e = this.open(w);
+    const t = this.type(e);
+    if (nullablePayload(t) !== undefined) {
+      return this.matchValue(e, {
+        none: () => e,
+        some: ($2, p) => this.matchValue(this.open(old), {
+          none: () => this.some(p, t),
+          some: ($3, q) => this.some(this.walkInside($3, p, q, path, node), t),
+        }, t, path),
+      }, t, path);
+    }
+    if (t.type === "Variant") {
+      const whole = this.type(w);
+      const cases: Record<string, ($2: Block, payload: Expr) => Expr> = {};
+      for (const name of Object.keys(t.cases as object)) {
+        cases[name] = ($2, p) => {
+          // The payload is walked where the value had this case before.
+          const before: Record<string, ($3: Block, payload: Expr) => Expr> = {};
+          for (const other of Object.keys(t.cases as object)) {
+            before[other] = other === name ? ($3, q) => this.kept($3, node($3, p, q), this.type(p), path) : () => p;
+          }
+          return this.variantOf(whole, name, this.matchValue(this.open(old), before, this.type(p), path));
+        };
+      }
+      return this.matchValue(e, cases, whole, path);
+    }
+    return this.walkElements($, w, old, path, node);
+  }
+
+  /**
+   * `recurse(.a.b[])`'s positions inside a value, walked: along the fields,
+   * then each element there that `old` had.
+   */
+  private walkAlong($: Block, w: Expr, old: Expr, fields: readonly string[], path: string, node: WalkFn): Expr {
+    if (fields.length === 0) return this.walkElements($, w, old, path, node);
+    const e = this.open(w);
+    const t = this.type(e);
+    if (t.type !== "Struct") throw this.gap(`recurse(.${fields.join(".")}[]) on ${printType(t)}`);
+    const s = this.bind($, e, "struct");
+    const o = this.bind($, this.open(old), "old");
+    const values: Record<string, Expr> = {};
+    const types: Record<string, EastType> = {};
+    for (const name of Object.keys(t.fields as object)) {
+      values[name] = name === fields[0] ? this.bind($, this.walkAlong($, this.field(s, name), this.field(o, name), fields.slice(1), path, node), name) : this.field(s, name);
+      types[name] = this.type(values[name]!);
+    }
+    return this.rebuilt(w, types, values);
+  }
+
+  /**
+   * The positions `.[]` names inside a value, each walked by `node`: an
+   * array's elements, a set's, a dict's values, a struct's fields, and those
+   * of an option's value; only those `old` had. An element or dict value the
+   * walk gives no value is deleted.
+   */
+  private walkElements($: Block, w: Expr, old: Expr, path: string, node: WalkFn): Expr {
+    const e = this.open(w);
+    const o = this.open(old);
+    const t = this.type(e);
+    // An element the walk updated, or none to drop it.
+    const each = ($2: Block, update: Update | undefined, insert: ($3: Block, value: Expr) => void): void => {
+      if (update === undefined) return;
+      if (update.optional) this.match($2, update.value, { some: insert }, path);
+      else insert($2, update.value);
+    };
+    if (nullablePayload(t) !== undefined) {
+      return this.matchValue(e, {
+        none: () => e,
+        some: ($2, p) => this.matchValue(o, {
+          none: () => this.some(p, t),
+          some: ($3, q) => this.some(this.walkElements($3, p, q, path, node), t),
+        }, t, path),
+      }, t, path);
+    }
+    switch (t.type) {
+      case "Array": {
+        const E = t.value as EastType;
+        const out = this.declare($, this.emptyArray(E), "array");
+        const count = this.declare($, this.size(o, path), "count", false);
+        this.forEach($, e, ($2, item, index) => this.ifElse($2, this.lt(index!, count, path),
+          $3 => each($3, node($3, item, this.b("ArrayGet", [E], [o, index!], E, path)), ($4, value) => this.push($4, out, value, path)),
+          $3 => this.push($3, out, item, path), path), path);
+        return out;
+      }
+      case "Set": {
+        const K = t.key as EastType;
+        const out = this.declare($, this.value(new Set(), t), "set");
+        this.forEach($, e, ($2, item) => this.ifElse($2, this.b("SetHas", [K], [o, item], BooleanType, path),
+          $3 => each($3, node($3, item, item), ($4, value) => this.stmt($4, this.b("SetTryInsert", [K], [out, value], BooleanType, path))),
+          $3 => this.stmt($3, this.b("SetTryInsert", [K], [out, item], BooleanType, path)), path), path, "key");
+        return out;
+      }
+      case "Dict": {
+        const K = t.key as EastType;
+        const V = t.value as EastType;
+        const out = this.declare($, this.value(new Map(), t), "dict");
+        const insert = ($2: Block, key: Expr, value: Expr): void => this.stmt($2, this.b("DictInsert", [K, V], [out, key, this.widenTo($2, value, V, path)], NullType, path));
+        this.forEach($, e, ($2, item, key) => this.match($2, this.b("DictTryGet", [K, V], [o, key!], OptionType(V), path), {
+          none: $3 => insert($3, key!, item),
+          some: ($3, previous) => each($3, node($3, item, previous), ($4, value) => insert($4, key!, value)),
+        }, path), path);
+        return out;
+      }
+      case "Struct": {
+        const s = this.bind($, e, "struct");
+        const before = this.bind($, o, "old");
+        const values: Record<string, Expr> = {};
+        const types: Record<string, EastType> = {};
+        for (const [name, fieldType] of Object.entries(t.fields as Record<string, EastType>)) {
+          values[name] = this.bind($, this.kept($, node($, this.field(s, name), this.field(before, name)), fieldType, path), name);
+          types[name] = this.type(values[name]!);
+        }
+        return this.rebuilt(w, types, values);
+      }
+      default:
+        return w;
+    }
   }
 }
 
@@ -2208,6 +2618,38 @@ function withoutLocations(ast: AST): AST {
     return out;
   };
   return copy(ast) as AST;
+}
+
+/**
+ * Whether a type holds Never below its top: an empty collection's element
+ * type, an option that is always none. East's casts do not take such a type.
+ */
+function holdsNever(type: EastType): boolean {
+  const seen = new Set<EastType>();
+  const visit = (t: EastType, top: boolean): boolean => {
+    if (t.type === "Never") return !top;
+    if (seen.has(t)) return false;
+    seen.add(t);
+    switch (t.type) {
+      case "Array": case "Ref": return visit(t.value as EastType, false);
+      case "Set": return visit(t.key as EastType, false);
+      case "Dict": return visit(t.key as EastType, false) || visit(t.value as EastType, false);
+      case "Vector": case "Matrix": return visit(t.element as EastType, false);
+      case "Struct": return Object.values(t.fields as Record<string, EastType>).some(f => visit(f, false));
+      case "Variant": return Object.values(t.cases as Record<string, EastType>).some(c => visit(c, false));
+      case "Recursive": return visit(t.node as EastType, false);
+      default: return false;
+    }
+  };
+  return visit(type, true);
+}
+
+/** The error an update raises where it gives no value for a position that cannot be deleted. */
+const UNDELETABLE = "an update gave no value for a struct field, which cannot be deleted";
+
+/** Whether values of type `b` are values of type `a`: equal types, or `a` recursive with `b` its node. */
+function sameType(a: EastType, b: EastType): boolean {
+  return isTypeEqual(a, b) || (a.type === "Recursive" && isTypeEqual(a.node as EastType, b));
 }
 
 /** Whether a value of a type is one a node's records were made for. */

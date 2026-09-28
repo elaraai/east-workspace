@@ -61,8 +61,11 @@ const EAST_ADDITIONS: readonly string[] = [
   "month", "second", "signature", "source", "weekday", "year",
 ];
 
-/** The deviations `devdocs/QUERY.md` §13 lists, by number. */
-const DEVIATIONS = 19;
+// A Windows checkout may give the document CRLF line endings; the tables are written with LF.
+const doc = readFileSync(new URL("../../devdocs/QUERY.md", import.meta.url), "utf8").replaceAll("\r\n", "\n");
+
+/** The deviations `devdocs/QUERY.md` §13 lists, by number: its `### 13.N` headings. */
+const DEVIATIONS = [...doc.matchAll(/^### 13\.(\d+) /gm)].map(m => Number(m[1]));
 
 /** The diagnostic codes and lints `devdocs/QUERY.md` §12 lists, less `syntax` (#920's). */
 const CODES: readonly string[] = [
@@ -162,7 +165,11 @@ describe("checkJq: the corpus (C1)", () => {
   });
 
   test("every deviation of QUERY.md §13 and every diagnostic code has a case", () => {
-    for (let n = 1; n <= DEVIATIONS; n++) assert.ok(QUERY_CORPUS.some(c => c.deviation === n), `no case for deviation ${n}`);
+    assert.deepEqual(DEVIATIONS, DEVIATIONS.map((_, i) => i + 1), "§13's deviations are numbered 1, 2, … in order");
+    for (const n of DEVIATIONS) assert.ok(QUERY_CORPUS.some(c => c.deviation === n), `no case for deviation ${n}`);
+    for (const c of QUERY_CORPUS) {
+      if (c.deviation !== undefined) assert.ok(DEVIATIONS.includes(c.deviation), `${c.name} cites §13.${c.deviation}, which QUERY.md lacks`);
+    }
     const codes = new Set(QUERY_CORPUS.flatMap(c => (c.diagnostics ?? []).map(d => d.code)));
     for (const code of CODES) assert.ok(codes.has(code), `no case reports ${code}`);
   });
@@ -391,9 +398,6 @@ describe("checkJq: rewrites and inference", () => {
 });
 
 describe("QUERY.md", () => {
-  // A Windows checkout may give the document CRLF line endings; the tables are written with LF.
-  const doc = readFileSync(new URL("../../devdocs/QUERY.md", import.meta.url), "utf8").replaceAll("\r\n", "\n");
-
   test("§10's catalog tables and §12's templates are what the catalog and messages.ts make now", () => {
     assert.ok(withCatalogTables(doc) === doc, "devdocs/QUERY.md is stale: run `make query-corpus` in libs/east");
   });

@@ -17,7 +17,7 @@ import { decodeBeast2, encodeBeast2For } from "../../serialization/beast2/index.
 import { jsonParseDateTime } from "../../serialization/json.js";
 import { canonicalTypeValue, fromEastTypeValue, toEastTypeValue } from "../../type_of_type.js";
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, StringType, StructType,
+  ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, StringType, StructType, VariantType,
   isImmutableType, isTypeEqual, printType, type EastType, type ValueTypeOf,
 } from "../../types.js";
 import type { QueryType } from "../types.js";
@@ -139,6 +139,18 @@ export interface CheckJqResult {
    * @internal
    */
   retype(path: string, instance: string, input: EastType): string | null;
+  /**
+   * The cases of a variant whose payload an update's `.value` step updates:
+   * those it can hold there, as narrowing left them.
+   *
+   * @param path - the step's path
+   * @param instance - the instance it was checked in
+   * @param variant - the variant's type
+   * @returns the cases, or `null` when the step was not checked on it
+   *
+   * @internal
+   */
+  updatedCases(path: string, instance: string, variant: EastType): readonly string[] | null;
 }
 
 /** A `def`, or a filter parameter, in scope. */
@@ -210,6 +222,59 @@ function isNumber(type: EastType): boolean {
   return type.type === "Integer" || type.type === "Float";
 }
 
+/** A position an update reaches: its new shape, and how many values it has (less than one where the update deletes it). */
+interface Assigned {
+  readonly shape: TypeShape;
+  readonly mult: Mult;
+}
+
+/** `.`, as a path node. */
+const IDENTITY = variant("identity", null) as JqNode;
+
+/** What an update's path is made of, for the diagnostic that refuses another. */
+const UPDATE_PATHS = "an update's path is made of field reads, indexes, slices, .[], select, the type selectors, empty, .., recurse and |";
+
+/**
+ * The type selectors an update's path may hold, each a `select` of a type
+ * test: `(.. | numbers) |= . * 2`.
+ *
+ * @internal
+ */
+export const UPDATE_SELECTORS: ReadonlySet<string> = new Set([
+  "arrays", "objects", "iterables", "booleans", "numbers", "strings", "nulls", "values", "scalars", "normals", "finites",
+]);
+
+/**
+ * The path `recurse(f)` walks in an update: field reads, then `.[]`, as
+ * `.children[]`.
+ *
+ * @param node - `f`
+ * @returns the names of the fields read before the `.[]`, or `undefined` for
+ *   another path
+ *
+ * @internal
+ */
+export function walkSteps(node: JqNode): { fields: string[] } | undefined {
+  if (node.type !== "iterate") return undefined;
+  const fields: string[] = [];
+  let target = node.value.target;
+  while (target.type === "field" && !target.value.optional) {
+    fields.unshift(target.value.name);
+    target = target.value.target;
+  }
+  return target.type === "identity" ? { fields } : undefined;
+}
+
+/** Whether values of type `b` are values of type `a`: equal types, or `a` recursive with `b` its node. */
+function sameType(a: EastType, b: EastType): boolean {
+  return isTypeEqual(a, b) || (a.type === "Recursive" && isTypeEqual(a.node as EastType, b));
+}
+
+/** A rebuilt value's type: the original, recursive wrapper and all, when what was rebuilt is its node. */
+function rewrap(original: EastType, rebuilt: EastType): EastType {
+  return original.type === "Recursive" && isTypeEqual(original.node as EastType, rebuilt) ? original : rebuilt;
+}
+
 /** Checks one program. */
 class Checker {
   readonly diagnostics: QueryError[] = [];
@@ -223,6 +288,8 @@ class Checker {
   readonly inputs = new Map<string, Shape>();
   /** How many instances {@link Checker.retype} has made. */
   private retypes = 0;
+  /** The cases each update's `.value` step updates, by instance, path and variant type. */
+  readonly updatedCases = new Map<string, readonly string[]>();
   readonly reads: string[] = [];
   /** Defs being instantiated, by instance signature: their output so far, for recursion. */
   private readonly active = new Map<string, { result: Result; recursed: boolean; filters: boolean }>();
@@ -1518,15 +1585,22 @@ class Checker {
     const pathPath = childPath(path, "update.path");
     const valuePath = childPath(path, "update.value");
     if (input.shape.kind === "error") return { shape: ERROR, mult: ONE };
+    // An update gives the whole value it updates, which a root never is.
+    if (this.refuseRoot(input, path, env)) return { shape: ERROR, mult: ONE };
     // The value of `=` and of the arithmetic updates is evaluated on `.`.
     let value: Result | undefined;
     if (op !== "|=") {
       value = this.check(node.value.value, valuePath, input, env);
       if (value.shape.kind === "error") return { shape: ERROR, mult: ONE };
     }
+    // Each position's new value, and how many it has: `|=` keeps its update's
+    // first output, and one with none deletes the position.
     const at = (current: Result): Result => {
-      if (op === "|=") return this.check(node.value.value, valuePath, current, env);
-      if (op === "=") return value!;
+      if (op === "|=") {
+        const r = this.check(node.value.value, valuePath, current, env);
+        return { shape: r.shape, mult: { lo: r.mult.lo, hi: r.mult.hi === 0 ? 0 : 1 } };
+      }
+      if (op === "=") return { shape: value!.shape, mult: ONE };
       const operator = op.slice(0, -1);
       if (operator === "//") {
         if (current.shape.kind === "type" && !canBeNull(unwrap(current.shape.type)) && unwrap(current.shape.type).type !== "Boolean") {
@@ -1542,112 +1616,227 @@ class Checker {
       }
       return this.arithmetic(operator, current, value!, { left: node.value.path, leftPath: pathPath, right: node.value.value, rightPath: valuePath, range: this.range(path) }, env);
     };
-    const shape = this.assign(input.shape, node.value.path, pathPath, at, env);
-    if (shape === undefined) return { shape: ERROR, mult: ONE };
-    return { shape, mult: value === undefined ? ONE : value.mult };
+    const assigned = this.assign(input.shape, node.value.path, pathPath, at, env);
+    if (assigned === undefined) return { shape: ERROR, mult: ONE };
+    const shape = this.wholeShape(assigned, path);
+    return { shape, mult: shape.kind === "error" || value === undefined ? ONE : value.mult };
+  }
+
+  /** `.` after an update: `null` where the update deleted it, as jq gives it. */
+  wholeShape(assigned: Result, path: string): Shape {
+    if (assigned.mult.hi === 0) return typed(NullType);
+    if (assigned.mult.lo === 1) return assigned.shape;
+    const type = unifyShape(assigned.shape);
+    const option = type === undefined ? undefined : orNull(type);
+    if (option === undefined) return this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(type ?? NeverType), "Null")).shape;
+    return typed(option);
   }
 
   /**
    * The shape of `.` after assigning at the positions a path expression
    * names, each position's new value given by `at`.
    *
-   * @returns the new shape, or `undefined` after a reported problem
+   * @returns the new shape, with its multiplicity: less than one where the
+   *   update deletes `.` itself; or `undefined` after a reported problem
    */
-  assign(shape: Shape, pathNode: JqNode, path: string, at: (current: Result) => Result, env: Env): Shape | undefined {
+  assign(shape: Shape, pathNode: JqNode, path: string, at: (current: Result) => Result, env: Env): Result | undefined {
     if (shape.kind === "error") return undefined;
     const members: Member[] = [];
+    let mult: Mult | undefined;
     for (const member of membersOf(shape)) {
       const next = this.assignMember(member.shape, pathNode, path, at, env);
       if (next === undefined) return undefined;
-      members.push({ shape: next, case: member.case });
+      members.push({ shape: next.shape, case: member.case });
+      mult = mult === undefined ? next.mult : either(mult, next.mult);
     }
-    return union(members);
+    return { shape: union(members), mult: mult ?? ONE };
   }
 
-  assignMember(shape: TypeShape, pathNode: JqNode, path: string, at: (current: Result) => Result, env: Env): TypeShape | undefined {
-    const settle = (result: Result, range: JqRange | undefined): EastType | undefined => this.collect(result, range);
+  assignMember(shape: TypeShape, pathNode: JqNode, path: string, at: (current: Result) => Result, env: Env): Assigned | undefined {
+    const range = this.range(path);
     switch (pathNode.type) {
       case "identity": {
-        const t = settle(at({ shape, mult: ONE }), this.range(path));
-        return t === undefined ? undefined : typed(t);
+        const r = at({ shape, mult: ONE });
+        const t = this.collect(r, range);
+        return t === undefined ? undefined : { shape: typed(t), mult: r.mult };
       }
       case "pipe": {
-        const left = pathNode.value.left;
-        const right = pathNode.value.right;
-        return this.assignMember(shape, left, childPath(path, "pipe.left"), current => {
-          const next = this.assign(current.shape, right, childPath(path, "pipe.right"), at, env);
-          return next === undefined ? { shape: ERROR, mult: ONE } : { shape: next, mult: ONE };
-        }, env);
+        const { left, right } = pathNode.value;
+        return this.assignMember(shape, left, childPath(path, "pipe.left"), current =>
+          this.assign(current.shape, right, childPath(path, "pipe.right"), at, env) ?? { shape: ERROR, mult: ONE }, env);
       }
-      case "field": case "index": case "iterate": {
-        const target = pathNode.value.target;
-        const targetPath = childPath(path, `${pathNode.type}.target`);
-        return this.assignMember(shape, target, targetPath, current => {
-          const inner = this.assignStep(current, pathNode, path, at, env);
+      case "field": case "index": case "iterate": case "slice": {
+        // An index's key and a slice's bounds are taken on the step's own input, as jq takes them.
+        const keys = this.stepKeys(pathNode, path, shape, env);
+        if (keys === undefined) return undefined;
+        return this.assignMember(shape, pathNode.value.target, childPath(path, `${pathNode.type}.target`), current => {
+          const inner = this.assignStep(current, pathNode, path, at, env, keys);
           return inner === undefined ? { shape: ERROR, mult: ONE } : { shape: inner, mult: ONE };
         }, env);
       }
+      case "descend":
+        return this.assignWalk(shape, undefined, path, at, env);
       case "call": {
-        if (pathNode.value.name === "select" && pathNode.value.args.length === 1) {
-          const condition = this.check(pathNode.value.args[0]!, childPath(path, "call.args[0]"), { shape, mult: ONE }, env);
-          const narrowed = condition.proves !== undefined ? this.narrow({ shape, mult: ONE }, condition.proves) : { shape, mult: ONE };
-          const replaced = at(narrowed);
-          const t = settle(replaced, this.range(path));
-          if (t === undefined) return undefined;
-          const merged = unify(shape.type, t);
-          if (merged === undefined) {
-            this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(shape.type), describeType(t)));
-            return undefined;
-          }
-          return typed(merged);
+        const { args, name } = pathNode.value;
+        if (name === "select" && args.length === 1) {
+          const condition = this.check(args[0]!, childPath(path, "call.args[0]"), { shape, mult: ONE }, env);
+          if (condition.shape.kind === "error") return undefined;
+          const kept = condition.proves !== undefined ? this.narrow({ shape, mult: ONE }, condition.proves) : { shape, mult: ONE };
+          return this.selected(shape, { shape: kept.shape, mult: { lo: 0, hi: condition.mult.hi === 0 ? 0 : 1 } }, at, path);
         }
-        this.fail(this.range(path), "unsupported", MESSAGES.unavailable(`assigning to ${pathNode.value.name}(…)`, "an update's path is made of field reads, indexes, .[], select and |"));
+        if (UPDATE_SELECTORS.has(name) && args.length === 0) {
+          const builtin = BUILTINS.get(name)!;
+          return this.selected(shape, builtin.typing!(this.context(builtin, name, path, { shape, mult: ONE }, env, [], [])), at, path);
+        }
+        if (name === "empty" && args.length === 0) return { shape, mult: ONE };
+        if (name === "recurse" && args.length <= 1) {
+          return this.assignWalk(shape, args.length === 1 ? { node: args[0]!, path: childPath(path, "call.args[0]") } : undefined, path, at, env);
+        }
+        this.fail(range, "unsupported", MESSAGES.unavailable(`assigning to ${name}(…)`, UPDATE_PATHS));
         return undefined;
       }
       default:
-        this.fail(this.range(path), "unsupported", MESSAGES.unavailable(`assigning to ${this.source(path)}`, "an update's path is made of field reads, indexes, .[], select and |"));
+        this.fail(range, "unsupported", MESSAGES.unavailable(`assigning to ${this.source(path)}`, UPDATE_PATHS));
         return undefined;
     }
   }
 
-  /** One step of an update's path on a value: `.name`, `.[k]` or `.[]`. */
-  assignStep(current: Result, step: Extract<JqNode, { type: "field" | "index" | "iterate" }>, path: string, at: (current: Result) => Result, env: Env): Shape | undefined {
-    return this.assign(current.shape, variant("identity", null) as JqNode, path, whole => {
+  /**
+   * An update of a value where a filter keeps it (`select(f)`, `numbers`):
+   * the value as the filter keeps it is updated; where it is not kept, it
+   * stays.
+   *
+   * @param shape - the value
+   * @param kept - what the filter gives on it, narrowed
+   */
+  selected(shape: TypeShape, kept: Result, at: (current: Result) => Result, path: string): Assigned | undefined {
+    if (kept.shape.kind === "error") return undefined;
+    if (kept.mult.hi === 0 || (kept.shape.kind === "type" && kept.shape.type.type === "Never")) return { shape, mult: ONE };
+    const replaced = at({ shape: kept.shape, mult: ONE });
+    const t = this.collect(replaced, this.range(path));
+    if (t === undefined) return undefined;
+    const merged = sameType(shape.type, t) ? shape.type : unify(shape.type, t);
+    if (merged === undefined) {
+      this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(shape.type), describeType(t)));
+      return undefined;
+    }
+    // Kept every time, it has the update's values; else it keeps its own where it is not kept.
+    const mult: Mult = kept.mult.lo === 1 ? replaced.mult : { lo: replaced.mult.lo, hi: 1 };
+    return { shape: typed(merged), mult };
+  }
+
+  /**
+   * An index's key type, checked on the step's own input, or a slice's bounds:
+   * each gives one value.
+   *
+   * @returns the key's type (none for a field, `.[]` or a slice), or
+   *   `undefined` after a reported problem
+   */
+  stepKeys(step: Extract<JqNode, { type: "field" | "index" | "iterate" | "slice" }>, path: string, input: TypeShape, env: Env): { key: EastType | undefined } | undefined {
+    const one = (node: JqNode, at: string): EastType | undefined => {
+      const r = this.check(node, at, { shape: input, mult: ONE }, env);
+      if (r.shape.kind === "error") return undefined;
+      if (r.mult.lo !== 1 || r.mult.hi !== 1) {
+        this.fail(this.range(at), "unsupported", MESSAGES.updateKey(this.source(at)));
+        return undefined;
+      }
+      return this.collect(r, this.range(at));
+    };
+    if (step.type === "index") {
+      if (step.value.index.type === "literal" && this.literal(step.value.index.value).type.type === "String") return { key: StringType };
+      const key = one(step.value.index, childPath(path, "index.index"));
+      return key === undefined ? undefined : { key };
+    }
+    if (step.type === "slice") {
+      for (const [bound, s] of [[step.value.from, "slice.from.some"], [step.value.to, "slice.to.some"]] as const) {
+        if (bound.type !== "some") continue;
+        const at = childPath(path, s);
+        const t = one(bound.value, at);
+        if (t === undefined) return undefined;
+        if (!this.keyFits(t, IntegerType, bound.value, at) && !canBeNull(unwrap(t))) {
+          this.fail(this.range(at), "type_mismatch", MESSAGES.sliceBound(describeType(t)));
+          return undefined;
+        }
+      }
+    }
+    return { key: undefined };
+  }
+
+  /**
+   * One step of an update's path on a value: `.name`, `.[k]`, `.[a:b]` or
+   * `.[]`. A step with `?` names no position on a value it cannot take.
+   */
+  assignStep(current: Result, step: Extract<JqNode, { type: "field" | "index" | "iterate" | "slice" }>, path: string, at: (current: Result) => Result, env: Env, keys: { key: EastType | undefined }): Shape | undefined {
+    const failed: Result = { shape: ERROR, mult: ONE };
+    const assigned = this.assign(current.shape, IDENTITY, path, whole => {
       const member = whole.shape as TypeShape;
       const t = unwrap(member.type);
-      const replace = (old: EastType, facts: Facts | undefined): EastType | undefined => this.collect(at({ shape: typed(old, facts), mult: ONE }), this.range(path));
-      if (step.type === "field" || (step.type === "index" && step.value.index.type === "literal" && this.literal(step.value.index.value).type.type === "String" && t.type !== "Dict")) {
-        const name = step.type === "field" ? step.value.name : this.literal((step.value.index as Extract<JqNode, { type: "literal" }>).value).value as string;
+      const unchanged: Result = { shape: member, mult: ONE };
+      const done = (type: EastType): Result => ({ shape: typed(rewrap(member.type, type)), mult: ONE });
+      // A position's new value, and how many it has.
+      const replace = (old: EastType, facts: Facts | undefined): { type: EastType; mult: Mult } | undefined => {
+        const r = at({ shape: typed(old, facts), mult: ONE });
+        const type = this.collect(r, this.range(path));
+        return type === undefined ? undefined : { type, mult: r.mult };
+      };
+      const optional = step.value.optional;
+      const literalName = step.type === "index" && step.value.index.type === "literal" && t.type !== "Dict" ? this.literal(step.value.index.value) : undefined;
+      const name = step.type === "field" ? step.value.name : literalName?.type.type === "String" ? literalName.value as string : undefined;
+      if (name !== undefined) {
         if (t.type === "Struct") {
           const fields = { ...(t.fields as Record<string, EastType>) };
           const facts = member.facts?.kind === "fields" ? member.facts.fields.get(name) : undefined;
           const next = replace(name in fields ? fields[name]! : NullType, facts);
-          if (next === undefined) return { shape: ERROR, mult: ONE };
-          fields[name] = next;
-          return { shape: typed(StructType(fields)), mult: ONE };
+          if (next === undefined) return failed;
+          // An update that never gives a value deletes the field, as jq deletes the key.
+          if (next.mult.hi === 0) delete fields[name];
+          else fields[name] = next.type;
+          return done(StructType(fields));
         }
         if (t.type === "Null") {
           const next = replace(NullType, undefined);
-          return next === undefined ? { shape: ERROR, mult: ONE } : { shape: typed(StructType({ [name]: next })), mult: ONE };
+          if (next === undefined) return failed;
+          return next.mult.hi === 0 ? unchanged : done(StructType({ [name]: next.type }));
         }
         if (t.type === "Dict" && unwrap(t.key as EastType).type === "String") {
           const old = orNull(t.value as EastType) ?? (t.value as EastType);
           const next = replace(old, undefined);
-          const merged = next === undefined ? undefined : unify(t.value as EastType, next);
-          if (merged === undefined) return { shape: ERROR, mult: ONE };
-          return { shape: typed(DictType(t.key as EastType, merged)), mult: ONE };
+          if (next === undefined) return failed;
+          const merged = unify(t.value as EastType, next.type);
+          if (merged === undefined) return this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(t.value as EastType), describeType(next.type)));
+          return done(DictType(t.key as EastType, merged));
         }
+        // A variant's payload, in each case it can hold here; its case's name is its type, not a value to update.
+        if (t.type === "Variant" && nullablePayload(t) === undefined && (name === "value" || name === "type")) {
+          if (name === "type") return this.fail(this.range(path), "unsupported", MESSAGES.unavailable(`assigning to ${this.source(path)}`, "a variant's case is its type; build the new value instead"));
+          const cases = casesOf(t, member.facts);
+          const payloads = { ...(t.cases as Record<string, EastType>) };
+          const facts = member.facts?.kind === "cases" && cases.length === 1 ? member.facts.payload : undefined;
+          for (const c of cases) {
+            const next = replace(payloads[c]!, facts);
+            if (next === undefined) return failed;
+            // A payload cannot be deleted: with no value, it keeps its type, and the update raises there.
+            if (next.mult.hi !== 0) payloads[c] = next.type;
+          }
+          this.updatedCases.set(`${env.instance}|${path}|${printType(t)}`, cases);
+          return done(VariantType(payloads));
+        }
+        if (optional) return unchanged;
         return this.mismatch(env, this.range(path), "type_mismatch", MESSAGES.notAField(`.${name}`, describeType(member.type)));
       }
       if (step.type === "index") {
         const keyPath = childPath(path, "index.index");
-        const key = this.check(step.value.index, keyPath, { shape: typed(t), mult: ONE }, env);
-        const keyType = this.collect(key, this.range(keyPath));
-        if (keyType === undefined) return { shape: ERROR, mult: ONE };
+        const keyType = keys.key!;
         if (t.type === "Array") {
-          const next = replace(orNull(t.value as EastType) ?? (t.value as EastType), undefined);
-          const merged = next === undefined ? undefined : unify(t.value as EastType, next);
-          return merged === undefined ? { shape: ERROR, mult: ONE } : { shape: typed(ArrayType(merged)), mult: ONE };
+          if (!this.keyFits(keyType, IntegerType, step.value.index, keyPath)) {
+            return this.mismatch(env, this.range(keyPath), "type_mismatch", MESSAGES.keyType(".[…]", "Integer", this.source(keyPath), describeType(keyType)));
+          }
+          // The element itself: an index past the end is an error, where jq pads with nulls (§13.23).
+          const next = replace(t.value as EastType, member.facts?.kind === "elements" ? member.facts.element : undefined);
+          if (next === undefined) return failed;
+          const merged = unify(t.value as EastType, next.type);
+          if (merged === undefined) return this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(t.value as EastType), describeType(next.type)));
+          return done(ArrayType(merged));
         }
         if (t.type === "Dict" || (t.type === "Struct" && Object.keys(t.fields).length === 0) || t.type === "Null") {
           const dictKey = t.type === "Dict" ? t.key as EastType : keyType;
@@ -1655,36 +1844,129 @@ class Checker {
           if (!this.keyFits(keyType, dictKey, step.value.index, keyPath)) {
             return this.mismatch(env, this.range(keyPath), "type_mismatch", MESSAGES.keyType(".[…]", describeType(dictKey), this.source(keyPath), describeType(keyType)));
           }
+          if (!isImmutableType(dictKey)) return this.fail(this.range(keyPath), "type_mismatch", MESSAGES.mutableKey(this.source(keyPath), describeType(dictKey)));
           const next = replace(dictValue.type === "Never" ? NullType : (orNull(dictValue) ?? dictValue), undefined);
-          const merged = next === undefined ? undefined : unify(dictValue, next);
-          if (merged === undefined || !isImmutableType(dictKey)) return { shape: ERROR, mult: ONE };
-          return { shape: typed(DictType(dictKey, merged)), mult: ONE };
+          if (next === undefined) return failed;
+          const merged = unify(dictValue, next.type);
+          if (merged === undefined) return this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(dictValue), describeType(next.type)));
+          return done(DictType(dictKey, merged));
         }
+        if (optional) return unchanged;
         return this.mismatch(env, this.range(path), "not_indexable", MESSAGES.notIndexable(this.source(childPath(path, "index.target")) || ".", describeType(member.type)));
       }
-      // `.[]`: every element.
+      if (step.type === "slice") {
+        // The slice's new value is an array, spliced in its place; none deletes the slice.
+        if (t.type === "Array" || t.type === "Null") {
+          const next = t.type === "Array" ? replace(t, member.facts) : replace(NullType, undefined);
+          if (next === undefined) return failed;
+          if (next.mult.hi === 0) return unchanged;
+          const given = unwrap(next.type);
+          if (given.type !== "Array") return this.mismatch(env, this.range(path), "type_mismatch", MESSAGES.sliceUpdate(this.source(path), describeType(next.type)));
+          // `null`'s slice is null, so the array the update gives is the value, or null where it gives none.
+          if (t.type === "Null") return done(next.mult.lo === 1 ? next.type : orNull(next.type)!);
+          const merged = unify(t.value as EastType, given.value as EastType);
+          if (merged === undefined) return this.fail(this.range(path), "ambiguous_output", MESSAGES.noCommonType(describeType(t), describeType(next.type)));
+          return done(ArrayType(merged));
+        }
+        if (optional) return unchanged;
+        if (t.type === "String") return this.mismatch(env, this.range(path), "type_mismatch", MESSAGES.stringSlice(this.source(path)));
+        return this.mismatch(env, this.range(path), "not_indexable", MESSAGES.notIndexable(this.source(childPath(path, "slice.target")) || ".", describeType(member.type)));
+      }
+      // `.[]`: every element; an element with no value is deleted.
       switch (t.type) {
         case "Array": {
           const next = replace(t.value as EastType, member.facts?.kind === "elements" ? member.facts.element : undefined);
-          return next === undefined ? { shape: ERROR, mult: ONE } : { shape: typed(ArrayType(next)), mult: ONE };
+          return next === undefined ? failed : done(ArrayType(next.type));
         }
         case "Dict": {
-          const next = replace(t.value as EastType, undefined);
-          return next === undefined ? { shape: ERROR, mult: ONE } : { shape: typed(DictType(t.key as EastType, next)), mult: ONE };
+          const next = replace(t.value as EastType, member.facts?.kind === "values" ? member.facts.value : undefined);
+          return next === undefined ? failed : done(DictType(t.key as EastType, next.type));
         }
         case "Struct": {
+          const facts = member.facts?.kind === "fields" ? member.facts.fields : undefined;
           const fields: Record<string, EastType> = {};
           for (const [name, f] of Object.entries(t.fields as Record<string, EastType>)) {
-            const next = replace(f, undefined);
-            if (next === undefined) return { shape: ERROR, mult: ONE };
-            fields[name] = next;
+            const next = replace(f, facts?.get(name));
+            if (next === undefined) return failed;
+            if (next.mult.hi !== 0) fields[name] = next.type;
           }
-          return { shape: typed(StructType(fields)), mult: ONE };
+          return done(StructType(fields));
         }
         default:
+          if (optional) return unchanged;
           return this.mismatch(env, this.range(path), "not_iterable", MESSAGES.notIterable(".[]", describeType(member.type)));
       }
     }, env);
+    return assigned?.shape;
+  }
+
+  /**
+   * `..`, `recurse` or `recurse(.a[])` in an update's path: every value the
+   * walk visits is a position, and the update must give each back with its
+   * own type.
+   */
+  assignWalk(shape: TypeShape, child: { node: JqNode; path: string } | undefined, path: string, at: (current: Result) => Result, env: Env): Assigned | undefined {
+    const range = this.range(path);
+    const steps = child === undefined ? undefined : walkSteps(child.node);
+    if (child !== undefined && steps === undefined) {
+      this.fail(range, "unsupported", MESSAGES.unavailable(`assigning through recurse(${this.source(child.path)})`, "an update's recurse walks .[], or field reads then .[], as recurse(.children[])"));
+      return undefined;
+    }
+    // The kinds of position the walk visits.
+    const kinds: EastType[] = [];
+    let problem = false;
+    const visit = (t: EastType): void => {
+      if (problem || kinds.some(k => isTypeEqual(k, t))) return;
+      kinds.push(t);
+      const inner = child === undefined ? this.walkKinds(t, path) : this.stepKinds(t, child, env);
+      if (inner === undefined) { problem = true; return; }
+      inner.forEach(visit);
+    };
+    visit(shape.type);
+    if (problem) return undefined;
+    let root: Mult = ONE;
+    for (const kind of kinds) {
+      const r = at({ shape: typed(kind), mult: ONE });
+      if (r.shape.kind === "error") return undefined;
+      const t = this.collect(r, range);
+      if (t === undefined) return undefined;
+      if (t.type !== "Never" && !sameType(kind, t)) {
+        this.fail(range, "type_mismatch", MESSAGES.walkUpdate(this.source(path), describeType(kind), describeType(t)));
+        return undefined;
+      }
+      if (kind === kinds[0]) root = r.mult;
+    }
+    return { shape: typed(shape.type), mult: root };
+  }
+
+  /**
+   * The kinds of position `..` finds directly inside a value in an update:
+   * the elements of an array or set, a dict's values, a struct's fields, an
+   * option's value's positions, and a variant's payloads (its case's name is
+   * not a position). A Vector or Matrix is refused.
+   */
+  walkKinds(type: EastType, path: string): EastType[] | undefined {
+    const u = unwrap(type);
+    const payload = nullablePayload(u);
+    const t = payload === undefined ? u : unwrap(payload);
+    switch (t.type) {
+      case "Array": return [t.value as EastType];
+      case "Set": return [t.key as EastType];
+      case "Dict": return [t.value as EastType];
+      case "Struct": return Object.values(t.fields as Record<string, EastType>);
+      case "Variant": return Object.values(t.cases as Record<string, EastType>);
+      case "Vector": case "Matrix":
+        this.fail(this.range(path), "unsupported", MESSAGES.unavailable(`assigning through ${this.source(path)}`, `it would walk ${describeType(t)}, whose elements an update does not rebuild`));
+        return undefined;
+      default: return [];
+    }
+  }
+
+  /** The kinds of position `recurse(f)` finds from a value: `f`'s outputs on it, checked as a read. */
+  stepKinds(type: EastType, child: { node: JqNode; path: string }, env: Env): EastType[] | undefined {
+    const r = this.check(child.node, child.path, { shape: typed(type), mult: ONE }, env);
+    if (r.shape.kind === "error") return undefined;
+    return membersOf(r.shape).map(m => m.shape.type);
   }
 
   /** Checks a node again on another input, in a new instance; see {@link CheckJqResult.retype}. */
@@ -1845,7 +2127,7 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
   const empty = (diagnostics: QueryError[]): CheckJqResult => ({
     query: null, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
     resultAt: () => null, scopeAt: () => null, source: { text: parsed.text, spans: parsed.spans, root: options.root === true },
-    inputAt: () => null, retype: () => null,
+    inputAt: () => null, retype: () => null, updatedCases: () => null,
   });
   if (parsed.program.type === "none") return empty(parsed.diagnostics);
   const root = parsed.program.value;
@@ -1901,5 +2183,6 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
     source: { text: parsed.text, spans: parsed.spans, root: options.root === true },
     inputAt: (path: string, instance: string) => checker.inputs.get(`${instance}|${path}`) ?? null,
     retype: (path: string, instance: string, input: EastType) => checker.retype(path, instance, input),
+    updatedCases: (path: string, instance: string, variant: EastType) => checker.updatedCases.get(`${instance}|${path}|${printType(variant)}`) ?? null,
   };
 }

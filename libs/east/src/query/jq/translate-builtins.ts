@@ -1553,8 +1553,13 @@ rule(["pow", "fmin", "fmax", "fmod"], (t, c) => values(t, c, [0, 1], c.$, ($, [a
   switch (c.name) {
     case "pow": c.emit($, t.b("FloatPow", [], [x, y], FloatType, c.path)); return;
     case "fmod": c.emit($, t.b("FloatRemainder", [], [x, y], FloatType, c.path)); return;
-    default:
-      c.emit($, t.ifValue(c.name === "fmin" ? t.lt(y, x, c.path) : t.lt(x, y, c.path), () => y, () => x, FloatType, c.path));
+    // As C's: a NaN gives the other number. East orders NaN above every number,
+    // so the lesser of the two is never a NaN unless both are.
+    case "fmin": c.emit($, t.ifValue(t.lt(y, x, c.path), () => y, () => x, FloatType, c.path)); return;
+    default: {
+      const other = t.b("BooleanOr", [], [isNan(t, $, y, c.path), t.lt(y, x, c.path)], BooleanType, c.path);
+      c.emit($, t.ifValue(isNan(t, $, x, c.path), () => y, () => t.ifValue(other, () => x, () => y, FloatType, c.path), FloatType, c.path));
+    }
   }
 }));
 
