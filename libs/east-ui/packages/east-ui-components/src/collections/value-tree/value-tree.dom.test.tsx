@@ -22,7 +22,7 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    variant, some, none,
+    variant, some, none, isValueOf, printFor, type ValueTypeOf,
     StructType, ArrayType, DictType, OptionType, VariantType, DateTimeType, IntegerType, StringType,
 } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
@@ -204,10 +204,7 @@ describe("EastChakraValueTree", () => {
         const input = document.querySelector("input")!;
         fireEvent.change(input, { target: { value: "Mill" } });
         await waitFor(() => expect(onEdit).toHaveBeenCalled());
-        const [path, leafArg] = onEdit.mock.calls[0] as [unknown[], { type: string; value: unknown }];
-        expect(path).toEqual([variant("key", "name")]);
-        expect(leafArg.type).toBe("string");
-        expect(leafArg.value).toBe("Mill");
+        expect(onEdit.mock.calls[0]).toEqual([[variant("key", "name")], variant("string", "Mill")]);
     });
 
     test("typing retains focus while the host round-trips each keystroke", async () => {
@@ -569,59 +566,58 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
         pick: VariantType({ a: IntegerType, b: StringType }),
         bag: DictType(StringType, IntegerType),
     });
-    const sample = () => ({
+    /** A decoded Row — `applyEdit` answers the value it was given, retyped. */
+    type RowValue = ValueTypeOf<typeof Row>;
+    const sample = (): RowValue => ({
         n: 3n,
         tags: ["x", "y"],
-        opt: none as unknown,
-        pick: variant("a", 7n) as unknown,
-        bag: new Map<string, bigint>([["k", 1n]]),
+        opt: none,
+        pick: variant("a", 7n),
+        bag: new Map([["k", 1n]]),
     });
-    const tagOf = (v: unknown) => (v as { type: string }).type;
 
     test("materialize walks the type into the fixed node shape", () => {
-        const root = ValueTree.materialize(Row, sample()) as { type: string; value: { fields: Array<{ name: string; node: { type: string } }> } };
-        expect(root.type).toBe("struct");
+        const root = ValueTree.materialize(Row, sample());
+        if (root.type !== "struct") throw new Error(`expected a struct node, got ${root.type}`);
         const byName = Object.fromEntries(root.value.fields.map(f => [f.name, f.node.type]));
         expect(byName).toEqual({ n: "leaf", tags: "array", opt: "option", pick: "variant", bag: "dict" });
     });
 
     test("edit replaces the addressed leaf", () => {
-        const next = ValueTree.applyEdit(Row, sample(), [variant("field", "n")], { kind: "edit", leaf: variant("integer", 9n) }) as { n: bigint };
+        const next = ValueTree.applyEdit(Row, sample(), [variant("field", "n")], { kind: "edit", leaf: variant("integer", 9n) }) as RowValue;
         expect(next.n).toBe(9n);
     });
 
     test("array append then remove", () => {
-        const added = ValueTree.applyEdit(Row, sample(), [variant("field", "tags"), variant("append", null)], { kind: "insert" }) as { tags: string[] };
+        const added = ValueTree.applyEdit(Row, sample(), [variant("field", "tags"), variant("append", null)], { kind: "insert" }) as RowValue;
         expect(added.tags).toEqual(["x", "y", ""]);
-        const dropped = ValueTree.applyEdit(Row, sample(), [variant("field", "tags"), variant("index", 0n)], { kind: "remove" }) as { tags: string[] };
+        const dropped = ValueTree.applyEdit(Row, sample(), [variant("field", "tags"), variant("index", 0n)], { kind: "remove" }) as RowValue;
         expect(dropped.tags).toEqual(["y"]);
     });
 
     test("dict key add then remove", () => {
-        const added = ValueTree.applyEdit(Row, sample(), [variant("field", "bag"), variant("key", "z")], { kind: "insert" }) as { bag: Map<string, bigint> };
+        const added = ValueTree.applyEdit(Row, sample(), [variant("field", "bag"), variant("key", "z")], { kind: "insert" }) as RowValue;
         expect(added.bag.get("z")).toBe(0n);
-        const dropped = ValueTree.applyEdit(Row, sample(), [variant("field", "bag"), variant("key", "k")], { kind: "remove" }) as { bag: Map<string, bigint> };
+        const dropped = ValueTree.applyEdit(Row, sample(), [variant("field", "bag"), variant("key", "k")], { kind: "remove" }) as RowValue;
         expect(dropped.bag.has("k")).toBe(false);
     });
 
     test("variant tag switch resets to the case zero", () => {
-        const next = ValueTree.applyEdit(Row, sample(), [variant("field", "pick")], { kind: "tag", tag: "b" }) as { pick: { type: string; value: unknown } };
-        expect(tagOf(next.pick)).toBe("b");
-        expect(next.pick.value).toBe("");
+        const next = ValueTree.applyEdit(Row, sample(), [variant("field", "pick")], { kind: "tag", tag: "b" }) as RowValue;
+        expect(next.pick).toEqual(variant("b", ""));
     });
 
     test("option toggle none → some(zero) and back", () => {
-        const on = ValueTree.applyEdit(Row, sample(), [variant("field", "opt")], { kind: "tag", tag: "some" }) as { opt: { type: string; value: unknown } };
-        expect(tagOf(on.opt)).toBe("some");
-        expect(on.opt.value).toBe(0n);
-        const off = ValueTree.applyEdit(Row, { ...sample(), opt: some(5n) }, [variant("field", "opt")], { kind: "tag", tag: "none" }) as { opt: { type: string } };
-        expect(tagOf(off.opt)).toBe("none");
+        const on = ValueTree.applyEdit(Row, sample(), [variant("field", "opt")], { kind: "tag", tag: "some" }) as RowValue;
+        expect(on.opt).toEqual(some(0n));
+        const off = ValueTree.applyEdit(Row, { ...sample(), opt: some(5n) }, [variant("field", "opt")], { kind: "tag", tag: "none" }) as RowValue;
+        expect(off.opt).toEqual(none);
     });
 
     test("edit nested through an option's some payload", () => {
         const start = { ...sample(), opt: some(2n) };
-        const next = ValueTree.applyEdit(Row, start, [variant("field", "opt"), variant("some", null)], { kind: "edit", leaf: variant("integer", 42n) }) as { opt: { value: bigint } };
-        expect(next.opt.value).toBe(42n);
+        const next = ValueTree.applyEdit(Row, start, [variant("field", "opt"), variant("some", null)], { kind: "edit", leaf: variant("integer", 42n) }) as RowValue;
+        expect(next.opt).toEqual(some(42n));
     });
 
     test("struct-keyed dict entries label as field summaries, never [object Object]", () => {
@@ -631,10 +627,8 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
             [{ machine: "press", line: "L4", shift: 2n }, { units: 1980n }],
             [{ machine: "mill", line: "L2", shift: 2n }, { units: 1980n }],
         ]);
-        const root = ValueTree.materialize(Machines, value) as unknown as {
-            type: string; value: { editable: boolean; entries: Array<{ key: string; label: string }> };
-        };
-        expect(root.type).toBe("dict");
+        const root = ValueTree.materialize(Machines, value);
+        if (root.type !== "dict") throw new Error(`expected a dict node, got ${root.type}`);
         expect(root.value.editable).toBe(false);
         const labels = root.value.entries.map(e => e.label);
         expect(labels).toContain("press · L4 · 2");
@@ -652,20 +646,19 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
             [{ machine: "press", shift: 2n }, { units: 1980n }],
             [{ machine: "mill", shift: 1n }, { units: 1200n }],
         ]);
-        const root = ValueTree.materialize(Machines, value) as unknown as {
-            value: { entries: Array<{ key: string; label: string }> };
-        };
+        const root = ValueTree.materialize(Machines, value);
+        if (root.type !== "dict") throw new Error(`expected a dict node, got ${root.type}`);
         // Close the renderer loop: edit through the entry's own key text.
         const key = root.value.entries.find(e => e.label === "press · 2")!.key;
         const next = ValueTree.applyEdit(Machines, value,
             [variant("key", key), variant("field", "units")],
-            { kind: "edit", leaf: variant("integer", 2000n) }) as Map<unknown, { units: bigint }>;
+            { kind: "edit", leaf: variant("integer", 2000n) }) as ValueTypeOf<typeof Machines>;
         // The REAL entry updated — no phantom string-keyed entry appears.
         expect(next.size).toBe(2);
-        const entries = [...next.entries()] as Array<[{ machine: string; shift: bigint }, { units: bigint }]>;
+        const entries = [...next.entries()];
         expect(entries.find(([k]) => k.machine === "press")![1].units).toBe(2000n);
         expect(entries.find(([k]) => k.machine === "mill")![1].units).toBe(1200n);
-        for (const [k] of entries) expect(typeof k).toBe("object");
+        for (const [k] of entries) expect(isValueOf(k, MachineKey)).toBe(true);
     });
 
     test("datetime-keyed dict edits round-trip through the canonical print", () => {
@@ -673,12 +666,11 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
         const t0 = new Date("2024-06-01T00:00:00.000Z");
         const t1 = new Date("2024-06-02T00:00:00.000Z");
         const value = new Map([[t0, 10n], [t1, 20n]]);
-        const root = ValueTree.materialize(Series, value) as unknown as {
-            value: { entries: Array<{ key: string }> };
-        };
+        const root = ValueTree.materialize(Series, value);
+        if (root.type !== "dict") throw new Error(`expected a dict node, got ${root.type}`);
         const next = ValueTree.applyEdit(Series, value,
             [variant("key", root.value.entries[0]!.key)],
-            { kind: "edit", leaf: variant("integer", 99n) }) as Map<Date, bigint>;
+            { kind: "edit", leaf: variant("integer", 99n) }) as ValueTypeOf<typeof Series>;
         expect(next.size).toBe(2);
         expect([...next.values()]).toEqual([99n, 20n]);
     });
@@ -687,14 +679,14 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
         const Codes = DictType(IntegerType, StringType);
         const value = new Map([[7n, "critical"], [12n, "routine"]]);
         const next = ValueTree.applyEdit(Codes, value,
-            [variant("key", "7")], { kind: "remove" }) as Map<bigint, string>;
+            [variant("key", "7")], { kind: "remove" }) as ValueTypeOf<typeof Codes>;
         expect(next.size).toBe(1);
         expect(next.has(12n)).toBe(true);
     });
 
     test("dict inserts keep canonical key order for re-encoding", () => {
         const added = ValueTree.applyEdit(Row, sample(),
-            [variant("field", "bag"), variant("key", "a")], { kind: "insert" }) as { bag: Map<string, bigint> };
+            [variant("field", "bag"), variant("key", "a")], { kind: "insert" }) as RowValue;
         // The rebuilt dict is a sorted East container — a prepended key
         // lands in canonical position, not JS insertion order.
         expect([...added.bag.keys()]).toEqual(["a", "k"]);
@@ -721,16 +713,15 @@ describe("ValueTree.materialize / applyEdit (host)", () => {
             active: OptionType(StringType),
         });
         const Table = DictType(StringType, Rec);
-        const record = { grade: none as unknown, site: "S1", station: "N2", slots: 0n, active: none as unknown };
+        const record: ValueTypeOf<typeof Rec> = { grade: none, site: "S1", station: "N2", slots: 0n, active: none };
         const value = new Map(Array.from({ length: 5000 }, (_, i) => [`B${4000 + i}B`, record] as const));
-        const root = ValueTree.materialize(Table, value) as {
-            type: string; value: { entries: Array<{ key: string; node: { type: string; value: unknown } }> };
-        };
+        const root = ValueTree.materialize(Table, value);
+        if (root.type !== "dict") throw new Error(`expected a dict node, got ${root.type}`);
         expect(root.value.entries.length).toBe(5000);
         for (const e of root.value.entries) {
             expect(e.node.type).toBe("struct");
         }
-        const json = JSON.stringify(root, (_k, v) => (typeof v === "bigint" ? String(v) : v as unknown));
-        expect(json.includes("[object Object]")).toBe(false);
+        // Every label and summary in the tree, as East prints the node.
+        expect(printFor(ValueTree.Types.Node)(root).includes("[object Object]")).toBe(false);
     });
 });

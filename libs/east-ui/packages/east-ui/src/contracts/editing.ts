@@ -23,7 +23,7 @@
 import {
     ArrayType, AsyncFunctionType, BlobType, DictType, East, EastTypeType,
     FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType,
-    StructType, VariantType, none, some, variant,
+    StructType, VariantType, isTypeEqual, none, some, variant,
     type EastType, type ExprType, type PatchTypeOf,
 } from "@elaraai/east";
 
@@ -280,7 +280,7 @@ export function EditingDraftEntryTypeFor<E extends EastType, F extends string = 
     if (entryType.type === "Variant" && entryType.cases.group?.type === "Struct" && entryType.cases.row?.type === "Struct") {
         const group = entryType.cases.group as StructType;
         const row = entryType.cases.row as StructType;
-        const candidates = Object.entries(group.fields).filter(([, t]) => t.type === "Array" && t.value === row);
+        const candidates = Object.entries(group.fields).filter(([, t]) => t.type === "Array" && isTypeEqual(t.value, row));
         const childField = field ?? children.get(entryType) ?? (candidates.length === 1 ? candidates[0]![0] : undefined);
         if (childField === undefined) throw new Error("Editing: declare the child field with Entry(GroupType, field) — Sheet.Types.Entry / Editing.Types.Entry");
         return VariantType({ group: EditingDraftGroupTypeFor(group, childField), row: EditingDraftTypeFor(row) }) as EditingDraftEntryOf<E, F>;
@@ -513,7 +513,7 @@ export function applyEditing(type: EastType, idField?: string): ExprType<Functio
 /** {@link applyEditing} over an Array, its entries addressed by their identity field. */
 function applyOrdered(entryType: EastType, idField: string): ExprType<FunctionType> {
     const identity = (type: EastType): ExprType<FunctionType<[EastType], StringType>> => {
-        if (type.type === "Struct" && type.fields[idField] === StringType) {
+        if (type.type === "Struct" && type.fields[idField]?.type === "String") {
             return East.function([type], StringType, (_$, row) => row[idField] as ExprType<StringType>) as ExprType<FunctionType<[EastType], StringType>>;
         }
         if (type.type === "Variant") {

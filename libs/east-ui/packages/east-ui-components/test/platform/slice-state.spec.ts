@@ -23,6 +23,7 @@ import { none, some, variant } from "@elaraai/east";
 import { SliceImpl, buildSliceHandle, boundRangeDomain, boundRangeHistogram } from "../../src/platform/slice/index.js";
 import { initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
+import { integerField, sliceConfig, stringField } from "../../src/platform/slice/slice.test-utils.js";
 
 /** The registered primitives, looked up by their declared `slice_*` name. */
 const byName = new Map(SliceImpl.map(p => [p.name, p.fn]));
@@ -32,7 +33,7 @@ const call = (name: string, ...args: unknown[]): unknown => {
     return (fn as (...a: unknown[]) => unknown)(...args);
 };
 
-const cfg = { fields: new Map(), rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [] };
+const cfg = sliceConfig({}, { searchFieldIds: ["id"] });
 const initial = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
     breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
@@ -83,10 +84,7 @@ test("activeCount/isActive ignore non-narrowing state — selection + legend vis
 
 test("slice_toggle_filter is an idempotent add/remove toggle over structural equality (#165)", () => {
     initializeStore(new UIStore());
-    const searchCfg = {
-        fields: new Map([["id", { type: "string", value: { accessor: (r: { id: string }) => r.id } }]]),
-        rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [],
-    };
+    const searchCfg = sliceConfig({ id: stringField((r: { id: string }) => r.id) }, { searchFieldIds: ["id"] });
     buildSliceHandle("tf", searchCfg, initial, [{ id: "a" }, { id: "b" }], none);
 
     // First toggle appends and actually narrows the bound rows.
@@ -107,10 +105,7 @@ test("slice_toggle_filter is an idempotent add/remove toggle over structural equ
 
 test("an integer range narrows integer-field rows; the brush domain reports the TRUE kind (#167)", () => {
     initializeStore(new UIStore());
-    const intCfg = {
-        fields: new Map([["qty", { type: "integer", value: { accessor: (r: { qty: bigint }) => r.qty } }]]),
-        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const intCfg = sliceConfig({ qty: integerField((r: { qty: bigint }) => r.qty) }, { rangeFieldId: some("qty") });
     buildSliceHandle("ir", intCfg, initial, [{ qty: 5n }, { qty: 20n }, { qty: 50n }], none);
 
     // Was "float" — which made the Rail brush write an inert float arm.
@@ -195,10 +190,7 @@ test("slice_remove_filter removes by INDEX — the survivor is the other clause 
 
 test("slice_set_range narrows; slice_set_breakdown feeds slice_groups; slice_set_compare round-trips (#170)", () => {
     initializeStore(new UIStore());
-    const cfgN = {
-        fields: new Map([["n", { type: "integer", value: { accessor: (r: { n: bigint }) => r.n } }]]),
-        rangeFieldId: some("n"), searchFieldIds: [], breakdownFieldIds: ["region"],
-    };
+    const cfgN = sliceConfig({ n: integerField((r: { n: bigint }) => r.n) }, { rangeFieldId: some("n"), breakdownFieldIds: ["region"] });
     buildSliceHandle("d.set", cfgN, initial, [
         { n: 5n, region: "EU" }, { n: 20n, region: "EU" }, { n: 50n, region: "NA" },
     ], none);
@@ -231,10 +223,7 @@ test("clearFilters preserves breakdown + selectedIndex (presentation, not narrow
 
 test("slice_matches: toMatch projection wins; autoDerive falls back to the searchable string field (#170)", () => {
     initializeStore(new UIStore());
-    const cfgS = {
-        fields: new Map([["id", { type: "string", value: { accessor: (r: { id: string }) => r.id } }]]),
-        rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [],
-    };
+    const cfgS = sliceConfig({ id: stringField((r: { id: string }) => r.id) }, { searchFieldIds: ["id"] });
     const rows = [{ id: "alpha" }, { id: "beta" }];
 
     buildSliceHandle("m.proj", cfgS, initial, rows, some((r: { id: string }) => ({ id: r.id, label: r.id.toUpperCase(), meta: none })));
@@ -249,10 +238,7 @@ test("slice_matches: toMatch projection wins; autoDerive falls back to the searc
 
 test("slice_fields merges auto-derived hints for hint-less string fields; slice_cohort_counts counts per cohort (#170)", () => {
     initializeStore(new UIStore());
-    const cfgS = {
-        fields: new Map([["id", { type: "string", value: { label: "Id", accessor: (r: { id: string }) => r.id } }]]),
-        rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [],
-    };
+    const cfgS = sliceConfig({ id: stringField((r: { id: string }) => r.id) }, { searchFieldIds: ["id"] });
     buildSliceHandle("d.fields", cfgS, initial, [{ id: "a" }, { id: "b" }, { id: "a" }], none);
 
     const fields = call("slice_fields_meta", "d.fields") as Array<{ fieldId: string; kind: string; hints: string[] }>;
@@ -266,10 +252,7 @@ test("slice_fields merges auto-derived hints for hint-less string fields; slice_
 
 test("slice_facet_groups is SELF-EXCLUDING — the breakdown field's own filters don't hide its options (#188)", () => {
     initializeStore(new UIStore());
-    const cfgR = {
-        fields: new Map([["region", { type: "string", value: { accessor: (r: { region: string }) => r.region } }]]),
-        rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: ["region"],
-    };
+    const cfgR = sliceConfig({ region: stringField((r: { region: string }) => r.region) }, { breakdownFieldIds: ["region"] });
     buildSliceHandle("fg", cfgR, { ...initial, breakdown: some({ fieldId: "region", limit: none }) }, [
         { region: "EU", n: 1n }, { region: "EU", n: 2n }, { region: "NA", n: 3n },
     ], none);
@@ -287,13 +270,10 @@ test("slice_facet_groups is SELF-EXCLUDING — the breakdown field's own filters
 
 test("boundRangeHistogram buckets the range field self-excluding; other-field filters narrow it (#190)", () => {
     initializeStore(new UIStore());
-    const cfgN = {
-        fields: new Map<string, unknown>([
-            ["qty", { type: "integer", value: { accessor: (r: { qty: bigint }) => r.qty } }],
-            ["sku", { type: "string",  value: { accessor: (r: { sku: string }) => r.sku } }],
-        ]),
-        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfgN = sliceConfig({
+        qty: integerField((r: { qty: bigint }) => r.qty),
+        sku: stringField((r: { sku: string }) => r.sku),
+    }, { rangeFieldId: some("qty") });
     // Domain 0..30: rows cluster at both ends.
     buildSliceHandle("hist", cfgN, initial, [
         { qty: 0n, sku: "a" }, { qty: 1n, sku: "a" }, { qty: 2n, sku: "b" },
@@ -314,10 +294,7 @@ test("boundRangeHistogram buckets the range field self-excluding; other-field fi
 
 test("boundRangeHistogram over a half-open EXTENT counts each period once — the last value never doubles up (#949)", () => {
     initializeStore(new UIStore());
-    const cfgD = {
-        fields: new Map<string, unknown>([["day", { type: "integer", value: { accessor: (r: { day: bigint }) => r.day } }]]),
-        rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfgD = sliceConfig({ day: integerField((r: { day: bigint }) => r.day) }, { rangeFieldId: some("day") });
     // Two rows a day for days 1..4: the domain is the CLOSED [1, 4].
     buildSliceHandle("hist.extent", cfgD, initial, [1n, 1n, 2n, 2n, 3n, 3n, 4n, 4n].map((day) => ({ day })), none);
     // Over the closed domain, three bins cannot hold four days: day 4 piles
@@ -344,10 +321,7 @@ test("slice_cohort_counts is an East Dict — its cohorts iterate in East's key 
 
 test("the brush domain reads each range value by the field's kind — a value of another type is not on it", () => {
     initializeStore(new UIStore());
-    const intCfg = {
-        fields: new Map([["qty", { type: "integer", value: { accessor: (r: { qty: unknown }) => r.qty } }]]),
-        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const intCfg = sliceConfig({ qty: integerField((r) => r.qty) }, { rangeFieldId: some("qty") });
     // An untyped row with a String where the Integer field belongs: `Number("50")`
     // used to stretch the domain to 50.
     buildSliceHandle("dom.kind", intCfg, initial, [{ qty: 5n }, { qty: 20n }, { qty: "50" }, { qty: undefined }], none);
@@ -358,10 +332,7 @@ test("the brush domain reads each range value by the field's kind — a value of
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {
     initializeStore(new UIStore());
     // A search that actually narrows rows needs a real string-field accessor.
-    const searchCfg = {
-        fields: new Map([["id", { type: "string", value: { accessor: (r: { id: string }) => r.id } }]]),
-        rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [],
-    };
+    const searchCfg = sliceConfig({ id: stringField((r: { id: string }) => r.id) }, { searchFieldIds: ["id"] });
     buildSliceHandle("t", searchCfg, initial, [{ id: "alpha" }, { id: "beta" }], none);
 
     call("slice_set_search", "t", some("alph"));

@@ -14,6 +14,8 @@ import {
     StructType,
     ArrayType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -83,7 +85,7 @@ function createAction(
     return East.value(variant("Action", {
         value: value,
         label: label,
-        disabled: disabled !== undefined ? variant("some", disabled) : variant("none", null),
+        disabled: disabled !== undefined ? some(disabled) : none,
     }), ActionBarItemType);
 }
 
@@ -136,14 +138,14 @@ function createActionBar(
 
     return East.value(variant("ActionBar", {
         items: items,
-        selectionCount: style?.selectionCount !== undefined ? variant("some", style.selectionCount) : variant("none", null),
-        selectionLabel: style?.selectionLabel !== undefined ? variant("some", style.selectionLabel) : variant("none", null),
+        selectionCount: style?.selectionCount !== undefined ? some(style.selectionCount) : none,
+        selectionLabel: style?.selectionLabel !== undefined ? some(style.selectionLabel) : none,
         style: hasStyle
-            ? variant("some", East.value({
-                onSelect: style?.onSelect !== undefined ? variant("some", style.onSelect) : variant("none", null),
-                onOpenChange: style?.onOpenChange !== undefined ? variant("some", style.onOpenChange) : variant("none", null),
+            ? some(East.value({
+                onSelect: style?.onSelect !== undefined ? some(style.onSelect) : none,
+                onOpenChange: style?.onOpenChange !== undefined ? some(style.onOpenChange) : none,
             }, ActionBarStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 

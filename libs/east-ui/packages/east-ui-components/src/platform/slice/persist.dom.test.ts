@@ -24,12 +24,13 @@ import {
 } from "./index.js";
 import { initializeStore } from "../state-runtime.js";
 import { UIStore } from "../state-store.js";
+import { sliceConfig } from "./slice.test-utils.js";
 
 const byName = new Map(SliceImpl.map(p => [p.name, p.fn]));
 const call = (name: string, ...args: unknown[]): unknown =>
     (byName.get(name) as (...a: unknown[]) => unknown)(...args);
 
-const cfg = { fields: new Map(), rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: [] };
+const cfg = sliceConfig({});
 const initial = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
     breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,

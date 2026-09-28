@@ -177,14 +177,16 @@ export function createMembers<T extends EastType>(
     config: SheetMembersConfig<T>,
 ): SheetRegisterValue {
     const expr = East.value(data as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
-    const t = Expr.type(expr) as { type: string; value?: EastType; key?: EastType };
+    // The data is an Array or a Dict whatever the cast above says: widen to
+    // read its real East type.
+    const t = Expr.type(expr) as EastType;
     if (t.type !== "Array" && t.type !== "Dict") {
         throw new Error(`Sheet.register.members: data must be an Array or a Dict<String, T> — got a ${t.type}`);
     }
-    if (t.type === "Dict" && (t.key as { type: string }).type !== "String") {
+    if (t.type === "Dict" && (t.key as EastType).type !== "String") {
         throw new Error("Sheet.register.members: a keyed register must be a Dict<String, T> — its keys ride to the accessors as the second argument");
     }
-    const elem = t.value as EastType;
+    const elem: EastType = t.value;
     const cfg = config as unknown as SheetMembersConfig<EastType>;
     const describe = East.function([elem, StringType], SheetRegisterMemberType, (_$, v, k) => ({
         key:     cfg.key(v, k),
@@ -351,8 +353,8 @@ export function createDriver<D extends StructType>(
     config: SheetDriverConfig<D>,
 ): SheetDriverValue {
     const expr = East.value(data as SubtypeExprOrValue<ArrayType<StructType>>) as ExprType<ArrayType<StructType>>;
-    const t = Expr.type(expr) as { type: string; value?: EastType };
-    if (t.type !== "Array" || (t.value as { type?: string }).type !== "Struct") {
+    const t = Expr.type(expr) as EastType;
+    if (t.type !== "Array" || (t.value as EastType).type !== "Struct") {
         throw new Error(`Sheet.driver("${column}"): data must be an Array of structs — got a ${t.type}`);
     }
     const rowType = t.value as StructType;

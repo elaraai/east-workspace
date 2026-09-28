@@ -17,6 +17,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
+import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
@@ -256,19 +257,16 @@ describe("Plan narrow layout (§10 / #570)", () => {
 
     test("Measures stacks the chart rows at expanded density with their ticks overlaid; a two-finger drag pans the window", async () => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: some(variant("datetime", { from: W27, to: W39 })),
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none,
             resolution: some(variant("week", null)),
         };
-        const handle = buildSliceHandle("plan.narrow.pan", cfg as never, initial as never,
+        const handle = buildSliceHandle("plan.narrow.pan", cfg, initial as never,
             [{ at: W27 }, { at: W39 }] as never, none) as never as {
                 read(): { range: { value: { value: { from: Date; to: Date } } } };
             };
@@ -307,9 +305,9 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // single row — a detour. Groups is the landing only when it is a map
         // (three groups, or a strip); otherwise Rows opens, and the grouping
         // survives as SECTIONS rather than flattening into one list.
+        const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
         const { container } = renderPlan(planRoot([
-            planRow("line1", variant("group", { summary: variant("none", null) }),
-                { gutter: gutter("Line 1") }),
+            planRow("line1", band, { gutter: gutter("Line 1") }),
             planRow("m1", spanKind([]), { parent: "line1" }),
             planRow("m2", spanKind([]), { parent: "line1" }),
             planRow("dock", spanKind([])),

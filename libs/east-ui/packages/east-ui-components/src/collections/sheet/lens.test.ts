@@ -17,6 +17,9 @@ import type { SliceStateValue } from "./sheet-types.js";
 import type { SheetColumnMeta } from "./model.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
+/** One field's spec in the slice config — a variant per kind, carrying its label, accessor and format. */
+type LensField = LensConfig["fields"] extends Map<string, infer F> ? F : never;
+
 const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
 const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)), lines: [], band: none, subRows: [] });
 const stateOf = (patch: Partial<SliceStateValue>): SliceStateValue => ({
@@ -63,13 +66,13 @@ describe("the match record", () => {
     });
 
     test("hits come from the slice engine — a string field by value, a text field through its projection; a failing projection is not a match", () => {
-        const config = {
-            fields: new Map<string, unknown>([
+        const config: LensConfig = {
+            fields: new Map<string, LensField>([
                 ["activity", variant("string", { label: "Activity", accessor: (r: { activity: string }) => r.activity, format: none })],
                 ["stations", variant("text", { label: "Stations", accessor: (r: { stations: { to: { value: { key: string } }[] } }) => r.stations.to.map((m) => m.value.key).join(", "), format: none })],
             ]),
-            rangeFieldId: none, searchFieldIds: ["activity", "stations"], breakdownFieldIds: [],
-        } as unknown as LensConfig;
+            rangeFieldId: none, searchFieldIds: ["activity", "stations"], breakdownFieldIds: [], fieldHints: new Map(),
+        };
         const columns = [column("activity", STRING), column("stations", LINK)];
         const rows = [
             row("a", { activity: cell("String", "Painting"), stations: cell("Link", { from: [], to: [] }) }),

@@ -330,7 +330,7 @@ export function lineRowOf(group: SheetRowValue, line: SheetLineValue): SheetRowV
     let byKey = lineRows.get(group);
     if (byKey === undefined) { byKey = new Map(); lineRows.set(group, byKey); }
     const known = byKey.get(line.key);
-    if (known !== undefined && known.cells === line.cells && known.subRows === line.subRows) return known;
+    if (known !== undefined && Object.is(known.cells, line.cells) && Object.is(known.subRows, line.subRows)) return known;
     const row: SheetRowValue = { id: lineId(group.id, line.key), owned: group.owned, cells: line.cells, lines: [], band: none, subRows: line.subRows };
     byKey.set(line.key, row);
     return row;

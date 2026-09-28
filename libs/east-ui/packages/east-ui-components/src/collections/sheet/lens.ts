@@ -153,8 +153,8 @@ function subRowsMatch(line: SheetLineValue, q: string): boolean {
 /** A line with no value in the range field never answers a date window (the engine lets a record without the field through). */
 function lineCanHit(state: SliceStateValue, config: LensConfig, record: Record<string, unknown>): boolean {
     if (state.range.type !== "some") return true;
-    const field = (config as unknown as { rangeFieldId: { type: string; value?: string } }).rangeFieldId;
-    return field.type !== "some" || field.value === undefined || record[field.value] !== undefined;
+    const field = config.rangeFieldId;
+    return field.type !== "some" || record[field.value] !== undefined;
 }
 
 /**
@@ -183,7 +183,7 @@ function titleCanHit(state: SliceStateValue): boolean {
 /** One record's hit, fail-closed. */
 function hitOf(state: SliceStateValue, config: LensConfig, record: Record<string, unknown>, now: Date): boolean {
     try {
-        return sliceMatches(state as never, config, record, now);
+        return sliceMatches(state, config, record, now);
     } catch (err) {
         console.error("[Sheet] the lens could not match a row:", err);
         return false;

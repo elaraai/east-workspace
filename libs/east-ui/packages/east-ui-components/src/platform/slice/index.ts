@@ -65,6 +65,8 @@ import { registerPlatformImplementation, getRegisteredPlatformImplementations } 
 type Row = Record<string, unknown>;
 /** A slice's state, decoded. */
 type SliceState = ValueTypeOf<typeof Slice.Types.State>;
+/** A slice's config, decoded — the apply engine's own type. */
+export type SliceConfig = Parameters<typeof sliceMatches>[1];
 /** A bound slice's handle. */
 type SliceBind = ValueTypeOf<typeof Slice.Types.Bind>;
 /** A `{ id, label, meta }` search match. */
@@ -234,7 +236,7 @@ const only = (patch: Partial<SliceState>): SliceState => ({ ...DEFAULT_SLICE_STA
  *  key) resolve the current rows / config / `toMatch` live by key. */
 const boundByKey = new Map<string, {
     rows: Row[] | (() => Row[]);
-    config: Parameters<typeof sliceMatches>[1];
+    config: SliceConfig;
     toMatch: ((r: Row) => Match) | undefined;
 }>();
 
@@ -250,8 +252,14 @@ function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
  * now)`. Matching with the caller's config keeps the rail's fields and the
  * component's narrowing in exact agreement.
  */
-export function boundSliceConfig(key: string): Parameters<typeof sliceMatches>[1] | undefined {
+export function boundSliceConfig(key: string): SliceConfig | undefined {
     return boundByKey.get(key)?.config;
+}
+
+/** The field a slice's range narrows on — its spec in the config — or
+ *  `undefined` when the config names no range field, or one it lacks. */
+function rangeFieldOf(config: SliceConfig) {
+    return config.rangeFieldId.type === "some" ? config.fields.get(config.rangeFieldId.value) : undefined;
 }
 
 /** A range field's kinds, as the brush domain reads them. */
@@ -284,12 +292,7 @@ export function boundRangeDomain(key: string): { kind: DomainKind; min: number; 
     if (bound === undefined) return undefined;
     const boundRowsList = boundRows(bound);
     if (boundRowsList.length === 0) return undefined;
-    const cfg = bound.config as unknown as {
-        rangeFieldId: { type: string; value: string };
-        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-    };
-    if (cfg.rangeFieldId.type !== "some") return undefined;
-    const field = cfg.fields.get(cfg.rangeFieldId.value);
+    const field = rangeFieldOf(bound.config);
     if (field === undefined) return undefined;
     const kind = field.type === "datetime" ? "datetime" as const
         : field.type === "integer" ? "integer" as const
@@ -329,11 +332,7 @@ export function boundRangeHistogram(key: string, buckets: number, extent?: { min
     const bound = boundByKey.get(key);
     const domain = boundRangeDomain(key);
     if (bound === undefined || domain === undefined || buckets < 1) return undefined;
-    const cfg = bound.config as unknown as {
-        rangeFieldId: { type: string; value: string };
-        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-    };
-    const field = cfg.fields.get(cfg.rangeFieldId.value);
+    const field = rangeFieldOf(bound.config);
     if (field === undefined) return undefined;
     const s = readState(key);
     const facetState = { ...s, range: none };
@@ -449,7 +448,7 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
 
 function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown, toMatch: unknown): Record<string, unknown> {
     const k = key as string;
-    const cfg = config as Parameters<typeof sliceMatches>[1];
+    const cfg = config as SliceConfig;
     const rowsSource = data as Row[] | (() => Row[]) | undefined;
     const liveRows = (): Row[] => (typeof rowsSource === "function" ? rowsSource() : rowsSource) ?? [];
     // `toMatch` arrives as `option<(row) => Match>`; unwrap the callable.
@@ -487,10 +486,7 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
  */
 export function autoDeriveMatches(
     hits: ReadonlyArray<unknown>,
-    config: {
-        searchFieldIds: ReadonlyArray<string>;
-        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-    },
+    config: Pick<SliceConfig, "searchFieldIds" | "fields">,
 ): Match[] {
     // First searchable field (string or text), else the first such field at all —
     // the same resolution `sliceMatches` applies, so the dropdown offers what the
@@ -502,7 +498,7 @@ export function autoDeriveMatches(
     const seen = new Set<string>();
     const out: Match[] = [];
     for (const r of hits) {
-        const label = sliceFieldText(config as never, fieldId, r as Row);
+        const label = sliceFieldText(config, fieldId, r as Row);
         if (label === undefined) continue;   // never offer a "null"/"undefined" suggestion (cf. autoDeriveFieldHints)
         if (seen.has(label)) continue;   // distinct values only
         seen.add(label);
@@ -683,23 +679,18 @@ export const SliceImpl: PlatformFunction[] = [
     SliceBindPrimitives.fields.implement((key) => {
         const e = boundByKey.get(key);
         if (e === undefined) return [];
-        const base = sliceFields(e.config as Parameters<typeof sliceFields>[0]);
+        const base = sliceFields(e.config);
         // Auto-derive distinct value hints from the bound data for string fields
         // that carry no explicit `hints` (#131) — so picking `in`/`notIn`/`eq` on,
         // e.g., `country` suggests the values actually present. Explicit hints win;
         // free entry stays allowed (suggestions, not an allow-list).
-        const fieldsMap = (e.config as unknown as {
-            fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-        }).fields;
         const rows = boundRows(e);
-        // (Loose `variant` format field vs the strict platform output — same
-        // boundary cast as `writeState`; identical runtime shape.)
         return base.map(f => {
             if (f.hints.length > 0 || f.kind !== "string") return f;
-            const accessor = fieldsMap.get(f.fieldId)?.value?.accessor;
+            const accessor = e.config.fields.get(f.fieldId)?.value.accessor;
             if (accessor === undefined) return f;
             return { ...f, hints: autoDeriveFieldHints(rows, accessor) };
-        }) as never;
+        });
     }),
     SliceBindPrimitives.searchFieldIds.implement((key) => {
         const e = boundByKey.get(key);
@@ -707,9 +698,7 @@ export const SliceImpl: PlatformFunction[] = [
     }),
     SliceBindPrimitives.rangeFieldId.implement((key) => {
         const e = boundByKey.get(key);
-        // The engine's config holds the loose `variant`; the output is the
-        // strict `option<string>` — identical runtime shape.
-        return (e ? e.config.rangeFieldId : none) as never;
+        return e ? e.config.rangeFieldId : none;
     }),
 
     // --- data-derived results (computed over the bound `rows`) ---
@@ -750,8 +739,7 @@ export const SliceImpl: PlatformFunction[] = [
         trackKey(key);
         const e = boundByKey.get(key);
         if (e === undefined) return [];
-        // loose point shape (`size`/`color` as bare `none`) vs strict `option<...>`.
-        return sliceSeries(readState(key), e.config, boundRows(e), xFieldId, valueFieldId, new Date()) as never;
+        return sliceSeries(readState(key), e.config, boundRows(e), xFieldId, valueFieldId, new Date());
     }),
     SliceBindPrimitives.matches.implement((key) => {
         trackKey(key);
@@ -765,7 +753,7 @@ export const SliceImpl: PlatformFunction[] = [
         if (e.toMatch !== undefined) return hits.map(e.toMatch);
         // No `toMatch`: auto-derive distinct search options from the config's
         // first searchable string field so search works out of the box (#129).
-        return autoDeriveMatches(hits, e.config as never);
+        return autoDeriveMatches(hits, e.config);
     }),
     SliceBindPrimitives.cohortCounts.implement((key) => {
         trackKey(key);

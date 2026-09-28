@@ -225,7 +225,7 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
     if (slice === undefined) return [];
 
     const state = slice.read();
-    const dimensions = typeof slice.dimensions === "function" ? slice.dimensions() : [];
+    const dimensions = slice.dimensions();
     const activeCount = activeNarrowingCount(state);
 
     const summaryChip = (key: string, d: AffordanceDescriptor): ReactNode => (

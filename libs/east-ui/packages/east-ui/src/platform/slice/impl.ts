@@ -51,11 +51,13 @@ import {
     some, none, variant,
     equalFor, lessFor, lessEqualFor, greaterFor, greaterEqualFor, isValueOf, parseFor, printFor,
     StringType, IntegerType, FloatType, DateTimeType, BooleanType,
-    type ValueTypeOf,
+    type option, type ValueTypeOf,
 } from "@elaraai/east";
 import { formatDateTime, parseDateTimeFormatted, tokenizeDateTimeFormat } from "@elaraai/east/internal";
 import type {
-    SliceBooleanOpType, SliceDateTimeOpType, SliceFloatOpType, SliceIntegerOpType, SlicePredicateType, SliceStringOpType,
+    DateTimePresetType, DateTimeRangeType, SliceBooleanOpType, SliceBreakdownGroupArrayType, SliceCohortType, SliceConfigType,
+    SliceDateTimeOpType, SliceDimensionArrayType, SliceFieldDescriptorArrayType, SliceFloatOpType, SliceIntegerOpType,
+    SlicePredicateType, SliceRangeType, SliceSeriesArrayType, SliceSeriesPointType, SliceStateType, SliceStringOpType,
 } from "./index.js";
 
 // Module-scope comparators — East-typed, instantiated once. Routing every
@@ -188,7 +190,7 @@ export function slicePredicateMatches(pred: SlicePredicateValue, row: Record<str
 /** A preset's window ending at `now`, on UTC days: East's DateTime is a UTC
  *  instant, so "today" starts at UTC midnight and the rows a preset keeps never
  *  depend on the viewer's timezone. The range pill resolves the same way. */
-function resolveDateTimePreset(preset: variant, now: Date): { from: Date; to: Date } {
+function resolveDateTimePreset(preset: ValueTypeOf<DateTimePresetType>, now: Date): ValueTypeOf<DateTimeRangeType> {
     const to = now;
     const from = new Date(now);
     switch (preset.type) {
@@ -197,7 +199,7 @@ function resolveDateTimePreset(preset: variant, now: Date): { from: Date; to: Da
         case "last30d": from.setUTCDate(from.getUTCDate() - 30); return { from, to };
         case "last90d": from.setUTCDate(from.getUTCDate() - 90); return { from, to };
         case "ytd":     return { from: new Date(Date.UTC(now.getUTCFullYear(), 0, 1)), to };
-        default: throw new Error(`unknown datetime preset: ${preset.type}`);
+        default: return unknownTag("datetime preset", preset);
     }
 }
 
@@ -205,71 +207,51 @@ function resolveDateTimePreset(preset: variant, now: Date): { from: Date; to: Da
 // config error; rather than crash (`new Date(7n)`) or silently mis-narrow
 // (`BigInt(date)` → epoch millis compared against [0,100]), the mismatched range
 // is INERT — the row passes (`true`), so a broken range simply doesn't filter.
-function rangeMatches(range: variant, value: unknown, now: Date): boolean {
+function rangeMatches(range: ValueTypeOf<SliceRangeType>, value: unknown, now: Date): boolean {
     switch (range.type) {
         case "datetimePreset": {
             if (!isValueOf(value, DateTimeType)) return true;
-            const { from, to } = resolveDateTimePreset(range.value as variant, now);
-            const v = value as Date;
+            const { from, to } = resolveDateTimePreset(range.value, now);
+            const v = value as ValueTypeOf<DateTimeType>;
             return lteDateTime(from, v) && lteDateTime(v, to);
         }
         case "datetime": {
             if (!isValueOf(value, DateTimeType)) return true;
-            const { from, to } = range.value as { from: Date; to: Date };
-            const v = value as Date;
+            const { from, to } = range.value;
+            const v = value as ValueTypeOf<DateTimeType>;
             return lteDateTime(from, v) && lteDateTime(v, to);
         }
         case "integer": {
             if (!isValueOf(value, IntegerType)) return true;
-            const { from, to } = range.value as { from: bigint; to: bigint };
-            const v = value as bigint;
+            const { from, to } = range.value;
+            const v = value as ValueTypeOf<IntegerType>;
             return lteInteger(from, v) && lteInteger(v, to);
         }
         case "float": {
             if (!isValueOf(value, FloatType)) return true;
-            const { from, to } = range.value as { from: number; to: number };
-            const v = value as number;
+            const { from, to } = range.value;
+            const v = value as ValueTypeOf<FloatType>;
             return lteFloat(from, v) && lteFloat(v, to);
         }
-        default: throw new Error(`unknown range tag: ${range.type}`);
+        default: return unknownTag("range tag", range);
     }
 }
 
 // ---------------------------------------------------------------------------
-// State / Config JS shape (decoded from East values at the impl boundary)
+// State / Config — the decoded East values the engine reads, typed from their
+// East types
 // ---------------------------------------------------------------------------
 
-interface ConfigLike {
-    readonly fields: Map<string, variant>;
-    readonly rangeFieldId: variant;
-    readonly searchFieldIds: ReadonlyArray<string>;
-    readonly breakdownFieldIds: ReadonlyArray<string>;
-    readonly fieldHints?: Map<string, ReadonlyArray<string>>;
-}
+/** A slice's state, decoded. */
+type SliceStateValue = ValueTypeOf<SliceStateType>;
 
-interface CohortLike {
-    readonly id: string;
-    readonly name: string;
-    readonly filters: ReadonlyArray<SlicePredicateValue>;
-    /** `option<string>` — the cohort's family; absent on a state built before the field existed. */
-    readonly group?: variant;
-}
+/** A slice's config, decoded. A field's accessor takes the row the slice
+ *  narrows: the module-scope type's `"T"` row decodes as `any`. */
+type SliceConfigValue = ValueTypeOf<typeof SliceConfigType>;
 
-/** A cohort's family, or `undefined` for a standalone cohort (tolerates a pre-field state with no `group`). */
-export function cohortGroupOf(cohort: { readonly group?: variant | undefined }): string | undefined {
-    const g = cohort.group;
-    return g !== undefined && g.type === "some" ? (g.value as string) : undefined;
-}
-
-interface StateLike {
-    readonly range: variant;
-    readonly filters: ReadonlyArray<SlicePredicateValue>;
-    readonly cohorts: ReadonlyArray<CohortLike>;
-    readonly activeCohorts: Set<string>;
-    readonly breakdown: variant;
-    readonly search: variant;
-    readonly visible: variant;
-    readonly selectedIndex: variant;
+/** A cohort's family, or `undefined` for a standalone cohort. */
+export function cohortGroupOf(cohort: Pick<ValueTypeOf<SliceCohortType>, "group">): string | undefined {
+    return cohort.group.type === "some" ? cohort.group.value : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +275,7 @@ function isSearchableKind(kind: string | undefined): boolean {
  * @param row - The row
  * @returns The text the search compares, or `undefined` when the field yields none
  */
-export function sliceFieldText(config: Pick<ConfigLike, "fields">, fieldId: string, row: Record<string, unknown>): string | undefined {
+export function sliceFieldText(config: Pick<SliceConfigValue, "fields">, fieldId: string, row: Record<string, unknown>): string | undefined {
     const spec = config.fields.get(fieldId);
     if (spec === undefined) return undefined;
     if (spec.type === "string") {
@@ -301,11 +283,8 @@ export function sliceFieldText(config: Pick<ConfigLike, "fields">, fieldId: stri
         return typeof v === "string" ? v : undefined;
     }
     if (spec.type === "text") {
-        const accessor = (spec.value as { accessor?: unknown } | null)?.accessor;
-        if (typeof accessor !== "function") return undefined;
         try {
-            const v = (accessor as (r: unknown) => unknown)(row);
-            return typeof v === "string" ? v : undefined;
+            return spec.value.accessor(row);
         } catch {
             return undefined;
         }
@@ -317,11 +296,11 @@ export function sliceFieldText(config: Pick<ConfigLike, "fields">, fieldId: stri
 // matches — composed AND of every active narrowing
 // ---------------------------------------------------------------------------
 
-export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<string, unknown>, now: Date): boolean {
+export function sliceMatches(state: SliceStateValue, config: SliceConfigValue, row: Record<string, unknown>, now: Date): boolean {
     // Range — only applies if both state.range is some and config.rangeFieldId is some
     if (state.range.type === "some" && config.rangeFieldId.type === "some") {
-        const fieldId = config.rangeFieldId.value as string;
-        if (!rangeMatches(state.range.value as variant, row[fieldId], now)) return false;
+        const fieldId = config.rangeFieldId.value;
+        if (!rangeMatches(state.range.value, row[fieldId], now)) return false;
     }
     // Filters — all AND-ed
     for (const f of state.filters) {
@@ -354,11 +333,11 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
     // dropdown still offers (fallback) suggestions — a silent dead filter
     // (#129 bug-hunt).
     if (state.search.type === "some") {
-        const q = (state.search.value as string).toLowerCase();
+        const q = state.search.value.toLowerCase();
         const configured = config.searchFieldIds.filter(id => isSearchableKind(config.fields.get(id)?.type));
         const searchable = configured.length > 0
             ? configured
-            : [...config.fields].filter(([, spec]) => isSearchableKind((spec as variant).type)).map(([id]) => id);
+            : [...config.fields].filter(([, spec]) => isSearchableKind(spec.type)).map(([id]) => id);
         const any = searchable.some(id => {
             const text = sliceFieldText(config, id, row);
             return text !== undefined && text.toLowerCase().includes(q);
@@ -444,9 +423,9 @@ export function readSliceGroupKey<K extends keyof SliceGroupKeyValues>(kind: K, 
     }
 }
 
-function sliceBreakdownKey(state: StateLike, _config: ConfigLike, row: Record<string, unknown>): variant {
+function sliceBreakdownKey(state: SliceStateValue, _config: SliceConfigValue, row: Record<string, unknown>): option<string> {
     if (state.breakdown.type !== "some") return none;
-    const { fieldId } = state.breakdown.value as { fieldId: string };
+    const { fieldId } = state.breakdown.value;
     return some(sliceGroupKey(row[fieldId]));
 }
 
@@ -493,9 +472,9 @@ interface OrderedGroup {
  * agree exactly, or the legend's `visible` whitelist cannot control the chart
  * and the chart draws tail series the legend doesn't list (#162).
  */
-function orderedGroups(counts: ReadonlyMap<string, number>, limitOpt: variant): OrderedGroup[] {
+function orderedGroups(counts: ReadonlyMap<string, number>, limitOpt: option<bigint>): OrderedGroup[] {
     const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-    const rawLimit = limitOpt.type === "some" ? Number(limitOpt.value as bigint) : undefined;
+    const rawLimit = limitOpt.type === "some" ? Number(limitOpt.value) : undefined;
     const limit = rawLimit !== undefined && rawLimit > 0 ? rawLimit : undefined;
     if (limit !== undefined && sorted.length > limit) {
         const top = sorted.slice(0, limit);
@@ -513,13 +492,13 @@ function orderedGroups(counts: ReadonlyMap<string, number>, limitOpt: variant): 
 // ---------------------------------------------------------------------------
 
 export function sliceBreakdown(
-    state: StateLike,
-    config: ConfigLike,
+    state: SliceStateValue,
+    config: SliceConfigValue,
     data: ReadonlyArray<Record<string, unknown>>,
     now: Date,
-): Array<{ key: string; count: bigint; color: string }> {
+): ValueTypeOf<SliceBreakdownGroupArrayType> {
     if (state.breakdown.type !== "some") return [];
-    const bd = state.breakdown.value as { fieldId: string; limit: variant };
+    const bd = state.breakdown.value;
     const counts = new Map<string, number>();
     for (const row of data) {
         if (!sliceMatches(state, config, row, now)) continue;
@@ -538,13 +517,13 @@ export function sliceBreakdown(
 // ---------------------------------------------------------------------------
 
 export function sliceSeries(
-    state: StateLike,
-    config: ConfigLike,
+    state: SliceStateValue,
+    config: SliceConfigValue,
     data: ReadonlyArray<Record<string, unknown>>,
     xField: string,
     valueField: string,
     now: Date,
-): Array<{ key: string; color: string; points: Array<{ x: variant; value: number; size: typeof none; color: typeof none }> }> {
+): ValueTypeOf<SliceSeriesArrayType> {
     // x key — the same stable spelling as breakdown group keys, so points
     // aggregate per x value (one instant, whichever Date object carries it).
     const xKey = (row: Record<string, unknown>): string => sliceGroupKey(row[xField]);
@@ -552,14 +531,14 @@ export function sliceSeries(
     // chart's ChartXType; the renderer derives the scale from the arm. Keyed by
     // xKey so points aggregate per x while keeping the original typed value. The
     // arm follows the value's East type, read as the matchers read theirs.
-    const xCoord = (row: Record<string, unknown>): variant => {
+    const xCoord = (row: Record<string, unknown>): ValueTypeOf<SliceSeriesPointType>["x"] => {
         const xv = row[xField];
         if (isValueOf(xv, DateTimeType)) return variant("time", xv as ValueTypeOf<DateTimeType>);
         if (isValueOf(xv, IntegerType))  return variant("number", Number(xv as ValueTypeOf<IntegerType>));
         if (isValueOf(xv, FloatType))    return variant("number", xv as ValueTypeOf<FloatType>);
         return variant("category", sliceGroupKey(xv));
     };
-    const coords = new Map<string, variant>();
+    const coords = new Map<string, ValueTypeOf<SliceSeriesPointType>["x"]>();
     if (state.breakdown.type !== "some") {
         // No active split: one ungrouped series aggregating valueField per x (in
         // data order), labelled by the value field, in the lead palette colour.
@@ -570,10 +549,10 @@ export function sliceSeries(
             if (!coords.has(xk)) coords.set(xk, xCoord(row));
             xs.set(xk, (xs.get(xk) ?? 0) + Number(row[valueField] ?? 0));
         }
-        const label = (config.fields.get(valueField)?.value as { label?: string } | undefined)?.label ?? valueField;
+        const label = config.fields.get(valueField)?.value.label ?? valueField;
         return [{ key: label, color: seriesColor(0), points: [...xs.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none, color: none })) }];
     }
-    const bd = state.breakdown.value as { fieldId: string; limit: variant };
+    const bd = state.breakdown.value;
     const counts = new Map<string, number>();
     // key → (x → summed value); both Maps preserve insertion (data) order. The
     // group key uses sliceGroupKey — the SAME stable spelling sliceBreakdown
@@ -597,7 +576,7 @@ export function sliceSeries(
     // order (a series keeps its legend colour even when others are hidden),
     // then series toggled off via the legend (`state.visible`) drop.
     const groups = orderedGroups(counts, bd.limit);
-    const visible = state.visible.type === "some" ? (state.visible.value as Set<string>) : undefined;
+    const visible = state.visible.type === "some" ? state.visible.value : undefined;
     return groups
         .map(g => {
             let xs: ReadonlyMap<string, number>;
@@ -630,10 +609,10 @@ export function sliceSeries(
 // dimensions — the selectable breakdown dimensions for a config
 // ---------------------------------------------------------------------------
 
-export function sliceDimensions(config: ConfigLike): Array<{ fieldId: string; label: string }> {
+export function sliceDimensions(config: SliceConfigValue): ValueTypeOf<SliceDimensionArrayType> {
     return config.breakdownFieldIds.map(fieldId => {
         const spec = config.fields.get(fieldId);
-        const label = (spec?.value as { label?: string } | undefined)?.label ?? fieldId;
+        const label = spec?.value.label ?? fieldId;
         return { fieldId, label };
     });
 }
@@ -642,18 +621,16 @@ export function sliceDimensions(config: ConfigLike): Array<{ fieldId: string; la
 // fields — every filterable field + label + primitive kind (predicate builder)
 // ---------------------------------------------------------------------------
 
-export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[]; format: variant }> {
+export function sliceFields(config: SliceConfigValue): ValueTypeOf<SliceFieldDescriptorArrayType> {
     // A `text` field is search-only: it has no operator set, so the predicate
     // builder never lists it.
-    return [...config.fields.entries()].filter(([, spec]) => (spec as variant).type !== "text").map(([fieldId, spec]) => {
-        const kind = (spec as variant).type;
-        const payload = (spec as variant).value as { label?: string; format?: variant } | undefined;
-        const label = payload?.label ?? fieldId;
+    return [...config.fields.entries()].filter(([, spec]) => spec.type !== "text").map(([fieldId, spec]) => {
+        const kind = spec.type;
+        const label = spec.value.label;
         // Explicit autocomplete hints from `Slice.config` (#131); empty when none.
-        const hints = [...(config.fieldHints?.get(fieldId) ?? [])];
-        // Declared display format (#190); `none` when absent (incl. hand-built
-        // test configs predating the field).
-        const format = payload?.format ?? none;
+        const hints = [...(config.fieldHints.get(fieldId) ?? [])];
+        // Declared display format (#190); `none` when the field declares none.
+        const format = spec.value.format;
         return { fieldId, label, kind, hints, format };
     });
 }
@@ -684,24 +661,24 @@ export const SliceApplyImpl = [
     Slice.apply.matches.implement(
         (_T: unknown) =>
         (state: unknown, config: unknown, row: unknown): boolean =>
-            sliceMatches(state as StateLike, config as ConfigLike, row as Record<string, unknown>, new Date()),
+            sliceMatches(state as SliceStateValue, config as SliceConfigValue, row as Record<string, unknown>, new Date()),
     ),
     Slice.apply.where.implement(
         (_T: unknown) =>
         (state: unknown, config: unknown, data: unknown): Array<Record<string, unknown>> => {
             const now = new Date();
             return (data as ReadonlyArray<Record<string, unknown>>).filter(row =>
-                sliceMatches(state as StateLike, config as ConfigLike, row, now));
+                sliceMatches(state as SliceStateValue, config as SliceConfigValue, row, now));
         },
     ),
     Slice.apply.breakdownKey.implement(
         (_T: unknown) =>
-        (state: unknown, config: unknown, row: unknown): variant =>
-            sliceBreakdownKey(state as StateLike, config as ConfigLike, row as Record<string, unknown>),
+        (state: unknown, config: unknown, row: unknown): option<string> =>
+            sliceBreakdownKey(state as SliceStateValue, config as SliceConfigValue, row as Record<string, unknown>),
     ),
     Slice.apply.breakdown.implement(
         (_T: unknown) =>
-        (state: unknown, config: unknown, data: unknown): Array<{ key: string; count: bigint }> =>
-            sliceBreakdown(state as StateLike, config as ConfigLike, data as ReadonlyArray<Record<string, unknown>>, new Date()),
+        (state: unknown, config: unknown, data: unknown): ValueTypeOf<SliceBreakdownGroupArrayType> =>
+            sliceBreakdown(state as SliceStateValue, config as SliceConfigValue, data as ReadonlyArray<Record<string, unknown>>, new Date()),
     ),
 ];

@@ -5,6 +5,15 @@ Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 `DatasetPreview`, `EastValueViewer`, `InputPreview`,
 `VirtualizedLogViewer`, plus the diff component family.
 
+## HARD RULE: East values through East
+
+An East value is printed, read, compared, ordered, collected and typed
+through East's utilities — never a JavaScript stand-in — and tested over
+real, decoded East values. `make lint` runs `east/east-rules` (the
+host-value rules) over source and tests and fails on a JavaScript stand-in;
+[`EAST_TS_INTEROP.md`](../../../../docs/conventions/EAST_TS_INTEROP.md)
+§7–§11 names each utility and the rule that enforces it.
+
 ## Architecture
 
 - React Query (TanStack Query 5.x) hooks live alongside the
@@ -14,7 +23,7 @@ Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
   `useState` + a data-gated `useValueSync` / `useDataStable` re-sync +
   `queueMicrotask` for callbacks.
 - East value previews (`EastValueViewer`) use `isValueOf` for runtime
-  type dispatch — see EAST_TS_INTEROP rules below.
+  type dispatch — see the HARD RULE above.
 
 ## See also
 

@@ -19,6 +19,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
+import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore, getStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
@@ -136,19 +137,16 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 describe("Plan resolution zoom (§3)", () => {
     test("switching resolution zooms the window to preserve the column count", () => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: some(variant("datetime", { from: W27, to: W39 })),           // 12 week columns
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none,
             resolution: some(variant("week", null)),
         };
-        const handle = buildSliceHandle("plan.zoom", cfg as never, initial as never, [{ at: W27 }] as never, none) as never as {
+        const handle = buildSliceHandle("plan.zoom", cfg, initial as never, [{ at: W27 }] as never, none) as never as {
             read(): { resolution: { value: { type: string } }; range: { value: { value: { from: Date; to: Date } } } };
         };
         renderPlan(planRoot([planRow("m1", spanKind([]))], {
@@ -172,12 +170,9 @@ describe("Plan resolution zoom (§3)", () => {
  *  W29..W33 at 200..600px. */
 const brushFixture = (key: string, axis?: unknown) => {
     initializeStore(new UIStore());
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-        ]),
-        rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+    }, { rangeFieldId: some("at") });
     const initial = {
         // Applied window W29..W33 (4 weeks) inside the wider horizon.
         range: some(variant("datetime", { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") })),
@@ -187,7 +182,7 @@ const brushFixture = (key: string, axis?: unknown) => {
     };
     // Data spans W27..W39, and the horizon is its WHOLE weeks: W27 to the
     // end of W39, thirteen of them — the last row's week counts once.
-    const handle = buildSliceHandle(key, cfg as never, initial as never,
+    const handle = buildSliceHandle(key, cfg, initial as never,
         [{ at: W27 }, { at: W39 }] as never, none) as never as {
             read(): { range: { type: string; value: { value: { from: Date; to: Date } } } };
         };
@@ -299,12 +294,9 @@ describe("Plan chrome tracks the slice store (#611)", () => {
     // the store's own version.
     test("the toolbar summary re-derives on a store write that changes NO rows", () => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none,
@@ -312,7 +304,7 @@ describe("Plan chrome tracks the slice store (#611)", () => {
         };
         // Two datable rows live in the SLICE; the canvas's own row is inline
         // and never narrows.
-        const handle = buildSliceHandle("plan.summary.chrome", cfg as never, initial as never,
+        const handle = buildSliceHandle("plan.summary.chrome", cfg, initial as never,
             [{ at: W27 }, { at: W39 }] as never, none) as never as { setRange(r: unknown): void };
         renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some({ slice: handle, affordances: [variant("summary", null)] }),

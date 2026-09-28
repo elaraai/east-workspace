@@ -82,7 +82,7 @@ function createList(
 
     return East.value(variant("List", {
         items: itemsValue,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

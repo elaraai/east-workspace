@@ -927,6 +927,9 @@ importers:
       '@elaraai/east-ui-components':
         specifier: workspace:*
         version: link:../east-ui-components
+      '@elaraai/eslint-plugin-east':
+        specifier: workspace:*
+        version: link:../../../eslint-plugin-east
       '@tanstack/react-query':
         specifier: ^5.62.0
         version: 5.96.1(react@19.2.4)
@@ -1052,6 +1055,9 @@ importers:
       '@elaraai/east-node-std':
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
+      '@elaraai/eslint-plugin-east':
+        specifier: workspace:*
+        version: link:../../../eslint-plugin-east
       '@fortawesome/fontawesome-common-types':
         specifier: ^7.1.0
         version: 7.2.0
@@ -1212,6 +1218,9 @@ importers:
       '@elaraai/east-node-std':
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
+      '@elaraai/eslint-plugin-east':
+        specifier: workspace:*
+        version: link:../../../eslint-plugin-east
       '@fortawesome/fontawesome-common-types':
         specifier: ^7.1.0
         version: 7.2.0

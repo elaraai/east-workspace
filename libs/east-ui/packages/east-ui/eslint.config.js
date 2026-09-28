@@ -1,6 +1,13 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
+import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
+
+// East values through East (#963): this library's factories author East IR in
+// module-scope helpers by design, so its source and tests run only the rules over
+// host code that builds or holds DECODED East values (the Slice engine, the
+// tests' fixtures) — the set the renderer packages run too.
+const EAST_HOST_VALUES = ['error', { only: hostValueRules }];
 
 // One formatter for every component (#850): the renderers print numbers and
 // dates through @elaraai/east-ui-components' shared formatters, in the app's
@@ -47,10 +54,12 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tseslint,
-      'headers': headers
+      'headers': headers,
+      'east': east
     },
     rules: {
       ...tseslint.configs.recommended.rules,
+      'east/east-rules': EAST_HOST_VALUES,
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { 'argsIgnorePattern': '^_', 'varsIgnorePattern': '^_' }],
       '@typescript-eslint/explicit-function-return-type': 'off',
@@ -75,10 +84,12 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tseslint,
-      'headers': headers
+      'headers': headers,
+      'east': east
     },
     rules: {
       ...tseslint.configs.recommended.rules,
+      'east/east-rules': EAST_HOST_VALUES,
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^[$_]', 'varsIgnorePattern': '^[$_]' }],
       '@typescript-eslint/explicit-function-return-type': 'off',
@@ -103,10 +114,12 @@ export default [
       }
     },
     plugins: {
-      '@typescript-eslint': tseslint
+      '@typescript-eslint': tseslint,
+      'east': east
     },
     rules: {
       ...tseslint.configs.recommended.rules,
+      'east/east-rules': EAST_HOST_VALUES,
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^[$_]', 'varsIgnorePattern': '^[$_]' }],
       '@typescript-eslint/explicit-function-return-type': 'off',

@@ -30,6 +30,7 @@ export const eastRules = createRule<Options, MessageIds>({
         type: "object",
         properties: {
           disabled: { type: "array", items: { type: "string" } },
+          only: { type: "array", items: { type: "string" } },
           preferExplicitEastType: {
             type: "object",
             properties: { mode: { type: "string", enum: ["under-determined", "all-raw-values"] } },

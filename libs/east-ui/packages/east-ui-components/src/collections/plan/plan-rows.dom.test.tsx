@@ -222,9 +222,9 @@ describe("Plan ruler + footer chrome", () => {
 
 describe("Plan group strips (§5)", () => {
     test("a group toggles its subtree in place and shows the member meta", () => {
+        const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
         const { container } = renderPlan(planRoot([
-            planRow("line1", variant("group", { summary: variant("none", null) }),
-                { gutter: gutter("LINE 1", { meta: "2 rows" }) }),
+            planRow("line1", band, { gutter: gutter("LINE 1", { meta: "2 rows" }) }),
             planRow("m1", spanKind([]), { parent: "line1" }),
             planRow("m2", spanKind([]), { parent: "line1" }),
         ]));

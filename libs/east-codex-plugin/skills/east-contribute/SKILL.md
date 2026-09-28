@@ -206,7 +206,7 @@ per-package skill for the API you are calling:
 Five invariants are shared by all of them, and each corrupts data silently
 rather than failing loudly, so they are worth carrying in your head:
 
-- **Construct variants and options with the constructors.** TS `variant("Tag", data)` / `some(x)` / `none`; Python `variant("case", value, Type)` / `some` / `none`. A `{type, value}` literal is not a variant — it lacks the encoder symbol the runtime needs.
+- **Construct variants and options with the constructors.** TS `variant("Tag", data)` / `some(x)` / `none`; Python `variant("case", value, Type)` / `some` / `none`. A `{type, value}` literal is not a variant — it lacks the brand East tells a variant by, so `isValueOf` rejects it and `East.value(x, T)` throws on it.
 - **Compare with the East comparators**, never `===` / `<` / `sorted`. TS `equalFor` / `lessFor` / `compareFor`; Python `equal_for` / `less_for` / `compare_for` / `make_east_key`.
 - **Derive decoded types from the East type**, never hand-roll a parallel mirror (TS `ValueTypeOf<typeof FooType>`).
 - **Coerce and validate at the boundary** — `coerce_to` / `assert_value_of` — and let the platform-function decorator validate its declared output.
@@ -223,6 +223,7 @@ before copying an idiom from elsewhere in the monorepo.
 Each of these shipped as a real bug here, and each survives a green `tsc`. The
 rule is stated; the mechanics live in the doc named beside it.
 
+- **HARD RULE — East values through East.** An East value is printed, read, compared, ordered, collected and typed through East's utilities — never a JavaScript stand-in — and tested over real, decoded East values. `String(x)` / `toISOString()` / `JSON.stringify`, `BigInt(text)` / `new Date(text)`, `typeof` / `instanceof`, `===` and subtracting sorts, a plain `Set` / `Map` keyed by structs, and `{ type, value }` casts each type-check clean, and several hid real bugs in the renderers (#960, #962). The UI packages' `make lint` fails on every one of them. See `docs/conventions/EAST_TS_INTEROP.md` §7–§11.
 - **Decode/value TS types: derive, never hand-roll.** Where an East type exists, type its decoded JS shape `ValueTypeOf<typeof FooType>`. A hand-authored `interface FooValue` mirror — or a local `type Opt<T> = {type;value}` standing in for `OptionType` — drifts the moment the East type gains a field, with no compiler complaint: a renderer's hand-rolled `ConfigValue` silently missed three new config fields this way. See `east-ui-components/CLAUDE.md`.
 - **east-ui / e3-ui renderers: theme recipes only, zero inline styles.** No `style={{…}}`, no inline Chakra style props — they bypass the design system and rot against `libs/east-ui/app_design_system/`. An element with no recipe gets a new slot recipe using semantic tokens, never raw hex/px. Dynamic data bindings are the only exception, and nearby debt is not licence to add more. See the `east-ui` skill + `app_design_system/`.
 - **east-ui factories: reify mapper callbacks, never splice.** A per-row callback prop must become a real East function the factory *calls* inside the eager `.map`, not an expression tree spliced mid-map (double-eval + undefined captures). Behavior props stay pass-through `FunctionType`, lifted and never invoked at build time. See `docs/conventions/EAST_UI_PROP_PATTERNS.md`.

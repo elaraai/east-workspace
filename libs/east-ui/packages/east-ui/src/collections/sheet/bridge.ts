@@ -65,6 +65,7 @@ import {
     OptionType,
     StringType,
     StructType,
+    isTypeEqual,
     variant,
     some,
     none,
@@ -196,7 +197,7 @@ export function optionPayload(t: EastType): EastType | undefined {
 
 /** The cell arm a primitive payload lands in, or `undefined` for a type no cell holds. */
 export function cellTagOf(t: EastType): SheetColumnMeta["cellTag"] | undefined {
-    if (t === SheetLinkType) return "Link";
+    if (isTypeEqual(t, SheetLinkType)) return "Link";
     switch ((t as { type: string }).type) {
         case "String":   return "String";
         case "DateTime": return "DateTime";
@@ -296,7 +297,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         const out = (Expr.type(derived) as FunctionType).output as EastType;
         const outPayload = optionPayload(out);
         const outUnwrapped = outPayload ?? out;
-        if (outUnwrapped !== payloadType) {
+        if (!isTypeEqual(outUnwrapped, payloadType)) {
             throw new Error(`Sheet: column "${key}" is a ${kind} column whose \`value\` projection returns ${(outUnwrapped as { type: string }).type} — a ${kind} column's projection must return ${(payloadType as { type: string }).type} or its Option`);
         }
         return {
@@ -312,9 +313,9 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         let form: SheetLinkForm;
         let ownHalf: "from" | "to" | undefined;
         let otherField: string | undefined;
-        if (fieldType === SheetLinkType || unwrapped === SheetLinkType) {
+        if (isTypeEqual(fieldType, SheetLinkType) || isTypeEqual(unwrapped, SheetLinkType)) {
             form = "link";
-        } else if (fieldType === SheetMembersType) {
+        } else if (isTypeEqual(fieldType, SheetMembersType)) {
             form = "array";
             if (kind === "set") {
                 ownHalf = "to";
@@ -325,7 +326,8 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
             } else {
                 throw new Error(`Sheet: link column "${key}" sits on an Array<Member> field, so it must name the OTHER half's field — \`to: "…"\` when this field holds the from members, \`from: "…"\` when it holds the to members`);
             }
-            if (otherField !== undefined && fields[otherField] !== SheetMembersType) {
+            const otherType = otherField !== undefined ? fields[otherField] : undefined;
+            if (otherField !== undefined && (otherType === undefined || !isTypeEqual(otherType, SheetMembersType))) {
                 throw new Error(`Sheet: link column "${key}" names "${otherField}" as its other half, but that is not an Array<Sheet.Types.Member> field of the row`);
             }
         } else if ((unwrapped as { type: string }).type === "String") {
@@ -334,7 +336,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
             throw new Error(`Sheet: ${kind} column "${key}" must sit on a Sheet.Types.Link, Array<Sheet.Types.Member> or String field — got ${(fieldType as { type: string }).type}`);
         }
         return {
-            key, field: key, kind, config: cfg, fieldType, optional: form === "link" ? unwrapped === SheetLinkType && optional : optional,
+            key, field: key, kind, config: cfg, fieldType, optional: form === "link" ? isTypeEqual(unwrapped, SheetLinkType) && optional : optional,
             payloadType: SheetLinkType, cellTag: "Link", editable: cfg.editable !== false,
             form,
             ...(ownHalf !== undefined ? { ownHalf } : {}),
@@ -351,7 +353,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         if (parsed === undefined) {
             throw new Error(`Sheet: custom column "${key}" has a \`parse\` whose output is not an Option — it must return Option<payload>, \`none\` meaning unrecognised`);
         }
-        if (parsed !== unwrapped) {
+        if (!isTypeEqual(parsed, unwrapped)) {
             throw new Error(`Sheet: custom column "${key}" parses to ${(parsed as { type: string }).type} but sits on a ${(unwrapped as { type: string }).type} field — the payload must be the field's type (or its Option's)`);
         }
         const tag = cellTagOf(parsed);
@@ -362,7 +364,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     }
 
     const payloadType = SCALAR_PAYLOAD[kind] as EastType;
-    if (unwrapped !== payloadType) {
+    if (!isTypeEqual(unwrapped, payloadType)) {
         throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
     }
     return {
@@ -780,7 +782,7 @@ export function buildSubRowProjection(lineType: StructType, subRows: SheetSubRow
     const fields = lineType.fields as Record<string, EastType>;
     const mappers: { field: string; fn: ExprType<FunctionType<[StructType, EastType], SheetSubRowType>> }[] = [];
     if (subRows !== undefined) {
-        if (subRows.rowType !== lineType) {
+        if (!isTypeEqual(subRows.rowType, lineType)) {
             throw new Error("Sheet: `subRows` was built over a different type than the columns — pass the columns' type (a grouped sheet: the line type) to `Sheet.subRows(…)`");
         }
         for (const [field, map] of Object.entries(subRows.sources as Record<string, ((item: ExprType<EastType>, row: ExprType<StructType>) => SubtypeExprOrValue<SheetSubRowType>) | undefined>)) {
@@ -861,10 +863,10 @@ function pinProvider(
         throw new Error(`Sheet: ${where} must be an East.function or East.asyncFunction — got a ${t.type}`);
     }
     const inputs = t.inputs ?? [];
-    if (inputs.length !== 1 || inputs[0] !== bridge.ctxType) {
+    if (inputs.length !== 1 || !isTypeEqual(inputs[0]!, bridge.ctxType)) {
         throw new Error(`Sheet: ${where} must take exactly this sheet's context — ${contextName(bridge)} — as its one argument; a function written over another row or driver type cannot run here`);
     }
-    if (t.output !== expectedOutput) {
+    if (t.output === undefined || !isTypeEqual(t.output, expectedOutput)) {
         throw new Error(`Sheet: ${where} returns the wrong type — it must return ${describeType(expectedOutput)}`);
     }
     return { fn: expr, async: t.type === "AsyncFunction" };
@@ -872,7 +874,7 @@ function pinProvider(
 
 /** How this sheet's context is spelt, for a refusal message. */
 function contextName(bridge: SheetBridge): string {
-    const driver = bridge.driverType === NullType ? "" : ", DriverType";
+    const driver = isTypeEqual(bridge.driverType, NullType) ? "" : ", DriverType";
     return bridge.group !== undefined
         ? `Sheet.Types.DraftContext(GroupType, "${bridge.group.linesField}"${driver})`
         : `Sheet.Types.DraftContext(RowType${driver})`;
@@ -880,11 +882,11 @@ function contextName(bridge: SheetBridge): string {
 
 /** A short description of an East type for a refusal message. */
 function describeType(t: EastType): string {
-    const v = t as { type: string; cases?: Record<string, EastType>; fields?: Record<string, EastType>; value?: EastType };
-    if (v.type === "Variant" && v.cases !== undefined && optionPayload(t) !== undefined) return `Option<${describeType(optionPayload(t)!)}>`;
-    if (v.type === "Struct" && v.fields !== undefined) return `{ ${Object.entries(v.fields).map(([k, f]) => `${k}: ${describeType(f)}`).join(", ")} }`;
-    if (v.type === "Array" && v.value !== undefined) return `Array<${describeType(v.value)}>`;
-    return v.type;
+    const payload = optionPayload(t);
+    if (payload !== undefined) return `Option<${describeType(payload)}>`;
+    if (t.type === "Struct") return `{ ${Object.entries(t.fields as Record<string, EastType>).map(([k, f]) => `${k}: ${describeType(f)}`).join(", ")} }`;
+    if (t.type === "Array") return `Array<${describeType(t.value)}>`;
+    return t.type;
 }
 
 /**
@@ -958,7 +960,8 @@ export function wrapOptions(bridge: SheetBridge, meta: SheetColumnMeta, fn: unkn
 export function wrapCheck(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknown, index: number): ExprType<SheetCheckType> {
     const expr = East.value(fn as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
-    if (t.type !== "Function" || (t.inputs ?? []).length !== 1 || t.inputs![0] !== bridge.checkCtxType || t.output !== OptionType(StringType)) {
+    if (t.type !== "Function" || (t.inputs ?? []).length !== 1 || !isTypeEqual(t.inputs![0]!, bridge.checkCtxType) ||
+        t.output === undefined || !isTypeEqual(t.output, OptionType(StringType))) {
         const spelt = bridge.group !== undefined ? `Sheet.Types.CheckContext(GroupType, "${bridge.group.linesField}")` : "Sheet.Types.CheckContext(RowType)";
         throw new Error(`Sheet: column "${meta.key}" check #${index + 1} must be an East.function over ${spelt} returning Option<String>`);
     }
@@ -1020,7 +1023,7 @@ export function wrapCustomParse(bridge: SheetBridge, meta: SheetColumnMeta, fn: 
     const expr = East.value(fn as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
     const inputs = t.inputs ?? [];
-    if (t.type !== "Function" || inputs.length !== 2 || inputs[0] !== StringType || inputs[1] !== bridge.ctxType) {
+    if (t.type !== "Function" || inputs.length !== 2 || !isTypeEqual(inputs[0]!, StringType) || !isTypeEqual(inputs[1]!, bridge.ctxType)) {
         throw new Error(`Sheet: custom column "${meta.key}" \`parse\` must be an East.function over (String, ${contextName(bridge)}) returning Option<payload>`);
     }
     return East.function([StringType, SheetContextType], OptionType(SheetCellType), ($, text, ctx) => {
@@ -1038,7 +1041,8 @@ export function wrapCustomPrint(meta: SheetColumnMeta, fn: unknown): ExprType<Fu
     const expr = East.value(fn as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
     const inputs = t.inputs ?? [];
-    if (t.type !== "Function" || inputs.length !== 1 || inputs[0] !== meta.payloadType || t.output !== StringType) {
+    if (t.type !== "Function" || inputs.length !== 1 || !isTypeEqual(inputs[0]!, meta.payloadType) ||
+        t.output === undefined || !isTypeEqual(t.output, StringType)) {
         throw new Error(`Sheet: custom column "${meta.key}" \`print\` must be an East.function over the payload (${describeType(meta.payloadType)}) returning String`);
     }
     return East.function([SheetCellType], StringType, ($, cell) => {

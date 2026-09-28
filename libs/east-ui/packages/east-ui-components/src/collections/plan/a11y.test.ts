@@ -17,13 +17,13 @@ import {
     segmentsText, stateText, tablePartsText, tileName, weightValueText, type PlanStateValue,
 } from "./a11y.js";
 import { planScale } from "./scale.js";
-import type { PlanInstantValue } from "./instant.js";
+import { timeInstant } from "./instant.js";
 import type { ChartKindValue } from "./rows/chart-geometry.js";
 import { planMessages } from "./messages.js";
 import { PLAN_WORDS as w, planWords } from "./words.js";
+import { timeAt as t, utcAt } from "./plan.test-utils.js";
 
-const t = (s: string): PlanInstantValue => variant("time", new Date(s)) as PlanInstantValue;
-const window = { min: new Date("2026-06-29T00:00:00Z"), max: new Date("2026-09-21T00:00:00Z") };
+const window = { min: utcAt("2026-06-29T00:00:00"), max: utcAt("2026-09-21T00:00:00") };
 const scale = planScale({ kind: "time", window, resolution: "week" })!;
 
 describe("element names (#819)", () => {
@@ -41,7 +41,7 @@ describe("element names (#819)", () => {
 
     test("a run bar says its label, its span, its state — and what its look adds", () => {
         const run = {
-            key: "b214", start: t("2026-06-29T00:00:00Z"), end: t("2026-07-27T00:00:00Z"), label: "B-214",
+            key: "b214", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "B-214",
             quantity: some({ value: 96, unit: some("t"), format: none, text: none }), state: variant("actual", null),
             status: some(variant("warning", null)), moved: some(2n), icon: none,
         };
@@ -52,7 +52,7 @@ describe("element names (#819)", () => {
 
     test("a run's quantity says its caption — its text, else its value through its format, then its unit (#824)", () => {
         const at = (quantity: unknown) => runName({
-            key: "r", start: t("2026-06-29T00:00:00Z"), end: t("2026-07-06T00:00:00Z"), label: "R",
+            key: "r", start: t("2026-06-29T00:00:00"), end: t("2026-07-06T00:00:00"), label: "R",
             quantity: some(quantity), state: variant("confirmed", null), status: none, moved: none, icon: none,
         } as never, scale, w);
         const oneDp = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
@@ -63,10 +63,10 @@ describe("element names (#819)", () => {
     });
 
     test("a decision diamond, a tile, a chip and a mark each name their instant and their meaning", () => {
-        expect(decisionName({ key: "d", at: t("2026-07-13T00:00:00Z"), applied: true }, scale, w))
+        expect(decisionName({ key: "d", at: t("2026-07-13T00:00:00"), applied: true }, scale, w))
             .toBe("Decision, Jul 13, 2026, applied");
         const ev = {
-            key: "e1", at: t("2026-07-06T00:00:00Z"), lane: some("am"), label: none, icon: none,
+            key: "e1", at: t("2026-07-06T00:00:00"), lane: some("am"), label: none, icon: none,
             state: variant("proposed", variant("added", null)), tone: some(variant("warning", null)),
             color: none, colorPalette: none, stretch: none, content: none, animation: none,
         };
@@ -74,11 +74,11 @@ describe("element names (#819)", () => {
         expect(tileName({ ...ev, label: some("Pour"), tone: none } as never, scale.buckets[1]!, undefined, scale, w))
             .toBe("Pour, Week of Jul 6, 2026, proposed");
         expect(chipName({
-            key: "c1", from: t("2026-06-29T00:00:00Z"), to: t("2026-07-13T00:00:00Z"), label: "D. OKAFOR",
+            key: "c1", from: t("2026-06-29T00:00:00"), to: t("2026-07-13T00:00:00"), label: "D. OKAFOR",
             state: variant("confirmed", null), icon: none,
         } as never, scale, w)).toBe("D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed");
         const mark = (kind: unknown, label?: string) => ({
-            key: "k", at: t("2026-06-29T00:00:00Z"), kind, icon: none, label: label !== undefined ? some(label) : none,
+            key: "k", at: t("2026-06-29T00:00:00"), kind, icon: none, label: label !== undefined ? some(label) : none,
         }) as never;
         expect(markName(mark(variant("milestone", null), "KICKOFF"), scale, w)).toBe("KICKOFF, milestone, Jun 29, 2026");
         expect(markName(mark(variant("decision", { applied: false })), scale, w)).toBe("Decision, pending, Jun 29, 2026");
@@ -111,7 +111,7 @@ describe("element names (#819)", () => {
 });
 
 describe("chart summary (#819)", () => {
-    const pts = (ys: number[]) => ys.map((y, i) => ({ t: t(new Date(Date.UTC(2026, 5, 29 + 7 * i)).toISOString()), y }));
+    const pts = (ys: number[]) => ys.map((y, i) => ({ t: timeInstant(new Date(Date.UTC(2026, 5, 29 + 7 * i))), y }));
     const kind = (layers: unknown[]): ChartKindValue => ({ layers, left: none, right: none } as unknown as ChartKindValue);
 
     test("each data layer's min, max and last inside the window — and its breaches, which only colour shows", () => {
@@ -123,11 +123,11 @@ describe("chart summary (#819)", () => {
     });
 
     test("points outside the window and gaps are not summarised; two layers of a kind are numbered", () => {
-        const before = { t: t("2026-06-01T00:00:00Z"), y: 99 };
+        const before = { t: t("2026-06-01T00:00:00"), y: 99 };
         const a = variant("line", { points: [before, ...pts([1, NaN, 2])], axis: variant("left", null), breach: none });
         const b = variant("line", { points: [before], axis: variant("left", null), breach: none });
         const band = variant("band", {
-            points: [{ t: t("2026-06-29T00:00:00Z"), lo: 1, hi: 4 }], axis: variant("left", null),
+            points: [{ t: t("2026-06-29T00:00:00"), lo: 1, hi: 4 }], axis: variant("left", null),
         });
         expect(chartSummary(kind([a, b, band]), scale, w))
             .toBe("Chart: line 1 min 1, max 2, last 2; line 2 no data in the window; range min 1, max 4, last 1–4");
@@ -158,7 +158,7 @@ describe("the words a name is said in (#820)", () => {
 
     test("numbers and dates are the locale's, the phrases the table's", () => {
         const run = {
-            key: "b214", start: t("2026-06-29T00:00:00Z"), end: t("2026-07-27T00:00:00Z"), label: "B-214",
+            key: "b214", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "B-214",
             quantity: none, state: variant("actual", null), status: none, moved: some(1200n), icon: none,
         };
         expect(runName(run as never, deScale, de)).toBe("B-214, 29. Juni 2026 – 27. Juli 2026, actual, moved 1.200 times");
@@ -176,7 +176,7 @@ describe("the words a name is said in (#820)", () => {
             [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as typeof planMessages;
         const stub = planWords("en-US", marked);
         const run = {
-            key: "b214", start: t("2026-06-29T00:00:00Z"), end: t("2026-07-27T00:00:00Z"), label: "B-214",
+            key: "b214", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "B-214",
             quantity: none, state: variant("confirmed", null), status: none, moved: none, icon: none,
         };
         expect(runName(run as never, scale, stub)).toMatch(/^⟦/u);

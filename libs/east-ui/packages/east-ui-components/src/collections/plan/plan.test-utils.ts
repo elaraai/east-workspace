@@ -9,10 +9,14 @@
  *
  * Every hand-built row is an `entry` of one series ({@link TEST_SERIES}) at
  * the path `[key]` unless a test names another series.
+ *
+ * A test writes its instants as East prints a DateTime, and East's parser
+ * reads them ({@link timeAt}).
  */
 
-import { equalFor, none, some, variant } from "@elaraai/east";
+import { DateTimeType, equalFor, none, parseFor, some, variant, type option } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
+import { timeInstant, type PlanInstantValue } from "./instant.js";
 import { rowIdOfKey, rowKeyOf, type PlanRowId } from "./row-key.js";
 import { rowItemKey } from "./body-items.js";
 import type { RowKey } from "./plan-state.js";
@@ -21,6 +25,32 @@ import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 
 /** The series every hand-built test row belongs to, unless a test names one. */
 export const TEST_SERIES = "t";
+
+const readDateTime = parseFor(DateTimeType);
+
+/**
+ * An instant written as East prints a DateTime (`2026-06-29T00:00:00`, UTC),
+ * read with East's own parser.
+ *
+ * @param text - The DateTime's East text
+ * @returns The instant
+ * @throws {Error} When the text is not an East DateTime
+ */
+export function utcAt(text: string): Date {
+    const read = readDateTime(text);
+    if (!read.success) throw new Error(read.error);
+    return read.value;
+}
+
+/**
+ * A `time` instant at a DateTime written as East prints one ({@link utcAt}).
+ *
+ * @param text - The DateTime's East text
+ * @returns The instant
+ */
+export function timeAt(text: string): PlanInstantValue {
+    return timeInstant(utcAt(text));
+}
 
 /** East's equality on row ids — how a test compares a payload's id. */
 export const rowIdEqual: (a: PlanRowId, b: PlanRowId) => boolean = equalFor(Plan.Types.RowId);
@@ -158,13 +188,13 @@ const blockPages = new WeakMap<object, (offset: bigint, limit: bigint) => unknow
  * @returns The source, its `page` answering blocks
  */
 export function blocksSource(src: unknown): PlanPagedSourceValue {
-    const source = src as { page: (offset: bigint, limit: bigint) => { type: string; value?: unknown } };
+    const source = src as { page: (offset: bigint, limit: bigint) => option<readonly unknown[]> };
     let page = blockPages.get(source.page);
     if (page === undefined) {
         const rowsPage = source.page;
         page = (offset, limit) => {
             const window = rowsPage(offset, limit);
-            return window.type === "some" ? some(oneBlock(window.value as readonly unknown[])) : window;
+            return window.type === "some" ? some(oneBlock(window.value)) : window;
         };
         blockPages.set(rowsPage, page);
     }

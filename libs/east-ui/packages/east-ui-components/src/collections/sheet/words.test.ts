@@ -33,7 +33,7 @@ const member = (key: string, kind: string, meta?: string): SheetRegisterMemberVa
 const MEMBERS = [member("M2140", "machine", "CNC lathe"), member("M2141", "machine", "CNC lathe"), member("M2145", "machine", "CNC lathe"), member("CNC lathe", "family", "family")];
 const STATIONS = indexColumns([{
     key: "stations", header: "Work centres", sub: none, width: none,
-    kind: { type: "link", value: {
+    kind: variant("link", {
         register: "stations",
         members: [
             { kind: "machine", identified: true, countable: false, resolvesTo: none, ranged: true },
@@ -41,14 +41,14 @@ const STATIONS = indexColumns([{
             { kind: "family", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
         ],
         multiple: some({ forms: ["N x kind"], ops: ["x"], appliesTo: "countable" }),
-        sides: none, arity: none, check: [], store: { type: "asTyped", value: null }, options: none,
-    } },
+        sides: none, arity: none, check: [], store: variant("asTyped", null), options: none,
+    }),
     dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 }] as never).list[0]!;
 const VOCAB = linkVocabulary(STATIONS, MEMBERS);
 const START = indexColumns([{
     key: "start", header: "Start", sub: none, width: none,
-    kind: { type: "date", value: { base: none, format: none, level: none, actual: some("$actual:start") } },
+    kind: variant("date", { base: none, format: none, level: none, actual: some("$actual:start") }),
     dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 }] as never).list[0]!;
 const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;

@@ -35,7 +35,7 @@ function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
     return { row: r, depth: 0, collapsed: opts?.collapsed === true };
 }
 const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
-const groupKind = variant("group", { summary: variant("none", null) });
+const groupKind: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
 
 describe("Plan links-focus elision (R1 at scale)", () => {
     const focusOn = (key: string, family: string[]) =>

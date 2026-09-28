@@ -828,7 +828,7 @@ describe("the probe, inverted — a window holds its entries whole (#823)", () =
     // 1's band from window 1 among window 0's machines, and its ledger counted
     // each 26px band once per window — 360px against 308 rendered. Nesting from
     // the data makes a line ONE entry, and its window holds it whole.
-    const groupKind = variant("group", { summary: variant("none", null) });
+    const groupKind: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
     const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
     /** A wire row with every field the model reads. */
     const full = (key: string, kind: unknown, parent?: string): PlanWireRow => ({

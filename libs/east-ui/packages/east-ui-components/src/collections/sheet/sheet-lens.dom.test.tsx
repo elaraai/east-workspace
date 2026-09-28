@@ -129,8 +129,8 @@ function withViewsSpy(root: SheetRootValue) {
 
 /** The compiled slice handle riding the value's chrome. */
 function getSliceHandle(value: SheetRootValue): SliceBindValue {
-    const chrome = value.slice as { type: string; value: { slice: SliceBindValue } };
-    return chrome.value.slice;
+    if (value.slice.type !== "some") throw new Error("the sheet binds no slice");
+    return value.slice.value.slice;
 }
 
 function mount(value: SheetRootValue) {

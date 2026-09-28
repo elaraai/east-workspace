@@ -4,7 +4,7 @@
  */
 
 import { Box, Text, Badge } from '@chakra-ui/react';
-import { printFor, type EastTypeValue } from '@elaraai/east';
+import { printFor, type EastTypeValue, type variant } from '@elaraai/east';
 
 export interface EastValueViewerProps {
     type: EastTypeValue;
@@ -36,7 +36,7 @@ function getTypeLabel(type: EastTypeValue, value: unknown): string {
         case 'Struct':
             return 'Struct';
         case 'Variant':
-            return `Variant.${(value as { type: string }).type}`;
+            return `Variant.${(value as variant).type}`;
         case 'Ref':
             return 'Ref';
         default:
@@ -163,13 +163,13 @@ function ValueNode({
     // Variant type
     if (type.type === 'Variant') {
         const cases = type.value as Array<{ name: string; type: EastTypeValue }>;
-        const variant = value as { type: string; value: unknown };
-        const activeCase = cases.find(c => c.name === variant.type);
+        const chosen = value as variant;
+        const activeCase = cases.find(c => c.name === chosen.type);
         if (!activeCase) {
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
                     {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
-                    <Text as="span" color="fg.danger">Unknown variant: {variant.type}</Text>
+                    <Text as="span" color="fg.danger">Unknown variant: {chosen.type}</Text>
                 </Box>
             );
         }
@@ -178,7 +178,7 @@ function ValueNode({
             return (
                 <Box py={0.5} display="flex" alignItems="center" gap={2}>
                     {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
-                    <Badge size="xs" colorPalette="brand" variant="subtle">.{variant.type}</Badge>
+                    <Badge size="xs" colorPalette="brand" variant="subtle">.{chosen.type}</Badge>
                 </Box>
             );
         }
@@ -187,12 +187,12 @@ function ValueNode({
                 <details>
                     <summary style={{ cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {label && <Text as="span" color="accent.purple" fontWeight="medium">{label}:</Text>}
-                        <Badge size="xs" colorPalette="brand" variant="subtle">.{variant.type}</Badge>
+                        <Badge size="xs" colorPalette="brand" variant="subtle">.{chosen.type}</Badge>
                     </summary>
                     <Box pl={4}>
                         <ValueNode
                             type={activeCase.type}
-                            value={variant.value}
+                            value={chosen.value}
                             depth={depth + 1}
                         />
                     </Box>

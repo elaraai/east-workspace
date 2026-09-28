@@ -10,6 +10,8 @@ import {
     OptionType,
     StructType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -88,15 +90,15 @@ function createScrollArea(
 
     return East.value(variant("ScrollArea", {
         content: content_expr,
-        scrollbarStyle: scrollbarStyleValue ? variant("some", scrollbarStyleValue) : variant("none", null),
+        scrollbarStyle: scrollbarStyleValue ? some(scrollbarStyleValue) : none,
         style: hasStyle
-            ? variant("some", East.value({
-                orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-                thumbColor: options!.thumbColor ? variant("some", options!.thumbColor) : variant("none", null),
-                trackColor: options!.trackColor ? variant("some", options!.trackColor) : variant("none", null),
-                background: options!.background ? variant("some", options!.background) : variant("none", null),
+            ? some(East.value({
+                orientation: orientationValue ? some(orientationValue) : none,
+                thumbColor: options!.thumbColor ? some(options!.thumbColor) : none,
+                trackColor: options!.trackColor ? some(options!.trackColor) : none,
+                background: options!.background ? some(options!.background) : none,
             }, ScrollAreaStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 

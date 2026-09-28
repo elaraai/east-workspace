@@ -55,7 +55,7 @@ test("author ready cannot bypass missing required hidden fields", () => {
     // insert event under the gesture's `insert` origin.
     act(() => hook.result.current.record([variant("insert", { afterRowId: some("a"), row, source: variant("typed", null) })], undefined, "insert"));
     expect(hook.result.current.session.canApply).toBe(false);
-    expect(hook.result.current.session.readiness).toMatchObject({ type: "incomplete", value: expect.arrayContaining([{ entry: "new", row: none, field: some("hidden"), message: "A value is required" }]) });
+    expect(hook.result.current.session.readiness).toMatchObject(variant("incomplete", expect.arrayContaining([{ entry: "new", row: none, field: some("hidden"), message: "A value is required" }])));
 });
 
 test("author ready cannot bypass invalid optional input", () => {
@@ -64,7 +64,7 @@ test("author ready cannot bypass invalid optional input", () => {
     const row = rows(root)[0]!;
     act(() => hook.result.current.record([variant("commit", { rowId: "a", offset: 0n, key: "note", row: { ...row, cells: new Map(row.cells).set("note", variant("Invalid", "not a number")) }, source: variant("typed", null) })]));
     expect(hook.result.current.session.canApply).toBe(false);
-    expect(hook.result.current.session.readiness).toMatchObject({ type: "invalid", value: expect.arrayContaining([{ entry: "a", row: none, field: some("note"), message: "Invalid input: not a number" }]) });
+    expect(hook.result.current.session.readiness).toMatchObject(variant("invalid", expect.arrayContaining([{ entry: "a", row: none, field: some("note"), message: "Invalid input: not a number" }])));
 });
 
 test("business readiness blocks Apply, clears on correction and rechecks undo/redo", async () => {

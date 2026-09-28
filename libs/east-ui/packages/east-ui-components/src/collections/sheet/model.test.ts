@@ -80,9 +80,9 @@ describe("a run with failed windows (#853)", () => {
 describe("cells", () => {
     const en = formatters("en-US");
     const columns = indexColumns([
-        { key: "start", header: "Start", sub: none, width: some("96px"), kind: { type: "date", value: { base: none, format: none, level: none, actual: none } }, dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
-        { key: "qty", header: "Qty", sub: none, width: none, kind: { type: "quantity", value: { uom: none, format: none } }, dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
-        { key: "n", header: "N", sub: none, width: some("bogus"), kind: { type: "integer", value: null }, dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
+        { key: "start", header: "Start", sub: none, width: some("96px"), kind: variant("date", { base: none, format: none, level: none, actual: none }), dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
+        { key: "qty", header: "Qty", sub: none, width: none, kind: variant("quantity", { uom: none, format: none }), dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
+        { key: "n", header: "N", sub: none, width: some("bogus"), kind: variant("integer", null), dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
     ] as never);
 
     test("widths, display text and blanks", () => {
@@ -132,7 +132,7 @@ describe("grouped rows (#740)", () => {
         expect(buildBody({ rows: [p1], rowsOffset: 0, blanks: 0, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped: { foldedOf } }).map((it) => it.kind)).toEqual(["group", "real", "real"]);
         // A pseudo line row keeps its identity across builds, so per-row caches hold.
         const again = buildBody({ rows: [p1, p2], rowsOffset: 0, blanks: 1, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped: { foldedOf } });
-        expect(again[1]!.kind === "real" && first.kind === "real" && again[1]!.row === first.row).toBe(true);
+        expect(again[1]!.kind === "real" && first.kind === "real" && Object.is(again[1]!.row, first.row)).toBe(true);
     });
 
     test("a lens narrows the groups, then the lines inside a shown group; hits keep their numbers and the blank line hides", () => {

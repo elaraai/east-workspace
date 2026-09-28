@@ -42,6 +42,7 @@
  *     IntegerType,
  *     StringType,
  *     OptionType,
+ *     none,
  * } from "@elaraai/east";
  *
  * // Declare a typed component (in your library package).
@@ -52,7 +53,7 @@
  * }), { optional: true });
  *
  * // Use it (anywhere) — fully typed against the schema:
- * const tree = Counter.Root({ label: "Visits", value: 42n, hint: { type: "none", value: null } });
+ * const tree = Counter.Root({ label: "Visits", value: 42n, hint: none });
  * // tree: ExprType<UIComponentType>  ← drops in anywhere a UIComponent does.
  *
  * // Wire the renderer (in your *-components package):

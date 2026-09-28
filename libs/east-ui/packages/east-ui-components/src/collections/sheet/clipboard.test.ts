@@ -24,11 +24,11 @@ const col = (key: string, kind: unknown, editable = true) => ({
     key, header: key, sub: none, width: none, kind, dataType: null, payloadType: null, editable, fill: [], detailCell: none,
 });
 const columns = indexColumns([
-    col("start", { type: "date", value: { base: none, format: none, level: none, actual: none } }),
-    col("qty", { type: "quantity", value: { uom: none, format: none } }),
-    col("stations", { type: "link", value: { register: "v", members: [], multiple: none, sides: none, arity: none, check: [], store: { type: "asTyped", value: null }, options: none } }),
-    col("code", { type: "stamped", value: { owner: none } }, false),
-    col("notes", { type: "text", value: null }),
+    col("start", variant("date", { base: none, format: none, level: none, actual: none })),
+    col("qty", variant("quantity", { uom: none, format: none })),
+    col("stations", variant("link", { register: "v", members: [], multiple: none, sides: none, arity: none, check: [], store: variant("asTyped", null), options: none })),
+    col("code", variant("stamped", { owner: none }), false),
+    col("notes", variant("text", null)),
 ] as never);
 
 const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;

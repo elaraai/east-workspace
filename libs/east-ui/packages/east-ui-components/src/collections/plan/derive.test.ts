@@ -175,14 +175,14 @@ describe("Plan derived heat / table aggregates", () => {
             { at: t(W28), value: none, label: none },
         ] as unknown as Parameters<typeof deriveHeatCells>[0], "mean");
         expect(cells).toHaveLength(2);
-        expect(cells[0]).toMatchObject({ value: { type: "some", value: 50 }, label: { type: "some", value: "50" } });
-        expect(cells[1]).toMatchObject({ value: { type: "some", value: 60 } });
+        expect(cells[0]).toMatchObject({ value: some(50), label: some("50") });
+        expect(cells[1]).toMatchObject({ value: some(60) });
     });
 
     test("declared parents nest — a grandparent aggregates its children's DERIVED cells", () => {
         const derived = derivePlan(indexRows(nestedTableRows()));
-        expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
-        expect(derived.tableSeries.get("gp")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 160 } });    // 150 derived + 10 leaf
+        expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: some(150) });
+        expect(derived.tableSeries.get("gp")![0]!.cells[0]).toMatchObject({ value: some(160) });    // 150 derived + 10 leaf
     });
 
     test("the walk follows the TREE, not the container order (#568, #822)", () => {
@@ -200,8 +200,8 @@ describe("Plan derived heat / table aggregates", () => {
         const fromDepthFirst = derivePlan(indexRows(depthFirst));
         for (const order of [keyOrder, reversed]) {
             const derived = derivePlan(indexRows(order));
-            expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
-            expect(derived.tableSeries.get("gp")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 160 } });
+            expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: some(150) });
+            expect(derived.tableSeries.get("gp")![0]!.cells[0]).toMatchObject({ value: some(160) });
             expect(derived.tableSeries).toEqual(fromDepthFirst.tableSeries);
         }
     });
@@ -230,12 +230,12 @@ describe("Plan derived heat / table aggregates", () => {
         ]));
         const positions = derived.tableSeries.get("p")!;
         expect(positions).toHaveLength(2);
-        expect(positions[0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
-        expect(positions[1]!.cells[0]).toMatchObject({ value: { type: "some", value: -10 } });
+        expect(positions[0]!.cells[0]).toMatchObject({ value: some(150) });
+        expect(positions[1]!.cells[0]).toMatchObject({ value: some(-10) });
         // ...and each derived position wears its members' declarations, so the
         // subtotal is styled like the numbers it totals.
         expect(positions[0]!.strong).toBe(true);
-        expect(positions[1]!.tone).toMatchObject({ type: "some", value: { type: "muted" } });
+        expect(positions[1]!.tone).toEqual(some(variant("muted", null)));
     });
 
     test("`rollup: true` still NARROWS — an author can say which position is the number", () => {
@@ -258,7 +258,7 @@ describe("Plan derived heat / table aggregates", () => {
         ]));
         const positions = derived.tableSeries.get("p")!;
         expect(positions).toHaveLength(1);                                   // the Δ is commentary
-        expect(positions[0]!.cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
+        expect(positions[0]!.cells[0]).toMatchObject({ value: some(150) });
     });
 
     test("a VERTICAL subtotal grows for its DERIVED positions, not its (empty) own", () => {
@@ -292,8 +292,8 @@ describe("Plan derived heat / table aggregates", () => {
     test("a group's member count is DERIVED, not carried by the IR (#568)", () => {
         // A count is an aggregate like any other: the renderer counts the
         // members the group actually has.
-        const group = (key: string, parent?: string) => trow(key, parent,
-            variant("group", { summary: variant("none", null) }));
+        const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
+        const group = (key: string, parent?: string) => trow(key, parent, band);
         const rows = [
             group("g"),
             trow("m1", "g", spanKind),
@@ -316,7 +316,7 @@ describe("Plan derived heat / table aggregates", () => {
         ] as unknown as Parameters<typeof deriveHeatCells>[0];
         expect(deriveHeatCells(cells, "mean", PH).map((c) => (c.at.type === "ordinal" ? c.at.value : "?")))
             .toEqual(["INTAKE", "PREP", "QC"]);
-        expect(deriveHeatCells(cells, "mean", PH)[1]).toMatchObject({ value: { type: "some", value: 2 } });
+        expect(deriveHeatCells(cells, "mean", PH)[1]).toMatchObject({ value: some(2) });
         // The ledger's height measure derives without the axis — order is
         // insertion, the numbers are the same.
         expect(deriveHeatCells(cells, "mean").map((c) => (c.at.type === "ordinal" ? c.at.value : "?")))
@@ -387,8 +387,8 @@ describe("Plan derived heat / table aggregates", () => {
         // Its own 7 stands — never replaced by the 96 beneath it.
         expect(derived.tableSeries.has("own")).toBe(false);
         // An empty parent subtotals its subtree, through an empty parent too.
-        expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 10 } });
-        expect(derived.tableSeries.get("empty")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 64 } });
+        expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: some(10) });
+        expect(derived.tableSeries.get("empty")![0]!.cells[0]).toMatchObject({ value: some(64) });
     });
 
     test("table sum subtotals carry raw values; text and tone stay renderer-owned", () => {
@@ -398,9 +398,9 @@ describe("Plan derived heat / table aggregates", () => {
             { at: t(W28), value: some(-4), text: none, tone: none },
             { at: t(W29), value: none, text: none, tone: none },
         ] as unknown as Parameters<typeof deriveTableCells>[0], "sum");
-        expect(cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
-        expect(cells[1]).toMatchObject({ value: { type: "some", value: -4 }, text: { type: "none" }, tone: { type: "none" } });
-        expect(cells[2]).toMatchObject({ value: { type: "none" } });
+        expect(cells[0]).toMatchObject({ value: some(150) });
+        expect(cells[1]).toMatchObject({ value: some(-4), text: none, tone: none });
+        expect(cells[2]).toMatchObject({ value: none });
     });
 });
 

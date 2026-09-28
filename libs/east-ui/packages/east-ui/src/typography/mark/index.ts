@@ -50,7 +50,7 @@ function createMark(
 
     return East.value(variant("Mark", {
         value: value,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

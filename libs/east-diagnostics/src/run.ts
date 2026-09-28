@@ -32,7 +32,8 @@ export function runEastRules(
   };
 
   const disabled = new Set(options.disabled ?? []);
-  const active = rules.filter((rule) => !disabled.has(rule.name));
+  const only = options.only === undefined ? undefined : new Set(options.only);
+  const active = rules.filter((rule) => !disabled.has(rule.name) && (only === undefined || only.has(rule.name)));
 
   const visit = (node: ts.Node): void => {
     for (const rule of active) rule.check(node, ctx);

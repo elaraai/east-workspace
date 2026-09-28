@@ -3,6 +3,26 @@
 React rendering layer for East UI types. Converts East variant/struct
 values into Chakra UI v3 React components.
 
+## HARD RULE: East values through East
+
+An East value is printed, read, compared, ordered, collected and typed
+through East's utilities — never a JavaScript stand-in — and tested over
+real, decoded East values. `make lint` runs `east/east-rules` (the
+host-value rules) over source and tests and fails on a JavaScript stand-in;
+[`EAST_TS_INTEROP.md`](../../../../docs/conventions/EAST_TS_INTEROP.md)
+§7–§11 names each utility and the rule that enforces it. In short:
+
+- print with `printFor(T)`, or the locale formatters for a person; read
+  text with `parseFor(T)` and act on `success`;
+- compare with `equalFor` / `compareFor`, and use `Object.is` only where
+  you mean the same object (a memo, a cache);
+- key a Set or Dict by a struct, variant or DateTime with `SortedSet` /
+  `SortedMap` and `compareFor(K)`;
+- type decoded values `ValueTypeOf<…>` and narrow on `.type` — never a
+  `{ type, value }` cast or a `*Like` mirror;
+- build variants with `variant()` / `some()` / `none`, in tests too, and
+  assert over whole values (`toEqual(variant(…))` checks East's brand).
+
 ## Visual style
 
 **Canonical design source: `libs/east-ui/app_design_system/`.** Do not

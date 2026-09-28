@@ -12,6 +12,8 @@ import {
     StringType,
     StructType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -99,17 +101,17 @@ function createChipRail(
 
     return East.value(variant("ChipRail", {
         chips,
-        labels: options?.labels !== undefined ? variant("some", options.labels) : variant("none", null),
-        density: densityValue ? variant("some", densityValue) : variant("none", null),
-        separator: separatorValue ? variant("some", separatorValue) : variant("none", null),
+        labels: options?.labels !== undefined ? some(options.labels) : none,
+        density: densityValue ? some(densityValue) : none,
+        separator: separatorValue ? some(separatorValue) : none,
         style: hasStyle
-            ? variant("some", East.value({
-                overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
-                background: options!.background ? variant("some", options!.background) : variant("none", null),
-                separatorColor: options!.separatorColor ? variant("some", options!.separatorColor) : variant("none", null),
-                overflowTriggerColor: options!.overflowTriggerColor ? variant("some", options!.overflowTriggerColor) : variant("none", null),
+            ? some(East.value({
+                overflow: overflowValue ? some(overflowValue) : none,
+                background: options!.background ? some(options!.background) : none,
+                separatorColor: options!.separatorColor ? some(options!.separatorColor) : none,
+                overflowTriggerColor: options!.overflowTriggerColor ? some(options!.overflowTriggerColor) : none,
             }, ChipRailStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 

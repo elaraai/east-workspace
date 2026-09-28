@@ -17,6 +17,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
+import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
@@ -83,7 +84,7 @@ function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolea
     } as unknown as PlanWireRow;
 }
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
-const group = () => variant("group", { summary: variant("none", null) });
+const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
     height: variant("spark", null), expandedHeight: none, expandable: true,
@@ -140,19 +141,16 @@ const storedAt = (key: string) => JSON.parse(localStorage.getItem(key) ?? "null"
 
 /** A slice bound for the resolution segment (WEEK / DAY). */
 function resolutionSlice(key: string) {
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-        ]),
-        rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+    }, { rangeFieldId: some("at") });
     const initial = {
         range: some(variant("datetime", { from: W27, to: W39 })),
         compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none,
         resolution: some(variant("week", null)),
     };
-    return buildSliceHandle(key, cfg as never, initial as never, [{ at: W27 }] as never, none);
+    return buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none);
 }
 
 describe("Plan UI state survives a remount (#813)", () => {

@@ -65,3 +65,9 @@ test("eslint-plugin-east: `disabled` option suppresses a rule", () => {
   assert.doesNotMatch(text, /prefer-some-none/);
   assert.match(text, /no-redundant-east-cast/);
 });
+
+test("eslint-plugin-east: `only` runs just the named rules", () => {
+  const messages = lint("bad.ts", ["warn", { only: ["prefer-some-none"] }]);
+  assert.ok(messages.length > 0);
+  assert.ok(messages.every((m) => m.message.startsWith("[prefer-some-none]")));
+});

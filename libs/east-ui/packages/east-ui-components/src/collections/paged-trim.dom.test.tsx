@@ -61,39 +61,34 @@ const ROWS = Array.from({ length: 1_000 }, (_, i) => ({
     id: `r${String(i).padStart(5, "0")}`, name: `row ${i}`,
 }));
 
-/** The decoded root of a compiled component, by its tag. */
-function compiled<T>(tag: string, fn: ReturnType<typeof East.function>): T {
-    const ui = East.compile(fn as never, [])() as UIValue;
-    const node = ui as unknown as { type: string; value: T };
-    expect(node.type).toBe(tag);
-    return node.value;
+/** A component tree built by the real factories, compiled and run. */
+function compiled(fn: ReturnType<typeof East.function>): UIValue {
+    return East.compile(fn as never, [])() as UIValue;
 }
 
 /** The Plan's derived source: one span row per entry, trimmed pieces. */
 function planSource(): PlanPagedSourceValue {
-    const root = compiled<{ rows: { type: string; value: PlanPagedSourceValue } }>("Plan",
-        East.function([], UIComponentType, ($) => {
-            const entries = $.const(ENTRIES, DictType(StringType, Entry));
-            const source = $.let(Paged.of("trim-plan", entries, { pageLimit: TRIM }));
-            const series = $.const([
-                Plan.series.span(Entry, { key: "entries", title: "Entries", label: (_r, k) => k, runs: () => [] }),
-            ], ArrayType(Plan.Types.Series(Entry)));
-            const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
-            return Plan.Root({ axis, data: source, series });
-        }));
-    expect(root.rows.type).toBe("paged");
-    return root.rows.value;
+    const ui = compiled(East.function([], UIComponentType, ($) => {
+        const entries = $.const(ENTRIES, DictType(StringType, Entry));
+        const source = $.let(Paged.of("trim-plan", entries, { pageLimit: TRIM }));
+        const series = $.const([
+            Plan.series.span(Entry, { key: "entries", title: "Entries", label: (_r, k) => k, runs: () => [] }),
+        ], ArrayType(Plan.Types.Series(Entry)));
+        const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
+        return Plan.Root({ axis, data: source, series });
+    }));
+    if (ui.type !== "Plan" || ui.value.rows.type !== "paged") throw new Error(`expected a paged Plan, got ${ui.type}`);
+    return ui.value.rows.value;
 }
 
 function tableSource(): TablePagedSourceValue {
-    const root = compiled<{ rows: { type: string; value: TablePagedSourceValue } }>("Table",
-        East.function([], UIComponentType, ($) => {
-            const rows = $.const(ROWS, ArrayType(Row));
-            const source = $.let(Paged.of("trim-table", rows, { pageLimit: TRIM }));
-            return Table.Root(source, ["id", "name"]);
-        }));
-    expect(root.rows.type).toBe("paged");
-    return root.rows.value;
+    const ui = compiled(East.function([], UIComponentType, ($) => {
+        const rows = $.const(ROWS, ArrayType(Row));
+        const source = $.let(Paged.of("trim-table", rows, { pageLimit: TRIM }));
+        return Table.Root(source, ["id", "name"]);
+    }));
+    if (ui.type !== "Table" || ui.value.rows.type !== "paged") throw new Error(`expected a paged Table, got ${ui.type}`);
+    return ui.value.rows.value;
 }
 
 // ── The Plan ────────────────────────────────────────────────────────────────

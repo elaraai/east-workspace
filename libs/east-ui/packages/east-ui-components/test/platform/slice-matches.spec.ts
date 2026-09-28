@@ -15,18 +15,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { autoDeriveMatches, autoDeriveFieldHints } from "../../src/platform/slice/index.js";
+import { integerField, sliceConfig, stringField, type SliceFieldSpec } from "../../src/platform/slice/slice.test-utils.js";
 
-/** Build a minimal config exposing one or more string/non-string fields. */
-function cfg(fields: Record<string, { type: string; get: (r: any) => unknown }>, searchFieldIds: string[] = []) {
-    return {
-        searchFieldIds,
-        fields: new Map(Object.entries(fields).map(([id, f]) => [id, { type: f.type, value: { accessor: f.get } }])),
-    };
-}
+/** A config exposing the given fields, searching `searchFieldIds`. */
+const cfg = (fields: Record<string, SliceFieldSpec>, searchFieldIds: string[] = []) => sliceConfig(fields, { searchFieldIds });
 
 test("autoDeriveMatches: id is the clean value — no ordinal, no NUL byte (#129)", () => {
     const rows = [{ country: "Germany" }, { country: "France" }];
-    const out = autoDeriveMatches(rows, cfg({ country: { type: "string", get: (r) => r.country } }, ["country"]));
+    const out = autoDeriveMatches(rows, cfg({ country: stringField((r) => r.country) }, ["country"]));
     assert.deepEqual(out.map(o => o.id), ["Germany", "France"]);
     assert.deepEqual(out.map(o => o.label), ["Germany", "France"]);
     // The historic bug: id was `${label}\x00${i}`. Guard against any regression.
@@ -38,18 +34,18 @@ test("autoDeriveMatches: id is the clean value — no ordinal, no NUL byte (#129
 
 test("autoDeriveMatches: de-duplicates repeated values (distinct options only)", () => {
     const rows = [{ country: "EU" }, { country: "EU" }, { country: "NA" }, { country: "EU" }];
-    const out = autoDeriveMatches(rows, cfg({ country: { type: "string", get: (r) => r.country } }, ["country"]));
+    const out = autoDeriveMatches(rows, cfg({ country: stringField((r) => r.country) }, ["country"]));
     assert.deepEqual(out.map(o => o.id), ["EU", "NA"]);
 });
 
 test("autoDeriveMatches: empty hits → empty options", () => {
-    const out = autoDeriveMatches([], cfg({ country: { type: "string", get: (r) => r.country } }, ["country"]));
+    const out = autoDeriveMatches([], cfg({ country: stringField((r) => r.country) }, ["country"]));
     assert.deepEqual(out, []);
 });
 
 test("autoDeriveMatches: no string field anywhere → empty (un-derivable)", () => {
     const rows = [{ sessions: 42n }, { sessions: 18n }];
-    const out = autoDeriveMatches(rows, cfg({ sessions: { type: "integer", get: (r) => r.sessions } }, ["sessions"]));
+    const out = autoDeriveMatches(rows, cfg({ sessions: integerField((r) => r.sessions) }, ["sessions"]));
     assert.deepEqual(out, []);
 });
 
@@ -59,7 +55,7 @@ test("autoDeriveMatches: prefers the first searchable string field in searchFiel
     const out = autoDeriveMatches(
         rows,
         cfg(
-            { scenario: { type: "string", get: (r) => r.scenario }, region: { type: "string", get: (r) => r.region } },
+            { scenario: stringField((r) => r.scenario), region: stringField((r) => r.region) },
             ["region", "scenario"],
         ),
     );
@@ -70,7 +66,7 @@ test("autoDeriveMatches: falls back to the first string field when searchFieldId
     const rows = [{ id: 1n, name: "Alice" }];
     const out = autoDeriveMatches(
         rows,
-        cfg({ id: { type: "integer", get: (r) => r.id }, name: { type: "string", get: (r) => r.name } }, []),
+        cfg({ id: integerField((r) => r.id), name: stringField((r) => r.name) }, []),
     );
     assert.deepEqual(out.map(o => o.id), ["Alice"]);
 });
@@ -79,7 +75,7 @@ test("autoDeriveMatches: skips null / undefined values — never offers a 'null'
     // Handle-owned slices (e.g. DecisionQueue) feed untyped JS rows; a missing
     // value must not become a junk substring query when selected.
     const rows = [{ country: "EU" }, { country: null }, { country: undefined }, { country: "NA" }];
-    const out = autoDeriveMatches(rows, cfg({ country: { type: "string", get: (r) => r.country } }, ["country"]));
+    const out = autoDeriveMatches(rows, cfg({ country: stringField((r) => r.country) }, ["country"]));
     assert.deepEqual(out.map(o => o.id), ["EU", "NA"]);
     for (const o of out) assert.ok(o.id !== "null" && o.id !== "undefined");
 });
@@ -89,7 +85,7 @@ test("autoDeriveMatches: skips a configured search field that isn't a string", (
     // searchFieldIds names the integer field first; it must be skipped for the string one.
     const out = autoDeriveMatches(
         rows,
-        cfg({ sessions: { type: "integer", get: (r) => r.sessions }, region: { type: "string", get: (r) => r.region } }, ["sessions", "region"]),
+        cfg({ sessions: integerField((r) => r.sessions), region: stringField((r) => r.region) }, ["sessions", "region"]),
     );
     assert.deepEqual(out.map(o => o.id), ["APAC"]);
 });

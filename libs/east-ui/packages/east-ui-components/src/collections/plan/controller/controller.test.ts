@@ -11,6 +11,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { buildSliceHandle } from "../../../platform/slice/index.js";
+import { sliceConfig } from "../../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../../platform/state-runtime.js";
 import { UIStore } from "../../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../../reactive/tracker.js";
@@ -26,7 +27,7 @@ const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
-const group = () => variant("group", { summary: variant("none", null) });
+const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
 function planRow(key: string, kind: unknown = span(), parent?: string, series?: string): PlanWireRow {
@@ -70,19 +71,16 @@ type SliceState = { range: { type: string; value?: { type: string; value: { from
 
 /** A bound slice (WEEK over the 12-week window) that counts its writes. */
 function countingSlice(key: string) {
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-        ]),
-        rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+    }, { rangeFieldId: some("at") });
     const initial = {
         range: some(variant("datetime", { from: W27, to: W39 })),
         compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none,
         resolution: some(variant("week", null)),
     };
-    const handle = buildSliceHandle(key, cfg as never, initial as never, [{ at: W27 }] as never, none) as Record<string, (...a: unknown[]) => unknown>;
+    const handle = buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none) as Record<string, (...a: unknown[]) => unknown>;
     const calls = { write: 0, setRange: 0, setResolution: 0 };
     const slice = {
         ...handle,

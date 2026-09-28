@@ -2,6 +2,16 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
 import reactHooks from 'eslint-plugin-react-hooks';
+import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
+
+// East values through East (#963): source and tests run the rules over host code
+// that builds or holds East values. The IR-authoring rules are for East programs,
+// and where this package builds one (a handle builder, a test's helper) it is the
+// library those rules are written for, as east-ui's factories are. The tests
+// type-check under their own project, and the renderer's own rules below skip
+// them, as they always have.
+const EAST_HOST_VALUES = ['error', { only: hostValueRules }];
+const TESTS = ['**/*.test.ts', '**/*.test.tsx'];
 
 // One formatter for every component (#850): numbers and dates print through
 // @elaraai/east-ui-components' shared formatters — in the app's locale, dates in UTC. These
@@ -34,10 +44,11 @@ const ONE_FORMATTER = [
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '**/*.test.tsx', '**/*.test.ts']
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**']
   },
   {
     files: ['src/**/*.ts', 'src/**/*.tsx'],
+    ignores: TESTS,
     languageOptions: {
       parser: tsparser,
       parserOptions: {
@@ -50,7 +61,8 @@ export default [
     plugins: {
       '@typescript-eslint': tseslint,
       'headers': headers,
-      'react-hooks': reactHooks
+      'react-hooks': reactHooks,
+      'east': east
     },
     rules: {
       ...tseslint.configs.recommended.rules,
@@ -61,6 +73,7 @@ export default [
       '@typescript-eslint/no-unnecessary-type-constraint': 'off',
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      'east/east-rules': EAST_HOST_VALUES,
       // This is a BROWSER renderer package. The bare '@elaraai/e3-ui' barrel
       // re-exports ui(), which value-imports the Node-only '@elaraai/e3'
       // (node:fs via sha256/export) and so drags node:fs into browser bundles
@@ -77,6 +90,25 @@ export default [
         content: 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.'
       }],
       'no-restricted-syntax': ['error', ...ONE_FORMATTER]
+    }
+  },
+  {
+    // The tests hold decoded East values: the host-value rules (#963).
+    files: [...TESTS.map((glob) => `src/${glob}`), 'test/**/*.ts', 'test/**/*.tsx'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        project: './tsconfig.typecheck.json',
+        ecmaFeatures: {
+          jsx: true
+        }
+      }
+    },
+    plugins: {
+      'east': east
+    },
+    rules: {
+      'east/east-rules': EAST_HOST_VALUES
     }
   }
 ];

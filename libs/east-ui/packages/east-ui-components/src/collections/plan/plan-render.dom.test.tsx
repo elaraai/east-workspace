@@ -239,9 +239,10 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
     // a NEW decoded value. The canvas RECONCILES its ephemeral state against
     // the new rows instead of resetting it: only the entries whose rows
     // vanished drop, and declared collapse seeds ONCE, never again.
+    const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
     const rowsAt = (tag: string, opts?: { withM2?: boolean; withGroup?: boolean }) => [
         ...(opts?.withGroup === false ? [] : [
-            planRow("line1", variant("group", { summary: variant("none", null) }), { collapsed: true }),
+            planRow("line1", band, { collapsed: true }),
             planRow("m1", spanKind([]), { parent: "line1" }),
         ]),
         ...(opts?.withM2 === false ? [] : [

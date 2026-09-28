@@ -18,14 +18,15 @@ import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { none, some, variant } from "@elaraai/east";
+import { DateTimeType, none, printFor, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
-import type { PlanRowId, PlanWireRow } from "./model.js";
-import type { PlanInstantValue } from "./instant.js";
-import { oneBlock, rowId, rowIdEqual, rowSel } from "./plan.test-utils.js";
+import type { PlanWireRow } from "./model.js";
+import { instantKey, type PlanInstantValue } from "./instant.js";
+import type { PlanElementRefValue } from "./context.js";
+import { oneBlock, rowId, rowSel } from "./plan.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -109,19 +110,23 @@ const renderPlan = (value: PlanRootValue, key: string) => render(
     </ChakraProvider>,
 );
 
+const printTime = printFor(DateTimeType);
 /** The element refs a resolver was called with, as `kind:row/key` — the row
- *  named by its id's path (#822). */
-type Ref = { type: string; value: { row: PlanRowId; run?: string; at?: { type: string; value: Date } } };
-const refText = (ref: Ref) => {
-    const row = ref.value.row.value.path.join("/");
-    return ref.type === "cell"
-        ? `cell:${row}@${ref.value.at!.value.toISOString().slice(0, 10)}`
-        : `${ref.type}:${row}/${ref.value.run ?? ""}`;
+ *  named by its id's path (#822), a time cell by its instant's day. */
+const refText = (ref: PlanElementRefValue): string => {
+    switch (ref.type) {
+        case "run": return `run:${ref.value.row.value.path.join("/")}/${ref.value.run}`;
+        case "cell": {
+            const at = ref.value.at;
+            return `cell:${ref.value.row.value.path.join("/")}@${at.type === "time" ? printTime(at.value).slice(0, 10) : instantKey(at)}`;
+        }
+        default: return ref.type;
+    }
 };
 /** A resolver that records its calls and opens a body named after the ref. */
 function recording(label: string) {
     const calls: string[] = [];
-    const fn = (ref: Ref) => {
+    const fn = (ref: PlanElementRefValue) => {
         calls.push(refText(ref));
         return some(variant("Text", { value: `${label} · ${refText(ref)}`, style: none }));
     };
@@ -360,7 +365,7 @@ describe("one overlay layer (#816)", () => {
     test("resolvers run lazily — only on open, once per open — and `none` opens nothing", async () => {
         const hov = recording("HOV");
         const popCalls: string[] = [];
-        const popover = (ref: Ref) => { popCalls.push(refText(ref)); return none; };
+        const popover = (ref: PlanElementRefValue) => { popCalls.push(refText(ref)); return none; };
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("b214", 1, 4), run("c1", 5, 6)]))],
             { popover, hover: hov.fn }), "plan-816-lazy");
         expect(hov.calls).toEqual([]);
@@ -401,10 +406,7 @@ describe("one overlay layer (#816)", () => {
         expect(await screen.findByText("POP · run:m2/c7")).toBeTruthy();
         expect(container.querySelector(rowSel("m2"))!.hasAttribute("data-selected")).toBe(true);
         await waitFor(() => expect(clicks).toHaveLength(1));
-        const click = clicks[0] as { type: string; value: { row: PlanRowId; run: string } };
-        expect(click.type).toBe("run");
-        expect(rowIdEqual(click.value.row, rowId("m2"))).toBe(true);
-        expect(click.value.run).toBe("c7");
+        expect(clicks[0]).toEqual(variant("run", { row: rowId("m2"), run: "c7" }));
         // The strip's cell is the band's toggle, not an element.
         expect(container.querySelector(`${rowSel("line", "data-plan-group")} [data-cell]`)).toBeNull();
         await user.click(screen.getByText("80"));

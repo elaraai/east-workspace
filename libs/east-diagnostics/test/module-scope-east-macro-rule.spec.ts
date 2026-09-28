@@ -6,28 +6,39 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { analyze } from "./harness.js";
 
-const PRELUDE = `import { East, IntegerType, StringType, ArrayType, variant, some, none } from "@elaraai/east";\n`;
+const PRELUDE = `import { East, IntegerType, StringType, ArrayType, DictType, OptionType, VariantType, variant, some, none } from "@elaraai/east";\n`;
 const RULE = "no-module-scope-east-macro";
 
 function rule(source: string) {
   return analyze(source).filter((d) => d.ruleName === RULE);
 }
 
-// ── FIRES: module-scope macros ──────────────────────────────────────────
-test("flags a module-scope composite-string-key builder", () => {
-  assert.equal(rule(`${PRELUDE}const buRoleKey = (o: string, l: string): string => \`\${o}|\${l}\`;\nexport const _u = buRoleKey;\n`).length, 1);
+// ── FIRES: module-scope macros — a helper whose output feeds an East program ──
+test("flags a module-scope composite-string-key builder whose keys feed East data", () => {
+  assert.equal(rule(`${PRELUDE}const buRoleKey = (o: string, l: string): string => \`\${o}|\${l}\`;\nexport const seed = East.value(new Map([[buRoleKey("a", "b"), 1n]]), DictType(StringType, IntegerType));\n`).length, 1);
 });
 
-test("flags a module-scope `${base}#${ti}` key builder", () => {
-  assert.equal(rule(`${PRELUDE}const yKey = (base: string, ti: number): string => \`\${base}#\${ti}\`;\nexport const _u = yKey;\n`).length, 1);
+test("flags a module-scope `${base}#${ti}` key builder whose keys feed East data", () => {
+  assert.equal(rule(`${PRELUDE}const yKey = (base: string, ti: number): string => \`\${base}#\${ti}\`;\nexport const keys = East.value([yKey("y", 1)], ArrayType(StringType));\n`).length, 1);
 });
 
-test("flags a module-scope East value-constructor helper", () => {
-  assert.equal(rule(`${PRELUDE}const mkPred = (n: bigint) => variant("x", n);\nexport const _u = mkPred;\n`).length, 1);
+test("flags a module-scope East value-constructor helper whose values feed East data", () => {
+  assert.equal(rule(`${PRELUDE}const mkPred = (n: bigint) => variant("x", n);\nexport const preds = East.value([mkPred(1n), mkPred(2n)], ArrayType(VariantType({ x: IntegerType })));\n`).length, 1);
 });
 
-test("flags a module-scope function declaration returning some(...)", () => {
-  assert.equal(rule(`${PRELUDE}function wrap(x: bigint) { return some(x); }\nexport const _u = wrap;\n`).length, 1);
+test("flags a module-scope function declaration returning some(...) that feeds East data", () => {
+  assert.equal(rule(`${PRELUDE}function wrap(x: bigint) { return some(x); }\nexport const v = East.value(wrap(3n), OptionType(IntegerType));\n`).length, 1);
+});
+
+test("flags a helper building IR wherever it is used", () => {
+  assert.equal(rule(`${PRELUDE}import type { ExprType } from "@elaraai/east";\nconst twice = (x: ExprType<IntegerType>) => x.add(x);\nexport const _u = twice;\n`).length, 1);
+});
+
+// ── SILENT: the same helpers building HOST data ───────────────────────────
+test("silent on value and key helpers whose output stays in host code", () => {
+  // A renderer's fixture and a runtime's channel key: host data, not a program.
+  const src = `${PRELUDE}const mkPred = (n: bigint) => variant("x", n);\nfunction wrap(x: bigint) { return some(x); }\nconst channelKey = (w: string, n: string) => \`func:\${w}:\${n}\`;\nexport const preds = [mkPred(1n), wrap(2n)];\nexport const cache = new Map([[channelKey("ws", "f"), 1]]);\n`;
+  assert.equal(rule(src).length, 0);
 });
 
 // ── SILENT ──────────────────────────────────────────────────────────────

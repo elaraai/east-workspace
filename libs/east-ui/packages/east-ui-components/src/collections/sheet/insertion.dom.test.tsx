@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { ArrayType, DictType, East, IntegerType, StringType, StructType, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, StringType, StructType, some, variant } from "@elaraai/east";
 import { Paged, Sheet, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { initializeStore, StateImpl } from "../../platform/state-runtime.js";
@@ -74,12 +74,12 @@ test("repeated insertion resolves against local identities and Undo restores eac
     const first = ui.rows()[1]!.getAttribute("data-row-id")!;
     expect(journal.events).toHaveLength(1);
     expect(journal.events[0]!.origin.type).toBe("insert");
-    expect(journal.events[0]!.draftChanges[0]!.place).toEqual(variant("some", variant("ordered", variant("before", "b"))));
+    expect(journal.events[0]!.draftChanges[0]!.place).toEqual(some(variant("ordered", variant("before", "b"))));
     fireEvent.keyDown(ui.input(), { key: "Escape" }); await ui.flush();
     await ui.press(ui.insertAbove(ui.rows()[1]!));
     const second = ui.rows()[1]!.getAttribute("data-row-id")!;
     expect(journal.events).toHaveLength(2);
-    expect(journal.events[1]!.draftChanges[0]!.place).toEqual(variant("some", variant("ordered", variant("before", first))));
+    expect(journal.events[1]!.draftChanges[0]!.place).toEqual(some(variant("ordered", variant("before", first))));
     expect(ui.rows().map(row => row.getAttribute("data-row-id"))).toEqual(["a", second, first, "b"]);
     fireEvent.keyDown(ui.input(), { key: "Escape" }); await ui.flush();
     await ui.press(ui.getByRole("button", { name: "Undo" }));
@@ -153,5 +153,5 @@ test("a keyed source offers Add row, uses canonical key order and emits no order
     expect(ui.container.querySelector('[data-insert-preview]')).toBeNull();
     await ui.press(add);
     expect(ui.rows().map(row => row.getAttribute("data-row-id"))).toEqual(["0-new", "a", "z"]);
-    expect(journal.events[0]!.draftChanges[0]!.place).toEqual(variant("some", variant("keyOrder", null)));
+    expect(journal.events[0]!.draftChanges[0]!.place).toEqual(some(variant("keyOrder", null)));
 });

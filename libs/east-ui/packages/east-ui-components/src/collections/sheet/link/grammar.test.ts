@@ -32,7 +32,7 @@ const MEMBERS = [
 
 const column = indexColumns([{
     key: "stations", header: "Work centres", sub: none, width: none,
-    kind: { type: "link", value: {
+    kind: variant("link", {
         register: "stations",
         members: [
             { kind: "machine", identified: true, countable: false, resolvesTo: none, ranged: false },
@@ -41,8 +41,8 @@ const column = indexColumns([{
             { kind: "family", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
         ],
         multiple: some({ forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" }),
-        sides: none, arity: none, check: [], store: { type: "asTyped", value: null }, options: none,
-    } },
+        sides: none, arity: none, check: [], store: variant("asTyped", null), options: none,
+    }),
     dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 }] as never).list[0]!;
 const vocab = linkVocabulary(column, MEMBERS);

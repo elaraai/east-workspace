@@ -107,20 +107,26 @@ function buildPagedPlan(): PlanRootValue {
     return value.value;
 }
 
+/** The compiled canvas's source — every canvas paged here is built over
+ *  `Paged.of`, which the factory carries on the `paged` arm. */
+function pagedOf(root: PlanRootValue) {
+    if (root.rows.type !== "paged") throw new Error(`expected a paged canvas, got its ${root.rows.type} arm`);
+    return root.rows.value;
+}
+
 /** Wrap the compiled source so every window request is recorded, delegating to
  *  the real closure — the behaviour stays East's, only the calls are observed. */
 function withRecordedWindows(root: PlanRootValue): { root: PlanRootValue; asked: number[] } {
     const asked: number[] = [];
-    const paged = (root.rows as { type: string; value: Record<string, unknown> }).value;
-    const realPage = paged["page"] as (offset: bigint, limit: bigint) => unknown;
+    const paged = pagedOf(root);
     const spied = {
         ...paged,
         page: (offset: bigint, limit: bigint) => {
             asked.push(Number(offset) / PLAN_PAGE_SIZE);
-            return realPage(offset, limit);
+            return paged.page(offset, limit);
         },
     };
-    return { root: { ...root, rows: variant("paged", spied) as PlanRootValue["rows"] }, asked };
+    return { root: { ...root, rows: variant("paged", spied) }, asked };
 }
 
 /**
@@ -189,8 +195,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         expect(Math.max(...asked)).toBeLessThan(5);
         // The compiled source carries a real `seek` — a keyed collection derives
         // one from its own keys — which is what the jump test then drives.
-        const paged = (root.rows as { value: { seek: { type: string } } }).value;
-        expect(paged.seek.type).toBe("some");
+        expect(pagedOf(root).seek.type).toBe("some");
     }, 30_000);
 
     test("seeking element 3,000 REBASES — the windows in between are never fetched", async () => {
@@ -481,17 +486,16 @@ describe("a parent sits whole in its window (#823)", () => {
         // Windows past the third stay in flight, so the paged canvas is and
         // stays partial — its first three windows are all it holds.
         const built = buildLines(true);
-        const src = (built.rows as { type: string; value: Record<string, unknown> }).value;
-        const realPage = src["page"] as (offset: bigint, limit: bigint) => unknown;
+        const src = pagedOf(built);
         const asked: number[] = [];
         const held = {
             ...src,
             page: (offset: bigint, limit: bigint) => {
                 asked.push(Number(offset) / PLAN_PAGE_SIZE);
-                return offset >= BigInt(3 * PLAN_PAGE_SIZE) ? none : realPage(offset, limit);
+                return offset >= BigInt(3 * PLAN_PAGE_SIZE) ? none : src.page(offset, limit);
             },
         };
-        const paged = renderPlan({ ...built, rows: variant("paged", held) as PlanRootValue["rows"] }, "plan-823-line-paged");
+        const paged = renderPlan({ ...built, rows: variant("paged", held) }, "plan-823-line-paged");
         await waitFor(() => expect(paged.container.querySelector(rowSel("L0200", "data-plan-group", "lines"))).toBeTruthy(),
             { timeout: 10_000 });
         // The canvas is partial…

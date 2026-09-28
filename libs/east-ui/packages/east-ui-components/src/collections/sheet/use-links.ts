@@ -123,7 +123,7 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
     const linkCellCtx = useCallback((row: SheetRowValue | undefined, meta: SheetColumnMeta): LinkCellContext | undefined => {
         const lc = linkColumns.get(meta.key);
         if (lc === undefined) return undefined;
-        const item = row !== undefined ? body.find((it) => it.kind === "real" && it.row === row) : undefined;
+        const item = row !== undefined ? body.find((it) => it.kind === "real" && Object.is(it.row, row)) : undefined;
         return {
             halves: halvesFor(lc.sides, driverKeyOf(row, driverColumn)),
             vocab: lc.vocab,

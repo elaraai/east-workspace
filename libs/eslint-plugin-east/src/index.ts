@@ -3,7 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { ESLint, Linter, Rule } from "eslint";
+import { hostValueRuleNames } from "@elaraai/east-diagnostics";
 import { eastRules } from "./rule.js";
+
+/**
+ * The rules over host code that builds or holds decoded East values — pass as
+ * `"east/east-rules": ["error", { only: hostValueRules }]` where the IR-authoring
+ * rules do not apply (a UI library's source and tests, whose factories and handle
+ * builders build East programs rather than being ones).
+ */
+export const hostValueRules: readonly string[] = hostValueRuleNames;
 
 // typescript-eslint's RuleModule is structurally an ESLint rule; the cast bridges
 // the two slightly different RuleModule types.

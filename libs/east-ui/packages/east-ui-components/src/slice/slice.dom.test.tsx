@@ -26,6 +26,7 @@ import {
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { buildSliceHandle } from "../platform/slice/index.js";
+import { sliceConfig } from "../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";
@@ -526,14 +527,11 @@ describe("Slice.Cohort — families (`group`): captioned runs of alternatives", 
 
     test("against the REAL store: members of one family OR; families AND with each other and with a standalone cohort", () => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["state",  { type: "string", value: { label: "State",  accessor: (r: { state: string }) => r.state } }],
-                ["status", { type: "string", value: { label: "Status", accessor: (r: { status: string }) => r.status } }],
-                ["owner",  { type: "string", value: { label: "Owner",  accessor: (r: { owner: string }) => r.owner } }],
-            ]),
-            rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            state:  variant("string", { label: "State",  accessor: (r: { state: string }) => r.state, format: none }),
+            status: variant("string", { label: "Status", accessor: (r: { status: string }) => r.status, format: none }),
+            owner:  variant("string", { label: "Owner",  accessor: (r: { owner: string }) => r.owner, format: none }),
+        });
         const initial = {
             range: none, compare: none, filters: [], cohorts: familyCohorts(), activeCohorts: new Set(["proposed", "scheduled"]),
             breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
@@ -715,12 +713,9 @@ describe("Slice.Rail brush — formatted axis + count histogram, rich by default
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
-    const currencyCfg = {
-        fields: new Map<string, unknown>([
-            ["qty", { type: "integer", value: { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: some(variant("currency", { code: "USD", compact: true })) } }],
-        ]),
-        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const currencyCfg = sliceConfig({
+        qty: variant("integer", { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: some(variant("currency", { code: "USD", compact: true })) }),
+    }, { rangeFieldId: some("qty") });
     const rows = [
         { qty: 0n }, { qty: 100n }, { qty: 150n }, { qty: 200n },
         { qty: 900n }, { qty: 950n }, { qty: 1000n },
@@ -789,12 +784,9 @@ describe("Slice.Rail brush — the window's bounds follow the applied range's ar
 });
 
 describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", () => {
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["qty", { type: "integer", value: { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: none } }],
-        ]),
-        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        qty: variant("integer", { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: none }),
+    }, { rangeFieldId: some("qty") });
     // Domain 0..1000 over a 1000px-wide mocked track → px === domain units.
     const rows = [{ qty: 0n }, { qty: 300n }, { qty: 600n }, { qty: 1000n }];
     const initial = {
@@ -866,12 +858,9 @@ describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", (
 });
 
 describe("Slice.Range — presets anchor to the DATA's date range; All clears (#195)", () => {
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["day", { type: "datetime", value: { label: "Day", accessor: (r: { day: Date }) => r.day, format: none } }],
-        ]),
-        rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        day: variant("datetime", { label: "Day", accessor: (r: { day: Date }) => r.day, format: none }),
+    }, { rangeFieldId: some("day") });
     // Historical rows — wall-clock presets would miss every one of them.
     const rows = [
         { day: new Date("2025-03-01") }, { day: new Date("2025-03-10") },
@@ -893,13 +882,9 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         const user = userEvent.setup();
         await user.click(screen.getByText("7d"));
 
-        const applied = handle.read().range as { type: string; value: { type: string; value: { from: Date; to: Date } } };
-        expect(applied.type).toBe("some");
-        expect(applied.value.type).toBe("datetime");                     // pinned, not a rolling preset tag
-        const { from, to } = applied.value.value;
-        expect(to.getTime()).toBe(new Date("2025-03-28").getTime());    // anchored to the data max
-        // Exactly 7 days: presets step UTC days, so no timezone's DST moves them (#850).
-        expect(to.getTime() - from.getTime()).toBe(7 * 86_400_000);
+        // Pinned — not a rolling preset tag — anchored to the data max, and exactly
+        // 7 days: presets step UTC days, so no timezone's DST moves them (#850).
+        expect(handle.read().range).toEqual(some(variant("datetime", { from: new Date("2025-03-21"), to: new Date("2025-03-28") })));
         // The window lands ON the data: [Mar 21, Mar 28] holds exactly the Mar 28 row.
         expect(Number(handle.resultCount())).toBe(1);
     });
@@ -1026,13 +1011,10 @@ describe("Slice.Search — combobox drives the query", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)", () => {
-    const realCfg = {
-        fields: new Map<string, unknown>([
-            ["scenario", { type: "string",  value: { label: "Scenario", accessor: (r: { scenario: string }) => r.scenario } }],
-            ["sessions", { type: "integer", value: { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions } }],
-        ]),
-        rangeFieldId: none, searchFieldIds: ["scenario"], breakdownFieldIds: [],
-    };
+    const realCfg = sliceConfig({
+        scenario: variant("string",  { label: "Scenario", accessor: (r: { scenario: string }) => r.scenario, format: none }),
+        sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
+    }, { searchFieldIds: ["scenario"] });
     const realInitial = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
@@ -1068,13 +1050,10 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
 
     test("the legend facet narrows the REAL store rows while its options never disappear (#188)", async () => {
         initializeStore(new UIStore());
-        const bdCfg = {
-            fields: new Map<string, unknown>([
-                ["region",   { type: "string",  value: { label: "Region",   accessor: (r: { region: string }) => r.region } }],
-                ["sessions", { type: "integer", value: { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions } }],
-            ]),
-            rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: ["region"],
-        };
+        const bdCfg = sliceConfig({
+            region:   variant("string",  { label: "Region",   accessor: (r: { region: string }) => r.region, format: none }),
+            sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
+        }, { breakdownFieldIds: ["region"] });
         const bdInitial = { ...realInitial, breakdown: some({ fieldId: "region", limit: none }) };
         const handle: any = buildSliceHandle("real.legend", bdCfg, bdInitial, [
             { region: "EU", sessions: 1n }, { region: "EU", sessions: 2n }, { region: "NA", sessions: 3n },

@@ -513,8 +513,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(row.getAttribute("aria-selected")).toBe("true");
         await waitFor(() => expect(clicks).toHaveLength(1));
         // The click is the bar's run ref, its row named by the typed id (#822, #824).
-        const click = clicks[0] as { type: string; value: { row: PlanRowId; run: string } };
-        expect([click.type, click.value.row.value.path.join("/"), click.value.run]).toEqual(["run", "m", "b214"]);
+        expect(clicks[0]).toEqual(variant("run", { row: rowId("m"), run: "b214" }));
         // The popover's Esc first — met, as a user's always is, by its armed
         // layer: the surface closes and focus is back on the bar… (An Esc
         // inside the first frame, before the layer listens, is the canvas's

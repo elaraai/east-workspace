@@ -16,6 +16,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
+import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
@@ -251,18 +252,15 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
     /** A slice whose range field is a FLOAT — days 1..12 of orders. */
     const numberSlice = (key: string, days: number[]) => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["day", variant("float", { label: "Day", accessor: (r: { day: number }) => r.day, format: none })],
-            ]),
-            rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            day: variant("float", { label: "Day", accessor: (r: { day: number }) => r.day, format: none }),
+        }, { rangeFieldId: some("day") });
         const initial = {
             range: some(variant("float", { from: 1, to: 9 })),
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
         };
-        return buildSliceHandle(key, cfg as never, initial as never, days.map((day) => ({ day })) as never, none) as never as {
+        return buildSliceHandle(key, cfg, initial as never, days.map((day) => ({ day })) as never, none) as never as {
             read(): { range: { value: { type: string; value: { from: number; to: number } } } };
         };
     };
@@ -331,19 +329,16 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
 
     test("an INTEGER field's window is written closed on whole values — `[1, 9)` is `1–8` — and read back whole", () => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["day", variant("integer", { label: "Day", accessor: (r: { day: bigint }) => r.day, format: none })],
-            ]),
-            rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            day: variant("integer", { label: "Day", accessor: (r: { day: bigint }) => r.day, format: none }),
+        }, { rangeFieldId: some("day") });
         const initial = {
             // The eight days 1 … 8, as an author seeds them: both ends inclusive.
             range: some(variant("integer", { from: 1n, to: 8n })),
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
         };
-        const handle = buildSliceHandle("plan.949.integer", cfg as never, initial as never,
+        const handle = buildSliceHandle("plan.949.integer", cfg, initial as never,
             Array.from({ length: 12 }, (_u, i) => ({ day: BigInt(i + 1) })) as never, none) as never as {
                 read(): { range: { value: { type: string; value: { from: bigint; to: bigint } } } };
             };
@@ -364,18 +359,15 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         // A DATETIME slice bound with the brush affordance — the arm a time
         // axis would brush; an ordinal axis has no arm to speak, so the
         // strip does not mount and a pan writes nothing.
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: some(variant("datetime", { from: W27, to: W39 })),
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
         };
-        const handle = buildSliceHandle("plan.631.ordinal", cfg as never, initial as never,
+        const handle = buildSliceHandle("plan.631.ordinal", cfg, initial as never,
             [{ at: W27 }, { at: W39 }] as never, none) as never as {
                 read(): { range: { value: { value: { from: Date; to: Date } } } };
             };

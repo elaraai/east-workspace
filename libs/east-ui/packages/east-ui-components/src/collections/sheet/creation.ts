@@ -70,7 +70,7 @@ export function prepareCreation(
     const arm = input.band.type === "none" ? "row" : "group";
     const armType = draftType.cases[arm];
     if (armType === undefined) throw new Error("Expected an entry draft of a group or a row");
-    const inner = current.draft === undefined ? undefined : (current.draft as { type: string; value: unknown }).value;
+    const inner = current.draft === undefined ? undefined : (current.draft as variant).value;
     const prepared = prepareOf(input, { ...current, draft: inner }, previousInput, place, editing, armType, arm === "group" ? field : undefined, mint);
     return { ...prepared, draft: prepared.draft === undefined ? undefined : variant(arm, prepared.draft) };
 }

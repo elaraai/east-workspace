@@ -20,11 +20,13 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
+import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
-import type { PlanRowId, PlanWireRow } from "./model.js";
+import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import type { PlanElementRefValue } from "./context.js";
 import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
@@ -228,14 +230,6 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
 }
 
 describe("Plan element clicks (#569, #824)", () => {
-    /** Click refs with each row id named by its path — the row is the row's
-     *  typed id (#822); the ref's tag says which element (#824). */
-    const named = (refs: readonly unknown[]) => refs.map((r) => {
-        const { type, value } = r as { type: string; value: { row: PlanRowId } };
-        const { row, ...rest } = value;
-        return { type, row: row.value.path.join("/"), ...rest };
-    });
-
     test("every element kind reports its ref to the ONE onElementClick — and still selects", async () => {
         const seen: unknown[] = [];
         const at = new Date("2026-06-29Z");
@@ -269,13 +263,14 @@ describe("Plan element clicks (#569, #824)", () => {
         fireEvent.click(screen.getByText("80"));
         await waitFor(() => expect(seen.length).toBe(5));
 
-        // One callback, one variant: the ref's own tag names the element kind.
-        expect(named(seen)).toEqual([
-            { type: "run", row: "s", run: "r1" },
-            { type: "event", row: "b", event: "e1" },
-            { type: "mark", row: "e", mark: "k1" },
-            { type: "chip", row: "c", chip: "c1" },
-            { type: "cell", row: "h", at: t(at) },
+        // One callback, one variant: the ref's own tag names the element kind,
+        // and its row is the row's typed id (#822).
+        expect(seen).toEqual([
+            variant("run", { row: rowId("s"), run: "r1" }),
+            variant("event", { row: rowId("b"), event: "e1" }),
+            variant("mark", { row: rowId("e"), mark: "k1" }),
+            variant("chip", { row: rowId("c"), chip: "c1" }),
+            variant("cell", { row: rowId("h"), at: t(at) }),
         ]);
         // The canvas behaviour is unchanged: the click also selected the row.
         expect(container.querySelector(rowSel("h"))!.hasAttribute("data-selected")).toBe(true);
@@ -285,19 +280,16 @@ describe("Plan element clicks (#569, #824)", () => {
 describe("Plan keyboard rungs (#569)", () => {
     const sliceFixture = (key: string) => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: some(variant("datetime", { from: W27, to: W39 })),
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none,
             resolution: some(variant("week", null)),
         };
-        return buildSliceHandle(key, cfg as never, initial as never, [{ at: W27 }] as never, none) as never as {
+        return buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none) as never as {
             read(): { range: { value: { value: { from: Date; to: Date } } } };
         };
     };
@@ -345,7 +337,7 @@ describe("Plan keyboard rungs (#569)", () => {
 });
 
 describe("The toolbar's grain segment (#632)", () => {
-    const group = () => variant("group", { summary: variant("none", null) });
+    const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
     /** Two root groups, a row in each. */
     const grouped = () => [
         planRow("line1", group(), { gutter: gutter("Line 1") }),
@@ -442,19 +434,16 @@ describe("The toolbar's grain segment (#632)", () => {
 
     test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: some(variant("datetime", { from: W27, to: W39 })),
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none,
             resolution: some(variant("week", null)),
         };
-        const handle = buildSliceHandle("plan.632.resolution", cfg as never, initial as never, [{ at: W27 }] as never, none) as never as {
+        const handle = buildSliceHandle("plan.632.resolution", cfg, initial as never, [{ at: W27 }] as never, none) as never as {
             read(): { resolution: { type: string; value: { type: string } } };
         };
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
@@ -480,19 +469,16 @@ describe("The toolbar's grain segment (#632)", () => {
 describe("Plan interaction fixes (#615)", () => {
     test("neither a caption click nor a sub-threshold strip click leaves a phantom brush esc rung", () => {
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: some(variant("datetime", { from: W27, to: W39 })),
             compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none,
             resolution: some(variant("week", null)),
         };
-        const handle = buildSliceHandle("plan.brush.phantom", cfg as never, initial as never,
+        const handle = buildSliceHandle("plan.brush.phantom", cfg, initial as never,
             [{ at: W27 }, { at: W39 }] as never, none) as never;
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some({ slice: handle, affordances: [variant("brush", null)] }),
@@ -543,9 +529,10 @@ describe("Plan interaction fixes (#615)", () => {
 describe("Plan element resolvers (popover / hover)", () => {
     test("the root popover resolver opens per ref — a some body for the named run, none opens nothing", async () => {
         const refs: string[] = [];
-        const popover = (ref: { type: string; value: { row: PlanRowId; run?: string } }) => {
+        const popover = (ref: PlanElementRefValue) => {
+            if (ref.type !== "run") return none;
             refs.push(`${ref.type}:${ref.value.row.value.path.join("/")}/${ref.value.run}`);
-            if (ref.type === "run" && ref.value.run === "b214") {
+            if (ref.value.run === "b214") {
                 return some(variant("Text", { value: "RUN DETAIL · B-214", style: none }));
             }
             return none;

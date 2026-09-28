@@ -71,11 +71,11 @@ interface ReviewVerdicts {
 
 /** Whether two {@link ReviewVerdicts} would seed the same decisions. */
 function sameVerdicts(a: ReviewVerdicts, b: ReviewVerdicts): boolean {
-    return a.rows === b.rows
+    return Object.is(a.rows, b.rows)
         && a.verdicts.length === b.verdicts.length
         && a.verdicts.every((x, i) => {
             const y = b.verdicts[i];
-            return x === y || (x !== undefined && y !== undefined && approvalEqual(x, y));
+            return Object.is(x, y) || (x !== undefined && y !== undefined && approvalEqual(x, y));
         });
 }
 

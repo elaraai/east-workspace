@@ -59,7 +59,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: s
         approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
-const group = () => variant("group", { summary: variant("none", null) });
+const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
 function run(key: string, start: PlanInstantValue, end: PlanInstantValue, opts?: { quantity?: number; unit?: string; moved?: bigint }) {
     return {
         key, start, end, label: key.toUpperCase(),

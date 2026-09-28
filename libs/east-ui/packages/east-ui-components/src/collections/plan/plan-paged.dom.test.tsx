@@ -17,6 +17,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
+import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
@@ -91,6 +92,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     });
 }
 
+/** A group band with no strip — its summary is the Plan's own `none` case. */
+const plainGroup = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
+
 function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
@@ -104,7 +108,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
             format: none,
         }),
         grain: none,
-       
+
         popover: opts?.popover !== undefined ? some(opts.popover) : none,
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
@@ -262,8 +266,7 @@ describe("Plan paged source (P-c)", () => {
         // since that is their text rather than a derivation.
         const line = sectionId("line");
         const w0 = [
-            planRow("line", variant("group", { summary: variant("none", null) }),
-                { id: line, gutter: gutter("Line 1") }),
+            planRow("line", plainGroup(), { id: line, gutter: gutter("Line 1") }),
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
             planRow("m2", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
         ];
@@ -297,7 +300,7 @@ describe("Plan paged source (P-c)", () => {
         // the entry carries whole and a window holds whole. Their numbers are
         // final the moment their window lands — marking them `~` on a paged
         // canvas would draw it differently from the same canvas inline.
-        const groupKind = variant("group", { summary: variant("none", null) });
+        const groupKind = plainGroup();
         const inner = sectionId("inner", "g2");
         const rows = [
             planRow("g1", groupKind, { gutter: gutter("Line 1") }),
@@ -352,17 +355,14 @@ describe("Plan paged source (P-c)", () => {
         // working and say what they are working on. `summary` stops reporting
         // slice results (`N of M matching`) and reports transport instead.
         initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({
+            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+        }, { rangeFieldId: some("at") });
         const initial = {
             range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
         };
-        const handle = buildSliceHandle("plan.paged.chrome", cfg as never, initial as never, [] as never, none) as never;
+        const handle = buildSliceHandle("plan.paged.chrome", cfg, initial as never, [] as never, none) as never;
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(w0) : none),
@@ -406,15 +406,12 @@ describe("Plan paged source (P-c)", () => {
             revision: () => none,
             refresh: () => null,
         };
-        const cfg = {
-            fields: new Map<string, unknown>(), rangeFieldId: none,
-            searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({});
         const initial = {
             range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
         };
-        const handle = buildSliceHandle("plan.seek", cfg as never, initial as never, [] as never, none) as never;
+        const handle = buildSliceHandle("plan.seek", cfg, initial as never, [] as never, none) as never;
         const { container } = renderPlan(planRoot([], {
             source,
             slice: some({ slice: handle, affordances: [variant("search", null)] }),
@@ -452,15 +449,12 @@ describe("Plan paged source (P-c)", () => {
             revision: () => none,
             refresh: () => null,
         };
-        const cfg = {
-            fields: new Map<string, unknown>(), rangeFieldId: none,
-            searchFieldIds: [], breakdownFieldIds: [],
-        };
+        const cfg = sliceConfig({});
         const initial = {
             range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
             breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
         };
-        const handle = buildSliceHandle("plan.noseek", cfg as never, initial as never, [] as never, none) as never;
+        const handle = buildSliceHandle("plan.noseek", cfg, initial as never, [] as never, none) as never;
         const { container } = renderPlan(planRoot([], {
             source,
             slice: some({ slice: handle, affordances: [variant("search", null)] }),
@@ -559,8 +553,7 @@ describe("Plan paged source (P-c)", () => {
         // must not print `0 rows`, which would be a measured-looking claim about
         // rows that simply have not loaded.
         const w0 = [
-            planRow("chrome", variant("group", { summary: variant("none", null) }),
-                { id: sectionId("chrome"), gutter: gutter("Line 9") }),
+            planRow("chrome", plainGroup(), { id: sectionId("chrome"), gutter: gutter("Line 9") }),
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ];
         const source = {
@@ -595,7 +588,7 @@ describe("Plan paged source (P-c)", () => {
         // window 0, so the demand rests on its ring and windows 3–4 stay a
         // band — #812.)
         const w0 = [
-            planRow("g1", variant("group", { summary: variant("none", null) }), { collapsed: true }),
+            planRow("g1", plainGroup(), { collapsed: true }),
             ...Array.from({ length: 20 }, (_u, i) => planRow(`m${i}`, spanKind([]), { parent: "g1" })),
             ...Array.from({ length: 15 }, (_u, i) => planRow(`p${i}`, spanKind([]))),
             { ...planRow("pin", spanKind([])), pinned: true } as PlanWireRow,

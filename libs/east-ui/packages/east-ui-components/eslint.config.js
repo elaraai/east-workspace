@@ -2,6 +2,16 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
 import reactHooks from 'eslint-plugin-react-hooks';
+import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
+
+// East values through East (#963): source and tests run the rules over host code
+// that builds or holds East values. The IR-authoring rules are for East programs,
+// and where this package builds one (a handle builder, a test's helper) it is the
+// library those rules are written for, as east-ui's factories are. The tests
+// type-check under their own project, and the renderer's own rules below skip
+// them, as they always have.
+const EAST_HOST_VALUES = ['error', { only: hostValueRules }];
+const TESTS = ['**/*.test.ts', '**/*.test.tsx', '**/*.test-utils.ts', '**/*.test-utils.tsx'];
 
 // One formatter for every component (#850): numbers and dates print through
 // src/format/ — in the app's locale, dates in UTC. These
@@ -64,10 +74,11 @@ const SHEET_NO_SPREAD = [
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '**/*.test.tsx', '**/*.test.ts', '**/*.test-utils.ts']
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**']
   },
   {
     files: ['src/**/*.ts', 'src/**/*.tsx'],
+    ignores: TESTS,
     languageOptions: {
       parser: tsparser,
       parserOptions: {
@@ -80,7 +91,8 @@ export default [
     plugins: {
       '@typescript-eslint': tseslint,
       'headers': headers,
-      'react-hooks': reactHooks
+      'react-hooks': reactHooks,
+      'east': east
     },
     rules: {
       ...tseslint.configs.recommended.rules,
@@ -91,6 +103,7 @@ export default [
       '@typescript-eslint/no-unnecessary-type-constraint': 'off',
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      'east/east-rules': EAST_HOST_VALUES,
       'headers/header-format': ['error', {
         source: 'string',
         content: 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.'
@@ -100,7 +113,7 @@ export default [
   {
     // Everything but the formatter module itself formats through it (#850).
     files: ['src/**/*.ts', 'src/**/*.tsx'],
-    ignores: ['src/format/**'],
+    ignores: ['src/format/**', ...TESTS],
     rules: {
       'no-restricted-syntax': ['error', ...ONE_FORMATTER]
     }
@@ -109,6 +122,7 @@ export default [
     // A later block REPLACES a rule's options for the files it matches, so the
     // Plan's list carries the formatter guard as well as its own (#810).
     files: ['src/collections/plan/**/*.ts', 'src/collections/plan/**/*.tsx'],
+    ignores: TESTS,
     rules: {
       'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...PLAN_NO_SPREAD]
     }
@@ -116,8 +130,28 @@ export default [
   {
     // The Sheet's own block, carrying the formatter guard as the Plan's does (#859).
     files: ['src/collections/sheet/**/*.ts', 'src/collections/sheet/**/*.tsx'],
+    ignores: TESTS,
     rules: {
       'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...SHEET_NO_SPREAD]
+    }
+  },
+  {
+    // The tests hold decoded East values: the host-value rules (#963).
+    files: [...TESTS.map((glob) => `src/${glob}`), 'test/**/*.ts', 'test/**/*.tsx'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        project: './tsconfig.typecheck.json',
+        ecmaFeatures: {
+          jsx: true
+        }
+      }
+    },
+    plugins: {
+      'east': east
+    },
+    rules: {
+      'east/east-rules': EAST_HOST_VALUES
     }
   },
   {

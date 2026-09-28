@@ -19,6 +19,7 @@ import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
+import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { PlanToolbar, type PlanToolbarProps } from "./shell/Toolbar.js";
@@ -74,18 +75,15 @@ const W39 = new Date("2026-09-21T00:00:00Z");
 /** A slice over two dated rows, with nothing narrowed. */
 function sliceHandle(): PlanToolbarProps["slice"] {
     initializeStore(new UIStore());
-    const cfg = {
-        fields: new Map<string, unknown>([
-            ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-        ]),
-        rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-    };
+    const cfg = sliceConfig({
+        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
+    }, { rangeFieldId: some("at") });
     const initial = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none,
         resolution: some(variant("week", null)),
     };
-    return buildSliceHandle("plan.toolbar.ladder", cfg as never, initial as never,
+    return buildSliceHandle("plan.toolbar.ladder", cfg, initial as never,
         [{ at: W27 }, { at: W39 }] as never, none) as never;
 }
 

@@ -27,7 +27,9 @@ import {
     toEastTypeValue,
     variant,
     type EastTypeValue,
+    type ValueTypeOf,
 } from "@elaraai/east";
+import { PagedSourceType, PinnedSourceType, type SeekQueryType } from "@elaraai/east-ui";
 import { DatasetHashMismatchError, type DatasetPage, type DatasetFindQuery, type DatasetFindResult } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import {
@@ -144,15 +146,11 @@ const settle = () => new Promise<void>(res => setTimeout(res, 0));
 const serverError = (code: string, details = `${code} details`) =>
     Object.assign(new Error(`API error: ${code}`), { code, details });
 
-/** The handle's compiled methods — the real call path a UI takes. */
-interface PagedHandle {
-    id: string;
-    page: (offset: bigint, limit: bigint) => { type: string; value: unknown };
-    total: () => { type: string; value: bigint };
-    seek: { type: string; value?: (query: unknown) => { type: string; value: unknown } };
-    revision?: () => { type: string; value: string };
-    refresh?: (target: unknown) => null;
-}
+/** The handle's compiled methods — the real call path a UI takes — typed from
+ *  the contract East declares for them: a paged source over the rows, and the
+ *  `revision` / `refresh` a pinned handle adds. */
+type PagedHandle = ValueTypeOf<ReturnType<typeof PagedSourceType<typeof RowsType>>>
+    & Partial<Pick<ValueTypeOf<ReturnType<typeof PinnedSourceType<typeof RowsType>>>, "revision" | "refresh">>;
 const handleOf = (
     runtime: PagedRuntime, type: EastTypeValue, path: TreePath, shape: "released" | "pinned" = "pinned",
     selector: PagedSelector = NO_INDEX,
@@ -188,8 +186,8 @@ describe("PagedRuntime", () => {
         g.release([{ id: "a", v: 1.0 }, { id: "b", v: 2.0 }], 5);
         await settle();
 
-        const landed = callPage(runtime, 0n, 2n) as { type: string; value: { id: string }[] };
-        assert.equal(landed.type, "some");
+        const landed = callPage(runtime, 0n, 2n);
+        assert.ok(landed.type === "some");
         assert.equal(landed.value.length, 2);
         assert.equal(landed.value[0]!.id, "a");
         assert.equal(g.calls.length, 1, "a landed window is served from the channel");
@@ -206,8 +204,8 @@ describe("PagedRuntime", () => {
         g.release([], 5);
         await settle();
 
-        const w = callPage(runtime, 100n, 10n) as { type: string; value: unknown[] };
-        assert.equal(w.type, "some");
+        const w = callPage(runtime, 100n, 10n);
+        assert.ok(w.type === "some");
         assert.equal(w.value.length, 0);
     });
 
@@ -331,8 +329,9 @@ describe("PagedRuntime", () => {
         g.release([{ id: "c", v: 3.0 }], 4);   // window 1
         await settle();
 
-        const w0 = callPage(runtime, 0n, 2n) as { value: { id: string }[] };
-        const w1 = callPage(runtime, 2n, 2n) as { value: { id: string }[] };
+        const w0 = callPage(runtime, 0n, 2n);
+        const w1 = callPage(runtime, 2n, 2n);
+        assert.ok(w0.type === "some" && w1.type === "some");
         assert.equal(w0.value[0]!.id, "a");
         assert.equal(w1.value[0]!.id, "c");
     });
@@ -479,7 +478,9 @@ describe("PagedRuntime — snapshots", () => {
         assert.equal(g.calls[1]!.hash, R2);
         g.release([{ id: "new", v: 2.0 }], 1);
         await settle();
-        assert.equal((callPage(runtime, 0n, 2n) as { value: { id: string }[] }).value[0]!.id, "new");
+        const fresh = callPage(runtime, 0n, 2n);
+        assert.ok(fresh.type === "some");
+        assert.equal(fresh.value[0]!.id, "new");
     });
 
     test("a window in flight when the source moves never lands in the new snapshot", async () => {
@@ -496,7 +497,9 @@ describe("PagedRuntime — snapshots", () => {
 
         g.release([{ id: "from-R2", v: 2.0 }], 1);
         await settle();
-        assert.equal((callPage(runtime, 0n, 2n) as { value: { id: string }[] }).value[0]!.id, "from-R2");
+        const fresh = callPage(runtime, 0n, 2n);
+        assert.ok(fresh.type === "some");
+        assert.equal(fresh.value[0]!.id, "from-R2");
     });
 
     test("refresh(some(h)) moves to h, and refresh(none) moves to what the dataset holds", async () => {
@@ -586,10 +589,10 @@ describe("PagedRuntime — snapshots", () => {
 
 describe("PagedRuntime — key search (#574)", () => {
     const KeyedType = toEastTypeValue(DictType(StringType, Row));
-    const callSeek = (runtime: PagedRuntime, type: EastTypeValue, query: unknown) => {
+    const callSeek = (runtime: PagedRuntime, type: EastTypeValue, query: ValueTypeOf<SeekQueryType>) => {
         const seek = handleOf(runtime, type, opsPath).seek;
-        assert.equal(seek.type, "some", "the source must declare the capability");
-        return seek.value!(query);
+        assert.ok(seek.type === "some", "the source must declare the capability");
+        return seek.value(query);
     };
 
     test("the capability follows the DATASET's type — keyed seeks, an Array cannot", () => {
@@ -618,9 +621,8 @@ describe("PagedRuntime — key search (#574)", () => {
         g.releaseFind(true, 2, 3);
         await settle();
 
-        const landed = callSeek(runtime, KeyedType, variant("prefix", "ka")) as
-            { type: string; value: { found: boolean; row: bigint; count: bigint } };
-        assert.equal(landed.type, "some");
+        const landed = callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        assert.ok(landed.type === "some");
         assert.equal(landed.value.found, true);
         // Integers cross the boundary as bigint — the row plugs straight into a
         // window offset, which is the whole point of the shared row space.
@@ -644,8 +646,8 @@ describe("PagedRuntime — key search (#574)", () => {
         // row so a viewport can still position.
         g.releaseFind(false, 7, 0);
         await settle();
-        const miss = callSeek(runtime, KeyedType, variant("prefix", "ka")) as
-            { type: string; value: { found: boolean; row: bigint } };
+        const miss = callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        assert.ok(miss.type === "some");
         assert.equal(miss.value.found, false);
         assert.equal(miss.value.row, 7n);
     });

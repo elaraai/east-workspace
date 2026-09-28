@@ -14,15 +14,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { sliceSeries, SLICE_SERIES_PALETTE } from "@elaraai/east-ui/internal";
 
 type EngineState  = Parameters<typeof sliceSeries>[0];
 type EngineConfig = Parameters<typeof sliceSeries>[1];
 
 const state = (patch: Partial<EngineState>): EngineState => ({
-    range: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: none, visible: none, selectedIndex: none,
+    range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+    breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     ...patch,
 });
 const config: EngineConfig = {
@@ -30,6 +30,7 @@ const config: EngineConfig = {
     rangeFieldId: none,
     searchFieldIds: [],
     breakdownFieldIds: ["region"],
+    fieldHints: new Map(),
 };
 const NOW = new Date("2026-06-01T00:00:00Z");
 
@@ -84,16 +85,12 @@ test("a Date x-field → variant('time', Date) coordinates keyed by ISO (aggrega
     ];
     const series = sliceSeries(state({}), config, rows, "when", "sessions", NOW);
     assert.equal(series[0]!.points.length, 1);                // aggregated by ISO key, not object identity
-    const x = series[0]!.points[0]!.x as { type: string; value: Date };
-    assert.equal(x.type, "time");
-    assert.equal((x.value as Date).toISOString(), d1.toISOString());
+    assert.deepEqual(series[0]!.points[0]!.x, variant("time", d1));
     assert.equal(series[0]!.points[0]!.value, 8);
 });
 
 test("an integer x-field → variant('number', …) coordinates", () => {
     const rows = [{ hour: 9n, region: "EU", sessions: 5 }];
     const series = sliceSeries(state({}), config, rows, "hour", "sessions", NOW);
-    const x = series[0]!.points[0]!.x as { type: string; value: number };
-    assert.equal(x.type, "number");
-    assert.equal(x.value, 9);
+    assert.deepEqual(series[0]!.points[0]!.x, variant("number", 9));
 });

@@ -864,10 +864,9 @@ function nameOf(spec: Pick<PlanSeriesSpec, "arm" | "title">): string {
 
 /** A collection type's entry and key types — a `Dict`'s value and key, an `Array`'s element and `Integer` index. */
 function shapeOf(collection: EastType, where: string): { entry: EastType; key: EastType } {
-    const t = collection as { type: string; key?: EastType; value?: EastType };
-    if (t.type === "Dict") return { entry: t.value!, key: t.key! };
-    if (t.type === "Array") return { entry: t.value!, key: IntegerType };
-    throw new Error(`${where}: entries come from a Dict (keyed) or an Array (by index) — got a ${t.type}`);
+    if (collection.type === "Dict") return { entry: collection.value, key: collection.key };
+    if (collection.type === "Array") return { entry: collection.value, key: IntegerType };
+    throw new Error(`${where}: entries come from a Dict (keyed) or an Array (by index) — got a ${collection.type}`);
 }
 
 /** Refuse a collection whose entries are not the series' entry type. */

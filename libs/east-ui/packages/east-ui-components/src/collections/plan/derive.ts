@@ -189,8 +189,9 @@ export function deriveHeatCells(
     format?: TickFormatOpt,
 ): HeatCellValue[] {
     // Derived cells are REAL East option values (`some`/`none` — never a
-    // hand-rolled `{ type, value }` literal, which lacks the encoder symbol
-    // and breaks the day one is encoded or symbol-compared; #617).
+    // hand-rolled `{ type, value }` literal, which lacks East's brand: East
+    // rejects it wherever it checks for a variant, and a test comparing whole
+    // values fails on it; #617).
     return bucketGroups(cells, (c) => c.at, period, ordinal).map((g): HeatCellValue => {
         const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
         let v: number | undefined;
@@ -508,7 +509,7 @@ export function derivePlan(
                     return;
                 }
                 const folded = foldHeatArm(own, period, ordinal, w);
-                if (folded !== own) heatArms.set(row.key, folded);
+                if (!Object.is(folded, own)) heatArms.set(row.key, folded);
                 return;
             }
             case "table": {
@@ -523,12 +524,12 @@ export function derivePlan(
                     return;
                 }
                 const folded = foldTableSeries(kind.value.series, period, ordinal);
-                if (folded !== kind.value.series) tableSeries.set(row.key, folded);
+                if (!Object.is(folded, kind.value.series)) tableSeries.set(row.key, folded);
                 return;
             }
             case "chart": {
                 const layers = foldChartLayers(kind.value.layers, period, ordinal);
-                if (layers !== kind.value.layers) charts.set(row.key, { ...kind.value, layers });
+                if (!Object.is(layers, kind.value.layers)) charts.set(row.key, { ...kind.value, layers });
                 return;
             }
             case "group": {
@@ -546,7 +547,7 @@ export function derivePlan(
                     }));
                 } else if (summary.type === "cells") {
                     const folded = foldHeatArm(summary.value, period, ordinal, w);
-                    if (folded !== summary.value) groupStrips.set(row.key, folded);
+                    if (!Object.is(folded, summary.value)) groupStrips.set(row.key, folded);
                 }
                 return;
             }

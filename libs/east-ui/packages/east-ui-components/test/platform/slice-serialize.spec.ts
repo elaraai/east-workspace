@@ -27,18 +27,14 @@ import { getRegisteredPlatformImplementations } from "../../src/platform/registr
 import { initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
 import { SliceImpl } from "../../src/platform/slice/index.js";
+import { sliceConfig } from "../../src/platform/slice/slice.test-utils.js";
 
 const Row = StructType({ id: StringType, n: IntegerType });
 const rowTypeVal = toEastTypeValue(Row);
 
-// Minimal JS-side SliceConfig (the decoded runtime shape). Empty `fields` is fine:
-// these tests drive state mutators + row counts, which don't read field accessors.
-const config = {
-    fields: new Map(),
-    rangeFieldId: none,
-    searchFieldIds: [] as string[],
-    breakdownFieldIds: [] as string[],
-};
+// A config with no fields: these tests drive state mutators + row counts,
+// which read no field.
+const config = sliceConfig({});
 const initialState = {
     range: none, compare: none, filters: [], cohorts: [],
     activeCohorts: new Set<string>(), breakdown: none, search: none,

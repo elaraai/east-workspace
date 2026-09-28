@@ -849,7 +849,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         setValue(next, nextData) {
             batch(() => {
                 const prev = value;
-                const dataChanged = nextData !== data;
+                const dataChanged = !Object.is(nextData, data);
                 value = next;
                 data = nextData;
                 bound = getSomeorUndefined(next.ui);

@@ -25,7 +25,7 @@
  * @packageDocumentation
  */
 
-import { some, none, variant } from '@elaraai/east';
+import { some, none, variant, compareFor, FloatType } from '@elaraai/east';
 import type { ValueTypeOf, option } from '@elaraai/east';
 import { Experiment } from '@elaraai/e3-ui/internal';
 import { formatters, getSomeorUndefined, type Formatters, type TickFormatOpt } from '@elaraai/east-ui-components';
@@ -161,6 +161,8 @@ const fmt = (x: number, words: Formatters): string => words.value(Math.abs(x) < 
 /** A number with its sign — `+5.2`, `-5.2` — except one that rounds to zero (`0.0`). */
 const signed = (x: number, words: Formatters): string => words.value(x, formatOf(x), true);
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+/** East's order over Floats — a NaN sorts last, where subtracting would leave the order undefined. */
+const compareFloats = compareFor(FloatType);
 const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 
@@ -283,7 +285,7 @@ function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedVal
     const nci = getSomeorUndefined(result.naive_ci);
     const categorical = new Set(getSomeorUndefined(config.categorical) ?? []);
     const balance: VMBalance[] = [...result.balance]
-        .sort((a, b) => Math.abs(b.std_diff) - Math.abs(a.std_diff))
+        .sort((a, b) => compareFloats(Math.abs(b.std_diff), Math.abs(a.std_diff)))
         .map(b => ({
             // One-hot rows are `col=level` — label the BASE confounder, keep the level.
             col: b.column,
@@ -508,7 +510,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: 
     const evalue = getSomeorUndefined(r.robustness_value);
     // Benchmarks put the abstract strengths axis in the user's own vocabulary —
     // "as strong as Incoming grade" — sorted strongest-first.
-    const benchmarks = sens ? [...sens.benchmarks].sort((a, b) => b.strength - a.strength) : [];
+    const benchmarks = sens ? [...sens.benchmarks].sort((a, b) => compareFloats(b.strength, a.strength)) : [];
     if (sens !== undefined || evalue !== undefined) {
         const strengths = sens ? arr(sens.strengths) : [];
         const effects = sens ? arr(sens.effects) : [];

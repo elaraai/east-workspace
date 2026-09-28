@@ -428,7 +428,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // re-render decodes a fresh array, and a tab the host has not written back
     // yet must survive a row write-back.
     const [viewsState, setViewsState] = useState<{ over: readonly SheetViewValue[]; views: readonly SheetViewValue[] }>({ over: value.views, views: value.views });
-    const views = useMemo(() => viewsState.over === value.views || viewsEqual(viewsState.over, value.views) ? viewsState.views : value.views, [viewsState, value.views]);
+    const views = useMemo(() => Object.is(viewsState.over, value.views) || viewsEqual(viewsState.over, value.views) ? viewsState.views : value.views, [viewsState, value.views]);
     const viewsRef = useRef(views);
     viewsRef.current = views;
 
@@ -1053,7 +1053,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                         g = { ...g, cells };
                         events.push(variant("commit", { rowId: g.id, offset: BigInt(it.position), key: meta.key, row: g, source: src }));
                     }
-                    if (g !== g0) setGroup(g);
+                    if (!Object.is(g, g0)) setGroup(g);
                     ids.push(g.id);
                     continue;
                 }
@@ -1067,7 +1067,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     row = withCell(row, meta.key, w.cell);
                     events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }));
                 }
-                if (row !== it.row) edits.set(row.id, row);
+                if (!Object.is(row, it.row)) edits.set(row.id, row);
                 ids.push(row.id);
                 continue;
             }

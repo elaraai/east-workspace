@@ -18,8 +18,9 @@ const packageRoot = fileURLToPath(new URL("../../../", import.meta.url));
 async function spreadsAt(path: string, code: string): Promise<string[]> {
     const eslint = new ESLint({
         cwd: packageRoot,
-        // The snippet is no file of the TS project: lint it without type information.
-        overrideConfig: [{ files: ["src/**/*.ts"], languageOptions: { parserOptions: { project: false } } }],
+        // The snippet is no file of the TS project: lint it without type
+        // information, and so without the East rules, which read it (#963).
+        overrideConfig: [{ files: ["src/**/*.ts"], languageOptions: { parserOptions: { project: false } }, rules: { "east/east-rules": "off" } }],
     });
     const [result] = await eslint.lintText(code, { filePath: `${packageRoot}${path}` });
     return result!.messages.filter((m) => m.ruleId === "no-restricted-syntax").map((m) => m.message);

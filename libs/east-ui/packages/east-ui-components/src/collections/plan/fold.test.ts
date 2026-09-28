@@ -15,14 +15,14 @@ import { bucketGroups, foldChartPoints, foldHeatArm, foldNumbers, foldSegmentCel
 import { planScale } from "./scale.js";
 import type { PlanInstantValue } from "./instant.js";
 import { PLAN_WORDS } from "./words.js";
+import { timeAt as t, utcAt } from "./plan.test-utils.js";
 
-const t = (iso: string): PlanInstantValue => variant("time", new Date(iso)) as PlanInstantValue;
 const n = (v: number): PlanInstantValue => variant("number", v) as PlanInstantValue;
 const o = (v: string): PlanInstantValue => variant("ordinal", v) as PlanInstantValue;
 
-const MONTH = planScale({ kind: "time", window: { min: new Date("2026-06-01T00:00:00Z"), max: new Date("2026-09-01T00:00:00Z") }, resolution: "month" })!.period;
-const WEEKS = ["2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27"].map((d) => t(`${d}T00:00:00Z`));
-const JUL = t("2026-07-01T00:00:00Z");
+const MONTH = planScale({ kind: "time", window: { min: utcAt("2026-06-01T00:00:00"), max: utcAt("2026-09-01T00:00:00") }, resolution: "month" })!.period;
+const WEEKS = ["2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27"].map((d) => t(`${d}T00:00:00`));
+const JUL = t("2026-07-01T00:00:00");
 
 /** A heat arm's cells — the fold hands back the whole cells union, and these tests build the heat arm. */
 function heatCellsOf(arm: ReturnType<typeof foldHeatArm>) {
@@ -55,10 +55,10 @@ describe("foldNumbers", () => {
 
 describe("bucketGroups", () => {
     test("group by the period holding each instant; a shared instant is kept, mixed ones sit at the period start", () => {
-        const items = [{ at: WEEKS[1]! }, { at: WEEKS[0]! }, { at: t("2026-06-29T00:00:00Z") }];
+        const items = [{ at: WEEKS[1]! }, { at: WEEKS[0]! }, { at: t("2026-06-29T00:00:00") }];
         const groups = bucketGroups(items, (c) => c.at, MONTH);
         // Buckets in axis order; members in axis order within one.
-        expect(groups.map((g) => g.at)).toEqual([t("2026-06-29T00:00:00Z"), JUL]);
+        expect(groups.map((g) => g.at)).toEqual([t("2026-06-29T00:00:00"), JUL]);
         expect(groups[1]!.members).toEqual([{ at: WEEKS[0]! }, { at: WEEKS[1]! }]);
         // Two cells at one instant keep it.
         expect(bucketGroups([{ at: WEEKS[2]! }, { at: WEEKS[2]! }], (c) => c.at, MONTH)[0]!.at).toEqual(WEEKS[2]);

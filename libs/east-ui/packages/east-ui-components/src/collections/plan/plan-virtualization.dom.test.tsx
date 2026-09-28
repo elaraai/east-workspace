@@ -132,7 +132,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: 
     } as unknown as PlanWireRow;
 }
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
-const group = () => variant("group", { summary: variant("none", null) });
+const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
 /** A spark chart the gutter toggles to expanded (32px ↔ 88px). */
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,

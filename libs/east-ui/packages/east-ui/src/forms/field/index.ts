@@ -72,13 +72,13 @@ function createField(
     style?: FieldStyle
 ): ExprType<UIComponentType> {
     const toStringOption = (val: SubtypeExprOrValue<StringType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
+        if (val === undefined) return none;
+        return some(val);
     };
 
     const toBoolOption = (val: SubtypeExprOrValue<BooleanType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
+        if (val === undefined) return none;
+        return some(val);
     };
 
     const orientationValue = style?.orientation

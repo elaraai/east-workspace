@@ -478,7 +478,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     useEffect(() => {
         if (tab !== 'validate' || !hasDesign || design.pending || precomputedDesign !== null) return;
         if (!filteredRows || !config || !shownResult) return;
-        if (designSnapRef.current?.result === shownResult) return;
+        if (Object.is(designSnapRef.current?.result, shownResult)) return;
         designSnapRef.current = { result: shownResult, config: ranConfig ?? config };
         design.call(filteredRows, ranConfig ?? config, shownResult, designConfigValue);
     }, [tab, hasDesign, precomputedDesign, filteredRows, config, ranConfig, shownResult, design, designConfigValue]);
@@ -492,7 +492,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     // The Validate panel may paint when a precomputed recipe is present, or a live one
     // that corresponds to the CURRENT result and is settled.
     const designFresh = (precomputedDesign !== null && shownResult !== null)
-        || (design.result !== null && designSnapRef.current?.result === shownResult && !design.pending);
+        || (design.result !== null && Object.is(designSnapRef.current?.result, shownResult) && !design.pending);
 
     if (!config || !view) {
         const failed = experiment.status === 'failed';

@@ -20,7 +20,8 @@ import { system } from "../../theme/index.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { blocksSource, oneBlock, rowId, rowIdEqual, rowSel, testKeyOf } from "./plan.test-utils.js";
+import type { PlanElementRefValue } from "./context.js";
+import { blocksSource, oneBlock, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 
@@ -454,7 +455,7 @@ describe("Plan link ribbons (#818)", () => {
         const restore = stubLayout();
         try {
             const seen: unknown[] = [];
-            const popover = (ref: { type: string; value: { key?: string } }) => (ref.type === "link"
+            const popover = (ref: PlanElementRefValue) => (ref.type === "link"
                 ? some(variant("Text", { value: `LINK · ${ref.value.key}`, style: none }))
                 : none);
             const { container } = renderPlan(planRoot([
@@ -474,13 +475,7 @@ describe("Plan link ribbons (#818)", () => {
             expect(await screen.findByText("LINK · ra>rb")).toBeTruthy();
             // ...and the click reports the same ref: the link's key and its two runs.
             await waitFor(() => expect(seen).toHaveLength(1));
-            const ref = seen[0] as { type: string; value: { key: string; from: { row: PlanRowId; run: string }; to: { row: PlanRowId; run: string } } };
-            expect(ref.type).toBe("link");
-            expect(ref.value.key).toBe("ra>rb");
-            expect(rowIdEqual(ref.value.from.row, rowId("a"))).toBe(true);
-            expect(ref.value.from.run).toBe("ra");
-            expect(rowIdEqual(ref.value.to.row, rowId("b"))).toBe(true);
-            expect(ref.value.to.run).toBe("rb");
+            expect(seen[0]).toEqual(variant("link", { key: "ra>rb", from: { row: rowId("a"), run: "ra" }, to: { row: rowId("b"), run: "rb" } }));
             // A ribbon belongs to no row: the click leaves the selection as it was.
             expect(selected()).toEqual(before);
         } finally {

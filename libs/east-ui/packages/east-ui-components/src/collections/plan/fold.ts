@@ -286,15 +286,15 @@ export function foldHeatArm(
             const format = getSomeorUndefined(arm.value.format);
             const cells = foldHeatCells(arm.value.cells, fold, period, ordinal,
                 (v) => (fold === "count" ? w.number(v) : w.value(v, format)));
-            return cells === arm.value.cells ? arm : variant("heat", { ...arm.value, cells });
+            return Object.is(cells, arm.value.cells) ? arm : variant("heat", { ...arm.value, cells });
         }
         case "weight": {
             const cells = foldWeightCells(arm.value.cells, arm.value.fold.type, period, ordinal);
-            return cells === arm.value.cells ? arm : variant("weight", { ...arm.value, cells });
+            return Object.is(cells, arm.value.cells) ? arm : variant("weight", { ...arm.value, cells });
         }
         case "segments": {
             const cells = foldSegmentCells(arm.value.cells, arm.value.fold.type, period, ordinal);
-            return cells === arm.value.cells ? arm : variant("segments", { ...arm.value, cells });
+            return Object.is(cells, arm.value.cells) ? arm : variant("segments", { ...arm.value, cells });
         }
     }
 }
@@ -342,7 +342,7 @@ export function foldTableSeries(
     let changed = false;
     const out = series.map((s): TableSeriesValue => {
         const cells = foldTableCells(s.cells, s.fold.type, period, ordinal);
-        if (cells === s.cells) return s;
+        if (Object.is(cells, s.cells)) return s;
         changed = true;
         return { ...s, cells };
     });
@@ -393,19 +393,19 @@ export function foldChartLayers(
         switch (layer.type) {
             case "line": {
                 const points = foldChartPoints(layer.value.points, layer.value.fold.type, period, ordinal);
-                if (points === layer.value.points) return layer;
+                if (Object.is(points, layer.value.points)) return layer;
                 changed = true;
                 return variant("line", { ...layer.value, points });
             }
             case "area": {
                 const points = foldChartPoints(layer.value.points, layer.value.fold.type, period, ordinal);
-                if (points === layer.value.points) return layer;
+                if (Object.is(points, layer.value.points)) return layer;
                 changed = true;
                 return variant("area", { ...layer.value, points });
             }
             case "column": {
                 const points = foldChartPoints(layer.value.points, layer.value.fold.type, period, ordinal);
-                if (points === layer.value.points) return layer;
+                if (Object.is(points, layer.value.points)) return layer;
                 changed = true;
                 return variant("column", { ...layer.value, points });
             }

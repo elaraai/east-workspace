@@ -1193,7 +1193,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             && last.zoom === cam.zoom && last.tx === cam.tx && last.ty === cam.ty
             && last.vis === snap.visibleItems && last.tiers === snap.tiers
             && last.sel === snap.renderSelected && last.zsel === snap.zoneSelection && last.pal === pal
-            && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && last.val === snap.value
+            && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && Object.is(last.val, snap.value)
             && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
             && last.lay === snap.layerHiddenKeys && last.alp === snap.layerAlpha
             && last.dl === snap.connectDraftWorld && last.sw === snap.sessionWorld && last.cf === cfPhase

@@ -155,8 +155,8 @@ function GridRoot(
 ): ExprType<UIComponentType> {
     const items_expr = East.value(items, ArrayType(GridItemType));
     const toStringOption = (value: SubtypeExprOrValue<StringType> | undefined) => {
-        if (value === undefined) return variant("none", null);
-        return variant("some", value);
+        if (value === undefined) return none;
+        return some(value);
     };
 
     const paddingValue = style?.padding
@@ -208,31 +208,31 @@ function GridRoot(
 
     return East.value(variant("Grid", {
         items: items_expr,
-        density: densityValue ? variant("some", densityValue) : variant("none", null),
+        density: densityValue ? some(densityValue) : none,
         style: style ?
-            variant("some", {
+            some({
                 width: toStringOption(style.width),
                 height: toStringOption(style.height),
                 minHeight: toStringOption(style.minHeight),
                 minWidth: toStringOption(style.minWidth),
                 maxHeight: toStringOption(style.maxHeight),
                 maxWidth: toStringOption(style.maxWidth),
-                padding: paddingValue ? variant("some", paddingValue) : variant("none", null),
+                padding: paddingValue ? some(paddingValue) : none,
                 templateColumns: toStringOption(style.templateColumns),
                 templateRows: toStringOption(style.templateRows),
                 templateAreas: toStringOption(style.templateAreas),
                 gap: toStringOption(style.gap),
                 columnGap: toStringOption(style.columnGap),
                 rowGap: toStringOption(style.rowGap),
-                justifyItems: justifyItemsValue ? variant("some", justifyItemsValue) : variant("none", null),
-                alignItems: alignItemsValue ? variant("some", alignItemsValue) : variant("none", null),
-                justifyContent: justifyContentValue ? variant("some", justifyContentValue) : variant("none", null),
-                alignContent: alignContentValue ? variant("some", alignContentValue) : variant("none", null),
+                justifyItems: justifyItemsValue ? some(justifyItemsValue) : none,
+                alignItems: alignItemsValue ? some(alignItemsValue) : none,
+                justifyContent: justifyContentValue ? some(justifyContentValue) : none,
+                alignContent: alignContentValue ? some(alignContentValue) : none,
                 autoColumns: toStringOption(style.autoColumns),
                 autoRows: toStringOption(style.autoRows),
-                autoFlow: autoFlowValue ? variant("some", autoFlowValue) : variant("none", null),
+                autoFlow: autoFlowValue ? some(autoFlowValue) : none,
             }) :
-            variant("none", null),
+            none,
     }), UIComponentType);
 }
 

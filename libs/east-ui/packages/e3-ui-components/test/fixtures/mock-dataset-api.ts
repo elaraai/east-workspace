@@ -10,7 +10,7 @@
  * optimistic-update + rollback paths.
  */
 
-import { variant } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import type { DatasetStatusInfo } from "@elaraai/e3-api-client";
 import type { DatasetApi } from "../../src/platform/dataset-store.js";
@@ -148,9 +148,9 @@ export function createMockDatasetApi(): MockDatasetApi {
                 datasets.push({
                     path: segs ? `.${segs}` : "",
                     status: variant("up-to-date", null),
-                    hash: variant("some", e.hash),
+                    hash: some(e.hash),
                     isTaskOutput: false,
-                    producedBy: variant("none", null),
+                    producedBy: none,
                 });
             }
             return { datasets };

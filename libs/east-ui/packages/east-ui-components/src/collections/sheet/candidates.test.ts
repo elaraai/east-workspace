@@ -23,7 +23,7 @@ const registers = indexRegisters(new Map([["activity", { members: ACTS.map(membe
 
 const lookupMeta: SheetColumnMeta = indexColumns([{
     key: "activity", header: "Activity", sub: none, width: none,
-    kind: { type: "lookup", value: { register: "activity", options: none } },
+    kind: variant("lookup", { register: "activity", options: none }),
     dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 } as never]).list[0]!;
 

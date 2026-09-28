@@ -1455,11 +1455,13 @@ describeEast("Slice", (test) => {
 
 type EngineState  = Parameters<typeof sliceBreakdown>[0];
 type EngineConfig = Parameters<typeof sliceBreakdown>[1];
+/** One field's spec in a config — a variant per kind, carrying its label, accessor and format. */
+type EngineField  = EngineConfig["fields"] extends Map<string, infer F> ? F : never;
 
 /** A full engine state with every narrowing off, patched per test. */
 const engineState = (patch: Partial<EngineState>): EngineState => ({
-    range: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: none, visible: none, selectedIndex: none,
+    range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+    breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     ...patch,
 });
 
@@ -1468,15 +1470,16 @@ const engineConfig: EngineConfig = {
     rangeFieldId: none,
     searchFieldIds: [],
     breakdownFieldIds: ["when", "region"],
+    fieldHints: new Map(),
 };
 
 pureTest("a text field is searched through its projection (fail-open) and never listed as a filterable field", () => {
-    const fields = new Map<string, unknown>([
+    const fields = new Map<string, EngineField>([
         ["activity", variant("string", { label: "Activity", accessor: (r: { activity: string }) => r.activity, format: none })],
         ["stations", variant("text", { label: "Work centres", accessor: (r: { stations: string[] }) => r.stations.join(" > "), format: none })],
-        ["broken",   variant("text", { label: "Broken", accessor: () => { throw new Error("no"); }, format: none })],
+        ["broken",   variant("text", { label: "Broken", accessor: (): string => { throw new Error("no"); }, format: none })],
     ]);
-    const config = { ...engineConfig, fields: fields as EngineConfig["fields"], searchFieldIds: ["activity", "stations", "broken"] };
+    const config: EngineConfig = { ...engineConfig, fields, searchFieldIds: ["activity", "stations", "broken"] };
     const row = { activity: "Machining", stations: ["M2140", "M2141"] };
     nodeAssert.equal(sliceFieldText(config, "activity", row), "Machining");
     nodeAssert.equal(sliceFieldText(config, "stations", row), "M2140 > M2141");
@@ -1668,7 +1671,7 @@ pureTest("datetime presets resolve on UTC days in a timezone west of UTC (#850)"
     process.env.TZ = "America/Los_Angeles";
     try {
         const config: EngineConfig = { ...engineConfig, rangeFieldId: some("when") };
-        const keeps = (preset: string, now: string, when: string): boolean =>
+        const keeps = (preset: ValueTypeOf<typeof Slice.Types.DateTimePreset>["type"], now: string, when: string): boolean =>
             sliceMatches(engineState({ range: some(variant("datetimePreset", variant(preset, null))) }), config, { when: new Date(when) }, new Date(now));
 
         // The process really is in Los Angeles: 01:30 UTC on 29 June is still the 28th there.

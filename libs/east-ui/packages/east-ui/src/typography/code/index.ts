@@ -50,7 +50,7 @@ function createCode(
 
     return East.value(variant("Code", {
         value: value,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 

@@ -4,7 +4,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyze } from "./harness.js";
+import { join } from "node:path";
+import { analyze, analyzeProgram } from "./harness.js";
 
 const PRELUDE = `import { East, IntegerType, FloatType, ArrayType, variant, some, none } from "@elaraai/east";\n`;
 
@@ -29,6 +30,30 @@ test("prefer-some-none: silent on a normal variant tag", () => {
   assert.equal(rule(wrap(`  const v = $.const(variant("active", 1n));`), "prefer-some-none").length, 0);
 });
 
+test("prefer-some-none: flags an Option's case built as a variant in host code", () => {
+  const src = `import { OptionType, IntegerType, variant, type ValueTypeOf } from "@elaraai/east";\nconst MaybeInt = OptionType(IntegerType);\nexport const a: ValueTypeOf<typeof MaybeInt> = variant("some", 1n);\nexport const b: ValueTypeOf<typeof MaybeInt> = variant("none", null);\n`;
+  assert.equal(rule(src, "prefer-some-none").length, 2);
+});
+
+test("prefer-some-none: silent on a `none` or `some` case of a variant that is not an Option", () => {
+  // A text decoration's `none`, a path's `some` step: `none` / `some()` would
+  // build the same value but name it an Option it is not.
+  const src = `import { VariantType, NullType, StringType, variant, type ValueTypeOf } from "@elaraai/east";\nconst DecorationType = VariantType({ none: NullType, underline: NullType });\nconst StepType = VariantType({ field: StringType, some: NullType });\nexport const d: ValueTypeOf<typeof DecorationType> = variant("none", null);\nexport const path: ValueTypeOf<typeof StepType>[] = [variant("field", "a"), variant("some", null)];\n`;
+  assert.equal(rule(src, "prefer-some-none").length, 0);
+});
+
+test("prefer-some-none: reads the expected type through an enclosing variant's payload", () => {
+  // A plan row's group summary is its own variant, `none` among its cases; typed,
+  // the fixture says so, and the rule reads it through `variant("group", …)`.
+  const src = `import { VariantType, StructType, NullType, IntegerType, variant, type ValueTypeOf } from "@elaraai/east";\nconst SummaryType = VariantType({ none: NullType, cells: IntegerType });\nconst KindType = VariantType({ group: StructType({ summary: SummaryType }) });\nexport const g: ValueTypeOf<typeof KindType> = variant("group", { summary: variant("none", null) });\nexport const f = (): ValueTypeOf<typeof KindType> => variant("group", { summary: variant("none", null) });\n`;
+  assert.equal(rule(src, "prefer-some-none").length, 0);
+});
+
+test("prefer-some-none: still flags an untyped payload's `none`, and an Option inside a typed payload", () => {
+  const src = `import { VariantType, StructType, IntegerType, OptionType, variant, type ValueTypeOf } from "@elaraai/east";\nconst KindType = VariantType({ span: StructType({ rollup: OptionType(IntegerType) }) });\nexport const untyped = variant("group", { summary: variant("none", null) });\nexport const typed: ValueTypeOf<typeof KindType> = variant("span", { rollup: variant("none", null) });\n`;
+  assert.equal(rule(src, "prefer-some-none").length, 2);
+});
+
 test("prefer-some-none: silent on an unrelated local `variant` function (non-East)", () => {
   // A file that never imports East defining its own `variant` — not our business.
   const src = `const variant = (tag: string, v: unknown) => ({ tag, v });\nexport const _u = variant("some", 1);\n`;
@@ -46,9 +71,52 @@ test("no-handrolled-variant: silent when using variant()", () => {
   assert.equal(analyze(src).filter((d) => d.ruleName === "no-handrolled-variant").length, 0);
 });
 
-test("no-handrolled-variant: silent for a plain struct position", () => {
-  const src = `${PRELUDE}declare function take(s: { type: string; value: bigint }): void;\ntake({ type: "a", value: 1n });\n`;
+test("no-handrolled-variant: silent on an options object the expected union also admits", () => {
+  // A factory taking an Option or its own options object: `{ max }` spells no tag.
+  const src = `${PRELUDE}import type { variant } from "@elaraai/east";\ndeclare function take(v: variant<"a", bigint> | { max: number }): void;\ntake({ max: 1 });\n`;
   assert.equal(analyze(src).filter((d) => d.ruleName === "no-handrolled-variant").length, 0);
+});
+
+test("no-handrolled-variant: flags a variant built by hand whatever slot it lands in — a hand-written `{ type; value }` parameter, `unknown`, none at all", () => {
+  // None of these slots says "variant", and each object is one all the same: a
+  // fixture handed through an untyped parameter never reaches East as one.
+  const src = `${PRELUDE}declare function struct(s: { type: string; value: bigint }): void;\ndeclare function opaque(v: unknown): void;\nstruct({ type: "a", value: 1n });\nopaque({ type: "b", value: { label: "x" } });\nexport const loose = { type: "c", value: null };\n`;
+  assert.equal(analyze(src).filter((d) => d.ruleName === "no-handrolled-variant").length, 3);
+});
+
+test("no-handrolled-variant: flags a variant spelled out in a test matcher, nested or not", () => {
+  // `expect(x).toMatchObject({ value: { type: "some", value: 50 } })` — the
+  // expectation is a variant built by hand; `some(50)` is the one East builds.
+  const src = `${PRELUDE}declare function match<E extends object>(expected: E): void;\nmatch({ value: { type: "some", value: 50 } });\nmatch({ type: "none", value: null });\n`;
+  assert.equal(analyze(src).filter((d) => d.ruleName === "no-handrolled-variant").length, 2);
+});
+
+test("no-handrolled-variant: silent on an object that is more than a tag and a payload, and in a file that does not use East", () => {
+  const withMore = `${PRELUDE}export const row = { type: "a", value: 1n, label: "x" };\n`;
+  assert.equal(analyze(withMore).filter((d) => d.ruleName === "no-handrolled-variant").length, 0);
+  const plain = `export const option = { type: "a", value: 1 };\n`;
+  assert.equal(analyze(plain).filter((d) => d.ruleName === "no-handrolled-variant").length, 0);
+});
+
+test("no-handrolled-variant: silent where East's own host-side API asks for a `{ type, value }` — a merge `Resolution`", () => {
+  // `mergeWithResolutionsFor` takes a plain TypeScript union, not a variant.
+  const src = `${PRELUDE}import type { Resolution } from "@elaraai/east";\nexport const r: Resolution = { type: "manual", value: 1n };\n`;
+  assert.equal(analyze(src).filter((d) => d.ruleName === "no-handrolled-variant").length, 0);
+});
+
+test("no-handrolled-variant: silent where a library's own type declares `type` and `value` — flagged where this project's does", () => {
+  // A third-party input's props are a `{ type, value }` of its own, not East's;
+  // the same object for a parameter this project typed by hand is a variant.
+  const dir = process.cwd();
+  const entry = join(dir, "__handrolled_variant_entry__.ts");
+  const files = {
+    [join(dir, "node_modules/ui-lib-fixture/index.d.ts")]:
+      `declare module "ui-lib-fixture" {\n  export interface InputProps { type: string; value: string }\n  export function input(props: InputProps): void;\n}\n`,
+    [entry]: `${PRELUDE}import { input } from "ui-lib-fixture";\ndeclare function own(props: { type: string; value: string }): void;\ninput({ type: "text", value: "hello" });\nown({ type: "text", value: "hello" });\n`,
+  };
+  const hits = analyzeProgram(files, entry, {}).filter((d) => d.ruleName === "no-handrolled-variant");
+  assert.equal(hits.length, 1);
+  assert.equal(files[entry]!.slice(hits[0]!.start - 4, hits[0]!.start), "own(");
 });
 
 // ── no-east-namespaced-type ─────────────────────────────────────────
