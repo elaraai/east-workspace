@@ -48,7 +48,7 @@ from east.expression.location import (
     source_map_scope,
 )
 from east.expression.nodes import _builtin, _var
-from east.types.types import EastType
+from east.types.types import EastType, is_type_equal
 
 #: Whether the build currently on the stack is an ``East.asyncFunction`` —
 #: what lets a platform declaration handle reject an async call spelled
@@ -224,8 +224,10 @@ def detached_build():
 def _output_matches(out_type: EastType, declared: EastType) -> bool:
     """Whether a built body's type satisfies the declared output: equal, or
     ``Never`` for a body that always returns or raises (the TypeScript
-    analyzer's rule for function bodies)."""
-    return out_type == declared or out_type.type == "Never"
+    analyzer's rule for function bodies). Equal as the analyzer decides it:
+    two copies of one recursive type, their wrappers numbered differently
+    (a type decoded from a file, and its canonical copy), are one type."""
+    return is_type_equal(out_type, declared) or out_type.type == "Never"
 
 
 def _nested_function(param_types: list[EastType], out: EastType, body: Any, *,

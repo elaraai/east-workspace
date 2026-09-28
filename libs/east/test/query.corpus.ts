@@ -35,6 +35,7 @@ import {
 } from "../src/index.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
 import { MESSAGES } from "../src/query/jq/messages.js";
+import { BUILTIN_RULES, FORMATS } from "../src/query/jq/translate-builtins.js";
 import { Cell, Customer, FixtureRoot, Forecast, Line, Order, Status } from "./query.fixture.js";
 
 /** One case of the corpus. */
@@ -620,6 +621,30 @@ export function catalogTables(): string {
     "|---|---|---|",
     ...refused.map(([name, b]) => `| \`${name}\` | ${b.arities.join(", ")} | ${cell(why(b))} |`),
   ].join("\n");
+}
+
+/** Where python's copy of the catalog is: `east/query/jq/_catalog.json` in east-py (#926). */
+export const PYTHON_CATALOG = new URL("../../../east-py/packages/east-py/east/query/jq/_catalog.json", import.meta.url);
+
+/**
+ * The catalog as python's front end reads it: every builtin's name, status,
+ * arities and the reason one is unavailable, in catalog order, and the names
+ * of the builtins and formats the translator has a rule for. Python's typing
+ * and translation rules are functions keyed by these names, and its tests
+ * hold their keys to this file; `query.corpus.spec.ts` holds this file to the
+ * catalog.
+ *
+ * @returns the file's text
+ */
+export function catalogJson(): string {
+  const builtins = [...BUILTINS].map(([name, b]) => ({
+    name,
+    status: b.status,
+    arities: b.arities,
+    ...(b.reason === undefined ? {} : { reason: b.reason }),
+  }));
+  const names = (keys: string[]): string[] => [...keys].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+  return `${JSON.stringify({ builtins, translations: names(Object.keys(BUILTIN_RULES)), formats: names(Object.keys(FORMATS)) }, null, 2)}\n`;
 }
 
 /** The markers around `devdocs/QUERY.md` §12's templates, which {@link messageTable} writes. */

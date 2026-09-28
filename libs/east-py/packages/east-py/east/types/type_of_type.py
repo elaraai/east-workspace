@@ -639,6 +639,64 @@ StructFieldIRType = StructType(
 
 
 # =============================================================================
+# Canonical numbering
+# =============================================================================
+
+
+def canonical_type_value(typ: EastVariant) -> EastVariant:
+    """Renumbers a type's recursive wrappers so its value depends on the type alone.
+
+    The twin of TypeScript's ``canonicalTypeValue``: each ``wrapper`` is
+    numbered in preorder from 0, and each ``ref`` takes the number of the
+    innermost enclosing wrapper it names. A wrapper's id is a runtime artefact
+    (python mints process-unique ids, and a decoded type keeps the writer's),
+    so a type written as data — a checked query's ``input_type`` and
+    ``element_type`` (``libs/east/devdocs/QUERY.md`` §14) — is renumbered
+    first, and equal types then encode to equal bytes in either language.
+
+    Args:
+        typ: A type (in python, a type is its own type value).
+
+    Returns:
+        An equal type whose recursive ids depend on the type alone, built from
+        fresh containers.
+    """
+    next_id = 0
+    scope: list[tuple[int, int]] = []
+
+    def rename(t: EastVariant) -> EastVariant:
+        nonlocal next_id
+        kind, value = t.type, t.value
+        if kind in ("Never", "Null", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
+            return t
+        if kind in ("Ref", "Array", "Set", "Vector", "Matrix"):
+            return EastVariant(kind, rename(value))
+        if kind == "Dict":
+            return EastVariant("Dict", {"key": rename(value["key"]), "value": rename(value["value"])})
+        if kind in ("Struct", "Variant"):
+            return EastVariant(kind, [{"name": m["name"], "type": rename(m["type"])} for m in value])
+        if kind in ("Function", "AsyncFunction"):
+            return EastVariant(kind, {"inputs": [rename(i) for i in value["inputs"]], "output": rename(value["output"])})
+        if kind == "Recursive":
+            if value.type == "ref":
+                for bound, renamed in reversed(scope):
+                    if bound == value.value:
+                        return EastVariant("Recursive", EastVariant("ref", renamed))
+                return t
+            renamed = next_id
+            next_id += 1
+            scope.append((value.value["id"], renamed))
+            try:
+                inner = rename(value.value["inner"])
+            finally:
+                scope.pop()
+            return EastVariant("Recursive", EastVariant("wrapper", {"id": renamed, "inner": inner}))
+        raise ValueError(f"canonical_type_value: not a type: {kind}")
+
+    return rename(typ)
+
+
+# =============================================================================
 # Exports
 # =============================================================================
 
@@ -654,4 +712,5 @@ __all__ = [
     "DictEntryType",
     "StructFieldIRType",
     "IRType",
+    "canonical_type_value",
 ]

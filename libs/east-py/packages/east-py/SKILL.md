@@ -1,6 +1,6 @@
 ---
 name: east-py
-description: "East in Python (east-py): (A) East EXPRESSIONS — East functions written in python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), the TypeScript methods snake_cased, the standard library, East.compile; (B) East VALUES — East data as ordinary python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the same names. Use when writing python against east-py: (1) an East function in python (b.let/b.if_/b.for_, expression methods, the stdlib), (2) building and validating values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) scalar builtins via East.<Type>, (5) @East.platform_function to expose python to East, (6) beast2 files larger than memory, numpy/torch through EastVector/EastMatrix, (7) porting a plain-python POC into a platform function, (8) the east-py CLI — run, exec, convert, transpile, export-functions, lint, check, lsp, version, (9) exporting functions for TypeScript / e3 and importing TypeScript-authored ones (East.export_functions / East.import_function), (10) edit-time diagnostics (east-py lint, flake8 EAS codes, east-py check, east-py lsp), (11) JSON Schema contracts (json_schema_for, type_from_json_schema)."
+description: "East in Python (east-py): (A) East EXPRESSIONS — East functions written in python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), the TypeScript methods snake_cased, the standard library, East.compile; (B) East VALUES — East data as ordinary python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the same names. Use when writing python against east-py: (1) an East function in python (b.let/b.if_/b.for_, expression methods, the stdlib), (2) building and validating values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) scalar builtins via East.<Type>, (5) @East.platform_function to expose python to East, (6) beast2 files larger than memory, numpy/torch through EastVector/EastMatrix, (7) porting a plain-python POC into a platform function, (8) the east-py CLI — run, exec, convert, transpile, export-functions, lint, check, lsp, version, (9) exporting functions for TypeScript / e3 and importing TypeScript-authored ones (East.export_functions / East.import_function), (10) edit-time diagnostics (east-py lint, flake8 EAS codes, east-py check, east-py lsp), (11) JSON Schema contracts (json_schema_for, type_from_json_schema), (12) typed jq queries over East values (East.jq, and east.query's check_jq / evaluate_jq)."
 ---
 
 # East.py — East expressions and East values in Python
@@ -130,6 +130,8 @@ Task → What do you need?
     │   │   East.break_ / continue_ / label → "Control flow — the expression forms", "Sequential logic that stays in east-c"
     │   ├─ Nest flat parent-keyed rows (any depth) → xs.to_tree(Node, key, parent, build) — not recursion, which is for
     │   │   shallow depths                                                     → "Trees from flat rows, and recursion"
+    │   ├─ Query a value with jq → East.jq(input, "jq", result_type) ❗ result_type is required, and types the result ·
+    │   │   a dict of inputs is read as an e3 root                              → "Queries — East.jq"
     │   ├─ What a body may capture — and what it refuses, naming the binding → "What a body may reference"
     │   ├─ Call python from a body → the @East.platform_function you hold IS the Platform node (no declaration) · East.platform /
     │   │   asyncPlatform / genericPlatform only for one implemented elsewhere · East.compile(fn, platform=East.platform_functions(__name__))
@@ -155,6 +157,8 @@ Task → What do you need?
     │   │   East.less / compare / equal(T, a, b) — never python's str / re / datetime / // / < for these
     │   │                                                        → "East.<Type> namespaces", "Scalars: use the `East.<Type>` utilities"
     │   ├─ Diff / patch two values → East.diff / apply_patch / compose_patch / invert_patch(T, …) → "East.<Type> namespaces"
+    │   ├─ Query one with jq → East.jq(value, "jq", T) runs now · evaluate_jq(program, value, input_type=T) · check_jq checks
+    │   │   without running                                                    → "Queries — East.jq"
     │   ├─ A JSON contract another system validates against → json_schema_for · type_from_json_schema   → "A JSON contract"
     │   ├─ A collection file larger than memory → write_beast2_file · open_beast2_file (a read-only East collection value) ·
     │   │   write_beast2_file_parallel · splice_beast2_files · Beast2ManifestWriter · open_beast2_pages_for  → "Beast2 streaming"
@@ -529,6 +533,44 @@ counts = East.for_(rows, {"counts": East.new_dict(StringType, IntegerType)},
 anywhere ELSE in a function a captured collection is a build-time snapshot
 shared by every call, and mutating one raises rather than leaking state
 between calls.
+
+### Queries — `East.jq`
+
+`East.jq(input, program, result_type)` is a jq query as East code: the jq is
+parsed, checked against the input's East type and translated to ordinary East
+IR when the program is built — loops, `Match`, the builtins — so it runs
+wherever East runs, with no query builtin and no interpreter. It is the twin of
+TypeScript's `East.jq` and builds the same IR. Dual-mode, like the standard
+library: in a body it builds the translation; on values it compiles it (once
+per query and input type) and runs it now.
+
+```python
+from east import East, ArrayType, FloatType, IntegerType, StructType, array
+
+Order = StructType([("id", IntegerType), ("total", FloatType)])
+orders = array(Order, [{"id": 1, "total": 250.0}, {"id": 2, "total": 1200.0}])
+
+# in a body: an expression of `result_type` (here an ArrayExpression), so its methods chain
+count_big = East.function([ArrayType(Order)], IntegerType,
+                          lambda b, orders: East.jq(orders, "[.[] | select(.total > 1000) | .id]",
+                                                    ArrayType(IntegerType)).size())
+count_big(orders)                                   # 1
+
+East.jq(orders, "map(.total) | add", FloatType)     # 1450.0 — on values, run now
+
+# several inputs: a dict, checked as an e3 root — `.orders` reads the `orders` input alone
+East.jq({"orders": orders, "limit": 1000.0},
+        ".limit as $l | [.orders[] | select(.total > $l) | .id]", ArrayType(IntegerType))   # [2]
+```
+
+| | |
+|---|---|
+| ❗ `result_type` | Required: the outputs' type for a query that gives one output (`length`, `[…]`, `reduce`), an `Option` of it for at most one (`first(f)`), an `Array` of it for any number (`.[] \| .id`). The query must check to exactly it, or the build raises `type_mismatch: the query gives Array<Float>, not the Integer it was given.` |
+| A query that does not check | `QueryError` when the program is built (a `QueryBuildError`, an `ExpressionError` too), its diagnostics each `jq <line>:<column>: <message>`: `unknown_field: .totl is not a field of Struct{id: Integer, total: Float}. Did you mean .total?` |
+| An error the query raises | `error(v)`, an integer `% 0`, a date that does not parse: an East runtime error located in the jq text (`jq 1:5`), which `b.try_` catches; on values, a `QueryError` with one `runtime` diagnostic |
+| The input's type | In a body, the expression's; on values, `type_of(value)`. Where that is narrower than the type meant (a variant's is its one case), run `evaluate_jq(program, value, input_type=T)` |
+| The language | jq 1.8 over East's types: Dict keys of any type, DateTime a type (an ISO literal compares with it), Integers exact, a variant read as `{type, value}`. Every departure is listed in `libs/east/devdocs/QUERY.md` §13 |
+| Host tools (`from east.query import …`) | `check_jq(program, input_type, root=False)`: the checked query, its types and diagnostics, without building · `evaluate_jq(program, value, input_type=T)`: a query whose input type is data · `translate_jq(checked)` · `parse_jq` / `print_jq` / `lex_jq` · `QueryError` |
 
 ### What a body may reference
 
@@ -1267,7 +1309,8 @@ expressions it emits IR. The `stdlib:` rows are the TypeScript standard library
 **`East`** root: `East.str(*parts)` (TS `East.str` — the parts concatenated, non-String parts printed
 in East text format: `East.str("n=", 5, "!")`), `East.print(value[, typ])` (TS `East.print` — the East
 text format under the value's own type, or `typ`), `East.min(a, b)` / `East.max(a, b)` (`least`/`greatest`
-under East's total order) and `East.clamp(value, lo, hi)` — all dual-mode.
+under East's total order), `East.clamp(value, lo, hi)` and `East.jq(input, program, result_type)`
+([Queries](#queries--eastjq)) — all dual-mode.
 
 **`East.DateTime`** (see [DateTime format codes](#datetime-format-codes))
 

@@ -306,5 +306,5 @@ def test_every_stdlib_function_exists_on_its_namespace(file, space):
 
 def test_the_root_names():
     for name in ("str", "min", "max", "clamp", "function", "value", "equal", "less", "compile",
-                 "print", "is_", "diff", "apply_patch", "compose_patch", "invert_patch"):
+                 "print", "is_", "diff", "apply_patch", "compose_patch", "invert_patch", "jq"):
         assert hasattr(East, name), f"East.{name} (a TypeScript root name) is missing"
