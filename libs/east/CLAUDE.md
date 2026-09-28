@@ -36,14 +36,18 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
 - `src/query/` — typed jq queries over East values (#875): the wire types
   (`types.ts`; python twins `east/query/types.py`), and in `jq/` the lexer,
   parser and canonical printer (`lexJq`, `parseJq`, `printJq`; node spans in
-  `spans.ts`, the builtin names in `catalog.ts`), whose round-trip law
-  `test/query.parse.spec.ts` holds over the corpus and generated programs.
-  Normative spec `devdocs/QUERY.md` (§18: grammar and canonical text). The
-  shared fixture (`test/query.fixture.ts`) and the
-  corpus (`test/query.corpus.ts`) generate the checked-in
-  `test/fixtures/query-fixture.beast2` and `query-corpus.beast2`, which the
-  other runtimes read; `make query-corpus` rewrites both, and a spec fails
-  while either is stale.
+  `spans.ts`), whose round-trip law `test/query.parse.spec.ts` holds over the
+  corpus and generated programs, and the checker (`checkJq` in `check.ts`:
+  shapes and multiplicities in `shapes.ts`, every sentence it says in
+  `messages.ts`, the builtin catalog — jq 1.8.1's builtins exactly, each with
+  its typing rule and East definition — in `catalog.ts`, strftime tokens in
+  `strftime.ts`). Normative spec `devdocs/QUERY.md` (§10 catalog, §12
+  diagnostics, §13 deviations, §18 grammar and canonical text). The shared
+  fixture (`test/query.fixture.ts`) and the corpus (`test/query.corpus.ts`)
+  generate the checked-in `test/fixtures/query-fixture.beast2` and
+  `query-corpus.beast2`, which the other runtimes read; `make query-corpus`
+  rewrites both, and QUERY.md §10's and §12's generated tables, and a spec
+  fails while any of them is stale.
 - `test/` — compliance suite (serializes to IR; runs on any backend).
 - `devdocs/` — living design docs (start with `SERIALIZATION.md`).
 - `example/`, `contrib/` — experiments and scratch (per

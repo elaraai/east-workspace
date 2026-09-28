@@ -204,8 +204,10 @@ export const QueryFixType = StructType({ edits: ArrayType(QueryEditType), label:
  * @remarks
  * - `code` — `syntax`, `unknown_field`, `unknown_case`, `unknown_function`,
  *   `type_mismatch`, `not_iterable`, `not_indexable`, `arity`,
- *   `ambiguous_output`, `cannot_infer` or `unsupported`, or a lint
- *   (`duplicate_outputs`, `array_builtin_on_element`).
+ *   `ambiguous_output`, `cannot_infer`, `unsupported` or
+ *   `array_builtin_on_element`, or a lint (`duplicate_outputs`,
+ *   `duplicate_key`, `never_missing`, `long_range`); `devdocs/QUERY.md` §12
+ *   lists each message's template.
  * - `fixes` — one-click fixes, best first.
  * - `message` — one sentence, the same wherever the checker runs.
  * - `severity` — `error`, or `warning` for a lint.

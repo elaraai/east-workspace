@@ -381,7 +381,7 @@ first(.orders[] | select(.id == 1002)) | .discount // 0.0
 ```jq
 .orders[0].id == "1001"
 ```
-→ `type_mismatch`: Integer compares with Integer or Float, not String.
+→ `type_mismatch: == compares Option<Integer> with String.`
 
 ---
 
@@ -437,11 +437,19 @@ first(.orders[]) | select(.status.type == "shipped") | .status.value.date | strf
 - `.type` is a String drawn from the case names. Comparing it with a name the
   variant does not have is `unknown_case`, with suggestions.
 - `.value` is the payload.
-- `.value.date` on a variant where only some cases have `date` is maybe: it
-  is `null` for the other cases.
+- `.value.date` on a variant where only some cases have `date` is `null` for
+  the other cases, as in jq, so it is an `Option<DateTime>` and one output.
+  Where a DateTime is needed (`year`, `strftime`, arithmetic) that is a
+  `type_mismatch` whose fix, "Narrow first", puts
+  `select(.status.type == "shipped") | ` before the read.
 - After `select(.type == "shipped")`, or inside
   `if .type == "shipped" then … end`, the checker **narrows** the variant, and
-  `.value.date` is exactly a DateTime.
+  `.value.date` is exactly a DateTime. `and` narrows its right side by its
+  left, an `elif` and `else` by the cases the earlier conditions ruled out,
+  and a test through an Option narrows too.
+- `type == "number"` narrows the same way: `select(type == "object")` keeps
+  the struct and dict members of `..`, and a branch no member reaches is not
+  checked.
 
 ```jq
 first(.orders[]) | .status.type
@@ -449,10 +457,10 @@ first(.orders[]) | .status.type
 → `.some "shipped"` · Option<String>, maybe
 
 ```jq
-first(.orders[]) | .status.value.date
+.orders[0].status.value.date
 ```
-→ `.some 2026-04-27T09:00:00.000` · Option<DateTime>, maybe (un-narrowed:
-only the `shipped` case has a `date`)
+→ `.some 2026-04-27T09:00:00.000` · Option<DateTime>, one (un-narrowed: only
+the `shipped` case has a `date`, and the others give `null`)
 
 ```jq
 .orders[] | select(.status.type == "shiped")
@@ -505,22 +513,262 @@ call(.model; {price: 10.0, region: "NSW"})
 
 ## 10. Builtins
 
-*To be written by #921.* The catalog is jq 1.8's documented builtins, less the
-exclusions of §11, plus East's additions. Each builtin gets a row: its name,
-its typing rule, its multiplicity, and its definition by existing East
-builtins or `East.<Type>` library functions. No catalog builtin is
-reimplemented.
+The catalog (`src/query/jq/catalog.ts`) holds exactly jq 1.8.1's builtins,
+with their arities, and East's additions; `test/query.check.spec.ts` holds it
+to `jq -n 'builtins'`. Each builtin a query may call has a typing rule and is
+defined by existing East builtins or `East.<Type>` library functions: none is
+reimplemented. The rest are refused with `unsupported`, saying why (§12).
 
-Regular expressions (`test`, `match`, `capture`, `scan`, `sub`, `gsub`,
-`splits`) use East's regex builtins, which are ECMAScript-style, not
-Oniguruma. The table below will list the differences.
+- **Numbers.** Where a rule says "a number", Integer and Float both apply, and
+  an Integer argument where a Float is needed is promoted.
+- **Literal arguments.** A regular expression, its flags, a `strftime` /
+  `strptime` format and a `datetime_add` unit are written in the query: the
+  checker validates each and rewrites a format into its tokens (§14).
+- **Options.** A builtin that needs a value refuses an `Option<T>` input with
+  the fix "Skip nulls", which puts `values | ` before it (§13.16).
+- **Streams.** A builtin that needs an array, on each element of a stream, is
+  `array_builtin_on_element`, whose fix collects the stream (§12).
+- **Regular expressions** are East's, ECMAScript-style (§13.8): `test`, `sub`
+  and `gsub` take the flags `g` and `i`, and a replacement interpolates the
+  pattern's named groups as `\(.name)`, which becomes `$<name>`.
+- **`type`** gives `null`, `boolean`, `number`, `string`, `array`, `object`,
+  and for East's own types `datetime`, `blob` and `function`.
 
 A catalog name is a **string** in the wire type (§14), so adding one never
 changes `QueryType`.
 
-| Builtin | Typing rule | Multiplicity | East definition |
-|---|---|---|---|
-| *(filled by #921)* | | | |
+<!-- catalog: written by `make query-corpus` from src/query/jq/catalog.ts -->
+| Builtin | Arities | Takes → gives | Outputs | East definition |
+|---|---|---|---|---|
+| `abs` | 0 | Integer → Integer; Float → Float | one | IntegerAbs / FloatAbs |
+| `add` | 0, 1 | Array<T> → T for numbers, strings, arrays and dicts (their identity when empty, §13.15), Option<T> for structs; `add(f)` over f's outputs | one | ArrayFold of the matching add builtin (adding nothing gives its identity, §13.15) |
+| `all` | 0, 1, 2 | `all`, `all(f)`, `all(g; c)` → Boolean | one | a loop on jq's truthiness, stopping at the first false |
+| `any` | 0, 1, 2 | `any`, `any(f)`, `any(g; c)` → Boolean | one | a loop on jq's truthiness, stopping at the first true |
+| `arrays` | 0 | the input when it is an array; narrows | maybe | a type test |
+| `ascii_downcase` | 0 | String → String (§13.18) | one | StringLowerCase |
+| `ascii_upcase` | 0 | String → String (§13.18) | one | StringUpperCase |
+| `@base32` | 0 | any → String | one | tostring, StringEncodeUtf8, then RFC 4648 over BlobGetUint8 |
+| `@base64` | 0 | any → String | one | tostring, StringEncodeUtf8, then RFC 4648 over BlobGetUint8 |
+| `booleans` | 0 | the input when it is a Boolean; narrows | maybe | a type test |
+| `bsearch` | 1 | Array<T>, T → Integer | one | ArrayFindSortedFirst, with jq's −1 − insertion point when absent |
+| `builtins` | 0 | → Array<String> | one | the catalog's names, as a literal |
+| `call` | 1, 2, 3, 4, 5, 6, 7, 8 | `call(f; a…)`: Function([I…], O), arguments of I (Integer → Float) → O | one | a call of the function value |
+| `calls` | 0 | a function value → Array<String> (tooling) | one | the host platform function jq_calls (#931) (tooling-only, §9) |
+| `captures` | 0 | a function value → Array<String> (tooling) | one | the host platform function jq_captures (#931) (tooling-only, §9) |
+| `ceil` | 0 | a number → Integer | one | East.Float.roundCeil |
+| `combinations` | 0, 1 | Array<Array<T>> → Array<T>; `combinations(n)`: Array<T> → Array<T> | many | nested loops over the arrays |
+| `contains` | 1 | two strings, or two arrays of scalars → Boolean | one | StringContains; for arrays, a loop of StringContains / Equal |
+| `cos` | 0 | a number → Float | one | FloatCos |
+| `@csv` | 0 | Array of scalars → String | one | ArrayStringJoin of the quoted cells |
+| `datetime_add` | 2 | `datetime_add(n; unit)`: DateTime, Integer, a literal unit → DateTime | one | DateTimeAddMilliseconds of n units |
+| `datetime_diff` | 2 | `datetime_diff(other; unit)`: DateTime, DateTime, a literal unit → Integer | one | DateTimeDurationMilliseconds in units, truncated |
+| `day` | 0 | DateTime → Integer | one | DateTimeGetDayOfMonth |
+| `del` | 1 | `del(p)` → the input without what `p` names; a struct loses the field | one | a rebuild without the positions the path names |
+| `empty` | 0 | any → nothing | none | no output |
+| `endswith` | 1 | String, String → Boolean | one | StringEndsWith |
+| `epoch_ms` | 0 | DateTime → Integer | one | DateTimeToEpochMilliseconds |
+| `error` | 0, 1 | any; `error(v)` of any type (§13.14) → a runtime error | none | an East error whose message is the value's East text (§13.14) |
+| `exp` | 0 | a number → Float | one | FloatExp |
+| `exp10` | 0 | a number → Float | one | FloatPow(10, x) |
+| `exp2` | 0 | a number → Float | one | FloatPow(2, x) |
+| `fabs` | 0 | a number → Float | one | FloatAbs |
+| `finites` | 0 | a number, when finite | maybe | a type test and a comparison with ±Infinity |
+| `first` | 0, 1 | Array<T> → Option<T>; `first(f)` → f's first output | one; maybe | ArrayTryGet(0); for first(f), the first output of f, then stop |
+| `flatten` | 0, 1 | Array<Array<…T>> → Array<T>; `flatten(d)` d levels deep | one | ArrayFlattenToArray, depth times |
+| `floor` | 0 | a number → Integer | one | East.Float.roundFloor |
+| `fmax` | 2 | two numbers → Float | one | a comparison, as C's fmax |
+| `fmin` | 2 | two numbers → Float | one | a comparison, as C's fmin |
+| `fmod` | 2 | two numbers → Float | one | FloatRemainder |
+| `format` | 1 | `format("name")` → as `@name` | one | the format of that name |
+| `from_entries` | 0 | Array of `{key, value}` (or `k`, `name`, `v`, …) → Dict<K, V> | one | ArrayToDict by the entries' key and value |
+| `fromdate` | 0 | String → DateTime (§13.4) | one | StringParseJSON as a DateTime: RFC 3339 with milliseconds and offsets (§13.4) |
+| `fromdateiso8601` | 0 | String → DateTime (§13.4) | one | StringParseJSON as a DateTime: RFC 3339 with milliseconds and offsets (§13.4) |
+| `group_by` | 1 | `group_by(f)`: Array<T> → Array<Array<T>>, in key order | one | ArrayGroupFold by the key, in key order |
+| `gsub` | 2, 3 | String, a literal regex, a replacement of text and named groups `\(.name)` → String | one | RegexReplace, captures as $<name> |
+| `has` | 1 | `has(k)` → Boolean: a Dict's key of its key type, a struct's field name, an array's index | one | DictHas, the struct's field names, ArraySize |
+| `hour` | 0 | DateTime → Integer | one | DateTimeGetHour |
+| `@html` | 0 | any → String, HTML-escaped | one | tostring, then StringReplace of < > & ' " |
+| `IN` | 1, 2 | `IN(s)`, `IN(src; s)` → Boolean | one | Equal against each output, stopping at the first match |
+| `in` | 1 | `in(o)` → `o \| has(.)` | one | has, on the argument |
+| `INDEX` | 1, 2 | `INDEX(f)`: Array<T> → Dict<K, T> for f's key K; `INDEX(src; f)` | one | ArrayToDict keyed by the index filter (keys keep their type, §13.2) |
+| `index` | 1 | String, String → Option<Integer> | one | StringIndexOf (strings) |
+| `indices` | 1 | String, String → Array<Integer> | one | StringIndexOf in a loop (strings) |
+| `infinite` | 0 | → Float | one | the Float Infinity |
+| `inside` | 1 | two strings, or two arrays of scalars → Boolean | one | contains, the other way round |
+| `isempty` | 1 | `isempty(f)` → Boolean | one | whether f gives no output, stopping at the first |
+| `isfinite` | 0 | a number → Boolean | one | FloatAbs and comparisons |
+| `isinfinite` | 0 | a number → Boolean | one | FloatAbs and comparisons |
+| `isnan` | 0 | a number → Boolean | one | FloatAbs and comparisons |
+| `isnormal` | 0 | a number → Boolean | one | FloatAbs and comparisons |
+| `iterables` | 0 | the input when it is an array, struct or dict; narrows | maybe | a type test |
+| `join` | 1 | Array of strings, numbers, booleans or nulls; String → String | one | ArrayStringJoin of the elements as text (null as "") |
+| `@json` | 0 | any → String, as `tojson` | one | StringPrintJSON |
+| `keys` | 0 | Dict<K, V> → Array<K>; a struct's field names, sorted; an array's indices | one | DictKeys, the struct's field names sorted, the indices |
+| `keys_unsorted` | 0 | as `keys`, with a struct's fields in declared order (§13.12) | one | DictKeys, the struct's field names in declared order (§13.12), the indices |
+| `last` | 0, 1 | Array<T> → Option<T>; `last(f)` → f's last output | one; maybe | ArrayTryGet(size − 1); for last(f), the last output of f |
+| `length` | 0 | String, Array, Set, Dict, Blob → Integer; a struct's field count; a number's absolute value; null → 0 | one | StringLength, ArraySize, SetSize, DictSize, BlobSize, the field count, abs |
+| `limit` | 2 | `limit(n; f)` → f's first n outputs | as `f`'s | the first n outputs of f, then stop |
+| `log` | 0 | a number → Float | one | FloatLog |
+| `log10` | 0 | a number → Float | one | FloatLog / FloatLog(10) |
+| `log2` | 0 | a number → Float | one | FloatLog / FloatLog(2) |
+| `ltrim` | 0 | String → String | one | StringTrimStart |
+| `ltrimstr` | 1 | String, String → String; other values as they are | one | StringStartsWith / StringEndsWith and StringSubstring; other values as they are |
+| `map` | 1 | `map(f)`: Array<T>, Set<T>, or a Dict's or struct's values → Array of f's outputs | one | ArrayMap / SetToArray / DictToArray of f (f's outputs collected) |
+| `map_values` | 1 | `map_values(f)`: Array, Dict or struct → the same with f's first output in each place | one | ArrayMap / DictMap / the struct rebuilt field by field, with f's first output |
+| `max` | 0 | Array<T> → Option<T> | one | ArrayFold keeping the greatest (null for an empty array) |
+| `max_by` | 1 | `max_by(f)`: Array<T> → Option<T> | one | ArrayFold by the key f gives |
+| `millisecond` | 0 | DateTime → Integer | one | DateTimeGetMillisecond |
+| `min` | 0 | Array<T> → Option<T> | one | ArrayFold keeping the least (null for an empty array) |
+| `min_by` | 1 | `min_by(f)`: Array<T> → Option<T> | one | ArrayFold by the key f gives |
+| `minute` | 0 | DateTime → Integer | one | DateTimeGetMinute |
+| `month` | 0 | DateTime → Integer | one | DateTimeGetMonth |
+| `nan` | 0 | → Float | one | the Float NaN |
+| `normals` | 0 | a number, when normal | maybe | a type test and FloatAbs ≥ 2⁻¹⁰²² |
+| `not` | 0 | any → Boolean, by jq's truthiness | one | BooleanNot of jq's truthiness |
+| `nth` | 1, 2 | `nth(n)`: Array<T> → Option<T>; `nth(n; f)` → f's nth output | one; maybe | ArrayTryGet(n); for nth(n; f), the nth output of f |
+| `nulls` | 0 | the input when it is null; narrows | maybe | a type test |
+| `numbers` | 0 | the input when it is a number; narrows | maybe | a type test |
+| `objects` | 0 | the input when it is a struct, dict or variant; narrows | maybe | a type test |
+| `pick` | 1 | `pick(.a.b)` → Struct{a: Struct{b: T}} | one | a struct of the picked fields |
+| `pow` | 2 | two numbers → Float | one | FloatPow |
+| `range` | 1, 2, 3 | Integer bounds → Integer; a Float bound → Float | many | ArrayRange, or a Float loop, streamed |
+| `recurse` | 0, 1, 2 | every value nested in the input; `recurse(f[; c])` → the input, then f again, of the one type a fixpoint settles on | many | a depth-first walk with an explicit stack |
+| `repeat` | 1 | `repeat(f)` → the input, f of it, and so on | many | a loop: the value, then f of it, and so on |
+| `reverse` | 0 | Array<T> → Array<T>; String → String; null → [] | one | ArrayReverse; a string's code points reversed |
+| `rindex` | 1 | String, String → Option<Integer> | one | StringIndexOf in a loop (strings) |
+| `round` | 0 | a number → Integer | one | East.Float.roundHalf |
+| `rtrim` | 0 | String → String | one | StringTrimEnd |
+| `rtrimstr` | 1 | String, String → String; other values as they are | one | StringStartsWith / StringEndsWith and StringSubstring; other values as they are |
+| `scalars` | 0 | the input when it is not an array, struct or dict; narrows | maybe | a type test |
+| `second` | 0 | DateTime → Integer | one | DateTimeGetSecond |
+| `select` | 1 | `select(f)` → its input, narrowed by what `f` proves | maybe; many when `f` is | a branch on jq's truthiness |
+| `@sh` | 0 | a scalar or an array of scalars → String | one | StringReplace of ' and ArrayStringJoin |
+| `signature` | 0 | a function value → String (tooling) | one | the host platform function jq_signature (#931) (tooling-only, §9) |
+| `sin` | 0 | a number → Float | one | FloatSin |
+| `skip` | 2 | `skip(n; f)` → f's outputs after the first n | as `f`'s | the outputs of f after the first n |
+| `sort` | 0 | Array<T> → Array<T> | one | ArraySort by the value (East's total order, §11) |
+| `sort_by` | 1 | `sort_by(f)`: Array<T>, f giving an ordered key → Array<T> | one | ArraySort by the key f gives |
+| `source` | 0 | a function value → String (tooling) | one | the host platform function jq_source (#931) (tooling-only, §9) |
+| `split` | 1, 2 | `split(s)`: String → Array<String> | one | StringSplit (a literal separator) |
+| `sqrt` | 0 | a number → Float | one | FloatSqrt |
+| `startswith` | 1 | String, String → Boolean | one | StringStartsWith |
+| `strftime` | 1 | DateTime or epoch seconds, a literal format → String | one | DateTimePrintFormat with the format's tokens, made when the query is checked |
+| `strings` | 0 | the input when it is a String; narrows | maybe | a type test |
+| `strptime` | 1 | String, a literal format → DateTime (§13.4) | one | DateTimeParseFormat with the format's tokens (gives a DateTime, §13.4) |
+| `sub` | 2, 3 | String, a literal regex, a replacement of text and named groups `\(.name)` → String | one | RegexReplace of ^([\s\S]*?)(?:re), captures as $<name> |
+| `tan` | 0 | a number → Float | one | FloatTan |
+| `test` | 1, 2 | String, a literal regex, flags `g` `i` → Boolean | one | RegexContains |
+| `@text` | 0 | any → String, as `tostring` | one | tostring |
+| `to_entries` | 0 | Dict<K, V> → Array<Struct{key: K, value: V}>; a struct's fields, keyed by name; an array's elements, by index | one | DictToArray / the struct's fields as {key, value} |
+| `toboolean` | 0 | String or Boolean → Boolean | one | Parse as a Boolean; booleans as they are |
+| `todate` | 0 | DateTime or epoch seconds → String, RFC 3339 | one | DateTimePrintFormat as RFC 3339 (East JSON's form); epoch seconds via DateTimeFromEpochMilliseconds |
+| `todateiso8601` | 0 | DateTime or epoch seconds → String, RFC 3339 | one | DateTimePrintFormat as RFC 3339 (East JSON's form); epoch seconds via DateTimeFromEpochMilliseconds |
+| `tojson` | 0 | any → String, East's JSON (§13.9) | one | StringPrintJSON (East's JSON codec, §13.9) |
+| `tonumber` | 0 | String → Float (§13.19); a number as it is | one | Parse as a Float; numbers as they are |
+| `tostring` | 0 | any → String: a string as it is, anything else as East text (§13.9) | one | the string, or Print (East text, §13.9) |
+| `transpose` | 0 | Array<Array<T>> → Array<Array<Option<T>>> | one | nested loops, padding short rows with null |
+| `trim` | 0 | String → String | one | StringTrim |
+| `trimstr` | 1 | String, String → String; other values as they are | one | StringStartsWith / StringEndsWith and StringSubstring; other values as they are |
+| `trunc` | 0 | a number → Integer | one | East.Float.roundTrunc |
+| `@tsv` | 0 | Array of scalars → String | one | ArrayStringJoin of the quoted cells |
+| `type` | 0 | any → String: `null`, `boolean`, `number`, `string`, `array`, `object`, `datetime`, `blob` or `function`; `type == "…"` narrows | one | the jq type name of the value's East type, as a literal or by the option's case (§2) |
+| `unique` | 0 | Array<T> → Array<T>, sorted | one | ArrayToSet, as an array |
+| `unique_by` | 1 | `unique_by(f)`: Array<T> → Array<T> | one | ArrayToDict by the key by the key f gives |
+| `until` | 2 | `until(c; u)` → u applied until c holds, of one type by fixpoint | one | a loop: update while cond is false |
+| `@uri` | 0 | any → String, percent-encoded | one | tostring, then each code point kept or percent-encoded from StringEncodeUtf8 |
+| `utf8bytelength` | 0 | String → Integer | one | BlobSize of StringEncodeUtf8 |
+| `values` | 0 | the input when it is not null: Option<T> → T | maybe | a type test |
+| `walk` | 1 | any → rebuilt bottom-up with `f`, which gives one output of a type each value's place can hold | one | a bottom-up rebuild, applying f to each value |
+| `weekday` | 0 | DateTime → Integer | one | DateTimeGetDayOfWeek |
+| `while` | 2 | `while(c; u)` → each value while c holds, of one type by fixpoint | many | a loop: each value while cond holds |
+| `with_entries` | 1 | `to_entries \| map(f) \| from_entries` | one | to_entries, map(f), from_entries |
+| `year` | 0 | DateTime → Integer | one | DateTimeGetYear |
+
+Refused, with the diagnostic's reason (§12):
+
+| Builtin | Arities | Why |
+|---|---|---|
+| `acos` | 0 | unavailable: East has no builtin for it |
+| `acosh` | 0 | unavailable: East has no builtin for it |
+| `asin` | 0 | unavailable: East has no builtin for it |
+| `asinh` | 0 | unavailable: East has no builtin for it |
+| `atan` | 0 | unavailable: East has no builtin for it |
+| `atan2` | 2 | unavailable: East has no builtin for it |
+| `atanh` | 0 | unavailable: East has no builtin for it |
+| `@base32d` | 0 | unavailable: no East builtin makes a Blob from bytes |
+| `@base64d` | 0 | unavailable: no East builtin makes a Blob from bytes |
+| `capture` | 1, 2 | unavailable: East regular expressions have no capture groups (§13.8) |
+| `cbrt` | 0 | unavailable: East has no builtin for it |
+| `copysign` | 2 | unavailable: East has no builtin for it |
+| `cosh` | 0 | unavailable: East has no builtin for it |
+| `debug` | 0, 1 | excluded (§11, §13.7) |
+| `delpaths` | 1 | unavailable: a path array mixes strings and integers, which no one East type holds; write the path as field reads and indexes, .a.b[0] |
+| `drem` | 2 | unavailable: East has no builtin for it |
+| `env` | 0 | excluded (§11, §13.7) |
+| `erf` | 0 | unavailable: East has no builtin for it |
+| `erfc` | 0 | unavailable: East has no builtin for it |
+| `explode` | 0 | unavailable: East has no builtin between a string and its code points |
+| `expm1` | 0 | unavailable: East has no builtin for it |
+| `fdim` | 2 | unavailable: East has no builtin for it |
+| `fma` | 3 | unavailable: East has no builtin for it |
+| `frexp` | 0 | unavailable: East has no builtin for it |
+| `fromjson` | 0 | unavailable: its result has no static type; parse into a known type in the program that runs the query |
+| `fromstream` | 1 | unavailable: a path array mixes strings and integers, which no one East type holds |
+| `gamma` | 0 | unavailable: East has no builtin for it |
+| `get_jq_origin` | 0 | excluded (§11, §13.7) |
+| `get_prog_origin` | 0 | excluded (§11, §13.7) |
+| `get_search_list` | 0 | excluded (§11, §13.7) |
+| `getpath` | 1 | unavailable: a path array mixes strings and integers, which no one East type holds; write the path as field reads and indexes, .a.b[0] |
+| `gmtime` | 0 | not yet |
+| `halt` | 0 | excluded (§11, §13.7) |
+| `halt_error` | 0, 1 | excluded (§11, §13.7) |
+| `have_decnum` | 0 | unavailable: it describes jq's build, not the data |
+| `have_literal_numbers` | 0 | unavailable: it describes jq's build, not the data |
+| `hypot` | 2 | unavailable: East has no builtin for it |
+| `implode` | 0 | unavailable: East has no builtin between a string and its code points |
+| `input` | 0 | excluded (§11, §13.7) |
+| `input_filename` | 0 | excluded (§11, §13.7) |
+| `input_line_number` | 0 | excluded (§11, §13.7) |
+| `inputs` | 0 | excluded (§11, §13.7) |
+| `j0` | 0 | unavailable: East has no builtin for it |
+| `j1` | 0 | unavailable: East has no builtin for it |
+| `jn` | 2 | unavailable: East has no builtin for it |
+| `JOIN` | 2, 3, 4 | unavailable: its pairs [row, match] hold two types, which one East array cannot |
+| `ldexp` | 2 | unavailable: East has no builtin for it |
+| `lgamma` | 0 | unavailable: East has no builtin for it |
+| `lgamma_r` | 0 | unavailable: East has no builtin for it |
+| `localtime` | 0 | excluded (§11, §13.7) |
+| `log1p` | 0 | unavailable: East has no builtin for it |
+| `logb` | 0 | unavailable: East has no builtin for it |
+| `match` | 1, 2 | unavailable: East regular expressions have no capture groups (§13.8) |
+| `mktime` | 0 | not yet |
+| `modf` | 0 | unavailable: East has no builtin for it |
+| `modulemeta` | 0 | excluded (§11, §13.7) |
+| `nearbyint` | 0 | unavailable: East has no builtin for it |
+| `nextafter` | 2 | unavailable: East has no builtin for it |
+| `nexttoward` | 2 | unavailable: East has no builtin for it |
+| `now` | 0 | excluded (§11, §13.7) |
+| `path` | 1 | unavailable: a path array mixes strings and integers, which no one East type holds |
+| `paths` | 0, 1 | unavailable: a path array mixes strings and integers, which no one East type holds |
+| `remainder` | 2 | unavailable: East has no builtin for it |
+| `rint` | 0 | unavailable: East has no builtin for it |
+| `scalb` | 2 | unavailable: East has no builtin for it |
+| `scalbln` | 2 | unavailable: East has no builtin for it |
+| `scan` | 1, 2 | unavailable: East regular expressions have no capture groups (§13.8) |
+| `setpath` | 2 | unavailable: a path array mixes strings and integers, which no one East type holds; write the path as field reads and indexes, .a.b[0] |
+| `significand` | 0 | unavailable: East has no builtin for it |
+| `sinh` | 0 | unavailable: East has no builtin for it |
+| `splits` | 1, 2 | unavailable: East regular expressions have no regex split |
+| `stderr` | 0 | excluded (§11, §13.7) |
+| `strflocaltime` | 1 | excluded (§11, §13.7) |
+| `tanh` | 0 | unavailable: East has no builtin for it |
+| `tgamma` | 0 | unavailable: East has no builtin for it |
+| `tostream` | 0 | unavailable: a path array mixes strings and integers, which no one East type holds |
+| `truncate_stream` | 1 | unavailable: a path array mixes strings and integers, which no one East type holds |
+| `y0` | 0 | unavailable: East has no builtin for it |
+| `y1` | 0 | unavailable: East has no builtin for it |
+| `yn` | 2 | unavailable: East has no builtin for it |
+<!-- /catalog -->
 
 ---
 
@@ -564,21 +812,108 @@ are the same wherever the checker runs.
 | `arity` | A builtin or `def` called with the wrong number of arguments |
 | `ambiguous_output` | Outputs, or array elements, of types with no common type |
 | `cannot_infer` | A `reduce`, `foreach` or recursive `def` whose type does not converge |
-| `unsupported` | An excluded builtin (§11), an async function, a tooling builtin outside tooling |
+| `unsupported` | An excluded builtin (§11), an async function, a tooling builtin outside tooling, a builtin East cannot define (§13.17) |
+| `array_builtin_on_element` | An array builtin run on each element of a stream, as in `to_entries[] \| … \| sort_by(…)`: an error, since its input has the wrong type; the fix collects the stream |
 
-**Lints** are warnings:
+**Lints** are warnings; the program still checks:
 
 - **`duplicate_outputs`**: `select(f)`, where `f` gives many values, emits
-  its input once per match. The lint suggests `any(f; cond)`.
+  its input once per match. The fix tests the generator with `any`.
 
   ```jq
   [.orders[] | select(.lines[].sku == "BRK-100")]
   ```
   → warning `duplicate_outputs`. Fix: `[.orders[] | select(any(.lines[]; .sku == "BRK-100"))]`.
 
-- **`array_builtin_on_element`**: an array builtin applied to each element of
-  a stream, as in `to_entries[] | … | sort_by(…)`. It is really a
-  `type_mismatch`; the message suggests wrapping the stream in `[…]`.
+- **`duplicate_key`**: an object sets the same key twice; the last wins.
+- **`never_missing`**: `//=` on a value that is never null changes nothing.
+- **`long_range`**: a `range` of literals gives more values than a query
+  returns by default (1 000).
+
+**Fixes** are text edits, and the query editor turns them into edits of its
+steps (#933):
+
+| Diagnostic | Fix | Edit |
+|---|---|---|
+| `unknown_field`, `unknown_case`, `ambiguous_output` of fields side by side | "Use {suggestion}" | replaces the span with the first suggestion (`{id, customer_id}` for `.id, .customer_id`) |
+| a payload field read un-narrowed where its value is needed | "Narrow first" | puts `select(.F.type == "c") \| ` before the read (inside `map(` when the read is), or splits `.a[].F.value.x` at its `[]` |
+| a whole variant compared with a string | "Use .type" | appends `.type` |
+| an `Option<T>` where a value is needed | "Skip nulls" | puts `values \| ` before the builtin |
+| `.[]` on an `Option` | "Use {form}?" | appends `?` |
+| `array_builtin_on_element` | "Collect {stream} first" | wraps the pipe segments from the stream to the builtin in `[…]` |
+| `duplicate_outputs` | "Use any({generator}; …)" | rewrites `select(.x[] \| c)` and `select(.x[].y == v)` as `select(any(.x[]; …))` |
+
+**The templates.** Every sentence the checker says, from `messages.ts`, with
+`{placeholders}` for what varies; the python twin says the same (#926). A type
+prints as `describeType` prints it: `Integer`, `Option<Float>`,
+`Array<String>`, `Dict<String, Float>`, `Struct{id: Integer, total: Float}`
+(six fields, then `…`; two levels, then `Struct{…}`), `Variant{a, b}`. `a`
+before a type is `an` before a vowel.
+
+<!-- messages: written by `make query-corpus` from src/query/jq/messages.ts -->
+| Code | Message |
+|---|---|
+| `unknown_field` | unknown_field: {.name} is not a field of {T}. |
+| `unknown_field` | unknown_field: {.name} is not a field of {T}. Did you mean {.suggestion}? |
+| `unknown_field` | unknown_field: {.name} is not a dataset in this workspace. |
+| `unknown_field` | unknown_field: {.name} is not a dataset in this workspace. Did you mean {.suggestion}? |
+| `unknown_field` | unknown_field: {.name} is not a field of any case of this variant. |
+| `unknown_field` | unknown_field: {.name} is not a field of any case of this variant. Did you mean {.suggestion}? |
+| `unknown_field` | unknown_field: {.name} is not a field of {path}: a variant reads as {type, value}. |
+| `unknown_case` | unknown_case: {path} has no case {"case"}; its cases are {a}, {b} and {c}. |
+| `unknown_case` | unknown_case: {path} has no case {"case"}. Did you mean {"suggestion"}? |
+| `unknown_case` | unknown_case: type gives "{a}", "{b}" and "{c}", never {"name"}. |
+| `unknown_case` | unknown_case: type never gives {"name"}. Did you mean {"suggestion"}? |
+| `unknown_function` | unknown_function: {name}/{arity} is not a builtin or a def. |
+| `unknown_function` | unknown_function: {name}/{arity} is not a builtin or a def. Did you mean {suggestion}? |
+| `unknown_function` | unknown_function: ${name} is not bound here. |
+| `unknown_function` | unknown_function: there is no label ${name} around this break. |
+| `arity` | arity: {name} takes 1 argument, not {n}. |
+| `arity` | arity: {name} takes {a} and {b} arguments, not {n}. |
+| `type_mismatch` | type_mismatch: {.name} reads a field, but its input is {T}. |
+| `not_iterable` | not_iterable: {form} needs an array; its input is {T}. |
+| `not_iterable` | not_iterable: {form} needs an array; its input is {T}. Use {form}? to skip null. |
+| `not_indexable` | not_indexable: {target} is {T}. |
+| `type_mismatch` | type_mismatch: {form} needs {a\|an} {K} key; {key} is {T}. |
+| `type_mismatch` | type_mismatch: {key} is {T}, and a dict's keys must be immutable. |
+| `type_mismatch` | type_mismatch: .[a:b] needs Integer bounds, got {T}. |
+| `type_mismatch` | type_mismatch: {form} on a struct needs a literal field name; a computed name needs a dict. |
+| `type_mismatch` | type_mismatch: {op} compares {L} with {R}. |
+| `type_mismatch` | type_mismatch: Integer == Float is never true here. |
+| `type_mismatch` | type_mismatch: Integer != Float is always true here. |
+| `type_mismatch` | type_mismatch: {L} {op} {R} is not defined. |
+| `type_mismatch` | type_mismatch: - negates a number, not {T}. |
+| `type_mismatch` | type_mismatch: {.F} is {T}; variants read as {type, value} — compare {.F}.type with a case name. |
+| `type_mismatch` | type_mismatch: {path} is {T} here — only the "{case}" case of {.F} has {field}. Narrow first with select({.F}.type == "{case}"). |
+| `type_mismatch` | type_mismatch: {name} needs {what}; its input is {T}. |
+| `type_mismatch` | type_mismatch: {name} needs a string; its input is DateTime. Compare its parts (year == 2026 and month == 9), or its text (todate \| {name}(…)). |
+| `type_mismatch` | type_mismatch: {name}'s {nth} argument must be {what}, not {T}. |
+| `type_mismatch` | type_mismatch: {name}'s {nth} argument must be {what}, written in the query. |
+| `type_mismatch` | type_mismatch: {"text"} is not an ISO-8601 date — DateTime literals are parsed at check time. |
+| `type_mismatch` | type_mismatch: {range(…)} yields nothing. |
+| `type_mismatch` | type_mismatch: {"pattern"} is not an East regular expression: {reason}. |
+| `type_mismatch` | type_mismatch: {name}'s replacement can interpolate only the pattern's named groups, as \(.name). |
+| `ambiguous_output` | ambiguous_output: {del(…)} leaves values of different types where one type must hold them all. |
+| `type_mismatch` | type_mismatch: an object's keys are all written as names, or all computed — a struct or a dict, not both. |
+| `ambiguous_output` | ambiguous_output: {A} and {B} have no common type. |
+| `cannot_infer` | cannot_infer: the accumulator of this {reduce\|foreach\|…} is {A}, then {B}; start it with a value of the final type. |
+| `cannot_infer` | cannot_infer: {name} does not settle on one type for this input. Use recurse, while or until. |
+| `unsupported` | unsupported: {name} is excluded — queries are deterministic and have no host access. |
+| `unsupported` | unsupported: {name} is not available in queries: {reason}. |
+| `unsupported` | unsupported: {name} is not available in queries yet. |
+| `unsupported` | unsupported: {name} needs the TypeScript IR printers; use it in e3 query. |
+| `unsupported` | unsupported: reading the whole root loads every dataset — name them: .{a}, .{b}. |
+| `unsupported` | unsupported: reading the whole root loads every dataset — name them: .{a}, .{b}, .{c}, …. |
+| `unsupported` | unsupported: call cannot run an async function. |
+| `unsupported` | unsupported: {name} calls itself and takes a filter parameter. Use recurse, while or until. |
+| `unsupported` | unsupported: regex flag "{flag}" — East regular expressions take the flags g and i. |
+| `unsupported` | unsupported: %{code} — strftime and strptime take %Y %m %d %H %M %S %b %B %a %A %F %T and %%. |
+| `duplicate_outputs` | duplicate_outputs: select({generator} \| …) emits the row once per matching element. Use any({generator}; …). |
+| `array_builtin_on_element` | array_builtin_on_element: {name} needs an array, but runs here on each element of {stream}, which is {T}. Collect the stream first: [{…}]. |
+| `duplicate_key` | duplicate_key: {"key"} is set twice in this object; the last one wins. |
+| `never_missing` | never_missing: {path} is {T}, never null, so //= changes nothing. |
+| `long_range` | long_range: {range(…)} gives {count} values; a query returns 1 000 at most by default. |
+<!-- /messages -->
 
 ---
 
@@ -603,7 +938,13 @@ Integer operations stay Integer, and `/` gives a Float (§6).
 ### 13.4 DateTime is a type
 
 It compares with ISO-8601 literals parsed when the query is checked, and
-`fromdateiso8601` accepts milliseconds and offsets (§7).
+`fromdateiso8601` accepts milliseconds and offsets (§7). `fromdate`,
+`fromdateiso8601` and `strptime` give a DateTime, not epoch seconds or jq's
+broken-down time; `todate` writes East's RFC 3339 form
+(`2026-04-27T09:00:00.000+00:00`, not jq's `2026-04-27T09:00:00Z`); `strftime`
+and `strptime` take `%Y %m %d %H %M %S %b %B %a %A %F %T` and `%%`; and a
+string builtin on a DateTime is a `type_mismatch` that names `todate` and the
+parts.
 
 ### 13.5 A program's outputs share one element type
 
@@ -619,7 +960,10 @@ The builtins of §11 are `unsupported`.
 
 ### 13.8 Regular expressions are East's
 
-ECMAScript-style, not Oniguruma (§10).
+ECMAScript-style, not Oniguruma (§10), with the flags `g` and `i`. East's
+regular expressions have no capture groups, so `match`, `capture`, `scan`,
+`splits` and `split/2` are unavailable, and a `sub` / `gsub` replacement
+interpolates only the pattern's named groups.
 
 ### 13.9 `tostring` and `tojson` are East's
 
@@ -639,6 +983,49 @@ does (§11).
 ### 13.12 `keys_unsorted` on a Struct gives the declared field order
 
 (§11)
+
+### 13.13 A recursive `def` with a filter parameter is unsupported
+
+A `def` that calls itself and takes a filter parameter (`def f(g): …, f(g)`)
+is `unsupported`, suggesting `recurse`, `while` or `until`. One with value
+parameters only is inferred by a fixpoint (§5).
+
+### 13.14 `error(v)` takes any type, and its message is `v`'s East text
+
+`try error(v) catch .` gives `v` printed as East text, a String.
+
+### 13.15 `add` of no values of a type with an identity gives the identity
+
+`add` on an empty array of numbers, strings, arrays or dicts gives `0`, `0.0`,
+`""`, `[]` or `{}`, where jq gives `null`: its type is the element type. With
+no identity (structs) it is an `Option`. `[] | add`, whose elements have no
+type, is `null`.
+
+### 13.16 A value that can be null is checked where a value is needed
+
+jq raises an error at run time when a builtin that needs a value meets `null`.
+The checker refuses an `Option<T>` there when the query is checked, with the
+fixes "Skip nulls" (`values | `), "Use .x[]?" and "Narrow first" (§12). `+`,
+`//`, `length`, comparisons and field reads take `null`, as in jq.
+
+### 13.17 Builtins East cannot define are unavailable
+
+A builtin with no definition by East's builtins is `unsupported`, saying why
+(§10): the path builtins (`path`, `paths`, `getpath`, `setpath`, `delpaths`,
+`tostream`, `fromstream`, `truncate_stream`), whose path arrays mix strings
+and integers; `JOIN`, whose pairs mix two types; `fromjson`, whose result has
+no static type; `implode`, `explode`, `@base64d` and `@base32d`; the capture
+builtins (§13.8); `have_decnum` and `have_literal_numbers`; and the math
+builtins East's Float lacks (`atan`, `cbrt`, `gamma`, …).
+
+### 13.18 `ascii_downcase` and `ascii_upcase` map all of Unicode
+
+They are East's `StringLowerCase` and `StringUpperCase`, so `"À"` becomes
+`"à"` too.
+
+### 13.19 `tonumber` on a string gives a Float
+
+`"12" | tonumber` is `12.0`; a number is returned as it is.
 
 ---
 
@@ -737,11 +1124,18 @@ editor turns the fixes it recognises into edits of its steps.
 
 **The checker's rewrites**, so that no runtime parses text:
 
-- an ISO string compared with a DateTime becomes a DateTime literal;
+- an ISO string compared with a DateTime, used as a DateTime key or passed as
+  a DateTime argument becomes a DateTime literal (`"2026-09-01"` is midnight
+  UTC, and a date-time with no offset is UTC);
 - a number literal takes its operand's type;
 - a `strftime` or `strptime` format becomes a token array;
 - a regular expression is validated;
-- on an e3 root, `keys` and `has("name")` are answered from its type (§17).
+- on an e3 root, `keys`, `keys_unsorted` and `has("name")` are answered from
+  its type (§17).
+
+A checked program prints (§18.4) as text that checks to it again: a DateTime
+literal prints as its RFC 3339 string, a token array as its format, and a
+folded `keys` as an array of strings.
 
 **Evolution.** Operators, builtin names and error codes are strings. A
 structural change is a new case of `QueryType`, sorting after `v1`, and every
@@ -884,7 +1278,8 @@ Every program has one canonical text:
   JSON string otherwise;
 - literals as East prints them: Integers as digits, and Floats in East's
   shortest round-trip form with `.0` when integral (`100.0`, `1e+21`). NaN and
-  ±Infinity print as `nan`, `infinite` and `-infinite`;
+  ±Infinity print as `nan`, `infinite` and `-infinite`. A literal the checker
+  rewrote prints as the text it came from (§14);
 - strings with JSON's minimal escapes;
 - parentheses only where the grammar needs them: around a looser operand, a
   binding with more text after it, and an Integer or `..` before a postfix;

@@ -10,11 +10,15 @@
  * @packageDocumentation
  */
 
+import { DateTimeFormatTokenType, type DateTimeFormatToken } from "../../datetime_format/types.js";
 import { decodeBeast2 } from "../../serialization/beast2/index.js";
 import { printFor } from "../../serialization/east.js";
-import { BooleanType, FloatType, IntegerType, StringType } from "../../types.js";
+import { toJSONFor } from "../../serialization/json.js";
+import { fromEastTypeValue } from "../../type_of_type.js";
+import { BooleanType, DateTimeType, FloatType, IntegerType, StringType, isTypeEqual, type EastType } from "../../types.js";
 import { isJqKeyword } from "./lex.js";
 import { childPath, type JqNode, type JqPattern, type JqRange, type JqSpans } from "./spans.js";
+import { formatText } from "./strftime.js";
 
 /** Options for {@link printJq}. */
 export interface PrintJqOptions {
@@ -80,6 +84,7 @@ const printBoolean = printFor(BooleanType);
 const printInteger = printFor(IntegerType);
 const printFloat = printFor(FloatType);
 const printString = printFor(StringType);
+const dateTimeText = toJSONFor(DateTimeType);
 
 /** A literal's text and how it prints. */
 interface Literal {
@@ -99,11 +104,27 @@ interface Literal {
  *
  * @param blob - the literal's self-describing beast2 blob
  * @returns its text, as East prints the value
- * @throws {Error} When its type is not one a jq literal writes.
+ * @throws {Error} When its type is not one a jq literal writes, nor one the
+ *   checker rewrites a literal to.
+ *
+ * @remarks
+ * A checked program holds literals the checker rewrote (`devdocs/QUERY.md`
+ * §14), and each prints as the text it was rewritten from, which checks to
+ * it again: a DateTime as its RFC 3339 string, a format's tokens as the
+ * format, and the names a folded `keys` gives as an array of strings.
  */
 function literalOf(blob: Uint8Array): Literal {
   const { type, value } = decodeBeast2(blob);
+  const t = fromEastTypeValue(type);
+  if (t.type === "Array" && isTypeEqual(t.value as EastType, DateTimeFormatTokenType)) {
+    return { type: "String", text: printString(formatText(value as DateTimeFormatToken[])), negative: false, digits: false };
+  }
+  if (t.type === "Array" && (t.value as EastType).type === "String") {
+    return { type: "Array", text: `[${(value as string[]).map(name => printString(name)).join(", ")}]`, negative: false, digits: false };
+  }
   switch (type.type) {
+    case "DateTime":
+      return { type: "String", text: printString(dateTimeText(value) as string), negative: false, digits: false };
     case "Null":
       return { type: "Null", text: "null", negative: false, digits: false };
     case "Boolean":
