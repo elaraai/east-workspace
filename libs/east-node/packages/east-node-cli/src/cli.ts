@@ -5,19 +5,17 @@
 
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
-import { extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
-import { runProgram, UsageError, type RunProgramOptions } from './runner.js';
-import { mergeBlobs } from './merge.js';
-import { writeSnapshot, readSnapshot } from './snapshot.js';
+import { printResult, runProgram, UsageError } from './runner.js';
+import { executeUnit, readUnit } from './exec.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 import { exportFunctionsFromModule } from './export-functions.js';
 import { serve as serveLsp } from './lsp.js';
 import { checkModule, formatFinding } from './check.js';
-import { East } from '@elaraai/east';
+import { East, UnitResultType, encodeBeast2For, type UnitResult } from '@elaraai/east';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string; name: string };
@@ -27,24 +25,6 @@ interface RunOptions {
     input?: string[];
     output?: string;
     verbose?: boolean;
-    snapshot?: string;
-    fromSnapshot?: string;
-    emit?: string;
-    stream?: string[];
-    merge?: string;
-    union?: boolean;
-    lazyInputs?: string;
-    exitWithParent?: boolean;
-}
-
-interface MergeOptions {
-    package?: string[];
-    input: string[];
-    output?: string;
-    verbose?: boolean;
-    merge?: string;
-    union?: boolean;
-    range?: string;
     exitWithParent?: boolean;
 }
 
@@ -52,54 +32,18 @@ interface MergeOptions {
  * Collects a repeated option's values.
  *
  * Every repeatable flag takes ONE value and is given again for the next —
- * `-i a -i b`, `--stream 0 --stream 1` — which is the grammar east-c and
- * east-py accept and all three READMEs document. Commander's variadic form
- * (`<file...>`) would also swallow the following positional, so
- * `run --stream 0 program.beast2` lost its IR file and reported it missing.
+ * `-i a -i b`, `-p x -p y` — which is the grammar east-c and east-py accept
+ * and all three READMEs document. Commander's variadic form (`<file...>`)
+ * would also swallow the following positional, so `run -i a.beast2
+ * program.beast2` would lose its IR file and report it missing.
  */
 function collect(value: string, previous: string[]): string[] {
     return [...previous, value];
 }
 
-/** The `--exit-with-parent` flag's help, shared by `run` and `merge`. */
+/** The `--exit-with-parent` flag's help, shared by `run` and `exec`. */
 const EXIT_WITH_PARENT_HELP =
     'Exit as soon as stdin reaches end of file — for a parent that holds a stdin pipe it never writes to, and takes the runner down with it';
-
-/** Parses the streaming-execution flags into runner options. */
-function streamingOptions(options: RunOptions): RunProgramOptions {
-    const out: RunProgramOptions = {};
-    if (options.emit !== undefined) {
-        if (options.emit !== 'array' && options.emit !== 'set' && options.emit !== 'dict') {
-            throw new UsageError(`--emit must be one of array, set or dict, got '${options.emit}'`);
-        }
-        out.emit = options.emit;
-    }
-    if (options.merge !== undefined) {
-        if (out.emit !== 'dict') throw new UsageError('--merge applies to --emit dict only');
-        out.merge = options.merge;
-    }
-    if (options.union) {
-        if (out.emit !== 'set') throw new UsageError('--union applies to --emit set only');
-        out.union = true;
-    }
-    if (options.stream !== undefined) {
-        out.streamInputs = options.stream.map((raw) => {
-            const index = Number(raw);
-            if (!Number.isInteger(index) || index < 0) {
-                throw new UsageError(`--stream must be a non-negative input index, got '${raw}'`);
-            }
-            return index;
-        });
-    }
-    if (options.lazyInputs !== undefined) {
-        const bytes = Number(options.lazyInputs);
-        if (!Number.isFinite(bytes) || bytes < 0) {
-            throw new UsageError(`--lazy-inputs must be a byte threshold (0 disables), got '${options.lazyInputs}'`);
-        }
-        out.lazyInputBytes = bytes;
-    }
-    return out;
-}
 
 interface VersionOptions {
     package?: string[];
@@ -121,7 +65,7 @@ interface ExportFunctionsOptions {
 }
 
 /**
- * Print `message` to stderr and exit 1 once the write has FLUSHED.
+ * Print `message` to stderr and exit with `code` once the write has FLUSHED.
  *
  * A write to `process.stderr` is asynchronous on a POSIX pipe (and on a
  * Windows terminal), so `console.error(...)` followed by `process.exit(1)` can
@@ -131,10 +75,10 @@ interface ExportFunctionsOptions {
  * resolves (the process exits from the write callback), so `return fail(...)`
  * ends the caller exactly like the exit it replaces.
  */
-function fail(message: string): Promise<never> {
-    process.exitCode = 1;
+function fail(message: string, code = 1): Promise<never> {
+    process.exitCode = code;
     return new Promise(() => {
-        process.stderr.write(`${message}\n`, () => process.exit(1));
+        process.stderr.write(`${message}\n`, () => process.exit(code));
     });
 }
 
@@ -186,59 +130,14 @@ function startLifeline(options: { exitWithParent?: boolean }): void {
 async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<void> {
     startLifeline(options);
     try {
-        // --from-snapshot is exclusive with <ir_file>, -i, -p
-        if (options.fromSnapshot) {
-            if (irFile || (options.input && options.input.length > 0) ||
-                (options.package && options.package.length > 0)) {
-                return fail('Error: --from-snapshot cannot be combined with <ir_file>, -i, or -p');
-            }
-            const ex = await readSnapshot(options.fromSnapshot);
-            try {
-                const platformFns = await loadPlatforms(ex.packages);
-                await runProgram(
-                    ex.irPath,
-                    platformFns,
-                    ex.packages,
-                    ex.inputPaths,
-                    options.output,
-                    { verbose: options.verbose ?? false, ...streamingOptions(options) },
-                );
-            } finally {
-                ex.cleanup();
-            }
-            return;
-        }
-
         if (!irFile) {
-            return fail('Error: Missing <ir_file> argument (or use --from-snapshot PATH)');
+            return fail('Error: Missing <ir_file> argument');
         }
 
         const packages = options.package ?? [];
         if (packages.length === 0) {
             return fail('Error: At least one platform package is required.\n' +
                 'Example: east-node run program.beast2 -p @elaraai/east-node-std');
-        }
-
-        // The manifest carries no streaming flags (format v1), so a captured
-        // emit/stream invocation would replay with the wrong arity — refuse
-        // at capture with the fix instead of failing confusingly at replay.
-        if (options.snapshot && (options.emit !== undefined || options.stream !== undefined)) {
-            return fail(
-                'Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no ' +
-                'streaming flags); replay with --from-snapshot passing --emit/--stream explicitly',
-            );
-        }
-
-        // Write the snapshot BEFORE execution so crashes still leave the bundle behind.
-        if (options.snapshot) {
-            await writeSnapshot({
-                outPath:    options.snapshot,
-                irPath:     irFile,
-                inputPaths: options.input ?? [],
-                packages,
-                cliVersion: `${pkg.name} ${pkg.version}`,
-            });
-            if (options.verbose) console.error(`Snapshot: ${options.snapshot}`);
         }
 
         const platformFns = await loadPlatforms(packages);
@@ -249,7 +148,7 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
             packages,
             options.input ?? [],
             options.output,
-            { verbose: options.verbose ?? false, ...streamingOptions(options) }
+            options.verbose ?? false,
         );
     } catch (err) {
         // A plain (non-East) error — e.g. one thrown by a custom platform
@@ -269,38 +168,26 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
 }
 
 /**
- * `east-node merge` (#770): k sorted Set/Dict blobs of one type into one
- * canonical blob, in a single pass — the fan-in of a partitioned task's
- * keyed partials.
+ * `east-node exec <unit>`: the runner protocol. The unit's work is done, its
+ * output written and its result recorded where it says; the exit status is 0
+ * for an `ok` outcome and 1 for a failure, whose message and locations also go
+ * to stderr. A unit that cannot be read, or a result that cannot be written,
+ * leaves no result: exit 2.
  */
-async function cmdMerge(options: MergeOptions): Promise<void> {
+async function cmdExec(unitPath: string, options: { verbose?: boolean; exitWithParent?: boolean }): Promise<void> {
     startLifeline(options);
+    let result: UnitResult;
     try {
-        // The same rules, in the same words, as east-c and east-py: a merge
-        // needs at least one input, an output, one fold at most, and writes a
-        // beast2 stream exactly as `run --emit` does.
-        if (options.input.length === 0) {
-            return fail('Error: merge requires at least one -i input');
-        }
-        if (options.output === undefined) {
-            return fail('Error: merge requires -o FILE');
-        }
-        if (options.merge !== undefined && options.union) {
-            return fail('Error: --merge and --union are two folds — give one');
-        }
-        if (extname(options.output).toLowerCase() !== '.beast2') {
-            return fail('Error: merge requires a .beast2 output file (-o)');
-        }
-        const platformFns = await loadPlatforms(options.package ?? []);
-        mergeBlobs(options.input, options.output, {
-            ...(options.merge !== undefined && { mergePath: options.merge }),
-            ...(options.range !== undefined && { rangePath: options.range }),
-            union: options.union ?? false,
-            platformFns,
-            verbose: options.verbose ?? false,
-        });
+        const read = readUnit(unitPath);
+        result = await executeUnit(read);
+        writeFileSync(read.at(read.unit.result), encodeBeast2For(UnitResultType)(result));
     } catch (err) {
-        return fail(`Error: ${(err as Error).message}`);
+        return fail(`Error: exec ${unitPath}: ${(err as Error).message ?? String(err)}`, 2);
+    }
+    if (options.verbose) printResult(result);
+    if (result.outcome.type === 'failed') {
+        const { message, locations } = result.outcome.value;
+        return fail(['Error: ' + message, ...locations.map((l) => `  at ${l.filename}:${l.line}:${l.column}`)].join('\n'));
     }
 }
 
@@ -401,36 +288,17 @@ export function main(): void {
         .option('-i, --input <file>', 'Input data file (can be repeated, order matches function parameters)', collect, [])
         .option('-o, --output <file>', 'Output file path for result')
         .option('-v, --verbose', 'Enable verbose output')
-        .option('--snapshot <path>', 'Write a .east-snapshot bundle (IR + inputs + manifest)')
-        .option('--from-snapshot <path>',
-            'Replay from a .east-snapshot bundle (exclusive with <ir_file>, -i, -p)')
-        .option('--emit <kind>',
-            "Write the output incrementally from the function's trailing emit parameter (array|set|dict)")
-        .option('--merge <file>',
-            'With --emit dict: fold equal keys with the East function (K, V, V) -> V in <file>, in emission order')
-        .option('--union', 'With --emit set: collapse equal elements')
-        .option('--stream <index>',
-            'Feed the given -i input (0-based) lazily, segment-by-segment (can be repeated)', collect, [])
-        .option('--lazy-inputs <bytes>',
-            'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdRun);
 
     program
-        .command('merge')
-        .description('Merge sorted Set or Dict blobs of one type into one, in a single pass: equal keys fold with ' +
-            'the East function (K, V, V) -> V in --merge <file> (Dict), or collapse under --union (Set); without ' +
-            'a fold an equal key is an error. The output is what `run --emit` writes for the same entries emitted ascending')
-        .option('-i, --input <file>', 'An input blob (can be repeated; equal keys fold in this order)', collect, [])
-        .option('-o, --output <file>', 'The merged blob')
-        .option('-p, --package <package>', "Platform package the --merge function's platform calls need (can be repeated)", collect, [])
-        .option('-v, --verbose', 'Enable verbose output')
-        .option('--merge <file>', 'Dict inputs: fold equal keys with the East function (K, V, V) -> V in <file>, in input order')
-        .option('--union', 'Set inputs: the first of equal elements stands')
-        .option('--range <file>',
-            "Merge only the keys in [from, to): a beast2 blob of Struct{from: Option<K>, to: Option<K>} over the inputs' key type; an absent bound is open")
+        .command('exec')
+        .description('Execute a unit, the runner protocol: run a program, or merge the parts of an output, as the unit file ' +
+            'says, write the output by its kind and record the result; exit 0 when it is ok and 1 when it failed')
+        .argument('<unit>', 'The unit file (.beast2); relative paths in it are relative to its directory')
+        .option('-v, --verbose', 'Print where the time went and the peak memory')
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
-        .action(cmdMerge);
+        .action(cmdExec);
 
     program
         .command('transpile')

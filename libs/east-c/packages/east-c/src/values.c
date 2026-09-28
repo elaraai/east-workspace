@@ -1208,7 +1208,9 @@ EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len, bool ow
                           EastValue *owner, void (*release)(void *ctx, uint8_t *data, size_t len),
                           void *release_ctx)
 {
-    if (!pages || !data) return NULL;
+    /* A manifest's pager reads its segments itself, so its value holds no
+     * bytes at all. */
+    if (!pages || (!data && len != 0)) return NULL;
     EastValue *v = alloc_value(EAST_VAL_PAGED);
     if (!v) return NULL;
     v->data.paged.pages = pages;

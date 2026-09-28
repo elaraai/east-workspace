@@ -59,6 +59,7 @@ export interface ExecutionStatusDetails {
  * @remarks
  * All methods take repo and workspace parameters because cloud storage
  * (DynamoDB) needs both to identify an execution uniquely across repositories.
+ * An execution's id is its run's UUIDv7, which the orchestrator mints.
  */
 export interface ExecutionStateStore {
   /**
@@ -172,18 +173,6 @@ export interface ExecutionStateStore {
     executionId: string,
     sinceSeq: number
   ): Promise<ExecutionEvent[]>;
-
-  /**
-   * Get the next execution ID for a workspace.
-   *
-   * For local storage, returns auto-incrementing string IDs ("1", "2", ...).
-   * For cloud storage, may return UUIDs or other unique identifiers.
-   *
-   * @param repo - Repository identifier
-   * @param workspace - Workspace name
-   * @returns The next execution ID as a string
-   */
-  nextExecutionId(repo: string, workspace: string): Promise<string>;
 
   /**
    * Delete an execution state.

@@ -15,6 +15,23 @@ export class InternalError extends Error {
   }
 }
 
+/**
+ * A read that a lazy collection value served from its blob or manifest
+ * failed: the bytes are corrupt, or a segment could not be fetched.
+ *
+ * Compiled East code raises it as an {@link EastError} at the location of the
+ * builtin, loop or platform call that made the read, which is where east-c
+ * reports it.
+ *
+ * @internal
+ */
+export class LazyReadError extends Error {
+  constructor(message: string, options: { cause?: unknown } = {}) {
+    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    this.name = "LazyReadError";
+  }
+}
+
 export class EastError extends Error {
   public location: Location[];
   public eastMessage: string;

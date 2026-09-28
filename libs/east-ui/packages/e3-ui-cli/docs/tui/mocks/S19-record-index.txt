@@ -1,0 +1,36 @@
+ e3-ui  demo-repo › main › plans                                                                           ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ plans   ▌1 State▐  2 History                                            RECORD · 48,200 rows · 3 mutations · 2 indexes 
+ .records.plans · index by_store · String key · joins each row · 48,200 entries · 1.9 MB                                
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+▌▾ Bakery                                    sku-00017                                                                 ▲
+   · Key                                     "sku-00017"                                                               █
+   ▸ Row                                     Bakery · 2025-09-01 00:00:00 · 1204 · open                                │
+ ▸ Bakery                                    sku-00032                                                                 │
+ ▸ Bakery                                    sku-00041                                                                 │
+ ▸ Bakery                                    sku-00058                                                                 │
+ ▸ Bakery                                    sku-00063                                                                 │
+ ▸ Bakery                                    sku-00077                                                                 │
+ ▸ Bakery                                    sku-00084                                                                 │
+ ▸ Bakery                                    sku-00096                                                                 │
+ ▸ Bakery                                    sku-00105                                                                 │
+ ▸ Bakery                                    sku-00119                                                                 │
+ ▸ Bakery                                    sku-00124                                                                 │
+ ▸ Bakery                                    sku-00138                                                                 │
+ ▸ Bakery                                    sku-00142                                                                 │
+ ▸ Bakery                                    sku-00157                                                                 │
+ ▸ Bakery                                    sku-00161                                                                 │
+ ▸ Bakery                                    sku-00170                                                                 │
+ ▸ Bakery                                    sku-00186                                                                 │
+ ▸ Bakery                                    sku-00193                                                                 │
+ ▸ Bakery                                    sku-00204                                                                 │
+ ▸ Bakery                                    sku-00219                                                                 │
+ ▸ Bakery                                    sku-00225                                                                 │
+ ▸ Bakery                                    sku-00231                                                                 │
+ ▸ Bakery                                    sku-00248                                                                 │
+ ▸ Bakery                                    sku-00250                                                                 ▼
+ rows 1–26 of 48,202 · 0.00%                                               ▾ expand all  ▸ collapse all  s save .beast2 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   → expand   ← collapse   /find <key>   /goto <row|%>   /index <name>   s save   2 history                     

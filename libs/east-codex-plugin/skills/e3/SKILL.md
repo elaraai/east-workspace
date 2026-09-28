@@ -1,11 +1,16 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Bounded-memory dataflow over huge collection datasets (e3.partitionTask, e3.streamTask), (3) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (4) Working with workspaces and packages, (5) Content-addressable caching and reactive dataflow execution, (6) Calling functions authored in python, or in another node package, from a task (East.importFunction — a workspace member is exported and linked by e3.export itself; { functions } / --functions for one built elsewhere)."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
 
-e3 is a durable dataflow execution engine for East programs with content-addressable caching. It is the platform's **Compute** layer — and East + e3 solutions are decision-oriented: a dataflow exists to put auditable evidence behind a business decision, not to move data for its own sake.
+e3 runs East programs as a durable dataflow over content-addressed data: every
+value is an object named by its hash, every task execution is cached by its
+inputs, and a change re-runs only what it reaches. It is the platform's
+**Compute** layer — and East + e3 solutions are decision-oriented: a dataflow
+exists to put auditable evidence behind a business decision, not to move data
+for its own sake.
 
 ## Before writing code — search the example index
 
@@ -33,941 +38,591 @@ Nothing is injected for you; the search is the step.
 import { East, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 
-// Define an input (its initial value is a source: inline, or a file)
 const name = e3.input('name', StringType, variant('value', 'World'));
+const greet = e3.task('greet', [name],
+  East.function([StringType], StringType, ($, n) => East.str`Hello, ${n}!`));
 
-// Define a task
-const greet = e3.task(
-  'greet',
-  [name],
-  East.function([StringType], StringType, ($, n) =>
-    East.str`Hello, ${n}!`
-  )
-);
-
-// Bundle and export
-const pkg = e3.package('hello', '1.0.0', greet);
+const pkg = e3.package('hello', '1.0.0', greet);   // dependencies are collected
 await e3.export(pkg, '/tmp/hello.zip');
 export default pkg;
 ```
 
 ```bash
-# Create repository
 e3 repo create .
-
-# Deploy the package zip (imports + creates workspace + deploys)
-e3 workspace deploy . dev --from-zip /tmp/hello.zip
-# …or deploy straight from the TypeScript source (no manual export/zip):
-e3 workspace deploy . dev --from-source ./src/index.ts
-
-# Execute dataflow
+e3 workspace deploy . dev --from-source ./src/index.ts   # or --from-zip /tmp/hello.zip
 e3 dataflow run . dev
-
-# Get result (flat path: <ws>.<name>)
-e3 dataset get . dev.greet
+e3 dataset get . dev.greet                               # flat path: <ws>.<name>
 ```
 
 ## Decision Tree
 
 ```
-Task → What do you need?
-│
-├─ Authoring a package (SDK)
-│   ├─ Input dataset        → e3.input(name, type, source?) — variant('value', v) | variant('file', path)
-│   ├─ Record (audited state)→ e3.record(name, type, initial)
-│   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
-│   ├─ East function task   → e3.task(name, [inputs], fn, config?)
-│   ├─ Huge input, per-row / per-entity / reduce / re-key → e3.partitionTask(name, spec, fn)
-│   ├─ Huge input, one-pass fold in order / ingest → e3.streamTask(name, spec, fn)
-│   ├─ Shell command task   → e3.customTask(name, [inputs], outputType, cmd)
-│   ├─ Named function (RPC) → e3.function(name, fn, config?)
-│   ├─ Chain task outputs   → secondTask([firstTask.output], ...)
-│   ├─ Bundle               → e3.package(name, version, ...items)
-│   ├─ Export to zip        → e3.export(pkg, zipPath, { functions? })
-│   └─ Call a fn authored in python, or in another node package → East.importFunction(pkg, name, FunctionType) in the task body — a package of the
-│       uv or npm workspace is exported and linked by e3.export itself (no manual step); { functions } / --functions only for a manifest built elsewhere
-│
-├─ Repository
-│   ├─ Create               → e3 repo create <repo>
-│   ├─ Status / inspect     → e3 repo status <repo>
-│   ├─ List repos on server → e3 repo list <server-url>
-│   └─ Garbage collect      → e3 repo gc <repo> [--dry-run]
-│
-├─ Package operations
-│   ├─ Import from zip      → e3 package import <repo> <zip>
-│   ├─ Export to zip        → e3 package export <repo> <pkg> <zip>
-│   ├─ List                 → e3 package list <repo>
-│   └─ Remove               → e3 package remove <repo> <pkg>
-│
-├─ Workspace
-│   ├─ Deploy (import+create+deploy) → e3 workspace deploy <repo> <ws> --from-zip <zip>
-│   ├─ Deploy from TS source         → e3 workspace deploy <repo> <ws> --from-source <src.ts> [--functions <manifest…>]
-│   ├─ Deploy already-imported pkg   → e3 workspace deploy <repo> <ws> <pkg>[@<ver>]
-│   ├─ List workspaces               → e3 workspace list <repo>
-│   ├─ Inspect                       → e3 workspace status <repo> <ws>
-│   ├─ Export as package             → e3 workspace export <repo> <ws> <zip>
-│   └─ Remove                        → e3 workspace remove <repo> <ws>
-│
-├─ Running the dataflow
-│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [-j <n>] [-v]
-│
-├─ Datasets (read / write values)
-│   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
-│   ├─ Write a value        → e3 dataset set <repo> <ws.name> <file>
-│   ├─ Adopt a .beast2 file  → e3 dataset set <repo> <ws.name> --from-file <path> (by hash, never read whole)
-│   ├─ List all paths       → e3 dataset list <repo> <ws> [-l]
-│   ├─ Status (kind/type)   → e3 dataset status <repo> <ws.name>
-│   └─ Search               → e3 dataset find <repo> <ws> <pattern>
-│
-├─ Records (audited mutable state — mutations only, no raw set)
-│   ├─ Apply a mutation     → e3 mutate <repo> <record.mutation> [args...] -w <ws>
-│   ├─ Commit history       → e3 history <repo> <record> -w <ws> [--limit n] [--from hash]
-│   └─ Compact history      → e3 compact <repo> <record> -w <ws>
-│
-├─ Tasks (inspect / logs)
-│   ├─ List with status     → e3 task list <repo> <ws>
-│   └─ View / follow logs   → e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow] [--execution <taskHash>/<inputsHash>/<executionId>]
-│
-├─ Development workflow
-│   ├─ Watch + auto-deploy  → e3 watch <src.ts> <repo> <ws> [--start]
-│   ├─ Ad-hoc task run      → e3 run <repo> <pkg.task> [inputs...] -o <output>
-│   ├─ Call a function      → e3 call <repo> <pkg.fn> [args...] [-o <output>]
-│   └─ Convert formats      → e3 convert [input] --from <fmt> --to <fmt>
-│
-└─ Remote servers / auth
-    ├─ Log in               → e3 auth login <server>
-    ├─ Status               → e3 auth status
-    └─ Use remote repo      → e3 <cmd> http://server/repos/my-repo
+What do you need?
+├─ Author a package (@elaraai/e3)
+│   ├─ An input dataset          → e3.input(name, type, source?)   source: variant('value', v) | variant('file', path)
+│   ├─ A task — two questions: does the output fit in memory, can the work be split over an input? (see "Which task?")
+│   │   ├─ Fits, built in one pass       → e3.task(name, [inputs], fn, config?) — returns the output
+│   │   ├─ Too large, or built as you go → e3.streamTask(name, { inputs, output }, fn) — emits into e3.output.array | set | dict | fold
+│   │   └─ Split over an input, in pieces → wrap that input: e3.partition(dataset, { by? })
+│   ├─ A shell command           → e3.customTask(name, [inputs], outputType, command)
+│   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name, persists nothing
+│   ├─ Audited state             → e3.record + e3.mutation.reduce | edit | patch, e3.recordIndex
+│   ├─ A record's type changes   → e3.migration.value | rows | rekey(name, record, fn, { after? })
+│   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
+│   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
+│   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
+├─ Operate it from the shell     → the e3 CLI (below): deploy, run, read and write datasets, mutate records, gc
+└─ Drive it from code
+    ├─ A server, over HTTP       → @elaraai/e3-api-client
+    ├─ A local repository        → @elaraai/e3-core
+    └─ Serve repositories        → e3-api-server --repos <dir>, or createServer()
 ```
 
-## SDK Reference (@elaraai/e3)
+## Authoring a package
 
-### e3.input(name, type, source?)
+### Inputs — `e3.input(name, type, source?)`
 
-Define an input dataset. Addressed from the CLI as `<ws>.${name}` (storage path `<ws>/inputs/${name}` is internal).
-
-The third argument is always a **source variant** — there is no bare-value form:
+A dataset at `.inputs.<name>`, addressed `<ws>.<name>` from the CLI. The third
+argument is a source variant — a bare value is refused:
 
 | Source | Meaning |
 |---|---|
-| `variant('value', v)` | An inline value, carried in the package. |
-| `variant('file', path)` | A beast2 file on the machine that **deploys** the package. The package carries only the path; deploy adopts the file into the object store **by hash** (reflink, hard link, or one kernel copy — never read whole, never modified). Relative paths resolve against the working directory at export. |
+| `variant('value', v)` | Inline, carried in the package. |
+| `variant('file', path)` | A beast2 file on the machine that **deploys**. The package carries the path (relative paths resolve against the working directory at export); deploy takes the file in as the value. |
 | omitted | Unassigned until something sets it. |
 
 ```typescript
-const name = e3.input('name', StringType, variant('value', 'default'));
+const name  = e3.input('name', StringType, variant('value', 'default'));
 const count = e3.input('count', IntegerType);
-// A large delivery — the file IS the value: a new delivery under the same path
-// is a new hash, so only its consumers re-run (and unchanged partitions of a
-// partitionTask stay cached).
 const table = e3.input('table', ArrayType(RowType), variant('file', './deliveries/TABLE.beast2'));
 ```
 
-A `file` source is checked twice against the declared type: at `e3.export`
-(a schema drift is a build error naming the input and the first differing
-field) and at deploy, before the workspace is touched (a missing or drifted
-delivery fails the deploy with the previous deployment intact). A collection
-delivery must be an indexed, self-contained v5 blob — the at-rest contract
-every collection dataset keeps, and what lets runners page it and
-`partitionTask` carve it. Deliveries are immutable by contract: the object may
-be a hard link to the file, so replace a delivery with a new file rather than
-editing it in place.
+A `file` source:
+- is checked against the declared type at `e3.export` (drift is a build error
+  naming the input and the first differing field) and again at deploy, before
+  the workspace is touched;
+- may be any beast2 layout, but no segment of it may exceed 64 MiB: a large
+  value encoded whole is one such segment, refused — write it segmented, the
+  Writer's default;
+- is taken in without being read whole or modified: a collection a segment at a
+  time, as the store's own segments (a new delivery stores only the segments
+  that changed, and bytes seen before are not read again), any other value by
+  reflink, hard link or one copy — so replace a delivery with a new file, never
+  edit it in place;
+- is read on the machine that runs `e3 workspace deploy`, local repository or
+  not: against a server the CLI checks every delivery first, then streams each
+  after the deploy. A deploy made through the API leaves it unset;
+  `--skip-file-sources` defers it and prints the
+  `e3 dataset set <repo> <ws>.<name> --from-file <path>` that completes each.
 
-A `file` source is read on the machine that runs `e3 workspace deploy`, local
-repository or not. Against a server — a package spec, `--from-zip` or
-`--from-source` alike — the CLI checks every delivery before it touches the
-remote workspace, then streams each over the transfer protocol after the
-deploy (an unchanged delivery costs a round trip, not its bytes). The server
-never opens a path, so a deploy made straight through the API leaves those
-inputs unset. `--skip-file-sources` deploys without reading them and prints the
-`e3 dataset set <repo> <ws>.<name> --from-file <path>` that completes each.
+Every door into a dataset — `dataset set`, the API, the transfer, a file
+adopt — refuses bytes whose type is not **exactly** the declared type, since
+runners decode by it.
 
-Every door into a dataset — `e3 dataset set`, the API `PUT`, the transfer
-commit, a file adopt — checks the bytes' wire type **equals** the declared type
-(not merely assignable: runners decode by the declared type) and refuses a
-mismatch before writing anything, with the same one-line message everywhere.
+### Tasks — `e3.task(name, inputs, fn, config?)`
 
+Runs an East function once, as one unit, and returns its output at
+`.tasks.<name>.output`; chain tasks with `task.output`. A collection it returns
+is written segment by segment, but the body builds it whole: an output too large
+to hold is emitted instead (`e3.streamTask`). `config` is
+`{ runner?, environment?, role? }` — `role` is what e3-ui's `ui()` sets.
 
-### e3.task(name, inputs, fn, config?)
+Task inputs, on every runtime (a mutation's state included):
+- are **deeply frozen**: mutating one raises `cannot mutate a frozen value (task
+  inputs are immutable) — copy first`; derive a changed value from `.copy()`;
+- open **lazily** once a collection reaches 64 MiB (`EAST_LAZY_INPUT_BYTES`; `0`
+  decodes every input whole): size, iteration and keyed gets read a segment at a
+  time, with the same semantics — a memory knob, not a behaviour change. Only
+  elements carrying a `Ref` or a function decode whole.
 
-Define a task that runs an East function.
+Data that is not a dataset opens the same way inside a body —
+`FileSystem.openBeast(T, path)` for a beast2 file on the runner's disk,
+`blob.openBeast(T)` for bytes in hand — but the dataflow does not watch it:
+anything a task should react to is an input.
 
-Task inputs (every task kind) decode **deeply frozen** on every runtime —
-mutating one raises `cannot mutate a frozen value (task inputs are
-immutable) — copy first`; derive changed values from `.copy()`. Indexed
-beast2 collection inputs open **lazily** once they reach 64 MiB on the wire
-(`EAST_LAZY_INPUT_BYTES` tunes; a streamTask's `stream` input opens lazily
-at any size): size, iteration and keyed gets are then served per segment
-with no whole decode. The only element shapes that still decode whole are
-those carrying a `Ref` or a function; any operation the pager cannot serve
-hydrates once, transparently. Full mechanics under e3.streamTask below.
+| `config.runner` | Runs on |
+|---|---|
+| omitted | `{ runtime: 'east-node', platforms: ['@elaraai/east-node-std'] }` — every project has Node |
+| `{ runtime: 'east-py', platforms: ['east-py-std', 'east-py-io', 'east-py-datascience'] }` | Python |
+| `{ runtime: 'east-c', platforms: ['east-c-std'] }` | native, the lowest overhead |
+| `{ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }` | any command: e3 appends `run`'s arguments (`-i <input>` each, `-o <output>`, the program's file) |
 
-Datasets stay inputs — the lazy open is already there, and only a dataset
-takes part in the dataflow's hashing and reactivity. A large table delivered as
-a beast2 file becomes a dataset with `e3.input(name, T, variant('file', path))`
-(above), not a String path plus an open inside the body. Two in-expression
-opens give the same frozen, pager-served value for data that is NOT a
-dataset: `FileSystem.openBeast(T, path)` (the std family — every stock
-runner, so a python-authored function using it links into an east-c task)
-for a beast2 collection file on the runner's disk — a reference table, a
-file another tool wrote — and `blob.openBeast(T)` for bytes already in
-hand: a `BlobType` dataset, a `Fetch.getBytes` result. Neither is watched
-by the dataflow, so anything a task should react to is still an input.
-
-```typescript
-// Default runner is east-node + @elaraai/east-node-std — every e3 project
-// already has Node, so this resolves with no extra setup.
-const greet = e3.task(
-  'greet',
-  [name],  // dependencies (inputs or other task outputs)
-  East.function([StringType], StringType, ($, n) =>
-    East.str`Hello, ${n}!`
-  )
-);
-
-// Override with a typed runner (autocomplete + typo-safe on stock runners and
-// platforms; use `{ custom: 'name' }` for non-stock platforms; `runtime:
-// 'custom'` is the argv escape hatch).
-const pyTask = e3.task(
-  'py_task',
-  [input],
-  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
-  { runner: { runtime: 'east-py', platforms: ['east-py-std', 'east-py-datascience'] } }
-);
-
-// east-c — native binary, lowest overhead, no Python or Node runtime needed
-// past the spawn itself.
-const fast = e3.task(
-  'fast',
-  [input],
-  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
-  { runner: { runtime: 'east-c', platforms: ['east-c-std'] } }
-);
-
-// Custom argv (e.g. wrapping east-py with uv):
-const wrapped = e3.task(
-  'wrapped',
-  [input],
-  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
-  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }
-);
-
-// Chain tasks via .output
-const shout = e3.task(
-  'shout',
-  [greet.output],
-  East.function([StringType], StringType, ($, s) => s.toUpperCase())
-);
-```
-
-#### Calling a project-owned (custom) platform function
-
-To call your OWN native code (a TS/Node lib, or Python like numpy) that East
-can't express, use a `{ custom: '<name>' }` platform entry. The `<name>` is how
-the runner finds your code — and it differs by runtime:
-
-- **east-node**: `<name>` is your project's **own scoped package name** (e.g.
-  `@elaraai/my-project`). east-node-cli loads its `./platform` default export (a
-  `PlatformFunction[]`) by self-reference.
-- **east-py**: `<name>` is the Python **module** name (e.g. `platform_module`).
-  `east-py run -p <name>` imports it and reads its top-level `platform` list.
+Platform names are typed per runtime — a typo, or another runtime's platform, is
+a compile error; `{ custom: '<name>' }` names your own. A stock runtime is handed
+one unit file (`exec <unit>`).
 
 ```typescript
-// TS-East fn implemented in this package's ./platform export
-const buffered = e3.task('buffered', [qty.output, factor],
-  East.function([IntegerType, FloatType], IntegerType, ($, q, f) => applyBuffer(q, f)),
-  { runner: { runtime: 'east-node', platforms: [{ custom: '@elaraai/my-project' }] } });
-
-// Python fn implemented in platform_module/ (+ stock east-py-std)
-const forecast = e3.task('forecast', [history],
-  East.function([ArrayType(FloatType)], FloatType, ($, h) => forecastDemand(h)),
-  { runner: { runtime: 'east-py', platforms: [{ custom: 'platform_module' }, 'east-py-std'] } });
+const greet = e3.task('greet', [name],
+  East.function([StringType], StringType, ($, n) => East.str`Hello, ${n}!`));
+const shout = e3.task('shout', [greet.output],
+  East.function([StringType], StringType, ($, s) => s.upperCase()),
+  { runner: { runtime: 'east-c', platforms: ['east-c-std'] } });
 ```
 
-The platform-function name string must be the dotted `"<project>.<fn>"` and must
-byte-match between the East declaration and the implementation. To AUTHOR the
-implementation and wire it (the `./platform` export, the Python package, the
-`--platform` scaffold), see the **east-project** skill (and **east** for
-`East.platform(...).implement(...)`, **east-py** for `@platform_function`).
+#### Your own code: platform functions, imported functions, environments
 
-#### Calling a function authored in python (or another package) — `East.importFunction`
-
-When the logic is East-expressible but written in python (with east-py's
-`East.function`) — or in another node package of the project — do not wrap it
-as a platform function: import it. The task refers to the function by package
-and name with its declared type; at `e3.export` the reference is resolved and
-the function's IR is embedded, so the deployed task is pure IR that runs on
-any runner — no python at run time, no runner, platform or environment to
-declare. The reference is all you write: a package of the project's uv
-workspace is found the way a `{ custom }` platform is (by name, in the
-governing `uv.lock`), its root module's `east_functions` exported in its own
-environment (`east-py export-functions`, run from the project's `.venv` or
-`east-py` on PATH — `EAST_PY` names it outright) and linked, per export; a
-package of the npm workspace is found in the governing lockfile by its
-`package.json` name, and the `eastFunctions` of its BUILT `./functions` export
-exported with `east-node export-functions` (the project's own
-`@elaraai/east-node-cli`, else PATH — `EAST_NODE` names it outright). Only
-the functions a task imports are exported, with the providers of that task's
-runner: a sibling function's platform call never fails a task that does not
-use it, and two tasks on different runners each link their own export.
+- **A project-owned platform function** (native code East cannot express): list
+  `{ custom: '<name>' }` in the runner's platforms. For east-node the name is
+  your package's **scoped name** (its `./platform` export, a
+  `PlatformFunction[]`); for east-py, the Python **module** (its top-level
+  `platform` list). The function's declared name, `"<project>.<fn>"`, must
+  byte-match its implementation. Authoring and wiring: the **east-project**,
+  **east** (`East.platform(...).implement(...)`) and **east-py**
+  (`@platform_function`) skills.
+- **An East function written in python, or in another node package**:
+  `East.importFunction(pkg, name, FunctionType(...))` in the body. `e3.export`
+  resolves it and embeds its IR, so the task is pure IR on any runner. A uv
+  workspace member is found by name in `uv.lock`, and its root module's
+  `east_functions` dict is exported with `east-py export-functions` (from the
+  project's `.venv`, else `EAST_PY` or PATH); an npm member is found by its
+  `package.json` name, and its built `./functions` export's `eastFunctions` is
+  exported with `east-node export-functions` (`EAST_NODE`). A package built
+  elsewhere is passed as its manifest — `{ functions: [...] }` / `--functions` —
+  which wins. The declared type must equal the exported one exactly, and each
+  platform function it calls must be provided by the task's runner, by name or
+  by family (`east-py-std` ≡ `@elaraai/east-node-std` ≡ `east-c-std`;
+  `east-py-io` ≡ `@elaraai/east-node-io`).
+- **Environments** are derived at export from each `{ custom }` platform: the
+  providing workspace package's closure (`pyproject.toml` + `uv.lock` + sdists,
+  or `package.json` + lockfile + `npm pack`) is captured into the package and
+  materialized per repository, so the task runs where your tree never was. With
+  platform code split into packages (`create-e3 --python-packages=a,b`), editing
+  one re-runs only its tasks. An explicit `environment` overrides the
+  derivation: `{ python: { project } }`, `{ node: { project } }`,
+  `{ tools: { files: [...] } }` (prebuilt binaries on PATH, such as a C runner)
+  or `{ image: { digest: 'repo@sha256:<64 hex>' } }` (cloud; a tag is refused).
 
 ```python
-# packages/pricing/src/pricing/__init__.py — the package's root module
-from east import East, FloatType, IntegerType, StringType, StructType
-Row = StructType([("sku", StringType), ("qty", IntegerType), ("price", FloatType)])
+# packages/pricing/src/pricing/__init__.py — the member's root module
 score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * r.price)
 east_functions = {"score": score}
 ```
 
 ```typescript
-import { East, FunctionType, FloatType, ArrayType } from '@elaraai/east';
-
 const score = East.importFunction('pricing', 'score', FunctionType([RowType], FloatType));
 const total = e3.task('total', [rows],
   East.function([ArrayType(RowType)], FloatType, ($, rs) => rs.map(($, r) => score(r)).sum()));
-
-await e3.export(pkg, '/tmp/app.zip');          // finds `pricing`, exports it, links
-// e3 workspace deploy . dev --from-source src/index.ts
 ```
 
-```typescript
-// packages/node/api/src/functions.ts — the member's "./functions" export (built: dist/functions.js)
-export const scale = East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType),
-  ($, values, factor) => values.map(($, v) => v.multiply(factor)));
-export const eastFunctions = { scale };
+### Stream tasks — `e3.streamTask(name, spec, fn)`
 
-// the app: the member's npm name, the function, its exact type — no runner, no environment
-const scale = East.importFunction('@shop/api', 'scale', FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
-const scaled = e3.task('scaled', [series, factor],
-  East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), ($, s, f) => scale(s, f)));
-```
+A stream task **emits** its output instead of returning it, so its memory does
+not grow with its output: emission order is free, and the runner sorts a set or
+a dict in bounded runs and merges them. `spec` is `inputs` (datasets, in the
+body's parameter order, some wrapped in `e3.partition`), `output` (an output
+kind), `runner` (a stock runtime; `custom` is refused) and `environment`. The
+body takes the inputs, then `emit`, and returns nothing. With no partitioned
+input it is one unit with exact left-to-right semantics; a producer has no
+inputs and emits what it reads from platform functions.
 
-A package built elsewhere — published, or another repo — is passed as its
-manifest instead: `east-py export-functions pricing -o pricing.functions.beast2
--p east-py-std` (`east-node export-functions dist/functions.js -o
-api.functions.beast2 -p @elaraai/east-node-std`) where it lives, then
-`{ functions: ['./pricing.functions.beast2'] }` / `--functions`; an explicit
-manifest wins for its package. A referenced package that is neither is an
-export error naming the import. A `create-e3` package scaffold ships both
-crossings per python and node member — the platform function and an East
-function the app imports this way (the **e3-create** skill).
-
-The declared type must equal the exported type exactly (a mismatch fails the
-export naming both). The imported function's platform calls are checked
-against the task's runner: the manifest names the package providing each
-(derived from the task's runner when e3 exports the package itself, `-p`
-when you do), and the runner must list it — by name, or a stock package of
-the same family (`east-py-std` ≡ `@elaraai/east-node-std` ≡ `east-c-std`,
-`east-py-io` ≡ `@elaraai/east-node-io`). The other direction — a TypeScript
-function for python — is `east-node export-functions` / `East.exportFunctions`
-(see **east**); the contract is `docs/conventions/EAST_CODEGEN.md` §6.
-
-#### Execution environments — auto-derived from the platform reference
-
-A `{ custom: <name> }` platform only runs where its implementation is installed.
-e3 handles this for you: at `e3.export` it **derives the task's environment from
-the platform reference** — it resolves `<name>` to the workspace package that
-provides it and captures that package's dependency closure (`pyproject.toml` +
-`uv.lock` + sdists for python; `package.json` + lockfile + `npm pack` for node)
-into the exported package as content-addressed objects. **No `environment` field
-is needed.** The runner materializes the closure into a per-repo cache before
-spawning (warm after first use), so the package runs on repos/machines that never
-saw your working tree.
+| Output kind | `emit` | The parts combine by |
+|---|---|---|
+| `e3.output.array(T)` | `emit(t)` | concatenation: emission order within a unit, units in input order |
+| `e3.output.set(T)` | `emit(t)` | union: an element emitted twice is held once |
+| `e3.output.dict(K, V, { merge? })` | `emit(k, v)` | key: a key emitted more than once folds with `merge($, key, a, b)`, in input order; without `merge` it fails the task, naming the key |
+| `e3.output.fold(T, { zero, combine })` | `emit(t)` | every value, folded with `combine($, a, b)` from `zero`, in input order |
 
 ```typescript
-// e3 derives the environment from { custom: 'pricing' } — captures the
-// packages/python/pricing closure. No `environment` field.
-const forecast = e3.task('forecast', [history],
-  East.function([ArrayType(FloatType)], FloatType, ($, h) => forecastDemand(h)),
-  { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });
-```
-
-**Per-package change detection.** Split platform code into separate workspace
-packages — scaffold with `create-e3 --python-packages=pricing,forecasting`
-(`--node-packages=…` → npm members, `--c-packages=…` → native binaries via a
-`tools` env; see the **east-project** skill). Each package is its own captured
-environment, so editing one package changes only its tasks' hashes: e3 re-runs
-only those tasks and serves the rest from the cache — even across a redeploy, and
-alongside the reactive re-run when an input or record changes. A task calling
-several packages captures the union of their closures.
-
-**Explicit `environment` (override).** Pass an `environment` to override the
-derivation — it is the only way to reach `tools` (attach prebuilt binaries, e.g.
-a compiled C runner) or a pinned container `image`, or to point at a specific
-project directory:
-
-```typescript
-{ environment: { tools: { files: ['./native/solver/build/solver'] } } } // prebuilt C binary
-{ environment: { image: { digest: 'repo@sha256:<64 hex>' } } }          // cloud only
-{ environment: { python: { project: 'packages/python/pricing' } } }      // explicit dir
-```
-
-Environments resolve at `e3.export` time (missing lockfile or failed build ⇒
-export error; a mutable `image` tag is rejected at definition time). A task whose
-platforms are all stock (no local `{ custom }` package) runs on the stock runtime
-image, as before.
-
-### e3.partitionTask(name, spec, fn)
-
-Define a task over huge collection datasets with bounded memory: e3 carves
-the partitioned input(s) into key-range slices, runs `fn` once per partition
-as an ordinary content-addressed execution (parallel, memoized per
-partition), and assembles the output — shards splice in partition order,
-keyed partials merge by key on the task's runner when `merge` is given, or
-partials fold pairwise when `combine` is given. One task node, one output
-dataset; the dataflow graph is unchanged.
-
-```typescript
-const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
-const rates = e3.input('rates', DictType(StringType, FloatType));
-
-// Row-local transform: each execution returns its shard; shards splice.
-const cleaned = e3.partitionTask('cleaned', {
-  partitions: [sales],
-  inputs: [rates],                       // ordinary inputs, passed to every partition
-  output: DictType(SaleKeyType, SaleType),
-}, ($, slice, rates) => slice.filter(($, sale) => East.greater(sale.qty, 0n)));
-
-// Reduce to a small result: each execution returns a partial; partials fold.
-const totals = e3.partitionTask('totals', {
-  partitions: [sales],
-  by: (_$, key) => key.sku,              // rows with equal by(key) never split
-  output: DictType(StringType, IntegerType),
-  combine: ($, a, b) => {
-    const acc = $.let(a.copy());         // partials are frozen inputs — fold into a copy
-    $(acc.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
-    $.return(acc);
-  },
-}, ($, slice) => /* per-partition aggregation of `slice` */ ...);
-
-// Keyed partials that may share keys: `merge` folds a key two partials both
-// produce (associative — values may fold in any grouping, in partition order).
-// The task's runner merges the partials whose key ranges overlap with its
-// `merge` command — a large output in parallel, one key range of about
-// `targetPartitionBytes` per unit, each unit reading just its range of every
-// partial; the orchestrator never decodes or copies them, disjoint partials
-// splice, the output is a deterministic function of the inputs whatever
-// `--jobs`, and every merge unit is cached, so a re-run after an append costs
-// the changed partitions plus the merges they reach. A Set output takes
-// `merge: 'union'`.
-const latest = e3.partitionTask('latest', {
-  partitions: [events],
-  output: DictType(StringType, EventType),
-  merge: ($, _key, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
-}, ($, slice) => /* per-partition map keyed by entity */ ...);
-
-// Co-partition two same-keyed datasets (reconcile / delta): 2+ entries in
-// `partitions` carve at shared boundary keys; each execution receives the
-// matching key-range slice of each.
-const delta = e3.partitionTask('delta', {
-  partitions: [today, yesterday],
-  output: DictType(SaleKeyType, FloatType),
-}, ($, todaySlice, yesterdaySlice) => ...);
-```
-
-Spec fields: `partitions` (1+ huge Dict/Set/Array inputs; 2+ co-partition and
-must all be Dict or all Set — and when their key types differ, the effective
-boundary projection, implicit or explicit, must still follow every dataset's
-own key field order, validated at build time), `by` (boundary alignment —
-must read a leading prefix of every partitioned dataset's key: the key
-itself, a leading field, a nested leading-field path like `key.a.b` where
-each step is the first field of its level, or a struct literal of leading
-fields in declared order; validated at build time, any other body rejected),
-`inputs` (ordinary broadcast inputs — any change re-runs all partitions),
-`output` (a collection unless `combine` is given — splice mode assembles the
-output from shards), `merge` (for a Dict output, an associative
-`($, key, a, b) => value` over the output's own key and value types, folding a
-key present in two partials; for a Set output, `'union'` — the task's runner
-merges the partials with its `merge` command, in parallel per key range of
-about `targetPartitionBytes`, as a tree of cached executions whose results
-are stored like any execution output and whose output is a deterministic
-function of the inputs; it needs a stock runtime of this release, since an
-older runner has no `merge` command;
-mutually exclusive with `combine`, and refused on an Array output, in the
-wrong form for the output's kind, or on the `custom` runtime),
-`combine` (associative fold over whole partials; its presence is the mode
-switch), `targetPartitionBytes` (the only sizing knob, default 256 MiB),
-`runner`, `environment`.
-
-Splice-mode contract: Array shards concatenate freely; Dict/Set shard key
-ranges must ascend disjointly in partition order (key-preserving and monotone
-re-keys qualify). A violation fails the task at splice naming the offending
-partitions — deliberately a runtime check, not build-time: whether an
-arbitrary body preserves key order is undecidable from types, and a static
-rule would false-reject permitted monotone re-keys. Shards whose key ranges
-may overlap — a re-key or per-entity aggregation whose partition key is not a
-prefix of the output key — take `merge` instead: it tolerates overlap,
-folding each shared key on the task's runner, and runs no merge where the
-partials happen to be disjoint — they splice. This is the re-key shape: a
-`streamTask` must emit a Set or Dict in ascending key order, so a re-key
-whose output keys do not arrive in order is a `partitionTask` with `merge`
-(the worked examples under `e3.streamTask`). Partition memoization is
-append-friendly: appends and
-tail-localized changes re-run only the affected partitions, while a
-mid-key-space insertion re-runs partitions from the insertion point on.
-
-### e3.streamTask(name, spec, fn)
-
-Define a one-pass streaming task: the runner feeds the `stream` input in
-canonical order and the body writes the output incrementally through the
-`emit` capability — exact left-fold semantics, no parallelism and no
-partial recompute. Omit `stream` for a producer (platform-function
-ingest). Runs on every stock runtime: the output always streams through
-`emit`, and every runner feeds the `stream` input lazily with O(segment)
-decoded memory (segment-fed iteration and keyed reads; any other operation
-on it decodes the whole value once). Ordinary indexed collection inputs of
-any task open the same way by default once they reach 64 MiB on the wire —
-`EAST_LAZY_INPUT_BYTES` overrides the threshold, `0` forces eager decodes —
-and semantics are identical either way, so the threshold is a memory knob,
-not a behavior toggle. Every input — including a mutation reducer's state —
-decodes deeply frozen: task inputs are immutable, so mutating one raises
-`cannot mutate a frozen value (task inputs are immutable) — copy first`
-(`.copy()` first to derive a changed value), and frozen collections
-compare by value under `East.is`. Frozen is also what makes lazy serving
-safe for any element shape — only element types carrying a `Ref` or a
-function decode whole, on every runtime.
-
-```typescript
-const events = e3.input('events', ArrayType(EventType));
-
-// Global sequential state (running balances, event replay):
 const balances = e3.streamTask('balances', {
-  stream: events,
-  output: ArrayType(BalanceType),
+  inputs: [events],                          // no partitioned input: one unit, in order
+  output: e3.output.array(FloatType),
 }, ($, events, emit) => {
   const balance = $.let(0.0);
   $.for(events, ($, event) => {
     $.assign(balance, balance.add(event.amount));
-    $(emit({ at: event.at, balance }));
+    $(emit(balance));
   });
 });
 
-// Producer (no stream input): loop over platform sources and emit. An Array
-// output takes rows in arrival order; a Set or Dict output must be emitted in
-// ascending key order — a source paged in key order can emit a Dict directly,
-// any other emits pairs and re-keys downstream (example (c) below).
 const ingest = e3.streamTask('ingest', {
-  output: ArrayType(RowType),
-}, ($, emit) => { /* fetch pages, $(emit(row)) each */ });
+  inputs: [],                                // a producer: emits in any order
+  output: e3.output.dict(StringType, RowType, {
+    merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),   // the latest row wins
+  }),
+}, ($, emit) => { /* page through a platform source, $(emit(row.id, row)) each */ });
 ```
 
-`emit` is `emit(key, value)` for Dict outputs and `emit(element)` for
-Array/Set outputs. An Array output stores its elements in emission order. A
-Set or Dict output must be emitted in **ascending key order** (East's total
-order): the runner writes the output in one pass, segment by segment, with
-one open batch in memory whatever the output's size, and an out-of-order key
-fails the task — `beast2 v5: Dict key emitted out of order: 1 after 2 —
-Set/Dict emissions must ascend in East order`, the same words on every
-runtime. Duplicate Dict keys / Set elements are a runtime error unless
-`merge` folds them: a Dict output takes `merge: ($, key, a, b) => value`, and
-equal keys that arrive together fold left in emission order; a Set output
-takes `merge: 'union'`, and equal elements that arrive together collapse to
-the first. `merge` folds **adjacent** equal keys only — the ascending
-contract stands — so it fits a stream whose equal keys are grouped, and the
-stored dataset is exactly what the folded emissions would write. Keys that
-collide across the stream, or arrive out of order, are a `partitionTask`
-with `merge`. Three shapes cover keyed outputs:
+### Splitting the work — `e3.partition(dataset, { by? })`
+
+Wrap a stream task's input in `e3.partition` and the body runs once per
+**piece** of it: each piece is a unit of its own — cached on its own, run in
+parallel under the budget — typed as the whole dataset (a key range of a Set or
+Dict, a position range of an Array), and the pieces' outputs combine as the
+output kind says. Pieces are cut by content, most holding 64 to 100 MiB of
+stored bytes, so an append or an insertion re-runs only the pieces it reaches.
+An input not wrapped reaches every piece whole, opened lazily when large (a
+keyed get reads only its segments); a change to it re-runs every piece.
 
 ```typescript
-// (a) Grouped input, one pass: payments sorted by account fold to per-account
-//     totals — equal keys arrive together, and the accounts ascend.
-const payments = e3.input('payments', ArrayType(PaymentType));   // sorted by account
-const accountTotals = e3.streamTask('account_totals', {
-  stream: payments,
-  output: DictType(StringType, FloatType),
-  merge: (_$, _account, a, b) => a.add(b),
-}, ($, payments, emit) => {
-  $.for(payments, ($, payment) => {
-    $(emit(payment.account, payment.amount));
+// sales: Dict<{ sku, id }, { amount, currency }>. A re-key: a key emitted in
+// several pieces folds with `merge`. `rates` reaches every piece whole.
+const bySku = e3.streamTask('by_sku', {
+  inputs: [e3.partition(sales), rates],
+  output: e3.output.dict(StringType, FloatType, { merge: ($, _sku, a, b) => a.add(b) }),
+}, ($, sales, rates, emit) => {
+  $.for(sales, ($, sale, key) => {
+    $(emit(key.sku, sale.amount.multiply(rates.get(sale.currency))));
   });
 });
 
-// (b) A re-key — the output key is not the input's order — is a partitionTask:
-//     each partition builds its slice's Dict (toDict folds the keys that
-//     collide inside the slice) and `merge` folds the keys that collide across
-//     partitions, on the task's runner.
-const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
-const bySku = e3.partitionTask('by_sku', {
-  partitions: [sales],
-  output: DictType(StringType, IntegerType),
-  merge: (_$, _sku, a, b) => a.add(b),
-}, ($, slice) => slice.toDict(
-  ($, _sale, key) => key.sku,
-  ($, sale, _key) => sale.qty,
-  ($, a, b, _sku) => a.add(b),
-));
+// Huge → small: a fold.
+const revenue = e3.streamTask('revenue', {
+  inputs: [e3.partition(sales)],
+  output: e3.output.fold(FloatType, { zero: 0.0, combine: ($, a, b) => a.add(b) }),
+}, ($, sales, emit) => {
+  $.for(sales, ($, sale) => { $(emit(sale.amount)); });
+});
 
-// (c) An ingest that cannot page in key order emits pairs in arrival order,
-//     and a partitionTask over the pairs re-keys them.
-const PairType = StructType({ key: StringType, value: RowType });
-const pairs = e3.streamTask('ingest_pairs', {
-  output: ArrayType(PairType),
-}, ($, emit) => { /* fetch pages, $(emit({ key: row.id, value: row })) each */ });
-const rows = e3.partitionTask('rows', {
-  partitions: [pairs.output],
-  output: DictType(StringType, RowType),
-  merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
-}, ($, slice) => slice.toDict(
-  ($, pair, _i) => pair.key,
-  ($, pair, _i) => pair.value,
-  ($, a, b, _id) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
-));
+// Per entity, in order. postings: Dict<{ account, at, id }, Float>. Rows whose
+// `by` fields are equal are never split across pieces, and a piece iterates in
+// key order, so each account's rows arrive together, oldest first.
+const statements = e3.streamTask('statements', {
+  inputs: [e3.partition(postings, { by: ['account'] })],
+  output: e3.output.array(StatementLineType),   // { account, at, balance }
+}, ($, postings, emit) => {
+  const account = $.let('');
+  const balance = $.let(0.0);
+  $.for(postings, ($, amount, key) => {
+    $.if(East.notEqual(key.account, account), ($) => {   // the next account starts from zero
+      $.assign(account, key.account);
+      $.assign(balance, 0.0);
+    });
+    $.assign(balance, balance.add(amount));
+    $(emit({ account: key.account, at: key.at, balance }));
+  });
+});
+
+// Reconcile two same-keyed datasets: both partitioned, so cut at the same keys.
+const change = e3.streamTask('change', {
+  inputs: [e3.partition(today), e3.partition(yesterday)],   // both Dict<SaleKey, Float>
+  output: e3.output.dict(SaleKeyType, FloatType),
+}, ($, today, yesterday, emit) => {
+  $.for(today, ($, amount, key) => {
+    $(emit(key, amount.subtract(yesterday.get(key, ($, _key) => 0.0))));
+  });
+});
 ```
 
-#### Which task kind?
+- `by` names leading key fields, in order: `['account']`, or
+  `['account', 'at.day']`, whose last entry reads the first field of `at`.
+- Two or more partitioned inputs are cut at the same keys, so they must be Sets
+  or Dicts whose keys, or `by` fields, have the same types.
+- **The author's contract, the only one:** `merge` and `combine` are
+  associative, `zero` is an identity of `combine`, and a partitioned body's
+  combined result does not depend on where its input was cut.
+- Refused when the task is defined, naming it: `e3.partition` on an `e3.task`
+  input; a partitioned input that is not a collection; `by` on an Array, or
+  naming anything but leading key fields; co-partitioned inputs with no common
+  key.
+
+#### Which task?
 
 | Workload | Use |
-|----------|-----|
-| Fits in memory | `e3.task` |
-| Row-local derive/clean/validate over a huge input | `partitionTask` |
-| Enrich against small references | `partitionTask` + `inputs` |
-| Enrich against another huge dataset (sparse keyed reads) | `partitionTask` + huge `inputs` entry (opened lazily) |
-| Aggregate huge → small (KPIs, counts, top-k) | `partitionTask` + `combine` |
-| Keyed partials that may collide (per-key latest/sum, entity rollups) | `partitionTask` + `merge` |
-| Per-entity sequential, parallel across entities | `partitionTask` + `by` |
-| Reconcile/delta two same-keyed huge datasets | `partitionTask`, 2+ `partitions` |
-| Global sequential state (running balances, replay, simulation) | `streamTask` |
-| Ingest from external sources | `streamTask` (no `stream`; a keyed output emits ascending, else emit pairs + `partitionTask` + `merge`) |
-| Filter/sample huge → still-big | `partitionTask` |
-| Re-key huge → huge (shuffle) | `partitionTask` + `merge` (Dict/Set outputs) |
-| Fold per key (totals, latest per key) | `streamTask` + `merge` when equal keys arrive together (grouped input), else `partitionTask` + `merge` |
-| ML training / genuinely non-East work | `customTask` |
+|---|---|
+| The output fits in memory, computed in one pass | `e3.task` |
+| Global sequential state: running balances, replay, simulation | `e3.streamTask` with no partitioned input |
+| Ingest from external sources | `e3.streamTask` with no inputs |
+| Row-local derive, clean or validate over a huge input | `e3.partition` it; emit each row kept (`e3.output.array`, or a `dict` keyed as the input) |
+| Enrich against a small reference, or sparse keyed reads of another huge dataset | `e3.partition` the big input; pass the other unwrapped |
+| Aggregate huge → small (KPIs, counts, top-k) | `e3.partition` + `e3.output.fold` |
+| Per-key totals, latest per key, a re-key (shuffle) | `e3.partition` + `e3.output.dict` with `merge` (a Set: `e3.output.set`) |
+| Per entity: sequential within it, parallel across entities | `e3.partition(dataset, { by: [<leading key fields>] })` |
+| Reconcile two same-keyed huge datasets | two `e3.partition` inputs |
+| ML training, or work East cannot express | a platform function, or `e3.customTask` |
 
-### e3.customTask(name, inputs, outputType, command)
+### Custom tasks, functions, packages
 
-Define a task that runs a shell command.
-
-```typescript
-const process = e3.customTask(
-  'process',
-  [rawData],
-  StringType,
-  ($, input_paths, output_path) =>
-    East.str`python script.py -i ${input_paths.get(0n)} -o ${output_path}`
-);
-```
-
-### e3.function(name, fn, config?)
-
-Define a named function: invoked by name with argument values (CLI `e3 call`
-or HTTP API), result returned inline. Unlike a task it is NOT wired to
-datasets, not part of the dataflow graph, and a call persists nothing —
-e3's "stored procedure". The signature is inferred from the East function.
+| Definition | What it is |
+|---|---|
+| `e3.customTask(name, inputs, outputType, command, { environment? })` | A task that runs a bash script: `command($, inputPaths, outputPath)` builds it from the staged beast2 input files, and it writes the output as a beast2 file. |
+| `e3.function(name, fn, { runner?, environment? })` | A named function, called by name with arguments (`e3 call`, the API) and its result returned inline: not in the dataflow, and a call persists nothing. A server bounds a call by a timeout and a 1 MiB result, so long work belongs in a task. A `custom` runner must speak the runner CLI (`<command> -i <arg>… -o <out> <ir>`). |
+| `e3.package(name, version, ...items)` | Bundles the items and everything they depend on — pass the last tasks, records and functions; a package passed in contributes its contents. The name and version must be valid file names. |
+| `e3.export(pkg, zipPath, { functions? })` | Writes the package zip, resolving every `East.importFunction` (a workspace package is exported by the export itself; `functions` lists manifests built elsewhere). |
 
 ```typescript
-const add = e3.function(
-  'add',
-  East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
-);
-
-// Runner selection — same typed Runner as tasks, including `{ custom: 'name' }`
-// platform entries for a project-owned platform (only the `runtime: 'custom'`
-// argv form is rejected for functions on the wire).
-const forecast = e3.function(
-  'forecast',
-  East.function([IntegerType, FloatType], FloatType, ($, periods, rate) => ...),
-  { runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }
-);
-
-const pkg = e3.package('planning', '1.0.0', someTask, add, forecast);
+const process = e3.customTask('process', [rawData], StringType,
+  ($, inputPaths, outputPath) => East.str`python script.py -i ${inputPaths.get(0n)} -o ${outputPath}`);
+const add = e3.function('add',
+  East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)));
+await e3.export(e3.package('tools', '1.0.0', process, add), '/tmp/tools.zip');
 ```
 
-Use a task when the result should be a dataset others react to; use a
-function for on-demand compute returned to the caller. Calls are
-synchronous and bounded — the server enforces a wall-clock deadline and
-results are capped at 1 MB inline; long compute and bigger outputs belong
-in a task.
+### Records — audited state, written only through mutations
 
-### e3.record(name, type, initialValue) + e3.mutation(name, record, fn)
+`e3.record(name, type, initialValue)` is a dataset at `.records.<name>` that
+tasks read and react to like any input, but that only its **mutations** write:
+a raw `dataset set` is refused. A mutation is pure, synchronous East — no async
+body and no platform call, since the compare-and-swap retry runs it again
+against fresher state — named by an identifier. Each commit records its parent,
+the state, the mutation, its arguments, the actor and the time. Deploy mints a
+`$init` commit from the initial value, and a redeploy keeps state and history.
+The record's version vector carries the commit hash, so even a mutation that
+leaves the state unchanged triggers downstream tasks.
 
-A **record** is audited, mutable root state — e3's system of record. Unlike a
-value (blind replace), a record is `writable: false` and changes only through
-typed **mutations**: pure East reducers `(State, ...Args) => State` run
-server-side under compare-and-swap. The state parameter is a frozen task
-input — derive the new state from `state.copy()` (or build it fresh) rather
-than mutating in place. Every mutation appends a commit
-(parent, state, mutation, args, actor, at); deploy mints a `$init` genesis from
-`initialValue`, and a redeploy preserves committed state + history (a type
-change is rejected before any write). A record is a dataset (mounted at
-`.records.${name}`), so tasks read it and react to it like any input — its
-version vector carries the commit hash, so even an identical-state mutation
-still triggers downstream.
+| Form | Body | Use it when |
+|---|---|---|
+| `e3.mutation.reduce(name, rec, fn)` | `(state, …args) => state`, over the whole state | the rule is over the whole state, or the record is small; any record type |
+| `e3.mutation.edit(name, rec, fn)` | `(state, …args, edit) => Null`: reads lazily, writes through `edit.set(k, v)`, `edit.delete(k)`, `edit.update(k, patch)` | server-side logic touches a few entries of a large Dict or Set record |
+| `e3.mutation.patch(rec, name = 'patch')` | none: the argument is a `PatchType(state)` | a view's save, or an integration sending diffs; on a record without indexes no program runs at all |
+
+Every form commits a delta addressed by key, rewriting only the segments it
+touches (a `reduce` of a record that is not a Dict or Set writes it whole), and
+takes `{ runner? }`. In an `edit`, repeated edits of one key fold, a `set` of the
+value a row already holds changes nothing, and a `delete` or `update` of a key
+the record does not hold is a conflict naming the key: the caller's view of the
+record is stale. `e3.mutation.editType(recordType)` is the type of `edit`.
 
 ```typescript
-const counter = e3.record('counter', IntegerType, 0n);
-const increment = e3.mutation(
-  'increment', counter,
-  // reducer: (state, ...args) => newState; in/out type == the record type
-  East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
-);
-const pkg = e3.package('counters', '1.0.0', counter, increment);
+const PlanType = StructType({
+  title: StringType, owner: StringType, due: DateTimeType, resources: SetType(StringType),
+});
+const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
+
+const addPlan = e3.mutation.reduce('add_plan', plans,
+  East.function([plans.type, StringType, PlanType], plans.type, ($, state, id, plan) => {
+    const next = $.let(state.copy());          // the state is frozen: copy first
+    $(next.insert(id, plan));
+    return next;
+  }));
+
+const reschedule = e3.mutation.edit('reschedule', plans,
+  East.function([plans.type, StringType, DateTimeType, e3.mutation.editType(plans.type)], NullType,
+    ($, state, id, due, edit) => {
+      const plan = $.let(state.get(id));       // decodes one segment, not the record
+      $(edit.set(id, { title: plan.title, owner: plan.owner, due, resources: plan.resources }));
+    }));
 ```
 
-Mutations are the only writer — a raw `e3 dataset set` on a record path is
-rejected. Apply with `e3 mutate`, inspect with `e3 history`, drop history with
-`e3 compact` (see CLI).
+Costs count in segments: a Dict or Set record is cut by key and by each entry's
+encoded size, so wide rows get segments of a few rows and a one-row edit stays
+cheap. A view reads every field of the rows it shows, so keep a bulky payload it
+does not display in a second record keyed the same way.
 
-### e3.package(name, version, ...items)
+#### Secondary indexes — `e3.recordIndex(name, record, { key | keys, value? })`
 
-Bundle into a package. Dependencies are collected automatically.
+A second collection over a Dict record, in another sort order, maintained in the
+same commit, so a view by an attribute is a page rather than a scan. `key`
+gives one entry per row; `keys` returns a Set, one entry per element (a row
+naming five resources appears five times, an empty set not at all); `value` is a
+projection a view renders without touching the record. The functions are pure
+and synchronous, since an index maintained commit by commit must equal its
+rebuild to the byte. The name is an identifier, never `primary` (the record's own
+order). Read through one with `index=<name>` on a page or key search; `e3
+reindex` rebuilds. A deploy builds an index the package declares and the state
+lacks, drops one it no longer declares, and runs nothing for the rest; a build
+is a split task over the record.
 
 ```typescript
-const pkg = e3.package('myapp', '1.0.0', finalTask);
+const byOwner = e3.recordIndex('by_owner', plans, {
+  key:   East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner),
+  value: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.title),
+});
+const byResource = e3.recordIndex('by_resource', plans, {
+  keys: East.function([StringType, PlanType], SetType(StringType), ($, _id, plan) => plan.resources),
+});
+const pkg = e3.package('planning', '1.0.0',
+  plans, addPlan, reschedule, e3.mutation.patch(plans), byOwner, byResource);
 ```
 
-### e3.export(pkg, zipPath, options?)
+#### Migrations — how a record's type changes
 
-Export package to a .zip file. Every `East.importFunction` in the package's
-tasks, functions and mutations is resolved and embedded as pure IR after an
-exact type check and a runner check of its platform dependencies: a package
-of the uv or npm workspace is exported by the export itself;
-`options.functions` lists manifests (paths, or decoded values) for packages
-built elsewhere, and wins for its package.
+| Form | Function | Runs as |
+|---|---|---|
+| `e3.migration.value(name, rec, fn, { after? })` | `(Old) => New`, over any record | one unit; its runner opens the state lazily |
+| `e3.migration.rows(name, rec, fn, { after? })` | a Dict's rows, `(K, V1) => V2` with the keys kept, or an Array's elements, `(T1) => T2` | a task split over the state: a piece at a time, in parallel, each piece cached |
+| `e3.migration.rekey(name, rec, fn, { after? })` | a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a Set's elements, `(T1) => T2` | the same split task, its pieces merged by key: two Dict rows landing on one key fail the deploy, naming it; two Set elements are one |
+
+A record's steps are one chain: each names the step before it with `after` (a
+step of the same record, leaving it as this step's input type), passing the last
+step passes the chain, and the last step leaves the record as its declared type.
+A step's name is an identifier, unique on the record, and a workspace records the
+steps it has applied by name — so moving a step's code, or re-exporting it with a
+newer e3, does not run it again, and an edit to an applied step's body is not
+detected. The functions are pure, synchronous East.
 
 ```typescript
-await e3.export(pkg, '/tmp/myapp.zip');
-await e3.export(pkg, '/tmp/myapp.zip', { functions: ['./pricing.functions.beast2'] });
+const RowV1Type = StructType({ title: StringType });
+const RowV2Type = StructType({ title: StringType, owner: StringType });
+const plans = e3.record('plans', DictType(StringType, RowV2Type), new Map());
+
+const addOwner = e3.migration.rows('add_owner', plans,
+  East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' })));
+// The next version adds its step after this one: e3.migration.value('…', plans, fn, { after: addOwner })
+const pkg = e3.package('planning', '2.0.0', plans, addOwner);
 ```
 
-## CLI Reference
+What a deploy does with each record, decided before it writes anything:
 
-Every command that takes `<repo>` accepts a local path or an `http(s)://` URL — transport is detected from the argument. Where the `<repo>` positional is optional it falls back to `$E3_REPO`, then `.`.
+| The workspace holds | Against the package's chain | The deploy |
+|---|---|---|
+| no state | — | mints `$init`; the whole chain counts as applied |
+| state | every step applied, the type unchanged | keeps it, with a `$deploy` commit when the package changed |
+| state | a proper prefix applied | runs the rest, a `$migrate:<name>` commit each |
+| state | every step applied, but the type changed | refused: a type change needs a migration, or `--schema reset` |
+| state | applied steps the chain does not start with | refused, naming the steps applied and those declared |
+| a record the package no longer declares | — | refused unless `--allow-drop-records` |
 
-### Repository
+`--schema <policy>` on `e3 workspace deploy` and `e3 watch`: `migrate` (the
+default), `fail` (run no migration; refuse) or `reset` (reset the record to its
+initial value, with a `$reset` commit). `--plan` prints what the deploy would do
+to each record and index and writes nothing — from a zip or a source it imports
+nothing, and a server plans only a package it holds. The steps run before the
+deploy writes: a failed step leaves the workspace as it was, and a deploy run
+again is served the steps that finished from the cache.
 
-```bash
-e3 repo create <repo>             # Create a new repository
-e3 repo create <repo> --exist-ok  # Create, or succeed quietly if it already exists
-e3 repo status <repo>             # Show repository status
-e3 repo remove <repo> [-r]        # Remove a repository (-r to remove workspaces first)
-e3 repo gc <repo> [--dry-run]     # Garbage collect unreferenced objects
-e3 repo list <server-url>         # List repositories on a server
-```
+## The e3 CLI
 
-### Package
+Every `<repo>` is a local path or a server URL, `http(s)://<host>/repos/<name>`;
+where `[repo]` is optional it defaults to `$E3_REPO`, then `.`. Dataset paths are
+flat, `<ws>.<name>` — an input or a task output, with "did you mean" suggestions;
+a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 
-```bash
-e3 package import <repo> <zipPath>       # Import from .zip
-e3 package export <repo> <pkg> <zipPath> # Export to .zip
-e3 package list <repo>                   # List packages
-e3 package remove <repo> <pkg>           # Remove package
-```
+| Command | Does |
+|---|---|
+| **Repositories** | |
+| `e3 repo create [repo] [--exist-ok]` | Create one (`--exist-ok`: succeed if it exists). |
+| `e3 repo status [repo]` · `e3 repo remove [repo] [-r]` | Show objects, packages, workspaces · remove (`-r`: its workspaces first). |
+| `e3 repo gc [repo] [--dry-run] [--keep-runs <n>] [--keep-days <d>] [--min-age <ms>]` | Drop old run history, then what nothing names (below). |
+| `e3 repo list <server>` | The repositories a server holds. |
+| **Packages** | |
+| `e3 package import [repo] <zip>` · `export [repo] <pkg[@ver]> <zip>` | Import · export (`--quiet`: errors only). |
+| `e3 package list [repo]` · `remove [repo] <pkg[@ver]>` | |
+| **Workspaces** | |
+| `e3 workspace create [repo] <ws>` · `list [repo]` · `status [repo] <ws>` · `remove [repo] <ws>` | `status` shows tasks, datasets and locks. |
+| `e3 workspace deploy [repo] <ws> <pkg[@ver]>` | Deploy an imported package. |
+| `… --from-zip <zip>` · `… --from-source <src.ts> [--functions <manifest…>]` | Import the zip (or bundle the source) and deploy, creating the workspace. |
+| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, `file` sources and the budget. |
+| `e3 workspace export [repo] <ws> <zip> [--name <n>] [--version <v>]` | The workspace's state as a package. |
+| **Datasets** | |
+| `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
+| `e3 dataset set [repo] <ws.name> <file> [--type <spec> \| --type-file <path>]` | Write from `.east`, `.beast2`, `.json` or `.csv` (JSON and CSV need the type). |
+| `e3 dataset set [repo] <ws.name> --from-file <path.beast2>` | Take a beast2 file in as the value, a segment at a time. |
+| `e3 dataset list [repo] <ws> [-l]` · `status [repo] <ws.name>` · `find [repo] <ws> <pattern>` | Paths (`-l`: kind, type, status, size) · one dataset · by substring or glob. |
+| **Running** | |
+| `e3 dataflow run [repo] <ws> [--filter <p>] [--force] [-j <n>] [--memory <size>] [-v]` | Run what is stale, then print the outputs' paths. |
+| `e3 task list [repo] <ws>` | Tasks with their execution status. |
+| `e3 task logs [repo] <ws.task> [-n <lines>] [--all] [--follow] [--execution <task>/<inputs>/<id>]` | The last 200 lines by default; `--execution`: one unit's log, as a split task's log names it (local). |
+| `e3 run <repo> <pkg[@ver].task> [inputs.beast2…] -o <out> [--force] [-v] [-j] [--memory]` | Run one task ad hoc. |
+| `e3 call <repo> <pkg[@ver].fn> [args…] [-o <out.beast2>] [-v]` · `e3 call <repo> -w <ws> <fn> [args…]` | Call a function; each argument is an `.east` literal or a `.beast2`/`.json`/`.east` file. |
+| **Records** (`-w <ws>` required) | |
+| `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-v]` | Apply a mutation. |
+| `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target; local). |
+| `e3 reindex <repo> <record> -w <ws> [--index <name>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes · collapse the history to a `$compact` root, the state kept. |
+| **Development** | |
+| `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--abort-on-change] [--functions <manifest…>] [-j] [--memory]` | Redeploy on each change (and run, with `--start`). |
+| `e3 convert [input] [--from <f>] [--to <f>] [--type <spec>] [-o <out>]` | Convert between `.east`, `.json` and `.beast2`. |
+| `e3 completion install [--shell <s>]` · `uninstall` · `bash` \| `zsh` \| `fish` | Shell completion. |
+| **Servers** | |
+| `e3 auth login <server> [--no-browser]` · `logout <server>` · `status` · `token <server>` · `whoami [server]` | OAuth2 device flow; credentials per server (`token` prints one for curl). |
 
-### Workspace
+**The budget.** `-j`/`--jobs <n>` is the cores — runner processes in flight, a
+task or a unit each — and `--memory <size>` (`8G`, `512M`) what they may reserve
+between them. The defaults are `E3_JOBS` and `E3_MEMORY`, else what e3 may use:
+its CPU affinity capped by a cgroup quota, and the cgroup's `memory.max` or
+physical memory, less a reserve. A unit of a split task reserves the largest
+peak a unit of its stage has reached in the run, so a stage runs its first unit
+alone and then fans out; on Linux and macOS a guard stops the newest unit when
+the runners together pass the budget, and runs it again once it fits. The flags
+apply to a local repository; a server refuses them, since it runs work under its
+own (`e3-api-server -j`, `--memory`).
 
-```bash
-e3 workspace create <repo> <name>                     # Create workspace
-e3 workspace deploy <repo> <ws> <pkg>[@<ver>]         # Deploy an imported package
-e3 workspace deploy <repo> <ws> --from-zip <zip>      # Import + create + deploy in one shot
-e3 workspace deploy <repo> <ws> --from-source <src.ts> # Bundle TS source + import + create + deploy
-e3 workspace deploy <repo> <ws> --from-source <src.ts> --functions <manifest…>  # … plus manifests of imported packages built elsewhere (workspace ones resolve themselves)
-e3 workspace deploy <repo> <ws> … --skip-file-sources  # Any mode: leave `file`-source inputs unset (prints the dataset set that completes each)
-e3 workspace export <repo> <ws> <zipPath>             # Export workspace as a package
-e3 workspace list <repo>                              # List workspaces
-e3 workspace status <repo> <ws>                       # Detailed status (tasks, datasets, locks)
-e3 workspace remove <repo> <ws>                       # Remove workspace
-```
+**`-v`** passes `-v` to the runners, which print a timing and peak-memory block,
+identical on every runtime, to the task's logs. It never changes hashes or
+caching (add `--force` to see it for a cached task), and works against a server.
+**`E3_SCRATCH_DIR`** moves a local run's per-execution scratch directories
+(default `<repo>/tmp/scratch`, on the object store's disk; on tmpfs, outputs sit
+in memory until stored).
 
-### Dataset
+**`repo gc`** keeps each workspace's last 10 runs (`--keep-runs`), every run
+from the last 7 days (`--keep-days`) and the run its current state came from,
+with every execution those runs used; every execution a workspace's current
+state is served from, so a re-run stays cached; every execution from the last 7
+days; and whatever is running. It then removes the objects nothing names, and
+staging files older than `--min-age` (60 s). `--dry-run` reports what would go.
 
-Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to its storage location (input or task output) automatically — no `.tasks.X.output` / `.inputs.X` ceremony. Typos get `did you mean` suggestions.
+A package zip names the release of e3 that exported it, and an import refuses a
+zip a newer release exported, naming that release: import it with an e3 at least
+as new as the SDK that exported it.
 
-```bash
-e3 dataset get <repo> <ws.name> [-f east|json|beast2]
-e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
-e3 dataset set <repo> <ws.name> --from-file <path.beast2>  # adopt by hash: streamed SHA-256, header checked, link/copy — never decoded
-e3 dataset list <repo> <ws> [-l]            # List dataset paths (-l adds columns)
-e3 dataset status <repo> <ws.name>          # Kind/type/status/size for one dataset
-e3 dataset find <repo> <ws> <pattern>       # Substring or glob (`*`, `?`) match
-```
+## Driving e3 from code
 
-```bash
-e3 dataset get . dev.name      # an input
-e3 dataset get . dev.greet     # a task output
-e3 dataset set . dev.name data.east
-```
+**`@elaraai/e3-api-client`** talks to a server over HTTP. Every call is
+`(url, repo, …, options)`, `options` being `{ token: string | null, retry? }`
+(`e3 auth token <server>` prints a token). Dataset paths are `TreePath`s — an
+input definition's `.path`, for one.
 
-### Records
+| Area | Functions |
+|---|---|
+| Repositories | `repoList(url, opts)`, `repoCreate(url, name, opts)`, `repoRemove(url, name, opts)`, `repoStatus(url, repo, opts)`, `repoRecord` (its release and upgrades), `repoGc(url, repo, gcRequest, opts)` — a job it polls; `repoGcStart` and `repoGcStatus` apart |
+| Packages | `packageList(url, repo, opts)`, `packageGet(url, repo, name, version, opts)`, `packageImport(url, repo, zipBytes, opts)`, `packageExport(url, repo, name, version, opts)` → zip bytes, `packageRemove` |
+| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan? })` — a job it polls, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
+| Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream`, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
+| Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`), `dataflowCancel`, `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList`, `taskLogs(url, repo, ws, task, { stream?, offset?, limit? }, opts)` |
+| Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)`; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)`; `oneShotExecute` |
+| Records | `workspaceRecordDescribe`, `workspaceRecordMutate(url, repo, ws, record, mutation, { args, actor, limits }, opts, idempotencyKey?)`, `workspaceRecordHistory(url, repo, ws, record, limit, opts, from?)`, `workspaceRecordCompact` |
+| From East | `Platform` and the `platform_*` functions (`platform_dataset_get`, `platform_dataflow_execute`, …): the same calls as platform functions, for an East program that drives a server |
 
-Audited mutable state: a record is written only through its mutations (a raw
-`dataset set` is rejected). `--workspace` is required — records are
-workspace-scoped live state. Read the current value with `dataset get` like any
-dataset.
+**`@elaraai/e3-core`** does the same on a local repository, given a storage
+backend (`new LocalStorage()`) and the repository's path; work that runs East
+takes a runner, `new LocalTaskRunner(repo)`.
 
-```bash
-e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]  # apply a mutation; args = .east literals or .beast2/.json/.east files; -v = runner timing/perf (local)
-e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>]  # commit chain, newest first (--from pages)
-e3 compact <repo> <record> -w <ws>                    # collapse history to a $compact root (state preserved)
-```
+| Area | Functions |
+|---|---|
+| Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays? })` |
+| Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
+| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)`, `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceRemove` |
+| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file)` |
+| Runs | `dataflowExecute(storage, repo, ws, options?)`; `LocalOrchestrator` to start, poll and cancel a run |
+| Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex` |
 
-```bash
-e3 mutate . counter.increment 5.east -w main   # state += 5
-e3 history . counter -w main --limit 10
-```
+`@elaraai/e3-core/test` exports the contract suites another storage backend runs
+over itself.
 
-### Task
+**`e3-api-server`** serves repositories: `--repos <dir>` (each subdirectory a
+repository) or `--repo <path>` (one, served as `default`), `-p`/`--port` (3000),
+`-H`/`--host` (localhost), `--cors`, `-j`/`--memory` (the server's budget, for
+every run and call it serves), and auth — `--oidc`, a built-in provider for `e3
+auth login` (`--token-expiry`, `--refresh-token-expiry`), or an external JWT
+issuer (`--auth-key`, `--auth-issuer`, `--auth-audience`). In code,
+`createServer({ reposDir | singleRepoPath, port, host, … })` starts one, and its
+route factories mount on another host.
 
-```bash
-e3 task list <repo> <ws>                    # List tasks with execution status
-e3 task logs <repo> <ws.task>               # Last 200 lines of a task's logs
-e3 task logs <repo> <ws.task> -n 50         # Last 50 lines
-e3 task logs <repo> <ws.task> --all         # The whole log
-e3 task logs <repo> <ws.task> --follow      # Tail, then follow live output
-e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log — a partition or merge unit a partitioned task's log names (local repositories)
-```
-
-### Dataflow
-
-```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force] [-v]
-```
-
-After a successful run the output paths are printed in flat form, ready to read with `e3 dataset get`.
-
-**`-j` / `--jobs <n>`** is the run's one budget of parallelism: the runner
-processes e3 keeps in flight at once, across the dataflow's tasks and the
-partitions and merge units of its partitioned tasks alike (one slot per
-runner, first come first served). Default: the CPUs available to e3 (affinity
-mask, capped by a cgroup quota), or `E3_JOBS`. `--concurrency` and
-`--partition-concurrency` are deprecated aliases of the same budget.
-
-**`E3_SCRATCH_DIR`** names the directory a local run's per-execution scratch
-directories (inputs marshalled, the output written before it is stored) are
-created under — the system temp directory when unset. A tmpfs temp directory
-holds an output in memory until it is stored, so large outputs want it on a
-disk; a scratch directory left by a dead process is removed by the next run or
-`e3 repo gc`.
-
-**`-v` / `--verbose`** forwards `-v` to each task's runner so it prints a
-timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — identical
-across east-node, east-py and east-c — to the task's logs (`e3 task logs <repo>
-<ws.task>`). Pure runtime toggle: it never changes task hashes or caching, so a
-cached task stays cached with or without it (add `--force` to see the block for
-an already-cached task). Same flag on `e3 run`, `e3 call`, and `e3 mutate` —
-against **local and remote** repos (remote carries it as a `?verbose=1` query
-param; a server's `e3 task logs` / the call response surfaces the block).
-
-### Ad-hoc Run
-
-```bash
-e3 run <repo> <pkg.task> [inputs...] -o <output> [-v]  # task spec uses dots: pkg.task or pkg@1.0.0.task
-```
-
-### Call (named functions)
-
-```bash
-e3 call <repo> <pkg.fn> [args...] [-o out.beast2] [-v]  # function spec uses dots: pkg.fn or pkg@1.0.0.fn
-e3 call <repo> -w <ws> <fn> [args...]                 # against a workspace's deployed package
-```
-
-Each argument is an `.east` literal (`5`, `"hello"`, `[1.0, 2.0]`) or a
-`.beast2`/`.json`/`.east` file path, parsed against the declared parameter
-type. The decoded result prints to stdout (or `-o` writes raw beast2).
-Calls are graph-free: no datasets read or written, repository unchanged.
-
-### Watch
-
-```bash
-e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change] [--functions <manifest…>]   # source file first
-```
-
-### Utilities
-
-```bash
-e3 convert [input] [--from <fmt>] [--to <fmt>] [-o <output>]
-e3 completion install            # Detect $SHELL and wire up tab completion
-e3 completion {bash|zsh|fish}    # Print the raw completion script
-```
-
-### Authentication (for remote servers)
-
-```bash
-e3 auth login <server>            # Log in using OAuth2 Device Flow
-e3 auth logout <server>           # Log out and clear credentials
-e3 auth status                    # List all saved credentials
-e3 auth token <server>            # Print access token (for curl/debugging)
-e3 auth whoami [server]           # Show current identity
-```
-
-### Remote URLs
-
-All commands accept HTTP URLs instead of local paths:
-
-```bash
-# Start a server
-e3-api-server --repos ./repos --port 3000
-
-# Use remote repository
-e3 repo create http://localhost:3000/repos/my-repo
-e3 workspace list http://localhost:3000/repos/my-repo
-e3 package import http://localhost:3000/repos/my-repo ./pkg.zip
-```
-
-## Development Workflow
-
-### Watch Mode (recommended)
-
-```bash
-e3 watch ./src/index.ts . dev --start
-```
-
-Auto-compiles, deploys, and runs on file changes.
-
-### Manual Workflow
-
-```bash
-npm run build && npm run main
-e3 workspace deploy . dev --from-zip /tmp/pkg.zip
-e3 dataflow run . dev
-```
-
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| `@elaraai/e3` | SDK: e3.input, e3.task, e3.package, e3.export |
-| `@elaraai/e3-types` | Shared type definitions |
-| `@elaraai/e3-core` | Core library (workspaces, execution, caching) |
-| `@elaraai/e3-cli` | CLI tool |
-| `@elaraai/e3-api-client` | HTTP client for remote servers |
-| `@elaraai/e3-api-server` | REST API server |
-
-## Project Structure
+## A local repository
 
 ```
-my-project/
-├── package.json
-├── tsconfig.json
-├── pyproject.toml      # For Python runner
-├── src/
-│   └── index.ts        # Package definition
-└── repo/               # Repository (created by e3 repo create)
-    ├── objects/        # Content-addressable object store
-    ├── packages/       # Package metadata
-    └── workspaces/     # Workspace state
+repo/
+├── repository.beast2  # the release that last wrote it, and the upgrades it has had
+├── metadata.beast2    # its name and status
+├── objects/           # content-addressed: values, segments, manifests, programs
+├── packages/          # package refs
+├── workspaces/        # each workspace's state, dataset refs and run state
+├── dataflows/         # run records
+├── executions/        # execution attempts: status, owner, logs
+├── adoptions/         # the manifest each delivered file became
+├── locks/             # locks and their holders
+├── envs/              # built execution environments
+└── tmp/               # scratch and staged uploads
 ```
 
-## Caching
+An e3 opening a repository an older release wrote applies the upgrades it has
+not had, in place; one a newer e3 upgraded is refused, naming that release.
 
-Tasks are cached by content hash. Re-runs only when:
-- Task's East function IR changes
-- Input values change
-
-A `partitionTask` is additionally memoized per partition: each carved slice
-is its own content-addressed execution, so appends and tail-localized input
-changes re-run only the affected partitions. With `merge`, each merge unit
-(the runner's `merge` command over a group of partials) is a cached execution
-too, so a re-run re-merges only what a changed partial reaches.
-
-Use `--force` to bypass: `e3 dataflow run . dev --force`
+**Caching.** An execution is keyed by its task — program, runner and
+environment — and its inputs' hashes, so a task re-runs only when one of those
+changes (`--force` bypasses the cache). A change to an input re-runs its
+consumers, even during a run. A split task is cached a unit at a time: each piece
+and each merge is its own execution, and pieces are cut by content, so an append
+or an insertion re-runs only the pieces it reaches and the merges above them.
 
 ## Related skills
 
-- **east** — the language for task bodies (`e3.task` runs an `East.function`).
-- **e3-create** — scaffold an e3 project: the `npm create @elaraai/e3` flags (`--runners`, `--platform`, `--python/node/c-packages`, `--ui`) and what each generates.
-- **east-project** — drive the scaffolded project's build / deploy / run / watch / test lifecycle.
-- **east-ui** + **e3-ui** — author dashboards and decision surfaces as `ui()` tasks bound to workspace datasets.
-- **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }`).
-- **east-py** — author Python `@platform_function`s that a `{ custom: '<pkg>' }` east-py task calls (the per-package Python environment e3 auto-derives).
-- **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks; author your own east-node platform fns for `{ custom }` node-package tasks.
-- **east-design** / **east-ontology** — plan the dataflow and model the business before building.
+- **east** — the language task bodies are written in.
+- **e3-ui** — UI tasks (`ui()`) and decision surfaces bound to workspace
+  datasets; **east-ui** — their components; **e3-ui-cli** — the terminal UI.
+- **e3-create** — scaffold a project (`npm create @elaraai/e3`);
+  **east-project** — its build, deploy, run and test lifecycle.
+- **east-py** and **east-py-datascience** — python platform functions and ML
+  tasks; **east-node-std** and **east-node-io** — Node platform functions for
+  files, HTTP, databases and storage.
+- **east-design** and **east-ontology** — plan the dataflow, and model the
+  business, before building.

@@ -129,7 +129,7 @@ export interface ColumnSpec {
 }
 
 /** The tables with a per-breakpoint column plan. */
-export type TableKind = 'tasks' | 'inputs' | 'workspaces' | 'repos' | 'runs' | 'completion' | 'jump';
+export type TableKind = 'tasks' | 'inputs' | 'records' | 'workspaces' | 'repos' | 'runs' | 'history' | 'completion' | 'jump';
 
 /**
  * The column plan of a table at a width class. Widths are the design's
@@ -144,12 +144,25 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
     const medium = bp === 'medium';
     switch (table) {
         case 'tasks':
+            // The peak memory of each task's execution takes the right end of a wide table; NAME
+            // starts narrower, as it grows to the longest name, and OUTPUT keeps the 24 cells a
+            // `Dict<String, Integer>` needs.
+            if (!narrow && !medium) {
+                return [
+                    { key: 'name', title: 'NAME', width: 10, grow: 24 },
+                    { key: 'status', title: 'STATUS', width: 18 },
+                    { key: 'dependsOn', title: 'DEPENDS ON', width: 19 },
+                    { key: 'inputs', title: 'INPUTS', width: 16 },
+                    { key: 'output', title: 'OUTPUT', width: 24 },
+                    { key: 'size', title: 'SIZE · LAST RUN', width: 18 },
+                    { key: 'peak', title: 'PEAK', width: 0 },
+                ];
+            }
             return [
                 { key: 'name', title: 'NAME', width: 12, grow: 24 },
                 { key: 'status', title: 'STATUS', width: narrow ? 16 : 20 },
-                ...(narrow ? [] : [{ key: 'dependsOn', title: 'DEPENDS ON', width: medium ? 14 : 20 }]),
-                ...(narrow || medium ? [] : [{ key: 'inputs', title: 'INPUTS', width: 18 }]),
-                { key: 'output', title: 'OUTPUT', width: narrow || medium ? 16 : 26 },
+                ...(narrow ? [] : [{ key: 'dependsOn', title: 'DEPENDS ON', width: 14 }]),
+                { key: 'output', title: 'OUTPUT', width: 16 },
                 { key: 'size', title: 'SIZE · LAST RUN', width: 0 },
             ];
         case 'inputs':
@@ -159,6 +172,16 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
                 { key: 'type', title: 'TYPE', width: narrow ? 18 : medium ? 22 : 26 },
                 { key: 'size', title: 'SIZE', width: narrow ? 0 : 10 },
                 ...(narrow ? [] : [{ key: 'hash', title: 'HASH', width: 0 }]),
+            ];
+        case 'records':
+            // The newest commit takes the rest of the row — its mutation, actor and age, which at
+            // 80 columns still fit beside the indexes; NAME starts narrow and grows to the longest.
+            return [
+                { key: 'name', title: 'NAME', width: 10, grow: 24 },
+                { key: 'rows', title: 'ROWS', width: narrow || medium ? 10 : 12 },
+                { key: 'size', title: 'SIZE', width: 10 },
+                ...(narrow ? [] : [{ key: 'indexes', title: 'INDEXES', width: medium ? 20 : 26 }]),
+                { key: 'lastCommit', title: 'LAST COMMIT', width: 0 },
             ];
         case 'workspaces':
             return [
@@ -181,14 +204,22 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
                 { key: 'status', title: 'STATUS', width: 12 },
                 { key: 'started', title: 'STARTED', width: 22 },
                 { key: 'duration', title: 'DURATION', width: 10 },
+                { key: 'peak', title: 'PEAK', width: 10 },
                 { key: 'exit', title: 'EXIT', width: 6 },
                 { key: 'inputs', title: 'INPUTS', width: narrow ? 0 : 14 },
                 ...(narrow ? [] : [{ key: 'note', title: '', width: 0 }]),
             ];
+        case 'history':
+            return [
+                { key: 'when', title: 'WHEN', width: 22 },
+                { key: 'mutation', title: 'MUTATION', width: 14, grow: 28 },
+                ...(narrow ? [] : [{ key: 'actor', title: 'ACTOR', width: 14, grow: 24 }]),
+                { key: 'commit', title: 'COMMIT', width: 0 },
+            ];
         case 'completion':
             return [
                 { key: 'command', title: '', width: 12 },
-                { key: 'name', title: '', width: 14 },
+                { key: 'name', title: '', width: 14, grow: 30 },
                 { key: 'status', title: '', width: 18 },
                 ...(narrow ? [] : [{ key: 'type', title: '', width: 24 }]),
                 { key: 'detail', title: '', width: 0 },
@@ -196,7 +227,7 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
         case 'jump':
             return [
                 { key: 'kind', title: '', width: 12 },
-                { key: 'name', title: '', width: 16 },
+                { key: 'name', title: '', width: 16, grow: 30 },
                 { key: 'workspace', title: '', width: 10 },
                 { key: 'detail', title: '', width: 0 },
             ];

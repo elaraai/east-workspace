@@ -4,18 +4,24 @@
  */
 
 /**
- * Tests for storage/local/repository.ts
+ * Tests for storage/local/repository.ts: creating and finding a local
+ * repository. What an open does with its record is every backend's, in the
+ * repository record's contract suite.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  repoInit,
-  repoFind,
-  repoGet,
-} from './repository.js';
+import { decodeBeast2For } from '@elaraai/east';
+import { E3_RELEASE, RepoMetadataType } from '@elaraai/e3-types';
+import { repoInit, repoFind, repoGet } from './repository.js';
+import { LocalStorage } from './LocalBackend.js';
+import { REPOSITORY_RECORD_FILE } from './LocalRefStore.js';
+import { METADATA_FILE } from './LocalRepoStore.js';
+import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
+import { RepoLayoutError } from '../../errors.js';
+import { REPOSITORY_UPGRADES, repositoryOpen } from '../../repository-record.js';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
 
 describe('repository', () => {
@@ -59,6 +65,22 @@ describe('repository', () => {
       // No config file should be created - runner config is in tasks
       assert.strictEqual(existsSync(join(repoDir, 'e3.east')), false);
       assert.strictEqual(existsSync(join(repoDir, 'e3.beast2')), false);
+    });
+
+    it('writes the repository record, naming this release and every upgrade this e3 knows, and its metadata, named after the directory', async () => {
+      const repoDir = join(testDir, 'my-repo');
+      const result = repoInit(repoDir);
+
+      assert.strictEqual(result.success, true);
+
+      assert.ok(readFileSync(join(repoDir, REPOSITORY_RECORD_FILE)).length > 0);
+      const { release, upgrades } = await repositoryOpen(new LocalStorage(), repoDir);
+      assert.strictEqual(release, E3_RELEASE);
+      assert.deepStrictEqual(upgrades, [...LOCAL_REPOSITORY_UPGRADES, ...REPOSITORY_UPGRADES].map(({ name }) => ({ name, release: E3_RELEASE })));
+      const metadata = decodeBeast2For(RepoMetadataType)(readFileSync(join(repoDir, METADATA_FILE)));
+      assert.strictEqual(metadata.name, 'my-repo');
+      assert.strictEqual(metadata.status.type, 'active');
+      assert.strictEqual(metadata.statusChangedAt.getTime(), metadata.createdAt.getTime());
     });
 
     it('returns repoPath in result', () => {
@@ -223,6 +245,16 @@ describe('repository', () => {
       const found = repoFind(repoDir);
 
       assert.strictEqual(found, null);
+    });
+
+    it('finds a repository without opening it: one an older e3 wrote is found, and refused once it is opened', async () => {
+      const repoDir = join(testDir, 'my-repo');
+      repoInit(repoDir);
+      rmSync(join(repoDir, REPOSITORY_RECORD_FILE));
+
+      assert.strictEqual(repoFind(repoDir), repoDir);
+      await assert.rejects(repositoryOpen(new LocalStorage(), repoDir), (err: unknown) =>
+        err instanceof RepoLayoutError && err.upgrade === null && /an older e3 wrote it — re-create it/.test(err.message));
     });
   });
 

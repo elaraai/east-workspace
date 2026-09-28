@@ -17,9 +17,16 @@ import {
   workspaceStatus,
   packageImport,
   packageRead,
+  packageZipOpen,
   LocalStorage,
   WorkspaceExistsError,
   type WorkspaceStatusResult,
+  LocalTaskRunner,
+  type Budget,
+  type RecordIndexPlan,
+  type RecordPlan,
+  type SchemaPolicy,
+  type StorageBackend,
 } from '@elaraai/e3-core';
 import {
   workspaceCreate as workspaceCreateRemote,
@@ -44,6 +51,7 @@ import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoL
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
 import { fileTransferSource } from '../file-transfer-source.js';
+import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 export const workspaceCommand = {
   /**
@@ -81,12 +89,24 @@ export const workspaceCommand = {
    * deploy adopts them, a remote one checks each before touching the remote
    * workspace and uploads it after the deploy. `--skip-file-sources` leaves them
    * unset instead.
+   *
+   * A deploy says what it decides for each record and index: `--schema` says
+   * what it does with a record it cannot keep as it is, `--allow-drop-records`
+   * lets it drop one the package no longer declares, and `--plan` says it all
+   * and writes nothing. A server runs the deploy as a job, which this polls.
+   *
+   * A plan from a zip or a source imports nothing: locally it reads the package
+   * from the zip where it is, and a server, which plans only a package it
+   * holds, is refused one, naming the import that comes first.
    */
   async deploy(
     repoArg: string,
     ws: string,
     pkgSpec: string | undefined,
-    options: { fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean; skipFileSources?: boolean } = {},
+    options: BudgetFlags & {
+      fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean; skipFileSources?: boolean;
+      schema?: string; allowDropRecords?: boolean; plan?: boolean;
+    } = {},
   ): Promise<void> {
     try {
       const modes = [pkgSpec, options.fromZip, options.fromSource].filter(Boolean);
@@ -98,12 +118,29 @@ export const workspaceCommand = {
       }
 
       const location = await parseRepoLocation(repoArg);
+      const schema = schemaPolicy(options.schema);
+      if (location.type === 'remote') refuseRemoteBudget(options);
 
       const progress = createProgress({ quiet: options.quiet === true });
-      const target: DeployTarget = { location, repoArg, ws, progress, skipFileSources: options.skipFileSources === true };
+      const target: DeployTarget = {
+        location, repoArg, ws, progress, skipFileSources: options.skipFileSources === true,
+        ...(schema !== undefined && { schema }),
+        allowDropRecords: options.allowDropRecords === true,
+        plan: options.plan === true,
+        ...(location.type === 'local' && { budget: commandBudget(options) }),
+      };
 
       // --from-source mode: bundle the TS source into a package, then import + deploy
       if (options.fromSource) {
+        // Refused before the source is bundled: the zip it becomes is gone
+        // once the command ends, so the refusal cannot name it.
+        if (target.plan && location.type === 'remote') {
+          exitError(
+            `--plan writes nothing, and a server plans only a package it holds: export ${options.fromSource}'s package ` +
+            `to a zip with e3.export, import it with \`e3 package import ${repoArg} <zip>\`, then plan with ` +
+            `\`e3 workspace deploy ${repoArg} ${ws} <name>@<version> --plan\``,
+          );
+        }
         await deployFromSource(target, options.fromSource, options.functions ?? []);
         return;
       }
@@ -117,11 +154,7 @@ export const workspaceCommand = {
       const { name, version } = parsePackageSpec(pkgSpec!);
 
       if (location.type === 'local') {
-        const storage = new LocalStorage();
-        await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources });
-        if (target.skipFileSources) {
-          reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
-        }
+        await deployLocal(target, new LocalStorage(), location.path, name, version);
       } else {
         // Resolve `latest` here, so the package this command checks the file
         // sources of is exactly the one the server deploys.
@@ -129,7 +162,7 @@ export const workspaceCommand = {
         await deployRemote(target, name, resolved);
       }
 
-      console.log(`Deployed ${pkgSpec} to workspace: ${ws}`);
+      if (!target.plan) console.log(`Deployed ${pkgSpec} to workspace: ${ws}`);
     } catch (err) {
       exitError(formatError(err));
     }
@@ -282,7 +315,7 @@ export const workspaceCommand = {
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
-        status = await workspaceStatus(storage, location.path, ws);
+        status = await workspaceStatus(storage, new LocalTaskRunner(location.path), location.path, ws);
       } else {
         const remoteStatus = await workspaceStatusRemote(location.baseUrl, location.repo, ws, { token: location.token });
         // Convert remote status to local format
@@ -307,6 +340,7 @@ export const workspaceCommand = {
             inputs: t.inputs,
             output: t.output,
             dependsOn: t.dependsOn,
+            peakBytes: t.peakBytes.type === 'some' ? Number(t.peakBytes.value) : null,
           })),
           summary: {
             datasets: {
@@ -399,6 +433,104 @@ interface DeployTarget {
   progress: Progress;
   /** Leave the package's `file` sources unset instead of reading them. */
   skipFileSources: boolean;
+  /** What the deploy does with a record it cannot keep as it is; its
+   *  default, `migrate`, when absent. */
+  schema?: SchemaPolicy;
+  /** Let the deploy drop a record the package no longer declares. */
+  allowDropRecords: boolean;
+  /** Say what the deploy would do, and write nothing. */
+  plan: boolean;
+  /** The budget a local deploy's migrations and index builds take from. */
+  budget?: Budget;
+}
+
+/**
+ * The `--schema` policy a command was given, or undefined when it was given
+ * none.
+ *
+ * @param value - The option's value
+ * @returns The policy
+ */
+export function schemaPolicy(value: string | undefined): SchemaPolicy | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'migrate' || value === 'fail' || value === 'reset') return value;
+  exitError(`--schema takes migrate, fail or reset, not '${value}'`);
+}
+
+/** What a deploy decided for a record, as a line the CLI prints. */
+export function recordPlanLine(plan: RecordPlan): string {
+  const { action } = plan;
+  switch (action.type) {
+    case 'mint': return `mint record ${plan.record}`;
+    case 'keep': return `keep record ${plan.record}${action.value.deploy ? ', with a $deploy commit: the package under it changed' : ''}`;
+    case 'migrate': return `migrate record ${plan.record}: ${action.value.steps.join(', ')}`;
+    case 'reset': return `reset record ${plan.record}: it ${action.value.reason}`;
+    case 'drop': return `drop record ${plan.record}, with its state and history`;
+    case 'refused': return `refuse record ${plan.record}: it ${action.value.reason}`;
+  }
+}
+
+/**
+ * What a deploy says about each record and index it decides for: every
+ * decision under `--plan`, and otherwise the ones that change something.
+ *
+ * @remarks
+ * A local deploy says each as it decides it, before the migration or index
+ * build it names runs, since those are the parts of a deploy that take
+ * minutes. A server's job reports them all once it has finished.
+ *
+ * @param target - The deploy
+ * @returns Where the deploy's decisions go, and the end of a plan, which fails
+ *   when the deploy would be refused
+ */
+function deployReporter(target: DeployTarget): {
+  onRecordPlan: (plan: RecordPlan) => void;
+  onRecordIndex: (plan: RecordIndexPlan) => void;
+  endPlan: () => void;
+} {
+  let refused = 0;
+  return {
+    onRecordPlan: (plan) => {
+      const action = plan.action.type;
+      if (action === 'refused') refused++;
+      if (target.plan || action === 'migrate' || action === 'reset' || action === 'drop') {
+        console.log(`  ${recordPlanLine(plan)}`);
+      }
+    },
+    onRecordIndex: (plan) => {
+      if (target.plan || plan.action.type !== 'keep') console.log(`  ${plan.action.type} index ${plan.record}.${plan.index}`);
+    },
+    endPlan: () => {
+      if (refused > 0) exitError(`the deploy would be refused: ${refused === 1 ? 'a record' : `${refused} records`}, above`);
+      console.log('A plan: nothing was written.');
+    },
+  };
+}
+
+/**
+ * Deploy an imported package to a LOCAL workspace, saying what the deploy
+ * decides for each record and index; with `--plan`, only saying it. A plan's
+ * package may be read through a view of a zip, which the repository does not
+ * hold.
+ */
+async function deployLocal(target: DeployTarget, storage: StorageBackend, repoPath: string, name: string, version: string): Promise<void> {
+  const report = deployReporter(target);
+  await workspaceDeploy(storage, repoPath, target.ws, name, version, {
+    resolveFileSources: !target.skipFileSources,
+    runner: new LocalTaskRunner(repoPath, target.budget),
+    ...(target.schema !== undefined && { schema: target.schema }),
+    allowDropRecords: target.allowDropRecords,
+    plan: target.plan,
+    onRecordPlan: report.onRecordPlan,
+    onRecordIndex: report.onRecordIndex,
+  });
+  if (target.plan) {
+    report.endPlan();
+    return;
+  }
+  if (target.skipFileSources) {
+    reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, repoPath, name, version)));
+  }
 }
 
 /** A package's path-initialised input, as a deploy completes it. */
@@ -481,16 +613,19 @@ async function latestRemoteVersion(location: RepoLocation, name: string): Promis
 
 /**
  * Deploy an imported package to a REMOTE workspace, completing its `file`
- * sources from this machine.
+ * sources from this machine; with `--plan`, only saying what it would do.
  *
  * @remarks
+ * The server runs the deploy as a job, which this polls, and says what it
+ * decided for each record and index once it has finished.
+ *
  * A `file` source names a path on the machine that exported the package, and
  * the server never opens it: it leaves those inputs unassigned. So each source
  * is checked HERE before the remote workspace is touched, the server deploys,
  * and each delivery is then streamed over the dataset transfer protocol, whose
  * commit runs the same validation a local deploy's adopt does. The transfer
  * dedups on the hash, so a redeploy whose delivery has not changed costs one
- * round trip and no bytes.
+ * round trip and no bytes. A plan writes nothing, so it reads no source.
  */
 async function deployRemote(target: DeployTarget, name: string, version: string): Promise<void> {
   const { location, ws, progress } = target;
@@ -498,18 +633,35 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
   const auth = { token: location.token };
 
   const sources = fileSourcesOf(await packageGetRemote(location.baseUrl, location.repo, name, version, auth));
-  if (!target.skipFileSources) {
+  if (!target.skipFileSources && !target.plan) {
     for (const source of sources) checkFileSource(target, source);
   }
 
-  const deployStep = progress.step(`deploying ${name}@${version} to workspace ${ws}`);
+  const doing = target.plan ? 'planning' : 'deploying';
+  const deployStep = progress.step(`${doing} ${name}@${version} to workspace ${ws}`);
+  let result;
   try {
-    await workspaceDeployRemote(location.baseUrl, location.repo, ws, `${name}@${version}`, auth);
+    result = await workspaceDeployRemote(location.baseUrl, location.repo, ws, `${name}@${version}`, auth, {
+      ...(target.schema !== undefined && { schema: target.schema }),
+      allowDropRecords: target.allowDropRecords,
+      plan: target.plan,
+      onProgress: (p) => {
+        deployStep.update(`${doing}… ${p.type === 'pending' ? 'waiting for server' : 'running on the server'}`);
+      },
+    });
   } catch (err) {
     deployStep.fail();
     throw err;
   }
-  deployStep.done(`deployed ${name}@${version} to workspace ${ws}`);
+  deployStep.done(`${target.plan ? 'planned' : 'deployed'} ${name}@${version} to workspace ${ws}`);
+
+  const report = deployReporter(target);
+  for (const plan of result.records) report.onRecordPlan(plan);
+  for (const plan of result.indexes) report.onRecordIndex(plan);
+  if (target.plan) {
+    report.endPlan();
+    return;
+  }
 
   if (target.skipFileSources) {
     reportSkippedFileSources(target, sources);
@@ -534,12 +686,38 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
 }
 
 /**
- * Import a zip, ensure the workspace exists, and deploy.
+ * Import a zip, ensure the workspace exists, and deploy; with `--plan`, say
+ * what the deploy would do, and import nothing.
  *
  * Used by `workspace deploy --from-zip` and `--from-source`.
+ *
+ * @remarks
+ * A plan writes nothing, so it imports nothing. Locally it reads the package
+ * from the zip where it is, through a view of the repository with the zip laid
+ * over it, and creates no workspace: it plans every record of a missing one as
+ * minted. A server plans only a package it holds, so a plan against one is
+ * refused, naming the import that comes first.
  */
 async function deployFromZip(target: DeployTarget, zipPath: string): Promise<void> {
-  const { location, ws, progress } = target;
+  const { location, repoArg, ws, progress } = target;
+  if (target.plan) {
+    const zip = await packageZipOpen(zipPath);
+    try {
+      if (location.type === 'remote') {
+        throw new Error(
+          `--plan writes nothing, and a server plans only a package it holds: import ${zipPath} with ` +
+          `\`e3 package import ${repoArg} ${zipPath}\`, then plan with ` +
+          `\`e3 workspace deploy ${repoArg} ${ws} ${zip.name}@${zip.version} --plan\``,
+        );
+      }
+      progress.phase(`read ${zip.name}@${zip.version} (${zip.objectCount} objects), importing nothing`);
+      await deployLocal(target, zip.view(new LocalStorage()), location.path, zip.name, zip.version);
+    } finally {
+      zip.close();
+    }
+    return;
+  }
+
   let name: string;
   let version: string;
   let packageHash: string;
@@ -560,10 +738,7 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     } catch (err) {
       if (!(err instanceof WorkspaceExistsError)) throw err;
     }
-    await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources });
-    if (target.skipFileSources) {
-      reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
-    }
+    await deployLocal(target, storage, location.path, name, version);
   } else {
     const zipBytes = readFileSync(zipPath);
     // Upload + server-side import progress (#311) — byte counter while the

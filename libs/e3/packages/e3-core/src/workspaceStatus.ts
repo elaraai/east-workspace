@@ -17,7 +17,7 @@
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
   decodePackageObject,
-  WorkspaceStateType,
+  WorkspaceRecordType,
   pathToString,
   type TaskObject,
   type TreePath,
@@ -28,14 +28,14 @@ import {
   executionGetLatest,
   inputsHash,
 } from './executions.js';
-import { isProcessAlive } from './execution/processHelpers.js';
 import { workspaceGetDatasetHash } from './trees.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
+  lockStateToHolderInfo,
   type LockHolderInfo,
 } from './errors.js';
-import { lockStateToHolderInfo } from './storage/local/LocalLockService.js';
+import type { TaskRunner } from './execution/interfaces.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 // =============================================================================
@@ -60,7 +60,7 @@ export type TaskStatus =
   | { type: 'in-progress'; pid?: number; startedAt?: string }  // Currently executing
   | { type: 'failed'; exitCode: number; completedAt?: string }  // Last execution failed (non-zero exit)
   | { type: 'error'; message: string; completedAt?: string }    // Last execution had internal error
-  | { type: 'stale-running'; pid?: number; startedAt?: string };  // Marked running but process dead
+  | { type: 'stale-running'; pid?: number; startedAt?: string };  // Marked running, but can no longer finish
 
 /**
  * Information about a dataset in the status report.
@@ -94,6 +94,10 @@ export interface TaskStatusInfo {
   output: string;
   /** Tasks this one depends on */
   dependsOn: string[];
+  /** The highest peak resident memory, in bytes, a runner of the execution
+   *  the status comes from reached — the one the output came from, or the
+   *  failure — or `null` when it recorded none, or while it runs */
+  peakBytes: number | null;
 }
 
 /**
@@ -156,11 +160,11 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
   }
-  if (data.length === 0) {
+  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
-  const decoder = decodeBeast2For(WorkspaceStateType);
-  return decoder(Buffer.from(data));
+  return record.value;
 }
 
 // =============================================================================
@@ -178,7 +182,12 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
  * This is a read-only operation that does not modify workspace state
  * and does not require acquiring a lock.
  *
+ * A task whose execution is recorded running is in progress while the runner
+ * says the execution can still finish ({@link TaskRunner.executionAlive}), and
+ * stale once it cannot: the runner that started it knows, wherever it runs.
+ *
  * @param storage - Storage backend
+ * @param runner - The runner the workspace's tasks run on
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
  * @param ws - Workspace name
  * @returns Complete status report
@@ -187,6 +196,7 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
  */
 export async function workspaceStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repo: string,
   ws: string
 ): Promise<WorkspaceStatusResult> {
@@ -210,15 +220,15 @@ export async function workspaceStatus(
     const taskData = await storage.objects.read(repo, taskHash);
     const task = taskDecoder(Buffer.from(taskData));
 
-    const outputPathStr = pathToString(task.output);
+    const outputPathStr = pathToString(task.output.path);
     outputToTask.set(outputPathStr, taskName);
 
     taskNodes.set(taskName, {
       name: taskName,
       hash: taskHash,
       task,
-      inputPaths: task.inputs,
-      outputPath: task.output,
+      inputPaths: task.inputs.map((input) => input.path),
+      outputPath: task.output.path,
     });
   }
 
@@ -247,6 +257,7 @@ export async function workspaceStatus(
   // 3. Any upstream task is stale
   const taskIsStale = new Map<string, boolean>();
   const taskStatus = new Map<string, TaskStatus>();
+  const taskPeak = new Map<string, number | null>();
 
   // First pass: determine which tasks have valid cached executions.
   // Tasks are independent here (computeTaskStatus reads nothing cross-task),
@@ -254,8 +265,9 @@ export async function workspaceStatus(
   // instead of the sum over all tasks.
   const firstPass = await Promise.all(
     [...taskNodes].map(async ([taskName, node]) => {
-      const status = await computeTaskStatus(
+      const computed = await computeTaskStatus(
         storage,
+        runner,
         repo,
         ws,
         node,
@@ -263,11 +275,12 @@ export async function workspaceStatus(
         taskNodes,
         taskIsStale
       );
-      return [taskName, status] as const;
+      return [taskName, computed] as const;
     })
   );
-  for (const [taskName, status] of firstPass) {
+  for (const [taskName, { status, peakBytes }] of firstPass) {
     taskStatus.set(taskName, status);
+    taskPeak.set(taskName, peakBytes ?? null);
     taskIsStale.set(taskName, status.type !== 'up-to-date');
   }
 
@@ -326,6 +339,7 @@ export async function workspaceStatus(
       inputs: node.inputPaths.map(pathToString),
       output: pathToString(node.outputPath),
       dependsOn: taskDependsOn.get(taskName) ?? [],
+      peakBytes: taskPeak.get(taskName) ?? null,
     });
   }
 
@@ -381,21 +395,23 @@ function collectDatasetPaths(
 }
 
 /**
- * Compute the status of a task.
+ * Compute the status of a task, and the peak memory of the execution it comes
+ * from: the one its output came from, or its failure.
  */
 async function computeTaskStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repo: string,
   ws: string,
   node: TaskNode,
   outputToTask: Map<string, string>,
   _taskNodes: Map<string, TaskNode>,
   _taskIsStale: Map<string, boolean>
-): Promise<TaskStatus> {
+): Promise<{ status: TaskStatus; peakBytes?: number }> {
   // First, check if execution is in progress
-  const inProgressStatus = await checkInProgress(storage, repo, node.hash);
+  const inProgressStatus = await checkInProgress(storage, runner, repo, node.hash);
   if (inProgressStatus) {
-    return inProgressStatus;
+    return { status: inProgressStatus };
   }
 
   // Gather current input hashes
@@ -416,10 +432,7 @@ async function computeTaskStatus(
         waitingOnTasks.push(producerTask);
       } else {
         // External input that is unset
-        return {
-          type: 'waiting',
-          reason: `Input '${inputPathStr}' is not set`,
-        };
+        return { status: { type: 'waiting', reason: `Input '${inputPathStr}' is not set` } };
       }
     } else {
       currentInputHashes.push(hash);
@@ -428,18 +441,12 @@ async function computeTaskStatus(
 
   // If any inputs are unset and produced by tasks, we're waiting
   if (hasUnsetInputs && waitingOnTasks.length > 0) {
-    return {
-      type: 'waiting',
-      reason: `Waiting for task(s): ${waitingOnTasks.join(', ')}`,
-    };
+    return { status: { type: 'waiting', reason: `Waiting for task(s): ${waitingOnTasks.join(', ')}` } };
   }
 
   // If any inputs are unset (external), we're waiting
   if (hasUnsetInputs) {
-    return {
-      type: 'waiting',
-      reason: 'Some inputs are not set',
-    };
+    return { status: { type: 'waiting', reason: 'Some inputs are not set' } };
   }
 
   // Check the execution status for these inputs
@@ -448,39 +455,50 @@ async function computeTaskStatus(
 
   if (execStatus === null) {
     // No execution attempted - task is ready to run
-    return { type: 'ready' };
+    return { status: { type: 'ready' } };
   }
 
   // Check the execution status type
   switch (execStatus.type) {
     case 'running': {
-      // Execution was marked as running - check if process is still alive
-      // For now, just report it (process liveness check is done in checkInProgress)
-      // If we reach here, checkInProgress didn't find it, so it might be stale
+      // checkInProgress asked the runner, which says it can no longer finish
       return {
-        type: 'stale-running',
-        pid: Number(execStatus.value.pid),
-        startedAt: execStatus.value.startedAt.toISOString(),
+        status: {
+          type: 'stale-running',
+          pid: Number(execStatus.value.pid),
+          startedAt: execStatus.value.startedAt.toISOString(),
+        },
       };
     }
 
     case 'failed': {
       // Task ran but returned non-zero exit code
       return {
-        type: 'failed',
-        exitCode: Number(execStatus.value.exitCode),
-        completedAt: execStatus.value.completedAt.toISOString(),
+        status: {
+          type: 'failed',
+          exitCode: Number(execStatus.value.exitCode),
+          completedAt: execStatus.value.completedAt.toISOString(),
+        },
+        ...(execStatus.value.peakBytes.type === 'some' && { peakBytes: Number(execStatus.value.peakBytes.value) }),
       };
     }
 
     case 'error': {
       // Internal error during execution
       return {
-        type: 'error',
-        message: execStatus.value.message,
-        completedAt: execStatus.value.completedAt.toISOString(),
+        status: {
+          type: 'error',
+          message: execStatus.value.message,
+          completedAt: execStatus.value.completedAt.toISOString(),
+        },
       };
     }
+
+    case 'cancelled':
+    case 'interrupted':
+      // e3 stopped the execution, or its orchestrator exited, before the task
+      // finished: it neither succeeded nor failed, and can run again
+      return { status: { type: 'ready' } };
 
     case 'success': {
       // Execution succeeded - check if workspace output matches
@@ -495,27 +513,30 @@ async function computeTaskStatus(
       if (refType !== 'value' || wsOutputHash !== cachedOutputHash) {
         // Workspace output doesn't match - task needs to run
         // (This might happen if workspace was modified externally)
-        return { type: 'ready' };
+        return { status: { type: 'ready' } };
       }
 
       // Everything matches - task is up-to-date
-      return { type: 'up-to-date', cached: true };
+      return {
+        status: { type: 'up-to-date', cached: true },
+        ...(execStatus.value.peakBytes.type === 'some' && { peakBytes: Number(execStatus.value.peakBytes.value) }),
+      };
     }
 
     default:
       // Unknown status type - treat as ready
-      return { type: 'ready' };
+      return { status: { type: 'ready' } };
   }
 }
 
 /**
  * Check if an execution is currently in progress for a task.
  *
- * Looks for a 'running' execution status that is still alive.
- * Only returns in-progress if the process is actually running.
+ * Looks for a 'running' execution status the runner says can still finish.
  */
 async function checkInProgress(
   storage: StorageBackend,
+  runner: TaskRunner,
   repo: string,
   taskHash: string
 ): Promise<TaskStatus | null> {
@@ -524,23 +545,19 @@ async function checkInProgress(
   // N+1 that made status requests O(repo history) on remote backends.)
   const latest = await storage.refs.executionListLatest(repo, taskHash);
 
-  for (const { status } of latest) {
-    if (status.type === 'running') {
-      // Found a running execution - verify process is actually alive
-      const pid = Number(status.value.pid);
-      const pidStartTime = Number(status.value.pidStartTime);
-      const bootId = status.value.bootId;
-
-      const alive = await isProcessAlive(pid, pidStartTime, bootId);
-      if (alive) {
+  for (const { inputsHash: inHash, status } of latest) {
+    // A split task's units are recorded under its hash too; while they run,
+    // the task's own execution is recorded running, from when it started.
+    if (status.type === 'running' && !status.value.unit) {
+      if (await runner.executionAlive(storage, taskHash, inHash, status.value)) {
         return {
           type: 'in-progress',
-          pid,
+          pid: Number(status.value.pid),
           startedAt: status.value.startedAt.toISOString(),
         };
       }
-      // Process is dead - this is a stale running status, skip it
-      // (it will be reported as stale-running if it's the current inputs)
+      // It can no longer finish: reported stale-running if it is the
+      // execution of the current inputs
     }
   }
 

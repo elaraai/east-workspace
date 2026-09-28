@@ -11,18 +11,17 @@ Standard platform functions for the East language on the Python runtime - consol
 
 `east_py_std` is the Python implementation of the East standard platform:
 console, environment variables, filesystem, HTTP fetch, crypto, time, path,
-random, large-JSON reading, and testing.
-Every function is exported under its platform name (`fs_read_file`,
-`fetch_get`, …) and is **dual-mode**: a plain Python callable taking
-and returning East values — call it from a project `@East.platform_function`
-— and, the same object, callable inside an `East.function` body, where the
-call IS the `Platform` node with the function's own declared signature. No
-`East.platform(name, inputs, output)` line restates it; register the
-`platform` list at `East.compile` (or let the runner) and it runs.
+random, large-JSON reading and testing. Every function is exported under its
+platform name (`fs_read_file`, `fetch_get`, …) and is **dual-mode**: a plain
+python callable over East values — call it from your own
+`@East.platform_function` — and, the same object, callable inside an
+`East.function` body, where the call IS the `Platform` node with the
+function's declared signature. Nothing restates it: register the `platform`
+list at `East.compile` (or let the runner) and it runs.
 
-This skill is for **Python** code. To author East programs in TypeScript that
-use these functions (`Console.log`, `FileSystem.readFile`, ...), load the
-**east-node-std** skill - the TS surface is identical in capability.
+This skill is for **Python**. To author East programs in TypeScript against
+these functions (`Console.log`, `FileSystem.readFile`, …), load
+**east-node-std** — the same functions, under the same platform names.
 
 ## Before writing code — search the example index
 
@@ -49,125 +48,141 @@ Nothing is injected for you; the search is the step.
 from east import ArrayType, East, IntegerType, StringType
 from east_py_std import fs_read_directory, fs_read_file, fs_read_file_bytes, platform
 
-@East.platform_function(inputs=[StringType], output=ArrayType(StringType))
-def first_lines(directory):
-    # Direct calls - East values in, East values out, no IR round-trip
-    names = fs_read_directory(directory)
-    return names.map(lambda b, name: fs_read_file(East.str(directory, "/", name)).split("\n").get(0))
+# Direct calls — East values in, East values out, no IR round trip
+@East.platform_function(inputs=[StringType], output=IntegerType)
+def file_count(directory):
+    return fs_read_directory(directory).size()
 
-# The same functions inside an East body: the call is the Platform node,
-# nothing restates the signature — compile with the package's list.
+# The same functions inside an East body: the call is the Platform node, nothing
+# restates the signature — compile with the package's list
+first_lines = East.function([StringType], ArrayType(StringType), lambda b, directory:
+    fs_read_directory(directory).map(
+        lambda b, name: fs_read_file(East.str(directory, "/", name)).split("\n").get(0)))
+East.compile(first_lines, platform=platform)("reports")
+
 size = East.function([StringType], IntegerType, lambda b, path: fs_read_file_bytes(path).size())
 East.compile(size, platform=platform)("data.bin")
 ```
+
+An EAGER callback — `names.map(lambda b, name: fs_read_file(…))` on a value
+in python — cannot call a platform function: it compiles with no platform, so
+the capture refuses it (`it references fs_read_file, which has no East form`).
+Put the loop in an East function compiled with `platform`, as above.
 
 ## Decision Tree: What Do You Need?
 
 ```
 Task → What do you need?
     │
-    ├─ Console output
-    │   └─ console_log(msg) · console_error(msg) · console_write(msg)
+    ├─ Console → console_log(msg) · console_error(msg) · console_write(msg) (no newline)
     │
-    ├─ Environment variables (runtime credentials/config — never literals in source)
+    ├─ Environment (runtime credentials and config — never literals in source)
     │   └─ env_get(name) -> Option<String> (some when set, none when not)
     │
     ├─ Filesystem
     │   ├─ Text → fs_read_file(path) · fs_write_file(path, text) · fs_append_file(path, text)
     │   ├─ Bytes → fs_read_file_bytes(path) -> Blob · fs_write_file_bytes(path, blob)
-    │   ├─ Huge beast2 collection file → fs_open_beast(T, path) in a body (FileSystem.openBeast's twin: the type argument FIRST);
-    │   │   from python, the factory: fs_open_beast(platform, T)(path) — a FROZEN paged value over a mapping of the file;
-    │   │   size / keyed reads / iteration decode one segment
-    │   ├─ Inspect → fs_exists · fs_is_file · fs_is_directory · fs_read_directory
+    │   ├─ A huge beast2 collection file → fs_open_beast(T, path) in a body (FileSystem.openBeast's twin, the type FIRST):
+    │   │   a FROZEN paged value over a mapping — size / keyed reads / iteration decode one segment
+    │   ├─ Inspect → fs_exists · fs_is_file · fs_is_directory · fs_read_directory(path) -> Array<String>
     │   └─ Manage → fs_create_directory · fs_delete_file
     │
     ├─ JSON too large to decode whole
-    │   ├─ Open → json_open(path, pointer) · json_open_text(text, pointer) -> handle
+    │   ├─ Open → json_open(path, pointer) · json_open_text(text, pointer) -> a handle (a String)
     │   │   (pointer is RFC 6901: "" for the whole document, "/data" for an envelope's array)
     │   ├─ Iterate → json_more(handle) then json_next(T, handle) in a body — the type FIRST;
     │   │   from python the factory: json_next(None, T)(handle)
     │   ├─ One subtree → json_value(T, path, pointer) — the small members beside a huge array
     │   └─ Release → json_close(handle)
     │
-    ├─ HTTP
-    │   ├─ Convenience → fetch_get(url) -> String · fetch_get_bytes(url) -> Blob ·
-    │   │                fetch_post(url, body) -> String
+    ├─ HTTP (ASYNC: await a direct call; in a body, East.asyncFunction + East.compileAsync)
+    │   ├─ Convenience → fetch_get(url) -> String · fetch_get_bytes(url) -> Blob · fetch_post(url, body) -> String
     │   └─ Full control → fetch_request(FetchRequestConfigType) -> FetchResponseType
-    │                     (method variant get/post/put/delete/patch/head, headers Dict, Option body)
     │
-    ├─ Crypto
-    │   └─ crypto_uuid() · crypto_random_bytes(n) -> Blob ·
-    │      crypto_hash_sha256(text) · crypto_hash_sha256_bytes(blob)
+    ├─ Crypto → crypto_uuid() · crypto_random_bytes(n) -> Blob · crypto_hash_sha256(text) -> hex String ·
+    │           crypto_hash_sha256_bytes(blob) -> Blob (the 32-byte digest)
     │
-    ├─ Time
-    │   └─ time_now() -> DateTime · time_sleep(ms) · time_get_timezone_offset(tz)
+    ├─ Time → time_now() -> Integer (Unix milliseconds) · time_sleep(ms) (async) ·
+    │         time_get_timezone_offset(dt, zone) -> Integer (minutes ahead of UTC for an IANA zone at that instant)
     │
-    ├─ Path
-    │   └─ path_join(parts) · path_resolve(parts) · path_dirname ·
-    │      path_basename · path_extname
+    ├─ Path → path_join(parts: Array<String>) · path_resolve(path) (absolute) · path_dirname(path) ·
+    │         path_basename(path) · path_extname(path)
     │
-    ├─ Random (all draw from one stream; seed it for reproducibility)
+    ├─ Random (one stream; seed it for reproducibility)
     │   ├─ Seed → random_seed(seed)
-    │   ├─ Uniform/range → random_uniform(lo, hi) · random_range(min, max) -> Integer
-    │   ├─ Continuous → random_normal(mean, std) · random_log_normal · random_exponential ·
-    │   │               random_weibull · random_pareto · random_bates · random_irwin_hall
-    │   └─ Discrete → random_bernoulli(p) · random_binomial(n, p) ·
-    │                 random_geometric(p) · random_poisson(lambda)
+    │   ├─ Uniform → random_uniform() in [0, 1) · random_range(min, max) -> Integer in [min, max]
+    │   ├─ Continuous → random_normal() (N(0, 1)) · random_log_normal(mu, sigma) · random_exponential(rate) ·
+    │   │               random_weibull(shape) · random_pareto(alpha) · random_bates(n) · random_irwin_hall(n)
+    │   └─ Discrete (-> Integer) → random_bernoulli(p) · random_binomial(n, p) · random_geometric(p) · random_poisson(rate)
     │
-    └─ Testing (the harness the compliance runner overrides with its own)
-        └─ testPass / testFail / test / describe
+    └─ Testing (the harness the compliance runner overrides with its own) → the platform functions
+        testPass / testFail(msg) / test(name, body) / describe(name, body); in python test_pass · test_fail ·
+        test_impl_fn · describe, with reset_counters()
 ```
+
+`platform` is every function; each family's list is exported too
+(`console_impl`, `env_impl`, `fs_impl`, `fetch_impl`, `crypto_impl`,
+`time_impl`, `path_impl`, `random_impl`, `json_impl`, `test_impl`) when a
+program should get only some of them.
 
 ## East Type Definitions
 
 | Type | Shape |
 |------|-------|
-| `FetchMethodType` | `Variant<get, post, put, delete, patch, head>` (Null payloads) |
+| `FetchMethodType` | `Variant<GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS>` (Null payloads) |
 | `FetchRequestConfigType` | `Struct{url: String, method: FetchMethodType, headers: Dict<String, String>, body: Option<String>}` |
 | `FetchResponseType` | `Struct{status: Integer, statusText: String, headers: Dict<String, String>, body: String, ok: Boolean}` |
 
-All three are importable from `east_py_std` and carry attribute docstrings;
-build values with `coerce_to({...}, FetchRequestConfigType)` or
-`variant("get", None, FetchMethodType)`.
+All three are importable from `east_py_std`. Build a request with
+`coerce_to({...}, FetchRequestConfigType)` — the method with
+`variant("POST", None, FetchMethodType)`, the body with `some(text)` or `none`
+(a plain string is not an Option).
 
 ## Key Patterns
 
 ### Full-control HTTP request
 
 ```python
-from east import coerce_to, variant
+import asyncio
+from east import coerce_to, some, variant
 from east_py_std import FetchMethodType, FetchRequestConfigType, fetch_request
 
-response = fetch_request(coerce_to({
+request = coerce_to({
     "url": "https://api.example.com/items",
-    "method": variant("post", None, FetchMethodType),
+    "method": variant("POST", None, FetchMethodType),
     "headers": {"content-type": "application/json"},
-    "body": '{"name": "widget"}',
-}, FetchRequestConfigType))
-response["status"], response["body"]   # plain int / str
+    "body": some('{"name": "widget"}'),
+}, FetchRequestConfigType)
+response = asyncio.run(fetch_request(request))   # a direct call returns the coroutine
+response["status"], response["body"]              # plain int / str
 ```
+
+Inside a body the fetch functions need `East.asyncFunction` and
+`East.compileAsync` (a sync body refuses them at build time). Run such a
+program through the runner — `east-py run`, an e3 task: the bridge runs async
+implementations on its own event loop, so the compiled coroutine cannot be
+awaited under `asyncio.run` once it calls one.
 
 ### Deterministic random streams
 
 ```python
-from east_py_std import random_normal, random_seed
+from east_py_std import random_normal, random_range, random_seed
 
 random_seed(42)                    # same seed -> same draws
-noise = random_normal(0.0, 1.0)
+noise = random_normal()            # N(0, 1); scale and shift it yourself
+die = random_range(1, 6)
 ```
 
 ### Open a huge beast2 collection file lazily
 
 `fs_open_beast` is the std family's one generic platform function — the
-implementation behind `FileSystem.openBeast(T, path)` on every runtime.
-Inside an East body it reads as the TypeScript does, the type argument
-first: `fs_open_beast(Table, path)`. From python it is the factory: called
-with the resolved type argument it returns the opener. Either way the value
-is a frozen paged proxy (the same value a large task input opens as): size,
-keyed reads and iteration decode one segment from a mapping of the file,
-mutation raises `cannot mutate a frozen value`, and a file whose header
-carries another type raises
-`Failed to open beast file <path>: beast2: cannot open a blob of type <wire> as <T>`.
+implementation behind `FileSystem.openBeast(T, path)` on every runtime. In a
+body it reads as TypeScript does, the type argument first. The value is a
+frozen paged proxy (the value a large task input opens as): size, keyed reads
+and iteration decode one segment from a mapping of the file, mutation raises
+`cannot mutate a frozen value`, and a file whose header carries another type
+raises `Failed to open beast file <path>: beast2: cannot open a blob of type
+<wire> as <T>`.
 
 ```python
 from east import DictType, East, IntegerType, StringType, StructType
@@ -175,31 +190,27 @@ from east_py_std import fs_open_beast, platform
 
 Table = DictType(IntegerType, StructType([("id", IntegerType), ("name", StringType)]))
 
-# In a body — the call itself, nothing declared
-total = East.function([StringType], IntegerType,
-                      lambda b, path: fs_open_beast(Table, path).get(7).id)
-East.compile(total, platform=platform)("rows.beast2")
-
-# From python — the factory: (platform list, T) -> open(path)
-open_table = fs_open_beast(None, Table)
-table = open_table("rows.beast2")               # mapped, nothing decoded yet
-table[7]["name"]                                 # one segment decoded
+name_of = East.function([StringType], StringType,
+                        lambda b, path: fs_open_beast(Table, path).get(7).name)
+East.compile(name_of, platform=platform)("rows.beast2")
 ```
 
-An index-less file (what `East.Blob.encode_beast` writes) decodes whole,
-frozen, with the same value; for bytes already in hand use
-`EastBlob.open_beast(T)` / `blob.open_beast(T)` in a body (the **east-py**
-skill), and for a file you hold in python `open_beast2_file` gives the
-richer read surface. The value keeps its mapping of the file for as long as
-it lives: don't hold thousands of opened files at once, and don't truncate
-or rewrite a file while a value over it is alive.
+From python it is the factory — `fs_open_beast(None, Table)` returns the
+opener, and `opener(path)` a HOLD, not a python-readable value: pass it into a
+compiled call, `.bind` it, or return it from your own
+`@East.platform_function` declared with that type, and it crosses by pointer.
+To read a file in python, use `open_beast2_file` (the **east-py** skill), whose
+value has the whole read surface. An index-less file (what
+`East.Blob.encode_beast` writes) decodes whole, frozen; for bytes in hand use
+`blob.open_beast(T)`. The value keeps its mapping for as long as it lives:
+don't hold thousands open, and don't truncate or rewrite a file under one.
 
 ### Read a JSON document too large to decode whole
 
 `json_open` positions a reader on the array or object an RFC 6901 pointer
 names; `json_next` reads ONE element against a type. `json_next` and
 `json_value` are generic, so they read as `fs_open_beast` does — the type
-argument first in a body, the factory from python.
+first in a body, the factory from python.
 
 ```python
 from east import East, IntegerType, StringType, StructType
@@ -227,81 +238,64 @@ summed = East.function([StringType], IntegerType, body)
 East.compile(summed, platform=platform)('[{"id":"10"},{"id":"20"}]')   # 30
 ```
 
-- **`{"meta": {…}, "data": [10M rows]}` is the ordinary shape.** Never type the
-  whole document as one value — a `Struct` holding the array materialises it
-  however good the reader is. Point at the array, and read the envelope
-  separately with `json_value(MetaType, path, "/meta")`; a member AFTER the
-  array costs a scan, not a parse.
-- **It is strict.** It accepts exactly what `json_schema_for(T)` describes, so
-  a producer validating against the published schema cannot send something
-  that is then rejected. An `Integer` must be a quoted decimal in i64 range: not
-  `"0x10"`, `"0b101"`, `" 7 "`, `"007"`, `"-0"`, nor a bare JSON number. A
-  `DateTime` is any RFC 3339 date-time — the schema's `format: "date-time"` —
-  with `Z` or any offset (read as the UTC instant), a `t` or `z` in either
-  case, any number of fractional digits (past the millisecond dropped: python's
-  `isoformat()` microseconds read to the millisecond) and a leap second read as
-  the Unix time its fields add up to; a day its month does not have
-  (`2026-02-30`) is refused rather than rolled forward, and so is an instant
-  outside years 0001–9999. `parse_json` reads a `DateTime` through the same
-  parser. A `Blob`'s hex must be lowercase, where `parse_json` takes either
-  case.
+- **`{"meta": {…}, "data": [10M rows]}` is the ordinary shape.** Never type
+  the whole document as one value — a `Struct` holding the array materialises
+  it however good the reader is. Point at the array, and read the envelope
+  with `json_value(MetaType, path, "/meta")`; a member AFTER the array costs a
+  scan, not a parse.
+- **It is strict: it accepts exactly what `json_schema_for(T)` describes**, so
+  a producer validating against the published schema cannot send what is then
+  rejected. An `Integer` is a quoted i64 decimal — not `"0x10"`, `"0b101"`,
+  `" 7 "`, `"007"`, `"-0"`, nor a bare number. A `DateTime` is any RFC 3339
+  date-time (`Z` or any offset, read as the UTC instant; `t`/`z` in either case;
+  any fractional digits, past the millisecond dropped; a leap second as the
+  Unix time its fields add up to); a day its month lacks (`2026-02-30`) or a
+  year outside 0001–9999 is refused, and `parse_json` reads DateTimes through
+  the same parser. A `Blob` is lowercase hex (`parse_json` takes either case).
 - **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never
-  itself encode as `null`: a row's `("note", OptionType(StringType))` reads
-  `none` from `"note": null` and `some` from `"note": "x"`, and the tagged
-  `{"type": "some", "value": "x"}` object there is refused as the payload it
-  is not (`expected a String, got an object`). Only `Option<Null>` and
-  `Option<Option<T>>` keep the tagged object — what keeps `some(none)`
-  distinct from `none` — so a bare `null` there is refused
-  (`expected an object, got null`). The rule is the same on every runtime,
-  with nothing to configure, and `json_schema_for` describes a flat Option
-  as `oneOf [null, T]`.
-- **Errors name the offending node** by RFC 6901 pointer — an array element by
-  its index, an object member by its name (`~` and `/` escaped as `~0` / `~1`):
-  `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`
-  — the same text `east-node-std` and `east-c-std` produce, pointer and
-  sentence alike; the shared compliance corpus pins it. A quoted value is
-  clipped at 200 characters, so a message never grows with the document.
-- **`json_more` is a predicate, `json_next` advances.** They need not
-  alternate, and asking `json_more` twice is harmless.
-- **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
-  `value` (the key must be `String`), in either declared order, which is what
-  a `Dict` output needs. The entry type is checked at the container before
-  anything is consumed, so a refused call leaves the reader where it was.
-- Handles are held until closed, as a database connection is. `json_open`
-  maps the file rather than reading it, on Windows too.
-- **The reader is east-c's**, reached through east-py's Cython bridge, as every
-  other codec here is — so the accepted forms, the 2048 nesting bound, the
-  UTF-8 validation (a malformed sequence is `invalid UTF-8 in string`, never
-  repaired), the surrogate-pair joining, the 0001–9999 `DateTime` years and
-  the error text are shared with `east-c-std` rather than reimplemented. What
-  is skipped is still JSON: a fault before the pointer target or inside an
-  unmodelled field is refused at open with the text a read would give, and
-  nesting past 2048 is refused on the value read and the junk skipped alike.
-  A `Float` reads the same under any locale.
-- **What the schema cannot say.** A `DateTime`'s instant must fall in years
-  0001–9999 (`format: "date-time"` admits year 0000, and an offset can carry a
-  time past either end), and its digits past the millisecond are dropped. A
-  `Ref` the encoder wrote as `{"$ref": ...}` for a repeated target is not
-  readable, so a value with shared references does not validate against its
-  own published schema. A `Dict` whose entries repeat a key satisfies
-  `uniqueItems` and is still refused. A `Variant` must carry `"type"` before
-  `"value"`; struct fields may arrive in any order.
+  encode as `null` (`"note": null` → none, `"note": "x"` → some), and the tagged
+  `{"type": "some", "value": "x"}` there is refused (`expected a String, got an
+  object`). Only `Option<Null>` and `Option<Option<T>>` keep the tagged object,
+  so a bare `null` there is refused (`expected an object, got null`). The same
+  on every runtime, nothing to configure; `json_schema_for` describes a flat
+  Option as `oneOf [null, T]`.
+- **Errors name the offending node** by RFC 6901 pointer (`~` and `/` escaped
+  as `~0` / `~1`): `json_next: /1/id: "not-an-integer" is not a 64-bit integer
+  in East JSON's form` — the text `east-node-std` and `east-c-std` produce,
+  pinned by the shared compliance corpus; a quoted value is clipped at 200
+  characters.
+- **`json_more` is a predicate, `json_next` advances** — they need not
+  alternate. **A JSON object iterates as entries**: a `Struct` of exactly `key`
+  (a `String`) and `value`, in either order, which a `Dict` output needs; the
+  entry type is checked before anything is consumed, so a refused call leaves
+  the reader where it was. Handles are held until closed, like a database
+  connection; `json_open` maps the file rather than reading it, Windows
+  included.
+- **The reader is east-c's**, reached through the Cython bridge, so the accepted
+  forms, the 2048 nesting bound, UTF-8 validation (a malformed sequence is
+  `invalid UTF-8 in string`, never repaired), surrogate-pair joining and the
+  error text are shared with `east-c-std`. What is skipped is still JSON: a
+  fault before the pointer target or inside an unmodelled field is refused at
+  open with a read's text. A `Float` reads the same under any locale.
+- **What the schema cannot say**: a `DateTime` instant must fall in years
+  0001–9999 and loses digits past the millisecond; a `Ref` the encoder wrote as
+  `{"$ref": ...}` for a repeated target is not readable; a `Dict` whose entries
+  repeat a key satisfies `uniqueItems` and is still refused; a `Variant` must
+  carry `"type"` before `"value"` (struct fields may come in any order).
 
-Scalars cross the boundary as plain Python (`str`/`int`/`float`/`bool`/
-`datetime`); `Blob` is `EastBlob`, `Array<String>` is `EastArray` with eager
-methods - see the **east-py** skill for the value API.
+Scalars cross as plain python (`str`/`int`/`float`/`bool`/`datetime`); a
+`Blob` is an `EastBlob`, an `Array<String>` an `EastArray` with eager methods —
+the **east-py** skill has the value API.
 
 ## Related skills
 
-- **east-py** - the Python runtime itself: East values as plain data, eager
-  methods, `coerce_to`, and the `@East.platform_function` on-ramp these
-  direct calls live inside (and the dual-mode rule that makes them callable
-  in a body).
-- **east-py-io** - the I/O sibling on the Python runtime: SQL/NoSQL databases,
-  S3, FTP/SFTP, XLSX/XML, compression.
-- **east-py-datascience** - ML and optimization platform functions (hybrid
-  TS + Python package).
-- **east-node-std** - the TypeScript authoring surface for these same
-  capabilities; use it when writing East programs, not Python.
-- **e3** - the execution engine whose Python runner registers this platform
-  list for dataflow tasks.
+- **east-py** — the python runtime: East values as plain data, eager methods,
+  `coerce_to`, `open_beast2_file`, and the `@East.platform_function` on-ramp
+  these calls live inside (and the dual-mode rule that makes them callable in a
+  body).
+- **east-py-io** — the I/O sibling: SQL/NoSQL databases, S3, FTP/SFTP,
+  XLSX/XML, compression.
+- **east-py-datascience** — ML and optimisation platform functions.
+- **east-node-std** — the TypeScript authoring surface for the same functions.
+- **e3** — the execution engine whose python runner registers this list for
+  dataflow tasks.

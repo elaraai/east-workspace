@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { FloatType, IntegerType, StringType, StructType, variant } from '@elaraai/east';
+import { ArrayType, DictType, FloatType, IntegerType, StringType, StructType, variant } from '@elaraai/east';
 import { dictOf, fakeRepo, type FakeApi } from '../../api.fake.js';
 import { INLINE_LIMIT } from '../../data/dataset.js';
 import { treeModelBuilds } from '../../model/tree.js';
@@ -65,6 +65,31 @@ describe('the task view — Output', () => {
         await mounted.press('g');
         await mounted.press('g');
         assert.match(mounted.lines()[5]!, /^▌▾ k0000/);
+    });
+
+    test('a collection of wide rows starts collapsed: structs past twelve fields, and collections', async () => {
+        const api = repo();
+        const up = variant('up-to-date', { cached: true });
+        const WideType = StructType(Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i}`, IntegerType])));
+        api.task('main', { name: 'wide', status: up, inputs: [], dependsOn: [], output: {
+            type: DictType(StringType, WideType),
+            value: new Map(Array.from({ length: 40 }, (_, r) => [`k${String(r).padStart(4, '0')}`, Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i}`, BigInt(r * i)]))])),
+        } });
+        api.task('main', { name: 'series', status: up, inputs: [], dependsOn: [], output: {
+            type: DictType(StringType, ArrayType(FloatType)),
+            value: new Map(Array.from({ length: 40 }, (_, r) => [`k${String(r).padStart(4, '0')}`, Array.from({ length: 50 }, (_, i) => r + i / 10)])),
+        } });
+        mounted = await mountApp({ api, feeds: true, view: taskView('main', 'wide') });
+        await mounted.waitFor(treeShown(mounted, 'k0000'));
+        assert.match(mounted.lines()[5]!, /^▌▸ k0000/);
+        assert.match(mounted.lines()[6]!, /^ ▸ k0001/);
+        await mounted.press(KEY.right);
+        assert.match(mounted.lines()[5]!, /^▌▾ k0000/);
+        assert.match(mounted.lines()[6]!, /^   · F0\s+0/, 'opened, a row shows its fields');
+        mounted.controller.openTask('main', 'series');
+        await mounted.waitFor(treeShown(mounted, 'k0000'));
+        assert.match(mounted.lines()[5]!, /^▌▸ k0000\s+50 items/);
+        assert.match(mounted.lines()[6]!, /^ ▸ k0001/);
     });
 
     test('tree keys: collapse / expand, to the parent, deep collapse, page moves', async () => {
@@ -132,17 +157,23 @@ describe('the task view — Output', () => {
         await mounted.waitFor(() => /no prefix match for zzz/.test(mounted!.lines()[33] ?? ''));
     });
 
-    test('/save writes the stored bytes and asks before overwriting', async () => {
+    test('/save streams the stored bytes to the file and asks before overwriting', async () => {
         const scratch = fs.mkdtempSync(path.join(tmpdir(), 'e3-ui-save-'));
         try {
             const api = repo();
+            // The bytes arrive in many chunks, as a collection's segments do.
+            api.streamChunkBytes = 1024;
             mounted = await mountApp({ api, feeds: true, view: taskView('main', 'forecast') });
             await mounted.waitFor(treeShown(mounted, 'k0000'));
             const file = path.join(scratch, 'forecast.beast2');
             await mounted.type(`/save ${file}`);
             await mounted.press(KEY.enter);
             await mounted.waitFor(() => fs.existsSync(file));
-            assert.equal(fs.statSync(file).size, api.stored('main', '.tasks.forecast.output')!.bytes.length);
+            const stored = api.stored('main', '.tasks.forecast.output')!.bytes;
+            assert.ok(stored.length > 4 * 1024);
+            assert.deepEqual(new Uint8Array(fs.readFileSync(file)), stored, 'the chunks, in order');
+            assert.deepEqual(fs.readdirSync(scratch), ['forecast.beast2'], 'the file takes its name once it is whole');
+            assert.ok(api.calls.includes('datasetGetStream main.tasks.forecast.output'));
             assert.match(mounted.lines()[33]!, new RegExp(`saved [\\d.]+ KB to ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
             await mounted.type(`/save ${file}`);
             await mounted.press(KEY.enter);

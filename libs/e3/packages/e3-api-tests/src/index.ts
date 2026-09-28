@@ -75,6 +75,8 @@ export { datasetTransferTests } from './suites/dataset-transfer.js';
 export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
 export { recordTests } from './suites/records.js';
+export { keyedRecordTests } from './suites/records-keyed.js';
+export { recordDeployTests } from './suites/record-deploy.js';
 export { platformTests } from './suites/platform.js';
 export { cliTests } from './suites/cli.js';
 export { transferTests } from './suites/transfer.js';
@@ -91,6 +93,8 @@ import { datasetTransferTests } from './suites/dataset-transfer.js';
 import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
 import { recordTests } from './suites/records.js';
+import { keyedRecordTests } from './suites/records-keyed.js';
+import { recordDeployTests } from './suites/record-deploy.js';
 import { platformTests } from './suites/platform.js';
 import { cliTests } from './suites/cli.js';
 import { transferTests } from './suites/transfer.js';
@@ -113,6 +117,8 @@ export function allApiTests(setup: TestSetup<TestContext>): void {
   dataflowTests(setup);
   functionTests(setup);
   recordTests(setup);
+  keyedRecordTests(setup);
+  recordDeployTests(setup);
   packageTransferTests(setup);
   platformTests(setup);
 }

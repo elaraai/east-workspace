@@ -82,22 +82,28 @@ export async function executionGetLatest(
 }
 
 /**
- * Get the latest successful output hash for a completed execution.
- * This is the primary cache lookup function.
+ * Get the output of the latest successful execution, which its `success`
+ * record holds, and that execution's id.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
  * @param taskHash - Hash of the task object
  * @param inHash - Combined hash of input hashes
- * @returns Output hash or null if no successful execution exists
+ * @returns The output hash and the execution's id, or null if no successful
+ *   execution exists
  */
 export async function executionGetOutput(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inHash: string
-): Promise<string | null> {
-  return storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
+): Promise<{ outputHash: string; executionId: string } | null> {
+  const ids = await storage.refs.executionListIds(repo, taskHash, inHash);
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const status = await storage.refs.executionGet(repo, taskHash, inHash, ids[i]!);
+    if (status?.type === 'success') return { outputHash: status.value.outputHash, executionId: status.value.executionId };
+  }
+  return null;
 }
 
 /**
@@ -167,7 +173,7 @@ export interface CurrentExecutionRef {
  *
  * This looks up the task's current input hashes from the workspace state
  * and finds the matching execution. If no execution exists for the current
- * inputs, falls back to the most recent execution.
+ * inputs, falls back to another of the task's own, never a unit of it.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
@@ -192,7 +198,7 @@ export async function executionFindCurrent(
   const currentInputHashes: string[] = [];
   let allInputsAssigned = true;
 
-  for (const inputPath of task.inputs) {
+  for (const { path: inputPath } of task.inputs) {
     const { refType, hash } = await workspaceGetDatasetHash(storage, repo, ws, inputPath);
     if (refType !== 'value' || hash === null) {
       allInputsAssigned = false;
@@ -216,11 +222,11 @@ export async function executionFindCurrent(
     }
   }
 
-  // Fall back to most recent execution
-  if (executions.length > 0) {
-    const inHash = executions[0]!;
+  // Fall back to the task's first execution listed; a split task's units are
+  // recorded under its hash too, and are not its runs.
+  for (const inHash of executions) {
     const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-    if (status) {
+    if (status && !status.value.unit) {
       const executionId = status.value.executionId;
       return { taskHash, inputsHash: inHash, executionId, isCurrent: false };
     }
@@ -242,9 +248,6 @@ export interface LogReadOptions {
   /** Maximum bytes to read (default: 64KB) */
   limit?: number;
 }
-
-// Re-export LogChunk from storage interfaces for backwards compatibility
-export type { LogChunk };
 
 /**
  * Read execution logs with pagination support.
@@ -275,7 +278,8 @@ export async function executionReadLog(
 // ============================================================================
 
 /**
- * Evaluate command IR to get exec args.
+ * Evaluate command IR to get exec args — the body of a custom task or of a
+ * record step's unit.
  *
  * The IR is an East function: (inputs: Array<String>, output: String) -> Array<String>
  *

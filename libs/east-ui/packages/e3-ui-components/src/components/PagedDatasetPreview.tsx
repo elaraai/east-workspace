@@ -21,7 +21,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Flex, Text } from '@chakra-ui/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ApiError, datasetFindKey, datasetGetPage } from '@elaraai/e3-api-client';
+import { ApiError, DatasetHashMismatchError, datasetFindKey, datasetGetPage } from '@elaraai/e3-api-client';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { none, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
@@ -126,20 +126,27 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     /** Key-search jump target — the tree's controlled scrollToRow (#520). */
     const [jumpRow, setJumpRow] = useState<number | undefined>(undefined);
     const inflightRef = useRef(new Set<number>());
+    // The value the preview shows. A page applies only while it is the one
+    // the page was fetched for: one still in flight when the value moves
+    // belongs to the old value, and would land among the new one's pages.
+    const shownRef = useRef({ path, hash });
 
     // A new value (content hash) invalidates every page.
     useEffect(() => {
         pagingDebug(`reset (path=${path}, hash=${hash.slice(0, 8)})`);
+        shownRef.current = { path, hash };
         setPages(new Map());
         setTotals(null);
         setError(null);
         setJumpRow(undefined);
-        inflightRef.current.clear();
+        inflightRef.current = new Set();
     }, [path, hash]);
 
     const loadPage = useCallback((pageIdx: number) => {
-        if (inflightRef.current.has(pageIdx)) return;
-        inflightRef.current.add(pageIdx);
+        const inflight = inflightRef.current;
+        if (inflight.has(pageIdx)) return;
+        inflight.add(pageIdx);
+        const current = () => shownRef.current.path === path && shownRef.current.hash === hash;
         setLoadingCount((n) => n + 1);
         pagingDebug(`fetch p${pageIdx} (offset=${pageIdx * PAGE_SIZE}, limit=${PAGE_SIZE}, hash=${hash.slice(0, 8)})`);
         const pathParts = path.split('.').filter(Boolean).map((v) => variant('field', v));
@@ -151,6 +158,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * PAGE_SIZE, limit: PAGE_SIZE, hash }, reqOpts),
             staleTime: Infinity, // pages of one content hash are immutable
         }).then((page) => {
+            if (!current()) return;
             const decoded = decodeBeast2For(type)(page.data);
             const rows = pageRows(type, decoded, page.offset);
             pagingDebug(`p${pageIdx} ok: count=${page.count} rows=${rows.length} offset=${page.offset} total=${page.totalElements} segs=${page.segmentCount}`,
@@ -162,6 +170,14 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             setPages((prev) => new Map(prev).set(pageIdx, rows));
         }).catch((err: unknown) => {
             pagingDebug(`p${pageIdx} FAILED:`, err);
+            if (!current()) return;
+            if (err instanceof DatasetHashMismatchError) {
+                // The dataset holds another value now, which is no failure:
+                // its status, fetched again, names the new hash, and the new
+                // hash re-keys this preview.
+                void queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
+                return;
+            }
             if (err instanceof ApiError && err.code === 'dataset_not_indexed') {
                 // A legacy (pre-index) blob cannot page — hand back to the
                 // parent, which falls back to the inline tree. The error
@@ -170,7 +186,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             }
             setError(err instanceof Error ? err : new Error(String(err)));
         }).finally(() => {
-            inflightRef.current.delete(pageIdx);
+            inflight.delete(pageIdx);
             setLoadingCount((n) => n - 1);
         });
     }, [queryClient, apiUrl, repo, workspace, path, hash, requestOptions, type, onNotIndexed]);
@@ -290,4 +306,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             </Box>
         </Flex>
     );
-}, (prev, next) => prev.path === next.path && prev.workspace === next.workspace && prev.hash === next.hash && prev.sizeBytes === next.sizeBytes);
+}, (prev, next) => prev.apiUrl === next.apiUrl && prev.repo === next.repo && prev.workspace === next.workspace
+    && prev.path === next.path && prev.hash === next.hash && prev.sizeBytes === next.sizeBytes
+    // A rotated token re-renders the preview, or its reads keep the old one.
+    && prev.requestOptions?.token === next.requestOptions?.token);

@@ -34,25 +34,44 @@ e3 workspace create . dev
 e3 workspace deploy . dev my-package@1.0.0
 
 # Run tasks
-e3 start . dev
+e3 dataflow run . dev
 
 # Watch logs in real-time
-e3 logs . dev.my-task --follow
+e3 task logs . dev.my-task --follow
 
 # Get result
-e3 get . dev.tasks.my-task.output
+e3 dataset get . dev.my-task
 ```
 
 ## Repository Structure
 
 ```
 my-repo/                      # e3 repository directory
+├── repository.beast2         # The release that last wrote it, and the upgrades it has had
+├── metadata.beast2           # Its name and status
 ├── objects/                  # Content-addressable storage
-│   └── ab/cd1234...beast2    # IR, args, results, commits
-├── packages/                 # Package references
-├── workspaces/               # Workspace state
-└── executions/               # Execution cache and logs
+│   └── ab/cd1234...beast2    # IR, values, segments, manifests, commits
+├── packages/                 # Package refs
+├── workspaces/               # Each workspace's state, dataset refs and latest run's state
+├── dataflows/                # Each workspace's runs
+├── executions/               # Execution records and logs: the execution cache
+├── adoptions/                # The manifest each adopted delivery became
+├── locks/                    # Locks and their holders
+├── envs/                     # Built environments, a cache
+└── tmp/                      # Scratch directories and staged uploads
 ```
+
+Every file but a log is an East value in beast2. gc keeps each workspace's
+recent runs and the executions its current state is served from, and removes
+the rest of the history with the objects only it kept. A newer e3 upgrades a
+repository an older one wrote in place when it first opens it, so its records
+keep their states and histories.
+
+## Documentation
+
+- [User guide](USAGE.md): the SDK, the CLI and setting up a project.
+- [How runs work](docs/HOW_RUNS_WORK.md): how a run stores and moves large collections, splits and schedules its work, and where records and functions fit.
+- [Design documents](design/): each part of e3 in depth.
 
 ## Claude Code plugin
 
@@ -133,7 +152,7 @@ Contributors must sign our [CLA](CLA.md) before we can accept pull requests.
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
   - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Object store, dataflow orchestrator, execution state
   - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
-  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 start`, `e3 watch`, `e3 logs` commands
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 dataflow run`, `e3 watch`, `e3 task logs` commands
   - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 repositories
   - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
   - [@elaraai/e3-api-tests](https://www.npmjs.com/package/@elaraai/e3-api-tests): Shared API compliance test suites

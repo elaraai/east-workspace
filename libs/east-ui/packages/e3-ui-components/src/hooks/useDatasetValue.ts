@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useCallback } from 'react';
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { datasetGet } from '@elaraai/e3-api-client';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
@@ -62,19 +62,31 @@ export interface UseDatasetValueOptions {
 export interface DatasetValueResult {
     decoded: unknown;
     sizeBytes: number;
+    /** The content hash of the value read, as the response names it. */
+    hash: string | null;
 }
 
-/** Fetch + decode a dataset value. Caller is responsible for size gating. */
+/**
+ * Fetch + decode a dataset value. Caller is responsible for size gating.
+ *
+ * @remarks
+ * The value is read as the dataset holds it now, which is not always the
+ * value of the `hash` asked for: the dataset may have moved on since its
+ * status named that hash. A value is cached under the hash its response names,
+ * and the status is fetched again, so a reader moves to the value it got; an
+ * entry that holds another hash's value is never shown as this hash's.
+ */
 export function useDatasetValue(
     apiUrl: string,
     repo: string,
     workspace: string | null,
     datasetPath: string | null,
     options: UseDatasetValueOptions,
-): UseQueryResult<DatasetValueResult, Error> {
+): UseQueryResult<DatasetValueResult | undefined, Error> {
     const { requestOptions, queryOverrides, enabled = true, hash, platforms, type } = options;
     const platformImpls = platforms ?? defaultPlatformImplementations;
     const reqOpts = requestOptions ?? { token: null };
+    const queryClient = useQueryClient();
 
     const pathParts = useMemo(() =>
         datasetPath?.split('.').filter(Boolean).map((v) => variant('field', v)) ?? [],
@@ -86,8 +98,14 @@ export function useDatasetValue(
         queryFn: async (): Promise<DatasetValueResult> => {
             const result = await datasetGet(apiUrl, repo, workspace!, pathParts, reqOpts);
             const decoded = decodeBeast2For(type, { platform: platformImpls })(result.data);
-            return { decoded, sizeBytes: result.data.length };
+            const value = { decoded, sizeBytes: result.data.length, hash: result.hash ?? hash ?? null };
+            if (value.hash !== hash) {
+                queryClient.setQueryData(['datasetValue', apiUrl, repo, workspace, datasetPath, value.hash], value);
+                void queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, datasetPath] });
+            }
+            return value;
         },
+        select: (value) => (value.hash === (hash ?? null) ? value : undefined),
         enabled: enabled && !!workspace && !!datasetPath && hash != null,
         ...queryOverrides,
     });

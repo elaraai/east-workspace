@@ -5,9 +5,10 @@
 
 /**
  * `/run` and `/stop` through the command box (mocks S06b, S18): the flag
- * hint row and the consequence line, the launch call with its options, the
- * started toast, the settling / running / stopping pills, the double-⏎
- * guard, the locked-workspace and remote-caveat toasts.
+ * hint row, the flags' completion, and the consequence line with the server's budget, the launch
+ * call with its options, the started toast, the settling / running /
+ * stopping pills, the double-⏎ guard, the locked-workspace and
+ * remote-caveat toasts.
  */
 
 import { test, describe, afterEach } from 'node:test';
@@ -46,12 +47,15 @@ describe('/run and /stop', () => {
         mounted = await mountApp({ api, view: dashboardView(), actions: await sixTasks(api) });
         await mounted.press('r');
         let lines = mounted.lines();
-        assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main · concurrency 4\s+⏎ run · esc/);
-        assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks    --concurrency <n>$/);
-        await mounted.type('--force --concurrency 2');
-        assert.match(mounted.lines()[33]!, /^ › \/run --force --concurrency 2_\s+run 6 tasks in main, ignoring the cache · concurrency 2\s+⏎ run · esc/);
+        assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main\s+⏎ run · esc/);
+        assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks$/);
+        // The flags complete above the box, each whole, its hint after a gap.
+        assert.match(lines[30]!, /^ ▌ \/run\s+--force\s+re-run everything$/);
+        assert.match(lines[31]!, /^   \/run\s+--filter <glob> only matching tasks$/);
+        await mounted.type('--force');
+        assert.match(mounted.lines()[33]!, /^ › \/run --force_\s+run 6 tasks in main, ignoring the cache\s+⏎ run · esc/);
         await mounted.press(KEY.enter);
-        assert.ok(api.calls.includes('dataflowExecuteLaunch main --force --concurrency 2'), api.calls.join('\n'));
+        assert.ok(api.calls.includes('dataflowExecuteLaunch main --force'), api.calls.join('\n'));
         lines = mounted.lines();
         assert.match(lines[33]!, /^ ›  ● Dataflow started · main · 6 tasks queued$/);
         assert.match(lines[0]!, new RegExp(`◔ RUNNING 0/6 ${SPIN}  ● CONNECTED$`));
@@ -88,6 +92,17 @@ describe('/run and /stop', () => {
         assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   r run   x stop   w workspaces/);
     });
 
+    test('the consequence line names the budget the server gives a run, once its feed has answered', async () => {
+        const api = fakeRepo();
+        api.budget = { cores: 8n, memory: BigInt(14 * 1024 ** 3), coresInUse: 0n, memoryInUse: 0n };
+        mounted = await mountApp({ api, feeds: true, view: dashboardView(), actions: await sixTasks(api) });
+        await mounted.waitFor(() => mounted!.store.getState().data.budget['main'] !== undefined);
+        await mounted.press('r');
+        assert.match(mounted.lines()[33]!, /^ › \/run _\s+run 6 tasks in main · 8 cores, 14 GB\s+⏎ run · esc/);
+        await mounted.type('--force');
+        assert.match(mounted.lines()[33]!, /^ › \/run --force_\s+run 6 tasks in main, ignoring the cache · 8 cores, 14 GB\s+⏎ run · esc/);
+    });
+
     test('a locked workspace: the title shows the holder and /run toasts it', async () => {
         const api = fakeRepo();
         const actions = await sixTasks(api);
@@ -111,7 +126,7 @@ describe('/run and /stop', () => {
         assert.match(mounted.lines()[33]!, /^ ›  ◐ no run in progress$/);
         assert.ok(!api.calls.includes('dataflowCancel main'));
         // Our poll says running, but this server process has no execution to cancel.
-        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], totalEvents: 0n };
+        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], totalEvents: 0n, budget: none, waiting: [], splits: [] };
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: running as never, events: [], startedAt: running.startedAt });
         await mounted.press('x');
         await mounted.press(KEY.enter);

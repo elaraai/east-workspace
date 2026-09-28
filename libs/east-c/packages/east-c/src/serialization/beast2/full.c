@@ -32,6 +32,133 @@ static int beast2_detect_version(const uint8_t *data, size_t len)
     return -1;
 }
 
+/* One type_reads_as walk: the pairs in progress through a recursive type, each
+ * read exactly or not. A pair met again inside itself holds, since a recursive
+ * type is its own unfolding. */
+typedef struct {
+    EastType **wire;
+    EastType **asked;
+    bool *exact;
+    size_t depth;
+    size_t cap;
+} ReadsAsWalk;
+
+/* Whether a body written as `wire` reads as `asked` (see
+ * b2_decode_type_matches) — `exact`ly inside a collection or a function's
+ * signature. */
+static bool type_reads_as(EastType *wire, EastType *asked, ReadsAsWalk *walk, bool exact)
+{
+    if (wire == asked) return true;
+    if (!wire || !asked) return false;
+    if (wire->kind == EAST_TYPE_RECURSIVE || asked->kind == EAST_TYPE_RECURSIVE) {
+        for (size_t i = 0; i < walk->depth; i++) {
+            if (walk->wire[i] == wire && walk->asked[i] == asked && walk->exact[i] == exact)
+                return true;
+        }
+        if (walk->depth == walk->cap) {
+            size_t cap = walk->cap ? walk->cap * 2 : 8;
+            EastType **w = realloc(walk->wire, cap * sizeof(EastType *));
+            if (w) walk->wire = w;
+            EastType **a = realloc(walk->asked, cap * sizeof(EastType *));
+            if (a) walk->asked = a;
+            bool *e = realloc(walk->exact, cap * sizeof(bool));
+            if (e) walk->exact = e;
+            if (!w || !a || !e) return false;
+            walk->cap = cap;
+        }
+        walk->wire[walk->depth] = wire;
+        walk->asked[walk->depth] = asked;
+        walk->exact[walk->depth] = exact;
+        walk->depth++;
+        bool result = type_reads_as(
+            wire->kind == EAST_TYPE_RECURSIVE ? wire->data.recursive.node : wire,
+            asked->kind == EAST_TYPE_RECURSIVE ? asked->data.recursive.node : asked, walk, exact);
+        walk->depth--;
+        return result;
+    }
+    if (wire->kind == EAST_TYPE_NEVER) return !exact || asked->kind == EAST_TYPE_NEVER;
+    if (wire->kind != asked->kind) return false;
+
+    switch (wire->kind) {
+    case EAST_TYPE_NULL:
+    case EAST_TYPE_BOOLEAN:
+    case EAST_TYPE_INTEGER:
+    case EAST_TYPE_FLOAT:
+    case EAST_TYPE_STRING:
+    case EAST_TYPE_DATETIME:
+    case EAST_TYPE_BLOB:
+        return true;
+
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+    case EAST_TYPE_REF:
+    case EAST_TYPE_VECTOR:
+    case EAST_TYPE_MATRIX:
+        return type_reads_as(wire->data.element, asked->data.element, walk, true);
+
+    case EAST_TYPE_DICT:
+        return type_reads_as(wire->data.dict.key, asked->data.dict.key, walk, true) &&
+               type_reads_as(wire->data.dict.value, asked->data.dict.value, walk, true);
+
+    case EAST_TYPE_STRUCT:
+    case EAST_TYPE_VARIANT: {
+        bool is_struct = wire->kind == EAST_TYPE_STRUCT;
+        EastTypeField *mine = is_struct ? wire->data.struct_.fields : wire->data.variant.cases;
+        EastTypeField *theirs = is_struct ? asked->data.struct_.fields : asked->data.variant.cases;
+        size_t n = is_struct ? wire->data.struct_.num_fields : wire->data.variant.num_cases;
+        size_t m = is_struct ? asked->data.struct_.num_fields : asked->data.variant.num_cases;
+        /* A variant's tags are its cases' positions: the header's cases must be
+         * the asked variant's first ones. */
+        if ((is_struct || exact) ? n != m : n > m) return false;
+        for (size_t i = 0; i < n; i++) {
+            if (strcmp(mine[i].name, theirs[i].name) != 0) return false;
+            if (!type_reads_as(mine[i].type, theirs[i].type, walk, exact)) return false;
+        }
+        return true;
+    }
+
+    case EAST_TYPE_FUNCTION:
+    case EAST_TYPE_ASYNC_FUNCTION:
+        if (wire->data.function.num_inputs != asked->data.function.num_inputs) return false;
+        for (size_t i = 0; i < wire->data.function.num_inputs; i++) {
+            if (!type_reads_as(wire->data.function.inputs[i], asked->data.function.inputs[i], walk,
+                               true))
+                return false;
+        }
+        return type_reads_as(wire->data.function.output, asked->data.function.output, walk, true);
+
+    case EAST_TYPE_NEVER:
+    case EAST_TYPE_RECURSIVE:
+        break; /* answered above */
+    }
+    return false;
+}
+
+bool b2_decode_type_matches(EastType *wire, EastType *asked)
+{
+    ReadsAsWalk walk = {0};
+    bool reads = type_reads_as(wire, asked, &walk, false);
+    free(walk.wire);
+    free(walk.asked);
+    free(walk.exact);
+    if (reads) return true;
+    char *got = east_print_type(wire);
+    char *want = east_print_type(asked);
+    size_t cap = (got ? strlen(got) : 0) + (want ? strlen(want) : 0) + 64;
+    char *msg = malloc(cap);
+    if (msg) {
+        snprintf(msg, cap, "beast2: cannot decode a blob of type %s as %s", got ? got : "?",
+                 want ? want : "?");
+        east_builtin_error(msg);
+        free(msg);
+    } else {
+        east_builtin_error("beast2: cannot decode a blob of another type");
+    }
+    free(got);
+    free(want);
+    return false;
+}
+
 ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
 {
     /* Deflate-framed, no trailing index — the TS encodeBeast2For defaults. */

@@ -9,7 +9,7 @@ import { taskList, taskGet, taskExecutionList } from '@elaraai/e3-api-client';
 import type { RequestOptions, TaskDetails, TaskListItem, ExecutionListItem } from '@elaraai/e3-api-client';
 
 // NOTE: the return type must stay explicitly annotated. TaskListItem carries
-// an East option (`kind`), so the inferred type references east-internal
+// an East variant (`role`), so the inferred type references east-internal
 // symbols the declaration emitter cannot name (TS4058) — vite-plugin-dts then
 // silently drops this whole FILE from the published types (how 1.0.38 shipped
 // without the task hooks).

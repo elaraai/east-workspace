@@ -9,8 +9,9 @@
  * Usage:
  *   e3 mutate <repo> -w <ws> <record>.<mutation> [args...]
  *
- * A mutation is the only write door into a record: it runs a pure East reducer
- * server-side under optimistic concurrency and appends an audited commit. Each
+ * A mutation is the only write door into a record: it runs the mutation's pure
+ * East program server-side under optimistic concurrency and appends an audited
+ * commit. Each
  * positional argument is an .east literal or a .beast2/.json/.east file path,
  * parsed against the mutation's declared parameter type. Records are
  * workspace-scoped, so --workspace is required.
@@ -22,6 +23,7 @@ import {
   recordDescribe,
   LocalStorage,
   LocalTaskRunner,
+  type Budget,
   type MutationOutcome,
 } from '@elaraai/e3-core';
 import {
@@ -31,6 +33,7 @@ import {
 } from '@elaraai/e3-api-client';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { encodeArg } from './call.js';
+import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 /** Split a `<record>.<mutation>` spec on its final dot. */
 function parseMutationSpec(spec: string): { record: string; mutation: string } {
@@ -47,7 +50,8 @@ function actor(): string {
 
 /**
  * Render a terminal mutation outcome. Both the local `MutationOutcome` and the
- * remote `MutationResult.outcome` share these tags and payload field names.
+ * remote `MutationResult.outcome` share these tags and payload field names;
+ * a conflict's `detail` is the local optional string.
  */
 function renderOutcome(outcome: { kind: string; [field: string]: unknown }): void {
   const kind = outcome.kind;
@@ -55,22 +59,40 @@ function renderOutcome(outcome: { kind: string; [field: string]: unknown }): voi
     console.log(`Committed ${String(outcome.commitHash)}`);
     return;
   }
-  // Forward any captured reducer stderr (present on failed/timed_out/too_large)
-  // so its diagnostics reach the operator before we exit non-zero.
+  // Forward the program's stderr (present on failed and timed_out) so its
+  // diagnostics reach the operator before we exit non-zero.
   const stderr = String(outcome.stderr ?? '');
   if (stderr.trim()) {
     process.stderr.write(stderr);
     if (!stderr.endsWith('\n')) process.stderr.write('\n');
   }
-  if (kind === 'failed') exitError(`Mutation reducer failed (exit code ${String(outcome.exitCode)})`);
+  if (kind === 'failed') exitError(`Mutation failed (exit code ${String(outcome.exitCode)})`);
   if (kind === 'invalid') exitError(String(outcome.message));
-  if (kind === 'too_large') exitError(`New state too large (${String(outcome.bytes)} bytes > ${String(outcome.limit)} limit)`);
   if (kind === 'timed_out') exitError(`Mutation timed out after ${String(outcome.ms)}ms`);
-  if (kind === 'conflict') exitError(`Mutation conflicted after ${String(outcome.attempts)} attempts; try again`);
+  if (kind === 'conflict') {
+    // A lost compare-and-swap race is worth another try: another writer got
+    // there first. A write that disagreed with the state is not — it names
+    // the key, and the same write lands on the same state and disagrees again.
+    if (typeof outcome.detail === 'string') {
+      exitError(`Mutation conflicted: ${outcome.detail} — the write no longer matches the record; re-read it and resubmit`);
+    }
+    exitError(`Mutation conflicted after ${String(outcome.attempts)} attempts; try again`);
+  }
   exitError(`Unknown mutation outcome '${kind}'`);
 }
 
-async function mutateLocal(repoPath: string, ws: string, record: string, mutation: string, rawArgs: string[], verbose?: boolean): Promise<void> {
+/** Refuses the wrong number of arguments, saying what the one argument of a
+ *  `patch` mutation is — the state's patch, which is the thing people reach
+ *  for a row instead. */
+function checkArity(mutation: string, mut: { form: string; argTypes: unknown[] }, got: number): void {
+  if (got === mut.argTypes.length) return;
+  const what = mut.form === 'patch'
+    ? " — a patch mutation takes one argument, the record's patch (a .beast2/.json/.east file, or an .east literal)"
+    : '';
+  exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${got}${what}`);
+}
+
+async function mutateLocal(repoPath: string, ws: string, record: string, mutation: string, rawArgs: string[], budget: Budget, verbose?: boolean): Promise<void> {
   const storage = new LocalStorage();
   const sig = await recordDescribe(storage, repoPath, ws, record);
   if (!sig) exitError(`Record '${record}' not found in workspace '${ws}'`);
@@ -78,16 +100,14 @@ async function mutateLocal(repoPath: string, ws: string, record: string, mutatio
   if (!mut) {
     exitError(`Mutation '${mutation}' not found on record '${record}'. Available: ${sig.mutations.map((m) => m.name).join(', ') || '(none)'}`);
   }
-  if (rawArgs.length !== mut.argTypes.length) {
-    exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${rawArgs.length}`);
-  }
+  checkArity(mutation, mut, rawArgs.length);
   const args: Uint8Array[] = [];
   for (let i = 0; i < rawArgs.length; i++) {
     args.push(await encodeArg(rawArgs[i]!, mut.argTypes[i]!, i));
   }
 
   const outcome: MutationOutcome = await recordMutate(
-    storage, new LocalTaskRunner(repoPath), repoPath, ws, record, mutation, args, { actor: actor(), verbose },
+    storage, new LocalTaskRunner(repoPath, budget), repoPath, ws, record, mutation, args, { actor: actor(), verbose },
   );
   renderOutcome(outcome);
 }
@@ -99,9 +119,7 @@ async function mutateRemote(baseUrl: string, repo: string, token: string, ws: st
   if (!mut) {
     exitError(`Mutation '${mutation}' not found on record '${record}'. Available: ${sig.mutations.map((m) => m.name).join(', ') || '(none)'}`);
   }
-  if (rawArgs.length !== mut.argTypes.length) {
-    exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${rawArgs.length}`);
-  }
+  checkArity(mutation, mut, rawArgs.length);
   const args: Uint8Array[] = [];
   for (let i = 0; i < rawArgs.length; i++) {
     args.push(await encodeArg(rawArgs[i]!, mut.argTypes[i]!, i));
@@ -110,7 +128,14 @@ async function mutateRemote(baseUrl: string, repo: string, token: string, ws: st
   const result: MutationResult = await workspaceRecordMutate(
     baseUrl, repo, ws, record, mutation, { args, actor: some(actor()), limits: none }, opts,
   );
-  renderOutcome({ kind: result.outcome.type, ...result.outcome.value });
+  const outcome = result.outcome;
+  renderOutcome(outcome.type === 'conflict'
+    ? {
+      kind: 'conflict',
+      attempts: outcome.value.attempts,
+      ...(outcome.value.detail.type === 'some' && { detail: outcome.value.detail.value }),
+    }
+    : { kind: outcome.type, ...outcome.value });
 }
 
 /** `e3 mutate` entry point. */
@@ -118,7 +143,7 @@ export async function mutateCommand(
   repoArg: string,
   spec: string,
   args: string[],
-  options: { workspace?: string; verbose?: boolean },
+  options: BudgetFlags & { workspace?: string; verbose?: boolean },
 ): Promise<void> {
   try {
     if (!options.workspace) {
@@ -127,8 +152,9 @@ export async function mutateCommand(
     const { record, mutation } = parseMutationSpec(spec);
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
-      await mutateLocal(location.path, options.workspace, record, mutation, args, options.verbose);
+      await mutateLocal(location.path, options.workspace, record, mutation, args, commandBudget(options), options.verbose);
     } else {
+      refuseRemoteBudget(options);
       await mutateRemote(location.baseUrl, location.repo, location.token, options.workspace, record, mutation, args, options.verbose);
     }
   } catch (err) {

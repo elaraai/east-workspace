@@ -19,6 +19,7 @@ import {
   IntegerType,
 } from "../types.js";
 import { type EastTypeValue, fromEastTypeValue } from "../type_of_type.js";
+import type { PatchTypeOf } from "./types.js";
 import { isVariant } from "../containers/variant.js";
 
 /**
@@ -45,7 +46,7 @@ import { isVariant } from "../containers/variant.js";
  *
  * `ctx` memoizes the result per type object across one computation.
  */
-export function PatchType<T extends EastType>(type: T, ctx?: Map<EastType, EastType>): EastType;
+export function PatchType<T extends EastType>(type: T, ctx?: Map<EastType, EastType>): PatchTypeOf<T>;
 export function PatchType(type: EastTypeValue, ctx?: Map<EastType, EastType>): EastType;
 export function PatchType(type: EastType | EastTypeValue, ctx?: Map<EastType, EastType>): EastType {
   if (isVariant(type)) type = fromEastTypeValue(type as EastTypeValue);
@@ -98,10 +99,7 @@ function patchTypeOf(type: EastType, context: Map<EastType, EastType>): EastType
     });
   } else if (t.type === "Set") {
     const keyType = t.key;
-    const operationType = VariantType({
-      delete: NullType,
-      insert: NullType,
-    });
+    const operationType = setPatchOpsType(t.key);
     return VariantType({
       unchanged: NullType,
       replace: StructType({ before: type, after: type }),
@@ -110,12 +108,7 @@ function patchTypeOf(type: EastType, context: Map<EastType, EastType>): EastType
   } else if (t.type === "Dict") {
     const keyType = t.key;
     const valueType = t.value;
-    const valuePatchType = PatchType(valueType, context);
-    const operationType = VariantType({
-      delete: valueType,
-      insert: valueType,
-      update: valuePatchType,
-    });
+    const operationType = dictPatchOpsType(valueType, context);
     return VariantType({
       unchanged: NullType,
       replace: StructType({ before: type, after: type }),
@@ -166,4 +159,37 @@ function patchTypeOf(type: EastType, context: Map<EastType, EastType>): EastType
   } else {
     throw new Error(`Unhandled type in PatchType: ${(t as EastType).type}`);
   }
+}
+
+/**
+ * The operation type of a `Dict`'s patch: what one touched key carries.
+ *
+ * @remarks
+ * Exactly the arm of `PatchType(Dict<K, V>)`'s `patch` case, exported so a
+ * caller building a sparse, key-addressed change set of its own — a record's
+ * mutation delta, which is one of these per target — builds it from the same
+ * source the patch system uses and cannot drift from it. Applying such a set is
+ * then literally `applyFor(dictType)(value, variant('patch', ops))`,
+ * conflict detection and all.
+ *
+ * @param valueType - the Dict's value type, `V`
+ * @param ctx - memoizes the value's patch type across one computation
+ * @returns `Variant{delete: V, insert: V, update: PatchType(V)}`
+ */
+export function dictPatchOpsType(valueType: EastType, ctx?: Map<EastType, EastType>): EastType {
+  return VariantType({
+    delete: valueType,
+    insert: valueType,
+    update: PatchType(valueType, ctx),
+  });
+}
+
+/**
+ * The operation type of a `Set`'s patch: what one touched element carries.
+ *
+ * @param _elementType - the Set's element type (the operation carries none)
+ * @returns `Variant{delete: Null, insert: Null}`
+ */
+export function setPatchOpsType(_elementType: EastType): EastType {
+  return VariantType({ delete: NullType, insert: NullType });
 }

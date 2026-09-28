@@ -4,198 +4,58 @@
  */
 
 /**
- * Tests for gc.ts
+ * gc over e3-core's own backends: the contract suite every backend runs, over a
+ * local repository and the in-memory backend; what a local repository's own
+ * sweep removes; and the mark and the sweep's decision, which read no backend.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
-import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, encodePartitionPlan } from '@elaraai/e3-types';
-import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
-import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
-import { transferStagingPath } from './storage/local/localHelpers.js';
-import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
-import { packageImport, packageRemove, packageRead } from './packages.js';
-import { ObjectNotFoundError } from './errors.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
+import { PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
+import type { PackageObject, TaskObject } from '@elaraai/e3-types';
+import { gcTests } from './contract/index.js';
+import { repoGc, markReachable, sweepBatch } from './gc.js';
+import { packageStagingPath, transferStagingPath } from './storage/local/localHelpers.js';
+import { objectWrite } from './storage/local/LocalObjectStore.js';
+import { sweepEnvironments } from './execution/environment.js';
+import { getPidStartTime } from './execution/processHelpers.js';
+import { createTestRepo, removeTestRepo, deadPid } from './test-helpers.js';
+import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import type { GcObjectEntry } from './storage/interfaces.js';
 
+describe('over a local repository', () => {
+  // Without the directory the repositories are in: gc needs none.
+  gcTests(async (t) => {
+    const repo = createTestRepo();
+    t.after(() => removeTestRepo(repo));
+    return { storage: new LocalStorage(), repo };
+  });
+});
+
+describe('over the in-memory backend', () => {
+  gcTests(async () => {
+    const storage = new InMemoryStorage();
+    await storage.repos.create('repo');
+    return { storage, repo: 'repo' };
+  });
+});
+
 describe('gc', () => {
   let testRepoPath: string;
-  let tempDir: string;
   let storage: StorageBackend;
 
   beforeEach(() => {
     testRepoPath = createTestRepo();
-    tempDir = createTempDir();
-    // Create LocalStorage with the parent of testRepo as reposDir.
-    // This allows repoGc to use repoName for repos.* operations,
-    // while objects/refs still use testRepoPath (full path).
-    storage = new LocalStorage(dirname(testRepoPath));
+    storage = new LocalStorage();
   });
 
   afterEach(() => {
     removeTestRepo(testRepoPath);
-    removeTempDir(tempDir);
-  });
-
-  describe('with no objects', () => {
-    it('returns zero counts for empty repository', async () => {
-      const result = await repoGc(storage, testRepoPath);
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.deletedPartials, 0);
-      assert.strictEqual(result.retainedObjects, 0);
-      assert.strictEqual(result.bytesFreed, 0);
-    });
-  });
-
-  describe('with orphaned objects', () => {
-    it('deletes orphaned objects', async () => {
-      // Store an object directly without any ref
-      const data = new Uint8Array([1, 2, 3, 4, 5]);
-      const hash = await objectWrite(testRepoPath, data);
-
-      // Verify object exists
-      const loaded = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(loaded), data);
-
-      // Run gc with minAge=0 to delete immediately
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 1);
-      assert.strictEqual(result.retainedObjects, 0);
-      assert.ok(result.bytesFreed > 0);
-
-      // Verify object is gone
-      await assert.rejects(
-        async () => await objectRead(testRepoPath, hash),
-        ObjectNotFoundError
-      );
-    });
-
-    it('deletes multiple orphaned objects', async () => {
-      // Store several objects
-      await objectWrite(testRepoPath, new Uint8Array([1]));
-      await objectWrite(testRepoPath, new Uint8Array([2]));
-      await objectWrite(testRepoPath, new Uint8Array([3]));
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 3);
-      assert.strictEqual(result.retainedObjects, 0);
-    });
-  });
-
-  describe('with package refs', () => {
-    it('retains objects referenced by packages', async () => {
-      // Create and import a package
-      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
-      const pkg = e3.package('gc-test', '1.0.0', myInput);
-      const zipPath = join(tempDir, 'gc-test.zip');
-      await e3.export(pkg, zipPath);
-
-      const importResult = await packageImport(storage, testRepoPath, zipPath);
-
-      // Run gc - should not delete anything
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.ok(result.retainedObjects >= 2, `Expected at least 2 retained objects, got ${result.retainedObjects}`);
-
-      // Verify package object still exists
-      const packageData = await objectRead(testRepoPath, importResult.packageHash);
-      assert.ok(packageData.length > 0);
-    });
-
-    it('deletes objects after package is removed', async () => {
-      // Create and import a package
-      const pkg = e3.package('remove-gc', '1.0.0') as any;
-      const zipPath = join(tempDir, 'remove-gc.zip');
-      await e3.export(pkg, zipPath);
-
-      const importResult = await packageImport(storage, testRepoPath, zipPath);
-      const objectCount = importResult.objectCount;
-
-      // Remove the package
-      await packageRemove(storage, testRepoPath, 'remove-gc', '1.0.0');
-
-      // Run gc - should delete all package objects
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, objectCount);
-      assert.strictEqual(result.retainedObjects, 0);
-    });
-
-    it('retains shared objects between packages', async () => {
-      // Create and import two packages
-      const pkg1 = e3.package('shared-a', '1.0.0') as any;
-      const pkg2 = e3.package('shared-b', '1.0.0') as any;
-
-      const zip1 = join(tempDir, 'shared-a.zip');
-      const zip2 = join(tempDir, 'shared-b.zip');
-
-      await e3.export(pkg1, zip1);
-      await e3.export(pkg2, zip2);
-
-      await packageImport(storage, testRepoPath, zip1);
-      await packageImport(storage, testRepoPath, zip2);
-
-      // Remove one package
-      await packageRemove(storage, testRepoPath, 'shared-a', '1.0.0');
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      // Some objects may be deleted, but shared-b's objects are retained
-      assert.ok(result.retainedObjects >= 1);
-    });
-  });
-
-  describe('with function objects', () => {
-    it('function bodies survive gc (PackageObject -> FunctionObject -> bodyIr)', async () => {
-      // Deploy a package containing a function, gc, then verify the
-      // FunctionObject and its bodyIr object are retained and decodable.
-      const double = e3.function(
-        'double',
-        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
-      );
-      const pkg = e3.package('fn-gc', '1.0.0', double);
-      const zipPath = join(tempDir, 'fn-gc.zip');
-      await e3.export(pkg, zipPath);
-      await packageImport(storage, testRepoPath, zipPath);
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(result.deletedObjects, 0);
-
-      // The function body must still be readable after gc
-      const pkgObject = await packageRead(storage, testRepoPath, 'fn-gc', '1.0.0');
-      const fnHash = pkgObject.functions.get('double');
-      assert.ok(fnHash, 'functions map lost');
-      const fnObject = decodeBeast2For(FunctionObjectType)(Buffer.from(await objectRead(testRepoPath, fnHash!)));
-      const bodyIr = await objectRead(testRepoPath, fnObject.bodyIr);
-      assert.ok(bodyIr.length > 0, 'bodyIr object lost');
-    });
-
-    it('function objects are deleted once the package is removed', async () => {
-      const double = e3.function(
-        'double',
-        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
-      );
-      const pkg = e3.package('fn-gc-rm', '1.0.0', double);
-      const zipPath = join(tempDir, 'fn-gc-rm.zip');
-      await e3.export(pkg, zipPath);
-      const importResult = await packageImport(storage, testRepoPath, zipPath);
-
-      await packageRemove(storage, testRepoPath, 'fn-gc-rm', '1.0.0');
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-      assert.strictEqual(result.deletedObjects, importResult.objectCount);
-    });
   });
 
   describe('with staging files', () => {
@@ -271,56 +131,85 @@ describe('gc', () => {
       assert.strictEqual(result.skippedYoung, 1);
       assert.ok(existsSync(stagingPath));
     });
-  });
 
-  describe('minAge option', () => {
-    it('skips young objects', async () => {
-      // Store an object
-      const hash = await objectWrite(testRepoPath, new Uint8Array([42]));
+    it('removes a package zip a transfer staged in the repository and never finished', async () => {
+      const stagingPath = packageStagingPath(testRepoPath, 'abc');
+      assert.strictEqual(stagingPath, join(testRepoPath, 'tmp', 'transfers', 'abc.zip.partial'), 'the server stages exactly here');
+      mkdirSync(dirname(stagingPath), { recursive: true });
+      writeFileSync(stagingPath, 'a zip nobody downloaded');
 
-      // Run gc with high minAge - object is too young
-      const result = await repoGc(storage, testRepoPath, { minAge: 60000 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.skippedYoung, 1);
-
-      // Object should still exist
-      const data = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(data), new Uint8Array([42]));
-    });
-
-    it('deletes old objects with minAge=0', async () => {
-      const hash = await objectWrite(testRepoPath, new Uint8Array([99]));
-
-      // Run gc with minAge=0
       const result = await repoGc(storage, testRepoPath, { minAge: 0 });
 
-      assert.strictEqual(result.deletedObjects, 1);
+      assert.strictEqual(result.deletedPartials, 1);
+      assert.ok(!existsSync(stagingPath));
+    });
 
-      await assert.rejects(
-        async () => await objectRead(testRepoPath, hash),
-        ObjectNotFoundError
-      );
+    it('removes orphaned staging files from every record tree, and the repository record\'s at the root', async () => {
+      const partials = [
+        'repository.beast2.x1y2z3.partial',
+        join('adoptions', 'ab', `${'c'.repeat(62)}.beast2.x1y2z3.partial`),
+        join('locks', 'main', 'exclusive.beast2.4242.abcdef.partial'),
+        join('workspaces', 'main', 'data', 'inputs', 'sales.beast2.x1y2z3.partial'),
+        join('dataflows', 'main', '0190a0b0-5555-7000-8000-000000000000.beast2.x1y2z3.partial'),
+      ];
+      for (const partial of partials) {
+        mkdirSync(dirname(join(testRepoPath, partial)), { recursive: true });
+        writeFileSync(join(testRepoPath, partial), 'a crashed write');
+      }
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+
+      assert.strictEqual(result.deletedPartials, partials.length);
+      for (const partial of partials) assert.ok(!existsSync(join(testRepoPath, partial)), partial);
+    });
+  });
+
+  describe('built environments', () => {
+    it('keeps a built environment while a package names its spec, and removes it once none does', async () => {
+      const spec = await objectWrite(testRepoPath, encodeBeast2For(EnvironmentSpecType)(variant('tools', { files: [] })));
+      const task = await objectWrite(testRepoPath, encodeBeast2For(TaskObjectType)({
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'c'.repeat(64) }),
+        runner: variant('custom', { command: [] }),
+        inputs: [],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(spec),
+      } as TaskObject));
+      const pkg = await objectWrite(testRepoPath, encodeBeast2For(PackageObjectType)({
+        tasks: new Map([['t', task]]),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map(),
+        records: new Map(), sources: new Map(),
+      } as PackageObject));
+      await storage.refs.packageWrite(testRepoPath, 'env-test', '1.0.0', pkg);
+      const built = join(testRepoPath, 'envs', spec);
+      mkdirSync(join(built, 'bin'), { recursive: true });
+
+      await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.ok(existsSync(built), 'a package still names the spec');
+
+      await storage.refs.packageRemove(testRepoPath, 'env-test', '1.0.0');
+      await repoGc(storage, testRepoPath, { minAge: 0, dryRun: true });
+      assert.ok(existsSync(built), 'a dry run removes nothing');
+      await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.ok(!existsSync(built), 'nothing names the spec any more');
+    });
+
+    it('removes the build of a builder that has exited, and keeps a live one\'s', async () => {
+      const envs = join(testRepoPath, 'envs');
+      const reached = 'a'.repeat(64);
+      const unreached = 'b'.repeat(64);
+      const deadBuild = `${'c'.repeat(64)}.building-${deadPid()}-1`;
+      const liveBuild = `${'d'.repeat(64)}.building-${process.pid}-${await getPidStartTime(process.pid)}`;
+      for (const dir of [reached, unreached, deadBuild, liveBuild]) mkdirSync(join(envs, dir, 'bin'), { recursive: true });
+
+      assert.strictEqual(await sweepEnvironments(testRepoPath, new Set([reached])), 2);
+      assert.deepStrictEqual(readdirSync(envs).sort(), [reached, liveBuild].sort());
     });
   });
 
   describe('dryRun option', () => {
-    it('reports but does not delete in dry run mode', async () => {
-      // Store an orphaned object
-      const data = new Uint8Array([10, 20, 30]);
-      const hash = await objectWrite(testRepoPath, data);
-
-      // Run gc in dry run mode
-      const result = await repoGc(storage, testRepoPath, { minAge: 0, dryRun: true });
-
-      assert.strictEqual(result.deletedObjects, 1);
-      assert.ok(result.bytesFreed > 0);
-
-      // Object should still exist
-      const loaded = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(loaded), data);
-    });
-
     it('reports partials but does not delete in dry run mode', async () => {
       const partialDir = join(testRepoPath, 'objects', 'ef');
       mkdirSync(partialDir, { recursive: true });
@@ -334,262 +223,9 @@ describe('gc', () => {
     });
   });
 
-  describe('object graph traversal', () => {
-    it('retains transitively referenced objects via tree → value chain', async () => {
-      // Create a chain: Package → Tree → Value (leaf)
-      // Tree has a 'data' field pointing to a value object
-
-      // Create value leaf object (some arbitrary beast2 data)
-      const valueEncoder = encodeBeast2For(StringType);
-      const hashValue = await objectWrite(testRepoPath, valueEncoder('hello world'));
-
-      // Create a package object with refs referencing the value
-      const pkgEncoder = encodeBeast2For(PackageObjectType);
-      const hashPkg = await objectWrite(testRepoPath, pkgEncoder({
-        tasks: new Map(),
-        data: {
-          structure: variant('struct', new Map()),
-          refs: new Map([
-            ['data', variant('value', { hash: hashValue, versions: new Map() })],
-          ]),
-        },
-        functions: new Map(),
-        records: new Map(), sources: new Map(),
-      } as PackageObject));
-
-      // Create a package ref pointing to the package
-      const refDir = join(testRepoPath, 'packages', 'transitive');
-      mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0'), hashPkg + '\n');
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 2); // pkg, value retained
-
-      // All objects should still exist
-      await objectRead(testRepoPath, hashPkg);
-      await objectRead(testRepoPath, hashValue);
-    });
-
-    it('deletes unreachable objects in graph', async () => {
-      // Create a reachable package with empty refs, plus an unreachable orphan
-
-      // Reachable package (no children via refs)
-      const pkgEncoder = encodeBeast2For(PackageObjectType);
-      const hashPkg = await objectWrite(testRepoPath, pkgEncoder({
-        tasks: new Map(),
-        data: {
-          structure: variant('struct', new Map()),
-          refs: new Map(),
-        },
-        functions: new Map(),
-        records: new Map(), sources: new Map(),
-      } as PackageObject));
-
-      // Unreachable orphan object
-      const orphanData = new Uint8Array([77, 88, 99]);
-      const hashOrphan = await objectWrite(testRepoPath, orphanData);
-
-      // Only package is a root
-      const refDir = join(testRepoPath, 'packages', 'graph-test');
-      mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0'), hashPkg + '\n');
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 1); // orphan deleted
-      assert.strictEqual(result.retainedObjects, 1); // pkg retained
-
-      // Package exists, orphan is gone
-      await objectRead(testRepoPath, hashPkg);
-      await assert.rejects(
-        async () => await objectRead(testRepoPath, hashOrphan),
-        ObjectNotFoundError
-      );
-    });
-  });
-
-  describe('execution refs', () => {
-    it('retains objects referenced by execution refs', async () => {
-      // Store an object
-      const data = new Uint8Array([11, 22, 33]);
-      const hash = await objectWrite(testRepoPath, data);
-
-      // Create an execution ref using the new schema:
-      // executions/<taskHash>/<inputsHash>/<executionId>/status.beast2
-      const taskHash = 'a'.repeat(64);
-      const inputsHash = 'b'.repeat(64);
-      const executionId = '01900000-0000-7000-8000-000000000001';
-      const execDir = join(testRepoPath, 'executions', taskHash, inputsHash, executionId);
-      mkdirSync(execDir, { recursive: true });
-
-      // Write a success execution status with outputHash
-      const { encodeBeast2For: encodeFor } = await import('@elaraai/east');
-      const { ExecutionStatusType } = await import('@elaraai/e3-types');
-      const encoder = encodeFor(ExecutionStatusType);
-      const status = variant('success', {
-        executionId,
-        inputHashes: [inputsHash],
-        outputHash: hash,
-        startedAt: new Date(),
-        completedAt: new Date(),
-      });
-      writeFileSync(join(execDir, 'status.beast2'), encoder(status));
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 1);
-
-      // Object still exists
-      const loaded = await objectRead(testRepoPath, hash);
-      assert.deepStrictEqual(new Uint8Array(loaded), data);
-    });
-  });
-
-  describe('dataflow locks', () => {
-    it('refuses while a dataflow holds a workspace\'s dataflow lock, releasing the locks it took', async () => {
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(wsDir, { recursive: true });
-      writeFileSync(join(wsDir, 'first.beast2'), '');
-      writeFileSync(join(wsDir, 'second.beast2'), '');
-
-      const run = await storage.locks.acquire(testRepoPath, 'second#dataflow', variant('dataflow', null));
-      assert.ok(run, 'the run holds its dataflow lock');
-      try {
-        await assert.rejects(
-          repoGc(storage, testRepoPath, { minAge: 0 }),
-          { message: "gc: a dataflow is running in workspace 'second' — retry when it finishes" },
-        );
-        const first = await storage.locks.acquire(testRepoPath, 'first#dataflow', variant('dataflow', null));
-        assert.ok(first, 'gc released the lock it had taken before refusing');
-        await first.release();
-      } finally {
-        await run.release();
-      }
-
-      await repoGc(storage, testRepoPath, { minAge: 0 });
-      for (const ws of ['first', 'second']) {
-        const lock = await storage.locks.acquire(testRepoPath, `${ws}#dataflow`, variant('dataflow', null));
-        assert.ok(lock, `gc released ${ws}'s dataflow lock`);
-        await lock.release();
-      }
-    });
-  });
-
-  describe('workspace refs', () => {
-    it('marks a workspace dataset header-first: retained, never read whole', async () => {
-      const datasetHash = await objectWrite(testRepoPath, encodeBeast2For(StructType({ name: StringType }))({ name: 'y'.repeat(100_000) }));
-      const pkgHash = await objectWrite(testRepoPath, new Uint8Array([77, 88, 99]));
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(join(wsDir, 'reader', 'data'), { recursive: true });
-      writeFileSync(join(wsDir, 'reader.beast2'), encodeBeast2For(WorkspaceStateType)({
-        packageName: 'test-pkg',
-        packageVersion: '1.0.0',
-        packageHash: pkgHash,
-        deployedAt: new Date(),
-        currentRunId: none,
-      }));
-      writeFileSync(join(wsDir, 'reader', 'data', 'big.ref'), encodeBeast2For(DatasetRefType)(variant('value', { hash: datasetHash, versions: new Map() })));
-
-      const objects = storage.objects;
-      const read = objects.read.bind(objects);
-      let datasetReads = 0;
-      objects.read = (repo: string, hash: string) => {
-        if (hash === datasetHash) datasetReads++;
-        return read(repo, hash);
-      };
-
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 2);
-      assert.strictEqual(datasetReads, 0, 'the dataset is classified from its head');
-    });
-
-    it('retains objects referenced by workspace state and dataset refs', async () => {
-      // Store objects for a dataset value and package
-      const valueData = new Uint8Array([44, 55, 66]);
-      const valueHash = await objectWrite(testRepoPath, valueData);
-      const pkgData = new Uint8Array([77, 88, 99]);
-      const pkgHash = await objectWrite(testRepoPath, pkgData);
-
-      // Create workspace state file at workspaces/<name>.beast2
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(wsDir, { recursive: true });
-
-      const state: WorkspaceState = {
-        packageName: 'test-pkg',
-        packageVersion: '1.0.0',
-        packageHash: pkgHash,
-        deployedAt: new Date(),
-        currentRunId: variant('none', null),
-      };
-      const encoder = encodeBeast2For(WorkspaceStateType);
-      writeFileSync(join(wsDir, 'myworkspace.beast2'), encoder(state));
-
-      // Create a per-dataset ref file that references valueHash
-      const refDir = join(testRepoPath, 'workspaces', 'myworkspace', 'data');
-      mkdirSync(refDir, { recursive: true });
-      const refEncoder = encodeBeast2For(DatasetRefType);
-      const ref = variant('value', { hash: valueHash, versions: new Map() });
-      writeFileSync(join(refDir, 'some-dataset.ref'), refEncoder(ref));
-
-      // Run gc
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 0);
-      assert.strictEqual(result.retainedObjects, 2); // both valueHash and pkgHash
-
-      // Objects still exist
-      await objectRead(testRepoPath, valueHash);
-      await objectRead(testRepoPath, pkgHash);
-    });
-
-    it('ignores undeployed workspaces', async () => {
-      // Store an orphaned object
-      const data = new Uint8Array([11, 22, 33]);
-      await objectWrite(testRepoPath, data);
-
-      // Create empty workspace file (undeployed)
-      const wsDir = join(testRepoPath, 'workspaces');
-      mkdirSync(wsDir, { recursive: true });
-      writeFileSync(join(wsDir, 'undeployed.beast2'), '');
-
-      // Run gc - orphaned object should be deleted
-      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
-
-      assert.strictEqual(result.deletedObjects, 1);
-      assert.strictEqual(result.retainedObjects, 0);
-    });
-  });
-
   // ==========================================================================
   // Unit tests for shared algorithm functions
   // ==========================================================================
-
-  describe('collectAllRoots', () => {
-    it('collects roots from all root types', async () => {
-      const roots = await collectAllRoots(storage.repos, testRepoPath);
-      // Empty repo has no roots
-      assert.strictEqual(roots.size, 0);
-    });
-
-    it('collects package roots', async () => {
-      // Create a package ref
-      const hash = 'a'.repeat(64);
-      const refDir = join(testRepoPath, 'packages', 'test-pkg');
-      mkdirSync(refDir, { recursive: true });
-      writeFileSync(join(refDir, '1.0.0'), hash + '\n');
-
-      const roots = await collectAllRoots(storage.repos, testRepoPath);
-      assert.ok(roots.has(hash));
-    });
-  });
 
   describe('markReachable', () => {
     // Helper: create a tree type with DataRef fields
@@ -607,10 +243,13 @@ describe('gc', () => {
       // Encode a TaskObject referencing the IR hash
       const taskEncoder = encodeBeast2For(TaskObjectType);
       const taskData = taskEncoder({
-        commandIr: irHash,
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: irHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       } as TaskObject);
       const taskHash = 'b'.repeat(64);
 
@@ -658,10 +297,13 @@ describe('gc', () => {
 
       const taskEncoder = encodeBeast2For(TaskObjectType);
       const taskData = taskEncoder({
-        commandIr: irHash,
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('some', envHash),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: irHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(envHash),
       } as TaskObject);
       const taskHash = 'b'.repeat(64);
 
@@ -689,11 +331,13 @@ describe('gc', () => {
       }));
       const envHash = 'b'.repeat(63) + '3';
       const taskData = encodeBeast2For(TaskObjectType)({
-        commandIr: 'c'.repeat(64),
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: none, metadata: none,
-        runner: variant('custom', { command: [] }), environment: some(envHash),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'c'.repeat(64) }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(envHash),
       } as TaskObject);
       const taskHash = 'd'.repeat(64);
 
@@ -720,11 +364,13 @@ describe('gc', () => {
       }));
       const envHash = 'f'.repeat(63) + '6';
       const taskData = encodeBeast2For(TaskObjectType)({
-        commandIr: 'c'.repeat(64),
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: none, metadata: none,
-        runner: variant('custom', { command: [] }), environment: some(envHash),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'c'.repeat(64) }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(envHash),
       } as TaskObject);
       const taskHash = 'a'.repeat(64);
 
@@ -862,10 +508,13 @@ describe('gc', () => {
             records: new Map(), sources: new Map(),
           } as PackageObject)],
           [taskHash, encodeBeast2For(TaskObjectType)({
-            commandIr: irHash,
-            inputs: [[variant('field', 'x')]],
-            output: [variant('field', 'y')],
-            kind: none, metadata: none, runner: variant('custom', { command: [] }), environment: none,
+            kind: TASK_OBJECT_KIND,
+            body: variant('command', { commandIr: irHash }),
+            runner: variant('custom', { command: [] }),
+            inputs: [{ path: [variant('field', 'x')], partition: none }],
+            output: { path: [variant('field', 'y')], kind: variant('value', null) },
+            role: variant('data', null),
+            environment: none,
           } as TaskObject)],
           // A dataset rooted directly, as a workspace's dataset refs are.
           [datasetHash, encodeBeast2For(StructType({ name: StringType, count: IntegerType }))({ name: 'x'.repeat(200_000), count: 1n })],
@@ -879,67 +528,57 @@ describe('gc', () => {
         assert.ok(store.headReads.every((read) => read.length === 64 * 1024), 'every type fits the first head probe');
       });
 
-      it('keeps a partition plan\'s slices and merge ranges reachable', async () => {
-        const planHash = 'e'.repeat(64);
-        const slices = [['1'.repeat(64), '2'.repeat(64)], ['3'.repeat(64), '4'.repeat(64)]];
-        const ranges = ['7'.repeat(64), '8'.repeat(64)];
-        const objects = new Map([[planHash, encodePartitionPlan({
-          partitions: ['5'.repeat(64), '6'.repeat(64)],
-          boundaries: [0n, 3n],
-          splits: [[{ seg: 0n, offset: 0n }, { seg: 1n, offset: 2n }, { seg: 4n, offset: 0n }]],
-          slices,
-          merges: [{ partials: ['a'.repeat(64), 'b'.repeat(64)], ranges }],
-        })]]);
+      it('keeps what a unit plan names reachable: its task, the plan before it, the pieces\' inputs, and the merges\' parts and ranges', async () => {
+        const taskHash = 'b'.repeat(64);
+        const irHash = 'c'.repeat(64);
+        const pieces = [['1'.repeat(64), '2'.repeat(64)], ['3'.repeat(64), '2'.repeat(64)]];
+        const parts = ['4'.repeat(64), '5'.repeat(64)];
+        const passing = '6'.repeat(64);
+        const range = '7'.repeat(64);
+        const piecesPlan = 'd'.repeat(64);
+        const mergePlan = 'e'.repeat(64);
+        const objects = new Map<string, Uint8Array>([
+          [piecesPlan, encodeUnitPlan({ kind: UNIT_PLAN_KIND, task: taskHash, inputs: '9'.repeat(64), stage: variant('pieces', pieces), previous: none, peakBytes: none })],
+          [mergePlan, encodeUnitPlan({
+            kind: UNIT_PLAN_KIND,
+            task: taskHash,
+            inputs: '9'.repeat(64),
+            stage: variant('merge', { level: 1n, levels: 2n, groups: [{ range: some(range), entries: parts }, { range: none, entries: [passing] }] }),
+            previous: some(piecesPlan),
+            peakBytes: some(1024n),
+          })],
+          [taskHash, encodeBeast2For(TaskObjectType)({
+            kind: TASK_OBJECT_KIND,
+            body: variant('command', { commandIr: irHash }),
+            runner: variant('custom', { command: [] }),
+            inputs: [{ path: [variant('field', 'x')], partition: none }],
+            output: { path: [variant('field', 'y')], kind: variant('value', null) },
+            role: variant('data', null),
+            environment: none,
+          } as TaskObject)],
+        ]);
         const store = tracedStore(objects);
 
-        const reachable = await markReachable(store.readObject, new Set([planHash]), { readHead: store.readHead });
+        // The merge level's plan alone, as a success record names its last.
+        const reachable = await markReachable(store.readObject, new Set([mergePlan]), { readHead: store.readHead });
 
-        // Every partition slice and every range blob is marked, without
-        // being read.
-        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...ranges].sort());
-        assert.deepStrictEqual(store.wholeReads, [planHash], 'the slices and ranges are marked without being read');
-      });
-
-      it('keeps the plan reachable once the plan type has grown a field', async () => {
-        // gc classifies a plan by matching a PREFIX of PartitionPlanType's
-        // fields, so appending one — the migration this type is designed for
-        // — must keep gc marking the plan's slices and ranges. Getting this
-        // wrong loses them silently: an unrecognised plan is a leaf, its
-        // children are never extracted, and the sweep deletes them.
-        const planFields = (toEastTypeValue(PartitionPlanType).value as { name: string; type: unknown }[]);
-        const grown = fromEastTypeValue(variant('Struct', [
-          ...planFields,
-          { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
-        ]) as never);
-        const planHash = 'e'.repeat(64);
-        const slices = [['1'.repeat(64), '2'.repeat(64)]];
-        const ranges = ['7'.repeat(64)];
-        const objects = new Map([[planHash, encodeBeast2For(grown as never)({
-          partitions: ['5'.repeat(64)],
-          boundaries: [0n],
-          splits: [[{ seg: 0n, offset: 0n }, { seg: 4n, offset: 0n }]],
-          slices,
-          merges: [{ partials: ['a'.repeat(64)], ranges }],
-          a_field_appended_later: 0n,
-        } as never)]]);
-        const store = tracedStore(objects);
-
-        const reachable = await markReachable(store.readObject, new Set([planHash]), { readHead: store.readHead });
-
-        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...ranges].sort());
-      });
-
-      it('pins gc\'s plan prefix to PartitionPlanType\'s field order', () => {
-        // The prefix match above only holds while the plan grows by APPENDING.
-        // A field inserted or reordered would make older plans stop matching,
-        // and gc would quietly stop marking their slices and ranges — so pin
-        // the fields every vintage carries to the front, in order.
-        const fields = (toEastTypeValue(PartitionPlanType).value as { name: string }[]).map((f) => f.name);
         assert.deepStrictEqual(
-          fields.slice(0, 4),
-          ['partitions', 'boundaries', 'splits', 'slices'],
-          'a plan field must be APPENDED, never inserted or reordered — see isPartitionPlanShape',
+          [...reachable].sort(),
+          [...new Set([piecesPlan, mergePlan, taskHash, irHash, ...pieces.flat(), ...parts, passing, range])].sort(),
         );
+        assert.deepStrictEqual(store.wholeReads.sort(), [piecesPlan, mergePlan, taskHash].sort(), 'what a plan names is marked without being read');
+      });
+
+      it('treats a unit-plan-shaped struct carrying another kind as a leaf', async () => {
+        const root = 'f'.repeat(64);
+        const input = '1'.repeat(64);
+        const store = tracedStore(new Map([[root, encodeUnitPlan({
+          kind: '$something-else', task: 'b'.repeat(64), inputs: '9'.repeat(64), stage: variant('pieces', [[input]]), previous: none, peakBytes: none,
+        })]]));
+
+        const reachable = await markReachable(store.readObject, new Set([root]), { readHead: store.readHead });
+
+        assert.deepStrictEqual([...reachable], [root]);
       });
 
       it('grows the head while a type section does not fit, and never reads the dataset whole', async () => {
@@ -970,7 +609,11 @@ describe('gc', () => {
       });
     });
 
-    it('marks value leaves without reading them', async () => {
+    it('reads a value to learn its type when the store serves no head reads', async () => {
+      // Without ranged reads there is no head to classify a value by, and a
+      // value may be a manifest naming segment objects, so it is read whole —
+      // a plain one is then marked and names nothing (the manifest recognizer
+      // below walks the other kind).
       const valueHash = 'b'.repeat(64);
 
       const treeType = makeTreeType(['data']);
@@ -981,7 +624,7 @@ describe('gc', () => {
       const readCalls: string[] = [];
       const objects = new Map<string, Uint8Array>();
       objects.set(treeHash, treeData);
-      objects.set(valueHash, new Uint8Array([99])); // exists but should not be read
+      objects.set(valueHash, new Uint8Array([99]));
 
       const readObject = async (hash: string) => {
         readCalls.push(hash);
@@ -990,8 +633,8 @@ describe('gc', () => {
       const reachable = await markReachable(readObject, new Set([treeHash]));
 
       assert.ok(reachable.has(valueHash), 'value should be reachable');
-      assert.ok(!readCalls.includes(valueHash), 'value hash should NOT have been read');
-      assert.ok(readCalls.includes(treeHash), 'tree hash should have been read');
+      assert.ok(readCalls.includes(valueHash), 'the value is read to learn its type');
+      assert.strictEqual(reachable.size, 2, 'a plain value names nothing');
     });
   });
 
@@ -1070,19 +713,401 @@ describe('gc', () => {
     it('a genuine RecordCommit IS traversed: its state blob stays reachable', async () => {
       const STATE = 'b'.repeat(64);
       const root = 'real-commit'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(RecordCommitType)({ parent: none, state: STATE, mutation: '$init', args: none, actor: 'system', at: new Date(0) })]]);
+      const objects = new Map([[root, encodeBeast2For(RecordCommitType)({ parent: none, state: STATE, mutation: '$init', args: none, actor: 'system', at: new Date(0), delta: none })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(STATE), 'a real commit must keep its state blob reachable');
     });
 
-    it('a genuine MutationObject IS traversed: its bodyIr stays reachable', async () => {
+    it('a genuine MutationObject IS traversed: its body and its program stay reachable', async () => {
       const BODY = 'c'.repeat(64);
+      const PROGRAM = 'd'.repeat(64);
       const root = 'real-mutation'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) })]]);
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }), form: variant('reduce', null), programIr: PROGRAM })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');
+      assert.ok(reachable.has(PROGRAM), 'a real mutation must keep its program reachable');
+    });
+
+    it('a genuine RecordObject IS traversed: each migration, its function and a split step\'s program stay reachable', async () => {
+      const VALUE_STEP = 'a-value-step'.padEnd(64, '0');
+      const ROWS_STEP = 'a-rows-step'.padEnd(64, '0');
+      const VALUE_BODY = '5'.repeat(64);
+      const ROWS_BODY = '6'.repeat(64);
+      const ROWS_PROGRAM = '7'.repeat(64);
+      const runner = variant('east_node', { platforms: ['@elaraai/east-node-std'] });
+      const counts = toEastTypeValue(DictType(StringType, IntegerType));
+      const root = 'real-record'.padEnd(64, '0');
+      const objects = new Map([
+        [root, encodeBeast2For(RecordObjectType)({
+          path: 'records/counts', mutations: new Map(), indexes: new Map(),
+          migrations: [{ name: 'repair', migration: VALUE_STEP }, { name: 'relabel', migration: ROWS_STEP }],
+        })],
+        [VALUE_STEP, encodeBeast2For(MigrationObjectType)({ form: variant('value', null), from: counts, to: counts, bodyIr: VALUE_BODY, programIr: '', runner })],
+        [ROWS_STEP, encodeBeast2For(MigrationObjectType)({
+          form: variant('rows', null), from: counts, to: toEastTypeValue(DictType(StringType, StringType)), bodyIr: ROWS_BODY, programIr: ROWS_PROGRAM, runner,
+        })],
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      // A value step runs its own function, and names no program.
+      assert.deepStrictEqual([...reachable].sort(), [root, VALUE_STEP, ROWS_STEP, VALUE_BODY, ROWS_BODY, ROWS_PROGRAM].sort());
+    });
+  });
+
+  // An index object is the only thing naming the programs a rebuild runs, and
+  // a state read at an older commit names it long after the package that
+  // declared it is gone. Unrecognised, it is a leaf: the bundles go unmarked,
+  // the sweep takes them, and the index can never be rebuilt again.
+  describe('the record index recognizer', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const KEY_IR = '1'.repeat(64);
+    const VALUE_IR = '2'.repeat(64);
+    const BUILD_IR = '3'.repeat(64);
+    const index = {
+      keyIr: KEY_IR,
+      multi: false,
+      valueIr: some(VALUE_IR),
+      keyType: toEastTypeValue(IntegerType),
+      valueType: toEastTypeValue(StringType),
+      buildIr: BUILD_IR,
+      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    };
+
+    it('keeps every IR bundle an index object names reachable', async () => {
+      const root = 'an-index'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(RecordIndexObjectType)(index)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      for (const [label, hash] of [
+        ['the key function', KEY_IR], ['the covering projection', VALUE_IR], ['the build program', BUILD_IR],
+      ] as const) {
+        assert.ok(reachable.has(hash), `${label} must survive`);
+      }
+    });
+
+    it('treats an index object with a field appended as a leaf: an object without a tag is recognised by its current shape alone', async () => {
+      const fields = toEastTypeValue(RecordIndexObjectType).value as { name: string; type: unknown }[];
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...fields,
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-index'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(grown as never)({
+        ...index, a_field_appended_later: 0n,
+      } as never)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.deepStrictEqual([...reachable], [root]);
+    });
+
+    it('treats a struct that stops short of the index fields as a leaf', async () => {
+      // A struct with all but the last of the index's fields is not an index
+      // object, and its hash-shaped strings must not be probed as children.
+      const NearIndex = StructType({
+        keyIr: StringType, multi: StringType, valueIr: StringType, keyType: StringType,
+        valueType: StringType, buildIr: StringType,
+      });
+      const root = 'near-index'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(NearIndex)({
+        keyIr: KEY_IR, multi: 'x', valueIr: 'x', keyType: 'x', valueType: 'x', buildIr: BUILD_IR,
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(!reachable.has(KEY_IR), 'the "keyIr"-named string must not be followed');
+    });
+  });
+
+  // A task object names the program a deployed package runs and the functions
+  // and value its output folds with. Unrecognised, it is a leaf: they go
+  // unmarked, and the sweep deletes what the package runs.
+  describe('the task object recognizer', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const PROGRAM = '1'.repeat(64);
+    const MERGE = '2'.repeat(64);
+    const ZERO = '3'.repeat(64);
+    const COMBINE = '4'.repeat(64);
+    const ENV = '5'.repeat(64);
+    const TOOL = '6'.repeat(64);
+    // The environment is read to find the files it names, so it must exist.
+    const environment: [string, Uint8Array] = [ENV, encodeBeast2For(EnvironmentSpecType)(variant('tools', {
+      files: [{ path: 'bin/solver', hash: TOOL }],
+    }))];
+    const task: TaskObject = {
+      kind: TASK_OBJECT_KIND,
+      body: variant('east', { program: PROGRAM }),
+      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+      inputs: [{ path: [variant('field', 'x')], partition: some({ by: ['k'] }) }],
+      output: { path: [variant('field', 'y')], kind: variant('fold', { zero: ZERO, combine: COMBINE }) },
+      role: variant('data', null),
+      environment: some(ENV),
+    };
+
+    it('keeps the program, what the output folds with, and the environment reachable', async () => {
+      const folds = 'a-fold-task'.padEnd(64, '0');
+      const merges = 'a-dict-task'.padEnd(64, '0');
+      const objects = new Map([
+        [folds, encodeBeast2For(TaskObjectType)(task)],
+        [merges, encodeBeast2For(TaskObjectType)({ ...task, output: { path: [variant('field', 'y')], kind: variant('dict', { merge: some(MERGE) }) } })],
+        environment,
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([folds, merges]));
+      for (const [label, hash] of [
+        ['the program', PROGRAM], ['the dict merge', MERGE], ['the fold zero', ZERO],
+        ['the fold combine', COMBINE], ['the environment', ENV], ['the environment\'s file', TOOL],
+      ] as const) {
+        assert.ok(reachable.has(hash), `${label} must survive`);
+      }
+    });
+
+    it('keeps them reachable once the task object has grown a field', async () => {
+      const fields = toEastTypeValue(TaskObjectType).value as { name: string; type: unknown }[];
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...fields,
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-task'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(grown as never)({ ...task, a_field_appended_later: 0n } as never)], environment]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      for (const hash of [PROGRAM, ZERO, COMBINE, ENV, TOOL]) assert.ok(reachable.has(hash));
+    });
+
+    it('treats a task-shaped struct carrying another kind as a leaf', async () => {
+      const root = 'not-a-task'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(TaskObjectType)({ ...task, kind: '$something-else' })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(!reachable.has(PROGRAM), 'an object carrying another kind must not be traversed as a task');
+    });
+  });
+
+  describe('the collection manifest recognizer', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const HEADER = 'f'.repeat(64);
+
+    /** A manifest naming `n` segment objects — the shape a collection dataset
+     *  ref points at. */
+    const manifestOf = (level: bigint, n: number): Uint8Array =>
+      encodeCollectionManifest({
+        kind: COLLECTION_MANIFEST_KIND,
+        level,
+        type: toEastTypeValue(DictType(StringType, IntegerType)),
+        rule: SEGMENT_RULE_KEYED,
+        header: HEADER,
+        entries: Array.from({ length: n }, (_, i) => ({
+          hash: String(i).repeat(64).slice(0, 64),
+          fence: new Uint8Array([i]),
+          count: 1000n,
+          bytes: 50_000n,
+        })),
+      });
+
+    it('keeps every segment and the header reachable from a manifest', async () => {
+      const root = 'manifest'.padEnd(64, '0');
+      const objects = new Map([[root, manifestOf(0n, 3)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(reachable.has(HEADER), 'the header bytes every segment is written under must survive');
+      for (let i = 0; i < 3; i++) {
+        assert.ok(reachable.has(String(i).repeat(64).slice(0, 64)), `segment ${i} must survive`);
+      }
+    });
+
+    it('walks a manifest reached as a value when the store serves no head reads', async () => {
+      // A store without ranged reads — e3-cloud's object store — holds
+      // manifests too. A value child is read to learn its type there, and
+      // walked when it is a manifest: marked and not walked, the manifest
+      // would survive a sweep that took its header and every segment.
+      const tree = 'tree'.padEnd(64, '0');
+      const manifest = 'manifest'.padEnd(64, '0');
+      const objects = new Map([
+        [tree, encodeBeast2For(StructType({ rows: DataRefType }))({ rows: variant('value', manifest) })],
+        [manifest, manifestOf(0n, 2)],
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([tree]));
+      assert.ok(reachable.has(manifest));
+      assert.ok(reachable.has(HEADER), 'the header object must survive');
+      for (let i = 0; i < 2; i++) {
+        assert.ok(reachable.has(String(i).repeat(64).slice(0, 64)), `segment ${i} must survive`);
+      }
+    });
+
+    it('walks a level-1 manifest\'s children rather than marking them', async () => {
+      // Above level 0 an entry is a child manifest, which names objects of
+      // its own: marking it without reading would sweep the segments below.
+      const root = 'level-one'.padEnd(64, '0');
+      const child = '0'.repeat(64);
+      const objects = new Map([[root, manifestOf(1n, 1)], [child, manifestOf(0n, 2)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(child));
+      assert.ok(reachable.has('1'.repeat(64)), 'a grandchild segment must survive');
+    });
+
+    it('treats a same-shaped struct with another kind as a leaf', async () => {
+      const root = 'not-a-manifest'.padEnd(64, '0');
+      const objects = new Map([[root, encodeCollectionManifest({
+        kind: '$something-else',
+        level: 0n,
+        type: toEastTypeValue(DictType(StringType, IntegerType)),
+        rule: SEGMENT_RULE_KEYED,
+        header: HEADER,
+        entries: [{ hash: '0'.repeat(64), fence: new Uint8Array(), count: 1n, bytes: 1n }],
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(!reachable.has(HEADER), 'an object carrying another kind must not be traversed as segments');
+    });
+  });
+
+  // A kind-tagged object is walked by the tag table: its fields begin with the
+  // kind's, and it carries the kind's tag. A later version, which appends
+  // fields, is walked for the fields this build knows.
+  describe('the tag table', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const PRIMARY = '1'.repeat(64);
+    const INDEX_MANIFEST = '2'.repeat(64);
+    const INDEX_OBJECT = '3'.repeat(64);
+    const KEY_IR = '4'.repeat(64);
+
+    it('keeps a record state\'s primary, its index manifests and the index objects they were built under reachable', async () => {
+      const root = 'a-record-state'.padEnd(64, '0');
+      const objects = new Map([
+        [root, encodeBeast2For(RecordStateType)({
+          kind: RECORD_STATE_KIND,
+          primary: PRIMARY,
+          indexes: new Map([['by_status', { manifest: INDEX_MANIFEST, index: INDEX_OBJECT }]]),
+        })],
+        // The index object is walked for the programs it names, so it exists.
+        [INDEX_OBJECT, encodeBeast2For(RecordIndexObjectType)({
+          keyIr: KEY_IR,
+          multi: false,
+          valueIr: none,
+          keyType: toEastTypeValue(IntegerType),
+          valueType: toEastTypeValue(StringType),
+          buildIr: '5'.repeat(64),
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+        })],
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      for (const [label, hash] of [
+        ['the primary', PRIMARY], ['the index manifest', INDEX_MANIFEST],
+        ['the index object', INDEX_OBJECT], ['the index\'s key function', KEY_IR],
+      ] as const) {
+        assert.ok(reachable.has(hash), `${label} must survive`);
+      }
+    });
+
+    it('treats a record-state-shaped struct carrying another kind as a leaf', async () => {
+      const root = 'not-a-state'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(RecordStateType)({
+        kind: '$something-else',
+        primary: PRIMARY,
+        indexes: new Map([['by_status', { manifest: INDEX_MANIFEST, index: INDEX_OBJECT }]]),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.deepStrictEqual([...reachable], [root]);
+    });
+
+    it('walks a later manifest, which appends a field, for the segments it names', async () => {
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...(toEastTypeValue(CollectionManifestType).value as { name: string; type: unknown }[]),
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-manifest'.padEnd(64, '0');
+      const header = 'f'.repeat(64);
+      const segment = '7'.repeat(64);
+      const objects = new Map([[root, encodeBeast2For(grown as never)({
+        kind: COLLECTION_MANIFEST_KIND,
+        level: 0n,
+        type: toEastTypeValue(DictType(StringType, IntegerType)),
+        rule: SEGMENT_RULE_KEYED,
+        header,
+        entries: [{ hash: segment, fence: new Uint8Array([1]), count: 10n, bytes: 100n }],
+        a_field_appended_later: 0n,
+      } as never)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(header) && reachable.has(segment), 'the header and the segment must survive');
+    });
+
+    it('walks a later record state, which appends a field, for what it names', async () => {
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...(toEastTypeValue(RecordStateType).value as { name: string; type: unknown }[]),
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-state'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(grown as never)({
+        kind: RECORD_STATE_KIND,
+        primary: PRIMARY,
+        indexes: new Map([['by_status', { manifest: INDEX_MANIFEST, index: INDEX_OBJECT }]]),
+        a_field_appended_later: 0n,
+      } as never)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(PRIMARY) && reachable.has(INDEX_MANIFEST), 'the primary and the index manifest must survive');
+    });
+
+    it('walks a later unit plan, which appends a field, for what its stage names', async () => {
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...(toEastTypeValue(UnitPlanType).value as { name: string; type: unknown }[]),
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-plan'.padEnd(64, '0');
+      const piece = '8'.repeat(64);
+      const objects = new Map([[root, encodeBeast2For(grown as never)({
+        kind: UNIT_PLAN_KIND,
+        task: 'b'.repeat(64),
+        inputs: '9'.repeat(64),
+        stage: variant('pieces', [[piece]]),
+        previous: none,
+        peakBytes: none,
+        a_field_appended_later: 0n,
+      } as never)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(piece), 'the piece\'s input must survive');
+    });
+  });
+
+  // An object without a tag is recognised by its current shape alone: one of
+  // an earlier shape is an older e3's, whose repository is re-created
+  // (WIRE_MIGRATION.md), and gc walks nothing it names.
+  describe('an untagged object of an earlier shape', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+
+    it('is a leaf: a package from before sources names nothing gc walks', async () => {
+      const value = '1'.repeat(64);
+      const root = 'a-records-era-package'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(StructType({
+        tasks: DictType(StringType, StringType),
+        data: PackageDataType,
+        functions: DictType(StringType, StringType),
+        records: DictType(StringType, StringType),
+      }))({
+        tasks: new Map(),
+        data: { structure: variant('struct', new Map()), refs: new Map([['inputs/x', variant('value', { hash: value, versions: new Map() })]]) },
+        functions: new Map(),
+        records: new Map(),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.deepStrictEqual([...reachable], [root]);
     });
   });
 });

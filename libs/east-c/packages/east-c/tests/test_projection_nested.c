@@ -223,7 +223,7 @@ static void test_decode_agrees(void)
         for (int k = 0; k < 4; k++)
             east_value_release(rvals[k]);
     }
-    ByteBuffer *blob = east_beast2_encode_paged(rows, rows_t, EAST_BEAST2_CODEC_DEFLATE, 0);
+    ByteBuffer *blob = east_beast2_encode_paged(rows, rows_t, EAST_BEAST2_CODEC_DEFLATE);
     east_value_release(rows);
     CHECK(blob != NULL, "decode: paged encode failed");
     if (!blob) return;

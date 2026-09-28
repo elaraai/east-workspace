@@ -51,7 +51,9 @@ Scaffolding a project?
 │
 ├─ Extras (e3)                  → --ui (east-ui+e3-ui) · --tests (default on) · --eslint (on) · --editor-diagnostics (on)
 │
-└─ Then → cd <name> → npm run setup → npm run start   (lifecycle: east-project skill)
+├─ Then → cd <name> → e3: npm run setup → npm run start · east: npm install → npm run test   (lifecycle: east-project skill)
+│
+└─ Bump an EXISTING project's @elaraai/* stack → npm create @elaraai/e3@<version> -- --update   (run inside the project)
 ```
 
 | Initializer | License | Stack | Default export |
@@ -67,11 +69,13 @@ npm create @elaraai/e3 my-app -- --no-ui --runners=east-node,east-py   # flags a
 npm create @elaraai/e3 .                       # scaffold into the CURRENT directory
 create-e3 my-app --ui                          # the bin directly (no `npm create`, no `--`)
 npm create @elaraai/e3 -- --help               # full flag list
+npm create @elaraai/e3@latest -- --update      # inside a project: move every @elaraai/* dependency to that version
 ```
 
 - The **project name** is the first non-`-` argument; omit it (or pass `.`) to scaffold into the current directory.
 - Under `npm create`, flags go **after `--`** (npm forwards them). The `create-e3` / `create-east` bins take flags directly.
-- A run is **interactive** only when stdin+stdout are a TTY **and** no selection flag is passed; any selection flag (below) makes it non-interactive (safe for CI / pipes).
+- A run is **interactive** only when stdin and stdout are a TTY **and** no selection flag is passed. The selection flags are `--tests`/`--no-tests`, `--ui`/`--no-ui`, `--platform`/`--no-platform`, `--eslint`/`--no-eslint`, `--runners=…` and the `--*-packages` flags — any one makes the run non-interactive (safe for CI and pipes). `--install`/`--no-install` and `--editor-diagnostics` do not.
+- **`--update`** (either initializer, inside an existing project) scaffolds nothing: it rewrites every `@elaraai/*` dependency to the initializer's own version — the lockstep stack version, so `@latest` for the newest — and drops the stale lock so the install resolves without an `ERESOLVE`. `--install`/`--no-install` apply as for a scaffold.
 
 ## CLI flags — and exactly what each does
 
@@ -79,7 +83,8 @@ npm create @elaraai/e3 -- --help               # full flag list
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--install` / `--no-install` | install when TTY | Run `npm install` (+ `uv sync` for e3) after scaffolding. |
+| `--install` / `--no-install` | install when TTY | Run `npm install` (+ `uv sync` for e3) after scaffolding (or `--update`). |
+| `--update` | — | Bump an existing project's `@elaraai/*` stack to this initializer's version, instead of scaffolding. |
 | `--eslint` / `--no-eslint` | on | Add ESLint wired with `@elaraai/eslint-plugin-east` (the East lint rules). |
 | `--editor-diagnostics` / `--no-editor-diagnostics` | on | Add `@elaraai/tsserver-plugin-east` to `tsconfig.json` (editor squiggles for East idioms). TypeScript only — the python diagnostics need no flag: `elaraai-east-py-cli` brings `east-py lint` / `check` / `lsp` plus flake8 and pylsp plugins, configured by the generated `[tool.east-py]`. |
 
@@ -87,9 +92,9 @@ npm create @elaraai/e3 -- --help               # full flag list
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--runners=<list>` | all | Comma list of `east-node,east-py,east-c` to include. Prunes the unused runtimes' setup (e.g. drop `pyproject.toml` when east-py is off). |
+| `--runners=<list>` | all | Comma list of `east-node,east-py,east-c` to include. Prunes the unused runtimes' setup: east-node and east-c bring their CLI dev dependency (`@elaraai/east-node-cli`, `@elaraai/east-c-cli`); east-py brings `pyproject.toml`, `.python-version`, `tests/test_unit.py` and `@elaraai/east-py-datascience`. |
 | `--tests` / `--no-tests` | on | Emit `src/index.spec.ts` (+ Python tests when east-py is on). |
-| `--ui` / `--no-ui` | off | Add `east-ui` + `e3-ui`, a `src/ui/index.tsx` surface, and the `npm run shot` screenshot wiring (e3-ui-cli). |
+| `--ui` / `--no-ui` | off | Add `east-ui` + `e3-ui`, a `src/ui/index.tsx` surface, and the screenshot scripts (`npm run shot`, `shots:png`, `shots:html` — e3-ui-cli). |
 | `--platform` / `--no-platform` | off | Add ONE project-owned platform module (see below). Ignored when any `--*-packages` is given. |
 | `--python-packages=<list>` | — | uv workspace members under `packages/python/*`. Implies `--runners` east-py. |
 | `--node-packages=<list>` | — | npm workspace members under `packages/node/*`. Implies east-node. |
@@ -98,7 +103,8 @@ npm create @elaraai/e3 -- --help               # full flag list
 **Interactions to know:**
 - Each `--<runtime>-packages` **implies its runner** (a package can't run without it), applied *after* `--runners=` so a contradictory `--runners` can't disable a needed runtime.
 - Any `--<runtime>-packages` sets `--platform` **off** — the generated packages ARE the platform path (they replace the single-file demo).
-- Package names must be **unique across all runtimes** (each becomes a distinct `src/packages/<name>.ts` task); a name that collides with a real registry package should be renamed.
+- Package names must be **unique across all runtimes** (each becomes a distinct `src/packages/<name>.ts` task) and follow the runtime's packaging rules: python `[a-z][a-z0-9_]*` (import-safe), node `[a-z][a-z0-9-]*`, C `[a-z][a-z0-9_-]*`. A name that collides with a real registry package should be renamed.
+- `create-east` has no `--tests` (its spec is always generated) and none of the e3-only flags.
 
 ## What you get (single project, no package flags)
 
@@ -113,7 +119,7 @@ my-app/
     └── index.spec.ts       # unless --no-tests
 ```
 
-`--ui` adds `src/ui/index.tsx` (an `e3.ui()` surface) + `npm run shot`.
+`--ui` adds `src/ui/index.tsx` (a `ui()` surface from `@elaraai/e3-ui`) + `npm run shot`.
 
 ## Custom platform functions
 
@@ -239,8 +245,8 @@ npm create @elaraai/e3 forecaster -- --runners=east-py --python-packages=model
 # Everything: three runtimes, one package each, UI on
 npm create @elaraai/e3 demo -- --python-packages=pricing --node-packages=api --c-packages=solver --ui
 
-# A plain East (Node-only) library with lint but no tests
-npm create @elaraai/east mylib -- --no-tests
+# A plain East (Node-only) program, without ESLint
+npm create @elaraai/east mylib -- --no-eslint
 ```
 
 ## After scaffolding

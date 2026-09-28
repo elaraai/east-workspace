@@ -12,10 +12,12 @@
  * @packageDocumentation
  */
 
-import type { DataflowExecutionState, ExecutionHistoryStatus, ExecutionStatus, TaskStatus, DataflowEvent } from '@elaraai/e3-api-client';
+import type {
+    DataflowBudget, DataflowExecutionState, ExecutionHistoryStatus, ExecutionStatus, TaskStatus, DataflowEvent, SplitProgress, StageUnit, UnitWait,
+} from '@elaraai/e3-api-client';
 import type { Glyphs } from '../render/glyphs.js';
 import type { Tone } from '../render/theme.js';
-import { formatDuration } from '../render/text.js';
+import { formatDuration, formatSize } from '../render/text.js';
 import type { ConnectionState } from '../state/poll.js';
 
 /** A status cell: its glyph, its tone, the word and an inline detail. */
@@ -101,6 +103,8 @@ export function historyStatusCell(status: ExecutionHistoryStatus['type'], g: Gly
         case 'success': return { glyph: g.dot, tone: 'pos', word: 'success', detail: '' };
         case 'failed': return { glyph: g.cross, tone: 'neg', word: 'failed', detail: '' };
         case 'error': return { glyph: g.half, tone: 'warn', word: 'error', detail: '' };
+        case 'cancelled': return { glyph: g.square, tone: 'warn', word: 'cancelled', detail: '' };
+        case 'interrupted': return { glyph: g.half, tone: 'warn', word: 'interrupted', detail: '' };
     }
 }
 
@@ -138,9 +142,57 @@ export function executionDuration(state: DataflowExecutionState): number | null 
 }
 
 /**
+ * A unit of a split task, as the feed names it: `piece 5 of 8`, or
+ * `merge 3 of 4 · level 1 of 2`.
+ *
+ * @param unit - The unit, by its place in its task
+ * @param sep - The separator
+ * @returns The text
+ */
+export function unitPlace(unit: StageUnit, sep = '·'): string {
+    const of = `${unit.index + 1n} of ${unit.units}`;
+    return unit.merge.type === 'none' ? `piece ${of}` : `merge ${of} ${sep} level ${unit.merge.value.level} of ${unit.merge.value.levels}`;
+}
+
+/**
+ * How far a split task has got through its stage, as its start row names it:
+ * `3 of 8 pieces`, or `level 1 of 2 · 2 of 4 merges`.
+ *
+ * @param split - The task's progress
+ * @param sep - The separator
+ * @returns The text
+ */
+export function splitPlace(split: SplitProgress, sep = '·'): string {
+    const of = `${split.done} of ${split.units}`;
+    return split.merge.type === 'none' ? `${of} pieces` : `level ${split.merge.value.level} of ${split.merge.value.levels} ${sep} ${of} merges`;
+}
+
+/**
+ * A task or unit waiting for room in the server's budget, as the feed shows
+ * it: what it waits to reserve, and what the budget has free of it.
+ *
+ * @param wait - The wait
+ * @param budget - The server's budget, when it has one
+ * @param g - The glyph set
+ * @returns The cell
+ */
+export function waitCell(wait: UnitWait, budget: DataflowBudget | null, g: Glyphs): StatusCell {
+    let detail: string;
+    if (wait.needs > 0n) {
+        detail = `needs ${formatSize(Number(wait.needs))}`;
+        if (budget !== null) detail += ` ${g.sep} ${formatSize(Math.max(0, Number(budget.memory - budget.memoryInUse)))} free`;
+    } else {
+        detail = 'needs a core';
+        if (budget !== null) detail += ` ${g.sep} ${budget.coresInUse} of ${budget.cores} in use`;
+    }
+    return { glyph: g.half, tone: 'warn', word: 'waiting', detail };
+}
+
+/**
  * One dataflow event as the feed shows it — the cloud UI's
  * `formatEventMessage` cases: the dot + word, the task, and the detail
- * (duration, exit code, message, reason).
+ * (duration and peak, exit code, message, reason); and a unit requeued,
+ * with why and the most it was measured using.
  *
  * @param event - The event
  * @param g - The glyph set
@@ -150,8 +202,10 @@ export function eventCell(event: DataflowEvent, g: Glyphs): StatusCell & { task:
     switch (event.type) {
         case 'start':
             return { glyph: g.quarter, tone: 'info', word: 'start', detail: '', task: event.value.task, timestamp: event.value.timestamp };
-        case 'complete':
-            return { glyph: g.dot, tone: 'pos', word: 'complete', detail: formatDuration(event.value.duration), task: event.value.task, timestamp: event.value.timestamp };
+        case 'complete': {
+            const peak = event.value.peakBytes.type === 'some' ? ` ${g.sep} peak ${formatSize(Number(event.value.peakBytes.value))}` : '';
+            return { glyph: g.dot, tone: 'pos', word: 'complete', detail: `${formatDuration(event.value.duration)}${peak}`, task: event.value.task, timestamp: event.value.timestamp };
+        }
         case 'cached':
             return { glyph: g.dot, tone: 'pos', word: 'cached', detail: '', task: event.value.task, timestamp: event.value.timestamp };
         case 'failed':
@@ -160,5 +214,12 @@ export function eventCell(event: DataflowEvent, g: Glyphs): StatusCell & { task:
             return { glyph: g.cross, tone: 'neg', word: 'error', detail: event.value.message, task: event.value.task, timestamp: event.value.timestamp };
         case 'input_unavailable':
             return { glyph: g.half, tone: 'warn', word: 'waiting', detail: event.value.reason, task: event.value.task, timestamp: event.value.timestamp };
+        case 'requeued': {
+            const peak = formatSize(Number(event.value.peak));
+            const detail = event.value.reason.type === 'budget' ? `over budget at ${peak}`
+                : event.value.reason.type === 'machine' ? `machine low at ${peak}`
+                : `outgrew its cap of ${peak}`;
+            return { glyph: g.requeue, tone: 'warn', word: 'requeued', detail, task: event.value.task, timestamp: event.value.timestamp };
+        }
     }
 }

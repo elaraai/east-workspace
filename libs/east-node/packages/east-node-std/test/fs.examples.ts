@@ -125,9 +125,9 @@ export const fsWriteAndReadFileBytes = example({
     returns: true,
 });
 
-// The blobs below are what the paged writers produce — segmented, indexed,
-// self-contained — 30 rows in segments of 10, so a keyed read decodes one of
-// three segments. Each example writes its blob to a file first, because
+// The blobs below are what the paged writer produces — segmented, indexed,
+// self-contained — so a keyed read decodes only the segment that holds the
+// key. Each example writes its blob to a file first, because
 // FileSystem.openBeast opens a PATH: the file is what gets mapped (east-c,
 // east-py) or read (Node) and paged from.
 
@@ -136,16 +136,16 @@ const OpenTableType = DictType(IntegerType, OpenRowType);
 const OpenTagsType = SetType(StringType);
 const OpenRowsType = ArrayType(StringType);
 
-const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType, { batchSize: 10 })(
+const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType)(
     new SortedMap(
         Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
         compareFor(IntegerType),
     ),
 );
-const OPEN_TAGS_BLOB = encodeBeast2PagedFor(OpenTagsType, { batchSize: 10 })(
+const OPEN_TAGS_BLOB = encodeBeast2PagedFor(OpenTagsType)(
     new SortedSet(Array.from({ length: 30 }, (_, i) => `tag-${String(i).padStart(4, "0")}`), compareFor(StringType)),
 );
-const OPEN_ROWS_BLOB = encodeBeast2PagedFor(OpenRowsType, { batchSize: 10 })(
+const OPEN_ROWS_BLOB = encodeBeast2PagedFor(OpenRowsType)(
     Array.from({ length: 30 }, (_, i) => `row-${i}`),
 );
 

@@ -20,7 +20,9 @@ import pytest
 from east import ArrayType, EastArray, IntegerType, StringType, StructType
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
+    encode_beast2_paged_for,
     open_beast2_file,
+    open_beast2_pages_for,
     write_beast2_file_parallel,
 )
 
@@ -46,13 +48,19 @@ def _produce(span):
 
 def test_parallel_output_is_byte_identical_to_inline(tmp_path):
     """auto (fork where the platform has it) and inline must produce the same
-    bytes — the same batches, spliced in the same order."""
+    bytes — the same partitions, each cut canonically from its own start and
+    spliced in the same order."""
     parts = _spans(10_000, 4)
     a, b = tmp_path / "auto.beast2", tmp_path / "inline.beast2"
-    result = write_beast2_file_parallel(a, AT, parts, _produce, segment_rows=1024)
-    write_beast2_file_parallel(b, AT, parts, _produce, strategy="inline", segment_rows=1024)
+    result = write_beast2_file_parallel(a, AT, parts, _produce)
+    write_beast2_file_parallel(b, AT, parts, _produce, strategy="inline")
     assert a.read_bytes() == b.read_bytes()
-    assert result == (12, 10_000)  # 4 shards x ceil(2500/1024) segments
+    counts = []
+    for part in parts:
+        canonical = encode_beast2_paged_for(AT)(_produce(part))
+        counts.extend(open_beast2_pages_for(AT)(canonical).counts)
+    assert open_beast2_pages_for(AT)(a.read_bytes()).counts == tuple(counts)
+    assert result == (len(counts), 10_000)
 
     with open_beast2_file(a, AT) as f:
         assert len(f) == 10_000 and f.self_contained

@@ -46,27 +46,27 @@ export function isExampleDef(x: unknown): x is ExampleDefLike {
     return typeof x === 'object' && x !== null && hasToIR((x as { fn?: unknown }).fn);
 }
 
-/** Structural shape of an e3 `ui()` task definition. The original East
- *  function is not retained on the TaskDef — `task()` eagerly stores
- *  `fn.toIR()` (the full EastIR bundle, source map included) as the default of
- *  its first input dataset, named `function_ir`. Purely structural so this
- *  package needs no runtime dependency on `@elaraai/e3` / `@elaraai/e3-ui`.
- *  `TaskDef.command` is ALSO an EastIR (the argv builder) — never unwrap that. */
+/** Structural shape of an e3 `ui()` task definition: a task in the `ui`
+ *  role. The original East function is not retained on the TaskDef —
+ *  `task()` eagerly stores `fn.toIR()` (the full EastIR bundle, source map
+ *  included) as its body's `program`. Purely structural so this package needs
+ *  no runtime dependency on `@elaraai/e3` / `@elaraai/e3-ui`. */
 interface UiTaskDefLike {
     kind: 'task';
-    taskKind: 'ui';
-    inputs: Array<{ name?: unknown; default?: unknown }>;
+    role: { type: 'ui' };
+    body: { kind: 'east'; program: unknown };
+    inputs: unknown[];
 }
 
 /** Is `x` (structurally) an e3 `ui()` task definition? */
 export function isUiTaskDef(x: unknown): x is UiTaskDefLike {
     if (typeof x !== 'object' || x === null) return false;
-    const t = x as { kind?: unknown; taskKind?: unknown; inputs?: unknown };
+    const t = x as { kind?: unknown; role?: { type?: unknown }; body?: { kind?: unknown; program?: unknown }; inputs?: unknown };
     return t.kind === 'task'
-        && t.taskKind === 'ui'
-        && Array.isArray(t.inputs)
-        && (t.inputs[0] as { name?: unknown } | undefined)?.name === 'function_ir'
-        && (t.inputs[0] as { default?: unknown }).default != null;
+        && t.role?.type === 'ui'
+        && t.body?.kind === 'east'
+        && t.body.program != null
+        && Array.isArray(t.inputs);
 }
 
 /** How an export carries its East function — the three renderable shapes. */
@@ -79,8 +79,8 @@ export function shapeOfExport(value: unknown): { shape: ExportShape; fn: EastFun
     if (hasToIR(value)) return { shape: 'function', fn: value };
     if (isExampleDef(value)) return { shape: 'example', fn: value.fn };
     if (isUiTaskDef(value)) {
-        if (value.inputs.length === 1) {
-            const bundle = value.inputs[0]!.default;
+        if (value.inputs.length === 0) {
+            const bundle = value.body.program;
             return { shape: 'ui-task', fn: { toIR: () => bundle } };
         }
         return { shape: 'ui-task', fn: null };
@@ -95,15 +95,14 @@ const PARAMETERIZED_UI_TASK_MESSAGE =
 /**
  * Pull the East function out of an export: a bare fn, an `example()` def, or a
  * zero-input e3 `ui()` task (unwrapped to its stored `fn.toIR()` bundle). A
- * ui() task WITH compute-time inputs (`inputs.length > 1` — inputs[0] is
- * always the function_ir dataset) is not renderable standalone; callers
+ * ui() task WITH compute-time inputs is not renderable standalone; callers
  * surface {@link PARAMETERIZED_UI_TASK_MESSAGE} for those.
  */
 function asEastFunction(value: unknown): EastFunctionLike | null {
     if (hasToIR(value)) return value;
     if (isExampleDef(value)) return value.fn;
-    if (isUiTaskDef(value) && value.inputs.length === 1) {
-        const bundle = value.inputs[0]!.default;
+    if (isUiTaskDef(value) && value.inputs.length === 0) {
+        const bundle = value.body.program;
         return { toIR: () => bundle };
     }
     return null;

@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test-concurrency=1 --test 'dist/**/*.spec.js'",
+    "test:specs": "node --enable-source-maps --test-reporter=spec --test-concurrency=1 --test",
     "clean": "rm -rf dist"
   },
   "dependencies": {

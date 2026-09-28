@@ -165,10 +165,10 @@ export const blobDecodeBeastV2 = example({
 // Beast v2 lazy paged open
 // ---------------------------------------------------------------------------
 //
-// The blobs below are what the paged writers produce — segmented, indexed,
-// self-contained — 30 rows in segments of 10, so a keyed read decodes one of
-// three segments. An in-expression `East.Blob.encodeBeast` writes no index
-// and takes the whole-decode fallback (blobOpenBeastIndexless).
+// The blobs below are what the paged writer produces — segmented, indexed,
+// self-contained — so a keyed read decodes only the segment that holds the key.
+// An in-expression `East.Blob.encodeBeast` writes no index and takes the
+// whole-decode fallback (blobOpenBeastIndexless).
 
 const OpenRowType = StructType({ id: IntegerType, name: StringType });
 const OpenTableType = DictType(IntegerType, OpenRowType);
@@ -176,19 +176,19 @@ const OpenTagsType = SetType(StringType);
 const OpenRowsType = ArrayType(StringType);
 const OpenCellsType = DictType(IntegerType, StructType({ r: RefType(IntegerType) }));
 
-const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType, { batchSize: 10 })(
+const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType)(
     new SortedMap(
         Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
         compareFor(IntegerType),
     ),
 );
-const OPEN_TAGS_BLOB = encodeBeast2PagedFor(OpenTagsType, { batchSize: 10 })(
+const OPEN_TAGS_BLOB = encodeBeast2PagedFor(OpenTagsType)(
     new SortedSet(Array.from({ length: 30 }, (_, i) => `tag-${String(i).padStart(4, "0")}`), compareFor(StringType)),
 );
-const OPEN_ROWS_BLOB = encodeBeast2PagedFor(OpenRowsType, { batchSize: 10 })(
+const OPEN_ROWS_BLOB = encodeBeast2PagedFor(OpenRowsType)(
     Array.from({ length: 30 }, (_, i) => `row-${i}`),
 );
-const OPEN_CELLS_BLOB = encodeBeast2PagedFor(OpenCellsType, { batchSize: 10 })(
+const OPEN_CELLS_BLOB = encodeBeast2PagedFor(OpenCellsType)(
     new SortedMap(
         Array.from({ length: 30 }, (_, i): [bigint, { r: ref<bigint> }] => [BigInt(i), { r: ref(BigInt(i * 10)) }]),
         compareFor(IntegerType),

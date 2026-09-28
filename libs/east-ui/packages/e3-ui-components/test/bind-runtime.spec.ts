@@ -154,6 +154,18 @@ describe("BindRuntime — reactive tracking", () => {
         ].sort());
         assert.equal(runtime.isTracking(), false);
     });
+
+    test("has() is tracked as a read of the source, in every mode and patch shape", async () => {
+        // A view that renders an unset dataset's empty branch on has() must
+        // re-render when the value lands, so has() subscribes to the source.
+        const { runtime } = await newRuntime();
+        for (const [mode, patch] of [["direct", undefined], ["direct", patchPath], ["staged", undefined], ["staged", patchPath]] as const) {
+            const handle = runtime.buildRawHandle(floatTypeValue, sourcePath, patch, mode);
+            runtime.enableTracking();
+            assert.equal(handle.has(), false);
+            assert.deepEqual(runtime.disableTracking(), [datasetCacheKey(ws, sourcePath)], `${mode}, ${patch ? "with" : "no"} patch`);
+        }
+    });
 });
 
 // =============================================================================

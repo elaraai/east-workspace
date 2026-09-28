@@ -6,9 +6,9 @@
 /**
  * `<TaskPreview>` — router for previewing an e3 task.
  *
- * Branches by task `kind`:
- *   - `kind === 'ui'`   → `<UITaskPreview>`
- *   - otherwise          → `<DataTaskPreview>` (output preview tabs + logs)
+ * Branches by the task's `role`:
+ *   - `ui`   → `<UITaskPreview>`
+ *   - `data` → `<DataTaskPreview>` (output preview tabs + logs)
  *
  * @packageDocumentation
  */
@@ -18,7 +18,7 @@ import { Box, Flex, Text } from '@chakra-ui/react';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { UITaskPreview } from './UITaskPreview.js';
 import { DataTaskPreview } from './DataTaskPreview.js';
-import { useTaskDetails, getTaskKind } from '../hooks/useTaskDetails.js';
+import { useTaskDetails } from '../hooks/useTaskDetails.js';
 import { StatusDisplay } from './StatusDisplay.js';
 
 export interface TaskPreviewProps {
@@ -46,7 +46,7 @@ export const TaskPreview = memo(function TaskPreview({
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
     });
-    const kind = detailsQuery.data ? getTaskKind(detailsQuery.data) : null;
+    const isUI = detailsQuery.data?.role.type === 'ui';
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
@@ -62,7 +62,7 @@ export const TaskPreview = memo(function TaskPreview({
                     ? <StatusDisplay variant="loading" title="Loading task..." />
                     : detailsQuery.error
                         ? <StatusDisplay variant="error" title="Error" message={detailsQuery.error.message} />
-                        : kind === 'ui'
+                        : isUI
                             ? <UITaskPreview
                                 task={task}
                                 bare={bare}
@@ -79,4 +79,7 @@ export const TaskPreview = memo(function TaskPreview({
             </Box>
         </Box>
     );
-}, (prev, next) => prev.task === next.task && prev.repo === next.repo && prev.workspace === next.workspace && prev.bare === next.bare);
+}, (prev, next) => prev.task === next.task && prev.apiUrl === next.apiUrl && prev.repo === next.repo
+    && prev.workspace === next.workspace && prev.bare === next.bare
+    // A rotated token re-renders the preview, or its reads keep the old one.
+    && prev.requestOptions?.token === next.requestOptions?.token);

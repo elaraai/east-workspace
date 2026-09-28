@@ -267,8 +267,14 @@ export class BindRuntime {
         this.cache = cache;
     }
 
-    /** Clear the active cache and drop any queued writes. */
-    clearCache(): void {
+    /**
+     * Clear the active cache and drop any queued writes.
+     *
+     * @param cache - Clear only while this is the active cache, so a provider
+     *   tearing down after another installed its own leaves that one in place
+     */
+    clearCache(cache?: ReactiveDatasetCacheInterface): void {
+        if (cache !== undefined && this.cache !== cache) return;
         this.cache = null;
         this.clearPendingWrites();
         this.handleCache.clear();
@@ -645,6 +651,13 @@ export class BindRuntime {
             return null;
         };
 
+        // Whether the source has a value, tracked as a read of it: a view that
+        // renders an empty branch on `has()` re-renders when the value lands.
+        const hasSource = (): boolean => {
+            this.trackPath(ws, sourcePath);
+            return cache.has(ws, sourcePath);
+        };
+
         // ----- direct, no patch — writes go to source ------------------
         if (mode === "direct" && !patchPath) {
             return {
@@ -668,7 +681,7 @@ export class BindRuntime {
                 pending: () => false,
                 commit: () => null,
                 discard: () => null,
-                has: () => cache.has(ws, sourcePath),
+                has: hasSource,
                 status: () => {
                     this.trackPath(ws, sourcePath);
                     return cache.getStatus(ws, sourcePath);
@@ -733,7 +746,7 @@ export class BindRuntime {
                     this.queueWrite(() => cache.write(ws, pPath, encodePatch(UNCHANGED_VARIANT)));
                     return null;
                 },
-                has: () => cache.has(ws, sourcePath),
+                has: hasSource,
                 status: () => {
                     this.trackPath(ws, sourcePath);
                     return cache.getStatus(ws, sourcePath);
@@ -782,7 +795,7 @@ export class BindRuntime {
                     staged.discard(ws, sourcePath);
                     return null;
                 },
-                has: () => cache.has(ws, sourcePath),
+                has: hasSource,
                 status: () => {
                     this.trackPath(ws, sourcePath);
                     return cache.getStatus(ws, sourcePath);
@@ -831,7 +844,7 @@ export class BindRuntime {
                 staged.discard(ws, sourcePath);
                 return null;
             },
-            has: () => cache.has(ws, sourcePath),
+            has: hasSource,
             status: () => {
                 this.trackPath(ws, sourcePath);
                 return cache.getStatus(ws, sourcePath);
@@ -917,10 +930,14 @@ export function initializeReactiveDatasetCache(cache: ReactiveDatasetCacheInterf
     defaultBindRuntime.initializeCache(cache);
 }
 
-/** Clear the active cache singleton — called on unmount or test teardown.
- *  Also drops any queued writes that captured the old cache. */
-export function clearReactiveDatasetCache(): void {
-    defaultBindRuntime.clearCache();
+/**
+ * Clear the active cache singleton — called on unmount or test teardown. Also
+ * drops any queued writes that captured the old cache.
+ *
+ * @param cache - Clear only while this is the active cache
+ */
+export function clearReactiveDatasetCache(cache?: ReactiveDatasetCacheInterface): void {
+    defaultBindRuntime.clearCache(cache);
 }
 
 export function enableBindingTracking(): Set<string> {

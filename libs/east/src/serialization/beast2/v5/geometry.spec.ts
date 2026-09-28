@@ -12,14 +12,14 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  IntegerType, StringType, ArrayType, SetType, DictType, StructType,
+  IntegerType, StringType, ArrayType, SetType, DictType, StructType, type EastType,
 } from "../../../types.js";
 import { compareFor, equalFor } from "../../../comparison.js";
 import { SortedMap, SortedSet } from "../../../index.js";
 import {
   encodeBeast2For,
   decodeBeast2For,
-  encodeBeast2PagedFor,
+  encodeBeast2SegmentsFor,
   openBeast2PagesFor,
   readBeast2Extents,
   carveBeast2,
@@ -34,7 +34,7 @@ import {
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = DictType(IntegerType, RowType);
 
-/** A canonical Dict of `n` rows keyed 0..n-1, paged into small segments. */
+/** A canonical Dict of `n` rows keyed 0..n-1. */
 function makeTable(n: number, offset = 0): SortedMap<bigint, { id: bigint; name: string }> {
   const entries: [bigint, { id: bigint; name: string }][] = [];
   for (let i = 0; i < n; i++) {
@@ -44,12 +44,23 @@ function makeTable(n: number, offset = 0): SortedMap<bigint, { id: bigint; name:
   return new SortedMap(entries, compareFor(IntegerType));
 }
 
-const PAGED = { batchSize: 100 };
+/** A collection in canonical order as a blob of 100-element segments — a
+ *  geometry chosen here rather than by the cut rule, so that a small value
+ *  still spans several segments. */
+function paged(type: EastType, value: Iterable<unknown>): Uint8Array {
+  const items = [...value];
+  const batches: unknown[] = [];
+  for (let i = 0; i < items.length; i += 100) {
+    const chunk = items.slice(i, i + 100);
+    batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : type.type === "Set" ? new Set(chunk) : chunk);
+  }
+  return encodeBeast2SegmentsFor(type)(batches as never);
+}
 
 describe("Beast2 v5 — geometry extents", () => {
   test("extents agree with the paging index", () => {
     const value = makeTable(450);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const extents = readBeast2Extents(blob);
     const pages = openBeast2PagesFor(TableType)(blob);
 
@@ -79,7 +90,7 @@ describe("Beast2 v5 — geometry extents", () => {
 
 describe("Beast2 v5 — carve", () => {
   test("carving every segment reconstructs the blob byte-identically", () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(450));
+    const blob = paged(TableType, makeTable(450));
     const extents = readBeast2Extents(blob);
     const whole = carveBeast2(blob, 0, extents.offsets.length, extents);
     assert.deepEqual(whole, blob);
@@ -87,7 +98,7 @@ describe("Beast2 v5 — carve", () => {
 
   test("a carved run decodes to the corresponding key range", () => {
     const value = makeTable(450);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const extents = readBeast2Extents(blob);
     assert.ok(extents.offsets.length >= 3, "test needs several segments");
 
@@ -104,14 +115,14 @@ describe("Beast2 v5 — carve", () => {
   });
 
   test("an empty carve decodes to an empty collection", () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(300));
+    const blob = paged(TableType, makeTable(300));
     const carved = carveBeast2(blob, 2, 2);
     const decoded = decodeBeast2For(TableType)(carved);
     assert.equal(decoded.size, 0);
   });
 
   test("rejects invalid ranges", () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(300));
+    const blob = paged(TableType, makeTable(300));
     const extents = readBeast2Extents(blob);
     const n = extents.offsets.length;
     assert.throws(() => carveBeast2(blob, -1, 1, extents), /carve range/);
@@ -122,7 +133,7 @@ describe("Beast2 v5 — carve", () => {
 
 describe("Beast2 v5 — splice", () => {
   test("splicing carved runs reconstructs the blob byte-identically", () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(450));
+    const blob = paged(TableType, makeTable(450));
     const extents = readBeast2Extents(blob);
     const n = extents.offsets.length;
     const mid = Math.floor(n / 2);
@@ -136,7 +147,7 @@ describe("Beast2 v5 — splice", () => {
   test("splices Array runs by row order", () => {
     const Rows = ArrayType(StringType);
     const value = Array.from({ length: 250 }, (_, i) => `row-${i}`);
-    const blob = encodeBeast2PagedFor(Rows, PAGED)(value);
+    const blob = paged(Rows, value);
     const extents = readBeast2Extents(blob);
     const n = extents.offsets.length;
     const spliced = spliceBeast2([
@@ -147,7 +158,7 @@ describe("Beast2 v5 — splice", () => {
   });
 
   test("parts with empty segment runs contribute nothing", () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(200));
+    const blob = paged(TableType, makeTable(200));
     const extents = readBeast2Extents(blob);
     const n = extents.offsets.length;
     const spliced = spliceBeast2([
@@ -159,10 +170,8 @@ describe("Beast2 v5 — splice", () => {
   });
 
   test("rejects differing header sections", () => {
-    const a = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100));
-    const other = encodeBeast2PagedFor(DictType(IntegerType, StringType), PAGED)(
-      new SortedMap<bigint, string>([[1n, "x"]], compareFor(IntegerType)),
-    );
+    const a = paged(TableType, makeTable(100));
+    const other = paged(DictType(IntegerType, StringType), new SortedMap<bigint, string>([[1n, "x"]], compareFor(IntegerType)));
     assert.throws(() => spliceBeast2([a, other]), /differing header sections/);
     assert.throws(() => spliceBeast2([]), /at least one part/);
   });
@@ -170,8 +179,8 @@ describe("Beast2 v5 — splice", () => {
   test("does not itself validate key order — readers of the result do", () => {
     // Two same-typed blobs spliced in the wrong key order produce a blob the
     // strict readers reject as corrupt: the splice is byte geometry only.
-    const high = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 1000));
-    const low = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 0));
+    const high = paged(TableType, makeTable(100, 1000));
+    const low = paged(TableType, makeTable(100, 0));
     const spliced = spliceBeast2([high, low]);
     assert.throws(() => decodeBeast2For(TableType)(spliced), /strictly ascending/);
   });
@@ -192,7 +201,7 @@ describe("Beast2 v5 — ranged geometry", () => {
   }
 
   test("ranged extents agree with the whole-blob extents without reading the blob whole", async () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(450));
+    const blob = paged(TableType, makeTable(450));
     const whole = readBeast2Extents(blob);
     const reader = rangeReader(blob);
     // A probe smaller than the blob, so the tail read is genuinely partial
@@ -220,7 +229,7 @@ describe("Beast2 v5 — ranged geometry", () => {
   });
 
   test("a tiny tail probe extends to cover the index and still agrees", async () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(450));
+    const blob = paged(TableType, makeTable(450));
     const whole = readBeast2Extents(blob);
     const ranged = await readBeast2ExtentsRanged(rangeReader(blob), { tailProbeBytes: 16 });
     assert.deepEqual([...ranged.offsets], [...whole.offsets]);
@@ -228,7 +237,7 @@ describe("Beast2 v5 — ranged geometry", () => {
   });
 
   test("ranged carve is byte-identical to whole-blob carve", async () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(450));
+    const blob = paged(TableType, makeTable(450));
     const extents = readBeast2Extents(blob);
     const ranged = await readBeast2ExtentsRanged(rangeReader(blob));
     assert.ok(extents.offsets.length >= 3, "test needs several segments");
@@ -244,7 +253,7 @@ describe("Beast2 v5 — ranged geometry", () => {
 
   test("a ranged window pages and decodes like the whole blob's window", async () => {
     const value = makeTable(450);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const ranged = await readBeast2ExtentsRanged(rangeReader(blob));
     const wholePages = openBeast2PagesFor(TableType)(blob);
 
@@ -258,7 +267,7 @@ describe("Beast2 v5 — ranged geometry", () => {
   });
 
   test("head + frames + spliceBeast2Tail streams a carve byte-identically", async () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(450));
+    const blob = paged(TableType, makeTable(450));
     const extents = readBeast2Extents(blob);
     const ranged = await readBeast2ExtentsRanged(rangeReader(blob));
     assert.ok(extents.offsets.length >= 3, "test needs several segments");
@@ -295,7 +304,7 @@ describe("Beast2 v5 — ranged geometry", () => {
     const noIndex = encodeBeast2For(TableType)(makeTable(10)); // whole-value v5: no index
     await assert.rejects(() => readBeast2ExtentsRanged(rangeReader(noIndex)), /carries no index/);
 
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(300));
+    const blob = paged(TableType, makeTable(300));
     const ranged = await readBeast2ExtentsRanged(rangeReader(blob));
     assert.throws(() => carveBeast2Ranged(ranged, new Uint8Array(3), 0, 1), /is .* bytes, got 3/);
     assert.throws(() => carveBeast2Ranged(ranged, new Uint8Array(0), 2, 1), /carve range/);
@@ -305,7 +314,7 @@ describe("Beast2 v5 — ranged geometry", () => {
 describe("Beast2 v5 — rebuild", () => {
   test("rebuilt halves of a split segment splice cleanly with byte-copied runs", () => {
     const value = makeTable(450);
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(value);
+    const blob = paged(TableType, value);
     const extents = readBeast2Extents(blob);
     const pages = openBeast2PagesFor(TableType)(blob);
     assert.ok(extents.offsets.length >= 3, "test needs several segments");
@@ -336,7 +345,7 @@ describe("Beast2 v5 — rebuild", () => {
   test("rebuild enforces canonical batch order for Set roots", () => {
     const Tags = SetType(StringType);
     const value = new SortedSet(["a", "b", "c", "d"], compareFor(StringType));
-    const blob = encodeBeast2PagedFor(Tags, PAGED)(value);
+    const blob = paged(Tags, value);
     assert.throws(
       () => rebuildBeast2(blob, [new Set(["z"]), new Set(["a"])]),
       /strictly ascending/,

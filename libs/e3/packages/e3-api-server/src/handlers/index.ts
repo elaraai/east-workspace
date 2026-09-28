@@ -3,7 +3,15 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-export { getStatus, startGc, getGcStatus } from './repository.js';
+export {
+  listRepositories,
+  createRepository,
+  removeRepository,
+  getStatus,
+  getRecord,
+  startGc,
+  getGcStatus,
+} from './repository.js';
 
 export {
   listPackages,
@@ -17,8 +25,8 @@ export {
   getWorkspace,
   getWorkspaceStatus,
   deleteWorkspace,
-  deployWorkspace,
-  exportWorkspace,
+  startWorkspaceDeploy,
+  getWorkspaceDeployStatus,
 } from './workspaces.js';
 
 export {

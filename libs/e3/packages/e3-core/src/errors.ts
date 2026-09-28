@@ -10,7 +10,7 @@
  * with `if (err instanceof E3Error)` or specific errors with their class.
  */
 
-import type { DatasetTypeMismatch } from '@elaraai/e3-types';
+import { E3_RELEASE, nameProblem, type DatasetTypeMismatch, type LockState, type NamedKind } from '@elaraai/e3-types';
 import type { TaskExecutionResult } from './dataflow.js';
 
 // =============================================================================
@@ -45,6 +45,35 @@ export class RepoNotFoundError extends E3Error {
 export class RepoAlreadyExistsError extends E3Error {
   constructor(public readonly repo: string) {
     super(`Repository '${repo}' already exists`);
+  }
+}
+
+/**
+ * Thrown when this e3 cannot open a repository: it has no repository record
+ * this e3 reads, which an older e3 wrote, or it has had a store upgrade this e3
+ * does not know, which a newer e3 applied. Nothing in it is read.
+ */
+export class RepoLayoutError extends E3Error {
+  constructor(
+    public readonly repo: string,
+    /** The upgrade this e3 does not know, with the release of e3 that applied
+     *  it; `null` when the repository has no record this e3 reads */
+    public readonly upgrade: { readonly name: string; readonly release: string } | null,
+  ) {
+    super(upgrade === null
+      ? `the repository at ${repo} has no repository record: an older e3 wrote it — re-create it: deploy again and import its data again`
+      : `the repository at ${repo} has had the upgrade ${JSON.stringify(upgrade.name)}, which e3 ${upgrade.release} applied and this e3, ` +
+        `${E3_RELEASE}, does not know — open it with e3 ${upgrade.release} or a newer one`);
+  }
+}
+
+/**
+ * Thrown when a name e3 would make a path of — a repository's, a workspace's,
+ * a package's name or version, or a lock's — cannot be one path segment.
+ */
+export class InvalidNameError extends E3Error {
+  constructor(public readonly kind: NamedKind, public readonly value: string, reason: string) {
+    super(`the ${kind} name ${JSON.stringify(value)} ${reason}`);
   }
 }
 
@@ -106,6 +135,26 @@ export interface LockHolderInfo {
 }
 
 /**
+ * A lock's holder as an error names it.
+ *
+ * @param state - The lock's state
+ * @returns The holder's details, flattened for a message
+ */
+export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
+  const info: LockHolderInfo = {
+    acquiredAt: state.acquiredAt.toISOString(),
+    operation: state.operation.type,
+  };
+  if (state.holder.type === 'process') {
+    info.pid = Number(state.holder.value.pid);
+    info.bootId = state.holder.value.bootId;
+    info.startTime = Number(state.holder.value.startTime);
+    info.command = state.holder.value.command;
+  }
+  return info;
+}
+
+/**
  * Thrown when a workspace is locked by another process.
  *
  * This error is thrown when attempting to acquire an exclusive lock on a
@@ -126,6 +175,23 @@ export class WorkspaceLockError extends E3Error {
       msg = `Workspace '${workspace}' is locked (since ${holder.acquiredAt})`;
     }
     super(msg);
+  }
+}
+
+/**
+ * Thrown when a deploy refuses to carry one or more of a workspace's records
+ * into the package it deploys. It is thrown before the deploy writes anything.
+ *
+ * @remarks
+ * A record is refused when it changed type with no migration, when the
+ * package no longer declares in order the migrations the workspace applied,
+ * when the deploy's policy leaves its migrations to their own change control,
+ * or when the package no longer declares it at all. Every refusal is named at
+ * once, each with its fix.
+ */
+export class RecordDeployRefusedError extends E3Error {
+  constructor(public readonly refusals: ReadonlyArray<{ record: string; reason: string }>) {
+    super(`the deploy was refused, and wrote nothing:\n${refusals.map((r) => `  record '${r.record}' ${r.reason}`).join('\n')}`);
   }
 }
 
@@ -328,6 +394,19 @@ export function isExistsError(err: unknown): boolean {
   return (
     err instanceof Error && (err as NodeJS.ErrnoException).code === 'EEXIST'
   );
+}
+
+/**
+ * Refuses a name that cannot be one path segment, before anything makes a
+ * path of it.
+ *
+ * @param kind - What the name names
+ * @param name - The name
+ * @throws {InvalidNameError} When the name cannot be a path segment
+ */
+export function checkName(kind: NamedKind, name: string): void {
+  const problem = nameProblem(kind, name);
+  if (problem !== null) throw new InvalidNameError(kind, name, problem);
 }
 
 /** Wrap unknown errors with context */

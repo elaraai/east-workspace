@@ -8,10 +8,10 @@
 class, so the file is an ordinary East value: it answers ``isinstance`` and
 ``type_of``, binds into East functions by reference (keyed reads inside the compiled
 body answer from the pager, one frame per hit/miss), passes straight into
-compiled function calls, and refuses mutation. The managed writer batches
-byte-adaptively, so pathologically wide rows produce right-sized segments,
-and the pager's decoded-segment cache is budgeted in BYTES
-(``EAST_PAGED_CACHE_BYTES``)."""
+compiled function calls, and refuses mutation. The managed writer cuts by
+the content-defined rule, whose byte target gives pathologically wide rows
+right-sized segments, and the pager's decoded-segment cache is budgeted in
+BYTES (``EAST_PAGED_CACHE_BYTES``)."""
 
 import os
 
@@ -36,6 +36,7 @@ from east import (
 )
 from east.runtime.errors import EastError
 from east.serialization.beast2 import open_beast2_file, write_beast2_file
+from tests.segments import write_in_segments
 
 ROW = StructType([("k", StringType), ("v", FloatType)])
 A_ROW = ArrayType(ROW)
@@ -44,10 +45,10 @@ D_SF = DictType(StringType, FloatType)
 
 def _dict_path(tmp_path, n=200, seg=16):
     path = tmp_path / "table.beast2"
-    write_beast2_file(path, D_SF,
+    write_in_segments(path, D_SF,
                       EastDict(StringType, FloatType,
                                {f"k{i:04d}": i * 1.5 for i in range(n)}),
-                      segment_rows=seg)
+                      seg)
     return path
 
 
@@ -98,7 +99,7 @@ class TestValueSemantics:
         # through ordinary iteration and must agree with load().
         at_path = tmp_path / "sortme.beast2"
         rows = [{"k": f"s{9 - i}", "v": float(i)} for i in range(10)]
-        write_beast2_file(at_path, A_ROW, EastArray(ROW, rows), segment_rows=3)
+        write_in_segments(at_path, A_ROW, EastArray(ROW, rows), 3)
         with open_beast2_file(at_path) as f:
             got = f.sort(lambda _b, r: r["k"])
             want = f.load().sort(lambda _b, r: r["k"])
@@ -184,9 +185,9 @@ class TestFunctionBind:
 
 class TestWideRows:
     def test_the_managed_writer_batches_by_bytes_not_rows(self, tmp_path):
-        # 24 rows of ~1 MiB each: the old fixed 8192-row grain would write ONE
-        # segment whose decode costs ~24 MiB; the byte-adaptive default must
-        # split near the 2 MiB wire target instead.
+        # 24 rows of ~1 MiB each: a count-only cut would hold them all in ONE
+        # segment whose decode costs ~24 MiB; the byte target of the cut rule
+        # must split them instead.
         wide_row = StructType([("id", IntegerType), ("payload", BlobType)])
         blob = os.urandom(1024 * 1024)  # incompressible, so wire ≈ decoded
         rows = EastArray(wide_row, [{"id": i, "payload": EastBlob(blob)}
@@ -197,7 +198,7 @@ class TestWideRows:
             assert len(f) == 24
             assert f.segment_count >= 8, (
                 f"wide rows landed in {f.segment_count} segment(s) — the "
-                "byte-adaptive batching did not engage")
+                "byte target of the cut rule did not engage")
             assert f.get(23)["id"] == 23
 
     def test_wide_row_point_reads_under_a_small_budget(self, tmp_path, monkeypatch):
@@ -213,11 +214,3 @@ class TestWideRows:
                          lambda _b, i, a: a.get(i)["id"]).bind(f)
             for i in (0, 15, 7, 0, 11, 3):
                 assert get(i) == i
-
-    def test_an_explicit_segment_rows_still_pins_the_row_grain(self, tmp_path):
-        at = ArrayType(IntegerType)
-        path = tmp_path / "pinned.beast2"
-        write_beast2_file(path, at, EastArray(IntegerType, range(100)),
-                          segment_rows=10)
-        with open_beast2_file(path) as f:
-            assert f.segment_count == 10

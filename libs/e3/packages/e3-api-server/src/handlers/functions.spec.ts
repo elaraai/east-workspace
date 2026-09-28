@@ -15,9 +15,9 @@ import {
   some,
   none,
 } from '@elaraai/east';
-import { MockTaskRunner, BEAST2_CONTENT_TYPE } from '@elaraai/e3-core';
+import { MockTaskRunner } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { FunctionObjectType, PackageObjectType } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, FunctionObjectType, PackageObjectType } from '@elaraai/e3-types';
 import {
   listPackageFunctions,
   describePackageFunction,

@@ -11,9 +11,11 @@ import {
     East,
     FloatType,
     IntegerType,
+    OptionType,
     StringType,
     StructType,
     example,
+    none,
     some,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
@@ -148,6 +150,38 @@ export const pagedSourceWindows = example({
         // Bounded, so the canvas virtualizes: an unbounded paged canvas would
         // mount every resident row at once and page purely on demand.
         return <Plan axis={axis} data={source} series={series} style={{ maxHeight: "420px" }} />;
+    }),
+    inputs: [],
+});
+
+export const indexWindowQueue = example({
+    keywords: [
+        "Paged", "of", "index", "window", "ordered", "queue", "covering",
+        "projection", "Table", "row-source", "contract", "secondary index",
+        "record", "by_status", "ik", "key", "value", "row",
+    ],
+    description: "A queue view rendered from INDEX pages alone — the window a record's secondary index serves, which is an ordered array of `{ik, key, value, row}` rather than a keyed collection, because a Dict would re-sort by its own key and throw the index order away. Every entry carries the index key it sorts under, the row's own key, and the covering projection the view renders; `row` stays `none` because nothing here asked to join, which is the whole point of a covering index — the view touches the index's segments and none of the record's",
+    fn: East.function([], UIComponentType, ($) => {
+        const StatusKey = StructType({ status: StringType, due: IntegerType });
+        const PlanRow = StructType({ title: StringType, owner: StringType });
+        const Entry = StructType({
+            ik: StatusKey, key: StringType, value: StringType, row: OptionType(PlanRow),
+        });
+        // What `Data.bindPaged(plans, { index: byStatus })` serves: the index's
+        // own order — every `late` entry before every `ok` one, whatever the
+        // plans' own keys are.
+        const entries = $.const([
+            { ik: { status: "late", due: 2n }, key: "p-03", value: "Reline kiln 2", row: none },
+            { ik: { status: "late", due: 5n }, key: "p-11", value: "Swap conveyor belt", row: none },
+            { ik: { status: "ok", due: 1n }, key: "p-07", value: "Weekly calibration", row: none },
+            { ik: { status: "ok", due: 9n }, key: "p-02", value: "Quarterly audit", row: none },
+        ], ArrayType(Entry));
+        const source = $.const(Paged.of("plans@by_status", entries));
+        return <Table data={source} columns={{
+            ik: { header: "Status", value: (ik) => ik.status },
+            value: { header: "Plan" },
+            key: { header: "Key" },
+        }} />;
     }),
     inputs: [],
 });

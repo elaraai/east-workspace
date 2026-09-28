@@ -5,8 +5,8 @@
 """Beast2 managed file interface (issue #481 W1 + W2).
 
 ``open_beast2_file`` / ``write_beast2_file`` own the fd + mmap and mirror the
-root collection's read surface; the writer re-batches into target-sized
-segments. W2 adds the keyed reads: Dict/Set point lookups and Array
+root collection's read surface; the writer writes the canonical segments,
+however it is fed. W2 adds the keyed reads: Dict/Set point lookups and Array
 ``find_sorted_*`` navigate by segment *fences* (each segment's first key,
 decoded from a bounded probe of its frame) and decode only the owning
 segment. Also pins the buffer-acceptance fixes this workstream shipped: the
@@ -45,6 +45,7 @@ from east.serialization.beast2 import (
     Beast2SetFile,
     Beast2Writer,
     decode_beast2_with_header_for,
+    encode_beast2_paged_for,
     encode_beast2_v5_for,
     encode_beast2_with_header_for,
     iter_beast2_segments_for,
@@ -52,8 +53,9 @@ from east.serialization.beast2 import (
     open_beast2_pages_for,
     write_beast2_file,
 )
+from tests.segments import write_in_segments
 
-ROW = StructType([("id", IntegerType), ("name", StringType)])
+ROW =StructType([("id", IntegerType), ("name", StringType)])
 AT = ArrayType(ROW)
 DT = DictType(StringType, IntegerType)
 
@@ -123,7 +125,7 @@ def test_array_file_mirrors_the_eager_read_surface(array_path):
     with open_beast2_file(array_path, AT) as f:
         assert isinstance(f, Beast2ArrayFile)
         assert len(f) == 30_000
-        assert f.segment_count == 4  # managed 8192-row segments
+        assert f.segment_count > 1
         assert f.self_contained is True
 
         table = f.load()
@@ -167,13 +169,13 @@ def test_array_file_mirrors_the_eager_read_surface(array_path):
 # ── Beast2File: Dict + Set flavors ────────────────────────────────────────
 
 
-def test_dict_file_rebatches_key_disjoint_and_streams(tmp_path):
+def test_dict_file_is_key_disjoint_and_streams(tmp_path):
     path = tmp_path / "big.beast2"
     write_beast2_file(path, DT, EastDict(StringType, IntegerType,
                                          {f"k{i:05d}": i for i in range(20_000)}))
     with open_beast2_file(path, DT) as d:
         assert isinstance(d, Beast2DictFile)
-        assert d.segment_count == 3  # 20k rows re-batched at the managed size
+        assert d.segment_count > 1
         assert len(d) == d.size() == 20_000  # disjoint segments: counts are exact
 
         # Segment key ranges are disjoint and ordered — the shape W2 requires.
@@ -195,11 +197,13 @@ def test_dict_file_rebatches_key_disjoint_and_streams(tmp_path):
 def test_set_file_streams_and_writer_takes_python_builtins(tmp_path):
     path = tmp_path / "set.beast2"
     st = SetType(IntegerType)
-    with open_beast2_file(path, st, mode="w", segment_rows=100) as writer:
-        writer.write(EastSet(IntegerType, range(500)))  # split into 5 segments
+    with open_beast2_file(path, st, mode="w") as writer:
+        writer.write(EastSet(IntegerType, range(500)))
         writer.write({997, 998, 999})
-        writer.write(set())  # skipped
-    assert writer.segments == 6
+        writer.write(set())  # nothing to add
+    whole = EastSet(IntegerType, [*range(500), 997, 998, 999])
+    assert path.read_bytes() == encode_beast2_paged_for(st)(whole)
+    assert writer.segments == open_beast2_pages_for(st)(path.read_bytes()).segment_count
     with open_beast2_file(path, st) as s:
         assert len(s) == 503
         assert sum(1 for _ in s) == 503
@@ -216,9 +220,8 @@ def test_dict_keyed_reads_match_the_eager_dict(tmp_path):
     where an off-by-one search would land wrong) plus misses below the first
     fence, between keys, and past the end."""
     path = tmp_path / "keyed.beast2"
-    write_beast2_file(path, DT, EastDict(StringType, IntegerType,
-                                         {f"k{i:05d}": i * 3 for i in range(10_000)}),
-                      segment_rows=1000)
+    write_in_segments(path, DT, EastDict(StringType, IntegerType,
+                                          {f"k{i:05d}": i * 3 for i in range(10_000)}), 1000)
     with open_beast2_file(path, DT) as d:
         table = d.load()
         boundaries = [f"k{i:05d}" for i in range(0, 10_000, 1000)]
@@ -258,7 +261,7 @@ def test_array_find_sorted_matches_the_eager_array(tmp_path):
     at = ArrayType(IntegerType)
     rows = [1, 2, 2, 2, 3, 5, 5, 8, 8, 8, 13]
     path = tmp_path / "sorted.beast2"
-    write_beast2_file(path, at, EastArray(IntegerType, rows), segment_rows=3)
+    write_in_segments(path, at, EastArray(IntegerType, rows), 3)
     with open_beast2_file(path, at) as f:
         assert f.segment_count == 4
         table = f.load()
@@ -295,6 +298,12 @@ def test_writer_rejects_non_canonical_batches(tmp_path):
         writer.write(EastDict(StringType, IntegerType, {"a": 1, "m": 2}))
         with pytest.raises(RuntimeError, match="strictly ascending"):
             writer.write(EastDict(StringType, IntegerType, {"b": 3, "z": 4}))
+    # The managed writer holds its batches to the same rule, element by
+    # element.
+    with open_beast2_file(tmp_path / "managed.beast2", DT, mode="w") as managed:
+        managed.write({"m": 1, "z": 2})
+        with pytest.raises(RuntimeError, match="strictly ascending"):
+            managed.write({"a": 3})
 
 
 def test_keyed_reads_detect_corrupt_non_canonical_blobs(tmp_path):
@@ -304,9 +313,8 @@ def test_keyed_reads_detect_corrupt_non_canonical_blobs(tmp_path):
     the one-time fence verification) and overlapping ranges behind ascending
     fences (caught by the decoded segment's tail guard)."""
     unsorted_path = tmp_path / "unsorted.beast2"
-    write_beast2_file(unsorted_path, DT, EastDict(StringType, IntegerType,
-                                                  {"a": 1, "c": 2, "e": 3}),
-                      codec="none", segment_rows=1)
+    write_in_segments(unsorted_path, DT, EastDict(StringType, IntegerType,
+                                                   {"a": 1, "c": 2, "e": 3}), 1, codec="none")
     _swap_wire_bytes(unsorted_path, b"\x01a\x02", b"\x01c\x04")  # fences now c, a, e
     with (
         open_beast2_file(unsorted_path, DT) as bad,
@@ -315,10 +323,10 @@ def test_keyed_reads_detect_corrupt_non_canonical_blobs(tmp_path):
         bad.has("e")
 
     overlap_path = tmp_path / "overlap.beast2"
-    write_beast2_file(overlap_path, DT,
-                      EastDict(StringType, IntegerType,
-                               {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6}),
-                      codec="none", segment_rows=2)
+    write_in_segments(overlap_path, DT,
+                       EastDict(StringType, IntegerType,
+                                {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6}),
+                       2, codec="none")
     _swap_wire_bytes(overlap_path, b"\x01b\x04", b"\x01c\x06")  # segments {a,c} {b,d} {e,f}
     with (
         open_beast2_file(overlap_path, DT) as bad,
@@ -481,7 +489,7 @@ def test_array_compute_matches_load(tmp_path):
         ("empty", [], 7),
     ]:
         path = tmp_path / f"{label}.beast2"
-        write_beast2_file(path, W4_AT, EastArray(W4_ROW, rows), segment_rows=seg)
+        write_in_segments(path, W4_AT, EastArray(W4_ROW, rows), seg)
         with open_beast2_file(path, W4_AT) as f:
             table = f.load()
             for name, run in ARRAY_COMPUTE_CASES:
@@ -495,7 +503,7 @@ def test_array_compute_on_ordering_hostile_floats(tmp_path):
     at = ArrayType(FloatType)
     values = [float("nan"), -0.0, 0.0, float("inf"), float("-inf"), 1.5, -2.5, float("nan")]
     path = tmp_path / "hostile.beast2"
-    write_beast2_file(path, at, EastArray(FloatType, values), segment_rows=3)
+    write_in_segments(path, at, EastArray(FloatType, values), 3)
     cases = [
         ("maximum", lambda c: c.maximum()),
         ("minimum", lambda c: c.minimum()),
@@ -520,12 +528,12 @@ def test_array_compute_string_join_and_columns(tmp_path):
     st = ArrayType(StringType)
     words = [f"w{i}" for i in range(11)]
     path = tmp_path / "words.beast2"
-    write_beast2_file(path, st, EastArray(StringType, words), segment_rows=4)
+    write_in_segments(path, st, EastArray(StringType, words), 4)
     with open_beast2_file(path, st) as f:
         assert f.string_join("-") == f.load().string_join("-")
 
     path2 = tmp_path / "cols.beast2"
-    write_beast2_file(path2, W4_AT, EastArray(W4_ROW, _w4_rows(23)), segment_rows=5)
+    write_in_segments(path2, W4_AT, EastArray(W4_ROW, _w4_rows(23)), 5)
     with open_beast2_file(path2, W4_AT) as f:
         table = f.load()
         fc, tc = f.to_columns(), table.to_columns()
@@ -594,7 +602,7 @@ def test_dict_compute_matches_load(tmp_path):
         ("empty", {}, 6),
     ]:
         path = tmp_path / f"{label}.beast2"
-        write_beast2_file(path, dt, EastDict(StringType, FloatType, data), segment_rows=seg)
+        write_in_segments(path, dt, EastDict(StringType, FloatType, data), seg)
         with open_beast2_file(path, dt) as d:
             table = d.load()
             for name, run in DICT_COMPUTE_CASES:
@@ -619,7 +627,7 @@ def test_dict_file_every_and_some_without_a_predicate(tmp_path):
         ("empty", {}, True, False),
     ]:
         path = tmp_path / f"bool-{label}.beast2"
-        write_beast2_file(path, dt, EastDict(StringType, BooleanType, data), segment_rows=4)
+        write_in_segments(path, dt, EastDict(StringType, BooleanType, data), 4)
         with open_beast2_file(path, dt) as d:
             assert d.every() is expect_every, f"every [{label}]"
             assert d.some() is expect_some, f"some [{label}]"
@@ -646,7 +654,7 @@ def test_cross_segment_float_collisions_carry_the_documented_caveat(tmp_path):
     dt = DictType(StringType, FloatType)
     data = {f"k{i:03d}": i * 0.61 for i in range(37)}
     path = tmp_path / "collide.beast2"
-    write_beast2_file(path, dt, EastDict(StringType, FloatType, data), segment_rows=6)
+    write_in_segments(path, dt, EastDict(StringType, FloatType, data), 6)
     with open_beast2_file(path, dt) as d:
         table = d.load()
         got = d.to_dict(lambda _b, v, k: k[:2], lambda _b, v: v, lambda _b, a, b, _k: a + b)
@@ -665,7 +673,7 @@ def test_dict_compute_with_variant_keys(tmp_path):
     for i in range(9):
         data[some(i)] = i * 1.5
     path = tmp_path / "variant.beast2"
-    write_beast2_file(path, dt, data, segment_rows=3)
+    write_in_segments(path, dt, data, 3)
     with open_beast2_file(path, dt) as d:
         table = d.load()
         assert d.reduce(lambda _b, a, v, k: a + v, 0.0) == table.reduce(lambda _b, a, v, k: a + v, 0.0)
@@ -678,10 +686,9 @@ def test_file_group_fold_aliases_warn_and_delegate(tmp_path):
     """The #535 rename reaches the file surface: `group_fold` on the Dict and
     Set flavors warns and answers exactly like `group_reduce`."""
     dict_path = tmp_path / "alias_d.beast2"
-    write_beast2_file(dict_path, DictType(StringType, FloatType),
-                      EastDict(StringType, FloatType,
-                               {f"k{i:02d}": float(i) for i in range(9)}),
-                      segment_rows=3)
+    write_in_segments(dict_path, DictType(StringType, FloatType),
+                       EastDict(StringType, FloatType,
+                                {f"k{i:02d}": float(i) for i in range(9)}), 3)
     with open_beast2_file(dict_path) as d:
         want = d.group_reduce(lambda _b, v, k: k[:2], lambda _b, _k: 0.0,
                               lambda _b, a, v, k: a + v)
@@ -691,8 +698,7 @@ def test_file_group_fold_aliases_warn_and_delegate(tmp_path):
         assert dict(got.items()) == dict(want.items())
 
     set_path = tmp_path / "alias_s.beast2"
-    write_beast2_file(set_path, SetType(IntegerType),
-                      EastSet(IntegerType, range(9)), segment_rows=3)
+    write_in_segments(set_path, SetType(IntegerType), EastSet(IntegerType, range(9)), 3)
     with open_beast2_file(set_path) as s:
         want = s.group_reduce(lambda _b, el: East.Integer.remainder(el, 3), lambda _b, _k: 0, lambda _b, a, el: a + el)
         with pytest.warns(DeprecationWarning, match="group_reduce"):
@@ -743,7 +749,7 @@ def test_set_compute_matches_load(tmp_path):
         ("empty", set(), 6),
     ]:
         path = tmp_path / f"{label}.beast2"
-        write_beast2_file(path, st, EastSet(IntegerType, data), segment_rows=seg)
+        write_in_segments(path, st, EastSet(IntegerType, data), seg)
         with open_beast2_file(path, st) as s:
             table = s.load()
             for name, run in SET_COMPUTE_CASES:
@@ -779,7 +785,7 @@ def test_compute_callback_modes_stay_native(tmp_path):
 
     path = tmp_path / "modes.beast2"
     rows = _w4_rows(40)
-    write_beast2_file(path, W4_AT, EastArray(W4_ROW, rows), segment_rows=7)
+    write_in_segments(path, W4_AT, EastArray(W4_ROW, rows), 7)
     with open_beast2_file(path, W4_AT) as f:
         table = f.load()
         double = East.function([W4_ROW], IntegerType, lambda _b, r: r.qty * 2)
@@ -825,7 +831,7 @@ def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):
     """A hit in the first segment must stop the scan — later segments never
     decode (the whole point of streaming the fold)."""
     path = tmp_path / "short.beast2"
-    write_beast2_file(path, W4_AT, EastArray(W4_ROW, _w4_rows(40)), segment_rows=7)
+    write_in_segments(path, W4_AT, EastArray(W4_ROW, _w4_rows(40)), 7)
     consumed = 0
     original = Beast2ArrayFile._iter_segments
 
@@ -865,8 +871,8 @@ def test_dict_set_compute_requires_canonical_segments(tmp_path):
     blob (bytes reordered after writing) fails loudly instead of folding
     wrong data."""
     path = tmp_path / "bad.beast2"
-    write_beast2_file(path, DT, EastDict(StringType, IntegerType, {"a": 1, "c": 2, "e": 3}),
-                      codec="none", segment_rows=1)
+    write_in_segments(path, DT, EastDict(StringType, IntegerType, {"a": 1, "c": 2, "e": 3}),
+                       1, codec="none")
     _swap_wire_bytes(path, b"\x01a\x02", b"\x01c\x04")
     with (
         open_beast2_file(path, DT) as bad,
@@ -930,14 +936,14 @@ def test_file_surface_covers_the_eager_read_surface():
 # ── Writer management ─────────────────────────────────────────────────────
 
 
-def test_writer_rebatching_policy(tmp_path):
+def test_writer_writes_the_canonical_blob_however_it_is_batched(tmp_path):
     at = ArrayType(IntegerType)
     path = tmp_path / "policy.beast2"
-    with open_beast2_file(path, at, mode="w", segment_rows=1000) as writer:
-        writer.write(list(range(1500)))  # ≤ 2x target: one segment, no copy
-        writer.write(EastArray(IntegerType))  # empty: skipped
-        writer.write(list(range(1500, 6000)))  # > 2x target: split
-    assert writer.segments == 1 + 5
+    with open_beast2_file(path, at, mode="w") as writer:
+        writer.write(list(range(1500)))
+        writer.write(EastArray(IntegerType))  # nothing to add
+        writer.write(list(range(1500, 6000)))
+    assert path.read_bytes() == encode_beast2_paged_for(at)(list(range(6000)))
     with open_beast2_file(path, at) as f:
         assert list(f.load()) == list(range(6000))
     with pytest.raises(ValueError, match="after close"):
@@ -945,13 +951,15 @@ def test_writer_rebatching_policy(tmp_path):
     writer.close()  # idempotent
 
 
+def test_managed_writes_are_the_canonical_blob(array_path):
+    assert array_path.read_bytes() == encode_beast2_paged_for(AT)(EastArray(ROW, _rows(0, 30_000)))
+
+
 def test_open_mode_and_option_validation(tmp_path):
     with pytest.raises(ValueError, match="'r' or 'w'"):
         open_beast2_file(tmp_path / "x.beast2", AT, mode="a")
-    with pytest.raises(ValueError, match="write-mode options"):
-        open_beast2_file(tmp_path / "x.beast2", AT, segment_rows=10)
-    with pytest.raises(ValueError, match="positive"):
-        open_beast2_file(tmp_path / "x.beast2", AT, mode="w", segment_rows=0)
+    with pytest.raises(ValueError, match="write-mode option"):
+        open_beast2_file(tmp_path / "x.beast2", AT, codec="none")
     with pytest.raises(TypeError, match="Array, Set or Dict"):
         open_beast2_file(tmp_path / "x.beast2", IntegerType)
 

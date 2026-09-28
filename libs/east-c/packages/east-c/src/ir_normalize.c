@@ -187,7 +187,7 @@ static EastValue *norm_type_ctx(EastValue *t, TypeCtx *c)
     return retained(t);
 }
 
-static EastValue *norm_type(EastValue *t)
+EastValue *east_type_value_normalize(EastValue *t)
 {
     TypeCtx c = {0};
     EastValue *out = norm_type_ctx(t, &c);
@@ -360,7 +360,7 @@ static EastValue *variable_named(EastValue *var, const char *name)
         if (strcmp(f, "loc_id") == 0)
             vals[i] = east_integer(0);
         else if (strcmp(f, "type") == 0)
-            vals[i] = norm_type(v);
+            vals[i] = east_type_value_normalize(v);
         else if (strcmp(f, "name") == 0)
             vals[i] = east_string(name);
         else if (strcmp(f, "captured") == 0)
@@ -434,7 +434,7 @@ static EastValue *norm_types(EastValue *arr)
 {
     EastValue *out = east_array_new(arr->data.array.elem_type);
     for (size_t i = 0; i < arr->data.array.len; i++) {
-        EastValue *ni = norm_type(arr->data.array.items[i]);
+        EastValue *ni = east_type_value_normalize(arr->data.array.items[i]);
         east_array_push(out, ni);
         east_value_release(ni);
     }
@@ -499,7 +499,7 @@ static EastValue *out_finish(Out *o, EastValue *node)
         if (strcmp(f, "loc_id") == 0)
             o->vals[i] = east_integer(0);
         else if (strcmp(f, "type") == 0)
-            o->vals[i] = norm_type(v);
+            o->vals[i] = east_type_value_normalize(v);
         else if (strcmp(f, "type_parameters") == 0)
             o->vals[i] = norm_types(v);
         else

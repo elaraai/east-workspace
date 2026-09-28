@@ -6,10 +6,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
-import { East, StringType, IntegerType, FloatType, StructType, DictType, SetType, ArrayType, variant, decodeEastIR } from '@elaraai/east';
-import { TASK_KIND_PARTITION, TASK_KIND_STREAM, decodePartitionTaskMetadata, decodeStreamTaskMetadata } from '@elaraai/e3-types';
-import { task, partitionTask, streamTask } from './task.js';
+import { East, StringType, IntegerType, FloatType, StructType, DictType, SetType, ArrayType, NullType, FunctionType, variant, isTypeValueEqual, toEastTypeValue, type EastType } from '@elaraai/east';
+import { task, customTask, partition, streamTask } from './task.js';
+import { output } from './output.js';
 import { input } from './input.js';
+
+/** Whether two East types are the same type. */
+const sameType = (a: EastType, b: EastType): boolean =>
+  isTypeValueEqual(toEastTypeValue(a), toEastTypeValue(b));
 
 describe('task', () => {
   describe('type inference', () => {
@@ -49,26 +53,7 @@ describe('task', () => {
       assert.strictEqual(repeat_greet.name, 'repeat_greet');
     });
 
-    it('accepts three input datasets', () => {
-      const a_input = input('a', StringType, variant('value', 'a'));
-      const b_input = input('b', IntegerType, variant('value', 1n));
-      const c_input = input('c', FloatType, variant('value', 1.0));
-
-      const combine = task(
-        'combine',
-        [a_input, b_input, c_input],
-        East.function(
-          [StringType, IntegerType, FloatType],
-          StringType,
-          ($, a, _b, _c) => $.return(a)
-        )
-      );
-
-      assert.strictEqual(combine.kind, 'task');
-      assert.strictEqual(combine.inputs.length, 4); // 3 inputs + function_ir
-    });
-
-    it('accepts four input datasets (tuple type preservation)', () => {
+    it('accepts four input datasets (tuple type preservation), each an input of the body', () => {
       const a_input = input('a', StringType, variant('value', 'a'));
       const b_input = input('b', IntegerType, variant('value', 1n));
       const c_input = input('c', FloatType, variant('value', 1.0));
@@ -85,7 +70,7 @@ describe('task', () => {
       );
 
       assert.strictEqual(combine_four.kind, 'task');
-      assert.strictEqual(combine_four.inputs.length, 5); // 4 inputs + function_ir
+      assert.deepStrictEqual(combine_four.inputs, [a_input, b_input, c_input, d_input]);
     });
 
     it('accepts struct type inputs', () => {
@@ -139,34 +124,6 @@ describe('task', () => {
       // shout depends on greet's output
       assert.ok(shout.deps.has(greet.output));
     });
-
-    it('allows mixing inputs and task outputs', () => {
-      const name_input = input('name', StringType, variant('value', 'World'));
-      const suffix_input = input('suffix', StringType, variant('value', '!'));
-
-      const greet = task(
-        'greet',
-        [name_input],
-        East.function(
-          [StringType],
-          StringType,
-          ($, name) => $.return(East.str`Hello, ${name}`)
-        )
-      );
-
-      const add_suffix = task(
-        'add_suffix',
-        [greet.output, suffix_input],
-        East.function(
-          [StringType, StringType],
-          StringType,
-          ($, greeting, suffix) => $.return(East.str`${greeting}${suffix}`)
-        )
-      );
-
-      assert.strictEqual(add_suffix.kind, 'task');
-      assert.strictEqual(add_suffix.inputs.length, 3); // function_ir + 2 inputs
-    });
   });
 
   describe('async functions', () => {
@@ -184,27 +141,8 @@ describe('task', () => {
       );
 
       assert.strictEqual(greet.kind, 'task');
-      assert.strictEqual(greet.name, 'greet');
-      assert.strictEqual(greet.output.kind, 'dataset');
       assert.strictEqual(greet.output.type, StringType);
-    });
-
-    it('accepts async function with multiple inputs', () => {
-      const name_input = input('name', StringType, variant('value', 'World'));
-      const count_input = input('count', IntegerType, variant('value', 1n));
-
-      const repeat_greet = task(
-        'repeat_greet',
-        [name_input, count_input],
-        East.asyncFunction(
-          [StringType, IntegerType],
-          StringType,
-          ($, name, _count) => $.return(East.str`Hello, ${name}!`)
-        )
-      );
-
-      assert.strictEqual(repeat_greet.kind, 'task');
-      assert.strictEqual(repeat_greet.inputs.length, 3); // function_ir + 2 inputs
+      assert.strictEqual(greet.body.kind, 'east');
     });
   });
 
@@ -229,509 +167,116 @@ describe('task', () => {
       ]);
     });
 
-    it('includes function_ir as first input', () => {
+    it('carries the function as its program, returning the output, in the data role', () => {
       const name_input = input('name', StringType, variant('value', 'World'));
 
       const greet = task(
         'greet',
         [name_input],
-        East.function(
-          [StringType],
-          StringType,
-          ($, name) => $.return(name)
-        )
+        East.function([StringType], StringType, ($, name) => $.return(East.str`Hello, ${name}!`))
       );
 
-      // First input should be the function_ir dataset
-      assert.strictEqual(greet.inputs[0].name, 'function_ir');
+      // The program is the body itself — no dataset holds it, and the inputs
+      // are the datasets alone.
+      assert.deepStrictEqual(greet.inputs, [name_input]);
+      assert.strictEqual(greet.outputKind, undefined);
+      assert.deepStrictEqual(greet.role, variant('data', null));
+      assert.strictEqual(greet.body.kind, 'east');
+      if (greet.body.kind !== 'east') return;
+      const run = greet.body.program.compile([]) as (name: string) => string;
+      assert.strictEqual(run('World'), 'Hello, World!');
     });
 
-    it('preserves custom runner config', () => {
+    it('keeps a custom runner and the role it is given', () => {
       const name_input = input('name', StringType, variant('value', 'World'));
+      const role = variant('ui', { paths: [name_input.path], functions: [], records: [], pages: [] });
 
       const greet = task(
         'greet',
         [name_input],
-        East.function(
-          [StringType],
-          StringType,
-          ($, name) => $.return(name)
-        ),
+        East.function([StringType], StringType, ($, name) => $.return(name)),
         {
           runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] },
+          role,
         }
       );
 
-      assert.strictEqual(greet.kind, 'task');
-      // The runner is encoded in the command, we just verify the task was created
+      // A custom runtime runs the same program, with run's arguments.
+      assert.strictEqual(greet.body.kind, 'east');
+      assert.deepStrictEqual(greet.runner, { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] });
+      assert.strictEqual(greet.role, role);
+    });
+
+    it('refuses an input marked with e3.partition, which only a stream task takes', () => {
+      const sales = input('sales', DictType(StringType, FloatType));
+      const total = East.function([DictType(StringType, FloatType)], FloatType, ($, s) => s.sum());
+
+      // The type refuses it; the runtime check names the task for a caller
+      // outside TypeScript's reach.
+      // @ts-expect-error a partitioned input is not a dataset
+      const typed = () => task('total', [partition(sales)], total);
+      assert.ok(typed !== undefined);
+      const untypedTask = task as unknown as (name: string, inputs: unknown[], fn: unknown) => unknown;
+      assert.throws(
+        () => untypedTask('total', [partition(sales)], total),
+        /^Error: task 'total': input 'sales' is marked with e3\.partition, which only e3\.streamTask takes — pass the dataset itself$/,
+      );
     });
   });
 });
 
-describe('partitionTask', () => {
-  const SaleType = StructType({ sku: StringType, qty: IntegerType });
-  const SaleKeyType = StructType({ sku: StringType, period: IntegerType });
+describe('customTask', () => {
+  it('carries its command as the body, with no runner', () => {
+    const name_input = input('name', StringType, variant('value', 'World'));
 
-  it('builds a partition-kind task with the metadata spec', () => {
-    const sales = input('sales', DictType(SaleKeyType, SaleType));
-    const totals = input('rates', DictType(StringType, FloatType));
+    const echo = customTask('echo', [name_input], StringType, (_$, inputs, out) =>
+      East.str`cp ${inputs.get(0n)} ${out}`);
 
-    const cleaned = partitionTask('cleaned', {
-      partitions: [sales],
-      inputs: [totals],
-      output: DictType(SaleKeyType, SaleType),
-      targetPartitionBytes: 1024,
-    }, ($, slice, _rates) => $.return(slice));
-
-    assert.strictEqual(cleaned.kind, 'task');
-    assert.strictEqual(cleaned.taskKind, TASK_KIND_PARTITION);
-    // function_ir + 1 partition + 1 ordinary input
-    assert.strictEqual(cleaned.inputs.length, 3);
-    assert.strictEqual(cleaned.inputs[0].name, 'function_ir');
-    assert.strictEqual(cleaned.inputs[1], sales);
-    assert.strictEqual(cleaned.inputs[2], totals);
-    assert.deepStrictEqual(cleaned.output.path, [
-      variant('field', 'tasks'),
-      variant('field', 'cleaned'),
-      variant('field', 'output'),
-    ]);
-
-    const meta = decodePartitionTaskMetadata(cleaned.metadata!);
-    assert.strictEqual(meta.partitions, 1n);
-    assert.strictEqual(meta.by.type, 'none');
-    assert.strictEqual(meta.combine.type, 'none');
-    assert.strictEqual(meta.targetPartitionBytes, 1024n);
-  });
-
-  it('carries by and combine as decodable EastIR bundles', () => {
-    const sales = input('sales', DictType(SaleKeyType, IntegerType));
-
-    const totals = partitionTask('totals', {
-      partitions: [sales],
-      by: (_$, key) => key.sku,
-      output: DictType(StringType, IntegerType),
-      combine: ($, a, b) => {
-        // Partials are frozen task inputs — fold into a copy.
-        const acc = $.let(a.copy());
-        $(acc.mergeAll(b, ($, v1, v2) => v1.add(v2), ($, _k) => 0n));
-        $.return(acc);
-      },
-    }, ($, slice) =>
-      slice.toArray(($, v, k) => ({ sku: k.sku, v }))
-        .groupReduce(($, x) => x.sku, ($, _k) => 0n, ($, acc, x) => acc.add(x.v)));
-
-    const meta = decodePartitionTaskMetadata(totals.metadata!);
-    assert.strictEqual(meta.partitions, 1n);
-    assert.strictEqual(meta.by.type, 'some');
-    assert.strictEqual(meta.combine.type, 'some');
-
-    // Both blobs decode as free East functions with the declared signatures.
-    const byIr = decodeEastIR(meta.by.type === 'some' ? meta.by.value : new Uint8Array());
-    assert.strictEqual(byIr.ir.value.parameters.length, 1);
-    const combineIr = decodeEastIR(meta.combine.type === 'some' ? meta.combine.value : new Uint8Array());
-    assert.strictEqual(combineIr.ir.value.parameters.length, 2);
-  });
-
-  it('accepts a whole-key identity by and a leading-prefix struct by', () => {
-    const sales = input('sales', DictType(SaleKeyType, IntegerType));
-
-    const identity = partitionTask('by_identity', {
-      partitions: [sales],
-      by: (_$, key) => key,
-      output: DictType(SaleKeyType, IntegerType),
-    }, ($, slice) => $.return(slice));
-    assert.strictEqual(decodePartitionTaskMetadata(identity.metadata!).by.type, 'some');
-
-    const prefix = partitionTask('by_prefix', {
-      partitions: [sales],
-      by: (_$, key) => ({ sku: key.sku }),
-      output: DictType(SaleKeyType, IntegerType),
-    }, ($, slice) => $.return(slice));
-    assert.strictEqual(decodePartitionTaskMetadata(prefix.metadata!).by.type, 'some');
-  });
-
-  it('rejects a by that is not a leading key prefix, naming the dataset and its field order', () => {
-    const sales = input('sales', DictType(SaleKeyType, IntegerType));
-
-    assert.throws(
-      () => partitionTask('bad_by', {
-        partitions: [sales],
-        by: (_$, key) => key.period,
-        output: DictType(SaleKeyType, IntegerType),
-      }, ($, slice) => $.return(slice)),
-      /not a leading prefix of partitioned dataset 'sales' key field order \(sku, period\)/,
+    assert.strictEqual(echo.runner, undefined);
+    assert.deepStrictEqual(echo.inputs, [name_input]);
+    assert.strictEqual(echo.body.kind, 'command');
+    if (echo.body.kind !== 'command') return;
+    assert.deepStrictEqual(
+      echo.body.command.compile([])(['in.beast2'], 'out.beast2'),
+      ['bash', '-c', 'cp in.beast2 out.beast2'],
     );
-  });
-
-  it('rejects unsupported by projection shapes, echoing the accepted shapes', () => {
-    const sales = input('sales', DictType(SaleKeyType, IntegerType));
-
-    assert.throws(
-      () => partitionTask('computed_by', {
-        partitions: [sales],
-        by: (_$, key) => East.str`${key.sku}-x`,
-        output: DictType(SaleKeyType, IntegerType),
-      }, ($, slice) => $.return(slice)),
-      /`by` must project a leading prefix of the partition key — accepted shapes: the key itself, a leading field/,
-    );
-  });
-
-  describe('`by` nested leading-field paths', () => {
-    const NestedKeyType = StructType({
-      head: StructType({ region: StringType, store: IntegerType }),
-      seq: IntegerType,
-    });
-
-    it('accepts a nested path that follows the first-field spine', () => {
-      const sales = input('nsales', DictType(NestedKeyType, IntegerType));
-
-      // head is the key's first field and region is head's first field, so
-      // projecting key.head.region is monotone in canonical key order.
-      const nested = partitionTask('by_nested', {
-        partitions: [sales],
-        by: (_$, key) => key.head.region,
-        output: DictType(NestedKeyType, IntegerType),
-      }, ($, slice) => $.return(slice));
-      assert.strictEqual(decodePartitionTaskMetadata(nested.metadata!).by.type, 'some');
-
-      // One level of the same spine (a whole-struct leading field).
-      const oneLevel = partitionTask('by_nested_head', {
-        partitions: [sales],
-        by: (_$, key) => key.head,
-        output: DictType(NestedKeyType, IntegerType),
-      }, ($, slice) => $.return(slice));
-      assert.strictEqual(decodePartitionTaskMetadata(oneLevel.metadata!).by.type, 'some');
-    });
-
-    it('rejects a nested path that leaves the first-field spine, naming the level', () => {
-      const sales = input('nsales2', DictType(NestedKeyType, IntegerType));
-
-      assert.throws(
-        () => partitionTask('bad_nested', {
-          partitions: [sales],
-          by: (_$, key) => key.head.store,
-          output: DictType(NestedKeyType, IntegerType),
-        }, ($, slice) => $.return(slice)),
-        /path \(key\.head\.store\) reads 'store', which is not the first field of partitioned dataset 'nsales2' key level \(region, store\)/,
-      );
-
-      // A non-leading top-level field stays rejected with the prefix error.
-      assert.throws(
-        () => partitionTask('bad_nested_top', {
-          partitions: [sales],
-          by: (_$, key) => key.seq,
-          output: DictType(NestedKeyType, IntegerType),
-        }, ($, slice) => $.return(slice)),
-        /projects \(seq\), which is not a leading prefix of partitioned dataset 'nsales2' key field order \(head, seq\)/,
-      );
-    });
-
-    it('ByResult rejects non-projection returns at compile time', () => {
-      const sales = input('nsales4', DictType(NestedKeyType, IntegerType));
-      const out = DictType(NestedKeyType, IntegerType);
-
-      // Thunks only — nothing runs; the @ts-expect-error directives pin the
-      // TYPE-level rejections (the build fails if any of them stops erroring).
-      const bad1 = () => partitionTask('t_bad1', {
-        partitions: [sales],
-        // @ts-expect-error a bare host value is not a key projection
-        by: () => 42,
-        output: out,
-      }, ($, s) => $.return(s));
-      const bad2 = () => partitionTask('t_bad2', {
-        partitions: [sales],
-        // @ts-expect-error `r` is not a field of the partition key
-        by: (_$, k) => ({ r: k.head }),
-        output: out,
-      }, ($, s) => $.return(s));
-      const bad3 = () => partitionTask('t_bad3', {
-        partitions: [sales],
-        // @ts-expect-error `seq` requires an integer expression, not the head struct
-        by: (_$, k) => ({ seq: k.head }),
-        output: out,
-      }, ($, s) => $.return(s));
-      assert.ok(bad1 !== undefined && bad2 !== undefined && bad3 !== undefined);
-    });
-
-    it('rejects a struct literal over nested paths (deliberately unsupported)', () => {
-      const sales = input('nsales3', DictType(NestedKeyType, IntegerType));
-
-      assert.throws(
-        () => partitionTask('bad_struct_nested', {
-          partitions: [sales],
-          // ByResult already rejects this shape at COMPILE time (`r` is not
-          // a key field) — the cast exercises the build-time backstop that
-          // guards untyped/JS callers.
-          by: ((_$: unknown, key: { head: { region: unknown } }) => ({ r: key.head.region })) as never,
-          output: DictType(NestedKeyType, IntegerType),
-        }, ($, slice) => $.return(slice)),
-        /accepted shapes: the key itself/,
-      );
-    });
-  });
-
-  it('rejects non-collection partitions and mixed-kind co-partitioning', () => {
-    const scalar = input('scalar', IntegerType, variant('value', 1n));
-    const sales = input('sales', DictType(SaleKeyType, IntegerType));
-    const skus = input('skus', SetType(StringType));
-    const rows = input('rows', ArrayType(IntegerType));
-
-    assert.throws(
-      () => partitionTask('bad', {
-        partitions: [scalar],
-        output: IntegerType,
-      }, ($, s) => $.return(s)),
-      /must be a collection \(Array, Set or Dict\)/,
-    );
-
-    assert.throws(
-      () => partitionTask('mixed', {
-        partitions: [sales, skus],
-        output: DictType(SaleKeyType, IntegerType),
-      }, ($, a, _b) => $.return(a)),
-      /co-partitioning is restricted to Dict\/Set roots/,
-    );
-
-    assert.throws(
-      () => partitionTask('arrays', {
-        partitions: [rows, rows],
-        output: ArrayType(IntegerType),
-      }, ($, a, _b) => $.return(a)),
-      /co-partitioning is restricted to Dict\/Set roots/,
-    );
-  });
-
-  it('co-partitions same-keyed dicts and types by over the shared key', () => {
-    const a = input('a', DictType(SaleKeyType, IntegerType));
-    const b = input('b', DictType(SaleKeyType, FloatType));
-
-    const reconcile = partitionTask('reconcile', {
-      partitions: [a, b],
-      by: (_$, key) => key.sku,
-      output: DictType(SaleKeyType, FloatType),
-    }, ($, _sliceA, sliceB) => $.return(sliceB));
-
-    assert.strictEqual(reconcile.taskKind, TASK_KIND_PARTITION);
-    assert.strictEqual(decodePartitionTaskMetadata(reconcile.metadata!).partitions, 2n);
-    // function_ir + 2 partitions
-    assert.strictEqual(reconcile.inputs.length, 3);
-  });
-
-  describe('heterogeneous co-partition keys (the implicit projection)', () => {
-    // Same fields, opposite declared order — the field-wise intersection is
-    // non-empty, but the datasets SORT differently, so implicit boundary
-    // alignment would silently mis-assign rows at run time.
-    const ReversedKeyType = StructType({ period: IntegerType, sku: StringType });
-
-    it('rejects reordered key fields when no `by` is given', () => {
-      const a = input('h_a', DictType(SaleKeyType, IntegerType));
-      const b = input('h_b', DictType(ReversedKeyType, IntegerType));
-
-      assert.throws(
-        () => partitionTask('implicit_misorder', {
-          partitions: [a, b],
-          output: DictType(SaleKeyType, IntegerType),
-        }, ($, sliceA, _sliceB) => $.return(sliceA)),
-        /with no `by`, co-partition boundaries align on partitioned dataset 'h_a' key order \(sku, period\), which is not a leading prefix of partitioned dataset 'h_b' key field order \(period, sku\)/,
-      );
-    });
-
-    it('rejects reordered key fields under an identity `by` too', () => {
-      const a = input('h_c', DictType(SaleKeyType, IntegerType));
-      const b = input('h_d', DictType(ReversedKeyType, IntegerType));
-
-      assert.throws(
-        () => partitionTask('identity_misorder', {
-          partitions: [a, b],
-          by: (_$, key) => key,
-          output: DictType(SaleKeyType, IntegerType),
-        }, ($, sliceA, _sliceB) => $.return(sliceA)),
-        /the identity `by` projection reads the shared key fields \(sku, period\), which is not a leading prefix of partitioned dataset 'h_d' key field order \(period, sku\)/,
-      );
-    });
-
-    it('rejects a same-named leading field whose types differ across datasets', () => {
-      // `sku` exists in both keys at position 0 but with different types, so
-      // the intersection drops it — the primary's comparator would compare
-      // string skus against integer skus by kind rank.
-      const IntSkuKeyType = StructType({ sku: IntegerType, period: IntegerType });
-      const a = input('h_e', DictType(SaleKeyType, IntegerType));
-      const b = input('h_f', DictType(IntSkuKeyType, IntegerType));
-
-      assert.throws(
-        () => partitionTask('type_mismatch', {
-          partitions: [a, b],
-          output: DictType(SaleKeyType, IntegerType),
-        }, ($, sliceA, _sliceB) => $.return(sliceA)),
-        /with no `by`, co-partition boundaries align on partitioned dataset 'h_e' key order/,
-      );
-    });
-
-    it('accepts a secondary whose key extends the primary key with trailing fields', () => {
-      // The primary's full key IS a leading prefix of the secondary's — the
-      // implicit alignment (projecting onto the primary's fields) is
-      // monotone for both, so this stays legal without `by`.
-      const ExtendedKeyType = StructType({ sku: StringType, period: IntegerType, line: IntegerType });
-      const a = input('h_g', DictType(SaleKeyType, IntegerType));
-      const b = input('h_h', DictType(ExtendedKeyType, IntegerType));
-
-      const extended = partitionTask('extended_ok', {
-        partitions: [a, b],
-        output: DictType(SaleKeyType, IntegerType),
-      }, ($, sliceA, _sliceB) => $.return(sliceA));
-      assert.strictEqual(extended.taskKind, TASK_KIND_PARTITION);
-    });
-  });
-
-  it('rejects a non-collection output in splice mode, and accepts it with combine', () => {
-    const sales = input('splice_sales', DictType(SaleKeyType, IntegerType));
-    const TotalType = StructType({ total: IntegerType });
-
-    // Without combine, partitions return SHARDS that splice — a struct
-    // cannot; this used to surface only at run time, on the first input
-    // large enough to carve into two partitions.
-    assert.throws(
-      () => partitionTask('struct_splice', {
-        partitions: [sales],
-        output: TotalType,
-      }, ($, slice) => $.return({ total: slice.size() })),
-      /without `combine`, each partition returns a shard of the output and the shards splice \(or, with `merge`, merge\) in key order — the output must be a collection \(Array, Set or Dict\), got Struct/,
-    );
-
-    const folded = partitionTask('struct_combine', {
-      partitions: [sales],
-      output: TotalType,
-      combine: ($, a, b) => $.return({ total: a.total.add(b.total) }),
-    }, ($, slice) => $.return({ total: slice.size() }));
-    assert.strictEqual(folded.taskKind, TASK_KIND_PARTITION);
   });
 });
 
-describe('partitionTask merge', () => {
-  const RowType = StructType({ id: IntegerType, name: StringType });
-  const events = input('merge_events', DictType(IntegerType, RowType));
+describe('e3.output', () => {
+  it('types each kind\'s output and emit', () => {
+    const array = output.array(FloatType);
+    assert.ok(sameType(array.type, ArrayType(FloatType)));
+    assert.ok(sameType(array.emit, FunctionType([FloatType], NullType)));
 
-  it('encodes a Dict merge function as IR, and the Set union as a flag', () => {
-    const byId = partitionTask('merge_by_id', {
-      partitions: [events],
-      output: DictType(IntegerType, RowType),
-      merge: ($, _key, a, _b) => $.return(a),
-    }, ($, slice) => $.return(slice));
-    const dictMeta = decodePartitionTaskMetadata(byId.metadata!);
-    assert.strictEqual(dictMeta.merge.type, 'some');
-    assert.strictEqual(dictMeta.mergeSets, false);
-    assert.strictEqual(dictMeta.combine.type, 'none');
-    // The bundle is the (Key, Value, Value) -> Value the orchestrator compiles.
-    const bundle = decodeEastIR(dictMeta.merge.type === 'some' ? dictMeta.merge.value : new Uint8Array());
-    const resolve = bundle.compile([]) as (k: bigint, a: unknown, b: unknown) => unknown;
-    const left = { id: 1n, name: 'left' };
-    assert.deepStrictEqual(resolve(1n, left, { id: 1n, name: 'right' }), left);
+    const set = output.set(StringType);
+    assert.ok(sameType(set.type, SetType(StringType)));
+    assert.ok(sameType(set.emit, FunctionType([StringType], NullType)));
 
-    const ids = partitionTask('merge_ids', {
-      partitions: [events],
-      output: SetType(IntegerType),
-      merge: 'union',
-    }, ($, slice) => $.return(slice.keys()));
-    const setMeta = decodePartitionTaskMetadata(ids.metadata!);
-    assert.strictEqual(setMeta.merge.type, 'none');
-    assert.strictEqual(setMeta.mergeSets, true);
+    const dict = output.dict(StringType, IntegerType);
+    assert.ok(sameType(dict.type, DictType(StringType, IntegerType)));
+    assert.ok(sameType(dict.emit, FunctionType([StringType, IntegerType], NullType)));
+    assert.strictEqual(dict.merge, undefined);
+
+    // A fold's output is the folded value, whatever its type.
+    const fold = output.fold(ArrayType(IntegerType), { zero: [], combine: ($, a, b) => a.concat(b) });
+    assert.ok(sameType(fold.type, ArrayType(IntegerType)));
+    assert.ok(sameType(fold.emit, FunctionType([ArrayType(IntegerType)], NullType)));
   });
 
-  it('carries the merge command of the task\'s runner, built at export, and none without merge', () => {
-    // The orchestrator's merge units run this command IR as an ordinary
-    // execution: `<runner> merge --merge <merge IR> --range <range> -i
-    // <partial>... -o <out>` for a Dict output, `--union` for a Set — the
-    // key range is the input after the merge IR, then the partials.
-    const byId = partitionTask('merge_cmd_by_id', {
-      partitions: [events],
-      output: DictType(IntegerType, RowType),
-      merge: ($, _key, a, _b) => $.return(a),
-      runner: { runtime: 'east-c', platforms: ['east-c-std'] },
-    }, ($, slice) => $.return(slice));
-    const dictMeta = decodePartitionTaskMetadata(byId.metadata!);
-    assert.strictEqual(dictMeta.mergeCommand.type, 'some');
-    const dictCommand = decodeEastIR(dictMeta.mergeCommand.type === 'some' ? dictMeta.mergeCommand.value : new Uint8Array());
-    assert.deepStrictEqual(
-      (dictCommand.compile([]) as (inputs: string[], output: string) => string[])(['merge.beast2', 'range.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2'),
-      ['east-c', 'merge', '-p', 'east-c-std', '--merge', 'merge.beast2', '--range', 'range.beast2', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
-    );
+  it('builds a dict\'s merge over the key and two values, and a fold\'s combine over two values', () => {
+    const dict = output.dict(StringType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) });
+    assert.strictEqual((dict.merge!.compile([]) as (k: string, a: bigint, b: bigint) => bigint)('x', 2n, 3n), 5n);
 
-    const ids = partitionTask('merge_cmd_ids', {
-      partitions: [events],
-      output: SetType(IntegerType),
-      merge: 'union',
-    }, ($, slice) => $.return(slice.keys()));
-    const setMeta = decodePartitionTaskMetadata(ids.metadata!);
-    const setCommand = decodeEastIR(setMeta.mergeCommand.type === 'some' ? setMeta.mergeCommand.value : new Uint8Array());
-    assert.deepStrictEqual(
-      (setCommand.compile([]) as (inputs: string[], output: string) => string[])(['range.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2'),
-      ['east-node', 'merge', '-p', '@elaraai/east-node-std', '--union', '--range', 'range.beast2', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
-    );
-
-    const spliced = partitionTask('merge_cmd_none', {
-      partitions: [events],
-      output: DictType(IntegerType, RowType),
-    }, ($, slice) => $.return(slice));
-    assert.strictEqual(decodePartitionTaskMetadata(spliced.metadata!).mergeCommand.type, 'none');
+    const fold = output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) });
+    assert.strictEqual(fold.zero, 0n);
+    assert.strictEqual((fold.combine.compile([]) as (a: bigint, b: bigint) => bigint)(2n, 3n), 5n);
   });
 
-  it('refuses merge alongside combine, on the wrong output kind, or in the wrong form', () => {
+  it('refuses a fold whose zero is not a value of its type', () => {
     assert.throws(
-      () => partitionTask('merge_and_combine', {
-        partitions: [events],
-        output: DictType(IntegerType, RowType),
-        merge: ($, _k, a, _b) => $.return(a),
-        combine: ($, a, _b) => $.return(a),
-      }, ($, slice) => $.return(slice)),
-      /partitionTask 'merge_and_combine': `merge` and `combine` are two assembly modes — give one/
-    );
-    // The next three are the shapes the static types already forbid; a caller
-    // outside TypeScript's reach (a JS author, an `any`) still gets a message
-    // naming the task, so they go through an untyped alias.
-    const untypedPartitionTask = partitionTask as unknown as (name: string, spec: object, fn: () => void) => unknown;
-    const takeLeft = (_$: unknown, _k: unknown, a: unknown) => a;
-    assert.throws(
-      () => untypedPartitionTask('merge_array', { partitions: [events], output: ArrayType(RowType), merge: takeLeft }, () => {}),
-      /partitionTask 'merge_array': a `merge` FUNCTION resolves a key present in two partials, so the output must be a Dict, got Array/
-    );
-    assert.throws(
-      () => untypedPartitionTask('merge_fn_on_set', { partitions: [events], output: SetType(IntegerType), merge: takeLeft }, () => {}),
-      /got Set — a Set output takes `merge: 'union'`/
-    );
-    assert.throws(
-      () => untypedPartitionTask('merge_union_on_dict', { partitions: [events], output: DictType(IntegerType, RowType), merge: 'union' }, () => {}),
-      /`merge: 'union'` assembles a Set output, got Dict — a Dict output takes a per-key merge function/
-    );
-  });
-
-  it('types merge over the output\'s own key and value, not the partition key', () => {
-    const SaleKeyType = StructType({ sku: StringType, period: IntegerType });
-    const sales = input('merge_sales', DictType(SaleKeyType, IntegerType));
-
-    // Re-keyed by sku: the merge sees the OUTPUT's String key and Integer
-    // values (a value-level `add` would not type-check against the whole
-    // output), and its IR is the (String, Integer, Integer) -> Integer fold.
-    const bySku = partitionTask('merge_by_sku', {
-      partitions: [sales],
-      output: DictType(StringType, IntegerType),
-      merge: (_$, _sku, a, b) => a.add(b),
-    }, ($, slice) => slice.toArray(($, v, k) => ({ sku: k.sku, v }))
-      .groupReduce(($, x) => x.sku, ($, _k) => 0n, ($, acc, x) => acc.add(x.v)));
-    const meta = decodePartitionTaskMetadata(bySku.metadata!);
-    const merge = decodeEastIR(meta.merge.type === 'some' ? meta.merge.value : new Uint8Array());
-    assert.strictEqual(merge.ir.value.parameters.length, 3);
-    assert.strictEqual((merge.compile([]) as (k: string, a: bigint, b: bigint) => bigint)('x', 2n, 3n), 5n);
-  });
-
-  it('refuses merge on the custom runtime, which cannot run the merge units', () => {
-    assert.throws(
-      () => partitionTask('merge_custom', {
-        partitions: [events],
-        output: DictType(IntegerType, RowType),
-        merge: ($, _key, a, _b) => $.return(a),
-        runner: { runtime: 'custom', command: ['my-runner'] },
-      }, ($, slice) => $.return(slice)),
-      /^Error: partitionTask 'merge_custom': merge runs the fan-in on the task's runner, which must be a stock runtime \(east-node, east-py, east-c\) — the custom runtime has no merge command$/
+      () => output.fold(IntegerType, { zero: 'none' as never, combine: (_$, a, b) => a.add(b) }),
+      /^Error: e3\.output\.fold: zero is not a value of \.Integer$/,
     );
   });
 });
@@ -739,12 +284,12 @@ describe('partitionTask merge', () => {
 describe('streamTask', () => {
   const EventType = StructType({ at: IntegerType, amount: FloatType });
 
-  it('builds a stream-kind task with emit as the trailing body parameter', () => {
+  it('passes the inputs, then emit, to a body whose output kind types the task', () => {
     const events = input('events', ArrayType(EventType));
 
     const balances = streamTask('balances', {
-      stream: events,
-      output: ArrayType(FloatType),
+      inputs: [events],
+      output: output.array(FloatType),
     }, ($, events, emit) => {
       const balance = $.let(0.0);
       $.for(events, ($, event) => {
@@ -754,151 +299,162 @@ describe('streamTask', () => {
     });
 
     assert.strictEqual(balances.kind, 'task');
-    assert.strictEqual(balances.taskKind, TASK_KIND_STREAM);
-    // function_ir + stream input; emit is a body parameter, not a dataset
-    assert.strictEqual(balances.inputs.length, 2);
-    assert.strictEqual(balances.inputs[0].name, 'function_ir');
-    assert.strictEqual(balances.inputs[1], events);
+    assert.deepStrictEqual(balances.inputs, [events]);
+    assert.strictEqual(balances.outputKind?.kind, 'array');
+    assert.ok(sameType(balances.output.type, ArrayType(FloatType)));
+    assert.deepStrictEqual(balances.role, variant('data', null));
 
-    const meta = decodeStreamTaskMetadata(balances.metadata!);
-    assert.strictEqual(meta.stream, true);
-    assert.strictEqual(meta.emit, 'array');
-    assert.strictEqual(meta.merge, 'none');
+    // The body's parameters are the inputs and then emit, which the runner
+    // passes: here, a sink recording what is emitted.
+    assert.strictEqual(balances.body.kind, 'east');
+    if (balances.body.kind !== 'east') return;
+    const emitted: number[] = [];
+    const run = balances.body.program.compile([]) as (events: unknown[], emit: (x: number) => null) => null;
+    run([{ at: 1n, amount: 2.5 }, { at: 2n, amount: 1.0 }], (x) => { emitted.push(x); return null; });
+    assert.deepStrictEqual(emitted, [2.5, 3.5]);
   });
 
-  it('supports producer mode (no stream input) and dict emit', () => {
-    const limit = input('limit', IntegerType, variant('value', 3n));
-
+  it('is a producer with no inputs, emitting keys and values into a dict', () => {
     const producer = streamTask('ingest', {
-      inputs: [limit],
-      output: DictType(IntegerType, StringType),
-    }, ($, limit, emit) => {
-      const source = $.const([0n, 1n, 2n, 3n, 4n], ArrayType(IntegerType));
+      inputs: [],
+      output: output.dict(IntegerType, StringType),
+    }, ($, emit) => {
+      const source = $.const([0n, 1n, 2n], ArrayType(IntegerType));
       $.for(source, ($, k) => {
-        $.if(East.less(k, limit), ($) => {
-          $(emit(k, East.str`row-${k}`));
-        });
+        $(emit(k, East.str`row-${k}`));
       });
     });
 
-    assert.strictEqual(producer.taskKind, TASK_KIND_STREAM);
-    // function_ir + 1 ordinary input
-    assert.strictEqual(producer.inputs.length, 2);
-    const meta = decodeStreamTaskMetadata(producer.metadata!);
-    assert.strictEqual(meta.stream, false);
-    assert.strictEqual(meta.emit, 'dict');
+    assert.deepStrictEqual(producer.inputs, []);
+    assert.strictEqual(producer.outputKind?.kind, 'dict');
+    if (producer.body.kind !== 'east') return assert.fail('a stream task runs a program');
+    const emitted: [bigint, string][] = [];
+    (producer.body.program.compile([]) as (emit: (k: bigint, v: string) => null) => null)((k, v) => { emitted.push([k, v]); return null; });
+    assert.deepStrictEqual(emitted, [[0n, 'row-0'], [1n, 'row-1'], [2n, 'row-2']]);
   });
 
-  it('rejects non-collection outputs and the custom runtime', () => {
+  it('refuses the custom runtime, and an output that is not an output kind', () => {
     const events = input('events', ArrayType(EventType));
 
     assert.throws(
-      () => streamTask('scalar_out', {
-        stream: events,
-        output: FloatType,
-      }, () => { /* body never built */ }),
-      /output must be a collection type/,
-    );
-
-    assert.throws(
       () => streamTask('custom_stream', {
-        stream: events,
-        output: ArrayType(FloatType),
+        inputs: [events],
+        output: output.array(FloatType),
         runner: { runtime: 'custom', command: ['my-runner'] },
       }, () => { /* body never built */ }),
-      /custom runtime cannot carry the streaming flags/,
+      /^Error: streamTask 'custom_stream': the custom runtime runs only a program that returns its output — use a stock runtime \(east-node, east-py, east-c\)$/,
     );
 
-    // Stock non-node runtimes are accepted — they stream the output too.
-    const cStream = streamTask('c_stream', {
-      stream: events,
-      output: ArrayType(FloatType),
-      runner: { runtime: 'east-c', platforms: ['east-c-std'] },
-    }, ($, events, emit) => {
-      $.for(events, ($, event) => {
-        $(emit(event.amount));
+    // The static types forbid a bare East type; a caller outside TypeScript's
+    // reach still gets a message naming the task.
+    const untypedStreamTask = streamTask as unknown as (name: string, spec: object, fn: () => void) => unknown;
+    assert.throws(
+      () => untypedStreamTask('scalar_out', { inputs: [events], output: FloatType }, () => {}),
+      /^Error: streamTask 'scalar_out': output is an output kind — e3\.output\.array, set, dict or fold$/,
+    );
+  });
+});
+
+describe('e3.partition', () => {
+  const SaleKeyType = StructType({ sku: StringType, period: IntegerType });
+  const NestedKeyType = StructType({ head: StructType({ region: StringType, store: IntegerType }), seq: IntegerType });
+
+  it('marks a stream task\'s input, which its body receives typed as the whole dataset', () => {
+    const sales = input('sales', DictType(SaleKeyType, IntegerType));
+    const rates = input('rates', FloatType, variant('value', 1.0));
+    const bySku = partition(sales, { by: ['sku'] });
+
+    const totals = streamTask('totals', {
+      inputs: [bySku, rates],
+      output: output.dict(StringType, FloatType, { merge: (_$, _sku, a, b) => a.add(b) }),
+    }, ($, sales, rate, emit) => {
+      $.for(sales, ($, qty, key) => {
+        $(emit(key.sku, qty.toFloat().multiply(rate)));
       });
     });
-    assert.strictEqual(cStream.taskKind, TASK_KIND_STREAM);
+
+    assert.deepStrictEqual(bySku, { kind: 'partition', dataset: sales, by: ['sku'] });
+    assert.deepStrictEqual(totals.inputs, [bySku, rates]);
+    // The task depends on the dataset under the mark.
+    assert.ok(totals.deps.has(sales));
+    assert.ok(totals.deps.has(rates));
   });
 
-  describe('merge', () => {
-    const TotalsType = DictType(StringType, FloatType);
+  it('accepts leading key fields, the last of which may read first fields into a struct', () => {
+    const sales = input('sales', DictType(SaleKeyType, IntegerType));
+    const nested = input('nested', DictType(NestedKeyType, IntegerType));
+    const body = () => {};
+    for (const by of [[], ['sku'], ['sku', 'period']]) {
+      streamTask('ok', { inputs: [partition(sales, { by })], output: output.set(StringType) }, body);
+    }
+    for (const by of [['head'], ['head.region'], ['head', 'seq']]) {
+      streamTask('ok', { inputs: [partition(nested, { by })], output: output.set(StringType) }, body);
+    }
+  });
 
-    it('folds equal Dict keys with a merge function staged as wire input 1', () => {
-      const events = input('merge_stream_events', ArrayType(StructType({ account: StringType, amount: FloatType })));
-      const rates = input('merge_stream_rates', FloatType, variant('value', 1.0));
+  it('refuses a by that is not leading key fields, naming the task, the input and the key\'s fields', () => {
+    const sales = input('sales', DictType(SaleKeyType, IntegerType));
+    const nested = input('nested', DictType(NestedKeyType, IntegerType));
+    const body = () => {};
 
-      const totals = streamTask('totals', {
-        stream: events,
-        inputs: [rates],
-        output: TotalsType,
-        merge: (_$, _account, a, b) => a.add(b),
-        runner: { runtime: 'east-c', platforms: ['east-c-std'] },
-      }, ($, events, rate, emit) => {
-        $.for(events, ($, event) => {
-          $(emit(event.account, event.amount.multiply(rate)));
-        });
-      });
+    assert.throws(
+      () => streamTask('bad_by', { inputs: [partition(sales, { by: ['period'] })], output: output.set(StringType) }, body),
+      /^Error: streamTask 'bad_by': partitioned input 'sales': `by` \(period\) must name leading key fields in order — the key's fields are \(sku, period\), and only the last entry may read into one, as 'at\.day' does$/,
+    );
+    assert.throws(
+      () => streamTask('path_first', { inputs: [partition(nested, { by: ['head.region', 'seq'] })], output: output.set(StringType) }, body),
+      /`by` \(head\.region, seq\) must name leading key fields in order/,
+    );
+    assert.throws(
+      () => streamTask('path_step', { inputs: [partition(nested, { by: ['head.store'] })], output: output.set(StringType) }, body),
+      /^Error: streamTask 'path_step': partitioned input 'nested': `by` path 'head\.store' reads 'store', which is not the first field of \(region, store\) — rows sort by a struct's first field, so only it groups them$/,
+    );
+  });
 
-      // function_ir, merge_ir, the stream, then the ordinary input.
-      assert.deepStrictEqual(totals.inputs.map((d) => d.name), ['function_ir', 'merge_ir', 'merge_stream_events', 'merge_stream_rates']);
-      const mergeIR = totals.inputs[1]!;
-      assert.deepStrictEqual(mergeIR.path, [variant('field', 'tasks'), variant('field', 'totals'), variant('field', 'merge_ir')]);
-      assert.strictEqual(mergeIR.writable, false);
-      const fold = (mergeIR.default as unknown as { compile(p: []): (k: string, a: number, b: number) => number }).compile([]);
-      assert.strictEqual(fold('x', 1.5, 2.0), 3.5);
+  it('refuses a partitioned input that is not a collection, or a by on an input with no key fields', () => {
+    const scalar = input('scalar', IntegerType, variant('value', 1n));
+    const rows = input('rows', ArrayType(IntegerType));
+    const skus = input('skus', SetType(StringType));
+    const body = () => {};
 
-      const meta = decodeStreamTaskMetadata(totals.metadata!);
-      assert.deepStrictEqual(meta, { stream: true, emit: 'dict', merge: 'function' });
+    assert.throws(
+      () => streamTask('scalar', { inputs: [partition(scalar as never)], output: output.set(StringType) }, body),
+      /^Error: streamTask 'scalar': partitioned input 'scalar' must be a collection \(Array, Set or Dict\), got Integer$/,
+    );
+    assert.throws(
+      () => streamTask('array_by', { inputs: [partition(rows, { by: ['x'] })], output: output.set(StringType) }, body),
+      /partitioned input 'rows' is an Array, cut by position, so it has no key for `by` to name/,
+    );
+    assert.throws(
+      () => streamTask('string_by', { inputs: [partition(skus, { by: ['x'] })], output: output.set(StringType) }, body),
+      /partitioned input 'skus' has a String key, which has no fields for `by` to name/,
+    );
+    // An Array cut by position, with no `by`, is a partitioned input.
+    streamTask('array', { inputs: [partition(rows)], output: output.array(IntegerType) }, body);
+  });
 
-      // The runner receives the merge IR as --merge and streams the first -i input.
-      const argv = totals.command.compile([])(['body.beast2', 'merge.beast2', 'events.beast2', 'rates.beast2'], 'out.beast2');
-      assert.deepStrictEqual(argv, [
-        'east-c', 'run', '-p', 'east-c-std', '--emit', 'dict', '--merge', 'merge.beast2', '--stream', '0',
-        '-i', 'events.beast2', '-i', 'rates.beast2', '-o', 'out.beast2', 'body.beast2',
-      ]);
-    });
+  it('co-partitions inputs cut by keys, or by fields, of the same types — and nothing else', () => {
+    const a = input('a', DictType(SaleKeyType, IntegerType));
+    const b = input('b', DictType(SaleKeyType, FloatType));
+    const bySkuOnly = input('by_sku', DictType(StringType, FloatType));
+    const lines = input('lines', DictType(StructType({ sku: StringType, line: IntegerType }), IntegerType));
+    const reversed = input('reversed', DictType(StructType({ period: IntegerType, sku: StringType }), IntegerType));
+    const rows = input('rows', ArrayType(IntegerType));
+    const body = () => {};
 
-    it('collapses equal Set elements with union, which stages no input', () => {
-      const events = input('union_stream_events', ArrayType(StringType));
+    // Identical keys; a key against a `by` field of its type; two `by`s over
+    // different keys.
+    streamTask('same_keys', { inputs: [partition(a), partition(b)], output: output.set(StringType) }, body);
+    streamTask('key_and_by', { inputs: [partition(bySkuOnly), partition(a, { by: ['sku'] })], output: output.set(StringType) }, body);
+    streamTask('two_bys', { inputs: [partition(a, { by: ['sku'] }), partition(lines, { by: ['sku'] })], output: output.set(StringType) }, body);
 
-      const accounts = streamTask('accounts', {
-        stream: events,
-        output: SetType(StringType),
-        merge: 'union',
-      }, ($, events, emit) => {
-        $.for(events, ($, account) => {
-          $(emit(account));
-        });
-      });
-
-      assert.deepStrictEqual(accounts.inputs.map((d) => d.name), ['function_ir', 'union_stream_events']);
-      assert.deepStrictEqual(decodeStreamTaskMetadata(accounts.metadata!), { stream: true, emit: 'set', merge: 'union' });
-      const argv = accounts.command.compile([])(['body.beast2', 'events.beast2'], 'out.beast2');
-      assert.deepStrictEqual(argv, [
-        'east-node', 'run', '-p', '@elaraai/east-node-std', '--emit', 'set', '--union', '--stream', '0',
-        '-i', 'events.beast2', '-o', 'out.beast2', 'body.beast2',
-      ]);
-    });
-
-    it('refuses merge for an Array output and in the wrong form for the output kind', () => {
-      // The static types already forbid both; a caller outside TypeScript's
-      // reach still gets a message naming the task.
-      const untypedStreamTask = streamTask as unknown as (name: string, spec: object, fn: () => void) => unknown;
-      const takeLeft = (_$: unknown, _k: unknown, a: unknown) => a;
-      assert.throws(
-        () => untypedStreamTask('merge_array_out', { output: ArrayType(FloatType), merge: takeLeft }, () => {}),
-        /^Error: streamTask 'merge_array_out': merge applies to Dict \(a function\) or Set \('union'\) outputs, got Array$/
-      );
-      assert.throws(
-        () => untypedStreamTask('union_on_dict', { output: TotalsType, merge: 'union' }, () => {}),
-        /streamTask 'union_on_dict': merge applies to Dict \(a function\) or Set \('union'\) outputs, got Dict with 'union'/
-      );
-      assert.throws(
-        () => untypedStreamTask('fn_on_set', { output: SetType(StringType), merge: takeLeft }, () => {}),
-        /streamTask 'fn_on_set': merge applies to Dict \(a function\) or Set \('union'\) outputs, got Set with a function/
-      );
-    });
+    assert.throws(
+      () => streamTask('reordered', { inputs: [partition(a), partition(reversed)], output: output.set(StringType) }, body),
+      /^Error: streamTask 'reordered': co-partitioned inputs 'a' and 'reversed' have no common key — they are cut by \(\.Struct \[\(name="sku", type=\.String\), \(name="period", type=\.Integer\)\]\) and \(\.Struct \[\(name="period", type=\.Integer\), \(name="sku", type=\.String\)\]\); give each a `by` naming fields of the same types$/,
+    );
+    assert.throws(
+      () => streamTask('with_array', { inputs: [partition(a), partition(rows)], output: output.set(StringType) }, body),
+      /^Error: streamTask 'with_array': co-partitioned inputs are cut at the same keys, so each must be a Set or a Dict — partition one input and pass the others whole$/,
+    );
   });
 });

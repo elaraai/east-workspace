@@ -7,26 +7,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { LogChunk, LogStore } from '../interfaces.js';
 import { isNotFoundError } from '../../errors.js';
-
-/**
- * Length of the longest prefix of `buffer` that ends on a UTF-8 character
- * boundary.
- *
- * Each chunk is decoded independently, so a chunk that stopped mid-character
- * would decode to U+FFFD on *both* sides of the boundary and corrupt a paged
- * read. Malformed input is left alone (nothing to preserve).
- */
-function completeUtf8Length(buffer: Buffer): number {
-  // Walk back over the trailing continuation bytes to the lead byte of the
-  // final sequence; keep that sequence only if all of its bytes are present.
-  for (let i = buffer.length - 1, trailing = 0; i >= 0 && trailing < 4; i--, trailing++) {
-    const byte = buffer[i]!;
-    if ((byte & 0xc0) === 0x80) continue;
-    const width = byte < 0x80 ? 1 : (byte & 0xe0) === 0xc0 ? 2 : (byte & 0xf0) === 0xe0 ? 3 : 4;
-    return trailing + 1 >= width ? buffer.length : i;
-  }
-  return buffer.length;
-}
+import { completeUtf8Length } from '../utf8.js';
+import { executionPath } from './localHelpers.js';
 
 /**
  * Local filesystem implementation of LogStore.
@@ -39,14 +21,7 @@ function completeUtf8Length(buffer: Buffer): number {
  */
 export class LocalLogStore implements LogStore {
   private logPath(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr'): string {
-    return path.join(
-      repo,
-      'executions',
-      taskHash,
-      inputsHash,
-      executionId,
-      `${stream}.txt`
-    );
+    return path.join(executionPath(repo, taskHash, inputsHash, executionId), `${stream}.txt`);
   }
 
   async append(
@@ -116,6 +91,16 @@ export class LocalLogStore implements LogStore {
         };
       }
       throw err;
+    }
+  }
+
+  async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    for (const stream of ['stdout', 'stderr'] as const) {
+      try {
+        await fs.unlink(this.logPath(repo, taskHash, inputsHash, executionId, stream));
+      } catch (err) {
+        if (!isNotFoundError(err)) throw err;
+      }
     }
   }
 }

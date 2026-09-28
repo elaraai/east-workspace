@@ -152,6 +152,19 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
   — where the beast2 container version is declared, what it guarantees
   (readers accept every released version; writers are lockstep), and why the
   environment e2e uses a local stand-in registry rather than the last release.
+- [`docs/conventions/WIRE_MIGRATION.md`](docs/conventions/WIRE_MIGRATION.md)
+  — how e3's wires change: packages are re-exported; a release that changes a
+  stored form ships a repository upgrade step, which upgrades a repository an
+  older release wrote in place; what e3 keeps and ships names the release that
+  wrote it; no reader keeps a decoder for an earlier form; and the list of
+  frozen wires.
+- [`docs/conventions/E3_BACKEND_SEAMS.md`](docs/conventions/E3_BACKEND_SEAMS.md)
+  — every e3 mechanism goes through the interfaces a backend implements
+  (`StorageBackend`, `TaskRunner`, `ExecutionStateStore`, `TransferBackend`,
+  the route factories' seams), so e3-cloud implements its own and shares the
+  logic, routes and tests; shared logic never lives under `storage/local/`; a
+  store's tests are a contract suite every backend runs, a route's are
+  e3-api-tests.
 - [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
   — mandatory structure for `SKILL.md` + reference/example files.
 - [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md)

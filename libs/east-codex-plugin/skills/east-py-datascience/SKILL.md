@@ -1,15 +1,20 @@
 ---
 name: east-py-datascience
-description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and… See the detailed scope below."
+description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, ALNS, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal or ALNS, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data… See the detailed scope below."
 ---
 
 ## Detailed skill scope
 
-Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) One declarative causal experiment — naive vs adjusted effect, overlap, robustness, and an honesty verdict — with Causal.experiment, (16) Calling the east_py_datascience functions (xgboost_train_regressor, mads_optimize, …) from a project's own Python @East.platform_function, or inside an East.function body — the same object does both.
+Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, ALNS, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal or ALNS, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) One declarative causal experiment — naive vs adjusted effect, overlap, robustness, and an honesty verdict — with Causal.experiment, (16) Calling the east_py_datascience functions (xgboost_train_regressor, mads_optimize, …) from a project's own Python @East.platform_function, or inside an East.function body — the same object does both.
 
 # East Data Science
 
-Data science and machine learning platform functions for the East language. Provides optimization, ML models, preprocessing, and explainability. This is the platform's **Reason** layer — these models earn their place by improving a decision (a forecast or optimization that feeds a `decision`), so wire their outputs toward one.
+Data science and machine learning platform functions for East: optimisation,
+ML models, Bayesian and causal inference, simulation, preprocessing and
+explainability. This is the platform's **Reason** layer — a model earns its
+place by improving a decision (a forecast or optimisation that feeds a
+`decision`), so wire its outputs toward one. The functions run on the python
+runtime only: an e3 task needs a python runner (see Related skills).
 
 ## Before writing code — search the example index
 
@@ -33,29 +38,23 @@ Nothing is injected for you; the search is the step.
 ## Quick Start
 
 ```typescript
-import { East, FloatType, variant } from "@elaraai/east";
+import { East, FloatType, VectorType, none, some } from "@elaraai/east";
 import { MADS } from "@elaraai/east-py-datascience";
 
-// Define objective function
-const objective = East.function([MADS.Types.VectorType], FloatType, ($, x) => {
-    const x0 = $.let(x.get(0n));
-    const x1 = $.let(x.get(1n));
-    return $.return(x0.multiply(x0).add(x1.multiply(x1)));
-});
-
-// Optimize
-const optimize = East.function([], MADS.Types.ResultType, $ => {
-    const x0 = $.let([0.5, 0.5]);
-    const bounds = $.let({ lower: [-1.0, -1.0], upper: [1.0, 1.0] });
+// Tune feed rate and temperature to minimise a defect rate
+export const tune = East.function([], MADS.Types.ResultType, $ => {
+    const objective = $.const(East.function([VectorType(FloatType)], FloatType, ($, x) => {
+        const feed = $.let(x.get(0n).subtract(5.0));
+        const temp = $.let(x.get(1n).subtract(180.0));
+        $.return(feed.multiply(feed).add(temp.multiply(temp).multiply(0.01)));
+    }));
+    const x0 = $.let(East.Vector.fromArray([8.0, 200.0]));
+    const bounds = $.let({ lower: East.Vector.fromArray([1.0, 100.0]), upper: East.Vector.fromArray([10.0, 250.0]) });
     const config = $.let({
-        max_bb_eval: variant('some', 100n),
-        display_degree: variant('some', 0n),
-        direction_type: variant('none', null),
-        initial_mesh_size: variant('none', null),
-        min_mesh_size: variant('none', null),
-        seed: variant('some', 42n),
+        max_bb_eval: some(100n), display_degree: some(0n), direction_type: none,
+        initial_mesh_size: none, min_mesh_size: none, seed: some(42n),
     });
-    return $.return(MADS.optimize(objective, x0, bounds, variant('none', null), config));
+    $.return(MADS.optimize(objective, x0, bounds, none, config));   // none: no constraints
 });
 ```
 
@@ -64,286 +63,218 @@ const optimize = East.function([], MADS.Types.ResultType, $ => {
 ```
 Task → What do you need?
     │
-    ├─ MADS (derivative-free continuous optimization)
-    │   └─ .optimize()
-    │
-    ├─ Optuna (Bayesian hyperparameter tuning)
-    │   └─ .optimize()
-    │
-    ├─ SimAnneal (discrete/combinatorial optimization)
-    │   └─ .optimize(), .optimizePermutation(), .optimizeSubset()
-    │
-    ├─ ALNS (adaptive large neighborhood search)
-    │   └─ .optimize([SolutionType], initial, objective, destroys, repairs, config)
-    │   └─ Generic over solution type S - define your own struct
-    │
-    ├─ Optimization (iterative coordinate descent)
-    │   └─ .iterative(objective, paramSpaces, config)
-    │
-    ├─ GoogleOr (Google OR-Tools)
+    ├─ MADS (derivative-free continuous optimisation) → .optimize(objective, x0, bounds, constraints: Option, config)
+    ├─ Optuna (Bayesian hyperparameter tuning) → .optimize()
+    ├─ SimAnneal (discrete / combinatorial) → .optimize(), .optimizePermutation(), .optimizeSubset()
+    ├─ ALNS (adaptive large neighbourhood search) → .optimize([SolutionType], initial, objective, destroys, repairs, config)
+    │   — generic over the solution type S: define your own struct
+    ├─ Optimization (iterative coordinate descent over integer vectors)
+    │   ├─ .iterative(objective, paramSpaces, config) — the whole objective per move
+    │   ├─ .iterativeIncremental(elementObjective, paramSpaces, config) — a per-element contribution, recomputed only
+    │   │   where a move changed it (coordinate or swap mode)
+    │   └─ .iterativeGrouped(groupObjective, paramSpaces, config) — contributions grouped by VALUE (employees, bins,
+    │       vehicles): a move from A to B recomputes groups A and B
+    ├─ GoogleOr (OR-Tools)
     │   ├─ CP-SAT → .cpsatSolve(), .cpsatSolveAll()
     │   ├─ Routing → .routingSolve() (TSP, CVRP, VRPTW, VRPPD)
     │   ├─ Linear → .linearSolve() (LP, MIP)
     │   └─ Graph → .minCostFlow(), .maxFlow(), .assignment() (dense cost matrix),
     │              .minCostAssignment() (sparse arcs, task capacity, opt-out penalty)
-    │
     ├─ Scipy
-    │   ├─ Optimization → .optimizeMinimize(), .optimizeMinimizeQuadratic(), .optimizeDualAnnealing()
-    │   ├─ Statistics → .statsDescribe(), .statsPearsonr(), .statsSpearmanr(), .statsPercentile(), .statsPercentileOfScore(), .statsIqr(), .statsMedian(), .statsMad(), .statsRobust()
-    │   ├─ Histogram/KDE → .histogram(), .kdeFit(), .kdeEvaluate()
-    │   ├─ Curve Fitting → .curveFit()
+    │   ├─ Optimisation → .optimizeMinimize(), .optimizeMinimizeQuadratic(), .optimizeDualAnnealing()
+    │   ├─ Statistics → .statsDescribe(), .statsPearsonr(), .statsSpearmanr(), .statsPercentile(), .statsPercentileOfScore(),
+    │   │               .statsIqr(), .statsMedian(), .statsMad(), .statsRobust()
+    │   ├─ Histogram / KDE → .histogram(), .kdeFit(), .kdeEvaluate()
+    │   ├─ Curve fitting → .curveFit()
     │   └─ Interpolation → .interpolate1dFit(), .interpolate1dPredict()
-    │
-    ├─ XGBoost (gradient boosting)
-    │   ├─ Train → .trainRegressor(), .trainClassifier(), .trainQuantile()
-    │   └─ Predict → .predict(), .predictClass(), .predictProba(), .predictQuantile()
-    │
-    ├─ LightGBM (fast gradient boosting)
-    │   ├─ Train → .trainRegressor(), .trainClassifier()
-    │   └─ Predict → .predict(), .predictClass(), .predictProba()
-    │
-    ├─ NGBoost (probabilistic gradient boosting)
-    │   ├─ Train → .trainRegressor()
-    │   └─ Predict → .predict(), .predictDist()
-    │
-    ├─ Torch (neural networks)
-    │   ├─ Train → .mlpTrain(), .mlpTrainMulti()
-    │   ├─ Predict → .mlpPredict(), .mlpPredictMulti()
-    │   └─ Embeddings → .mlpEncode(), .mlpDecode()
-    │
-    ├─ Lightning (PyTorch Lightning neural networks)
-    │   ├─ Train → .train(X, y, config, masks, group_weights, conditions)
-    │   ├─ Predict → .predict(model, X, masks, conditions)
-    │   ├─ Embeddings → .encode(), .decode(), .decodeConditional() (autoencoder only)
-    │   ├─ Architectures:
-    │   │   ├─ mlp: simple feedforward
-    │   │   ├─ autoencoder: encoder → latent → decoder
-    │   │   ├─ conv1d: 1D convolutional autoencoder (temporal)
-    │   │   ├─ sequential: LSTM/GRU autoencoder (temporal)
-    │   │   └─ transformer: attention-based autoencoder (temporal)
-    │   ├─ Output modes:
-    │   │   ├─ regression: MSE loss
-    │   │   ├─ binary: BCE loss, per-position pos_weights (VectorType), masks
-    │   │   └─ multi_head: N independent CE heads, per-head class_weights, masks
-    │   ├─ Conditional generation: condition_dim in temporal architectures
-    │   └─ Features: early stopping, gradient clipping, epoch callbacks, group_weights
-    │
-    ├─ GP (Gaussian Process regression)
-    │   ├─ Train → .train()
-    │   └─ Predict → .predict(), .predictStd()
-    │
-    ├─ MAPIE (conformal prediction intervals)
-    │   ├─ Regression → .trainConformalRegressor(), .trainCQR()
-    │   ├─ Classification → .trainConformalClassifier()
+    ├─ XGBoost → train .trainRegressor(), .trainClassifier(), .trainQuantile() · predict .predict(), .predictClass(),
+    │            .predictProba(), .predictQuantile()
+    ├─ LightGBM → train .trainRegressor(), .trainClassifier() · predict .predict(), .predictClass(), .predictProba()
+    ├─ NGBoost (probabilistic boosting) → .trainRegressor() · .predict(), .predictDist()
+    ├─ Torch (MLP) → train .mlpTrain(), .mlpTrainMulti() · predict .mlpPredict(), .mlpPredictMulti() · embeddings
+    │                .mlpEncode(), .mlpDecode()
+    ├─ Lightning (PyTorch Lightning)
+    │   ├─ .train(X, y, config, masks, group_weights, conditions) · .predict(model, X, masks, conditions)
+    │   ├─ Embeddings (autoencoders) → .encode(), .decode(), .decodeConditional()
+    │   ├─ Generation (sequential models) → .generateSequence(model, prefix, condition: Option, config{n_steps,
+    │   │   temperature (0 = argmax), return_probs}) — the generated steps, not the prefix
+    │   ├─ Architectures → mlp · autoencoder · conv1d (temporal) · sequential (LSTM/GRU, temporal) · transformer (temporal)
+    │   ├─ Output modes → regression (MSE) · binary (BCE; per-position pos_weights, masks) ·
+    │   │                 multi_head (N CE heads; per-head class_weights, masks)
+    │   └─ condition_dim for conditional generation in the temporal architectures; early stopping, gradient clipping,
+    │       epoch callbacks, group_weights
+    ├─ GP (Gaussian process regression) → .train() · .predict(), .predictStd()
+    ├─ MAPIE (conformal prediction)
+    │   ├─ Regression → .trainConformalRegressor(), .trainCQR() · classification → .trainConformalClassifier()
     │   ├─ Predict → .predictInterval(), .predictSet()
-    │   └─ SHAP integration → .uncertaintyPredictorRegressor(), .uncertaintyPredictorClassifier()
-    │
-    ├─ Sklearn (preprocessing, metrics & clustering)
-    │   ├─ Splitting → .split() (N-way with stratify, overlap, multi_overlap)
-    │   ├─ Overlap filtering → .overlap()
+    │   └─ For SHAP → .uncertaintyPredictorRegressor(), .uncertaintyPredictorClassifier()
+    ├─ Sklearn
+    │   ├─ Splitting → .split() (N-way, stratify, overlap, multi_overlap) · overlap filtering → .overlap()
     │   ├─ Scaling → .standardScalerFit/Transform(), .minMaxScalerFit/Transform(), .robustScalerFit/Transform()
     │   ├─ Encoding → .labelEncoderFit/Transform/InverseTransform(), .ordinalEncoderFit/Transform()
     │   ├─ Class weights → .computeClassWeight()
-    │   ├─ Regression metrics → .computeMetrics(), .computeMetricsMulti()
-    │   ├─ Classification metrics → .computeClassificationMetrics(), .computeClassificationMetricsMulti()
-    │   ├─ Probability metrics → .rocAucScore(), .logLoss(), .confusionMatrix()
+    │   ├─ Metrics → .computeMetrics(), .computeMetricsMulti() · .computeClassificationMetrics(),
+    │   │   .computeClassificationMetricsMulti() · .rocAucScore(), .logLoss(), .confusionMatrix()
     │   ├─ Multi-target → .regressorChainTrain(), .regressorChainPredict()
-    │   ├─ GMM clustering → .gmmFit(), .gmmPredict(), .gmmPredictProba(), .gmmScoreSamples(), .gmmSample(), .gmmBic(), .gmmAic()
-    │   └─ Clustering evaluation → .silhouetteScore()
-    │
+    │   └─ GMM clustering → .gmmFit(), .gmmPredict(), .gmmPredictProba(), .gmmScoreSamples(), .gmmSample(), .gmmBic(),
+    │       .gmmAic() · .silhouetteScore()
     ├─ PyMC (Bayesian inference)
-    │   ├─ Train → .trainRegression(), .trainHierarchical(), .trainMultiLayer()
-    │   ├─ Predict → .predict(), .predictDistribution()
-    │   ├─ Posterior → .posteriorSummary(), .posteriorSamples()
-    │   └─ Diagnostics → .diagnostics(), .posteriorPredictiveCheck()
-    │
-    ├─ Simulation (economic ontology simulation via DES)
-    │   └─ Single run → .run([R, E], initialState, initialEvents, process, config)
-    │
-    ├─ Causal (one declarative causal experiment + honesty verdict)
-    │   │  .experiment is generic over the row struct: data is an Array<Struct>
-    │   │  (fields = columns), row type passed as a type arg, e.g.
-    │   │  .experiment([RowType], data, config). config names columns by field name.
-    │   ├─ Did X change Y, can I trust it? → .experiment([Row], data, config)
-    │   └─ What real trial would validate it? → .designValidation([Row], data, config, result, designConfig)
-    │       (the experiment's verdict → a randomised-trial recipe: sample size,
-    │        split options, match-on categories, power curve, plain rationale)
-    │       (binary treatment; returns naive vs adjusted effect, confounder balance,
-    │       propensity overlap, a placebo/E-value robustness check, and a verdict:
-    │       causal / modest / adjustment_insufficient / non_identifiable_positivity /
-    │       not_estimable. `adjusted` is none when the engine refuses. DoWhy / EconML /
-    │       PyALE are internal — there is one public entry point.)
-    │       Honesty caveats: `causal` means robust to the OBSERVED backdoor set + the
-    │       refuters that ran — NOT correctly-signed / free of reverse causation /
-    │       unobserved confounding. `overlap.support_strength` (refused/thin/strong vs
-    │       config.strong_overlap, default 0.55) tempers a thin-support result to modest;
-    │       opt-in config.evalue_floor folds a weak E-value (risk-ratio scale) into modest;
-    │       opt-in config.expected_sign flags an implausibly-signed effect
-    │       (refutation.expected_sign_ok = some(false), verdict adjustment_insufficient).
-    │       Clustered designs (bootstrap.cluster_column) cluster the placebo + naive CI too.
-    │
-    └─ Shap (model explainability)
+    │   ├─ Train → .trainRegression(), .trainHierarchical(), .trainMultiLayer() · predict → .predict(), .predictDistribution()
+    │   └─ Posterior → .posteriorSummary(), .posteriorSamples() · diagnostics → .diagnostics(), .posteriorPredictiveCheck()
+    ├─ Simulation (economic-ontology simulation by DES) → .run([R, E], initialState, initialEvents, process, config)
+    ├─ Causal (one declarative experiment and an honesty verdict) — generic over the row struct: data is an
+    │   Array<Struct> (fields = columns), the row type a type argument, config naming columns by field
+    │   ├─ Did X change Y, and can I trust it? → .experiment([Row], data, config)
+    │   │   (binary treatment; naive vs adjusted effect, confounder balance, propensity overlap, a placebo / E-value
+    │   │   robustness check, and a verdict: causal / modest / adjustment_insufficient / non_identifiable_positivity /
+    │   │   not_estimable; `adjusted` is none when the engine refuses. DoWhy / EconML / PyALE are internal.)
+    │   └─ What real trial would confirm it? → .designValidation([Row], data, config, result, designConfig)
+    │       (a randomised-trial recipe: sample size, split options, match-on categories, power curve, rationale)
+    │   Honesty caveats: `causal` means robust to the OBSERVED backdoor set and the refuters that ran — NOT correctly
+    │   signed, free of reverse causation or of unobserved confounding. overlap.support_strength (refused / thin /
+    │   strong vs config.strong_overlap, default 0.55) tempers thin support to modest; opt-in config.evalue_floor folds
+    │   a weak E-value (risk-ratio scale) into modest; opt-in config.expected_sign flags an implausibly signed effect
+    │   (refutation.expected_sign_ok = some(false), verdict adjustment_insufficient). Clustered designs
+    │   (bootstrap.cluster_column) cluster the placebo and the naive CI too.
+    └─ Shap (explainability)
         ├─ Create → .treeExplainerCreate() (XGBoost only), .kernelExplainerCreate() (any model)
         ├─ Compute → .computeValues(), .featureImportance()
-        └─ Supports → TreeExplainer: XGBoost; KernelExplainer: XGBoost, LightGBM, NGBoost, GP, Torch, RegressorChain, MAPIE
+        └─ KernelExplainer takes XGBoost, LightGBM, NGBoost, GP, Torch, RegressorChain and MAPIE models
 ```
 
-## Common Types
+## Data and Types
 
-| Type | Definition | Description |
-|------|------------|-------------|
-| `VectorType` | `ArrayType(FloatType)` | 1D array of floats (e.g., `[1.0, 2.0, 3.0]`) |
-| `MatrixType` | `ArrayType(ArrayType(FloatType))` | 2D array of floats (e.g., `[[1.0, 2.0], [3.0, 4.0]]`) |
-| `LabelVectorType` | `ArrayType(IntegerType)` | Class labels as integers (e.g., `[0n, 1n, 0n, 2n]`) |
-| `ModelBlobType` | combined `VariantType` (20 cases) | Canonical union of every per-library model blob — import top-level for an arbitrary trained model; per-library subsets stay at `XGBoost.Types.ModelBlobType` etc. Not `AnyModelBlobType` (SHAP-explainer input union). |
+Data is East tensors: features `MatrixType(FloatType)` (rows × features),
+targets `VectorType(FloatType)`, class labels `VectorType(IntegerType)`; the
+predictions come back as vectors. Build them with
+`East.Matrix.fromArray([[…], […]])` and `East.Vector.fromArray([…])` in
+TypeScript, `EastMatrix` / `EastVector` (numpy) in python. The package
+re-exports East's constructors as `VectorType` / `SharedVectorType` and
+`SharedMatrixType`.
 
-## Available Modules
-
-| Module | Import | Purpose |
-|--------|--------|---------|
-| MADS | `import { MADS } from "@elaraai/east-py-datascience"` | Derivative-free blackbox optimization |
-| Optuna | `import { Optuna } from "@elaraai/east-py-datascience"` | Bayesian optimization (hyperparameter tuning) |
-| SimAnneal | `import { SimAnneal } from "@elaraai/east-py-datascience"` | Simulated annealing (permutation/subset) |
-| ALNS | `import { ALNS } from "@elaraai/east-py-datascience"` | Adaptive Large Neighborhood Search (generic over solution type) |
-| Scipy | `import { Scipy } from "@elaraai/east-py-datascience"` | Statistics, optimization, interpolation |
-| XGBoost | `import { XGBoost } from "@elaraai/east-py-datascience"` | Gradient boosting (regression/classification/quantile) |
-| LightGBM | `import { LightGBM } from "@elaraai/east-py-datascience"` | Fast gradient boosting |
-| NGBoost | `import { NGBoost } from "@elaraai/east-py-datascience"` | Probabilistic gradient boosting |
-| Torch | `import { Torch } from "@elaraai/east-py-datascience"` | Neural networks (MLP) |
-| Lightning | `import { Lightning } from "@elaraai/east-py-datascience"` | PyTorch Lightning neural networks |
-| GP | `import { GP } from "@elaraai/east-py-datascience"` | Gaussian Process regression |
-| MAPIE | `import { MAPIE } from "@elaraai/east-py-datascience"` | Conformal prediction intervals |
-| Sklearn | `import { Sklearn } from "@elaraai/east-py-datascience"` | Preprocessing, metrics, data splitting |
-| Shap | `import { Shap } from "@elaraai/east-py-datascience"` | Model explainability (SHAP values) |
-| Optimization | `import { Optimization } from "@elaraai/east-py-datascience"` | Iterative coordinate descent optimization |
-| GoogleOr | `import { GoogleOr } from "@elaraai/east-py-datascience"` | OR-Tools: CP-SAT, routing, LP/MIP, graph algorithms |
-| PyMC | `import { PyMC } from "@elaraai/east-py-datascience"` | Bayesian regression, hierarchical models, multi-layer estimation |
-| Simulation | `import { Simulation } from "@elaraai/east-py-datascience"` | Economic ontology simulation via DES |
-| Causal | `import { Causal } from "@elaraai/east-py-datascience"` | One declarative causal experiment (`Causal.experiment`) — naive vs adjusted effect, balance, overlap, robustness, and an honesty verdict; plus `Causal.designValidation` — the real controlled-trial recipe that would confirm the result |
-
-## Accessing Types
+Each module's own types are under `Module.Types.*` — and at the top level
+under a prefixed name (`MADSConfigType`, `XGBoostModelBlobType`, …):
 
 ```typescript
-import { MADS, Optuna, Sklearn, XGBoost, ALNS } from "@elaraai/east-py-datascience";
+import { MADS, Optuna, ALNS, Sklearn, XGBoost, ModelBlobType } from "@elaraai/east-py-datascience";
 
-// Access types via Module.Types.TypeName
-MADS.Types.VectorType          // ArrayType(FloatType)
-MADS.Types.BoundsType          // StructType({ lower, upper })
-MADS.Types.ResultType          // StructType({ x_best, f_best, ... })
-
-Optuna.Types.ParamSpaceType    // Parameter definition
-Optuna.Types.StudyResultType   // Optimization result
-
-ALNS.Types.ConfigType          // ALNS configuration
-ALNS.Types.ResultType          // Result with "S" placeholder for solution type
-
-Sklearn.Types.SplitConfigType  // Train/test split config
-XGBoost.Types.ModelBlobType    // Trained model
+MADS.Types.BoundsType          // { lower, upper } vectors
+MADS.Types.ConfigType          // every field an Option: some(v) / none
+MADS.Types.ConstraintType      // variant eb / pb over a constraint function
+MADS.Types.ResultType          // { x_best, f_best, success, … }
+Optuna.Types.ParamSpaceType    // one parameter's search space
+Optuna.Types.StudyResultType
+ALNS.Types.ConfigType          // and ALNS.Types.ResultType, over the solution type
+Sklearn.Types.SplitConfigType
+XGBoost.Types.ModelBlobType    // a trained model
+ModelBlobType                  // the union of every library's model blob, for an arbitrary trained model
+                               // (AnyModelBlobType is the SHAP explainer's input union)
 ```
+
+A model blob round-trips: what a train function returns is exactly what the
+predict and explain functions take — store it in a dataset, pass it between
+tasks, or hand it to `Shap`.
 
 ## Common Patterns
 
-### Train and Predict
+### Train and predict
 
 ```typescript
-// 1. Prepare data
-const X = $.let([[...], [...], ...]);
-const y = $.let([...]);
-
-// 2. Configure and train
-const config = $.let({ /* options with variant('some', value) or variant('none', null) */ });
-const model = $.let(Module.train(X, y, config));
-
-// 3. Predict
-const predictions = $.let(Module.predict(model, X_test));
-```
-
-### Optimization
-
-```typescript
-// 1. Define objective function
-const objective = East.function([VectorType], FloatType, ($, x) => {
-    // compute and return objective value
+const fit = East.function([], VectorType(FloatType), $ => {
+    const X = $.let(East.Matrix.fromArray([[1.0, 2.0], [2.0, 1.0], [3.0, 4.0], [4.0, 3.0]]));
+    const y = $.let(East.Vector.fromArray([3.0, 3.0, 7.0, 7.0]));
+    const config = $.let({                       // every field an Option: some(value) / none
+        n_estimators: some(100n), max_depth: some(3n), learning_rate: none, min_child_weight: none,
+        subsample: none, colsample_bytree: none, reg_alpha: none, reg_lambda: none, gamma: none,
+        random_state: some(42n), n_jobs: none, sample_weight: none, categorical_features: none,
+        categorical_n: none, max_cat_to_onehot: none, max_cat_threshold: none, scale_pos_weight: none,
+    }, XGBoost.Types.XGBoostConfigType);
+    const model = $.let(XGBoost.trainRegressor(X, y, config));
+    $.return(XGBoost.predict(model, X));
 });
-
-// 2. Set bounds and config
-const bounds = $.let({ lower: [...], upper: [...] });
-const config = $.let({ /* options */ });
-
-// 3. Optimize
-const result = $.let(Module.optimize(objective, x0, bounds, config));
-// result.x_best, result.f_best
 ```
+
+### Optimisation
+
+The objective is an East function of the decision vector —
+`East.function([VectorType(FloatType)], FloatType, …)` — bound with `$.const`
+and passed with the start point, the bounds and the config; the result
+carries `x_best` and `f_best` (see the Quick Start).
 
 ## Calling from Python (the functions directly)
 
-Every platform function is exported from `east_py_datascience` under its
-own name (`xgboost_train_regressor`, `mads_optimize`, …) as a **plain
-callable taking and returning East values** — no IR, no compile — and, the
-same object, callable inside an `East.function` body, where the call is the
-`Platform` node with the function's declared signature. A project's
-own `@East.platform_function` can import and call them directly (the
-preferred way to use lightning/torch/xgboost/sklearn/etc. from project
-Python code); an East body written in python calls them the same way and
+The platform functions are exported from `east_py_datascience` as **plain
+callables over East values** — no IR, no compile — and, the same objects,
+callable inside an `East.function` body, where the call is the `Platform`
+node with the declared signature. A project's own `@East.platform_function`
+imports and calls them (the preferred way to use lightning / torch / xgboost
+/ sklearn from project python); a python East body calls them the same way and
 compiles against the package's `platform` list:
 
 ```python
-from east import (East, EastMatrix, EastVector, FloatType, MatrixType, VectorType,
-                  coerce_to)
-from east_py_datascience import XGBoostConfigType, xgboost_train_regressor, xgboost_predict
+from east import East, FloatType, MatrixType, VectorType, coerce_to, none, some
+from east_py_datascience import xgboost_predict, xgboost_train_regressor
+from east_py_datascience.xgboost import XGBoostConfigType
 
 @East.platform_function(inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType)],
                         output=VectorType(FloatType))
 def forecast(X_train, y_train, X_new):
-    # Build the config struct from a plain dict - coerce_to fills Option fields
     config = coerce_to({
-        "n_estimators": 200, "max_depth": 4, "learning_rate": 0.05,
-        "min_child_weight": None, "subsample": None, "colsample_bytree": None,
-        "reg_alpha": None, "reg_lambda": None, "gamma": None,
-        "random_state": 42, "n_jobs": None, "sample_weight": None,
-        "categorical_features": None, "categorical_n": None,
-        "max_cat_to_onehot": None, "max_cat_threshold": None,
-        "scale_pos_weight": None,  # binary class-imbalance weight (classifier only)
+        "n_estimators": some(200), "max_depth": some(4), "learning_rate": some(0.05),
+        "min_child_weight": none, "subsample": none, "colsample_bytree": none,
+        "reg_alpha": none, "reg_lambda": none, "gamma": none,
+        "random_state": some(42), "n_jobs": none, "sample_weight": none,
+        "categorical_features": none, "categorical_n": none,
+        "max_cat_to_onehot": none, "max_cat_threshold": none,
+        "scale_pos_weight": none,   # the binary class-imbalance weight (classifiers)
     }, XGBoostConfigType)
-    model = xgboost_train_regressor(X_train, y_train, config)   # East blob in/out
+    model = xgboost_train_regressor(X_train, y_train, config)   # a model blob, East in and out
     return xgboost_predict(model, X_new)
 ```
 
 Rules:
 
-- **Inputs are East values, not numpy** — `EastMatrix`/`EastVector` for data,
-  `EastStruct` configs (build with `coerce_to(dict, ConfigType)` — plain
-  `None`/scalars coerce to the `Option` fields), `EastVariant` for variants
-  (`variant('some', x)` / option fields via `coerce_to`).
-- **Config and blob types are defined Python-side** in each
-  `east_py_datascience.<module>` (e.g. `XGBoostConfigType`,
-  `XGBoostModelBlobType`) — mirror images of the TS `Module.Types.*`.
-- **Model blobs round-trip**: the variant blob a train function returns is
-  exactly what the predict/explain functions accept — store it, pass it
-  between platform functions, or hand it to `Shap`.
+- **Inputs are East values, not numpy**: `EastMatrix` / `EastVector` for data,
+  an `EastStruct` config built with `coerce_to(dict, ConfigType)` — every
+  `Option` field spelled `some(value)` or `none` (a plain value or `None` is
+  refused) — and `variant(case, value, Type)` for a variant.
+- **Config and blob types live in each submodule**
+  (`east_py_datascience.xgboost.XGBoostConfigType`, `…XGBoostModelBlobType`),
+  mirroring the TypeScript `Module.Types.*`.
+- **Names are the platform names** (`xgboost_train_regressor`,
+  `mads_optimize`, …), except GoogleOr's, exported without the `google_or_`
+  prefix: `cpsat_solve`, `cpsat_solve_all`, `routing_solve`, `linear_solve`,
+  `min_cost_flow`, `max_flow`, `assignment`, `min_cost_assignment`.
 - **Inside an East body**: `East.function([...], ..., lambda b, X, y, cfg:
   xgboost_predict(xgboost_train_regressor(X, y, cfg), X))` — the calls are
   `Platform` nodes; `East.compile(fn, platform=east_py_datascience.platform)`
-  runs it (this list is also what the e3 Python runner registers).
-- **The generic ones take the type argument FIRST in a body**, as the
-  TypeScript reads: `causal_experiment(RowType, rows, config)`,
+  runs it (the list the e3 python runner registers).
+- **The generic ones take the type argument FIRST in a body**, as TypeScript
+  reads: `causal_experiment(RowType, rows, config)`,
   `alns_optimize(SolutionType, initial, objective, destroy, repair, config)`.
-  From python they are called with the values alone
-  (`causal_experiment(rows, config)`) — they read the rows, not the type.
+  From python they take the values alone (`causal_experiment(rows, config)`):
+  they read the values, not the type.
 - **`simulation_run` and `optimization_iterative*` run in C**, so there is no
   python to call: the name exports the declaration, and a body calls it the
   same way — `simulation_run(Resources, Events, state, events, process,
   config)`.
-- Optional deps gate at call time: functions raise `NotImplementedError`
-  naming the missing extra (e.g. `east-py-datascience[causal]`).
+- Optional dependencies gate at call time: a function raises
+  `NotImplementedError` naming the missing extra (`east-py-datascience[causal]`).
 
-For the East-value API itself (eager methods, `coerce_to`, `to_numpy`/`to_torch`,
+For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
 `@East.platform_function`), load the **east-py** skill.
 
 ## Related skills
 
-- **e3** — **required to run these**: they need the Python runtime, so wrap each in an `e3.task` with a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py from the project's `.venv`; no `uv run` wrapper needed). They do not run on the default Node / C runtime.
-- **east** — the language for objective functions, configs, and result handling.
-- **east-py** — the Python runtime: East values as plain Python data, eager methods, and the `@East.platform_function` on-ramp — pairs with the direct calls above.
-- **east-ontology** — the decisions these models improve are the `decision` nodes of the business's economic ontology.
-- **east-design** — place the forecast / optimization in a decision-oriented architecture.
+- **e3** — **required to run these**: they need the python runtime, so wrap each
+  call in an `e3.task` with a python runner (`{ runner: { runtime: 'east-py',
+  platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py
+  from the project's `.venv`, no `uv run` wrapper needed). They do not run on
+  the Node or C runtimes.
+- **east** — the language for objective functions, configs and results.
+- **east-py** — the python runtime: East values as plain python data, eager
+  methods, and the `@East.platform_function` on-ramp the direct calls live in.
+- **east-ontology** — the decisions these models improve are the `decision`
+  nodes of the business's economic ontology.
+- **east-design** — place the forecast or optimisation in a decision-oriented
+  architecture.

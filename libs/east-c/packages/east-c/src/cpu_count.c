@@ -20,6 +20,9 @@
  * pod limit reports the pod's). With a single limit, the usual case, the two
  * counts agree. cgroup v1 quotas are not read, as libuv's v1 path does not
  * resolve on common layouts either.
+ *
+ * A runner granted a number of threads for a unit caps the count at the grant
+ * (east_set_thread_limit), as TypeScript caps its frame pool.
  */
 
 #if defined(__linux__) && !defined(_GNU_SOURCE)
@@ -27,6 +30,20 @@
 #endif
 
 #include <east/compat.h>
+
+/* The grant east_set_thread_limit set; 0 when none. */
+static int thread_limit = 0;
+
+void east_set_thread_limit(int threads)
+{
+    thread_limit = threads > 0 ? threads : 0;
+}
+
+/* `count` under the grant. */
+static int granted(int count)
+{
+    return thread_limit > 0 && count > thread_limit ? thread_limit : count;
+}
 
 #ifdef _WIN32
 
@@ -39,7 +56,7 @@ int east_cpu_count(void)
         for (; process_mask != 0; process_mask &= process_mask - 1)
             count++;
     }
-    return count > 0 ? count : 1;
+    return granted(count > 0 ? count : 1);
 }
 
 #else /* !_WIN32 */
@@ -69,7 +86,7 @@ int east_cpu_count(void)
     long quota = east_cgroup_cpu_quota_at("/proc/self/cgroup", "/sys/fs/cgroup");
     if (quota > 0 && quota < count) count = quota;
 #endif
-    return count > 0 ? (int)count : 1;
+    return granted(count > 0 ? (int)count : 1);
 }
 
 #endif /* _WIN32 */

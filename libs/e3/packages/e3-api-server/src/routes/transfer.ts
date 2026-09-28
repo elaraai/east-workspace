@@ -5,64 +5,53 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { mkdir, stat, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { variant } from '@elaraai/east';
-import { transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
+import { E3_RELEASE, TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
 import {
-  DatasetTypeMismatchError,
-  datasetAdoptFile,
   datasetAdoptObject,
-  transferStagingDir,
-  transferStagingPath,
+  deliveryKnown,
+  type DatasetCommitStatus,
   type DatasetUpload,
   type StorageBackend,
   type TransferBackend,
 } from '@elaraai/e3-core';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
+import { errorToVariant } from '../errors.js';
 import {
   TransferUploadRequestType,
   TransferUploadResponseType,
   TransferPartResponseType,
   TransferDoneResponseType,
-  type Error as ApiErrorValue,
-  type TransferDoneResponse,
 } from '../types.js';
 
 /** Options for {@link createTransferRoutes}. */
 export interface TransferRouteOptions {
   /**
-   * How long a protocol-2 commit waits for the staged bytes to be verified
-   * before it answers `processing` for the client to poll (default 5000 ms; 0
-   * answers `processing` at once). A protocol-1 commit always waits.
+   * How long a commit waits for the staged bytes to be verified before it
+   * answers `processing` for the client to poll (default 5000 ms; 0 answers
+   * `processing` at once).
    */
   commitWaitMs?: number;
 }
 
 const DEFAULT_COMMIT_WAIT_MS = 5_000;
 
-/** How long a finished commit's answer stays pollable. */
-const COMMIT_RESULT_TTL_MS = 10 * 60 * 1000;
-
-/** A finished commit, as every later commit or poll of the upload repeats it. */
-type CommitOutcome =
-  | { type: 'answer'; value: TransferDoneResponse }
-  | { type: 'refused'; error: ApiErrorValue };
-
-/** A commit started for one upload. */
-interface Commit {
-  /** The upload being committed — its record is gone once the commit finishes. */
-  transfer: DatasetUpload;
-  /** How it finished, once it has. */
-  outcome: CommitOutcome | null;
-  /** Settles when it finishes; never rejects. */
-  settled: Promise<CommitOutcome>;
-}
-
-/** The transfer protocol version a request speaks: `?protocol=N`, else 1. */
-function requestProtocol(c: Context): number {
-  const version = Number(c.req.query('protocol'));
-  return Number.isInteger(version) && version >= 1 ? version : 1;
+/**
+ * Why a request does not speak this server's transfer protocol, or `null`
+ * when it does. A client names its version with `?protocol=N`, and one that
+ * names none was built before there was a version to name. It names its
+ * release beside it (`&release=`), which decides nothing: a refusal names it
+ * beside this server's.
+ */
+function protocolProblem(c: Context): string | null {
+  const named = c.req.query('protocol');
+  if (named === String(TRANSFER_PROTOCOL_VERSION)) return null;
+  const release = c.req.query('release');
+  const newer = named !== undefined && Number(named) > TRANSFER_PROTOCOL_VERSION;
+  return `this server, e3 ${E3_RELEASE}, speaks transfer protocol ${TRANSFER_PROTOCOL_VERSION}, and the request, `
+    + `${release === undefined ? 'which names no release' : `from e3 ${release}`}, ${named === undefined ? 'names no protocol' : `speaks ${named}`}: `
+    + (newer ? 'a newer e3 sent it — upgrade the server' : 'an older e3 sent it — upgrade it');
 }
 
 /** A backend's URL as the client can use it: a relative one resolves against the request's origin. */
@@ -84,10 +73,23 @@ async function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   }
 }
 
-function sendOutcome(outcome: CommitOutcome): Response {
-  return outcome.type === 'answer'
-    ? sendSuccess(TransferDoneResponseType, outcome.value)
-    : sendError(TransferDoneResponseType, outcome.error);
+/** A commit's status as the API answers it: a type the dataset does not
+ *  declare is its `dataset_type_mismatch` error, as an inline write's is. */
+function sendCommitStatus(transfer: DatasetUpload, status: DatasetCommitStatus): Response {
+  switch (status.type) {
+    case 'processing':
+      return sendSuccess(TransferDoneResponseType, variant('processing', null));
+    case 'completed':
+      return sendSuccess(TransferDoneResponseType, variant('completed', null));
+    case 'failed':
+      return sendSuccess(TransferDoneResponseType, variant('error', { message: status.value.message }));
+    case 'type_mismatch':
+      return sendError(TransferDoneResponseType, variant('dataset_type_mismatch', {
+        workspace: transfer.workspace,
+        path: status.value.path,
+        message: status.value.message,
+      }));
+  }
 }
 
 /**
@@ -100,12 +102,14 @@ function sendOutcome(outcome: CommitOutcome): Response {
  * generic data endpoints in `data.ts`.
  *
  * @remarks
- * A protocol-2 client (`?protocol=2` on the init and the commit) is sent its
- * bytes' plan as parts, and its commit runs in the background: the request
- * waits up to `commitWaitMs` for it and otherwise answers `processing`, which
- * the client polls — so verifying a delivery of many gigabytes never holds one
- * request open for as long as its SHA-256 takes. A protocol-1 client gets the
- * single upload URL and a commit that answers only when it is done.
+ * The init and the commit name the protocol version they speak
+ * (`?protocol=N`) and the client's release (`&release=`), and one of another
+ * version, or none, is refused, naming both releases and the fix. A client is
+ * sent its bytes' plan as parts. The upload store commits the upload, where it
+ * runs its commits: the request waits up to `commitWaitMs` for it and
+ * otherwise answers `processing`, which the client polls from the store,
+ * whichever instance answers — so verifying a delivery of many gigabytes never
+ * holds one request open for as long as its SHA-256 takes.
  */
 export function createTransferRoutes(
   storage: StorageBackend,
@@ -115,7 +119,7 @@ export function createTransferRoutes(
 ) {
   const api = new Hono();
   const commitWaitMs = options.commitWaitMs ?? DEFAULT_COMMIT_WAIT_MS;
-  const commits = new Map<string, Commit>();
+  const uploads = transferBackend.datasetUpload;
 
   /**
    * Extract dataset path from the request URL wildcard.
@@ -148,7 +152,7 @@ export function createTransferRoutes(
 
   /** The upload `id`, if this request addresses it. */
   async function uploadAt(c: Context, id: string, suffix: string): Promise<DatasetUpload | null> {
-    const transfer = await transferBackend.datasetUpload.get(id);
+    const transfer = await uploads.get(id);
     return transfer && addresses(c, transfer, suffix) ? transfer : null;
   }
 
@@ -198,37 +202,33 @@ export function createTransferRoutes(
   });
 
   async function handleInit(c: Context) {
+    const problem = protocolProblem(c);
+    if (problem !== null) {
+      return sendError(TransferUploadResponseType, variant('internal', { message: problem }));
+    }
     const repo = c.req.param('repo')!;
     const ws = c.req.param('ws')!;
     const repoPath = getRepoPath(repo);
     const pathStr = extractDatasetPath(c, '/upload');
     const { hash, size } = await decodeBody(c, TransferUploadRequestType);
 
-    // Dedup — the bytes are already an object, so no upload is needed. The
-    // object is not necessarily THIS dataset's type though (it may have been
-    // stored for another one), so the pairing is checked here: it is the only
-    // door that skips the commit.
-    if (await storage.objects.exists(repoPath, hash)) {
+    // Dedup — the store knows these bytes, as the manifest they were split
+    // into or as an object, so no upload is needed. It may have stored them
+    // for another dataset, of another type, so the pairing is checked here: it
+    // is the only door that skips the commit.
+    if (await deliveryKnown(storage, repoPath, hash)) {
       const treePath = urlPathToTreePath(pathStr);
       await datasetAdoptObject(storage, repoPath, ws, treePath, hash);
       return sendSuccess(TransferUploadResponseType, variant('completed', null));
     }
 
-    // Create transfer record in backend
+    // The upload's record, and its plan as parts, which the store makes ready
+    // to stage
     const transferId = randomUUID();
     const transfer: DatasetUpload = { repo, workspace: ws, path: pathStr, hash, size };
-    await transferBackend.datasetUpload.create(transferId, transfer);
-
-    // Create the staging slot under the repo, so the commit's adopt is a
-    // same-device link or rename rather than a whole-file copy.
-    await mkdir(transferStagingDir(repoPath), { recursive: true });
-
-    if (requestProtocol(c) >= 2) {
-      const partBytes = await transferBackend.datasetUpload.createParts(transferId, transfer);
-      return sendSuccess(TransferUploadResponseType, variant('upload_parts', { id: transferId, partBytes }));
-    }
-    const uploadUrl = await transferBackend.datasetUpload.getUploadUrl(transferId, repo, hash);
-    return sendSuccess(TransferUploadResponseType, variant('upload', { id: transferId, uploadUrl: resolveUrl(c, uploadUrl) }));
+    await uploads.create(transferId, transfer);
+    const partBytes = await uploads.createParts(transferId, transfer);
+    return sendSuccess(TransferUploadResponseType, variant('upload_parts', { id: transferId, partBytes }));
   }
 
   async function handlePart(c: Context, id: string, part: number, suffix: string) {
@@ -236,7 +236,12 @@ export function createTransferRoutes(
     if (!transfer) {
       return sendError(TransferPartResponseType, variant('internal', { message: 'transfer not found' }));
     }
-    const partBytes = await transferBackend.datasetUpload.getPartBytes(id);
+    // A part sent once the commit is under way could rewrite the bytes it
+    // verifies.
+    if ((await uploads.getCommitStatus(id)) !== null) {
+      return sendError(TransferPartResponseType, variant('internal', { message: 'the upload is committed: it takes no more parts' }));
+    }
+    const partBytes = await uploads.getPartBytes(id);
     if (partBytes === null) {
       return sendError(TransferPartResponseType, variant('internal', { message: 'transfer was not planned as parts' }));
     }
@@ -246,7 +251,7 @@ export function createTransferRoutes(
         message: `no part ${part}: the upload has ${count} part${count === 1 ? '' : 's'}`,
       }));
     }
-    const target = await transferBackend.datasetUpload.getPartUpload(id, transfer, part);
+    const target = await uploads.getPartUpload(id, transfer, part);
     return sendSuccess(TransferPartResponseType, {
       url: resolveUrl(c, target.url),
       headers: new Map(Object.entries(target.headers)),
@@ -254,94 +259,38 @@ export function createTransferRoutes(
   }
 
   async function handleCommit(c: Context, id: string, suffix: string) {
-    let commit = commits.get(id);
-    if (!commit) {
-      const transfer = await uploadAt(c, id, suffix);
-      if (!transfer) {
-        return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
-      }
-      // A retried commit may have started it while this one looked it up.
-      commit = commits.get(id) ?? startCommit(id, transfer);
+    const problem = protocolProblem(c);
+    if (problem !== null) {
+      return sendError(TransferDoneResponseType, variant('internal', { message: problem }));
     }
-    if (!addresses(c, commit.transfer, suffix)) {
+    const transfer = await uploadAt(c, id, suffix);
+    if (!transfer) {
       return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
     }
-
-    const outcome = requestProtocol(c) >= 2
-      ? commit.outcome ?? await within(commit.settled, commitWaitMs)
-      : await commit.settled;
-    return outcome ? sendOutcome(outcome) : sendSuccess(TransferDoneResponseType, variant('processing', null));
+    // A commit asked for again, as a client whose answer was lost asks, is
+    // answered as the first was: at once, when it has finished.
+    let status: DatasetCommitStatus | null;
+    try {
+      status = await uploads.getCommitStatus(id);
+      if (status === null || status.type === 'processing') {
+        status = await within(uploads.commit(id, transfer), commitWaitMs);
+      }
+    } catch (err) {
+      return sendError(TransferDoneResponseType, errorToVariant(err));
+    }
+    return sendCommitStatus(transfer, status ?? variant('processing', null));
   }
 
   async function handlePoll(c: Context, id: string, suffix: string) {
-    const commit = commits.get(id);
-    if (commit && addresses(c, commit.transfer, suffix)) {
-      return commit.outcome
-        ? sendOutcome(commit.outcome)
-        : sendSuccess(TransferDoneResponseType, variant('processing', null));
-    }
     const transfer = await uploadAt(c, id, suffix);
-    return sendError(TransferDoneResponseType, variant('internal', {
-      message: transfer ? 'transfer not committed' : 'transfer not found',
-    }));
-  }
-
-  function startCommit(id: string, transfer: DatasetUpload): Commit {
-    const settled = verifyAndAdopt(id, transfer).then((outcome) => {
-      commit.outcome = outcome;
-      // The answer stays pollable for a while — a client whose response was
-      // lost asks again — and then goes, as the upload record already has.
-      setTimeout(() => commits.delete(id), COMMIT_RESULT_TTL_MS).unref();
-      return outcome;
-    });
-    const commit: Commit = { transfer, outcome: null, settled };
-    commits.set(id, commit);
-    return commit;
-  }
-
-  /**
-   * Verify a staged upload and point its dataset at it; never rejects.
-   */
-  async function verifyAndAdopt(id: string, transfer: DatasetUpload): Promise<CommitOutcome> {
-    // Nothing may escape: a commit answering `processing` is awaited by no one.
-    let stagingPath: string | null = null;
-    try {
-      const repoPath = getRepoPath(transfer.repo);
-      stagingPath = transferStagingPath(repoPath, id);
-
-      // The staged file is never read whole: its size comes from `stat`, its
-      // digest from a streamed hash, its declared type and paging index from
-      // two ranged reads, and it becomes an object by link or rename. A
-      // multi-gigabyte delivery therefore commits for the cost of its SHA-256.
-      const stats = await stat(stagingPath);
-      if (BigInt(stats.size) !== transfer.size) {
-        return {
-          type: 'answer',
-          value: variant('error', { message: `size mismatch: expected ${transfer.size}, got ${stats.size}` }),
-        };
-      }
-
-      const treePath = urlPathToTreePath(transfer.path);
-      await datasetAdoptFile(storage, repoPath, transfer.workspace, treePath, stagingPath, {
-        expectHash: transfer.hash,
-      });
-      return { type: 'answer', value: variant('completed', null) };
-    } catch (err) {
-      if (err instanceof DatasetTypeMismatchError) {
-        return {
-          type: 'refused',
-          error: variant('dataset_type_mismatch', {
-            workspace: transfer.workspace,
-            path: err.path,
-            message: err.message,
-          }),
-        };
-      }
-      return { type: 'answer', value: variant('error', { message: err instanceof Error ? err.message : String(err) }) };
-    } finally {
-      if (stagingPath !== null) await unlink(stagingPath).catch(() => {});
-      await transferBackend.datasetUpload.delete(id).catch(() => {});
+    if (!transfer) {
+      return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
     }
+    const status = await uploads.getCommitStatus(id);
+    if (status === null) {
+      return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not committed' }));
+    }
+    return sendCommitStatus(transfer, status);
   }
 
   return { api };

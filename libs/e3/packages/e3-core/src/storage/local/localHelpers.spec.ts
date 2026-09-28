@@ -4,7 +4,8 @@
  */
 
 /**
- * Tests for the local atomic-write primitive.
+ * Tests for the local helpers: the atomic-write primitive, and the path an
+ * object is kept at.
  *
  * `atomicWriteFile` is the shared stage-and-rename helper behind every mutable
  * ref/state file (execution status, dataflow runs, workspace state, dataset
@@ -17,8 +18,20 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
-import { atomicWriteFile } from './localHelpers.js';
+import { atomicWriteFile, objectPath } from './localHelpers.js';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
+
+describe('objectPath', () => {
+  it('refuses a hash that is not a SHA-256, so no name a client gives reaches outside the store', () => {
+    // A transfer's init names its delivery by hash, and a store asked whether
+    // it holds one of `../../<repo>/objects/...` read another repository's
+    // object as its own.
+    for (const hash of ['..', `../../other/objects/ab/${'c'.repeat(56)}`, 'A'.repeat(64), 'a'.repeat(63)]) {
+      assert.throws(() => objectPath('/repo', hash), /is not an object hash/, hash);
+    }
+    assert.strictEqual(objectPath('/repo', `ab${'c'.repeat(62)}`), join('/repo', 'objects', 'ab', `${'c'.repeat(62)}.beast2`));
+  });
+});
 
 describe('atomicWriteFile', () => {
   let dir: string;

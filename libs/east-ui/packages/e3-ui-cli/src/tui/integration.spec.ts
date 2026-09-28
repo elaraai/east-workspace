@@ -10,19 +10,25 @@
  * list → a dashboard → a task's output, logs and runs; a 20,000-entry
  * paged Dict input (page latency, retained pages, heap growth — design
  * §17); a real `/run`; an input edited and applied, then read back
- * through the API.
+ * through the API; a wide-row Array read across its v2 segments by the
+ * value tree's loader and at the Sheet's and the preview's windows.
  */
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import * as v8 from 'node:v8';
 import * as vm from 'node:vm';
-import { IntegerType, decodeBeast2For } from '@elaraai/east';
+import { ArrayType, IntegerType, StringType, StructType, decodeBeast2For, toEastTypeValue, variant } from '@elaraai/east';
+import { ValueTree } from '@elaraai/east-ui';
+import { DatasetSegments, LocalStorage, workspaceGetDatasetHash, workspaceSetDataset } from '@elaraai/e3-core';
 import { treePathOf } from './api.js';
-import { MAX_RETAINED_PAGES } from './data/dataset.js';
+import { createDatasetLoader, MAX_RETAINED_PAGES } from './data/dataset.js';
 import { startRepoServer, type RepoServerHandle } from '../e3-server.js';
 import { openSession, type Session } from './session.js';
+import { initialState } from './state/actions.js';
+import { createStore } from './state/store.js';
 import { KEY, mountApp, type Mounted } from './testing/harness.js';
 import { seedFixtureRepo, type SeededRepo } from './testing/seed.js';
 
@@ -155,5 +161,67 @@ describe('integration (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
         const bytes = (await session.api.datasetGet('inputs', treePathOf('.inputs.a'))).data;
         assert.equal(decodeBeast2For(IntegerType)(bytes), 41n);
         await m.waitFor(() => /^▌· Value\s+41\s*$/.test(m.lines()[5] ?? '') && !/DIRTY/.test(m.lines()[0] ?? ''), 1_200);
+    });
+
+    test('a wide-row Array pages across its v2 segments: every row once and in order, at every reader\'s window', async () => {
+        // Rows of 1–5 KB, so the v2 array rule cuts near its byte target, at
+        // counts no reader's window lines up with.
+        const RowType = StructType({ id: IntegerType, name: StringType });
+        const rows = Array.from({ length: 3_000 }, (_, i) => ({ id: BigInt(i), name: randomBytes(750 + (i * 7_919) % 3_000).toString('base64') }));
+        const rowsPath = treePathOf('.inputs.rows');
+        const storage = new LocalStorage();
+        await workspaceSetDataset(storage, seeded.path, 'table', rowsPath, rows, ArrayType(RowType));
+        const { hash } = await workspaceGetDatasetHash(storage, seeded.path, 'table', rowsPath);
+        assert.ok(hash !== null);
+        const segments = await DatasetSegments.open(storage, seeded.path, hash);
+        assert.match(segments.manifest?.rule ?? '', /\/2$/, 'stored under a v2 rule');
+        assert.ok(segments.segmentCount >= 5 && segments.counts.some(c => c % 200 !== 0), `segment counts ${segments.counts.join(', ')}`);
+
+        // The value tree: the terminal's loader over the embedded server, page by page.
+        const store = createStore(initialState({ columns: 120, rows: 36 }, seeded.path));
+        store.dispatch({ type: 'session', session: session.info });
+        const loader = createDatasetLoader({ store, api: () => session.api });
+        const shown = () => store.getState().data.dataset['table']?.['.inputs.rows']?.mode;
+        await loader.tick('table', '.inputs.rows');
+        const opened = shown();
+        assert.equal(opened?.kind, 'paged');
+        const pageSize = opened?.kind === 'paged' ? opened.pageSize : 0;
+        const elementType = toEastTypeValue(RowType);
+        let seen = 0;
+        for (let page = 0; page * pageSize < rows.length; page++) {
+            loader.needRows('table', '.inputs.rows', page * pageSize, (page + 1) * pageSize);
+            for (let turns = 0; ; turns++) {
+                const mode = shown();
+                const landed = mode?.kind === 'paged' ? mode.pages.get(page) : undefined;
+                if (landed !== undefined) {
+                    for (const [i, row] of landed.entries()) {
+                        const at = page * pageSize + i;
+                        assert.deepEqual(row.step, variant('index', BigInt(at)));
+                        assert.deepEqual(row.node, ValueTree.materialize(elementType, rows[at]));
+                    }
+                    seen += landed.length;
+                    break;
+                }
+                assert.ok(turns < 2_000, `page ${page} never landed`);
+                await new Promise(resolve => setTimeout(resolve, 5));
+            }
+        }
+        assert.equal(seen, rows.length);
+
+        // The Sheet's windows (200 rows, through the paged runtime) and the web
+        // preview's (500): the client both fetch with, decoded as both decode.
+        // Consecutive windows tile the value exactly.
+        const decode = decodeBeast2For(ArrayType(RowType));
+        for (const size of [200, 500]) {
+            const read: typeof rows = [];
+            for (let offset = 0; offset < rows.length; offset += size) {
+                const window = await session.api.datasetGetPage('table', rowsPath, { offset, limit: size, hash });
+                assert.equal(window.count, Math.min(size, rows.length - offset), `the ${size}-row window at ${offset} is whole`);
+                assert.equal(window.totalElements, rows.length);
+                assert.equal(window.segmentCount, segments.segmentCount);
+                read.push(...decode(window.data));
+            }
+            assert.deepEqual(read, rows, `${size}-row windows`);
+        }
     });
 });

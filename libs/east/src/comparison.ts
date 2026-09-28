@@ -7,6 +7,7 @@ import type { EastType, ValueTypeOf } from "./types.js";
 import { isVariant, variant } from "./containers/variant.js";
 import { isFrozenValue } from "./frozen.js";
 import type { ref } from "./containers/ref.js";
+import { compareStrings } from "./string_order.js";
 
 /** Map of comparers for recursive types, keyed by recursive type id (bigint) */
 type TypeContext = Map<bigint, any>;
@@ -912,7 +913,7 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
       return x < y ? -1 : (x > y ? 1 : 0);
     };
   } else if (type.type === "String") {
-    return (x: string, y: string, _ctx?: ValueContext) => x < y ? -1 : (x > y ? 1 : 0);
+    return (x: string, y: string, _ctx?: ValueContext) => compareStrings(x, y);
   } else if (type.type === "DateTime") {
     return (x: Date, y: Date, _ctx?: ValueContext) => x.valueOf() < y.valueOf() ? -1 : (x.valueOf() > y.valueOf() ? 1 : 0);
   } else if (type.type === "Blob") {
@@ -1096,9 +1097,7 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
   } else if (type.type === "Variant") {
     const case_comparers: Record<string, (x: any, y: any, ctx?: ValueContext) => 1 | 0 | -1> = {};
     const ret = (x: variant, y: variant, ctx?: ValueContext) => {
-      if (x.type < y.type) return -1;
-      if (x.type > y.type) return 1;
-
+      if (x.type !== y.type) return compareStrings(x.type, y.type);
       return case_comparers[x.type]!(x.value, y.value, ctx);
     };
     for (const { name, type: caseType } of type.value) {

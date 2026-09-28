@@ -67,14 +67,19 @@ services:
       - /data
 
   minio:
-    # MinIO publishes its image on quay.io; Docker Hub no longer serves
-    # minio/minio (the repository is gone, every pull is denied).
-    image: quay.io/minio/minio:latest
+    # MinIO no longer publishes a public image: Docker Hub's minio/minio is
+    # gone, and quay.io/minio/minio refuses anonymous pulls (401 since
+    # 2026-09-24). Bitnami's frozen copy is still MinIO — the same server and
+    # API — pinned by digest so it never moves. Its own entrypoint starts the
+    # server and creates `test-bucket` (MINIO_DEFAULT_BUCKETS) with the `mc`
+    # it ships; the `local` alias that setup configures is the healthcheck's.
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
     profiles: [services]
-    entrypoint: /bin/sh -c "minio server /data --console-address ':9001' & until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done && mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb local/test-bucket --ignore-existing && wait"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DEFAULT_BUCKETS: test-bucket
+      MINIO_BROWSER: "on"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -83,8 +88,10 @@ services:
       interval: 2s
       timeout: 5s
       retries: 10
+      # Setup starts MinIO, creates the bucket, stops it and starts it again.
+      start_period: 30s
     tmpfs:
-      - /data
+      - /bitnami/minio/data
 
   ftp:
     image: stilliard/pure-ftpd:latest

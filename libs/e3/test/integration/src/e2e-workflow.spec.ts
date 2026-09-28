@@ -54,7 +54,7 @@ describe('end-to-end workflow', () => {
   });
 
   describe('diamond dependency with East tasks', () => {
-    it('executes full workflow with east-py runner', async () => {
+    it('executes the full workflow', async () => {
       // =====================================================================
       // Step 1: Create package using SDK
       // =====================================================================
@@ -107,7 +107,7 @@ describe('end-to-end workflow', () => {
           console.log(`  tree: ${item.name} at ${JSON.stringify(item.path)}`);
         } else if (item.kind === 'task') {
           console.log(`  task: ${item.name}`);
-          console.log(`    inputs: ${item.inputs.map(i => JSON.stringify(i.path)).join(', ')}`);
+          console.log(`    inputs: ${item.inputs.map(i => JSON.stringify(i.kind === 'partition' ? i.dataset.path : i.path)).join(', ')}`);
         }
       }
 
@@ -259,6 +259,9 @@ describe('end-to-end workflow', () => {
 
       // Change input value to 25
       // Note: e3 set requires a file, so we write the value to a .east file first
+      const inputRefPath = join(repoDir, 'workspaces', 'ws', 'data', 'inputs', 'x.beast2');
+      assert.ok(existsSync(inputRefPath), 'Input ref should exist');
+      const refBefore = readFileSync(inputRefPath);
       const newValuePath = join(testDir, 'new_value.east');
       writeFileSync(newValuePath, '25');
       const setResult = await runE3Command(
@@ -266,6 +269,7 @@ describe('end-to-end workflow', () => {
         testDir
       );
       assert.strictEqual(setResult.exitCode, 0, `set failed: ${setResult.stderr}`);
+      assert.ok(!refBefore.equals(readFileSync(inputRefPath)), 'Ref file content should change after set');
 
       // Verify the input was actually changed
       const getInputResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
@@ -402,6 +406,13 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-test@1.0.0'], testDir);
 
+      // After deploy, ref files should exist in workspaces/ws/data/ — the
+      // structure has inputs.x and tasks.double.output
+      const dataDir = join(repoDir, 'workspaces', 'ws', 'data');
+      const refFiles = findRefFiles(dataDir);
+      assert.strictEqual(refFiles.length, 2, `Should have 2 ref files (input, output), found ${refFiles.length}: ${refFiles.join(', ')}`);
+      assert.ok(existsSync(join(dataDir, 'inputs', 'x.beast2')), 'Input ref file should exist after deploy');
+
       // Check input status — should show set with hash and size
       let statusResult = await runE3Command(['dataset', 'status', repoDir, 'ws.x'], testDir);
       assert.strictEqual(statusResult.exitCode, 0, `status failed: ${statusResult.stderr}`);
@@ -425,6 +436,7 @@ describe('end-to-end workflow', () => {
       assert.match(statusResult.stdout, /Status: set/, 'Task output should show Status: set after execution');
       assert.match(statusResult.stdout, /Hash:/, 'Task output should show Hash after execution');
       assert.match(statusResult.stdout, /Size:/, 'Task output should show Size after execution');
+      assert.ok(existsSync(join(dataDir, 'tasks', 'double', 'output.beast2')), 'Output ref file should exist after execution');
 
       // `dataset list -l` tabular output against the same executed
       // workspace (merged from the former standalone list test so the CLI
@@ -443,161 +455,31 @@ describe('end-to-end workflow', () => {
       assert.match(listResult.stdout, /ws\.double/, 'Should show task path');
     });
 
-    it('reports error for non-existent field', async () => {
+    it('reports an error for a missing field and for a path to a tree', async () => {
       const input_x = e3.input('x', IntegerType, variant('value', 10n));
-      const pkg = e3.package('status-err-field', '1.0.0', input_x);
+      const pkg = e3.package('status-err', '1.0.0', input_x);
       await e3.export(pkg, packageZipPath);
 
       await runE3Command(['repo', 'create', repoDir], testDir);
       await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
       await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-err-field@1.0.0'], testDir);
+      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-err@1.0.0'], testDir);
 
       // Typo in field name
-      const result = await runE3Command(['dataset', 'status', repoDir, 'ws.typo'], testDir);
+      let result = await runE3Command(['dataset', 'status', repoDir, 'ws.typo'], testDir);
       assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent field');
       assert.match(result.stderr, /not found/i, 'Should mention field not found');
-    });
-
-    it('reports error when path points to tree', async () => {
-      const input_x = e3.input('x', IntegerType, variant('value', 10n));
-      const pkg = e3.package('status-err-tree', '1.0.0', input_x);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-err-tree@1.0.0'], testDir);
 
       // Path points to a tree (inputs), not a dataset
-      const result = await runE3Command(['dataset', 'status', repoDir, 'ws.inputs'], testDir);
+      result = await runE3Command(['dataset', 'status', repoDir, 'ws.inputs'], testDir);
       assert.notStrictEqual(result.exitCode, 0, 'Should fail when path points to tree');
       assert.match(result.stderr, /tree, not a dataset/, 'Should mention tree vs dataset');
-    });
-  });
-
-
-
-
-  describe('per-dataset ref files', () => {
-    it('creates ref files after deploy', async () => {
-      const input_x = e3.input('x', IntegerType, variant('value', 10n));
-      const task_double = e3.task(
-        'double',
-        [input_x],
-        East.function(
-          [IntegerType],
-          IntegerType,
-          ($, x) => x.multiply(2n)
-        )
-      );
-
-      const pkg = e3.package('ref-test', '1.0.0', task_double);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'ref-test@1.0.0'], testDir);
-
-      // After deploy, ref files should exist in workspaces/ws/data/
-      const dataDir = join(repoDir, 'workspaces', 'ws', 'data');
-      assert.ok(existsSync(dataDir), 'workspace data directory should exist');
-
-      // Check for ref files — the structure has inputs.x, tasks.double.output,
-      // tasks.double.function_ir. Ref files end in .ref
-      const refFiles = findRefFiles(dataDir);
-      assert.ok(refFiles.length >= 3, `Should have at least 3 ref files (input, output, function_ir), found ${refFiles.length}: ${refFiles.join(', ')}`);
-
-      // Input should have a value ref (it has a default value)
-      const inputRefPath = join(dataDir, 'inputs', 'x.ref');
-      assert.ok(existsSync(inputRefPath), `Input ref file should exist at ${inputRefPath}`);
-
-      // Verify input has a value (not unassigned)
-      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
-      assert.ok(getResult.stdout.includes('10'), `Input default should be 10, got: ${getResult.stdout}`);
-    });
-
-    it('updates ref files after set', async () => {
-      const input_x = e3.input('x', IntegerType, variant('value', 10n));
-      const pkg = e3.package('ref-set-test', '1.0.0', input_x);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'ref-set-test@1.0.0'], testDir);
-
-      // Read ref file before set
-      const inputRefPath = join(repoDir, 'workspaces', 'ws', 'data', 'inputs', 'x.ref');
-      assert.ok(existsSync(inputRefPath), 'Input ref should exist');
-      const refBefore = readFileSync(inputRefPath);
-
-      // Set a new value
-      const valuePath = join(testDir, 'val.east');
-      writeFileSync(valuePath, '99');
-      await runE3Command(['dataset', 'set', repoDir, 'ws.x', valuePath], testDir);
-
-      // Ref file should be updated (different content)
-      const refAfter = readFileSync(inputRefPath);
-      assert.ok(!refBefore.equals(refAfter), 'Ref file content should change after set');
-
-      // Verify new value
-      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
-      assert.ok(getResult.stdout.includes('99'), `Input should be 99, got: ${getResult.stdout}`);
-    });
-
-    it('populates task output refs after start', async () => {
-      const input_x = e3.input('x', IntegerType, variant('value', 10n));
-      const task_double = e3.task(
-        'double',
-        [input_x],
-        East.function(
-          [IntegerType],
-          IntegerType,
-          ($, x) => x.multiply(2n)
-        )
-      );
-
-      const pkg = e3.package('ref-start-test', '1.0.0', task_double);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'ref-start-test@1.0.0'], testDir);
-
-      // Before start, task output status should be unset
-      const statusBefore = await runE3Command(
-        ['dataset', 'status', repoDir, 'ws.double'],
-        testDir
-      );
-      assert.match(statusBefore.stdout, /unset/, 'Task output should be unset before start');
-
-      // Run start
-      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-      assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
-
-      // After start, task output should be set with correct value
-      const statusAfter = await runE3Command(
-        ['dataset', 'status', repoDir, 'ws.double'],
-        testDir
-      );
-      assert.match(statusAfter.stdout, /Status: set/, 'Task output should be set after start');
-
-      // Verify value: 10 * 2 = 20
-      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
-      assert.ok(getResult.stdout.includes('20'), `Output should be 20, got: ${getResult.stdout}`);
-
-      // Output ref file should exist
-      const outputRefPath = join(repoDir, 'workspaces', 'ws', 'data', 'tasks', 'double', 'output.ref');
-      assert.ok(existsSync(outputRefPath), 'Output ref file should exist after start');
     });
   });
 });
 
 /**
- * Recursively find all .ref files in a directory.
+ * Recursively find every dataset ref file, a `.beast2`, in a directory.
  */
 function findRefFiles(dir: string): string[] {
   const results: string[] = [];
@@ -606,7 +488,7 @@ function findRefFiles(dir: string): string[] {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...findRefFiles(fullPath));
-    } else if (entry.name.endsWith('.ref')) {
+    } else if (entry.name.endsWith('.beast2')) {
       results.push(fullPath);
     }
   }
@@ -680,7 +562,7 @@ describe('reactive caching — change one input, only its tasks recompute', () =
   // this is exercised in CI where `make link` puts east-node on PATH.)
   it('mutating a record re-runs the task that reads it; an independent task stays CACHED', async () => {
     const counter = e3.record('counter', IntegerType, 0n);
-    const inc = e3.mutation('inc', counter, East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
+    const inc = e3.mutation.reduce('inc', counter, East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
     const otherIn = e3.input('other_in', StringType, variant('value', 'x1'));
     // customTasks read their inputs directly; reads_counter depends on the record.
     const readsCounter = e3.customTask('reads_counter', [counter], IntegerType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);

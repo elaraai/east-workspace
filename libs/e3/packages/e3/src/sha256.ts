@@ -8,14 +8,18 @@
  */
 
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
+
+/** The size of the one buffer a file is hashed through. */
+const HASH_READ_BYTES = 1024 * 1024;
 
 /**
  * Computes the SHA256 hash of a file.
  *
- * Reads the file in streaming mode to handle large files efficiently
- * without loading the entire contents into memory.
+ * Reads the file through one buffer, reused for every read, so the memory it
+ * takes is the buffer's whatever the file's size. A stream would allocate a
+ * buffer per chunk, which only a garbage collection frees, and hashing makes
+ * too little garbage to prompt one.
  *
  * @param path - Absolute or relative path to the file
  * @returns The SHA256 hash as a 64-character lowercase hex string
@@ -24,7 +28,6 @@ import { stat } from 'node:fs/promises';
  *
  * @remarks
  * - Uses Node.js crypto module for hashing
- * - Streams file contents to avoid memory pressure on large files
  * - Returns lowercase hex encoding (64 characters for SHA256)
  *
  * @example
@@ -49,22 +52,18 @@ export async function sha256File(path: string): Promise<string> {
     throw err;
   }
 
-  return new Promise((resolve, reject) => {
+  const file = await open(path, 'r');
+  try {
     const hash = createHash('sha256');
-    const stream = createReadStream(path);
-
-    stream.on('data', (chunk) => {
-      hash.update(chunk);
-    });
-
-    stream.on('end', () => {
-      resolve(hash.digest('hex'));
-    });
-
-    stream.on('error', (err) => {
-      reject(err);
-    });
-  });
+    const buffer = Buffer.allocUnsafe(HASH_READ_BYTES);
+    for (;;) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) return hash.digest('hex');
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    await file.close();
+  }
 }
 
 /**

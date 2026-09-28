@@ -3,32 +3,39 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { none } from '@elaraai/east';
+import { readFile, writeFile } from 'node:fs/promises';
+import { none, variant } from '@elaraai/east';
 import { computeHash } from '../../objects.js';
 import { ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
-import type { ExecutionStatus, DataflowRun, DatasetRef } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord } from '@elaraai/e3-types';
 import type {
   StorageBackend,
   ObjectStore,
   RefStore,
   DatasetRefStore,
+  GcObjectEntry,
   LockService,
   LockHandle,
   LockOperation,
   LockState,
   LogStore,
   LogChunk,
+  RepositoryUpgrade,
 } from '../interfaces.js';
-import { InMemoryRepoStore } from './InMemoryRepoStore.js';
+import { completeUtf8Length } from '../utf8.js';
+import { InMemoryRepoStore, type InMemoryRepositoryRecords } from './InMemoryRepoStore.js';
 
 /**
  * In-memory implementation of ObjectStore for testing.
+ *
+ * It keeps when it last wrote each object, as a file keeps its mtime, so gc's
+ * age gate spares an object written a moment ago.
  */
 /* eslint-disable @typescript-eslint/require-await */
 class InMemoryObjectStore implements ObjectStore {
-  private objects = new Map<string, Map<string, Uint8Array>>();
+  private objects = new Map<string, Map<string, { data: Uint8Array; writtenAt: number }>>();
 
-  private getRepoObjects(repo: string): Map<string, Uint8Array> {
+  private getRepoObjects(repo: string): Map<string, { data: Uint8Array; writtenAt: number }> {
     let repoObjects = this.objects.get(repo);
     if (!repoObjects) {
       repoObjects = new Map();
@@ -39,7 +46,7 @@ class InMemoryObjectStore implements ObjectStore {
 
   async write(repo: string, data: Uint8Array): Promise<string> {
     const hash = computeHash(data);
-    this.getRepoObjects(repo).set(hash, data);
+    this.getRepoObjects(repo).set(hash, { data, writtenAt: Date.now() });
     return hash;
   }
 
@@ -59,19 +66,32 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async read(repo: string, hash: string): Promise<Uint8Array> {
-    const data = this.getRepoObjects(repo).get(hash);
-    if (!data) {
+    const object = this.getRepoObjects(repo).get(hash);
+    if (!object) {
       throw new ObjectNotFoundError(hash);
     }
-    return data;
+    return object.data;
   }
 
   async readRange(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array> {
-    const data = this.getRepoObjects(repo).get(hash);
-    if (!data) {
+    const object = this.getRepoObjects(repo).get(hash);
+    if (!object) {
       throw new ObjectNotFoundError(hash);
     }
-    return data.subarray(offset, offset + length);
+    return object.data.subarray(offset, offset + length);
+  }
+
+  async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
+    const data = new Uint8Array(await readFile(file));
+    const digest = await this.write(repo, data);
+    if (hash !== undefined && hash !== digest) {
+      throw new Error(`adoptFile: ${file} hashes to ${digest}, not the ${hash} it was adopted as`);
+    }
+    return { hash: digest, size: data.length };
+  }
+
+  async materialize(repo: string, hash: string, destPath: string): Promise<void> {
+    await writeFile(destPath, await this.read(repo, hash));
   }
 
   async exists(repo: string, hash: string): Promise<boolean> {
@@ -79,11 +99,11 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async stat(repo: string, hash: string): Promise<{ size: number }> {
-    const data = this.getRepoObjects(repo).get(hash);
-    if (!data) {
+    const object = this.getRepoObjects(repo).get(hash);
+    if (!object) {
       throw new ObjectNotFoundError(hash);
     }
-    return { size: data.length };
+    return { size: object.data.length };
   }
 
   async list(repo: string): Promise<string[]> {
@@ -92,6 +112,20 @@ class InMemoryObjectStore implements ObjectStore {
 
   async count(repo: string): Promise<number> {
     return this.getRepoObjects(repo).size;
+  }
+
+  /** Every object of a repository, with its size and when it was last
+   *  written: what gc's object scan lists. */
+  gcEntries(repo: string): GcObjectEntry[] {
+    return [...this.getRepoObjects(repo)].map(([hash, { data, writtenAt }]) => ({
+      hash, lastModified: writtenAt, size: data.length,
+    }));
+  }
+
+  /** Deletes a repository's objects; one already gone is passed over. */
+  gcDelete(repo: string, hashes: readonly string[]): void {
+    const repoObjects = this.getRepoObjects(repo);
+    for (const hash of hashes) repoObjects.delete(hash);
   }
 
   clear(): void {
@@ -103,13 +137,21 @@ class InMemoryObjectStore implements ObjectStore {
  * In-memory implementation of RefStore for testing.
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryRefStore implements RefStore {
+class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
+  // repository records keyed by repo
+  private repositories = new Map<string, RepositoryRecord>();
   private packages = new Map<string, Map<string, string>>();
   private workspaces = new Map<string, Map<string, Uint8Array>>();
   // executions now keyed by taskHash/inputsHash/executionId
   private executions = new Map<string, Map<string, ExecutionStatus>>();
   // dataflow runs keyed by workspace/runId
   private dataflowRuns = new Map<string, Map<string, DataflowRun>>();
+  // owner sidecars keyed by repo/taskHash/inputsHash/executionId
+  private owners = new Map<string, ExecutionOwner>();
+  // plan sidecars keyed by repo/taskHash/inputsHash
+  private plans = new Map<string, string>();
+  // adoption memo entries keyed by repo/sourceHash
+  private adoptions = new Map<string, string>();
 
   private getPackages(repo: string): Map<string, string> {
     let repoPackages = this.packages.get(repo);
@@ -163,6 +205,15 @@ class InMemoryRefStore implements RefStore {
     return `${workspace}/${runId}`;
   }
 
+  // Repository record
+  async repositoryRead(repo: string): Promise<RepositoryRecord | null> {
+    return this.repositories.get(repo) ?? null;
+  }
+
+  async repositoryWrite(repo: string, record: RepositoryRecord): Promise<void> {
+    this.repositories.set(repo, record);
+  }
+
   // Package operations
   async packageList(repo: string): Promise<{ name: string; version: string }[]> {
     const result: { name: string; version: string }[] = [];
@@ -200,6 +251,9 @@ class InMemoryRefStore implements RefStore {
 
   async workspaceRemove(repo: string, name: string): Promise<void> {
     this.getWorkspaces(repo).delete(name);
+    for (const runId of await this.dataflowRunList(repo, name)) {
+      await this.dataflowRunDelete(repo, name, runId);
+    }
   }
 
   // Execution operations (with executionId)
@@ -209,6 +263,12 @@ class InMemoryRefStore implements RefStore {
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), status);
+  }
+
+  async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
+    this.getExecutions(repo).delete(key);
+    this.owners.delete(`${repo}/${key}`);
   }
 
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
@@ -227,18 +287,6 @@ class InMemoryRefStore implements RefStore {
     if (ids.length === 0) return null;
     const latestId = ids[ids.length - 1]!;
     return this.executionGet(repo, taskHash, inputsHash, latestId);
-  }
-
-  async executionGetLatestOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
-    const ids = await this.executionListIds(repo, taskHash, inputsHash);
-    // Iterate from latest to oldest
-    for (let i = ids.length - 1; i >= 0; i--) {
-      const status = await this.executionGet(repo, taskHash, inputsHash, ids[i]!);
-      if (status && status.type === 'success') {
-        return status.value.outputHash;
-      }
-    }
-    return null;
   }
 
   async executionList(repo: string): Promise<{ taskHash: string; inputsHash: string }[]> {
@@ -275,6 +323,35 @@ class InMemoryRefStore implements RefStore {
     return result;
   }
 
+  async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {
+    this.owners.set(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`, owner);
+  }
+
+  async executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null> {
+    return this.owners.get(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`) ?? null;
+  }
+
+  async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string | null): Promise<void> {
+    const key = `${repo}/${this.makeInputsKey(taskHash, inputsHash)}`;
+    if (planHash === null) {
+      this.plans.delete(key);
+    } else {
+      this.plans.set(key, planHash);
+    }
+  }
+
+  async executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
+    return this.plans.get(`${repo}/${this.makeInputsKey(taskHash, inputsHash)}`) ?? null;
+  }
+
+  async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
+    this.adoptions.set(`${repo}/${sourceHash}`, manifestHash);
+  }
+
+  async adoptionRead(repo: string, sourceHash: string): Promise<string | null> {
+    return this.adoptions.get(`${repo}/${sourceHash}`) ?? null;
+  }
+
   // Dataflow run operations
   async dataflowRunGet(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
     return this.getDataflowRuns(repo).get(this.makeDataflowRunKey(workspace, runId)) ?? null;
@@ -307,11 +384,32 @@ class InMemoryRefStore implements RefStore {
     this.getDataflowRuns(repo).delete(key);
   }
 
+  drop(repo: string): number {
+    let dropped = this.repositories.delete(repo) ? 1 : 0;
+    for (const records of [this.packages, this.workspaces, this.executions, this.dataflowRuns]) {
+      dropped += records.get(repo)?.size ?? 0;
+      records.delete(repo);
+    }
+    for (const records of [this.owners, this.plans, this.adoptions]) {
+      for (const key of [...records.keys()]) {
+        if (key.startsWith(`${repo}/`)) {
+          records.delete(key);
+          dropped++;
+        }
+      }
+    }
+    return dropped;
+  }
+
   clear(): void {
+    this.repositories.clear();
     this.packages.clear();
     this.workspaces.clear();
     this.executions.clear();
     this.dataflowRuns.clear();
+    this.owners.clear();
+    this.plans.clear();
+    this.adoptions.clear();
   }
 }
 
@@ -324,7 +422,7 @@ class InMemoryRefStore implements RefStore {
  * - Shared locks fail if an exclusive holder exists
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryLockService implements LockService {
+class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
   // Track exclusive locks (at most one per resource)
   private exclusiveLocks = new Map<string, LockState>();
   // Track shared lock count per resource
@@ -340,8 +438,19 @@ class InMemoryLockService implements LockService {
     operation: LockOperation,
     options?: { wait?: boolean; timeout?: number; mode?: 'shared' | 'exclusive' }
   ): Promise<LockHandle | null> {
+    // A waiting acquire polls until the lock is free or its time is up, as the
+    // local service's does, with the same default timeout.
+    const deadline = Date.now() + (options?.wait === true ? (options.timeout ?? 30_000) : 0);
+    for (;;) {
+      const handle = this.tryAcquire(repo, resource, operation, options?.mode ?? 'exclusive');
+      if (handle !== null || Date.now() >= deadline) return handle;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  /** Takes the lock if it is free in `mode`, or returns null. */
+  private tryAcquire(repo: string, resource: string, operation: LockOperation, mode: 'shared' | 'exclusive'): LockHandle | null {
     const key = this.makeLockKey(repo, resource);
-    const mode = options?.mode ?? 'exclusive';
 
     if (mode === 'shared') {
       // Shared mode: fail if exclusive lock is held
@@ -352,9 +461,12 @@ class InMemoryLockService implements LockService {
       const count = this.sharedLockCounts.get(key) ?? 0;
       this.sharedLockCounts.set(key, count + 1);
 
+      let released = false;
       return {
         resource,
         release: async () => {
+          if (released) return;
+          released = true;
           const current = this.sharedLockCounts.get(key) ?? 0;
           if (current <= 1) {
             this.sharedLockCounts.delete(key);
@@ -374,16 +486,19 @@ class InMemoryLockService implements LockService {
 
       const now = new Date();
       const state: LockState = {
-        holder: `.process (pid=${process.pid}, bootId="in-memory", startTime=0, command="test")`,
+        holder: variant('process', { pid: BigInt(process.pid), bootId: 'in-memory', startTime: 0n, command: 'test' }),
         operation,
         acquiredAt: now,
         expiresAt: none,
       };
       this.exclusiveLocks.set(key, state);
 
+      let released = false;
       return {
         resource,
         release: async () => {
+          if (released) return;
+          released = true;
           this.exclusiveLocks.delete(key);
         },
       };
@@ -394,8 +509,21 @@ class InMemoryLockService implements LockService {
     return this.exclusiveLocks.get(this.makeLockKey(repo, resource)) ?? null;
   }
 
-  async isHolderAlive(_holder: string): Promise<boolean> {
+  async isHolderAlive(_holder: LockHolderVariant): Promise<boolean> {
     return true;
+  }
+
+  drop(repo: string): number {
+    let dropped = 0;
+    for (const locks of [this.exclusiveLocks, this.sharedLockCounts]) {
+      for (const key of [...locks.keys()]) {
+        if (key.startsWith(`${repo}:`)) {
+          locks.delete(key);
+          dropped++;
+        }
+      }
+    }
+    return dropped;
   }
 
   clear(): void {
@@ -406,10 +534,14 @@ class InMemoryLockService implements LockService {
 
 /**
  * In-memory implementation of LogStore for testing.
+ *
+ * A log is kept as its UTF-8 bytes and read a window of bytes at a time, as a
+ * local log file is: a window stops short of a character its end would split,
+ * unless it reaches the log's end.
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryLogStore implements LogStore {
-  private logs = new Map<string, string>();
+class InMemoryLogStore implements LogStore, InMemoryRepositoryRecords {
+  private logs = new Map<string, Uint8Array>();
 
   private makeLogKey(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: string): string {
     return `${repo}:${taskHash}:${inputsHash}:${executionId}:${stream}`;
@@ -424,8 +556,12 @@ class InMemoryLogStore implements LogStore {
     data: string
   ): Promise<void> {
     const key = this.makeLogKey(repo, taskHash, inputsHash, executionId, stream);
-    const existing = this.logs.get(key) ?? '';
-    this.logs.set(key, existing + data);
+    const existing = this.logs.get(key) ?? new Uint8Array(0);
+    const added = new TextEncoder().encode(data);
+    const log = new Uint8Array(existing.length + added.length);
+    log.set(existing);
+    log.set(added, existing.length);
+    this.logs.set(key, log);
   }
 
   async read(
@@ -436,19 +572,37 @@ class InMemoryLogStore implements LogStore {
     stream: 'stdout' | 'stderr',
     options?: { offset?: number; limit?: number }
   ): Promise<LogChunk> {
-    const key = this.makeLogKey(repo, taskHash, inputsHash, executionId, stream);
-    const content = this.logs.get(key) ?? '';
+    const log = this.logs.get(this.makeLogKey(repo, taskHash, inputsHash, executionId, stream));
+    if (log === undefined) {
+      return { data: '', offset: 0, size: 0, totalSize: 0, complete: true };
+    }
     const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? content.length - offset;
-    const data = content.slice(offset, offset + limit);
-
+    const window = log.subarray(offset, offset + (options?.limit ?? 65536));
+    const size = offset + window.length >= log.length ? window.length : completeUtf8Length(window) || window.length;
     return {
-      data,
+      data: new TextDecoder().decode(window.subarray(0, size)),
       offset,
-      size: data.length,
-      totalSize: content.length,
-      complete: offset + data.length >= content.length,
+      size,
+      totalSize: log.length,
+      complete: offset + size >= log.length,
     };
+  }
+
+  async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    for (const stream of ['stdout', 'stderr']) {
+      this.logs.delete(this.makeLogKey(repo, taskHash, inputsHash, executionId, stream));
+    }
+  }
+
+  drop(repo: string): number {
+    let dropped = 0;
+    for (const key of [...this.logs.keys()]) {
+      if (key.startsWith(`${repo}:`)) {
+        this.logs.delete(key);
+        dropped++;
+      }
+    }
+    return dropped;
   }
 
   clear(): void {
@@ -460,7 +614,7 @@ class InMemoryLogStore implements LogStore {
  * In-memory implementation of DatasetRefStore for testing.
  */
 /* eslint-disable @typescript-eslint/require-await */
-class InMemoryDatasetRefStore implements DatasetRefStore {
+class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryRecords {
   // Key: "repo:ws:path" -> ref plus its current revision token.
   private refs = new Map<string, { ref: DatasetRef; revision: string }>();
   // Monotonic counter minting opaque revision tokens. Distinct per write, so a
@@ -535,6 +689,17 @@ class InMemoryDatasetRefStore implements DatasetRefStore {
     }
   }
 
+  drop(repo: string): number {
+    let dropped = 0;
+    for (const key of [...this.refs.keys()]) {
+      if (key.startsWith(`${repo}:`)) {
+        this.refs.delete(key);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   clear(): void {
     this.refs.clear();
   }
@@ -547,6 +712,8 @@ class InMemoryDatasetRefStore implements DatasetRefStore {
  * where filesystem access is not needed.
  */
 export class InMemoryStorage implements StorageBackend {
+  /** The backend's own upgrades: none, unless a test gives some */
+  public readonly upgrades: RepositoryUpgrade[];
   public readonly objects: InMemoryObjectStore;
   public readonly refs: InMemoryRefStore;
   public readonly locks: InMemoryLockService;
@@ -554,13 +721,18 @@ export class InMemoryStorage implements StorageBackend {
   public readonly repos: InMemoryRepoStore;
   public readonly datasets: InMemoryDatasetRefStore;
 
-  constructor() {
+  /**
+   * @param options - `upgrades`: the backend's own upgrades, for a test of
+   *   what an open does with a backend's steps
+   */
+  constructor(options: { upgrades?: RepositoryUpgrade[] } = {}) {
+    this.upgrades = options.upgrades ?? [];
     this.objects = new InMemoryObjectStore();
     this.refs = new InMemoryRefStore();
     this.locks = new InMemoryLockService();
     this.logs = new InMemoryLogStore();
-    this.repos = new InMemoryRepoStore();
     this.datasets = new InMemoryDatasetRefStore();
+    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades, [this.refs, this.datasets, this.logs, this.locks]);
   }
 
   async validateRepository(repo: string): Promise<void> {

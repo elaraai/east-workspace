@@ -16,6 +16,11 @@ Supports two modes:
 - **Single-repo mode**: Serve one repository, accessed via `/repos/default`
 - **Multi-repo mode**: Serve multiple repositories from a directory, accessed via `/repos/:name`
 
+The server opens a repository before it serves it, as the CLI does: the one
+repository when it starts, and each of several at its first request. A
+repository an older release wrote is upgraded in place first, and one this e3
+cannot open is refused, naming why and the fix.
+
 ## CLI Usage
 
 ```bash
@@ -45,6 +50,8 @@ e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
 | `--oidc` | Enable built-in OIDC authentication provider |
 | `--token-expiry <duration>` | Access token expiry, e.g., "5s", "15m", "1h" (default: 1h) |
 | `--refresh-token-expiry <duration>` | Refresh token expiry, e.g., "7d", "90d" (default: 90d) |
+| `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves (default: `E3_JOBS`, else the CPUs available) |
+| `--memory <size>` | Memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available, less a reserve for e3 and the OS) |
 
 ## Programmatic Usage
 
@@ -126,9 +133,37 @@ interface ServerConfig {
 
   // Dataset reads and uploads (optional)
   pageByteBudget?: number;        // Byte budget per dataset page (default: 4 MiB)
-  transferPartBytes?: number;     // Part size for protocol-2 uploads (default: 64 MiB)
-  transferCommitWaitMs?: number;  // How long a protocol-2 commit waits before answering `processing` (default: 5000)
+  transferPartBytes?: number;     // Part size for dataset uploads (default: 64 MiB)
+  transferCommitWaitMs?: number;  // How long a commit waits before answering `processing` (default: 5000)
+
+  // Runner processes (optional)
+  budget?: Budget | BudgetSettings;  // Cores and memory every runner the server spawns shares (default: from E3_JOBS / E3_MEMORY, else the machine)
 }
+```
+
+### Mounting the routes on another host
+
+The route factories are exported, so a host that runs e3 on its own backends
+mounts them over its own seams. The repositories' routes list, create and
+remove repositories through the storage backend's `RepoStore`, and the
+repository gate, mounted ahead of every repository's routes, checks that the
+repository exists and is not being removed, and opens it. The dataflow routes
+take the runner, the orchestrator that runs a repository's dataflows, and the
+state store it writes: a poll and a cancel read the latest run from that
+store, whichever instance answers them.
+
+```typescript
+import { Hono } from 'hono';
+import { createExecutionRoutes, createRepositoriesRoutes, createRepositoryGate } from '@elaraai/e3-api-server';
+
+const app = new Hono();
+app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath));
+app.route('/api/repos', createRepositoriesRoutes(storage));
+app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
+  getRunner: (repo) => runnerFor(repo),
+  getOrchestrator: (repo) => orchestratorFor(repo),
+  getStateStore: (repo) => stateStoreFor(repo),
+}));
 ```
 
 ## API Endpoints
@@ -143,7 +178,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 |--------|----------|-------------|
 | GET | `/api/repos` | List available repositories (multi-repo mode) |
 | PUT | `/api/repos/:repo` | Create repository (multi-repo mode) |
-| DELETE | `/api/repos/:repo` | Delete repository (multi-repo mode, async) |
+| DELETE | `/api/repos/:repo` | Remove repository (multi-repo mode): marked as being removed first, so a request to it is refused from then on |
 | GET | `/api/repos/:repo/status` | Repository status (counts) |
 | POST | `/api/repos/:repo/gc` | Start garbage collection (async) |
 | GET | `/api/repos/:repo/gc/:id` | Get GC status |
@@ -154,8 +189,11 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/packages` | List all packages |
 | GET | `/api/repos/:repo/packages/:name/:version` | Get package details |
-| POST | `/api/repos/:repo/packages` | Import package (zip body) |
-| GET | `/api/repos/:repo/packages/:name/:version/export` | Export package as zip |
+| POST | `/api/repos/:repo/import` | Start importing a package zip, as a job: answers the job's id and where to upload the zip |
+| POST | `/api/repos/:repo/import/:id` | Import the uploaded zip |
+| GET | `/api/repos/:repo/import/:id` | Poll an import job |
+| POST | `/api/repos/:repo/packages/:name/:version/export` | Start exporting a package as a zip, as a job: answers the job's id |
+| GET | `/api/repos/:repo/export/:id` | Poll an export job: once it completes, where to download the zip |
 | DELETE | `/api/repos/:repo/packages/:name/:version` | Remove package |
 
 ### Workspaces
@@ -166,33 +204,57 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | POST | `/api/repos/:repo/workspaces` | Create workspace |
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
 | GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary) |
-| POST | `/api/repos/:repo/workspaces/:ws/deploy` | Deploy package to workspace |
+| POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
+| GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing`, what the deploy did for each record and index, or why it failed |
 | DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace |
-| GET | `/api/repos/:repo/workspaces/:ws/export` | Export workspace as package zip |
+| POST | `/api/repos/:repo/workspaces/:ws/export` | Start exporting the workspace as a package zip, as a job polled at `/api/repos/:repo/export/:id` |
+
+A deploy that migrates a record, or builds an index over one, takes as long as
+the record is large, so it runs as a job, on the runner the server runs every
+record operation on. Its request names the package, what the deploy does with a
+record it cannot keep as it is (`schema`: `migrate`, `fail` or `reset`),
+whether it may drop a record the package no longer declares
+(`allowDropRecords`), and whether it only says what it would do (`plan`).
 
 ### Datasets
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/workspaces/:ws/datasets` | List root datasets |
-| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Get dataset value (BEAST2) |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Get dataset value (BEAST2); a value over 1 MB that is not a collection answers JSON `{ url }` to download it from |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?segments=true` | A collection answers JSON `{ manifest }`, the manifest to download it by; any other value as above |
 | PUT | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Set dataset value (BEAST2) |
 
-### Dataset transfer
+A collection is streamed as the splice of its segments. A client whose host
+buffers responses downloads the manifest, the header it names and its segments
+through the objects route and splices them itself, as e3-api-client's
+`datasetGet` does; see
+[`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-download).
 
-Values too large to `PUT` inline are staged and committed. A client adds
-`?protocol=2` to the init and the commit to be planned in parts and to accept a
-commit that answers `processing`; without it the server answers as protocol 1.
-The full protocol is in [`design/e3-api.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-api.md#dataset-transfer).
+### Objects
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload` | Start an upload: `completed` (already stored), `upload` or `upload_parts` |
+| GET | `/api/repos/:repo/objects/:hash` | An object's bytes; one over 1 MB answers JSON `{ url }` to download it from |
+| GET | `/api/downloads/:id` | A download a `{ url }` answer names (no `Authorization`) |
+
+### Dataset transfer
+
+Values too large to `PUT` inline are staged in parts and committed. The init
+and the commit name the protocol version with `?protocol=2`, and the client's
+release with `&release=`, which decides nothing. A request of another version,
+or none, is refused, naming the server's release, the request's, and the fix.
+The full protocol is in
+[`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-transfer).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload` | Start an upload: `completed` (already stored) or `upload_parts` |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id/parts/:n` | URL and headers for part `n` |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Commit: `completed`, `error`, or `processing` |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Poll a commit |
-| PUT | `/api/uploads/:id` | The bytes of a protocol-1 upload (no `Authorization`) |
-| PUT | `/api/uploads/:id/parts/:n` | Part `n` of a protocol-2 upload (no `Authorization`) |
+| PUT | `/api/uploads/:id` | A package zip being imported (no `Authorization`) |
+| PUT | `/api/uploads/:id/parts/:n` | Part `n` of a dataset upload (no `Authorization`) |
 
 ### Tasks
 
@@ -205,11 +267,13 @@ The full protocol is in [`design/e3-api.md`](https://github.com/elaraai/east-wor
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/repos/:repo/workspaces/:ws/dataflow/start` | Start dataflow (async, returns immediately) |
-| POST | `/api/repos/:repo/workspaces/:ws/dataflow/execute` | Execute dataflow (blocking, returns result) |
+| POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
+| POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/logs/:task` | Read task logs |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/state` | Get current execution state |
 
 ## Request/Response Format
 
@@ -303,7 +367,7 @@ BSL 1.1. See [LICENSE.md](./LICENSE.md).
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
   - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Object store, dataflow orchestrator, execution state
   - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
-  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 start`, `e3 watch`, `e3 logs` commands
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 dataflow run`, `e3 watch`, `e3 task logs` commands
   - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 repositories
   - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
   - [@elaraai/e3-api-tests](https://www.npmjs.com/package/@elaraai/e3-api-tests): Shared API compliance test suites

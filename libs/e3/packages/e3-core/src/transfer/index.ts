@@ -7,6 +7,8 @@
 export {
   DatasetUploadType,
   type DatasetUpload,
+  DatasetCommitStatusType,
+  type DatasetCommitStatus,
   PackageImportType,
   PackageImportProgressType,
   PackageImportStatusType,
@@ -15,6 +17,10 @@ export {
   PackageExportProgressType,
   PackageExportStatusType,
   type PackageExport,
+  WorkspaceDeployJobType,
+  type WorkspaceDeployJob,
+  RepoGcJobType,
+  type RepoGcJob,
 } from './types.js';
 
 // Interfaces
@@ -24,6 +30,8 @@ export {
   type DatasetDownloadStore,
   type PackageImportStore,
   type PackageExportStore,
+  type WorkspaceDeployStore,
+  type RepoGcStore,
   type TransferBackend,
 } from './interfaces.js';
 
@@ -38,8 +46,14 @@ export {
 export {
   handleProcessExport,
   handleProcessImport,
+  handleProcessDeploy,
+  handleProcessGc,
   type ProcessExportDeps,
   type ProcessExportInput,
   type ProcessImportDeps,
   type ProcessImportInput,
+  type ProcessDeployDeps,
+  type ProcessDeployInput,
+  type ProcessGcDeps,
+  type ProcessGcInput,
 } from './process.js';

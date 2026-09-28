@@ -4,15 +4,16 @@
  */
 
 /**
- * `<UITaskPreview>` — render a kind:'ui' e3 task.
+ * `<UITaskPreview>` — render an e3 task whose role is `ui`.
  *
- * Pipeline: useTaskDetails → decode manifest → preload manifest reads →
+ * Pipeline: useTaskDetails → the role's manifest → preload manifest reads →
  * register reads with workspace poller → fetch output → render decoded
  * value as a UIComponent tree, scoped to the manifest.
  *
  * Workspace/apiUrl/repo come from the surrounding `<ReactiveDatasetProvider>`
  * by default; can be overridden via the `config` prop (used by `<TaskPreview>`
- * which still takes these as explicit props).
+ * which still takes these as explicit props), whose workspace must be the one
+ * the provider serves.
  *
  * @packageDocumentation
  */
@@ -36,7 +37,6 @@ import type { ValueTypeOf } from '@elaraai/east';
 import type { UIComponentType } from '@elaraai/east-ui';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import type { TreePath } from '@elaraai/e3-types';
-import { decodeManifest } from '@elaraai/e3-ui/internal';
 import {
     useReactiveDatasetCacheOptional,
     usePreloadReactiveDatasets,
@@ -48,18 +48,22 @@ import { createScopedPagedPlatform } from '../platform/paged-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { createScopedRecordPlatform } from '../platform/record-runtime.js';
 import { DecisionBindPlatform } from '../decision/handle-runtime.js';
-import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
+import { useTaskDetails } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
 import { StatusDisplay } from './StatusDisplay.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 export interface UITaskPreviewProps {
-    /** Task name (must have `kind: 'ui'`). */
+    /** Task name (a task whose role is `ui`). */
     task: string;
     /**
-     * Override the surrounding `<E3Provider>` config — useful when a
-     * single page renders previews for multiple workspaces.
+     * Override the surrounding `<E3Provider>`'s server identity, or supply one
+     * where there is none. A `workspace` it names must be the one the
+     * surrounding `<ReactiveDatasetProvider>` serves: `Data.bind` and
+     * `Data.bindPaged` read through process-global runtimes bound to that
+     * workspace, so a page previews one workspace, and a preview whose override
+     * names another shows an error.
      */
     config?: E3Config;
     /**
@@ -95,25 +99,23 @@ export const UITaskPreview = memo(function UITaskPreview({
     const workspace = config?.workspace ?? e3?.workspace ?? null;
     const token = config?.token ?? e3?.token ?? null;
     const requestOptions = { token };
+    // The data bindings read the workspace the provider serves, through
+    // runtimes that are process-global: an override naming another workspace
+    // would render its task over this one's data.
+    const bound = cache?.getConfig().workspace;
+    const foreign = config?.workspace !== undefined && bound !== undefined && config.workspace !== bound;
 
     const detailsQuery = useTaskDetails(apiUrl ?? '', repo, workspace, task, { requestOptions });
     const details = detailsQuery.data;
 
-    const kind = details ? getTaskKind(details) : null;
-    const isUI = kind === 'ui';
+    const manifest = useMemo(() => (details?.role.type === 'ui' ? details.role.value : null), [details]);
 
-    const manifest = useMemo(() => {
-        if (!details || !isUI) return null;
-        const meta = getTaskMetadata(details);
-        return meta ? decodeManifest(meta) : { paths: [], functions: [], records: [], pages: [] };
-    }, [details, isUI]);
-
-    const outputPath = details ? treePathToString(details.output as TreePath) : null;
+    const outputPath = details ? treePathToString(details.output.path) : null;
 
     // Preload manifest paths so Data.bind().read() never misses on first paint.
     const preloads = useMemo<ReactiveDatasetToPreload[]>(
-        () => (manifest && workspace ? manifest.paths.map(path => ({ workspace, path })) : []),
-        [manifest, workspace],
+        () => (manifest && workspace && !foreign ? manifest.paths.map(path => ({ workspace, path })) : []),
+        [manifest, workspace, foreign],
     );
     const { loading: preloading, error: preloadError } = usePreloadReactiveDatasets(preloads);
 
@@ -149,7 +151,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     // Register manifest paths with workspace poller for live updates;
     // unregister on unmount so the poller stops when nothing watches.
     useEffect(() => {
-        if (!cache || !manifest || !workspace) return;
+        if (!cache || !manifest || !workspace || foreign) return;
         for (const path of manifest.paths) {
             cache.setRefetchInterval(workspace, path, pollInterval);
         }
@@ -158,7 +160,7 @@ export const UITaskPreview = memo(function UITaskPreview({
                 cache.clearRefetchInterval(workspace, path);
             }
         };
-    }, [cache, manifest, workspace, pollInterval]);
+    }, [cache, manifest, workspace, pollInterval, foreign]);
 
     // Fetch the output value (no size gate — UI is wanted in full).
     const statusQuery = useDatasetStatus(apiUrl ?? '', repo, workspace, outputPath, { requestOptions });
@@ -176,16 +178,22 @@ export const UITaskPreview = memo(function UITaskPreview({
     const store = useMemo(() => createUIStore(), [task]);
 
     if (!apiUrl) return <StatusDisplay variant="error" title="Configuration error" message="No apiUrl available — render UITaskPreview inside an <E3Provider> or pass a config prop." />;
+    if (foreign) {
+        return <StatusDisplay variant="error" title="Workspace mismatch" message={`config names workspace "${config?.workspace}", and the data bindings read workspace "${bound}", the one the surrounding <ReactiveDatasetProvider> serves: a page previews one workspace.`} />;
+    }
     if (detailsQuery.isLoading) return <StatusDisplay variant="loading" title="Loading task..." />;
     if (detailsQuery.error) return <StatusDisplay variant="error" title="Error" message={detailsQuery.error.message} />;
     if (!details) return <StatusDisplay variant="info" title="No task" message={`Task "${task}" not found`} />;
-    if (!isUI) return <StatusDisplay variant="error" title="Not a UI task" message={`Task "${task}" has kind "${kind ?? '(none)'}"`} />;
+    if (!manifest) return <StatusDisplay variant="error" title="Not a UI task" message={`Task "${task}" is a ${details.role.type} task`} />;
     if (preloadError) return <StatusDisplay variant="error" title="Preload failed" message={preloadError.message} />;
     if (preloading) return <StatusDisplay variant="loading" title="Loading datasets..." />;
+    // Each query's error before its loading state: a query that failed has no
+    // data, and would otherwise show as loading forever.
+    if (statusQuery.error) return <StatusDisplay variant="error" title="Error" message={statusQuery.error.message} />;
     if (statusQuery.isLoading || !statusQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
     if (statusQuery.data.refType !== 'value') return <StatusDisplay variant="info" title="No output yet" message="Task has not produced a value" />;
+    if (valueQuery.error) return <StatusDisplay variant="error" title="Load failed" message={valueQuery.error.message} />;
     if (valueQuery.isLoading || !valueQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
-    if (valueQuery.error) return <StatusDisplay variant="error" title="Decode failed" message={valueQuery.error.message} />;
 
     return (
         <UIStoreProvider store={store}>

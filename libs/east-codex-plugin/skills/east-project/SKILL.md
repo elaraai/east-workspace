@@ -37,13 +37,16 @@ Scaffolding an East project?
 │       └─ pass '.' for the current dir · add `-- --install` to install deps
 │
 ├─ Need custom NATIVE functions?
-│   ├─ One project-owned module (quick)   → add `--platform`  (TS-East; + Python via `--runners=east-node,east-py`)
+│   ├─ One project-owned module (quick)   → add `--platform`  (TS-East, + a Python module while east-py is on — the default)
 │   └─ Split into SEPARATE packages, each its own change-detection boundary:
 │       ├─ Python (numpy / pandas / ML)   → `--python-packages=pricing,forecasting`  → packages/python/*
 │       ├─ Node (TS / Node libraries)     → `--node-packages=api`                     → packages/node/*
 │       └─ C (native binary)              → `--c-packages=solver`                     → packages/native/*
 │
-└─ Run it → npm run setup → npm run start (deploy + dataflow run; add `-v` for runner timing) → npm run watch
+├─ Run it (e3) → npm run setup → npm run start (deploy + dataflow run; add `-v` for runner timing) → npm run watch
+│   (an East project: npm install → npm run test)
+│
+└─ Move the @elaraai/* stack to a newer release → npm create @elaraai/e3@latest -- --update (e3-create skill)
 ```
 
 | Kind | Command | License | Stack |
@@ -81,8 +84,8 @@ runner is also selected — so a fresh project is ready to go with custom platfo
 in whatever runtime(s) it has.
 
 ```bash
-npm create @elaraai/e3 my-project -- --platform                       # TS-East only
-npm create @elaraai/e3 my-project -- --platform --runners=east-node,east-py   # + Python
+npm create @elaraai/e3 my-project -- --platform                       # TS-East, + Python (east-py is on by default)
+npm create @elaraai/e3 my-project -- --platform --runners=east-node   # TS-East only
 ```
 
 **TS-East half (always, runnable after `npm install`):** a `src/platform/`
@@ -150,9 +153,9 @@ itself, run by the default runner with nothing installed where it runs (the
 ## Lifecycle (generated npm scripts)
 
 ```bash
-npm run setup     # npm install + uv sync (e3); npm install (east)
-npm run build     # tsc
-npm run test      # e3: build + export IR + TS & Python tests; east: build + TS tests
+npm run setup     # e3: npm install + uv sync (npm install alone without east-py); an East project has none — npm install
+npm run build     # tsc (after the npm workspace members, in a multi-package project)
+npm run test      # e3: build + export IR + TS (+ Python) tests; east: build + TS tests
 npm run deploy    # e3: repo create (--exist-ok) + workspace deploy --from-source
 npm run start     # e3: deploy, then dataflow run
 npm run watch     # e3: e3 watch ./src/index.ts .repos <ws> --start  (live reload)

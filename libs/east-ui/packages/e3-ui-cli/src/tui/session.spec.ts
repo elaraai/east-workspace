@@ -134,6 +134,26 @@ describe('openSession', () => {
         }
     });
 
+    test('local: a repository this e3 cannot open refuses naming why, and the fix', async () => {
+        // An older e3's repository: its directories, and no repository record.
+        // The embedded server opens it as it starts, and refuses it.
+        const scratch = fs.mkdtempSync(path.join(tmpdir(), 'e3-ui-session-'));
+        const older = path.join(scratch, 'older');
+        fs.mkdirSync(older);
+        repoInit(older);
+        fs.rmSync(path.join(older, 'repository.beast2'));
+        const previousEnv = process.env['E3_REPO'];
+        delete process.env['E3_REPO'];
+        try {
+            await assert.rejects(openSession(older), (err: unknown) =>
+                err instanceof SessionRefusal && err.refusal.kind === 'error' &&
+                err.refusal.message === `the repository at ${older} has no repository record: an older e3 wrote it — re-create it: deploy again and import its data again`);
+        } finally {
+            if (previousEnv !== undefined) process.env['E3_REPO'] = previousEnv;
+            fs.rmSync(scratch, { recursive: true, force: true });
+        }
+    });
+
     test('remote: resolves the token per request and reads the repository', async () => {
         const stub = await stubServer({ bearer, repos: ['demo'] });
         let resolved = 0;

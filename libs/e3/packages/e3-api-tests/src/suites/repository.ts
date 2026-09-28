@@ -6,16 +6,21 @@
 /**
  * Repository operations test suite.
  *
- * Tests: status, gc, create, remove, list
+ * Tests: status, record, gc (a job a poll reads), create, remove, list
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { variant } from '@elaraai/east';
+import { none, some } from '@elaraai/east';
+import { E3_RELEASE } from '@elaraai/e3-types';
 import {
+  ApiError,
   repoStatus,
+  repoRecord,
   repoGc,
+  repoGcStart,
+  repoGcStatus,
   repoCreate,
   repoRemove,
   repoList,
@@ -45,6 +50,20 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       assert.ok(typeof status.workspaceCount === 'bigint');
     });
 
+    it('repoRecord names, for a created repository, the release of e3 that created it', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      const record = await repoRecord(ctx.config.baseUrl, ctx.repoName, opts);
+
+      assert.strictEqual(record.release, E3_RELEASE);
+      // A new repository is in the forms of every upgrade its e3 knows, each
+      // recorded as applied by that release.
+      for (const upgrade of record.upgrades) {
+        assert.strictEqual(upgrade.release, E3_RELEASE, `the upgrade ${upgrade.name} is recorded as this release's`);
+      }
+    });
+
     it('repoGc with dryRun returns stats', async (t) => {
       const ctx = await setup(t);
       const opts = await ctx.opts();
@@ -52,7 +71,7 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       const result = await repoGc(
         ctx.config.baseUrl,
         ctx.repoName,
-        { dryRun: true, minAge: variant('none', null) },
+        { dryRun: true, minAge: none, keepRuns: none, keepDays: none },
         opts
       );
 
@@ -79,7 +98,7 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       const result = await repoGc(
         ctx.config.baseUrl,
         ctx.repoName,
-        { dryRun: false, minAge: variant('none', null) },
+        { dryRun: false, minAge: none, keepRuns: none, keepDays: none },
         opts
       );
 
@@ -112,7 +131,7 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       // Run GC with minAge=0 to force immediate sweep (default skips young objects)
       const result = await repoGc(
         ctx.config.baseUrl, ctx.repoName,
-        { dryRun: false, minAge: variant('some', 0n) },
+        { dryRun: false, minAge: some(0n), keepRuns: none, keepDays: none },
         opts, { pollInterval: 2000 }
       );
 
@@ -125,6 +144,68 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       const statusAfter = await repoStatus(ctx.config.baseUrl, ctx.repoName, opts);
       assert.strictEqual(statusAfter.objectCount, statusBefore.objectCount,
         'object count should be unchanged after GC');
+    });
+
+    it('repoGc keeps the last runs asked for, and the executions a re-run is served from', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      const zipPath = await ctx.createPackage('gc-history-pkg', '1.0.0');
+      await ctx.importPackage(zipPath);
+      await ctx.createWorkspace('gc-history-ws');
+      await ctx.deployPackage('gc-history-ws', 'gc-history-pkg@1.0.0');
+      // Two runs, each executing the task again.
+      for (let i = 0; i < 2; i++) {
+        await dataflowExecute(
+          ctx.config.baseUrl, ctx.repoName, 'gc-history-ws',
+          { force: true }, opts, { pollInterval: 1000, timeout: 120000 }
+        );
+      }
+
+      const result = await repoGc(
+        ctx.config.baseUrl, ctx.repoName,
+        { dryRun: false, minAge: none, keepRuns: some(1n), keepDays: some(0n) },
+        opts, { pollInterval: 2000 }
+      );
+      assert.strictEqual(result.deletedRuns, 1n, 'the first run goes, the last is kept');
+      assert.strictEqual(result.deletedExecutions, 1n, 'the first run\'s execution goes');
+
+      // The execution the workspace's state is served from is kept.
+      const rerun = await dataflowExecute(
+        ctx.config.baseUrl, ctx.repoName, 'gc-history-ws',
+        { force: false }, opts, { pollInterval: 1000, timeout: 120000 }
+      );
+      assert.strictEqual(rerun.cached, 1n, 'the re-run is served from the cache');
+      assert.strictEqual(rerun.executed, 0n);
+    });
+
+    it('repoGcStatus answers the repository that started the job, and refuses another', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const other = `gc-other-${Date.now()}`;
+      await repoCreate(ctx.config.baseUrl, other, opts);
+
+      try {
+        const { executionId } = await repoGcStart(
+          ctx.config.baseUrl, ctx.repoName,
+          { dryRun: true, minAge: none, keepRuns: none, keepDays: none },
+          opts,
+        );
+        await assert.rejects(repoGcStatus(ctx.config.baseUrl, other, executionId, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${err}`);
+          assert.strictEqual(err.code, 'internal');
+          assert.strictEqual((err.details as { message: string }).message, `repository '${other}' has no gc job '${executionId}'`);
+          return true;
+        });
+        const status = await repoGcStatus(ctx.config.baseUrl, ctx.repoName, executionId, opts);
+        assert.ok(['running', 'succeeded'].includes(status.status.type), `the job is ${status.status.type}`);
+      } finally {
+        try {
+          await repoRemove(ctx.config.baseUrl, other, opts);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     });
 
     it('repoCreate creates a new repository', async (t) => {

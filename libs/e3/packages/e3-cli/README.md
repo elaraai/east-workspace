@@ -15,12 +15,18 @@ Every command that takes `<repo>` accepts either a local path or an `http(s)://`
 ### Repository
 
 ```bash
-e3 repo create <repo>                # Create a new repository
+e3 repo create <repo> [--exist-ok]   # Create a new repository
 e3 repo status <repo>                # Show repository status
 e3 repo remove <repo> [-r]           # Remove a repository (-r removes workspaces first)
-e3 repo gc <repo> [--dry-run]        # Remove unreferenced objects
+e3 repo gc <repo> [--dry-run] [--keep-runs <n>] [--keep-days <d>]   # Remove old history and unreferenced objects
 e3 repo list <server-url>            # List repositories on a server
 ```
+
+`repo gc` keeps each workspace's last 10 runs (`--keep-runs`), every run from
+the last 7 days (`--keep-days`) and the run its current state came from, with
+the executions they used; every execution a workspace's current state is served
+from, so a re-run stays cached; and every execution from the last 7 days. The
+rest of the history goes, with the outputs only it kept.
 
 ### Packages
 
@@ -37,12 +43,31 @@ e3 package remove <repo> <pkg>            # Remove a package
 e3 workspace create <repo> <name>                            # Create empty workspace
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]                # Deploy a package
 e3 workspace deploy <repo> <ws> --from-zip <path.zip>        # Import + create + deploy in one shot
+e3 workspace deploy <repo> <ws> --from-source <file.ts>      # Bundle a TypeScript source into a package, then import + create + deploy
 e3 workspace deploy <repo> <ws> … --skip-file-sources        # Leave `file`-source inputs unset
+e3 workspace deploy <repo> <ws> … --functions <path...>      # Function manifests for East.importFunction packages built elsewhere
+e3 workspace deploy <repo> <ws> … --schema <policy>          # A record that cannot be kept as it is: migrate (default), fail, or reset
+e3 workspace deploy <repo> <ws> … --allow-drop-records       # Drop a record the package no longer declares, with its state and history
+e3 workspace deploy <repo> <ws> … --plan                     # Say what the deploy would do to each record and index; write nothing
 e3 workspace export <repo> <ws> <zip>                        # Export workspace as a package
 e3 workspace list <repo>                                     # List workspaces
 e3 workspace status <repo> <ws>                              # Detailed workspace status
 e3 workspace remove <repo> <ws>                              # Remove a workspace
 ```
+
+A deploy decides what to do with each record before it writes anything. It
+mints a new record's `$init` commit, keeps one whose migrations have all been
+applied (with a `$deploy` commit when the package changed), and runs the
+migrations a workspace has not applied, a `$migrate:<name>` commit each. A
+record whose type changed with no migration, or whose applied steps the
+package's chain does not start with, is refused, and so is a record the
+package no longer declares, unless `--allow-drop-records`. `--schema fail`
+runs no migration and refuses instead; `--schema reset` resets such a record to
+the package's initial value, with a `$reset` commit. `--plan` prints the plan
+and writes nothing. From a zip or a source it imports nothing: it reads the
+package from the zip where it is. A server plans only a package it holds, so
+there it is refused: `e3 package import` the zip, then plan the package by
+name.
 
 ### Datasets
 
@@ -51,38 +76,65 @@ Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
+e3 dataset set <repo> <ws.name> --from-file <path.beast2>   # Take a beast2 file in as the value, a segment at a time
 e3 dataset list <repo> <ws> [-l]                # List dataset paths (with -l for table view)
 e3 dataset status <repo> <ws.name>              # Show one dataset's kind/type/status/size
 e3 dataset find <repo> <ws> <pattern>           # Substring or glob (`*`, `?`) match across names
+```
+
+### Records
+
+A record is written only through its mutations — a raw `dataset set` on one is
+refused — and `-w` names the workspace that holds it. Read its state with
+`dataset get`, like any dataset.
+
+```bash
+e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]    # Apply a mutation; args are .east literals or .beast2/.json/.east files
+e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]   # The commit chain, newest first (--delta: local repositories)
+e3 reindex <repo> <record> -w <ws> [--index <name>]          # Rebuild an index from the record (every one by default)
+e3 compact <repo> <record> -w <ws>                           # Collapse the history to a $compact root; the state is kept
 ```
 
 ### Tasks
 
 ```bash
 e3 task list <repo> <ws>                        # List tasks with execution status
-e3 task logs <repo> <ws.task> [--follow]        # Stream task logs
-e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log — a unit a partitioned task's log names (local repositories)
+e3 task logs <repo> <ws.task>                   # The last 200 lines of a task's logs (-n <lines> for more, --all for the whole log)
+e3 task logs <repo> <ws.task> --follow          # Tail, then stream live output
+e3 task logs <repo> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log — a unit a split task's log names (local repositories)
 ```
 
 ### Dataflow execution
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--memory <size>] [--force] [-v]
 ```
 
-`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
-e3 keeps in flight at once, across the dataflow's tasks and the partitions and
-merge units of its partitioned tasks alike (every runner takes one slot, first
-come first served, whatever launched it). It defaults to the CPUs available to
-e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
-older `--concurrency` and `--partition-concurrency` are accepted as deprecated
-aliases of the same budget.
+`-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
+e3 spawns. `-j` is its cores: the runners in flight at once, across the
+dataflow's tasks and the pieces and merge units of its split tasks alike (every
+runner takes one, first come first served, whatever launched it). `--memory` is
+the memory those runners may reserve between them, as `8G` or `512M`. They
+default to `E3_JOBS` and `E3_MEMORY`, else to what e3 may use: the CPUs of its
+affinity mask, capped by a cgroup quota, and the cgroup's `memory.max` or else
+physical memory, less a reserve for e3 and the OS.
 
-A local run's per-execution scratch directories are created under
-`E3_SCRATCH_DIR`, or the system temp directory when unset; a tmpfs temp
-directory holds an output in memory until it is stored, so large outputs want
-it on a disk. A scratch directory left by a dead process is removed by the next
-run or `e3 repo gc`.
+A unit of a split task reserves the largest peak memory a unit of its stage
+(its pieces, or one level of its merges) has reached in the run, so each stage
+runs its first unit alone and then fans out. Anything else reserves nothing. On
+Linux and macOS a guard stops the newest such unit when the runners together
+pass the budget, and runs it again once there is room.
+
+`e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
+`e3 workspace deploy` take the same two flags for a local repository. Against a
+server they are refused: it runs the work under its own budget
+(`e3-api-server -j` / `--memory`).
+
+A local run's per-execution scratch directories are created inside the
+repository, under `<repo>/tmp/scratch` — on the object store's filesystem, so
+an output that is not a collection is stored by a link rather than a copy — or
+under `E3_SCRATCH_DIR` when it is set. A scratch directory left by a dead process is removed by the
+next run or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block to the task's logs (`e3 task logs <repo> <ws.task>`) — identical across
@@ -94,24 +146,45 @@ Also on `e3 run`, `e3 call`, and `e3 mutate` — local and remote repositories
 After a successful run, the CLI prints the task output paths so you can read them straight away:
 
 ```
-Summary: 2 executed, 0 cached, ...
+Summary:
+  Executed: 2
+  Cached:   0
+  Failed:   0
+  Skipped:  0
+  Duration: 412ms
+
 Outputs:
-  dev.greet  String  14 B
-  dev.shout  String  16 B
+  dev.greet  14 B
+  dev.shout  16 B
 ```
 
 ### Ad-hoc task execution
 
 ```bash
 e3 run <repo> <pkg.task> <inputs...> -o <out>
-e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [-v]
+e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [--force] [-v] [-j <n>] [--memory <size>]
 ```
+
+### Function calls
+
+```bash
+e3 call <repo> <pkg.fn> [args...]            # Call by package: pkg.fn or pkg@1.0.0.fn
+e3 call <repo> -w <ws> <fn> [args...]        # Call the workspace's deployed package
+e3 call <repo> <pkg.fn> 2 3 -o sum.beast2    # Write the raw result to a file
+```
+
+Arguments are `.east` literals or paths to `.beast2` / `.json` / `.east` files,
+parsed against the function's parameter types. A call triggers no dataflow and
+writes nothing to the repository.
 
 ### Watch / live development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [--schema <policy>] [-j <n>] [--memory <size>] [--abort-on-change] [--functions <path...>]
 ```
+
+`--schema` is the deploy's (`e3 workspace deploy`); a record whose type changes
+with no migration stops the watch, naming `--schema=reset`.
 
 ### Authentication
 
@@ -145,7 +218,7 @@ The completion script delegates dynamic lookups (workspace names, dataset paths,
 
 ### Defaulting the repository
 
-When the positional `<repo>` is optional (every command that takes one as the first argument, except `run` and `watch`), the value is resolved in this order:
+When the positional `<repo>` is optional (every command that takes one as the first argument, except `run`, `call`, `mutate`, `history`, `compact`, `reindex` and `watch`), the value is resolved in this order:
 
 1. Explicit positional argument.
 2. `E3_REPO` environment variable.
@@ -191,6 +264,7 @@ release may reshape it. Application code should use
 | `e3 workspace import <repo> <ws> <zip>`          | `e3 workspace deploy <repo> <ws> --from-zip <zip>`    |
 | `e3 run <repo> <pkg>/<task>`                     | `e3 run <repo> <pkg>.<task>`                          |
 | `e3 watch <repo> <ws> <source>`                  | `e3 watch <source> <repo> <ws>`                       |
+| `--concurrency <n>`, `--partition-concurrency <n>` | `-j <n>` / `--jobs <n>`                             |
 
 ## Example
 
@@ -259,7 +333,7 @@ BSL 1.1. See [LICENSE.md](./LICENSE.md).
   - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
   - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Object store, dataflow orchestrator, execution state
   - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
-  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 start`, `e3 watch`, `e3 logs` commands
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 dataflow run`, `e3 watch`, `e3 task logs` commands
   - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 repositories
   - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
   - [@elaraai/e3-api-tests](https://www.npmjs.com/package/@elaraai/e3-api-tests): Shared API compliance test suites

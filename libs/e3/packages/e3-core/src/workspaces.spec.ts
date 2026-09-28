@@ -9,12 +9,12 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StringType, variant, some, none, encodeBeast2For } from '@elaraai/east';
+import { StringType, variant, some, none, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  EnvironmentSpecType, TaskObjectType, PackageObjectType, WorkspaceStateType,
+  E3_RELEASE, EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import type { TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
@@ -31,7 +31,7 @@ import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
 } from './errors.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -75,11 +75,13 @@ describe('workspaces', () => {
       assert.ok(existsSync(wsFile));
     });
 
-    it('creates empty file (undeployed)', async () => {
+    it('creates an undeployed workspace, whose record is none', async () => {
       await workspaceCreate(storage, testRepo, 'empty');
 
       const state = await workspaceGetState(storage, testRepo, 'empty');
       assert.strictEqual(state, null);
+      const record = decodeBeast2For(WorkspaceRecordType)(readFileSync(join(testRepo, 'workspaces', 'empty.beast2')));
+      assert.strictEqual(record.type, 'none');
     });
   });
 
@@ -292,10 +294,14 @@ describe('workspaces', () => {
       // tasks referencing the env specs
       const taskEnc = encodeBeast2For(TaskObjectType);
       const mkTask = (envHash: string, out: string): TaskObject => ({
-        commandIr, inputs: [], output: [variant('field', out)],
-        kind: none, metadata: none, runner: variant('custom', { command: [] }),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr }),
+        runner: variant('custom', { command: [] }),
+        inputs: [],
+        output: { path: [variant('field', out)], kind: variant('value', null) },
+        role: variant('data', null),
         environment: some(envHash),
-      } as TaskObject);
+      });
       const toolsTask = await storage.objects.write(testRepo, taskEnc(mkTask(toolsEnv, 'tools_out')));
       const wnTask = await storage.objects.write(testRepo, taskEnc(mkTask(wnEnv, 'wn_out')));
 
@@ -314,7 +320,7 @@ describe('workspaces', () => {
         packageName: 'envbundle', packageVersion: '1.0.0', packageHash: pkgHash,
         deployedAt: new Date(), currentRunId: none,
       };
-      writeFileSync(join(wsDir, 'envws.beast2'), encodeBeast2For(WorkspaceStateType)(state));
+      writeFileSync(join(wsDir, 'envws.beast2'), encodeBeast2For(WorkspaceRecordType)(some(state)));
 
       // export → import into a FRESH repo
       const exportZip = join(tempDir, 'envbundle.zip');
@@ -424,6 +430,54 @@ describe('workspaces', () => {
 
         // Tasks should be the same
         assert.strictEqual(exportedPkg.tasks.size, originalPkg.tasks.size);
+      } finally {
+        removeTestRepo(testRepo2);
+      }
+    });
+
+    it('carries the release that exported it, first, the executions its current run used, and no record of the run', async () => {
+      const pkg = e3.package('run-export', '1.0.0', e3.input('value', StringType, variant('value', 'initial')));
+      const importZip = join(tempDir, 'run-export.zip');
+      await e3.export(pkg, importZip);
+      await packageImport(storage, testRepo, importZip);
+      await workspaceDeploy(storage, testRepo, 'ws', 'run-export', '1.0.0');
+
+      // A run that used one execution, as the workspace's current run.
+      const taskHash = 'a'.repeat(64);
+      const inputsHash = 'b'.repeat(64);
+      const executionId = '0190a0b0-5555-7000-8000-000000000000';
+      const runId = '0190a0b0-6666-7000-8000-000000000000';
+      await storage.refs.executionWrite(testRepo, taskHash, inputsHash, executionId, variant('cancelled', {
+        executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
+      }));
+      await storage.refs.dataflowRunWrite(testRepo, 'ws', {
+        runId, workspaceName: 'ws', packageRef: 'run-export@1.0.0', startedAt: new Date(0), completedAt: none,
+        status: variant('completed', {}), inputVersions: new Map(), outputVersions: none,
+        taskExecutions: new Map([['task', {
+          executionId, taskHash, inputsHash, cached: false, outputVersions: new Map(), executionCount: 1n,
+        }]]),
+        summary: { total: 1n, completed: 1n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
+      });
+      const state = (await workspaceGetState(storage, testRepo, 'ws'))!;
+      await storage.refs.workspaceWrite(testRepo, 'ws',
+        encodeBeast2For(WorkspaceRecordType)(some({ ...state, currentRunId: some(runId) })));
+
+      const exportZip = join(tempDir, 'run-exported.zip');
+      await workspaceExport(storage, testRepo, 'ws', exportZip, 'run-exported', '1.0.0');
+      const entries = await readZipEntries(exportZip);
+      const names = [...entries.keys()];
+      assert.strictEqual(names[0], 'release.beast2');
+      assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE);
+      assert.deepStrictEqual(names.filter((name) => name.startsWith('dataflows/')), [], 'no run record');
+      assert.ok(names.includes(`executions/${taskHash}/${inputsHash}/${executionId}/status.beast2`), 'the execution travels');
+
+      // The importing repository gets the execution, and no run.
+      const testRepo2 = createTestRepo();
+      const storage2 = new LocalStorage();
+      try {
+        await packageImport(storage2, testRepo2, exportZip);
+        assert.ok(await storage2.refs.executionGet(testRepo2, taskHash, inputsHash, executionId));
+        assert.deepStrictEqual(await storage2.refs.dataflowRunList(testRepo2, 'ws'), []);
       } finally {
         removeTestRepo(testRepo2);
       }

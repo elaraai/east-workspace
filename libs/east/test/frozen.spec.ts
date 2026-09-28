@@ -22,7 +22,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   East, isFrozenValue, equalFor, compareFor, printFor, parseFor, fromJSONFor, toJSONFor,
-  encodeBeast2For, decodeBeast2For, encodeBeast2PagedFor, openBeast2LazyFor, isBeast2LazySafe,
+  encodeBeast2For, decodeBeast2For, encodeBeast2SegmentsFor, openBeast2LazyFor, isBeast2LazySafe,
   ArrayType, SetType, DictType, StructType, RecursiveType, RefType, FunctionType, OptionType,
   IntegerType, FloatType, StringType, NullType, BooleanType, VectorType, MatrixType, BlobType, DateTimeType,
   ref,
@@ -206,7 +206,8 @@ describe("frozen parity — equality, ordering, print, encode", () => {
 });
 
 describe("frozen lazy opens — the collapsed gate", () => {
-  const SWEEP_BATCH = { batchSize: 2 };
+  // The blobs below hold segments of two, so the reads sweep across segment
+  // boundaries.
   const NestedTable = DictType(StringType, StructType({ xs: ArrayType(IntegerType) }));
   const nested = new Map<string, { xs: bigint[] }>([
     ["a", { xs: [1n, 2n] }], ["b", { xs: [] }], ["c", { xs: [3n] }], ["d", { xs: [4n, 5n] }], ["e", { xs: [6n] }],
@@ -224,7 +225,7 @@ describe("frozen lazy opens — the collapsed gate", () => {
   });
 
   test("a frozen lazy dict serves frozen values, and matches the eager frozen decode", () => {
-    const blob = encodeBeast2PagedFor(NestedTable, SWEEP_BATCH)(nested);
+    const blob = encodeBeast2SegmentsFor(NestedTable)([0, 2, 4].map((at) => new Map([...nested].slice(at, at + 2))));
     const lazy = openBeast2LazyFor(NestedTable, { frozen: true })(blob);
     const eager = decodeBeast2For(NestedTable, { frozen: true })(blob);
 
@@ -237,7 +238,7 @@ describe("frozen lazy opens — the collapsed gate", () => {
   });
 
   test("mutating a frozen lazy value throws without hydrating", () => {
-    const blob = encodeBeast2PagedFor(NestedTable, SWEEP_BATCH)(nested);
+    const blob = encodeBeast2SegmentsFor(NestedTable)([0, 2, 4].map((at) => new Map([...nested].slice(at, at + 2))));
     const lazy = openBeast2LazyFor(NestedTable, { frozen: true })(blob);
     assert.throws(() => (lazy as Map<string, unknown>).set("z", { xs: [] }), /Cannot modify frozen SortedMap/);
     assert.throws(() => (lazy as Map<string, unknown>).delete("a"), /Cannot modify frozen SortedMap/);
@@ -255,7 +256,7 @@ describe("frozen lazy opens — the collapsed gate", () => {
     assert.equal(isBeast2LazySafe(Rows), false);
     assert.equal(isBeast2LazySafe(Rows, { frozen: true }), true);
 
-    const blob = encodeBeast2PagedFor(Rows, SWEEP_BATCH)(rows);
+    const blob = encodeBeast2SegmentsFor(Rows)([0, 2, 4].map((at) => rows.slice(at, at + 2)));
     const lazy = openBeast2LazyFor(Rows, { frozen: true })(blob);
     assert.equal(lazy.length, rows.length);
     assert.ok(Object.isFrozen(lazy[2]), "pager-served element is frozen");

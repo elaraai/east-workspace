@@ -11,7 +11,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { variant } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import { fakeRepo } from '../api.fake.js';
 import { createFeeds } from './feeds.js';
 import { initialState } from '../state/actions.js';
@@ -48,7 +48,7 @@ const settle = async (): Promise<void> => {
 const session = { kind: 'local' as const, label: 'demo-repo', repo: 'default', apiUrl: 'http://x', path: '/x', origin: null, identity: null, stateKey: '/x', target: '/x' };
 
 describe('feeds', () => {
-    test('the dashboard mounts status, execution, datasets, task list, workspace state and the workspace list', async () => {
+    test('the dashboard mounts status, execution, datasets, task list, workspace state, the budget and the workspace list', async () => {
         const api = fakeRepo();
         api.task('main', { name: 'left', status: variant('ready', null), inputs: ['.inputs.a'], dependsOn: [] });
         api.input('main', { name: 'a', type: { type: 'Integer', value: null } as never, value: 1n });
@@ -59,7 +59,7 @@ describe('feeds', () => {
         const feeds = createFeeds({ store, api: () => api, clock });
         feeds.start();
         await settle();
-        assert.deepEqual(feeds.pollers().map(p => p.status().key).sort(), ['datasets:main', 'execution:main', 'status:main', 'taskList:main', 'workspaceState:main', 'workspaces']);
+        assert.deepEqual(feeds.pollers().map(p => p.status().key).sort(), ['budget:main', 'datasets:main', 'execution:main', 'status:main', 'taskList:main', 'workspaceState:main', 'workspaces']);
         const state = store.getState();
         assert.equal(state.data.status['main']?.result.tasks[0]?.name, 'left');
         assert.equal(state.data.workspaces?.[0]?.name, 'main');
@@ -90,7 +90,7 @@ describe('feeds', () => {
         const feeds = createFeeds({ store, api: () => api, clock });
         feeds.start();
         await settle();
-        api.run({ events: [variant('start', { task: 'a', timestamp: 't' }), variant('complete', { task: 'a', timestamp: 't', duration: 1_500 })], final: 'completed' });
+        api.run({ events: [variant('start', { task: 'a', timestamp: 't' }), variant('complete', { task: 'a', timestamp: 't', duration: 1_500, peakBytes: none })], final: 'completed' });
         await api.dataflowExecuteLaunch('main');
         feeds.refresh();
         await settle();

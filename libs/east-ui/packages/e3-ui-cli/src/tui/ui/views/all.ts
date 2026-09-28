@@ -16,3 +16,4 @@ import './repos.js';
 import './workspaces.js';
 import './task.js';
 import './input.js';
+import './record.js';

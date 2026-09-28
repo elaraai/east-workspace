@@ -14,13 +14,16 @@ import {
   StructType,
   StringType,
   IntegerType,
+  BooleanType,
   VariantType,
   NullType,
   OptionType,
   DateTimeType,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { PackageImportProgressType, PackageExportProgressType } from '@elaraai/e3-types';
+import {
+  GcRequestType, GcStatusResultType, PackageImportProgressType, PackageExportProgressType, SchemaPolicyType, WorkspaceDeployStatusType,
+} from '@elaraai/e3-types';
 export { PackageImportProgressType, PackageExportProgressType };
 
 // =============================================================================
@@ -36,6 +39,23 @@ export const DatasetUploadType = StructType({
 });
 
 export type DatasetUpload = ValueTypeOf<typeof DatasetUploadType>;
+
+/**
+ * How a dataset upload's commit stands, as a store keeps it for a poll:
+ * `processing` while the staged bytes are verified and taken in; `completed`
+ * once the dataset names them; `failed`, naming why, when they are not the
+ * upload's bytes or cannot be taken in; and `type_mismatch` when they are not
+ * of the type the dataset declares, which the API answers as its
+ * `dataset_type_mismatch` error.
+ */
+export const DatasetCommitStatusType = VariantType({
+  processing: NullType,
+  completed: NullType,
+  failed: StructType({ message: StringType }),
+  type_mismatch: StructType({ path: StringType, message: StringType }),
+});
+
+export type DatasetCommitStatus = ValueTypeOf<typeof DatasetCommitStatusType>;
 
 // =============================================================================
 // Package Import
@@ -83,3 +103,46 @@ export const PackageExportType = StructType({
 });
 
 export type PackageExport = ValueTypeOf<typeof PackageExportType>;
+
+// =============================================================================
+// Workspace Deploy
+// =============================================================================
+
+/**
+ * A deploy job, as a store keeps it.
+ *
+ * @remarks
+ * The package is resolved when the job is created, so the job deploys the
+ * version the request was checked against, even when a later one is imported
+ * while it waits.
+ */
+export const WorkspaceDeployJobType = StructType({
+  repo: StringType,
+  workspace: StringType,
+  packageName: StringType,
+  packageVersion: StringType,
+  schema: SchemaPolicyType,
+  allowDropRecords: BooleanType,
+  plan: BooleanType,
+  status: WorkspaceDeployStatusType,
+  createdAt: DateTimeType,
+});
+
+export type WorkspaceDeployJob = ValueTypeOf<typeof WorkspaceDeployJobType>;
+
+// =============================================================================
+// Repository GC
+// =============================================================================
+
+/**
+ * A gc job, as a store keeps it: the repository, what gc was asked to keep
+ * and whether to delete, and the status a poll reads.
+ */
+export const RepoGcJobType = StructType({
+  repo: StringType,
+  request: GcRequestType,
+  status: GcStatusResultType,
+  createdAt: DateTimeType,
+});
+
+export type RepoGcJob = ValueTypeOf<typeof RepoGcJobType>;

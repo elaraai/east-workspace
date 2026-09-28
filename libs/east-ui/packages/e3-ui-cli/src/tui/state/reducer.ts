@@ -21,6 +21,7 @@ import {
     type TuiState,
     type View,
     emptyCommand,
+    emptyTree,
     isLogTab,
 } from './actions.js';
 
@@ -60,6 +61,9 @@ function primaryList(view: View): { list: ListUi; set: (list: ListUi) => View } 
             return null;
         case 'input':
             return { list: view.tree, set: (list) => ({ ...view, tree: { ...view.tree, ...list } }) };
+        case 'record':
+            if (view.tab === 'history') return { list: view.history, set: (list) => ({ ...view, history: list }) };
+            return { list: view.tree, set: (list) => ({ ...view, tree: { ...view.tree, ...list } }) };
         default:
             return null;
     }
@@ -69,6 +73,7 @@ function primaryList(view: View): { list: ListUi; set: (list: ListUi) => View } 
 function primaryTree(view: View): { tree: TreeUi; set: (tree: TreeUi) => View } | null {
     if (view.kind === 'task' && view.tab === 'output') return { tree: view.tree, set: (tree) => ({ ...view, tree }) };
     if (view.kind === 'input') return { tree: view.tree, set: (tree) => ({ ...view, tree }) };
+    if (view.kind === 'record' && view.tab === 'state') return { tree: view.tree, set: (tree) => ({ ...view, tree }) };
     return null;
 }
 
@@ -209,6 +214,10 @@ export function reduce(state: TuiState, action: Action): TuiState {
         }
         case 'task/tab':
             return state.view.kind === 'task' ? { ...state, view: { ...state.view, tab: action.tab } } : state;
+        case 'record/tab':
+            return state.view.kind === 'record' ? { ...state, view: { ...state.view, tab: action.tab } } : state;
+        case 'record/index':
+            return state.view.kind === 'record' ? { ...state, view: { ...state.view, index: action.index, tree: emptyTree() } } : state;
         case 'runs/expand':
             return state.view.kind === 'task' ? { ...state, view: { ...state.view, runs: { ...state.view.runs, expanded: action.expanded } } } : state;
         case 'logs/follow':
@@ -313,6 +322,8 @@ export function reduce(state: TuiState, action: Action): TuiState {
                 },
             };
         }
+        case 'data/budget':
+            return { ...state, data: { ...state.data, budget: { ...state.data.budget, [action.ws]: action.budget } } };
         case 'data/datasets':
             return { ...state, data: { ...state.data, datasets: { ...state.data.datasets, [action.ws]: action.entries } } };
         case 'data/taskList':
@@ -328,12 +339,14 @@ export function reduce(state: TuiState, action: Action): TuiState {
             if (current === undefined) return state;
             return { ...state, data: { ...state.data, dataset: nested(state.data.dataset, action.ws, action.path, { ...current, mode: action.mode }) } };
         }
+        case 'data/record':
+            return { ...state, data: { ...state.data, records: nested(state.data.records, action.ws, action.name, action.data) } };
         case 'data/logs': {
             const forTask = { ...(state.data.logs[action.ws]?.[action.task] ?? {}), [action.stream]: action.logs };
             return { ...state, data: { ...state.data, logs: nested(state.data.logs, action.ws, action.task, forTask) } };
         }
         case 'data/reset':
-            return { ...state, data: { ...state.data, status: {}, statusError: {}, execution: {}, datasets: {}, taskList: {}, taskDetails: {}, executions: {}, dataset: {}, logs: {} } };
+            return { ...state, data: { ...state.data, status: {}, statusError: {}, execution: {}, budget: {}, datasets: {}, taskList: {}, taskDetails: {}, executions: {}, dataset: {}, records: {}, logs: {} } };
 
         // -- editing -------------------------------------------------------
         case 'edit/set':

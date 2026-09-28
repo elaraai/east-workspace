@@ -227,7 +227,7 @@ help:
 	@echo ""
 	@echo "  test              - Run all tests"
 	@echo "  test-east-py      - Run east-py compliance tests"
-	@echo "  test-east-py-cli  - Run east-py-cli tests (runner --emit/--stream, transpile)"
+	@echo "  test-east-py-cli  - Run east-py-cli tests (run, exec, transpile, lint)"
 	@echo "  test-conformance  - IR -> python -> IR round trip over the corpus + examples (#627)"
 	@echo "  test-east-py-std  - Run east-py-std tests"
 	@echo "  test-east-py-io   - Run east-py-io tests"

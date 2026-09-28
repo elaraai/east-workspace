@@ -7,9 +7,9 @@
  * Completion — `complete(text, catalogue)` turns what is typed in the
  * command box into at most eight fuzzy-ranked candidates, each carrying its
  * status, type and size so the list doubles as a status line. A leading `/`
- * completes command names, then that command's arguments; anything else is
- * a fuzzy jump across every workspace, task, input and dataset of the open
- * repository.
+ * completes command names, then that command's arguments — `/index` the
+ * shown record's indexes; anything else is a fuzzy jump across every
+ * workspace, task, input, record and dataset of the open repository.
  *
  * @packageDocumentation
  */
@@ -22,7 +22,7 @@ export const MAX_CANDIDATES = 8;
 
 /** One thing that can be jumped to or named in a command. */
 export interface CatalogueItem {
-    kind: 'task' | 'input' | 'dataset' | 'workspace' | 'repo';
+    kind: 'task' | 'input' | 'record' | 'dataset' | 'workspace' | 'repo';
     name: string;
     /** The workspace the item belongs to (tasks, inputs, datasets). */
     workspace: string | null;
@@ -39,6 +39,8 @@ export interface Catalogue {
     items: CatalogueItem[];
     /** Variant tags offered by `/tag` on the selected row, if any. */
     tags?: string[] | undefined;
+    /** What `/index` offers in a record view: `primary`, then each index with its key and what it reads. */
+    indexes?: { name: string; key: string; detail: string }[] | undefined;
 }
 
 /**
@@ -119,6 +121,12 @@ export function complete(text: string, catalogue: Catalogue): Candidate[] {
             return byKind(['task']);
         case 'input':
             return byKind(['input']);
+        case 'record':
+            return byKind(['record']);
+        case 'index':
+            return rank(partial, catalogue.indexes ?? [], i => i.name)
+                .slice(0, MAX_CANDIDATES)
+                .map(i => ({ kind: 'index' as const, insert: `/index ${i.name}`, cells: ['/index', i.name, i.key, i.detail] }));
         case 'dataset':
             return byKind(['dataset']);
         case 'workspace':

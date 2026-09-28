@@ -7,13 +7,15 @@ import * as path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve, type ServerType } from '@hono/node-server';
-import { LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend } from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
+import {
+  Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, InMemoryTransferBackend, resolveBudget, checkName, repositoryOpen,
+} from '@elaraai/e3-core';
+import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
+import { createRepositoryGate, createSingleRepositoryGate } from './middleware/repository.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
-import { sendError, sendSuccessWithStatus, sendSuccess } from './beast2.js';
-import { StringType, NullType, variant, ArrayType } from '@elaraai/east';
-import { errorToVariant } from './errors.js';
+import { configureFramePool } from '@elaraai/east';
+import { createRepositoriesRoutes, createSingleRepositoryRoutes } from './routes/repositories.js';
 import { createPackageRoutes } from './routes/packages.js';
 import { createWorkspaceRoutes } from './routes/workspaces.js';
 import { createDatasetRoutes } from './routes/datasets.js';
@@ -26,6 +28,7 @@ import { createPackageTransferRoutes } from './routes/package-transfer.js';
 import { createDataEndpoints } from './routes/data.js';
 import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes } from './routes/functions.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
+import { localDataflow } from './local-dataflow.js';
 
 export type { AuthConfig } from './middleware/auth.js';
 export type { OidcConfig } from './auth/index.js';
@@ -55,15 +58,22 @@ export interface ServerConfig {
   /** Byte budget clamping each dataset page's share of the source blob
    *  (default: 4 MiB). Lower it for deployments with tight response limits. */
   pageByteBudget?: number;
-  /** Size of the parts a dataset upload is sent in, for a client that speaks
-   *  transfer protocol 2 (default: 64 MiB). An upload no larger is one part;
-   *  a smaller size suits a proxy that caps request bodies. */
+  /** Size of the parts a dataset upload is sent in (default: 64 MiB). An
+   *  upload no larger is one part; a smaller size suits a proxy that caps
+   *  request bodies. */
   transferPartBytes?: number;
-  /** How long a protocol-2 dataset commit waits for the upload to be verified
-   *  before answering `processing` for the client to poll (default: 5000 ms;
-   *  0 answers `processing` at once). Keep it under any proxy's request
+  /** How long a dataset commit waits for the upload to be verified before
+   *  answering `processing` for the client to poll (default: 5000 ms; 0
+   *  answers `processing` at once). Keep it under any proxy's request
    *  timeout. */
   transferCommitWaitMs?: number;
+  /** The server's budget of cores and memory, which every runner process it
+   *  spawns takes from: dataflow tasks and units, function calls, mutations
+   *  and index builds, across every run. A {@link Budget}, or the settings
+   *  to resolve one from, as `-j` and `--memory` give them (default:
+   *  `E3_JOBS` and `E3_MEMORY`, else what the process may use); settings
+   *  that do not resolve make `createServer` throw a `RangeError`. */
+  budget?: Budget | BudgetSettings;
 }
 
 /**
@@ -92,12 +102,18 @@ export interface Server {
  *
  * @param config - Server configuration
  * @returns Server instance
+ * @throws {RangeError} When the budget's settings do not resolve
+ * @throws {RepoNotFoundError} When the single repository is none
+ * @throws {RepoLayoutError} When this e3 cannot open the single repository
  */
 export async function createServer(config: ServerConfig): Promise<Server> {
   const {
     reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageByteBudget,
     transferPartBytes, transferCommitWaitMs,
   } = config;
+  const budget = config.budget instanceof Budget ? config.budget : resolveBudget(config.budget);
+  // The store door frames on e3's own pool, whose workers take cores too.
+  configureFramePool({ workers: Math.min(DOOR_FRAME_WORKERS, budget.cores) });
 
   // Validate config: exactly one of reposDir or singleRepoPath must be specified
   if (reposDir && singleRepoPath) {
@@ -113,6 +129,12 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Pass reposDir for multi-repo mode to enable storage.repos.* operations
   const storage: StorageBackend = new LocalStorage(isSingleRepoMode ? undefined : reposDir);
 
+  // The one repository is opened before anything is served, as the CLI opens
+  // one: refused when this e3 cannot read it, and upgraded in place when an
+  // older release wrote it. Several are each opened by every request to them
+  // (the middleware below).
+  if (isSingleRepoMode) await repositoryOpen(storage, singleRepoPath!);
+
   // Helper to compute repo path from repo name
   // In single-repo mode, middleware validates 'default' before routes are called
   const getRepoPath = (repoName: string): string => {
@@ -120,6 +142,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       // Middleware ensures repoName === 'default' before we get here
       return singleRepoPath!;
     }
+    // A name from the URL becomes a directory under reposDir, never a path out
+    // of it.
+    checkName('repository', repoName);
     return path.join(reposDir!, repoName);
   };
 
@@ -153,11 +178,27 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     app.route('/', oidcProvider.routes);
   }
 
-  // Transfer backend for presigned URL object transfer
+  // Per-repo task runner for every route that runs user East: dataflows,
+  // function and one-shot calls, record mutations, and a deploy job's
+  // migrations and index builds, all on the server's one budget (cached — the
+  // runner is stateless apart from its repo anchor and the budget)
+  const runners = new Map<string, TaskRunner>();
+  const getRunner = (repoPath: string): TaskRunner => {
+    let runner = runners.get(repoPath);
+    if (!runner) {
+      runner = new LocalTaskRunner(repoPath, budget);
+      runners.set(repoPath, runner);
+    }
+    return runner;
+  };
+
+  // Transfer backend for presigned URL object transfer, and the jobs that
+  // outlast a request, which it runs in this process
   const transferBackend: TransferBackend = new InMemoryTransferBackend({
     baseUrl: '',
     storage,
     getRepoPath,
+    getRunner,
     ...(transferPartBytes !== undefined && { partBytes: transferPartBytes }),
   });
 
@@ -189,209 +230,26 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     app.use('/api/repos/:repo/*', authMiddleware);
   }
 
-  // Single-repo mode: validate repo name and handle disabled operations
-  // Runs AFTER auth middleware (so unauthorized users get 401, not 404/405)
-  // Uses JSON error responses with HTTP error status codes because middleware
-  // cannot know the BEAST2 success type expected by the handler.
+  // The repositories the server serves, and the gate every request to one
+  // passes, mounted after the auth middleware and ahead of the repository
+  // routes
   if (isSingleRepoMode) {
-    // Block repo-level PUT (create) and DELETE (remove) in single-repo mode
-    app.put('/api/repos/:repo', (c) => {
-      return c.json({
-        error: 'method_not_allowed',
-        message: 'Repository creation is disabled in single-repo mode'
-      }, 405);
-    });
-
-    app.delete('/api/repos/:repo', (c) => {
-      const repo = c.req.param('repo');
-      if (repo === 'default') {
-        return c.json({
-          error: 'method_not_allowed',
-          message: 'Repository deletion is disabled in single-repo mode'
-        }, 405);
-      }
-      return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-    });
-
-    // Validate repo name for all sub-routes
-    app.use('/api/repos/:repo/*', async (c, next) => {
-      const repo = c.req.param('repo');
-      if (repo !== 'default') {
-        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-      await next();
-    });
-  }
-
-  // Validate repository exists and is accessible before processing requests (multi-repo mode only)
-  // In single-repo mode, this is handled by the middleware above
-  // Skip validation for PUT/DELETE on /api/repos/:repo (repo create/remove)
-  // Skip validation for /api/repos/:repo/delete/* (repo deletion status - repo may already be deleted)
-  // Uses JSON error responses with HTTP 404 because middleware cannot know
-  // the BEAST2 success type expected by the handler.
-  if (!isSingleRepoMode) {
-    app.use('/api/repos/:repo/*', async (c, next) => {
-      // Skip validation for repo create/remove operations at the repo level
-      // These operate on repos that may not exist yet (PUT) or are being deleted (DELETE)
-      const method = c.req.method;
-      const reqPath = c.req.path;
-      // Check if this is the base repo path (no subpath after repo name)
-      const repoPathMatch = reqPath.match(/^\/api\/repos\/[^/]+$/);
-      if (repoPathMatch && (method === 'PUT' || method === 'DELETE')) {
-        await next();
-        return;
-      }
-
-      // Skip validation for delete status endpoint (repo may already be deleted)
-      const deleteStatusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/delete\/[^/]+$/);
-      if (deleteStatusMatch) {
-        await next();
-        return;
-      }
-
-      const repo = c.req.param('repo')!;
-
-      // Check repo metadata for status
-      const metadata = await storage.repos.getMetadata(repo);
-      if (!metadata) {
-        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-
-      // If repo is in 'deleting' state, treat as not found for most operations
-      // Exception: status endpoint shows 'deleting' state (but we still check repo exists above)
-      const statusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/status$/);
-      if (metadata.status === 'deleting' && !statusMatch) {
-        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-
-      // Also validate the repo structure (for backwards compat with repos without metadata)
-      const repoPath = getRepoPath(repo);
-      try {
-        await storage.validateRepository(repoPath);
-      } catch (err) {
-        if (err instanceof RepoNotFoundError) {
-          return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-        }
-        throw err;
-      }
-
-      await next();
-    });
-  }
-
-  // GET /api/repos - List available repositories
-  app.get('/api/repos', async () => {
-    if (isSingleRepoMode) {
-      return sendSuccess(ArrayType(StringType), ['default']);
-    }
-    try {
-      const repos = await storage.repos.list();
-      return sendSuccess(ArrayType(StringType), repos);
-    } catch (err) {
-      return sendError(ArrayType(StringType), errorToVariant(err));
-    }
-  });
-
-  // PUT /api/repos/:repo - Create a new repository (multi-repo mode only)
-  // Note: Single-repo mode handler is registered earlier and takes precedence
-  if (!isSingleRepoMode) {
-    app.put('/api/repos/:repo', async (c) => {
-      const repo = c.req.param('repo');
-
-      try {
-        // Check if repo exists and is in 'deleting' state
-        const existing = await storage.repos.getMetadata(repo);
-        if (existing) {
-          if (existing.status === 'deleting') {
-            return sendError(StringType, variant('internal', { message: `Repository '${repo}' cleanup in progress, try later` }));
-          }
-          return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
-        }
-
-        await storage.repos.create(repo);
-        return sendSuccessWithStatus(StringType, repo, 201);
-      } catch (err) {
-        if (err instanceof RepoAlreadyExistsError) {
-          return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
-        }
-        return sendError(StringType, errorToVariant(err));
-      }
-    });
-
-    // DELETE /api/repos/:repo - Remove a repository (async, multi-repo mode only)
-    // Uses the resumable deletion pattern:
-    // 1. Mark repo as 'deleting' (atomic tombstone)
-    // 2. Delete refs synchronously (fast)
-    // 3. Delete objects in batches
-    // 4. Remove repo metadata
-    // Note: For cloud (e3-aws), step 3 would be async via GC
-    app.delete('/api/repos/:repo', async (c) => {
-      const repo = c.req.param('repo');
-
-      try {
-        // Check if repo exists
-        const existing = await storage.repos.getMetadata(repo);
-        if (!existing) {
-          return sendError(NullType, variant('repository_not_found', { repo }));
-        }
-
-        // If already deleting, return success (idempotent)
-        if (existing.status === 'deleting') {
-          return sendSuccess(NullType, null);
-        }
-
-        // 1. Atomically mark as 'deleting'
-        await storage.repos.setStatus(repo, 'deleting', 'active');
-
-        // 2. Delete refs synchronously (fast for local storage)
-        let cursor: string | undefined;
-        do {
-          const result = await storage.repos.deleteRefsBatch(repo, cursor);
-          cursor = result.status === 'continue' ? result.cursor : undefined;
-        } while (cursor);
-
-        // 3. Delete objects in batches (for local storage, this is synchronous)
-        cursor = undefined;
-        do {
-          const result = await storage.repos.deleteObjectsBatch(repo, cursor);
-          cursor = result.status === 'continue' ? result.cursor : undefined;
-        } while (cursor);
-
-        // 4. Remove repo metadata/directory
-        await storage.repos.remove(repo);
-
-        return sendSuccess(NullType, null);
-      } catch (err) {
-        if (err instanceof RepoNotFoundError) {
-          return sendError(NullType, variant('repository_not_found', { repo }));
-        }
-        return sendError(NullType, errorToVariant(err));
-      }
-    });
-
+    app.route('/api/repos', createSingleRepositoryRoutes());
+    app.use('/api/repos/:repo/*', createSingleRepositoryGate());
+  } else {
+    app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath));
+    app.route('/api/repos', createRepositoriesRoutes(storage));
   }
 
   // Mount repository-specific routes
   // Each route file creates a sub-app that uses getRepoPath to resolve the repo
 
   // Repository status and GC: /api/repos/:repo/status, /api/repos/:repo/gc
-  app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath));
+  app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath, transferBackend));
 
   // Package transfer routes: repo-level import/export + package-level export trigger
   app.route('/api/repos/:repo', pkgTransfer.repoApi);
   app.route('/api/repos/:repo/packages', pkgTransfer.pkgApi);
-
-  // Per-repo task runner for function / one-shot calls (cached — the
-  // runner is stateless apart from its repo anchor)
-  const runners = new Map<string, TaskRunner>();
-  const getRunner = (repoPath: string): TaskRunner => {
-    let runner = runners.get(repoPath);
-    if (!runner) {
-      runner = new LocalTaskRunner(repoPath);
-      runners.set(repoPath, runner);
-    }
-    return runner;
-  };
 
   // Package routes: /api/repos/:repo/packages/*
   app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath));
@@ -400,7 +258,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner));
 
   // Workspace routes: /api/repos/:repo/workspaces/*
-  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend));
+  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend, getRunner));
 
   // Dataset transfer auth routes (init + commit) mount alongside dataset routes
   app.route('/api/repos/:repo/workspaces/:ws/datasets', dsTransfer.api);
@@ -422,11 +280,16 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));
 
-  // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
-  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));
+  // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*,
+  // run, polled and cancelled through each repository's local orchestrator
+  // and the state store it writes
+  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
+    getRunner, ...localDataflow(), width: budget.cores, budget,
+  }));
 
-  // Object routes: /api/repos/:repo/objects/:hash
-  app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath));
+  // Object routes: /api/repos/:repo/objects/:hash — a large object is answered
+  // by download URL, as a dataset is
+  app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath, transferBackend));
 
   let httpServer: ServerType | null = null;
   let actualPort = port;

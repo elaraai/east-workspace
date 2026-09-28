@@ -47,14 +47,14 @@ that lib. Example:
 ```bash
 cd libs/east && make build      # builds only east
 cd libs/east && make test       # tests only east
-cd libs/e3 && make help         # lists e3-specific extras (e.g. `make fuzz`)
+cd libs/e3 && make help         # lists e3-specific extras (e.g. `make test-integration-shard`)
 ```
 
 Lib-specific extras (run `make help` in each):
 
 | Lib | Notable extras |
 |---|---|
-| `libs/e3` | `make fuzz` (Virtual Idiot fuzz; also `fuzz-quick`, `fuzz-stress`) |
+| `libs/e3` | `make test-packages` and `make test-integration` (the two halves of `make test`), `make test-integration-shard SHARD=n` (one of the three integration shards CI runs side by side), `make e2e-stack` (the local stack the environment e2e installs), `make install-job` (the Windows job launcher) |
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan), `make bench-cli` (the interpreter, emit-sink and paged-read benchmarks the CLI is profiled on) |
 | `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage`, `make test-conformance` (IR → python → IR round trip over the exported corpus + examples, #627) |
 | `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all` |

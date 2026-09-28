@@ -87,6 +87,17 @@ EastType *east_beast2_v5_extract_type(const uint8_t *data, size_t len);
 /*  Shared low-level helpers                                            */
 /* ================================================================== */
 
+/* Whether a blob whose header names `wire` may be decoded as `asked` (full.c).
+ * The body is read by `asked`, and a variant's tag is its case's position, so
+ * `wire` must be `asked` or a subtype of it, as East's subtyping has it, whose
+ * tags line up: it may differ only where a variant of `asked` has further
+ * cases after all of `wire`'s, or where `wire` is Never, which no value has.
+ * A collection's element types must be the asked ones, as East's subtyping
+ * holds them, and so must a function's signature; recursive types compare up
+ * to renaming. False posts "beast2: cannot decode a blob of type <wire> as
+ * <asked>", the other runtimes' words. */
+bool b2_decode_type_matches(EastType *wire, EastType *asked);
+
 /* Read a varint-prefixed string, returning malloc'd string and setting *out_len */
 char *b2_read_string_varint(const uint8_t *data, size_t len, size_t *offset, size_t *out_len);
 /* The same read without the copy: a pointer to the string's bytes inside

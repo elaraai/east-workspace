@@ -177,12 +177,6 @@ function errorOfMutationResult(result: MutationResult): RecordError {
                 message: `reducer exited with code ${outcome.value.exitCode}`,
                 stderr: outcome.value.stderr,
             };
-        case "too_large":
-            return {
-                kind: variant("too_large", { bytes: outcome.value.bytes, limit: outcome.value.limit }),
-                message: `new state too large (${outcome.value.bytes} bytes, limit ${outcome.value.limit})`,
-                stderr: outcome.value.stderr,
-            };
         case "timed_out":
             return {
                 kind: variant("timed_out", { ms: outcome.value.ms }),
@@ -273,8 +267,15 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         this.workspace = workspace;
     }
 
-    /** Tear down the adapter and all record state. */
-    clear(): void {
+    /**
+     * Tear down the adapter and all record state.
+     *
+     * @param api - Clear only while this is the installed adapter, so a
+     *   provider tearing down after another installed its own leaves that one
+     *   in place
+     */
+    clear(api?: RecordApi): void {
+        if (api !== undefined && this.api !== api) return;
         this.api = null;
         this.cache = null;
         this.workspace = null;
@@ -599,9 +600,13 @@ export function initializeRecordApi(api: RecordApi, cache: ReactiveDatasetCacheI
     defaultRecordRuntime.initialize(api, cache, workspace);
 }
 
-/** Tear down the record API adapter and all record state. */
-export function clearRecordApi(): void {
-    defaultRecordRuntime.clear();
+/**
+ * Tear down the record API adapter and all record state.
+ *
+ * @param api - Clear only while this is the installed adapter
+ */
+export function clearRecordApi(api?: RecordApi): void {
+    defaultRecordRuntime.clear(api);
 }
 
 /** Global, manifest-unscoped `Record.bind` impl + its backing primitives.
@@ -677,6 +682,7 @@ export function createInMemoryRecordApi(
             mutation: "$init",
             actor: "memory",
             at: new Date(0),
+            delta: none,
         };
         compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0 });
         // Seed the record's current value into the dataset cache.
@@ -711,6 +717,7 @@ export function createInMemoryRecordApi(
                 mutation,
                 actor: "memory",
                 at: new Date(0),
+                delta: none,
             });
             return { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
         },

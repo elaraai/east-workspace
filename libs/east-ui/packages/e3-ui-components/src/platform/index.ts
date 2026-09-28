@@ -91,6 +91,7 @@ export {
     createDefaultPagedApi,
     initializePagedApi,
     clearPagedApi,
+    pagedRevisionKey,
     pagedWindowKey,
     pagedTotalKey,
     type PagedApi,

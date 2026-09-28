@@ -128,7 +128,7 @@ export function resolveDatasetPathFromIndex(
     );
   }
 
-  // Detect access to internal task datasets (e.g. tasks.double.function_ir) — not writable.
+  // Detect access to a path under a task other than its output — not a dataset.
   if (head === 'tasks' && rest.length >= 2 && rest[rest.length - 1] !== 'output') {
     throw new Error(
       `'${ws}.tasks.${rest.join('.')}' is not writable. Only inputs and task outputs can be read or written.`,
@@ -219,7 +219,8 @@ function entryForLeaf(name: string, prefix: string[]): ResolvedEntry {
       storage: toTreePath(['tasks', name, 'output']),
     };
   }
-  // customTask outputs are stored as tasks/<taskName>/output (one level deeper)
+  // A listing that walks into a task's subtree names its output one level
+  // deeper, as tasks/<taskName>/output
   if (prefix.length === 2 && prefix[0] === 'tasks' && name === 'output') {
     const taskName = prefix[1]!;
     return {

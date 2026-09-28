@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, IntegerType, NullType, variant } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
-import { Record, Data, deriveManifest, decodeManifest, ui } from "@elaraai/e3-ui";
+import { Record, Data, deriveManifest, ui } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import * as ex from "./record.examples.js";
 
@@ -15,9 +15,9 @@ import * as ex from "./record.examples.js";
 // and each mutation's name + arg types from its def, so the tests declare the
 // package-side record + mutations once and bind them everywhere.
 const counter = e3.record("counter", IntegerType, 0n);
-const increment = e3.mutation("increment", counter,
+const increment = e3.mutation.reduce("increment", counter,
     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
-const reset = e3.mutation("reset", counter,
+const reset = e3.mutation.reduce("reset", counter,
     East.function([IntegerType], IntegerType, (_$, _state) => 0n));
 
 describeEast("Record", (test) => {
@@ -66,7 +66,7 @@ describeEast("Record", (test) => {
 describeEast("Record — bind validation", (_test) => {
     _test("rejects a mutation that writes a different record", _ => {
         const other = e3.record("other", IntegerType, 0n);
-        const wrong = e3.mutation("wrong", other,
+        const wrong = e3.mutation.reduce("wrong", other,
             East.function([IntegerType], IntegerType, (_$, s) => s));
         assert.throws(() => Record.bind(counter, [wrong]), /writes record "other"/);
     });
@@ -108,8 +108,7 @@ describeEast("Record — manifest derivation", (test) => {
                 const r = $.let(Record.bind(counter, [increment]));
                 return Stat.Root({ label: "C", value: East.print(r.read()) });
             }))));
-        assert.ok(dashboard.metadata, "metadata should be set");
-        const manifest = decodeManifest(dashboard.metadata);
-        assert.deepEqual(manifest.records, ["counter"]);
+        assert.equal(dashboard.role.type, "ui");
+        assert.deepEqual(dashboard.role.value!.records, ["counter"]);
     });
 }, { platformFns: TestImpl });

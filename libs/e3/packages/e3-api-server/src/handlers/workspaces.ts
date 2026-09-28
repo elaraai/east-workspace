@@ -3,23 +3,23 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { BlobType, NullType, some, none, variant } from '@elaraai/east';
+import { randomUUID } from 'node:crypto';
+import { NullType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
-import { WorkspaceStateType, parsePackageRef } from '@elaraai/e3-types';
+import {
+  PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type WorkspaceDeployRequest,
+} from '@elaraai/e3-types';
 import {
   workspaceList,
   workspaceCreate,
   workspaceRemove,
   workspaceGetState,
-  workspaceDeploy,
-  workspaceExport,
   workspaceStatus,
   packageGetLatestVersion,
+  packageResolve,
+  PackageNotFoundError,
 } from '@elaraai/e3-core';
-import type { StorageBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import { WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
@@ -101,14 +101,22 @@ export async function getWorkspace(
 
 /**
  * Get comprehensive workspace status.
+ *
+ * @param storage - Storage backend
+ * @param runner - The runner the repository's tasks run on, which says
+ *   whether an execution recorded running can still finish
+ * @param repoPath - Repository identifier
+ * @param name - Workspace name
+ * @returns The response: the status, or the error
  */
 export async function getWorkspaceStatus(
   storage: StorageBackend,
+  runner: TaskRunner,
   repoPath: string,
   name: string
 ): Promise<Response> {
   try {
-    const status = await workspaceStatus(storage, repoPath, name);
+    const status = await workspaceStatus(storage, runner, repoPath, name);
     // Convert numbers to bigints for BEAST2 serialization
     const result = {
       workspace: status.workspace,
@@ -132,6 +140,7 @@ export async function getWorkspaceStatus(
         inputs: t.inputs,
         output: t.output,
         dependsOn: t.dependsOn,
+        peakBytes: t.peakBytes === null ? none : some(BigInt(t.peakBytes)),
       })),
       summary: {
         datasets: {
@@ -219,58 +228,89 @@ export async function deleteWorkspace(
 }
 
 /**
- * Deploy a package to a workspace.
+ * Start deploying a package to a workspace, as a job the client polls.
+ *
+ * @remarks
+ * A deploy that migrates a record, or builds an index over one, takes as long
+ * as the record is large, which outlasts a request. So the deploy runs as a
+ * job, in the compute the store dispatches it to: a local server's own
+ * process, or a cloud's. The package is resolved first, so a deploy of one the
+ * repository does not hold is refused at once, as `package_not_found`, and the
+ * job deploys exactly the version resolved.
+ *
+ * The job never opens a path-initialised input's file: its path is on the
+ * machine that exported the package. Each such input is left unassigned, and
+ * `e3 workspace deploy <url>` completes it over the dataset transfer protocol
+ * once the job has finished.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param repo - The repository's name, which the job is filed under
+ * @param workspace - Workspace name
+ * @param request - The package, and what the deploy does with a record it
+ *   cannot keep as it is
+ * @param deployStore - Where the job is filed, and dispatched from
+ * @returns The response: the job's id, or the error
  */
-export async function deployWorkspace(
+export async function startWorkspaceDeploy(
   storage: StorageBackend,
   repoPath: string,
+  repo: string,
   workspace: string,
-  packageRef: string
+  request: WorkspaceDeployRequest,
+  deployStore: WorkspaceDeployStore,
 ): Promise<Response> {
   try {
-    const { name: pkgName, version: maybeVersion } = parsePackageRef(packageRef);
-    const pkgVersion = maybeVersion ?? await packageGetLatestVersion(storage, repoPath, pkgName);
-    if (!pkgVersion) {
-      return sendError(NullType, errorToVariant(new Error(`Package not found: ${pkgName}`)));
-    }
+    const { name, version: maybeVersion } = parsePackageRef(request.packageRef);
+    const version = maybeVersion ?? await packageGetLatestVersion(storage, repoPath, name);
+    if (version === undefined) throw new PackageNotFoundError(name);
+    await packageResolve(storage, repoPath, name, version);
 
-    // A path-initialised input names a path on the machine that EXPORTED the
-    // package, never this server's. The server must not open it — even a path
-    // it can read — or a package could adopt any server-readable file of the
-    // declared type into the caller's repository. Every `file` source is left
-    // unassigned with a warning: `e3 workspace deploy <url> --from-source`
-    // completes those inputs over the dataset transfer protocol immediately
-    // afterwards, and the server's commit runs the same validation.
-    await workspaceDeploy(storage, repoPath, workspace, pkgName, pkgVersion, {
-      resolveFileSources: false,
-      sourceWarning: (message) => console.warn(`[deploy ${workspace}] ${message}`),
+    const id = randomUUID();
+    await deployStore.create(id, {
+      repo,
+      workspace,
+      packageName: name,
+      packageVersion: version,
+      schema: request.schema,
+      allowDropRecords: request.allowDropRecords,
+      plan: request.plan,
+      status: variant('processing', variant('pending', null)),
+      createdAt: new Date(),
     });
-    return sendSuccess(NullType, null);
+    await deployStore.execute(id, repo);
+    return sendSuccess(PackageJobResponseType, { id });
   } catch (err) {
-    return sendError(NullType, errorToVariant(err));
+    return sendError(PackageJobResponseType, errorToVariant(err));
   }
 }
 
 /**
- * Export a workspace as a zip archive.
+ * A deploy job's status: still running, what the deploy did, or why it did
+ * not.
+ *
+ * @param deployStore - Where the job is filed
+ * @param repo - The repository's name
+ * @param workspace - Workspace name
+ * @param id - The job's id
+ * @returns The response: the status, or the error when this workspace started
+ *   no such job
  */
-export async function exportWorkspace(
-  storage: StorageBackend,
-  repoPath: string,
-  workspace: string
+export async function getWorkspaceDeployStatus(
+  deployStore: WorkspaceDeployStore,
+  repo: string,
+  workspace: string,
+  id: string,
 ): Promise<Response> {
   try {
-    // Export to temp file
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'e3-ws-export-'));
-    const tempPath = path.join(tempDir, 'workspace.zip');
-    try {
-      await workspaceExport(storage, repoPath, workspace, tempPath);
-      const archive = await fs.readFile(tempPath);
-      return sendSuccess(BlobType, new Uint8Array(archive));
-    } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
+    const job = await deployStore.get(id);
+    if (job === null || job.repo !== repo || job.workspace !== workspace) {
+      return sendError(WorkspaceDeployStatusType, variant('internal', {
+        message: `workspace '${workspace}' has no deploy job '${id}'`,
+      }));
     }
+    return sendSuccess(WorkspaceDeployStatusType, job.status);
   } catch (err) {
-    return sendError(BlobType, errorToVariant(err));
+    return sendError(WorkspaceDeployStatusType, errorToVariant(err));
   }
 }

@@ -19,6 +19,9 @@
  * Refusals map to the three screens: not a repository (`repoGet` /
  * `repoStatus` fail), not logged in (`getValidToken` throws — the box
  * prefills `/login <origin>`), unreachable (the probe exhausts its retries).
+ * A repository this e3 cannot open — an older e3's, or one a newer e3
+ * upgraded — shows why and the fix on the error screen: the embedded server
+ * opens the repository as it starts, and refuses it.
  *
  * @packageDocumentation
  */
@@ -150,6 +153,9 @@ export async function openSession(target: string, options: OpenSessionOptions = 
         try {
             server = await start(parsed.path);
         } catch (err) {
+            // The server opens the repository as it starts: one this e3 cannot
+            // open is refused naming why and the fix.
+            if ((err as { name?: string }).name === 'RepoLayoutError') throw new SessionRefusal({ kind: 'error', message: describeError(err) });
             throw new SessionRefusal({ kind: 'error', message: `could not start the embedded server: ${describeError(err)}` });
         }
         step(`embedded e3 api server · ${server.apiUrl.replace(/^https?:\/\//, '')}`);

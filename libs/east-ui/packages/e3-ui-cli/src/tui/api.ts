@@ -21,9 +21,11 @@ import {
     datasetFindKey,
     datasetGet,
     datasetGetPage,
+    datasetGetStream,
     datasetGetStatus,
     datasetListRecursive,
     datasetSet,
+    dataflowBudget,
     dataflowCancel,
     dataflowExecuteLaunch,
     dataflowExecutePoll,
@@ -35,7 +37,10 @@ import {
     taskLogs,
     workspaceGet,
     workspaceList,
+    workspaceRecordDescribe,
+    workspaceRecordHistory,
     workspaceStatus,
+    type DataflowBudget,
     type DataflowExecutionState,
     type DataflowOptions,
     type DatasetFindQuery,
@@ -47,6 +52,8 @@ import {
     type ListEntry,
     type LogChunk,
     type LogOptions,
+    type RecordHistoryResult,
+    type RecordSignature,
     type RepositoryStatus,
     type RequestOptions,
     type TaskDetails,
@@ -95,13 +102,21 @@ export interface Api {
     datasetList(ws: string): Promise<ListEntry[]>;
     datasetGetStatus(ws: string, path: TreePath): Promise<DatasetStatusDetail>;
     datasetGet(ws: string, path: TreePath): Promise<{ data: Uint8Array; hash: string; size: number }>;
+    /** The value's bytes a chunk at a time — a collection a few segments ahead of the reader (`/save`). */
+    datasetGetStream(ws: string, path: TreePath): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }>;
     datasetGetPage(ws: string, path: TreePath, window: DatasetPageWindow): Promise<DatasetPage>;
     datasetFindKey(ws: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
     datasetSet(ws: string, path: TreePath, data: Uint8Array): Promise<void>;
     dataflowExecuteLaunch(ws: string, options: DataflowOptions): Promise<void>;
     dataflowExecutePoll(ws: string, offset: number): Promise<DataflowExecutionState>;
+    /** The budget a run of the workspace gets (the server's), or null for a server whose runners hold none. */
+    dataflowBudget(ws: string): Promise<DataflowBudget | null>;
     dataflowCancel(ws: string): Promise<void>;
     taskLogs(ws: string, task: string, options: LogOptions): Promise<LogChunk>;
+    /** A record's mutations and indexes. */
+    recordDescribe(ws: string, record: string): Promise<RecordSignature>;
+    /** A page of a record's commits, newest first: from its newest, or from the commit `from`. */
+    recordHistory(ws: string, record: string, page: { limit: number; from?: string }): Promise<RecordHistoryResult>;
     /** The same origin bound to another repository (the repositories view's lazy facts). */
     withRepo(repo: string): Api;
 }
@@ -149,13 +164,17 @@ export function createHttpApi(config: HttpApiConfig): Api {
         datasetList: async (ws) => datasetListRecursive(apiUrl, repo(), ws, [], await options()),
         datasetGetStatus: async (ws, path) => datasetGetStatus(apiUrl, repo(), ws, path, await options()),
         datasetGet: async (ws, path) => datasetGet(apiUrl, repo(), ws, path, await options()),
+        datasetGetStream: async (ws, path) => datasetGetStream(apiUrl, repo(), ws, path, await options()),
         datasetGetPage: async (ws, path, window) => datasetGetPage(apiUrl, repo(), ws, path, window, await options()),
         datasetFindKey: async (ws, path, query) => datasetFindKey(apiUrl, repo(), ws, path, query, await options()),
         datasetSet: async (ws, path, data) => datasetSet(apiUrl, repo(), ws, path, data, await options()),
         dataflowExecuteLaunch: async (ws, dataflowOptions) => dataflowExecuteLaunch(apiUrl, repo(), ws, dataflowOptions, await options()),
         dataflowExecutePoll: async (ws, offset) => dataflowExecutePoll(apiUrl, repo(), ws, { offset }, await options()),
+        dataflowBudget: async (ws) => dataflowBudget(apiUrl, repo(), ws, await options()),
         dataflowCancel: async (ws) => dataflowCancel(apiUrl, repo(), ws, await options()),
         taskLogs: async (ws, task, logOptions) => taskLogs(apiUrl, repo(), ws, task, logOptions, await options()),
+        recordDescribe: async (ws, record) => workspaceRecordDescribe(apiUrl, repo(), ws, record, await options()),
+        recordHistory: async (ws, record, page) => workspaceRecordHistory(apiUrl, repo(), ws, record, page.limit, await options(), page.from),
         withRepo: (other) => createHttpApi({ ...config, repo: other }),
     };
 }

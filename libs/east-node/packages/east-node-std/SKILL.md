@@ -5,7 +5,13 @@ description: "Node.js platform functions for the East language. Use when writing
 
 # East Node Standard Library
 
-Node.js platform functions for the East language. Enables East programs to interact with the filesystem, network, console, and other I/O operations.
+Node.js platform functions for the East language: console, environment,
+filesystem, HTTP, crypto, time, path, random, large-JSON reading and testing.
+Each module (`Console.log`, `FileSystem.readFile`, …) is a platform
+declaration an East function calls, with its implementation in
+`Module.Implementation`; the same functions, under the same platform names, are
+implemented on the python runtime (**east-py-std**) and in C (`east-c-std`), so
+a program using them runs on every runner.
 
 ## Before writing code — search the example index
 
@@ -32,19 +38,17 @@ Nothing is injected for you; the search is the step.
 import { East, StringType, NullType } from "@elaraai/east";
 import { NodePlatform, Console, FileSystem } from "@elaraai/east-node-std";
 
-const processFile = East.function(
-    [StringType],
-    NullType,
-    ($, path) => {
-        const content = $.let(FileSystem.readFile(path));
-        $(Console.log(content));
-    }
-);
+const processFile = East.function([StringType], NullType, ($, path) => {
+    const content = $.let(FileSystem.readFile(path));
+    $(Console.log(content));
+});
 
-// Compile with NodePlatform (includes all platform functions)
-const compiled = East.compile(processFile.toIR(), NodePlatform);
-await compiled("input.txt");
+const compiled = East.compile(processFile, NodePlatform);   // every module's implementation
+compiled("input.txt");
 ```
+
+`Fetch` and `Time.sleep` are ASYNC: a function calling them is an
+`East.asyncFunction`, compiled with `East.compileAsync` and awaited.
 
 ## Decision Tree: Which Module to Use
 
@@ -55,7 +59,7 @@ Task → What do you need?
     │   └─ .log(), .error(), .write()
     │
     ├─ Env (environment variables — credentials/config supplied at runtime)
-    │   └─ .get() → Option<String> (some when set, none when not; never
+    │   └─ .get(name) → Option<String> (some when set, none when not; never
     │       write a credential literal — IR is content-addressed and replicated)
     │
     ├─ FileSystem (read/write files and directories)
@@ -74,24 +78,23 @@ Task → What do you need?
     │   ├─ One subtree → .value(T, path, pointer) — for the small members beside a huge array
     │   └─ Release → .close(handle)
     │
-    ├─ Fetch (HTTP requests)
-    │   └─ .get(), .getBytes(), .post(), .request()
+    ├─ Fetch (HTTP; ASYNC) → .get(url) → String · .getBytes(url) → Blob · .post(url, body) → String ·
+    │   .request(Fetch.Types.RequestConfig{url, method: GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS, headers, body: Option})
+    │   → Fetch.Types.Response{status, statusText, headers, body, ok}
     │
-    ├─ Crypto (hashing, UUIDs, random bytes)
-    │   └─ .uuid(), .randomBytes(), .hashSha256(), .hashSha256Bytes()
+    ├─ Crypto → .uuid() · .randomBytes(n) → Blob · .hashSha256(text) → hex String · .hashSha256Bytes(blob) → Blob digest
     │
-    ├─ Time (timestamps and delays)
-    │   └─ .now(), .sleep()
+    ├─ Time → .now() → Integer (Unix milliseconds) · .sleep(ms) (ASYNC) ·
+    │   .getTimezoneOffset(dt, zone) → Integer (minutes ahead of UTC for an IANA zone at that instant)
     │
-    ├─ Path (path manipulation)
-    │   └─ .join(), .resolve(), .dirname(), .basename(), .extname()
+    ├─ Path → .join(parts: Array<String>) · .resolve(path) (absolute) · .dirname() · .basename() · .extname()
     │
-    ├─ Random (statistical distributions)
-    │   ├─ Basic → .uniform(), .normal(), .range()
-    │   ├─ Continuous → .exponential(), .weibull(), .pareto(), .logNormal()
-    │   ├─ Discrete → .bernoulli(), .binomial(), .geometric(), .poisson()
-    │   ├─ Composite → .irwinHall(), .bates()
-    │   └─ Control → .seed()
+    ├─ Random (one stream; seed it for reproducibility)
+    │   ├─ Basic → .uniform() in [0, 1) · .normal() (N(0, 1)) · .range(min, max) → Integer in [min, max]
+    │   ├─ Continuous → .exponential(rate) · .weibull(shape) · .pareto(alpha) · .logNormal(mu, sigma)
+    │   ├─ Discrete (→ Integer) → .bernoulli(p) · .binomial(n, p) · .geometric(p) · .poisson(rate)
+    │   ├─ Composite → .irwinHall(n) (a sum of n uniforms) · .bates(n) (their mean)
+    │   └─ Control → .seed(n)
     │
     └─ Assert (testing with describeEast)
         └─ .is(), .equal(), .notEqual(), .less(), .lessEqual(), .greater(), .greaterEqual(), .between(), .throws(), .fail()
@@ -99,15 +102,16 @@ Task → What do you need?
 
 ## Compiling East Programs
 
-**Option 1: Use NodePlatform (all modules)**
 ```typescript
-const compiled = East.compile(myFunction.toIR(), NodePlatform);
+East.compile(myFunction, NodePlatform);                // every module
+East.compile(myFunction, NodePlatformSync);            // all but the async Fetch and Time.sleep
+East.compile(myFunction, [...Console.Implementation, ...FileSystem.Implementation]);   // just these
+East.compileAsync(myAsyncFunction, NodePlatform);      // an East.asyncFunction calling Fetch / Time.sleep
 ```
 
-**Option 2: Use specific module implementations**
-```typescript
-const compiled = East.compile(myFunction.toIR(), [...Console.Implementation, ...FileSystem.Implementation]);
-```
+Each module's platform functions are also exported under their platform names
+(`console_log`, `fs_read_file`, …), with each module's implementations as
+`ConsoleImpl`, `FileSystemImpl`, ….
 
 ## Available Modules
 
@@ -129,10 +133,10 @@ const compiled = East.compile(myFunction.toIR(), [...Console.Implementation, ...
 ```typescript
 import { Fetch } from "@elaraai/east-node-std";
 
-// Access types via Module.Types.TypeName
-const method = Fetch.Types.Method;
-const config = Fetch.Types.RequestConfig;
-const response = Fetch.Types.Response;
+// Access types via Module.Types.TypeName (also exported as FetchMethod / FetchRequestConfig / FetchResponse)
+const method = Fetch.Types.Method;          // Variant<GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS>
+const config = Fetch.Types.RequestConfig;   // { url, method, headers: Dict<String, String>, body: Option<String> }
+const response = Fetch.Types.Response;      // { status, statusText, headers, body, ok }
 ```
 
 ## Key Patterns

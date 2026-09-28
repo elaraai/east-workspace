@@ -6,9 +6,9 @@
 /**
  * `ui()` — first-class UI task for e3.
  *
- * Wraps `e3.task()` with `kind: "ui"` and a manifest auto-derived from the
- * IR by inspecting `Data.bind` calls. Compute-time inputs (passed to the fn
- * by the runner) are also added to the manifest's reads.
+ * Wraps `e3.task()` in the `ui` role, whose data manifest is auto-derived
+ * from the IR by inspecting `Data.bind` calls. Compute-time inputs (passed to
+ * the fn by the runner) are also added to the manifest's reads.
  *
  * @packageDocumentation
  */
@@ -23,10 +23,9 @@ import {
   type EastType,
   type CallableFunctionExpr,
   type CallableAsyncFunctionExpr,
-  type variant,
+  variant,
 } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { encodeManifest } from './utils/manifest.js';
 import { deriveManifest } from './utils/derive.js';
 
 /**
@@ -105,8 +104,7 @@ function buildUiTask(
   // Data/State reads resolve at render time, not in the runner.
   return task(name, inputs as any, fn as any, {
     runner: options?.runner ?? { runtime: 'east-c' } as Runner,
-    kind: 'ui',
-    metadata: encodeManifest({
+    role: variant('ui', {
       paths,
       functions: derived.functions,
       records: derived.records,

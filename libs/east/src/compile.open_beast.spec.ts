@@ -14,7 +14,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   East, BlobType, IntegerType, StringType, StructType, DictType, ArrayType,
-  SortedMap, compareFor, encodeBeast2PagedFor, encodeBeast2For, isFrozenValue, Beast2Pages,
+  SortedMap, compareFor, encodeBeast2SegmentsFor, encodeBeast2For, isFrozenValue, Beast2Pages,
 } from "./index.js";
 
 const RowType = StructType({ id: IntegerType, name: StringType });
@@ -45,7 +45,8 @@ function countCalls<T extends object>(proto: T, name: keyof T & string, run: () 
 
 describe("blob.openBeast — the lazy paged open at the expression level", () => {
   // 30 rows in segments of 10: three segments, so a keyed read touches one.
-  const paged = encodeBeast2PagedFor(TableType, { batchSize: 10 })(table(30));
+  const rows = [...table(30)];
+  const paged = encodeBeast2SegmentsFor(TableType)([0, 10, 20].map((at) => new Map(rows.slice(at, at + 10))));
 
   test("size, a keyed read and a for loop are served from the pager", () => {
     const fn = East.function([BlobType], IntegerType, ($, blob) => {
@@ -59,12 +60,12 @@ describe("blob.openBeast — the lazy paged open at the expression level", () =>
     const compiled = East.compile(fn, []);
     let segments = 0;
     const keyed = countCalls(Beast2Pages.prototype, "get", () => {
-      segments = countCalls(Beast2Pages.prototype, "segment", () => {
+      segments = countCalls(Beast2Pages.prototype, "segmentDisjoint", () => {
         assert.equal(compiled(paged), 37n + 435n);
       });
     });
     assert.equal(keyed, 1, "one keyed read reaches the pager");
-    assert.equal(segments, 3, "the for loop streams each segment exactly once");
+    assert.equal(segments, 3, "the for loop streams each segment exactly once, checked against the next");
   });
 
   test("the opened value is frozen and stays un-hydrated after served reads", () => {

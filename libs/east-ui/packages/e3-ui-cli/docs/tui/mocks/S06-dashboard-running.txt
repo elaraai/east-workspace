@@ -1,4 +1,4 @@
- e3-ui  demo-repo › main                                                                    ◔ RUNNING 3/6  ● CONNECTED  
+ e3-ui  demo-repo › main                                                                    ◔ RUNNING 2/6  ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  main                                                          ● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none 
  TASKS 6                                                   DATASETS 10                                                  
@@ -6,20 +6,21 @@
  ✗ failed             1   ○ ready          0               ○ unset              1                                       
  ▁▃▅▇▇▇  6 of 6 accounted                                                                                               
                                                                                                                         
- EXECUTION                                                               ◔ RUNNING · started 12s ago · 3 of 6 tasks · ⠸ 
+ EXECUTION                         ◔ RUNNING · started 12s ago · 2 of 6 tasks · cores 4 of 8 · memory 12.6 of 14 GB · ⠸ 
    12s  ● cached      ingest                                                                                            
-   11s  ● complete    features                                                                                  4.2s    
-    9s  ◔ start       forecast                                                                                  ⠸ 9s    
-    9s  ◐ waiting     optimise                                                                   waiting on forecast    
+   11s  ● complete    features                                                                    4.2s · peak 1.8 GB    
+    9s  ◔ start       forecast · 3 of 8 pieces                                                                  ⠸ 9s    
+    4s  ⟲ requeued    forecast · piece 5 of 8                                                  over budget at 3.2 GB    
+    2s  ◐ waiting     forecast · piece 5 of 8                                             needs 3.2 GB · 1.4 GB free    
                                                                                                                         
  TASKS                                                                                                                  
-  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
-  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
-  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
- ▌forecast    ◔ in-progress       features            —                 Dict<String, Struct>      ⠸ 9s                  
-  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
-  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
-  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+  NAME      STATUS            DEPENDS ON         INPUTS          OUTPUT                  SIZE · LAST RUN   PEAK         
+  ingest    ● up-to-date      —                  sales, calendar Array<Struct>           12.1 MB · 3.1s    310 MB       
+  features  ● up-to-date      ingest             params          Struct                  412.6 MB · 12.0s  1.8 GB       
+ ▌forecast  ◔ in-progress     features           —               Dict<String, Struct>    ⠸ 9s              —            
+  optimise  ◐ waiting         forecast           overrides       Array<Struct>           — · waiting on f… —            
+  report    ✗ failed · exit 2 forecast, optimise —               String                  — · 0.8s          96 MB        
+  dashboard ○ ready           —                  sales           UIComponentType         41 KB · never     —            
                                                                                                                         
  INPUTS                                                                                                                 
   NAME          STATUS          TYPE                      SIZE      HASH                                                
@@ -27,7 +28,6 @@
   calendar      ● up-to-date    Array<Struct>             2.1 KB    5b0e88a1c3d7                                        
   params        ◐ stale         Struct                    1.2 KB    0a44e1b7c9d2                                        
   overrides     ○ unset         Dict<String, Float>       —         —                                                   
-                                                                                                                        
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

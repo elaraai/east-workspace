@@ -11,6 +11,7 @@ e3 is the **East Execution Engine** - a content-addressed, git-like execution en
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
+- [Backend Seams](#backend-seams)
 - [TypeDoc Documentation Standards](#typedoc-documentation-standards)
 - [Testing Standards](#testing-standards)
 - [Filesystem Operations](#filesystem-operations)
@@ -39,6 +40,16 @@ e3 is organized as a monorepo with three packages:
 - **Task object** - Computation definition stored in objects/ (runner + inputs + output type)
 - **Task binding** - Connects a task object to specific dataset paths
 - **Executions** - Cached task results keyed by input hash
+
+---
+
+## Backend Seams
+
+e3 runs over more than one backend. **MUST follow**
+[`docs/conventions/E3_BACKEND_SEAMS.md`](../../docs/conventions/E3_BACKEND_SEAMS.md):
+a mechanism goes through the interfaces a backend implements, shared logic
+never lives under `storage/local/`, a store's tests are a contract suite every
+backend runs, and a route's are e3-api-tests.
 
 ---
 
@@ -553,6 +564,7 @@ export class InvalidRepositoryError extends Error {
 3. All tests pass: `npm run test`
 4. Linting passes: `npm run lint`
 5. Filesystem operations use atomic patterns where appropriate
+6. A mechanism another backend needs goes through a backend interface, and its tests are a contract suite or e3-api-tests ([Backend Seams](#backend-seams))
 
 **When in doubt, refer to:**
 - `packages/e3-core/src/objects.ts` for documentation examples

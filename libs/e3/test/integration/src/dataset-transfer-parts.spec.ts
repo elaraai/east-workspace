@@ -4,7 +4,7 @@
  */
 
 /**
- * How the local server keeps a protocol-2 upload's parts honest.
+ * How the local server keeps an upload's parts honest.
  *
  * Every part streams to its own offset in one staged file, so this server —
  * not an object store — is what keeps a part inside its range: a part longer
@@ -71,12 +71,12 @@ async function call<T extends EastType>(url: string, method: 'GET' | 'POST', typ
     { type: 'success'; value: ValueTypeOf<T> } | { type: 'error'; value: unknown };
 }
 
-/** Start a protocol-2 upload of `data` and return its id, plan and part URL getter. */
+/** Start an upload of `data` and return its id, plan and part URL getter. */
 async function startUpload(ctx: TestContext, data: Uint8Array) {
   const uploadUrl = `${baseUrl}/api/repos/${ctx.repoName}/workspaces/ws/datasets/inputs/config/upload`;
   const request = encodeBeast2For(TransferUploadRequestType)({ hash: sha256(data), size: BigInt(data.byteLength) });
   const init = await call(`${uploadUrl}?protocol=2`, 'POST', TransferUploadResponseType, request);
-  assert.ok(init.type === 'success' && init.value.type === 'upload_parts', 'a protocol-2 upload is planned as parts');
+  assert.ok(init.type === 'success' && init.value.type === 'upload_parts', 'an upload is planned as parts');
   const { id, partBytes } = init.value.value;
   const count = transferPartCount(data.byteLength, partBytes);
   assert.ok(count >= 3, `the delivery spans at least three parts, got ${count}`);
@@ -95,7 +95,7 @@ async function startUpload(ctx: TestContext, data: Uint8Array) {
     }
     return done;
   };
-  return { id, partBytes, count, put, commit, uploadUrl };
+  return { id, partBytes, count, partUrl, put, commit, uploadUrl };
 }
 
 describe('dataset transfer parts on the local server', { concurrency: false }, () => {
@@ -152,6 +152,31 @@ describe('dataset transfer parts on the local server', { concurrency: false }, (
     assert.match(await refused.text(), new RegExp(`part 2 is ${end - start} bytes, got ${end - start - 1}`));
   });
 
+  it('refuses a part sent once the commit has been asked for, which would rewrite the bytes it verifies', async (t) => {
+    const ctx = await deployed(t);
+    const data = encodedDelivery();
+    const upload = await startUpload(ctx, data);
+    for (let part = 1; part <= upload.count; part++) {
+      const { start, end } = transferPartRange(data.byteLength, upload.partBytes, part)!;
+      assert.equal((await upload.put(part, data.subarray(start, end))).status, 200);
+    }
+    // Where part 1 goes, asked for while the upload still takes parts.
+    const url = await upload.partUrl(1);
+
+    // The server answers a commit `processing` at once (its commit wait is 0).
+    const asked = await call(`${upload.uploadUrl}/${upload.id}?protocol=2`, 'POST', TransferDoneResponseType);
+    assert.equal(asked.type, 'success');
+    const first = transferPartRange(data.byteLength, upload.partBytes, 1)!;
+    const late = await fetch(url, { method: 'PUT', body: data.subarray(first.start, first.end) });
+    assert.equal(late.status, 409);
+    assert.equal(await late.text(), 'the upload is committed: it takes no more parts');
+
+    const done = await upload.commit();
+    assert.ok(done.type === 'success' && done.value.type === 'completed', 'the upload lands as its parts were sent');
+    const status = await datasetGetStatus(baseUrl, ctx.repoName, 'ws', path, { token: '' });
+    assert.deepEqual(status.hash, some(sha256(data)));
+  });
+
   it('does not land an upload with a part never sent', async (t) => {
     const ctx = await deployed(t);
     const before = await datasetGetStatus(baseUrl, ctx.repoName, 'ws', path, { token: '' });
@@ -168,20 +193,5 @@ describe('dataset transfer parts on the local server', { concurrency: false }, (
     assert.match(done.value.value.message, /hash mismatch/);
     const after = await datasetGetStatus(baseUrl, ctx.repoName, 'ws', path, { token: '' });
     assert.deepEqual(after.hash, before.hash, 'the dataset keeps its value');
-  });
-
-  it('has no part URL for an upload a protocol-1 client started', async (t) => {
-    const ctx = await deployed(t);
-    const data = encodedDelivery();
-    const uploadUrl = `${baseUrl}/api/repos/${ctx.repoName}/workspaces/ws/datasets/inputs/config/upload`;
-    const request = encodeBeast2For(TransferUploadRequestType)({ hash: sha256(data), size: BigInt(data.byteLength) });
-    const init = await call(uploadUrl, 'POST', TransferUploadResponseType, request);
-    assert.ok(init.type === 'success' && init.value.type === 'upload');
-    const { id } = init.value.value;
-
-    const target = await call(`${uploadUrl}/${id}/parts/1`, 'GET', TransferPartResponseType);
-    assert.equal(target.type, 'error');
-    const put = await fetch(`${baseUrl}/api/uploads/${id}/parts/1`, { method: 'PUT', body: data });
-    assert.equal(put.status, 404);
   });
 });

@@ -152,40 +152,95 @@ ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type);
 
 // Whole-value v5 encode. codec_id compresses data-sized frames
 // (EAST_BEAST2_CODEC_*); with_index appends the paging index + footer for
-// Array/Set/Dict roots. Returns NULL on failure (message via
-// east_builtin_get_error).
+// Array/Set/Dict roots, and then scopes aliasing per root element as the
+// streaming writer does — an index-less encode aliases across the whole
+// value. Returns NULL on failure (message via east_builtin_get_error).
 ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                   bool with_index);
 
 // Paged whole-value v5 encode (the C mirror of TypeScript's
 // encodeBeast2PagedFor): one Array/Set/Dict value in, a segmented,
-// self-contained, INDEXED blob out. Batching is byte-adaptive — capped at
-// 1,000 elements per segment AND adapted toward target_segment_bytes of wire
-// output (0 = the 2 MiB default), seeded by a small probe and refined per
-// flush — so wide rows still yield right-sized segments. Deterministic per
-// value. Returns NULL on failure (message via east_builtin_get_error).
-ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
-                                     size_t target_segment_bytes);
+// self-contained, INDEXED blob out, written through the element writer below
+// — so its segments fall where the content-defined cut rule places them, and
+// the bytes are a function of the value. Returns NULL on failure (message via
+// east_builtin_get_error).
+ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id);
 
-// The batch refinement behind the paged encoder: the element count of the
-// next segment, toward `target` bytes of wire per segment, from `body` bytes
-// written over `written` elements — the header left out of `body` — capped at
-// 1,000 elements and at least 1. Every writer of a collection blob sizes its
-// segments with it (the paged encoders here and in TypeScript, the emit sink,
-// the blob merge), so one value segments the same way wherever it is written
-// (issue #770).
-size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written);
+// The content-defined cut rule's pinned bounds (v5/SPEC.md, "Segmentation
+// rules"): counts in elements (pairs for a Dict), sizes in logical bytes —
+// the canonical encoding before compression, which per-element aliasing makes
+// a function of the element alone and so identical in every runtime. A
+// segment's hash is consulted once it holds MIN_COUNT elements or MIN_BYTES;
+// the threshold makes a segment about TARGET_COUNT narrow elements or
+// TARGET_BYTES of wide ones; one at MAX_COUNT or MAX_BYTES always closes.
+#define EAST_BEAST2_SEGMENT_MIN_COUNT 256
+#define EAST_BEAST2_SEGMENT_TARGET_COUNT 1024
+#define EAST_BEAST2_SEGMENT_MAX_COUNT 4096
+#define EAST_BEAST2_SEGMENT_MIN_BYTES (64u * 1024u)
+#define EAST_BEAST2_SEGMENT_TARGET_BYTES (1024u * 1024u)
+#define EAST_BEAST2_SEGMENT_MAX_BYTES (8u * 1024u * 1024u)
+
+// The rule ids a manifest records for the segments it names: the hash, the
+// bounds, and the version of the table above. A change to any of them is a
+// new rule id, never a silent re-cut.
+#define EAST_BEAST2_SEGMENT_RULE_KEYED "cdc/keyed/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2"
+#define EAST_BEAST2_SEGMENT_RULE_ARRAY "cdc/array/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2"
+
+// The 64-bit FNV-1a hash of `bytes`, pinned identically in every runtime.
+uint64_t east_beast2_fnv1a64(const uint8_t *bytes, size_t len);
+
+// The boundary hash of an element: the low 32-bit word of its FNV-1a hash,
+// mixed by murmur3's 32-bit finalizer. `bytes` is a Set/Dict element's key
+// fence bytes, or an Array element's canonical bytes.
+uint32_t east_beast2_segment_boundary_hash(const uint8_t *bytes, size_t len);
+
+// The rule's hash test alone: whether an element with boundary hash `hash`
+// starts a segment after an open segment of `count` (at least 1) elements and
+// `bytes` logical bytes. The threshold is 2^32 × max(1 / TARGET_COUNT,
+// (bytes / count) / TARGET_BYTES).
+bool east_beast2_segment_is_boundary(uint32_t hash, size_t count, size_t bytes);
+
+// The whole rule for every element but a collection's first: whether the
+// element whose hashed bytes are `hash_input` starts a segment after an open
+// segment of `count` elements and `bytes` logical bytes.
+bool east_beast2_starts_segment_after(size_t count, size_t bytes, const uint8_t *hash_input,
+                                      size_t len);
+
+// The canonical bare encoding of one value: its v5 value bytes with no
+// container, header or index around them, encoded against a fresh context so
+// no container REF can fire and the bytes depend on the value alone. This is
+// what a segment fence holds and what the boundary rule hashes. Returns NULL
+// with the message posted; the caller frees the buffer.
+ByteBuffer *east_beast2_encode_fence(EastValue *value, EastType *type);
+
+// The element indices at which a collection's segments begin under the cut
+// rule, excluding 0, in ascending order — the whole segmentation of one value
+// in one call. Writes at most `out_cap` of them and returns how many there
+// are. Returns SIZE_MAX with the message posted on a non-collection root, an
+// element that fails to encode, or when `out` was given and too small.
+size_t east_beast2_segment_starts(EastValue *collection, EastType *type, size_t *out,
+                                  size_t out_cap);
 
 // Streaming v5 writer: each write() encodes one batch (a value of the declared
 // Array/Set/Dict type) as one root segment, so writer memory is O(batch).
 // Output bytes accumulate internally; drain with take() (returns a ByteBuffer
 // the caller frees, or NULL when nothing is pending). finish() appends the
 // terminator (and index + footer unless disabled). self_contained scopes
-// aliasing per segment so the output is pageable (the default for paging).
+// aliasing per root element, so the output is pageable and an element's
+// bytes depend on the element alone (the default for paging). Where the
+// segments fall is the caller's choice here; a stored collection is written
+// through the element writer below, which cuts where the rule says.
 typedef struct Beast2StreamWriter Beast2StreamWriter;
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
                                            bool with_index);
 bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch);
+// One root segment from elements that are already encoded — `count` elements
+// back to back in `elements`, each in its canonical bytes with aliasing scoped
+// to itself. The bytes are copied before this returns; their order is the
+// caller's to keep (nothing here decodes them to check a Set or Dict's
+// ascent). A zero count writes nothing.
+bool east_beast2_writer_write_encoded(Beast2StreamWriter *w, size_t count, const uint8_t *elements,
+                                      size_t len);
 ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w);
 bool east_beast2_writer_finish(Beast2StreamWriter *w);
 void east_beast2_writer_free(Beast2StreamWriter *w);
@@ -197,18 +252,117 @@ void east_beast2_writer_free(Beast2StreamWriter *w);
 // that — appending them in order so the bytes are identical to the inline
 // writer's. A single-core host stays inline. take() then returns only the
 // frames already done, and finish() waits for the rest.
-//
-// A caller that sizes its NEXT batch from the bytes emitted so far must not
-// read a lagging count — its segmentation would depend on thread timing.
-// emitted_bounds() brackets the total the writer will have emitted once
-// every submitted frame lands: `lo` is exact for the frames appended, and
-// `hi` adds each in-flight frame's logical bytes plus a header bound (a frame
-// payload never exceeds its logical bytes). Decide at both bounds; when the
-// decisions agree the exact one does too, and when they differ settle()
-// waits for the in-flight frames, after which lo == hi.
 void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bool parallel);
-void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi);
-bool east_beast2_writer_settle(Beast2StreamWriter *w);
+
+// The canonical writer of a collection blob (the C mirror of TypeScript's
+// Beast2ElementWriter): elements go in one at a time, in canonical order, and
+// segments come out wherever the content-defined cut rule places them. Each
+// element is encoded as it arrives with aliasing scoped to itself, so the blob
+// is a function of the value — whichever runtime writes it, however its
+// elements were produced. Memory is one open segment. The blob is always
+// self-contained and indexed; drain it with take(), as for the stream writer.
+//
+// add() takes an Array or Set element, add_pair() a Dict's key and value; a
+// Set element or Dict key must ascend strictly from the last in East order.
+// add_encoded() takes an element already in its canonical bytes — for a Dict
+// the key's bytes then the value's, `key_len` the key's length; for a Set the
+// whole element; ignored for an Array — whose order is the caller's to keep.
+// An add that fails leaves the writer as it was, with the message posted.
+typedef struct Beast2ElementWriter Beast2ElementWriter;
+Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id);
+void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bool parallel);
+bool east_beast2_element_writer_add(Beast2ElementWriter *w, EastValue *element);
+bool east_beast2_element_writer_add_pair(Beast2ElementWriter *w, EastValue *key, EastValue *value);
+bool east_beast2_element_writer_add_encoded(Beast2ElementWriter *w, const uint8_t *element,
+                                            size_t len, size_t key_len);
+ByteBuffer *east_beast2_element_writer_take(Beast2ElementWriter *w);
+// Writes the open segment, then the terminator, index and footer.
+bool east_beast2_element_writer_finish(Beast2ElementWriter *w);
+// Segments written so far: the open one is not counted until it closes, nor,
+// for a segment writer, one still framing on its pool until the sink takes it.
+size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w);
+void east_beast2_element_writer_free(Beast2ElementWriter *w);
+
+// Segment output (the C mirror of TypeScript's Beast2SegmentSink): the writer
+// hands each segment over once it is cut, in order, as the standalone blob
+// carving it out of the collection's blob would give — the header, the
+// segment's frame, the terminator, and an index naming the one segment — with
+// its element count and its fence, the first key's canonical bytes (a Set
+// element or a Dict key; empty for an Array). The sink returns false with the
+// message posted to fail the add or finish that wrote the segment. With
+// set_parallel a segment writer frames on a pool, as the blob writer does, and
+// hands each segment over once its frame is done, still in order: an add may
+// hand over segments cut before it, and finish() waits for the rest. take()
+// returns nothing.
+typedef struct {
+    void *ctx;
+    bool (*segment)(void *ctx, const uint8_t *blob, size_t len, size_t count, const uint8_t *fence,
+                    size_t fence_len);
+} Beast2SegmentSink;
+Beast2ElementWriter *east_beast2_element_writer_new_segments(EastType *type, int32_t codec_id,
+                                                             const Beast2SegmentSink *sink);
+// The header every segment of a segment writer is written under (borrowed,
+// valid until free); NULL for a blob writer.
+const uint8_t *east_beast2_element_writer_header(const Beast2ElementWriter *w, size_t *len_out);
+
+// Sorted runs (the C mirror of TypeScript's Beast2RunSorter): a Set's or
+// Dict's elements go in in any order and come out as sorted canonical runs.
+// Each element is encoded as it is added, with aliasing scoped to itself, so
+// what the sorter holds is bounded by bytes rather than by what the elements
+// decode to. A run closes once it holds EAST_BEAST2_RUN_MAX_COUNT elements
+// (pairs, for a Dict) or EAST_BEAST2_RUN_MAX_BYTES of their encoding, keys and
+// values both: its elements sort by key, stably, so a key's values stay in
+// the order they were added; a key added more than once folds, `acc =
+// merge(key, acc, value)` (Dict roots, with merge_fn), is kept once (Set
+// roots, with union_mode), or is refused; and the run is written through the
+// element writer as the canonical blob of its value. A key that repeats across
+// runs is the merge's to fold (east/merge.h).
+//
+// The caps are platform constants, not settings: where a run closes decides
+// how a repeated key's values group before they fold, which for a fold over
+// floats decides the output's bytes, and both caps count what every runtime
+// measures alike, so every runtime closes a run at the same element.
+#define EAST_BEAST2_RUN_MAX_COUNT 131072
+#define EAST_BEAST2_RUN_MAX_BYTES (64u * 1024u * 1024u)
+
+// Where the runs go: open() starts run `run` — runs are numbered from 0 in the
+// order they close — write() takes its next bytes, and close() follows its
+// last, the blob complete. Each returns false with the message posted, which
+// fails the add or finish writing the run; a run that fails is left without
+// its close.
+typedef struct {
+    void *ctx;
+    bool (*open)(void *ctx, size_t run);
+    bool (*write)(void *ctx, const uint8_t *bytes, size_t len);
+    bool (*close)(void *ctx);
+} Beast2RunSink;
+
+// merge_fn (Dict roots) is borrowed, and must be associative: a key's values
+// fold within each run before the runs merge. NULL with the message posted
+// for a root other than a Set or Dict, or a fold that does not fit it.
+typedef struct Beast2RunSorter Beast2RunSorter;
+Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
+                                            const Beast2RunSink *sink, EastCompiledFn *merge_fn,
+                                            bool union_mode);
+// A sorter whose runs are manifest directories: run n is the manifest
+// `<dir>/<n>.beast2`, its objects in `<dir>/<n>.beast2.segments/` — the layout
+// a runner writes a set or dict output in (east/unit.h). `dir` must exist.
+Beast2RunSorter *east_beast2_run_sorter_new_dir(EastType *type, int32_t codec_id, const char *dir,
+                                                EastCompiledFn *merge_fn, bool union_mode);
+// Frames of every run deflate on a pool, as east_beast2_writer_set_parallel.
+void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bool parallel);
+// add() takes a Set element, add_pair() a Dict's key and value. An element
+// that fails to encode leaves the sorter as it was; a run that fails as it is
+// written — a key added twice without a fold, the merge function's error, the
+// sink's — ends the sorter. False with the message posted.
+bool east_beast2_run_sorter_add(Beast2RunSorter *s, EastValue *element);
+bool east_beast2_run_sorter_add_pair(Beast2RunSorter *s, EastValue *key, EastValue *value);
+// Writes the open run, if it holds anything. Idempotent.
+bool east_beast2_run_sorter_finish(Beast2RunSorter *s);
+// Runs written so far; the open one is not counted until a cap or finish()
+// closes it.
+size_t east_beast2_run_sorter_runs(const Beast2RunSorter *s);
+void east_beast2_run_sorter_free(Beast2RunSorter *s);
 
 // Sequential v5 segment reader over a complete blob (the caller keeps `data`
 // alive and unchanged for the reader's lifetime). next() returns one decoded
@@ -380,6 +534,108 @@ EastValue *east_beast2_open_paged_owned(EastValue *owner, const uint8_t *data, s
 EastValue *east_beast2_open_paged_external(uint8_t *data, size_t len, EastType *type, bool frozen,
                                            void (*release)(void *ctx, uint8_t *data, size_t len),
                                            void *ctx);
+
+// ============================================================================
+// Segment manifests (v5/SPEC.md, "Segment manifests"). A collection may be
+// held as standalone segment blobs — each a v5 blob of one segment under the
+// collection's header — and a manifest naming them in order. A manifest
+// directory is the manifest's file and, in `<file>.segments/`, every object
+// the manifest names — the header and each segment — as `<sha256>.beast2`:
+// the layout e3 stages collection inputs in, and the one every runtime writes.
+// ============================================================================
+
+#define EAST_BEAST2_MANIFEST_KIND "$segments"
+
+// The manifest struct — { kind, level, type, rule, header, entries: [{ hash,
+// fence, count, bytes }] }, the struct TypeScript's CollectionManifestType
+// declares. Interned, like every constructed type.
+EastType *east_beast2_manifest_type(void);
+
+// The manifest `data` holds: 1 with it in *manifest_out (retained); 0 when
+// the data holds something else — not a v5 blob, another root type, or a
+// struct of the manifest's shape with another kind; -1 with the message
+// posted when it is typed as a manifest but does not decode, or names
+// manifests rather than segments (a level above 0), which this build does not
+// read.
+int east_beast2_read_manifest(const uint8_t *data, size_t len, EastValue **manifest_out);
+
+// Where a manifest's segments are read from: open() hands over segment i's
+// standalone blob — and in *handle what close() needs to give it back — or
+// returns false with the message posted; free(), when set, releases ctx once
+// the reader is done with the source. A reader opens a segment for each read
+// that decodes it, and closes it after.
+typedef struct {
+    void *ctx;
+    bool (*open)(void *ctx, size_t i, const uint8_t **data, size_t *len, void **handle);
+    void (*close)(void *ctx, void *handle, const uint8_t *data, size_t len);
+    void (*free)(void *ctx);
+} Beast2SegmentSource;
+
+// Random access over a collection held as a manifest: the pager above, with
+// the counts and fences taken from the manifest's entries — so a keyed read
+// opens exactly the segment it lands in — and each segment from `source`. The
+// manifest is retained. The source is taken: its free() runs with the
+// pager's, or at once when this fails (NULL, message posted).
+Beast2Pages *east_beast2_pages_new_manifest(EastValue *manifest, EastType *type,
+                                            const Beast2SegmentSource *source);
+// A lazy paged value over a manifest, as east_beast2_open_paged_view is over
+// a blob: it holds no bytes of its own, and a hydrate decodes it segment by
+// segment. The shape gate is east_beast2_open_paged_view's and the source is
+// taken as above; NULL when either refuses.
+EastValue *east_beast2_open_paged_manifest(EastValue *manifest, EastType *type, bool frozen,
+                                           const Beast2SegmentSource *source);
+// The whole collection a manifest holds, decoded segment by segment into one
+// value — the value decoding the spliced blob gives. Takes the source.
+EastValue *east_beast2_decode_manifest(EastValue *manifest, EastType *type, bool frozen,
+                                       const Beast2SegmentSource *source);
+// The three above over a manifest directory: `path` is the manifest's file
+// (its decoded `manifest` the caller's), and segment i is
+// `<path>.segments/<hash>.beast2`, mapped for each read.
+Beast2Pages *east_beast2_pages_new_manifest_dir(const char *path, EastValue *manifest,
+                                                EastType *type);
+EastValue *east_beast2_open_manifest_dir(const char *path, EastValue *manifest, EastType *type,
+                                         bool frozen);
+EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest, EastType *type,
+                                           bool frozen);
+
+// The canonical writer of a collection as a manifest directory (the C mirror
+// of TypeScript's Beast2ManifestWriter): elements go in as the element writer
+// takes them, and out come the header, each segment the cut rule places, and
+// then the manifest naming them, every object under the SHA-256 of its bytes
+// in lowercase hex. object() receives each object — the header first, then
+// each segment as it is cut; an Array holding two equal segments hands the
+// same one over twice — and manifest() the manifest, last. Each returns false
+// with the message posted, failing the add or finish that wrote it; a finish
+// that fails writes no manifest.
+typedef struct {
+    void *ctx;
+    bool (*object)(void *ctx, const char *hash, const uint8_t *bytes, size_t len);
+    bool (*manifest)(void *ctx, const uint8_t *bytes, size_t len);
+} Beast2ManifestSink;
+typedef struct Beast2ManifestWriter Beast2ManifestWriter;
+Beast2ManifestWriter *east_beast2_manifest_writer_new(EastType *type, int32_t codec_id,
+                                                      const Beast2ManifestSink *sink);
+// The writer of a manifest directory: the manifest at `path`, and every
+// object in `<path>.segments/`, which is created when missing.
+Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
+                                                          const char *path);
+// Frames the segments on a pool, as east_beast2_element_writer_set_parallel
+// frames a segment writer's; the objects and the manifest are the same bytes.
+void east_beast2_manifest_writer_set_parallel(Beast2ManifestWriter *w, bool parallel);
+bool east_beast2_manifest_writer_add(Beast2ManifestWriter *w, EastValue *element);
+bool east_beast2_manifest_writer_add_pair(Beast2ManifestWriter *w, EastValue *key,
+                                          EastValue *value);
+bool east_beast2_manifest_writer_add_encoded(Beast2ManifestWriter *w, const uint8_t *element,
+                                             size_t len, size_t key_len);
+bool east_beast2_manifest_writer_finish(Beast2ManifestWriter *w);
+// Segments written so far: the open one is not counted until it closes, nor
+// one still framing on the pool until it is written.
+size_t east_beast2_manifest_writer_segments(const Beast2ManifestWriter *w);
+void east_beast2_manifest_writer_free(Beast2ManifestWriter *w);
+// One whole Array/Set/Dict value written as a manifest directory at `path`,
+// its segments framed on a pool as a paged encode's are.
+bool east_beast2_write_manifest_dir(EastValue *value, EastType *type, int32_t codec_id,
+                                    const char *path);
 
 // The byte budget of a pager's decoded-segment cache (issue #560): the sum of
 // cached segments' decompressed frame lengths stays at or under the budget

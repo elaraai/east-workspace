@@ -42,6 +42,7 @@
  */
 
 const WINDOW = 32768;
+const WINDOW_MASK = WINDOW - 1;
 const MIN_MATCH = 3;
 const MAX_MATCH = 258;
 const HASH_BITS = 15;
@@ -107,8 +108,14 @@ class BitWriter {
   private acc = 0;
   private nbits = 0;
 
-  constructor(capacity: number) {
-    this.buf = new Uint8Array(Math.max(64, capacity));
+  /** @param buf - where the stream is written, replaced by a larger one when it fills */
+  constructor(buf: Uint8Array) {
+    this.buf = buf;
+  }
+
+  /** The buffer the stream is in: the one given, or the larger one it grew into. */
+  get buffer(): Uint8Array {
+    return this.buf;
   }
 
   private grow(need: number): void {
@@ -151,6 +158,26 @@ class BitWriter {
 }
 
 /**
+ * The buffers {@link deterministicDeflateRaw} works in, kept from one call to
+ * the next.
+ *
+ * @remarks
+ * A caller that compresses one buffer after another — a frame worker — passes
+ * one, and a call then allocates no buffer once the output has grown to its
+ * largest stream. A thread that frees an unreachable buffer only when its own
+ * garbage collector runs, and runs it rarely, would otherwise hold every buffer
+ * it has compressed through (#841).
+ */
+export class DeflateScratch {
+  /** The hash chains' heads, one per hash. */
+  readonly head = new Int32Array(HASH_SIZE);
+  /** The chains' links, one per position of the window. */
+  readonly prev = new Int32Array(WINDOW);
+  /** The compressed stream. */
+  out: Uint8Array = new Uint8Array(64);
+}
+
+/**
  * Compresses `src` to a raw DEFLATE stream, deterministically.
  *
  * The output is a pure function of the input — byte-identical to east-c's
@@ -158,16 +185,23 @@ class BitWriter {
  * DEFLATE, so any standard inflate reads it.
  *
  * @param src - the bytes to compress
- * @returns a raw DEFLATE stream (no zlib header, no trailer)
+ * @param scratch - buffers to work in, kept for the next call; without them the
+ *   call allocates its own
+ * @returns a raw DEFLATE stream (no zlib header, no trailer) — with `scratch`, a
+ *   view of its output buffer, valid until the next call given it
  */
-export function deterministicDeflateRaw(src: Uint8Array): Uint8Array {
-  const bw = new BitWriter(Math.max(64, src.length >> 1));
+export function deterministicDeflateRaw(src: Uint8Array, scratch?: DeflateScratch): Uint8Array {
+  const n = src.length;
+  const head = (scratch?.head ?? new Int32Array(HASH_SIZE)).fill(-1);
+  // A walk reads the link of a position no more than a window back, and that
+  // link is overwritten only by the position a window on, which is not yet
+  // inserted while the first is in reach. So a position's link lives at its
+  // offset in the window, and every link a walk reads was written by this call.
+  const prev = scratch?.prev ?? new Int32Array(Math.min(WINDOW, Math.max(n, 1)));
+  const bw = new BitWriter(scratch?.out ?? new Uint8Array(Math.max(64, n >> 1)));
   bw.writeBits(1, 1);   // BFINAL — beast2 frames are a single block
   bw.writeBits(1, 2);   // BTYPE = 01, fixed Huffman
 
-  const head = new Int32Array(HASH_SIZE).fill(-1);
-  const prev = new Int32Array(src.length > 0 ? src.length : 1).fill(-1);
-  const n = src.length;
   const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
 
   const hashAt = (i: number): number =>
@@ -176,7 +210,7 @@ export function deterministicDeflateRaw(src: Uint8Array): Uint8Array {
   const insert = (i: number): void => {
     if (i + MIN_MATCH > n) return;
     const h = hashAt(i);
-    prev[i] = head[h]!;
+    prev[i & WINDOW_MASK] = head[h]!;
     head[h] = i;
   };
 
@@ -236,7 +270,7 @@ export function deterministicDeflateRaw(src: Uint8Array): Uint8Array {
             if (len === maxLen) break;
           }
         }
-        cand = prev[cand]!;
+        cand = prev[cand & WINDOW_MASK]!;
       }
     }
 
@@ -256,7 +290,7 @@ export function deterministicDeflateRaw(src: Uint8Array): Uint8Array {
     } else {
       bw.writeLitLen(src[pos]!);
       if (hash >= 0) {
-        prev[pos] = head[hash]!;
+        prev[pos & WINDOW_MASK] = head[hash]!;
         head[hash] = pos;
       }
       pos++;
@@ -264,5 +298,7 @@ export function deterministicDeflateRaw(src: Uint8Array): Uint8Array {
   }
 
   bw.writeLitLen(256);   // end of block
-  return bw.finish();
+  const out = bw.finish();
+  if (scratch !== undefined) scratch.out = bw.buffer;
+  return out;
 }

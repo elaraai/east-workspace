@@ -8,13 +8,13 @@ The directory structure is:
  - packages/e3-types - Shared East/TypeScript type definitions (API wire types, dataset refs, package objects, execution state)
  - packages/e3 - TypeScript SDK for authoring e3 packages (`e3.input`, `e3.task`, `e3.package`, `e3.export`)
  - packages/e3-core - Core library (like libgit2): repository, objects, packages, workspaces, dataflow, executions, storage/execution/transfer backends
- - packages/e3-cli - CLI tool (`e3 repo|package|workspace|list|get|set|run|start|watch|logs|convert|login`)
+ - packages/e3-cli - CLI tool (`e3 repo|package|workspace|dataset|task|dataflow|run|call|mutate|history|compact|reindex|watch|convert|auth|completion`)
  - packages/e3-api-client - Stateless HTTP client for remote e3 repositories (BEAST2-serialized)
  - packages/e3-api-server - HTTP server exposing e3-core as a REST API
  - packages/e3-api-tests - Shared API compliance test suites (run against both e3-api-server and e3-cloud)
  - native/e3-job - The Windows job launcher (`e3-job.exe`) e3-core runs each runner through; `make install-job` installs it in a checkout (see its README)
  - test/integration - End-to-end CLI tests
- - design - Design documentation (see design/e3-mvp.md for overview)
+ - design - Design documentation (see design/e3-data-architecture.md for how e3 stores data and runs work)
 
 ## Purpose
 
@@ -36,7 +36,7 @@ An e3 repository holds and manages datasets and East programs, and automatically
  - **dataflow** - the DAG of tasks and datasets to be executed in a workspace
  - **execution** - a single run of a task, identified by `(taskHash, inputsHash, executionId)` where executionId is a UUIDv7
  - **dataflow run** - a complete execution of a workspace's dataflow, tracking which task executions were used
- - **per-dataset ref** - each dataset has its own atomic `.ref` file (`workspaces/<ws>/data/<path>.ref`) instead of a single root tree hash, enabling concurrent per-dataset writes
+ - **per-dataset ref** - each dataset has its own atomic ref record (`workspaces/<ws>/data/<path>.beast2`) instead of a single root tree hash, enabling concurrent per-dataset writes
  - **version vector** - a `Map<string, string>` tracking which root input content hashes contributed to each dataset, used to detect stale reads in diamond dependencies
  - **reactive execution** - after each task completes, the orchestrator detects root input changes, invalidates affected tasks, and re-executes until a fixpoint is reached
  - **storage backend** - `StorageBackend` interface in e3-core abstracts object/dataset-ref storage (local filesystem today; S3/DynamoDB or EFS in cloud deployments)
@@ -65,10 +65,9 @@ Instructions in STANDARDS.md must be followed at all times.
 See USAGE.md for how to use e3 as an end user.
 See SKILL.md for the authoring cheat-sheet (matches the `east:e3` skill).
 The interactive terminal UI over a repository is `e3-ui` (libs/east-ui/packages/e3-ui-cli, design in its docs/tui/); the e3 CLI stays non-interactive.
-See design/e3-mvp*.md for the current design spec.
-See design/e3-core.md, design/e3-api.md, design/e3-cli.md for per-package design notes.
-See design/e3-execution.md and design/e3-execution-history.md for execution and provenance tracking.
-See design/e3-reactive-dataflow.md for reactive execution, per-dataset refs, and version vectors.
+See design/e3-data-architecture.md for how e3 stores data and runs work, as built: one stored form and one door, the runner protocol, the engine, scheduling on cores and memory, the repository's records, reactive execution with per-dataset refs and version vectors, locks, the API's data contracts, and record migrations.
+See design/e3-execution.md for running a task: execution records and history, stopped executions, split tasks and the budget.
+See design/e3-cli.md for the CLI's design notes.
 See design/e3-dataset-status.md for dataset/task status semantics.
 See design/e3-watch.md for the `e3 watch` file-watching workflow.
 See design/e3-ui.md for first-class UI tasks (Data bindings, `e3.ui()`).
