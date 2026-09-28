@@ -163,7 +163,7 @@ const CryptoImpl: PlatformFunction[] = [
  *     return Crypto.uuid();
  * });
  *
- * const compiled = East.compile(generateId.toIR(), Crypto.Implementation);
+ * const compiled = East.compile(generateId, Crypto.Implementation);
  * compiled();  // "550e8400-e29b-41d4-a716-446655440000"
  * ```
  */
@@ -184,7 +184,7 @@ export const Crypto = {
      *     return Crypto.randomBytes(32n);
      * });
      *
-     * const compiled = East.compile(generateToken.toIR(), Crypto.Implementation);
+     * const compiled = East.compile(generateToken, Crypto.Implementation);
      * compiled();  // Uint8Array(32) [...]
      * ```
      */
@@ -205,7 +205,7 @@ export const Crypto = {
      *     return Crypto.hashSha256(password);
      * });
      *
-     * const compiled = East.compile(hashPassword.toIR(), Crypto.Implementation);
+     * const compiled = East.compile(hashPassword, Crypto.Implementation);
      * compiled("password");  // "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
      * ```
      */
@@ -226,7 +226,7 @@ export const Crypto = {
      *     return Crypto.hashSha256Bytes(fileData);
      * });
      *
-     * const compiled = East.compile(hashFile.toIR(), Crypto.Implementation);
+     * const compiled = East.compile(hashFile, Crypto.Implementation);
      * const fileData = new Uint8Array([1, 2, 3]);
      * compiled(fileData);  // Uint8Array(32) [...]
      * ```
@@ -247,7 +247,7 @@ export const Crypto = {
      *     return Crypto.uuid();
      * });
      *
-     * const compiled = East.compile(createRecord.toIR(), Crypto.Implementation);
+     * const compiled = East.compile(createRecord, Crypto.Implementation);
      * compiled();  // "550e8400-e29b-41d4-a716-446655440000"
      * ```
      */

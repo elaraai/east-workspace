@@ -20,7 +20,7 @@ export default {
    * const approxEq = East.function([FloatType, FloatType, FloatType], BooleanType, ($, x, y, eps) => {
    *   $.return(East.Float.approxEqual(x, y, eps));
    * });
-   * const compiled = East.compile(approxEq.toIR(), []);
+   * const compiled = East.compile(approxEq, []);
    * compiled(0.3, 0.1 + 0.2, 0.0001);  // true (handles floating point precision)
    * compiled(1.0, 1.1, 0.05);          // false
    * ```
@@ -41,7 +41,7 @@ export default {
    * const floor = East.function([FloatType], IntegerType, ($, x) => {
    *   $.return(East.Float.roundFloor(x));
    * });
-   * const compiled = East.compile(floor.toIR(), []);
+   * const compiled = East.compile(floor, []);
    * compiled(3.7);   // 3n
    * compiled(-2.3);  // -3n
    * ```
@@ -72,7 +72,7 @@ export default {
    * const ceil = East.function([FloatType], IntegerType, ($, x) => {
    *   $.return(East.Float.roundCeil(x));
    * });
-   * const compiled = East.compile(ceil.toIR(), []);
+   * const compiled = East.compile(ceil, []);
    * compiled(3.2);   // 4n
    * compiled(-2.7);  // -2n
    * ```
@@ -104,7 +104,7 @@ export default {
    * const roundHalf = East.function([FloatType], IntegerType, ($, x) => {
    *   $.return(East.Float.roundHalf(x));
    * });
-   * const compiled = East.compile(roundHalf.toIR(), []);
+   * const compiled = East.compile(roundHalf, []);
    * compiled(3.5);   // 4n
    * compiled(3.4);   // 3n
    * compiled(-2.5);  // -3n
@@ -131,7 +131,7 @@ export default {
    * const trunc = East.function([FloatType], IntegerType, ($, x) => {
    *   $.return(East.Float.roundTrunc(x));
    * });
-   * const compiled = East.compile(trunc.toIR(), []);
+   * const compiled = East.compile(trunc, []);
    * compiled(3.7);   // 3n
    * compiled(-2.7);  // -2n
    * ```
@@ -154,7 +154,7 @@ export default {
    * const roundNearest = East.function([FloatType, FloatType], FloatType, ($, x, step) => {
    *   $.return(East.Float.roundNearest(x, step));
    * });
-   * const compiled = East.compile(roundNearest.toIR(), []);
+   * const compiled = East.compile(roundNearest, []);
    * compiled(17.3, 5.0);     // 15.0
    * compiled(17.6, 5.0);     // 20.0
    * compiled(3.14159, 0.01); // 3.14
@@ -201,7 +201,7 @@ export default {
    * const roundUp = East.function([FloatType, FloatType], FloatType, ($, x, step) => {
    *   $.return(East.Float.roundUp(x, step));
    * });
-   * const compiled = East.compile(roundUp.toIR(), []);
+   * const compiled = East.compile(roundUp, []);
    * compiled(17.1, 5.0);  // 20.0
    * compiled(15.0, 5.0);  // 15.0 (already exact)
    * compiled(3.14, 0.1);  // 3.2
@@ -246,7 +246,7 @@ export default {
    * const roundDown = East.function([FloatType, FloatType], FloatType, ($, x, step) => {
    *   $.return(East.Float.roundDown(x, step));
    * });
-   * const compiled = East.compile(roundDown.toIR(), []);
+   * const compiled = East.compile(roundDown, []);
    * compiled(17.9, 5.0);  // 15.0
    * compiled(15.0, 5.0);  // 15.0 (already exact)
    * compiled(3.19, 0.1);  // 3.1
@@ -291,7 +291,7 @@ export default {
    * const roundTruncate = East.function([FloatType, FloatType], FloatType, ($, x, step) => {
    *   $.return(East.Float.roundTruncate(x, step));
    * });
-   * const compiled = East.compile(roundTruncate.toIR(), []);
+   * const compiled = East.compile(roundTruncate, []);
    * compiled(17.9, 5.0);   // 15.0
    * compiled(-17.9, 5.0);  // -15.0
    * ```
@@ -324,7 +324,7 @@ export default {
    * const roundDecimals = East.function([FloatType, IntegerType], FloatType, ($, x, decimals) => {
    *   $.return(East.Float.roundToDecimals(x, decimals));
    * });
-   * const compiled = East.compile(roundDecimals.toIR(), []);
+   * const compiled = East.compile(roundDecimals, []);
    * compiled(3.14159, 2n);  // 3.14
    * compiled(2.5, 0n);      // 3.0
    * ```
@@ -374,7 +374,7 @@ export default {
    * const formatComma = East.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
    *   $.return(East.Float.printCommaSeperated(x, decimals));
    * });
-   * const compiled = East.compile(formatComma.toIR(), []);
+   * const compiled = East.compile(formatComma, []);
    * compiled(1234.567, 2n);    // "1,234.57"
    * compiled(1000000, 0n);     // "1,000,000"
    * compiled(-5432.1, 3n);     // "-5,432.100"
@@ -469,7 +469,7 @@ export default {
    * const formatCurrency = East.function([FloatType], StringType, ($, x) => {
    *   $.return(East.Float.printCurrency(x));
    * });
-   * const compiled = East.compile(formatCurrency.toIR(), []);
+   * const compiled = East.compile(formatCurrency, []);
    * compiled(1234.567);   // "$1,234.57"
    * compiled(-42.5);      // "-$42.50"
    * compiled(1000000);    // "$1,000,000.00"
@@ -545,7 +545,7 @@ export default {
    * const formatFixed = East.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
    *   $.return(East.Float.printFixed(x, decimals));
    * });
-   * const compiled = East.compile(formatFixed.toIR(), []);
+   * const compiled = East.compile(formatFixed, []);
    * compiled(3.14159, 2n);  // "3.14"
    * compiled(42, 3n);       // "42.000"
    * compiled(-0.5, 1n);     // "-0.5"
@@ -611,7 +611,7 @@ export default {
    * const formatCompact = East.function([FloatType], StringType, ($, x) => {
    *   $.return(East.Float.printCompact(x));
    * });
-   * const compiled = East.compile(formatCompact.toIR(), []);
+   * const compiled = East.compile(formatCompact, []);
    * compiled(1500);         // "1.5K"
    * compiled(2500000);      // "2.5M"
    * compiled(3140000000);   // "3.14B"
@@ -690,7 +690,7 @@ export default {
    * const formatPercent = East.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
    *   $.return(East.Float.printPercentage(x, decimals));
    * });
-   * const compiled = East.compile(formatPercent.toIR(), []);
+   * const compiled = East.compile(formatPercent, []);
    * compiled(0.452, 1n);   // "45.2%"
    * compiled(0.5, 0n);     // "50%"
    * compiled(-0.123, 2n);  // "-12.30%"

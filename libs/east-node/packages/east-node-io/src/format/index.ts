@@ -23,7 +23,7 @@
  *     return $.return(sheet.size());
  * });
  *
- * const compiled = East.compile(countRows.toIR(), Format.XLSX.Implementation);
+ * const compiled = East.compile(countRows, Format.XLSX.Implementation);
  * const xlsxBlob = new Uint8Array([]);  // XLSX file bytes
  * compiled(xlsxBlob);  // 100n
  * ```
@@ -77,7 +77,7 @@ import {
  *     return $.return(blob);
  * });
  *
- * const compiled = East.compile(createExcel.toIR(), Format.XLSX.Implementation);
+ * const compiled = East.compile(createExcel, Format.XLSX.Implementation);
  * const xlsxBlob = compiled();  // Uint8Array with XLSX file bytes
  * ```
  */
@@ -108,7 +108,7 @@ export const Format = {
          *     $.return(sheet.size());
          * });
          *
-         * const compiled = East.compile(countRows.toIR(), Format.XLSX.Implementation);
+         * const compiled = East.compile(countRows, Format.XLSX.Implementation);
          * const blob = new Uint8Array([]);
          * compiled(blob);  // 100n
          * ```
@@ -139,7 +139,7 @@ export const Format = {
          *     $.return(blob);
          * });
          *
-         * const compiled = East.compile(createExcel.toIR(), Format.XLSX.Implementation);
+         * const compiled = East.compile(createExcel, Format.XLSX.Implementation);
          * const xlsxBlob = compiled();
          * ```
          */
@@ -160,7 +160,7 @@ export const Format = {
          *     $.return(info.sheets.size());
          * });
          *
-         * const compiled = East.compile(countSheets.toIR(), Format.XLSX.Implementation);
+         * const compiled = East.compile(countSheets, Format.XLSX.Implementation);
          * const blob = new Uint8Array([]);
          * compiled(blob);  // 3n
          * ```
@@ -185,7 +185,7 @@ export const Format = {
          *     $.return(null);
          * });
          *
-         * const compiled = East.compile(myFunction.toIR(), Format.XLSX.Implementation);
+         * const compiled = East.compile(myFunction, Format.XLSX.Implementation);
          * const blob = new Uint8Array([]);
          * compiled(blob);
          * ```
@@ -260,7 +260,7 @@ export const Format = {
          *     return $.return(Format.XML.parse(xmlBlob, config));
          * });
          *
-         * const compiled = East.compile(parseXML.toIR(), Format.XML.Implementation);
+         * const compiled = East.compile(parseXML, Format.XML.Implementation);
          * const xmlBlob = new TextEncoder().encode("<book id='123'><title>East Guide</title></book>");
          * compiled(xmlBlob);  // Returns parsed XML tree
          * ```
@@ -289,7 +289,7 @@ export const Format = {
          *     return $.return(Format.XML.serialize(doc, config));
          * });
          *
-         * const compiled = East.compile(serializeXML.toIR(), Format.XML.Implementation);
+         * const compiled = East.compile(serializeXML, Format.XML.Implementation);
          * const xmlNode = { tag: "book", attributes: new Map([["id", "123"]]), children: [] };
          * compiled(xmlNode);  // Returns XML blob
          * ```
@@ -324,7 +324,7 @@ export const Format = {
          *     return $.return(Format.XML.serialize(doc, serializeConfig));
          * });
          *
-         * const compiled = East.compile(myFunction.toIR(), Format.XML.Implementation);
+         * const compiled = East.compile(myFunction, Format.XML.Implementation);
          * const xmlBlob = new TextEncoder().encode("<book><title>East</title></book>");
          * compiled(xmlBlob);
          * ```

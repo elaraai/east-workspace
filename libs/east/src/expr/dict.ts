@@ -34,7 +34,7 @@ import { none, some } from "../containers/variant.js";
  *   $(counts.merge(word, 1n, ($, existing, increment) => existing.add(increment), () => 0n));
  *   $.return(null);
  * });
- * const compiled = East.compile(updateCounts.toIR(), []);
+ * const compiled = East.compile(updateCounts, []);
  * const counts = new Map([["hello", 5n], ["world", 3n]]);
  * compiled(counts, "hello");  // counts is now Map([["hello", 6n], ["world", 3n]])
  * compiled(counts, "new");    // counts is now Map([["hello", 6n], ["new", 1n], ["world", 3n]])
@@ -48,7 +48,7 @@ import { none, some } from "../containers/variant.js";
  * const combine = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, a, b) => {
  *   $.return(a.union(b, ($, existing, incoming) => existing.add(incoming)));
  * });
- * const compiled = East.compile(combine.toIR(), []);
+ * const compiled = East.compile(combine, []);
  * compiled(new Map([["a", 1n], ["b", 2n]]), new Map([["b", 3n], ["c", 4n]]));
  * // Map([["a", 1n], ["b", 5n], ["c", 4n]]) — both inputs unchanged
  * ```
@@ -59,7 +59,7 @@ import { none, some } from "../containers/variant.js";
  * const filterHighScores = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, scores) => {
  *   $.return(scores.filter(($, score, name) => score.greaterEqual(100n)));
  * });
- * const compiled = East.compile(filterHighScores.toIR(), []);
+ * const compiled = East.compile(filterHighScores, []);
  * const scores = new Map([["alice", 150n], ["bob", 75n], ["charlie", 200n]]);
  * compiled(scores);  // Map([["alice", 150n], ["charlie", 200n]])
  * ```
@@ -79,7 +79,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const getSize = East.function([DictType(StringType, IntegerType)], IntegerType, ($, dict) => {
    *   $.return(dict.size());
    * });
-   * const compiled = East.compile(getSize.toIR(), []);
+   * const compiled = East.compile(getSize, []);
    * compiled(new Map([["a", 1n], ["b", 2n], ["c", 3n]]));  // 3n
    * compiled(new Map());  // 0n
    * ```
@@ -106,7 +106,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const hasKey = East.function([DictType(StringType, IntegerType), StringType], BooleanType, ($, dict, key) => {
    *   $.return(dict.has(key));
    * });
-   * const compiled = East.compile(hasKey.toIR(), []);
+   * const compiled = East.compile(hasKey, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a");     // true
    * compiled(dict, "c");     // false
@@ -141,7 +141,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const getValue = East.function([DictType(StringType, IntegerType), StringType], IntegerType, ($, dict, key) => {
    *   $.return(dict.get(key));
    * });
-   * const compiled = East.compile(getValue.toIR(), []);
+   * const compiled = East.compile(getValue, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a");  // 1n
    * // compiled(dict, "c") would throw error
@@ -153,7 +153,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const getWithDefault = East.function([DictType(StringType, IntegerType), StringType], IntegerType, ($, dict, key) => {
    *   $.return(dict.get(key, () => -1n));
    * });
-   * const compiled = East.compile(getWithDefault.toIR(), []);
+   * const compiled = East.compile(getWithDefault, []);
    * compiled(dict, "a");  // 1n
    * compiled(dict, "c");  // -1n
    * ```
@@ -198,7 +198,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const tryGetValue = East.function([DictType(StringType, IntegerType), StringType], OptionType(IntegerType), ($, dict, key) => {
    *   $.return(dict.tryGet(key));
    * });
-   * const compiled = East.compile(tryGetValue.toIR(), []);
+   * const compiled = East.compile(tryGetValue, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a");  // { tag: "some", value: 1n }
    * compiled(dict, "c");  // { tag: "none", value: null }
@@ -213,7 +213,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *     none: () => 0n
    *   }));
    * });
-   * const compiled = East.compile(getOrDefault.toIR(), []);
+   * const compiled = East.compile(getOrDefault, []);
    * compiled(dict, "a");  // 1n
    * compiled(dict, "c");  // 0n
    * ```
@@ -249,7 +249,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(dict.insert(key, value));
    *   $.return(null);
    * });
-   * const compiled = East.compile(insertEntry.toIR(), []);
+   * const compiled = East.compile(insertEntry, []);
    * const dict = new Map([["a", 1n]]);
    * compiled(dict, "b", 2n);  // dict now has Map([["a", 1n], ["b", 2n]])
    * // compiled(dict, "a", 10n) would throw error (duplicate key)
@@ -290,7 +290,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(dict.insertOrUpdate(key, value));
    *   $.return(null);
    * });
-   * const compiled = East.compile(upsert.toIR(), []);
+   * const compiled = East.compile(upsert, []);
    * const dict = new Map([["a", 1n]]);
    * compiled(dict, "b", 2n);   // dict now has Map([["a", 1n], ["b", 2n]])
    * compiled(dict, "a", 10n);  // dict now has Map([["a", 10n], ["b", 2n]])
@@ -337,7 +337,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(dict.update(key, newValue));
    *   $.return(null);
    * });
-   * const compiled = East.compile(updateValue.toIR(), []);
+   * const compiled = East.compile(updateValue, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a", 10n);  // dict now has Map([["a", 10n], ["b", 2n]])
    * // compiled(dict, "c", 3n) would throw error (key not found)
@@ -390,7 +390,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(counts.merge(word, 1n, ($, existing, inc) => existing.add(inc), () => 0n));
    *   $.return(null);
    * });
-   * const compiled = East.compile(increment.toIR(), []);
+   * const compiled = East.compile(increment, []);
    * const counts = new Map([["hello", 5n]]);
    * compiled(counts, "hello");  // counts now has Map([["hello", 6n]])
    * compiled(counts, "world");  // counts now has Map([["hello", 6n], ["world", 1n]])
@@ -403,7 +403,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(dict.merge(key, suffix, ($, existing, newVal) => existing.concat(newVal), () => ""));
    *   $.return(null);
    * });
-   * const compiled = East.compile(appendText.toIR(), []);
+   * const compiled = East.compile(appendText, []);
    * const dict = new Map([["greeting", "Hello"]]);
    * compiled(dict, "greeting", " World");  // Map([["greeting", "Hello World"]])
    * compiled(dict, "new", "Hi");           // Map([["greeting", "Hello World"], ["new", "Hi"]])
@@ -452,7 +452,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const getOrCreate = East.function([DictType(StringType, IntegerType), StringType], IntegerType, ($, dict, key) => {
    *   $.return(dict.getOrInsert(key, () => 0n));
    * });
-   * const compiled = East.compile(getOrCreate.toIR(), []);
+   * const compiled = East.compile(getOrCreate, []);
    * const dict = new Map([["a", 1n]]);
    * compiled(dict, "a");  // 1n (existing value)
    * compiled(dict, "b");  // 0n (new value inserted)
@@ -491,7 +491,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(dict.delete(key));
    *   $.return(null);
    * });
-   * const compiled = East.compile(deleteKey.toIR(), []);
+   * const compiled = East.compile(deleteKey, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a");  // dict now has Map([["b", 2n]])
    * // compiled(dict, "c") would throw error (key not found)
@@ -524,7 +524,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const tryDeleteKey = East.function([DictType(StringType, IntegerType), StringType], BooleanType, ($, dict, key) => {
    *   $.return(dict.tryDelete(key));
    * });
-   * const compiled = East.compile(tryDeleteKey.toIR(), []);
+   * const compiled = East.compile(tryDeleteKey, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a");  // true (dict now has Map([["b", 2n]]))
    * compiled(dict, "c");  // false (key not found, dict unchanged)
@@ -559,7 +559,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const popKey = East.function([DictType(StringType, IntegerType), StringType], IntegerType, ($, dict, key) => {
    *   $.return(dict.pop(key));
    * });
-   * const compiled = East.compile(popKey.toIR(), []);
+   * const compiled = East.compile(popKey, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a");  // 1n (dict now has Map([["b", 2n]]))
    * // compiled(dict, "c") would throw error (key not found)
@@ -595,7 +595,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const swapValue = East.function([DictType(StringType, IntegerType), StringType, IntegerType], IntegerType, ($, dict, key, newValue) => {
    *   $.return(dict.swap(key, newValue));
    * });
-   * const compiled = East.compile(swapValue.toIR(), []);
+   * const compiled = East.compile(swapValue, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict, "a", 10n);  // 1n (dict now has Map([["a", 10n], ["b", 2n]]))
    * // compiled(dict, "c", 3n) would throw error (key not found)
@@ -628,7 +628,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(dict.clear());
    *   $.return(null);
    * });
-   * const compiled = East.compile(clearDict.toIR(), []);
+   * const compiled = East.compile(clearDict, []);
    * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
    * compiled(dict);  // dict is now Map([])
    * ```
@@ -664,7 +664,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   $(dict1.unionInPlace(dict2, ($, existing, newVal) => existing.add(newVal)));
    *   $.return(null);
    * });
-   * const compiled = East.compile(unionDicts.toIR(), []);
+   * const compiled = East.compile(unionDicts, []);
    * const dict1 = new Map([["a", 1n], ["b", 2n]]);
    * const dict2 = new Map([["b", 3n], ["c", 4n]]);
    * compiled(dict1, dict2);  // dict1 now has Map([["a", 1n], ["b", 5n], ["c", 4n]])
@@ -722,7 +722,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const combine = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict1, dict2) => {
    *   $.return(dict1.union(dict2, ($, existing, newVal) => existing.add(newVal)));
    * });
-   * const compiled = East.compile(combine.toIR(), []);
+   * const compiled = East.compile(combine, []);
    * const dict1 = new Map([["a", 1n], ["b", 2n]]);
    * const dict2 = new Map([["b", 3n], ["c", 4n]]);
    * compiled(dict1, dict2);  // Map([["a", 1n], ["b", 5n], ["c", 4n]]) — dict1 is unchanged
@@ -767,7 +767,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *     $.return(null);
    *   }
    * );
-   * const compiled = East.compile(mergeCounts.toIR(), []);
+   * const compiled = East.compile(mergeCounts, []);
    * const counts1 = new Map([["apple", 5n], ["banana", 3n]]);
    * const counts2 = new Map([["banana", 2n], ["cherry", 7n]]);
    * compiled(counts1, counts2);  // counts1 now has Map([["apple", 5n], ["banana", 5n], ["cherry", 7n]])
@@ -809,7 +809,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const getKeys = East.function([DictType(StringType, IntegerType)], SetType(StringType), ($, dict) => {
    *   $.return(dict.keys());
    * });
-   * const compiled = East.compile(getKeys.toIR(), []);
+   * const compiled = East.compile(getKeys, []);
    * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
    * compiled(dict);  // Set(["a", "b", "c"])
    * ```
@@ -841,7 +841,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const selectKeys = East.function([DictType(StringType, IntegerType), SetType(StringType)], DictType(StringType, IntegerType), ($, dict, keysToSelect) => {
    *   $.return(dict.getKeys(keysToSelect));
    * });
-   * const compiled = East.compile(selectKeys.toIR(), []);
+   * const compiled = East.compile(selectKeys, []);
    * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n], ["d", 4n]]);
    * const keysToSelect = new Set(["a", "c"]);
    * compiled(dict, keysToSelect);  // Map([["a", 1n], ["c", 3n]])
@@ -853,7 +853,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const selectWithDefault = East.function([DictType(StringType, IntegerType), SetType(StringType)], DictType(StringType, IntegerType), ($, dict, keys) => {
    *   $.return(dict.getKeys(keys, () => 0n));
    * });
-   * const compiled = East.compile(selectWithDefault.toIR(), []);
+   * const compiled = East.compile(selectWithDefault, []);
    * const keysWithMissing = new Set(["a", "x"]);
    * compiled(dict, keysWithMissing);  // Map([["a", 1n], ["x", 0n]])
    * ```
@@ -896,7 +896,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *   }));
    *   $.return(null);
    * });
-   * const compiled = East.compile(printEntries.toIR(), []);
+   * const compiled = East.compile(printEntries, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict);  // Iterates over all entries
    * ```
@@ -932,7 +932,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const copyDict = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
    *   $.return(dict.copy());
    * });
-   * const compiled = East.compile(copyDict.toIR(), []);
+   * const compiled = East.compile(copyDict, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * const copy = compiled(dict);  // Map([["a", 1n], ["b", 2n]])
    * // Modifying copy doesn't affect dict
@@ -965,7 +965,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const doubleValues = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
    *   $.return(dict.map(($, value, key) => value.multiply(2n)));
    * });
-   * const compiled = East.compile(doubleValues.toIR(), []);
+   * const compiled = East.compile(doubleValues, []);
    * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
    * compiled(dict);  // Map([["a", 2n], ["b", 4n], ["c", 6n]])
    * ```
@@ -1006,7 +1006,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const filterLargeValues = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
    *   $.return(dict.filter(($, value, key) => value.greaterEqual(10n)));
    * });
-   * const compiled = East.compile(filterLargeValues.toIR(), []);
+   * const compiled = East.compile(filterLargeValues, []);
    * const dict = new Map([["a", 5n], ["b", 15n], ["c", 20n], ["d", 8n]]);
    * compiled(dict);  // Map([["b", 15n], ["c", 20n]])
    * ```
@@ -1048,7 +1048,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *     )
    *   ));
    * });
-   * const compiled = East.compile(filterMapEven.toIR(), []);
+   * const compiled = East.compile(filterMapEven, []);
    * const dict = new Map([["a", 2n], ["b", 3n], ["c", 4n], ["d", 5n]]);
    * compiled(dict);  // Map([["a", 1n], ["c", 2n]]) - only even values, halved
    * ```
@@ -1099,7 +1099,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const dictToArray = East.function([DictType(StringType, IntegerType)], ArrayType(IntegerType), ($, dict) => {
    *   $.return(dict.toArray());  // Just values
    * });
-   * const compiled = East.compile(dictToArray.toIR(), []);
+   * const compiled = East.compile(dictToArray, []);
    * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
    * compiled(dict);  // [1n, 2n, 3n]
    * ```
@@ -1110,7 +1110,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const pairsToArray = East.function([DictType(StringType, IntegerType)], ArrayType(StringType), ($, dict) => {
    *   $.return(dict.toArray(($, value, key) => Expr.str`${key}: ${value}`));
    * });
-   * const compiled = East.compile(pairsToArray.toIR(), []);
+   * const compiled = East.compile(pairsToArray, []);
    * compiled(dict);  // ["a: 1", "b: 2", "c: 3"]
    * ```
    */
@@ -1156,7 +1156,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const extractCategories = East.function([DictType(StringType, StructType({category: StringType, price: IntegerType}))], SetType(StringType), ($, products) => {
    *   $.return(products.toSet(($, product, name) => product.category));
    * });
-   * const compiled = East.compile(extractCategories.toIR(), []);
+   * const compiled = East.compile(extractCategories, []);
    * const products = new Map([
    *   ["apple", {category: "fruit", price: 100n}],
    *   ["banana", {category: "fruit", price: 80n}],
@@ -1219,7 +1219,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const uppercaseKeys = East.function([DictType(StringType, IntegerType)], DictType(StringType, IntegerType), ($, dict) => {
    *   $.return(dict.toDict(($, value, key) => key.upperCase()));
    * });
-   * const compiled = East.compile(uppercaseKeys.toIR(), []);
+   * const compiled = East.compile(uppercaseKeys, []);
    * const dict = new Map([["a", 1n], ["b", 2n]]);
    * compiled(dict);  // Map([["A", 1n], ["B", 2n]])
    * ```
@@ -1234,7 +1234,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *     ($, existing, newVal, len) => existing.add(newVal)
    *   ));
    * });
-   * const compiled = East.compile(groupByLength.toIR(), []);
+   * const compiled = East.compile(groupByLength, []);
    * const dict2 = new Map([["a", 1n], ["ab", 2n], ["c", 3n], ["def", 4n]]);
    * compiled(dict2);  // Map([[1n, 4n], [2n, 2n], [3n, 4n]])
    * ```
@@ -1295,7 +1295,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    *     return arr;
    *   }));
    * });
-   * const compiled = East.compile(expandRanges.toIR(), []);
+   * const compiled = East.compile(expandRanges, []);
    * const dict = new Map([["a", 2n], ["b", 3n]]);
    * compiled(dict);  // [0n, 1n, 0n, 1n, 2n] - flattened ranges
    * ```
@@ -1340,7 +1340,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const getAllTags = East.function([DictType(StringType, ArrayType(StringType))], SetType(StringType), ($, articles) => {
    *   $.return(articles.flattenToSet(($, tags, title) => tags.toSet()));
    * });
-   * const compiled = East.compile(getAllTags.toIR(), []);
+   * const compiled = East.compile(getAllTags, []);
    * const articles = new Map([
    *   ["Article 1", ["javascript", "programming"]],
    *   ["Article 2", ["python", "programming"]],
@@ -1393,7 +1393,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const mergeNestedDicts = East.function([DictType(StringType, DictType(StringType, IntegerType))], DictType(StringType, IntegerType), ($, nested) => {
    *   $.return(nested.flattenToDict(undefined, ($, existing, newVal) => existing.add(newVal)));
    * });
-   * const compiled = East.compile(mergeNestedDicts.toIR(), []);
+   * const compiled = East.compile(mergeNestedDicts, []);
    * const nested = new Map([
    *   ["group1", new Map([["a", 1n], ["b", 2n]])],
    *   ["group2", new Map([["b", 3n], ["c", 4n]])]
@@ -1885,7 +1885,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const sumValues = East.function([DictType(StringType, IntegerType)], IntegerType, ($, dict) => {
    *   $.return(dict.reduce(($, acc, value, key) => acc.add(value), 0n));
    * });
-   * const compiled = East.compile(sumValues.toIR(), []);
+   * const compiled = East.compile(sumValues, []);
    * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
    * compiled(dict);  // 6n
    * ```
@@ -1896,7 +1896,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const concatKeys = East.function([DictType(StringType, IntegerType)], StringType, ($, dict) => {
    *   $.return(dict.reduce(($, acc, value, key) => acc.concat(",").concat(key), ""));
    * });
-   * const compiled = East.compile(concatKeys.toIR(), []);
+   * const compiled = East.compile(concatKeys, []);
    * compiled(dict);  // ",a,b,c"
    * ```
    */
@@ -1934,7 +1934,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const runningTotal = East.function([DictType(StringType, IntegerType)], ArrayType(IntegerType), ($, dict) => {
    *   $.return(dict.scan(($, acc, value, key) => acc.add(value), 0n));
    * });
-   * const compiled = East.compile(runningTotal.toIR(), []);
+   * const compiled = East.compile(runningTotal, []);
    * compiled(new Map([["a", 1n], ["b", 2n], ["c", 3n]]));  // [1n, 3n, 6n]
    * compiled(new Map());                                    // []
    * ```
@@ -2067,7 +2067,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
      * const allPositive = East.function([DictType(StringType, IntegerType)], BooleanType, ($, dict) => {
      *   $.return(dict.every(($, value, key) => value.greater(0n)));
      * });
-     * const compiled = East.compile(allPositive.toIR(), []);
+     * const compiled = East.compile(allPositive, []);
      * const dict1 = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
      * compiled(dict1);  // true
      * const dict2 = new Map([["a", 1n], ["b", -2n], ["c", 3n]]);
@@ -2157,7 +2157,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
      * const hasNegative = East.function([DictType(StringType, IntegerType)], BooleanType, ($, dict) => {
      *   $.return(dict.some(($, value, key) => value.less(0n)));
      * });
-     * const compiled = East.compile(hasNegative.toIR(), []);
+     * const compiled = East.compile(hasNegative, []);
      * const dict1 = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
      * compiled(dict1);  // false
      * const dict2 = new Map([["a", 1n], ["b", -2n], ["c", 3n]]);
@@ -2239,7 +2239,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
      * const sumValues = East.function([DictType(StringType, IntegerType)], IntegerType, ($, dict) => {
      *   $.return(dict.sum());
      * });
-     * const compiled = East.compile(sumValues.toIR(), []);
+     * const compiled = East.compile(sumValues, []);
      * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n]]);
      * compiled(dict);  // 6n
      * ```
@@ -2250,7 +2250,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
      * const sumLengths = East.function([DictType(StringType, StringType)], IntegerType, ($, dict) => {
      *   $.return(dict.sum(($, value, key) => value.length()));
      * });
-     * const compiled = East.compile(sumLengths.toIR(), []);
+     * const compiled = East.compile(sumLengths, []);
      * const dict2 = new Map([["a", "hello"], ["b", "world"]]);
      * compiled(dict2);  // 10n (5 + 5)
      * ```
@@ -2294,7 +2294,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const avgValue = East.function([DictType(StringType, IntegerType)], FloatType, ($, dict) => {
    *   $.return(dict.mean());
    * });
-   * const compiled = East.compile(avgValue.toIR(), []);
+   * const compiled = East.compile(avgValue, []);
    * const dict = new Map([["a", 1n], ["b", 2n], ["c", 3n], ["d", 4n]]);
    * compiled(dict);  // 2.5
    * ```
@@ -2305,7 +2305,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const avgLength = East.function([DictType(StringType, StringType)], FloatType, ($, dict) => {
    *   $.return(dict.mean(($, value, key) => value.length()));
    * });
-   * const compiled = East.compile(avgLength.toIR(), []);
+   * const compiled = East.compile(avgLength, []);
    * const dict2 = new Map([["a", "hi"], ["b", "hello"], ["c", "hey"]]);
    * compiled(dict2);  // 3.3333333333333335 (average of 2, 5, 3)
    * ```
@@ -2347,7 +2347,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const isEqual = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled(new Map([["a", 1n], ["b", 2n]]), new Map([["a", 1n], ["b", 2n]]));  // true
    * compiled(new Map([["a", 1n]]), new Map([["a", 1n], ["b", 2n]]));            // false
    * ```
@@ -2367,7 +2367,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
    * const isNotEqual = East.function([DictType(StringType, IntegerType), DictType(StringType, IntegerType)], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled(new Map([["a", 1n]]), new Map([["a", 1n], ["b", 2n]]));            // true
    * compiled(new Map([["a", 1n], ["b", 2n]]), new Map([["a", 1n], ["b", 2n]]));  // false
    * ```

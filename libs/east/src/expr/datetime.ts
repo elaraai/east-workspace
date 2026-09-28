@@ -59,7 +59,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractYear = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getYear());
    * });
-   * const compiled = East.compile(extractYear.toIR(), []);
+   * const compiled = East.compile(extractYear, []);
    * compiled(new Date("2025-01-15T10:30:00.000Z"));  // 2025n
    * compiled(new Date("1999-12-31T23:59:59.999Z"));  // 1999n
    * ```
@@ -85,7 +85,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractMonth = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getMonth());
    * });
-   * const compiled = East.compile(extractMonth.toIR(), []);
+   * const compiled = East.compile(extractMonth, []);
    * compiled(new Date("2025-01-15T10:30:00.000Z"));  // 1n
    * compiled(new Date("2025-12-31T23:59:59.999Z"));  // 12n
    * ```
@@ -111,7 +111,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractDay = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getDayOfMonth());
    * });
-   * const compiled = East.compile(extractDay.toIR(), []);
+   * const compiled = East.compile(extractDay, []);
    * compiled(new Date("2025-01-15T10:30:00.000Z"));  // 15n
    * compiled(new Date("2025-02-28T12:00:00.000Z"));  // 28n
    * ```
@@ -137,7 +137,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractHour = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getHour());
    * });
-   * const compiled = East.compile(extractHour.toIR(), []);
+   * const compiled = East.compile(extractHour, []);
    * compiled(new Date("2025-01-15T14:30:00.000Z"));  // 14n
    * compiled(new Date("2025-01-15T00:00:00.000Z"));  // 0n
    * ```
@@ -163,7 +163,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractMinute = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getMinute());
    * });
-   * const compiled = East.compile(extractMinute.toIR(), []);
+   * const compiled = East.compile(extractMinute, []);
    * compiled(new Date("2025-01-15T14:30:45.000Z"));  // 30n
    * compiled(new Date("2025-01-15T14:00:00.000Z"));  // 0n
    * ```
@@ -189,7 +189,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractSecond = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getSecond());
    * });
-   * const compiled = East.compile(extractSecond.toIR(), []);
+   * const compiled = East.compile(extractSecond, []);
    * compiled(new Date("2025-01-15T14:30:45.000Z"));  // 45n
    * compiled(new Date("2025-01-15T14:30:00.000Z"));  // 0n
    * ```
@@ -215,7 +215,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractDayOfWeek = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getDayOfWeek());
    * });
-   * const compiled = East.compile(extractDayOfWeek.toIR(), []);
+   * const compiled = East.compile(extractDayOfWeek, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"));  // 3n (Wednesday)
    * compiled(new Date("2025-01-12T00:00:00.000Z"));  // 0n (Sunday)
    * ```
@@ -241,7 +241,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const extractMillisecond = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.getMillisecond());
    * });
-   * const compiled = East.compile(extractMillisecond.toIR(), []);
+   * const compiled = East.compile(extractMillisecond, []);
    * compiled(new Date("2025-01-15T14:30:45.123Z"));  // 123n
    * compiled(new Date("2025-01-15T14:30:45.000Z"));  // 0n
    * ```
@@ -270,7 +270,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const addMs = East.function([DateTimeType, IntegerType], DateTimeType, ($, date, ms) => {
    *   $.return(date.addMilliseconds(ms));
    * });
-   * const compiled = East.compile(addMs.toIR(), []);
+   * const compiled = East.compile(addMs, []);
    * const date = new Date("2025-01-15T14:30:45.000Z");
    * compiled(date, 500n);   // Date("2025-01-15T14:30:45.500Z")
    * compiled(date, 1000n);  // Date("2025-01-15T14:30:46.000Z")
@@ -323,7 +323,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const subMs = East.function([DateTimeType, IntegerType], DateTimeType, ($, date, ms) => {
    *   $.return(date.subtractMilliseconds(ms));
    * });
-   * const compiled = East.compile(subMs.toIR(), []);
+   * const compiled = East.compile(subMs, []);
    * const date = new Date("2025-01-15T14:30:45.500Z");
    * compiled(date, 500n);   // Date("2025-01-15T14:30:45.000Z")
    * compiled(date, 1000n);  // Date("2025-01-15T14:30:44.500Z")
@@ -373,7 +373,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const addSec = East.function([DateTimeType, IntegerType], DateTimeType, ($, date, secs) => {
    *   $.return(date.addSeconds(secs));
    * });
-   * const compiled = East.compile(addSec.toIR(), []);
+   * const compiled = East.compile(addSec, []);
    * compiled(new Date("2025-01-15T14:30:00.000Z"), 30n);   // Date("2025-01-15T14:30:30.000Z")
    * ```
    */
@@ -392,7 +392,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const addMin = East.function([DateTimeType, IntegerType], DateTimeType, ($, date, mins) => {
    *   $.return(date.addMinutes(mins));
    * });
-   * const compiled = East.compile(addMin.toIR(), []);
+   * const compiled = East.compile(addMin, []);
    * compiled(new Date("2025-01-15T14:00:00.000Z"), 30n);   // Date("2025-01-15T14:30:00.000Z")
    * ```
    */
@@ -411,7 +411,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const addHr = East.function([DateTimeType, IntegerType], DateTimeType, ($, date, hrs) => {
    *   $.return(date.addHours(hrs));
    * });
-   * const compiled = East.compile(addHr.toIR(), []);
+   * const compiled = East.compile(addHr, []);
    * compiled(new Date("2025-01-15T14:00:00.000Z"), 2n);    // Date("2025-01-15T16:00:00.000Z")
    * ```
    */
@@ -430,7 +430,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const addDay = East.function([DateTimeType, IntegerType], DateTimeType, ($, date, days) => {
    *   $.return(date.addDays(days));
    * });
-   * const compiled = East.compile(addDay.toIR(), []);
+   * const compiled = East.compile(addDay, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"), 1n);    // Date("2025-01-16T00:00:00.000Z")
    * compiled(new Date("2025-01-31T00:00:00.000Z"), 1n);    // Date("2025-02-01T00:00:00.000Z")
    * ```
@@ -450,7 +450,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const addWk = East.function([DateTimeType, IntegerType], DateTimeType, ($, date, weeks) => {
    *   $.return(date.addWeeks(weeks));
    * });
-   * const compiled = East.compile(addWk.toIR(), []);
+   * const compiled = East.compile(addWk, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"), 1n);    // Date("2025-01-22T00:00:00.000Z")
    * compiled(new Date("2025-01-15T00:00:00.000Z"), 2n);    // Date("2025-01-29T00:00:00.000Z")
    * ```
@@ -618,7 +618,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const getDuration = East.function([DateTimeType, DateTimeType], IntegerType, ($, date1, date2) => {
    *   $.return(date1.durationMilliseconds(date2));
    * });
-   * const compiled = East.compile(getDuration.toIR(), []);
+   * const compiled = East.compile(getDuration, []);
    * const d1 = new Date("2025-01-15T14:30:00.000Z");
    * const d2 = new Date("2025-01-15T14:30:01.500Z");
    * compiled(d1, d2);   // 1500n (1.5 seconds later)
@@ -652,7 +652,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const getDurationSec = East.function([DateTimeType, DateTimeType], FloatType, ($, date1, date2) => {
    *   $.return(date1.durationSeconds(date2));
    * });
-   * const compiled = East.compile(getDurationSec.toIR(), []);
+   * const compiled = East.compile(getDurationSec, []);
    * const d1 = new Date("2025-01-15T14:30:00.000Z");
    * const d2 = new Date("2025-01-15T14:30:30.000Z");
    * compiled(d1, d2);   // 30.0 (30 seconds later)
@@ -698,7 +698,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const getDurationMin = East.function([DateTimeType, DateTimeType], FloatType, ($, date1, date2) => {
    *   $.return(date1.durationMinutes(date2));
    * });
-   * const compiled = East.compile(getDurationMin.toIR(), []);
+   * const compiled = East.compile(getDurationMin, []);
    * const d1 = new Date("2025-01-15T14:00:00.000Z");
    * const d2 = new Date("2025-01-15T14:30:00.000Z");
    * compiled(d1, d2);   // 30.0 (30 minutes later)
@@ -744,7 +744,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const getDurationHr = East.function([DateTimeType, DateTimeType], FloatType, ($, date1, date2) => {
    *   $.return(date1.durationHours(date2));
    * });
-   * const compiled = East.compile(getDurationHr.toIR(), []);
+   * const compiled = East.compile(getDurationHr, []);
    * const d1 = new Date("2025-01-15T10:00:00.000Z");
    * const d2 = new Date("2025-01-15T14:30:00.000Z");
    * compiled(d1, d2);   // 4.5 (4.5 hours later)
@@ -790,7 +790,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const getDurationDay = East.function([DateTimeType, DateTimeType], FloatType, ($, date1, date2) => {
    *   $.return(date1.durationDays(date2));
    * });
-   * const compiled = East.compile(getDurationDay.toIR(), []);
+   * const compiled = East.compile(getDurationDay, []);
    * const d1 = new Date("2025-01-15T00:00:00.000Z");
    * const d2 = new Date("2025-01-17T12:00:00.000Z");
    * compiled(d1, d2);   // 2.5 (2.5 days later)
@@ -836,7 +836,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const getDurationWk = East.function([DateTimeType, DateTimeType], FloatType, ($, date1, date2) => {
    *   $.return(date1.durationWeeks(date2));
    * });
-   * const compiled = East.compile(getDurationWk.toIR(), []);
+   * const compiled = East.compile(getDurationWk, []);
    * const d1 = new Date("2025-01-01T00:00:00.000Z");
    * const d2 = new Date("2025-01-15T00:00:00.000Z");
    * compiled(d1, d2);   // 2.0 (2 weeks later)
@@ -877,7 +877,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const toEpoch = East.function([DateTimeType], IntegerType, ($, date) => {
    *   $.return(date.toEpochMilliseconds());
    * });
-   * const compiled = East.compile(toEpoch.toIR(), []);
+   * const compiled = East.compile(toEpoch, []);
    * compiled(new Date("1970-01-01T00:00:00.000Z"));  // 0n
    * compiled(new Date("2025-01-15T14:30:45.123Z"));  // 1736950245123n
    * ```
@@ -957,7 +957,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const isEqual = East.function([DateTimeType, DateTimeType], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-16T00:00:00.000Z"));  // false
    * ```
@@ -977,7 +977,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const isNotEqual = East.function([DateTimeType, DateTimeType], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-16T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // false
    * ```
@@ -997,7 +997,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const isAfter = East.function([DateTimeType, DateTimeType], BooleanType, ($, a, b) => {
    *   $.return(a.greaterThan(b));
    * });
-   * const compiled = East.compile(isAfter.toIR(), []);
+   * const compiled = East.compile(isAfter, []);
    * compiled(new Date("2025-01-16T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-16T00:00:00.000Z"));  // false
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // false
@@ -1018,7 +1018,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const isBefore = East.function([DateTimeType, DateTimeType], BooleanType, ($, a, b) => {
    *   $.return(a.lessThan(b));
    * });
-   * const compiled = East.compile(isBefore.toIR(), []);
+   * const compiled = East.compile(isBefore, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-16T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-16T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // false
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // false
@@ -1039,7 +1039,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const isAfterOrEqual = East.function([DateTimeType, DateTimeType], BooleanType, ($, a, b) => {
    *   $.return(a.greaterThanOrEqual(b));
    * });
-   * const compiled = East.compile(isAfterOrEqual.toIR(), []);
+   * const compiled = East.compile(isAfterOrEqual, []);
    * compiled(new Date("2025-01-16T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-16T00:00:00.000Z"));  // false
@@ -1060,7 +1060,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * const isBeforeOrEqual = East.function([DateTimeType, DateTimeType], BooleanType, ($, a, b) => {
    *   $.return(a.lessThanOrEqual(b));
    * });
-   * const compiled = East.compile(isBeforeOrEqual.toIR(), []);
+   * const compiled = East.compile(isBeforeOrEqual, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-16T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-15T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // true
    * compiled(new Date("2025-01-16T00:00:00.000Z"), new Date("2025-01-15T00:00:00.000Z"));  // false

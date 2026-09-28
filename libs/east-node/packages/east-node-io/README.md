@@ -123,7 +123,7 @@ const countRows = East.function([BlobType], IntegerType, ($, xlsxBlob) => {
     return $.return(sheet.size());
 });
 
-const compiled = East.compile(countRows.toIR(), Format.XLSX.Implementation);
+const compiled = East.compile(countRows, Format.XLSX.Implementation);
 const rowCount = compiled(xlsxBlob);  // 100n
 ```
 

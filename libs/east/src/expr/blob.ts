@@ -54,7 +54,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const getSize = East.function([BlobType], IntegerType, ($, blob) => {
    *   $.return(blob.size());
    * });
-   * const compiled = East.compile(getSize.toIR(), []);
+   * const compiled = East.compile(getSize, []);
    * const text = "hello";
    * const blob = new TextEncoder().encode(text);
    * compiled(blob);  // 5n (5 bytes for "hello")
@@ -84,7 +84,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const getByte = East.function([BlobType, IntegerType], IntegerType, ($, blob, offset) => {
    *   $.return(blob.getUint8(offset));
    * });
-   * const compiled = East.compile(getByte.toIR(), []);
+   * const compiled = East.compile(getByte, []);
    * const blob = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
    * compiled(blob, 0n);  // 72n (ASCII 'H')
    * compiled(blob, 1n);  // 101n (ASCII 'e')
@@ -118,7 +118,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const decode = East.function([BlobType], StringType, ($, blob) => {
    *   $.return(blob.decodeUtf8());
    * });
-   * const compiled = East.compile(decode.toIR(), []);
+   * const compiled = East.compile(decode, []);
    * const blob = new TextEncoder().encode("hello");
    * compiled(blob);  // "hello"
    *
@@ -151,7 +151,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const decode = East.function([BlobType], StringType, ($, blob) => {
    *   $.return(blob.decodeUtf16());
    * });
-   * const compiled = East.compile(decode.toIR(), []);
+   * const compiled = East.compile(decode, []);
    * // Assume blob contains UTF-16 LE encoded "hello" with BOM
    * const blob = new Uint8Array([0xFF, 0xFE, 0x68, 0x00, 0x65, 0x00, 0x6C, 0x00, 0x6C, 0x00, 0x6F, 0x00]);
    * compiled(blob);  // "hello"
@@ -187,7 +187,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const decode = East.function([BlobType], ArrayType(IntegerType), ($, blob) => {
    *   $.return(blob.decodeBeast(ArrayType(IntegerType), 'v2'));
    * });
-   * const compiled = East.compile(decode.toIR(), []);
+   * const compiled = East.compile(decode, []);
    * // Assume blob contains BEAST v2 encoding of [1n, 2n, 3n]
    * const encodedBlob = // ... BEAST encoded data ... ;
    * compiled(encodedBlob);  // [1n, 2n, 3n]
@@ -298,7 +298,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const parseCsv = East.function([BlobType], ArrayType(PersonType), ($, blob) => {
    *   $.return(blob.decodeCsv(PersonType, { delimiter: ',' }));
    * });
-   * const compiled = East.compile(parseCsv.toIR(), []);
+   * const compiled = East.compile(parseCsv, []);
    * const csv = new TextEncoder().encode("name,age\nAlice,30\nBob,25");
    * compiled(csv);  // [{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]
    * ```
@@ -329,7 +329,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const isEqual = East.function([BlobType, BlobType], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * const blob1 = new Uint8Array([1, 2, 3]);
    * const blob2 = new Uint8Array([1, 2, 3]);
    * const blob3 = new Uint8Array([1, 2, 4]);
@@ -352,7 +352,7 @@ export class BlobExpr extends Expr<BlobType> {
    * const isNotEqual = East.function([BlobType, BlobType], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * const blob1 = new Uint8Array([1, 2, 3]);
    * const blob2 = new Uint8Array([1, 2, 4]);
    * compiled(blob1, blob2);  // true

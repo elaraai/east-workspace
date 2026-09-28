@@ -550,7 +550,7 @@ const FileSystemImpl: PlatformFunction[] = [
  *     $(FileSystem.writeFile("output.txt", content));
  * });
  *
- * const compiled = East.compile(processFile.toIR(), FileSystem.Implementation);
+ * const compiled = East.compile(processFile, FileSystem.Implementation);
  * await compiled();
  * ```
  */
@@ -572,7 +572,7 @@ export const FileSystem = {
      *     return content;
      * });
      *
-     * const compiled = East.compile(readConfig.toIR(), FileSystem.Implementation);
+     * const compiled = East.compile(readConfig, FileSystem.Implementation);
      * await compiled();  // Returns file content as string
      * ```
      */
@@ -595,7 +595,7 @@ export const FileSystem = {
      *     $(FileSystem.writeFile("output.txt", "Hello, World!"));
      * });
      *
-     * const compiled = East.compile(saveOutput.toIR(), FileSystem.Implementation);
+     * const compiled = East.compile(saveOutput, FileSystem.Implementation);
      * await compiled();  // File written successfully
      * ```
      */
@@ -768,7 +768,7 @@ export const FileSystem = {
      *     $(FileSystem.writeFileBytes("output.bin", data));
      * });
      *
-     * const compiled = East.compile(saveBinary.toIR(), FileSystem.Implementation);
+     * const compiled = East.compile(saveBinary, FileSystem.Implementation);
      * const binaryData = new Uint8Array([1, 2, 3, 4]);
      * await compiled(binaryData);  // Binary data written to file
      * ```

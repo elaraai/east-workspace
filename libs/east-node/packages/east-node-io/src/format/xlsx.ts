@@ -61,7 +61,7 @@ import {
  *     return $.return(dataRows.size());
  * });
  *
- * const compiled = East.compile(countRows.toIR(), Format.XLSX.Implementation);
+ * const compiled = East.compile(countRows, Format.XLSX.Implementation);
  * const xlsxBlob = new Uint8Array([]);
  * compiled(xlsxBlob);  // 99n (row count after skipping header)
  * ```
@@ -111,7 +111,7 @@ export const xlsx_read = East.platform("xlsx_read", [BlobType, XlsxReadOptionsTy
  *     return $.return(Format.XLSX.write(data, options));
  * });
  *
- * const compiled = East.compile(createExcel.toIR(), Format.XLSX.Implementation);
+ * const compiled = East.compile(createExcel, Format.XLSX.Implementation);
  * const xlsxBlob = compiled();
  * ```
  *
@@ -149,7 +149,7 @@ export const xlsx_write = East.platform("xlsx_write", [XlsxSheetType, XlsxWriteO
  *     return $.return(firstSheet.name);
  * });
  *
- * const compiled = East.compile(getFirstSheetName.toIR(), Format.XLSX.Implementation);
+ * const compiled = East.compile(getFirstSheetName, Format.XLSX.Implementation);
  * const xlsxBlob = new Uint8Array([]);
  * compiled(xlsxBlob);  // "Sheet1"
  * ```

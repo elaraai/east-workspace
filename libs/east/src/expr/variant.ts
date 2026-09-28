@@ -36,7 +36,7 @@ import type { BooleanExpr } from "./boolean.js";
  *     none: ($, _) => defaultVal
  *   }));
  * });
- * const compiled = East.compile(getOrDefault.toIR(), []);
+ * const compiled = East.compile(getOrDefault, []);
  * compiled(Expr.variant("some", 42n), 0n);   // 42n
  * compiled(Expr.variant("none", null), 0n);  // 0n
  * ```
@@ -47,7 +47,7 @@ import type { BooleanExpr } from "./boolean.js";
  * const checkSome = East.function([OptionType], BooleanType, ($, opt) => {
  *   $.return(opt.hasTag("some"));
  * });
- * const compiled = East.compile(checkSome.toIR(), []);
+ * const compiled = East.compile(checkSome, []);
  * compiled(Expr.variant("some", 42n));  // true
  * compiled(Expr.variant("none", null)); // false
  * ```
@@ -69,7 +69,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    * const getTag = East.function([ResultType], StringType, ($, result) => {
    *   $.return(result.getTag());
    * });
-   * const compiled = East.compile(getTag.toIR(), []);
+   * const compiled = East.compile(getTag, []);
    * compiled(Expr.variant("ok", 42n));        // "ok"
    * compiled(Expr.variant("error", "fail"));  // "error"
    * ```
@@ -95,7 +95,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    * const isSome = East.function([OptionType], BooleanType, ($, opt) => {
    *   $.return(opt.hasTag("some"));
    * });
-   * const compiled = East.compile(isSome.toIR(), []);
+   * const compiled = East.compile(isSome, []);
    * compiled(Expr.variant("some", 42n));   // true
    * compiled(Expr.variant("none", null));  // false
    * ```
@@ -128,7 +128,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    * const getOrDefault = East.function([OptionType], IntegerType, ($, opt) => {
    *   $.return(opt.unwrap("some", () => -1n));  // Return -1n if none
    * });
-   * const compiled = East.compile(getOrDefault.toIR(), []);
+   * const compiled = East.compile(getOrDefault, []);
    * compiled(Expr.variant("some", 42n));   // 42n
    * compiled(Expr.variant("none", null));  // -1n
    * ```
@@ -139,7 +139,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    * const unsafeUnwrap = East.function([OptionType], IntegerType, ($, opt) => {
    *   $.return(opt.unwrap("some"));  // Throws error if none
    * });
-   * const compiled = East.compile(unsafeUnwrap.toIR(), []);
+   * const compiled = East.compile(unsafeUnwrap, []);
    * compiled(Expr.variant("some", 42n));  // 42n
    * // compiled(Expr.variant("none", null)) would throw error
    * ```
@@ -182,7 +182,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    *     none: ($) => 0n
    *   }));
    * });
-   * const compiled = East.compile(getValue.toIR(), []);
+   * const compiled = East.compile(getValue, []);
    * compiled(Expr.variant("some", 42n));   // 42n
    * compiled(Expr.variant("none", null));  // 0n
    * ```
@@ -197,7 +197,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    *     some: ($, val) => val
    *   }, ($) => 0n));
    * });
-   * const compiled = East.compile(getOrZero.toIR(), []);
+   * const compiled = East.compile(getOrZero, []);
    * compiled(Expr.variant("some", 42n));   // 42n
    * compiled(Expr.variant("none", null));  // 0n
    * ```
@@ -213,7 +213,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    *     error: ($, _msg) => -1n
    *   }, ($) => 0n));  // pending -> 0
    * });
-   * const compiled = East.compile(handleResult.toIR(), []);
+   * const compiled = East.compile(handleResult, []);
    * compiled(Expr.variant("ok", 100n));       // 100n
    * compiled(Expr.variant("error", "fail"));  // -1n
    * compiled(Expr.variant("pending", null));  // 0n
@@ -274,7 +274,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    * const doubleOrZero = East.function([OptionType], IntegerType, ($, opt) => {
    *   $.return(opt.matchTag("some", ($, val) => val.multiply(2n), ($) => 0n));
    * });
-   * const compiled = East.compile(doubleOrZero.toIR(), []);
+   * const compiled = East.compile(doubleOrZero, []);
    * compiled(Expr.variant("some", 42n));   // 84n
    * compiled(Expr.variant("none", null));  // 0n
    * ```
@@ -304,7 +304,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    * const isEqual = East.function([OptionType, OptionType], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled(variant("some", 42n), variant("some", 42n));  // true
    * compiled(variant("some", 42n), variant("some", 0n));   // false
    * compiled(variant("some", 42n), variant("none", null)); // false
@@ -327,7 +327,7 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
    * const isNotEqual = East.function([OptionType, OptionType], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled(variant("some", 42n), variant("some", 0n));   // true
    * compiled(variant("some", 42n), variant("some", 42n));  // false
    * ```

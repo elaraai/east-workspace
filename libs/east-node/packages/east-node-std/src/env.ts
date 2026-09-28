@@ -77,7 +77,7 @@ const EnvImpl: PlatformFunction[] = [
  *     return Env.get("ERP_DB_PASSWORD").unwrap();
  * });
  *
- * const compiled = East.compile(connectionPassword.toIR(), Env.Implementation);
+ * const compiled = East.compile(connectionPassword, Env.Implementation);
  * compiled();
  * ```
  */
@@ -103,7 +103,7 @@ export const Env = {
      *     return Env.get("API_TOKEN");
      * });
      *
-     * const compiled = East.compile(readToken.toIR(), Env.Implementation);
+     * const compiled = East.compile(readToken, Env.Implementation);
      * compiled();  // Returns: some("...") when API_TOKEN is set, none otherwise
      * ```
      */

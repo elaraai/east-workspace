@@ -53,7 +53,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const negateFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.negate());
    * });
-   * const compiled = East.compile(negateFloat.toIR(), []);
+   * const compiled = East.compile(negateFloat, []);
    * compiled(3.14);    // -3.14
    * compiled(-2.5);    // 2.5
    * compiled(0.0);     // -0.0 (negative zero)
@@ -83,7 +83,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const addFloats = East.function([FloatType, FloatType], FloatType, ($, x, y) => {
    *   $.return(x.add(y));
    * });
-   * const compiled = East.compile(addFloats.toIR(), []);
+   * const compiled = East.compile(addFloats, []);
    * compiled(3.14, 2.86);  // 6.0
    * compiled(1.5, -0.5);   // 1.0
    *
@@ -91,7 +91,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const addMixed = East.function([FloatType, IntegerType], FloatType, ($, x, y) => {
    *   $.return(x.add(y));  // Integer auto-converts to float
    * });
-   * compiled = East.compile(addMixed.toIR(), []);
+   * compiled = East.compile(addMixed, []);
    * compiled(3.14, 2n);    // 5.14
    * ```
    */
@@ -138,7 +138,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const subtractFloats = East.function([FloatType, FloatType], FloatType, ($, x, y) => {
    *   $.return(x.subtract(y));
    * });
-   * const compiled = East.compile(subtractFloats.toIR(), []);
+   * const compiled = East.compile(subtractFloats, []);
    * compiled(5.5, 2.3);    // 3.2
    * compiled(1.0, 1.0);    // 0.0
    * compiled(-2.5, 3.5);   // -6.0
@@ -187,7 +187,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const multiplyFloats = East.function([FloatType, FloatType], FloatType, ($, x, y) => {
    *   $.return(x.multiply(y));
    * });
-   * const compiled = East.compile(multiplyFloats.toIR(), []);
+   * const compiled = East.compile(multiplyFloats, []);
    * compiled(3.0, 2.5);    // 7.5
    * compiled(2.0, -1.5);   // -3.0
    * compiled(0.5, 0.5);    // 0.25
@@ -237,7 +237,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const divideFloats = East.function([FloatType, FloatType], FloatType, ($, x, y) => {
    *   $.return(x.divide(y));
    * });
-   * const compiled = East.compile(divideFloats.toIR(), []);
+   * const compiled = East.compile(divideFloats, []);
    * compiled(10.0, 2.0);   // 5.0
    * compiled(1.0, 3.0);    // 0.3333333333333333
    * compiled(5.0, 0.0);    // Infinity
@@ -288,7 +288,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const remainderFloats = East.function([FloatType, FloatType], FloatType, ($, x, y) => {
    *   $.return(x.remainder(y));
    * });
-   * const compiled = East.compile(remainderFloats.toIR(), []);
+   * const compiled = East.compile(remainderFloats, []);
    * compiled(7.5, 2.0);    // 1.5
    * compiled(10.0, 3.0);   // 1.0
    * compiled(-7.5, 2.0);   // -1.5
@@ -337,7 +337,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const powFloats = East.function([FloatType, FloatType], FloatType, ($, x, y) => {
    *   $.return(x.pow(y));
    * });
-   * const compiled = East.compile(powFloats.toIR(), []);
+   * const compiled = East.compile(powFloats, []);
    * compiled(2.0, 3.0);    // 8.0
    * compiled(9.0, 0.5);    // 3.0 (square root)
    * compiled(2.0, -1.0);   // 0.5
@@ -384,7 +384,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const absFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.abs());
    * });
-   * const compiled = East.compile(absFloat.toIR(), []);
+   * const compiled = East.compile(absFloat, []);
    * compiled(3.14);     // 3.14
    * compiled(-2.5);     // 2.5
    * compiled(0.0);      // 0.0
@@ -412,7 +412,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const signFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.sign());
    * });
-   * const compiled = East.compile(signFloat.toIR(), []);
+   * const compiled = East.compile(signFloat, []);
    * compiled(3.14);     // 1.0
    * compiled(-2.5);     // -1.0
    * compiled(0.0);      // 0.0
@@ -442,7 +442,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const sqrtFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.sqrt());
    * });
-   * const compiled = East.compile(sqrtFloat.toIR(), []);
+   * const compiled = East.compile(sqrtFloat, []);
    * compiled(9.0);      // 3.0
    * compiled(2.0);      // 1.4142135623730951
    * compiled(0.0);      // 0.0
@@ -470,7 +470,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const expFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.exp());
    * });
-   * const compiled = East.compile(expFloat.toIR(), []);
+   * const compiled = East.compile(expFloat, []);
    * compiled(0.0);      // 1.0
    * compiled(1.0);      // 2.718281828459045
    * compiled(2.0);      // 7.38905609893065
@@ -500,7 +500,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const logFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.log());
    * });
-   * const compiled = East.compile(logFloat.toIR(), []);
+   * const compiled = East.compile(logFloat, []);
    * compiled(Math.E);   // 1.0
    * compiled(1.0);      // 0.0
    * compiled(10.0);     // 2.302585092994046
@@ -529,7 +529,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const sinFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.sin());
    * });
-   * const compiled = East.compile(sinFloat.toIR(), []);
+   * const compiled = East.compile(sinFloat, []);
    * compiled(0.0);              // 0.0
    * compiled(Math.PI / 2);      // 1.0
    * compiled(Math.PI);          // ~0.0 (very close to zero)
@@ -557,7 +557,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const cosFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.cos());
    * });
-   * const compiled = East.compile(cosFloat.toIR(), []);
+   * const compiled = East.compile(cosFloat, []);
    * compiled(0.0);              // 1.0
    * compiled(Math.PI / 2);      // ~0.0 (very close to zero)
    * compiled(Math.PI);          // -1.0
@@ -585,7 +585,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const tanFloat = East.function([FloatType], FloatType, ($, x) => {
    *   $.return(x.tan());
    * });
-   * const compiled = East.compile(tanFloat.toIR(), []);
+   * const compiled = East.compile(tanFloat, []);
    * compiled(0.0);              // 0.0
    * compiled(Math.PI / 4);      // 1.0
    * compiled(Math.PI / 6);      // 0.5773502691896257
@@ -615,7 +615,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const floatToInt = East.function([FloatType], IntegerType, ($, x) => {
    *   $.return(x.toInteger());
    * });
-   * const compiled = East.compile(floatToInt.toIR(), []);
+   * const compiled = East.compile(floatToInt, []);
    * compiled(42.0);     // 42n
    * compiled(-10.0);    // -10n
    * compiled(0.0);      // 0n
@@ -650,7 +650,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const checkEqual = East.function([FloatType, FloatType], BooleanType, ($, x, y) => {
    *   $.return(x.equals(y));
    * });
-   * const compiled = East.compile(checkEqual.toIR(), []);
+   * const compiled = East.compile(checkEqual, []);
    * compiled(3.14, 3.14);  // true
    * compiled(3.14, 2.0);   // false
    * ```
@@ -670,7 +670,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const checkNotEqual = East.function([FloatType, FloatType], BooleanType, ($, x, y) => {
    *   $.return(x.notEquals(y));
    * });
-   * const compiled = East.compile(checkNotEqual.toIR(), []);
+   * const compiled = East.compile(checkNotEqual, []);
    * compiled(3.14, 2.0);   // true
    * compiled(3.14, 3.14);  // false
    * ```
@@ -690,7 +690,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const checkGreater = East.function([FloatType, FloatType], BooleanType, ($, x, y) => {
    *   $.return(x.greaterThan(y));
    * });
-   * const compiled = East.compile(checkGreater.toIR(), []);
+   * const compiled = East.compile(checkGreater, []);
    * compiled(3.14, 2.0);   // true
    * compiled(2.0, 3.14);   // false
    * compiled(3.14, 3.14);  // false
@@ -711,7 +711,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const checkLess = East.function([FloatType, FloatType], BooleanType, ($, x, y) => {
    *   $.return(x.lessThan(y));
    * });
-   * const compiled = East.compile(checkLess.toIR(), []);
+   * const compiled = East.compile(checkLess, []);
    * compiled(2.0, 3.14);   // true
    * compiled(3.14, 2.0);   // false
    * compiled(3.14, 3.14);  // false
@@ -732,7 +732,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const checkGte = East.function([FloatType, FloatType], BooleanType, ($, x, y) => {
    *   $.return(x.greaterThanOrEqual(y));
    * });
-   * const compiled = East.compile(checkGte.toIR(), []);
+   * const compiled = East.compile(checkGte, []);
    * compiled(3.14, 2.0);   // true
    * compiled(3.14, 3.14);  // true
    * compiled(2.0, 3.14);   // false
@@ -753,7 +753,7 @@ export class FloatExpr extends Expr<FloatType> {
    * const checkLte = East.function([FloatType, FloatType], BooleanType, ($, x, y) => {
    *   $.return(x.lessThanOrEqual(y));
    * });
-   * const compiled = East.compile(checkLte.toIR(), []);
+   * const compiled = East.compile(checkLte, []);
    * compiled(2.0, 3.14);   // true
    * compiled(3.14, 3.14);  // true
    * compiled(3.14, 2.0);   // false
