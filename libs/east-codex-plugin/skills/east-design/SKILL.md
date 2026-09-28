@@ -1,6 +1,6 @@
 ---
 name: east-design
-description: "Design and architect a solution with East / e3 before writing code. Use when: (1) A developer describes a goal or problem rather than an API ('I want to build X', 'make/create an app that …', 'how should I structure Y', 'I have data in Z and need W', 'where do I start') and hasn't committed to an implementation — including a greenfield/empty directory before any project exists, (2) Identifying which business decision a solution should improve (East + e3 solutions are decision-oriented), (3) Deciding which East packages/skills a solution needs (east, e3, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, east-ontology), (4) Working out the data flow — where data comes from (files, databases, S3, HTTP, APIs), how it is transformed, and where results go (datasets, exports, dashboards, decision surfaces), (5) Producing a design document with the architecture, the skills to load, and example search terms to ground the implementation."
+description: "Design and architect a solution with East / e3 before writing code. Use when: (1) A developer describes a goal or problem rather than an API ('I want to build X', 'make/create an app that …', 'how should I structure Y', 'I have data in Z and need W', 'where do I start') and hasn't committed to an implementation — including a greenfield/empty directory before any project exists, (2) Identifying which business decision a solution should improve (East + e3 solutions are decision-oriented), (3) Deciding which East packages/skills a solution needs (east, e3, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, east-ontology), (4) Working out the data flow — where data comes from (files, databases, S3, HTTP, APIs), how it is transformed, and where results go (datasets, exports, reports, decision surfaces), (5) Producing a design document with the architecture, the skills to load, and example search terms to ground the implementation."
 ---
 
 # East / e3 Solution Design
@@ -76,7 +76,7 @@ Ask only what you can't already infer from the developer's description. Group qu
 
 | Answer | Implication |
 |---|---|
-| Local files — CSV / JSON / text | **east-node-std** `FileSystem` (read/write/glob) |
+| Local files — CSV / JSON / text | **east-node-std** `FileSystem` (`readFile`, `readFileBytes`, `readDirectory`), parsed with **east**'s `blob.decodeCsv` / `parseJson`; a JSON too large to decode whole → `Json.open` |
 | Spreadsheets / XML | **east-node-io** `Format.XLSX`, `Format.XML` |
 | SQL database (SQLite / Postgres / MySQL) | **east-node-io** `SQL.*` |
 | NoSQL (Redis / MongoDB) | **east-node-io** `NoSQL.*` |
@@ -91,7 +91,7 @@ Ask only what you can't already infer from the developer's description. Group qu
 | Answer | Implication |
 |---|---|
 | Filter / map / aggregate / reshape | pure **east** expressions |
-| Join / group / pivot across sources | **east** collections (Dict, Set, SortedMap) |
+| Join / group / pivot across sources | **east** collections (Dict, Set, `groupBy`, `toDict`) |
 | Forecasting / regression / classification | **east-py-datascience** (XGBoost, LightGBM, NGBoost, GP, Torch) |
 | Optimization / scheduling / routing | **east-py-datascience** (MADS, Optuna, SimAnneal, GoogleOr) |
 | Bayesian inference / uncertainty | **east-py-datascience** (PyMC, MAPIE conformal) |
@@ -104,7 +104,7 @@ Ask only what you can't already infer from the developer's description. Group qu
 |---|---|
 | A file or export on disk | **east-node-std** `FileSystem` / **east-node-io** `Format.*` |
 | A queryable dataset / API result | **e3** datasets (`e3.export`, `e3 dataset get`) |
-| An interactive dashboard / report | **east-ui** + **e3-ui** (`ui()`, `Data.bind`) |
+| An interactive decision surface or report | **east-ui** + **e3-ui** (`ui()`, `Data.bind`) |
 | A static chart / table image | **east-ui** (rendered components) |
 | Back into a database / S3 | **east-node-io** write side |
 
@@ -121,7 +121,7 @@ Ask only what you can't already infer from the developer's description. Group qu
 **Constraints to surface explicitly:**
 - **Licensing** — plain East is AGPL-3.0; e3 is BSL-1.1. If the developer can't take BSL, the design must avoid e3 and Python compute.
 - **Runtime** — Node-only vs Node + Python. Any `east-py-datascience` need pulls in Python, which means e3.
-- **Secrets / credentials** — database URLs, S3 keys, API tokens → note where they're configured (e3 inputs vs env).
+- **Secrets / credentials** — database URLs, S3 keys, API tokens → read from the environment at runtime (`Env.get` / `env_get`), never a literal in source: IR is content-addressed and replicated.
 
 ## 2. Map — capability → skill + search terms
 
@@ -131,7 +131,7 @@ For each capability the answers surface, record (a) the skill to load and (b) th
 |---|---|---|
 | Model the business / its decisions as a graph | east-ontology | `Ontology process kpi decision objective` |
 | Decision surface — commit a choice with provenance | e3-ui | `Ontology Diff Data.bind commit` |
-| Read/write local files, glob | east-node-std | `FileSystem read file write glob` |
+| Read/write local files, list a directory | east-node-std | `FileSystem readFile writeFile readDirectory` |
 | HTTP fetch / REST | east-node-std | `Fetch http get post json` |
 | Crypto / hashing / uuid | east-node-std | `Crypto hash uuid` |
 | Spreadsheet parse/write | east-node-io | `XLSX read sheet parse rows` |
@@ -143,10 +143,10 @@ For each capability the answers surface, record (a) the skill to load and (b) th
 | Black-box / hyperparameter opt | east-py-datascience | `Optuna MADS optimize objective` |
 | LP / MIP / routing | east-py-datascience | `GoogleOr vehicle routing constraint` |
 | Conformal / uncertainty | east-py-datascience | `MAPIE conformal NGBoost interval` |
-| East transforms / collections | east | `map filter reduce groupBy SortedMap` |
+| East transforms / collections | east | `map filter reduce groupBy toDict` |
 | Variants / pattern match | east | `variant match some none` |
 | e3 pipeline / tasks | e3 | `e3.input e3.task package export dataflow` |
-| Dashboard / interactive UI | e3-ui | `ui Data.bind commit dataset` |
+| Interactive surface over live data | e3-ui | `ui Data.bind commit dataset` |
 | Charts / tables / layout | east-ui | `Chart Line Table Stack layout` |
 | Screenshot / visually verify a surface (CLI) | e3-ui-cli | `shot from-source png doctor` |
 
@@ -160,7 +160,7 @@ Produce a compact design doc (Markdown, shown to the developer — not yet a fil
 # Design: <goal>
 
 ## Decision
-<the decision this improves, in one sentence — or "none: read-only <report/dashboard>">
+<the decision this improves, in one sentence — or "none: a read-only report">
 How "better" shows up: <what changes when the decision improves>
 
 ## Evidence the decision needs
@@ -207,7 +207,7 @@ Once the developer signs off:
   - function bodies & types → **east**
   - file/HTTP I/O → **east-node-std**; DB/S3/format I/O → **east-node-io**
   - ML / optimization tasks → **east-py-datascience**
-  - dashboards → **east-ui** + **e3-ui**
+  - decision surfaces and reports → **east-ui** + **e3-ui**
 
 ## Worked example
 
@@ -219,9 +219,9 @@ Note the decision-first reframe — "a forecast dashboard" on its own has no dec
 - **Evidence**: a per-SKU demand forecast *with uncertainty*, plus a recommended order quantity.
 - **Source**: XLSX in S3 → `east-node-io` (`Storage.S3` + `Format.XLSX`).
 - **Reason**: forecast → `east-py-datascience` (NGBoost for prediction intervals) → Python → **e3**.
-- **Decision surface**: dashboard showing the forecast band + recommended order, operator override → `east-ui` + `e3-ui`.
+- **Decision surface**: the forecast band + the recommended order, with an operator override → `east-ui` + `e3-ui`.
 - **Execution**: recurring + reactive + Python ⇒ **e3 project** (BSL-1.1).
-- **Searches**: `S3 storage get object`, `XLSX parse rows`, `NGBoost predict interval`, `Chart AreaRange`, `ui Data.bind commit`.
+- **Searches**: `S3 storage get object`, `XLSX parse rows`, `NGBoost predict interval`, `Chart Band confidence`, `ui Data.bind commit`.
 - **Build**: `npm create @elaraai/e3 reorder-planner` → e3 inputs (S3 config) → ingest task (east-node-io) → forecast task (east-py-datascience) → decision-surface ui task (e3-ui).
 
 ## Related skills
@@ -230,4 +230,4 @@ Note the decision-first reframe — "a forecast dashboard" on its own has no dec
 - **e3** / **east** — the execution engine and language the design targets.
 - **east-node-std** / **east-node-io** — the I/O surface the data-flow questions map to.
 - **east-py-datascience** — ML / optimization components.
-- **east-ui** / **e3-ui** — dashboard / output components.
+- **east-ui** / **e3-ui** — decision surfaces and output components.
