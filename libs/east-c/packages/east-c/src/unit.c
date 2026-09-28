@@ -10,6 +10,7 @@
 #include <east/builtins.h>
 #include <east/merge.h>
 #include <east/serialization.h>
+#include <east/type_of_type.h>
 
 #include <errno.h>
 #include <stdio.h>
@@ -59,11 +60,18 @@ EastType *east_unit_type(void)
     EastType *merge_types[3] = {strings, option_of(&east_string_type), output};
     const char *run_names[3] = {"program", "inputs", "output"};
     EastType *run_types[3] = {&east_string_type, strings, output};
-    const char *work_names[2] = {"merge", "run"};
-    EastType *work_types[2] = {east_struct_type(merge_names, merge_types, 3),
+    const char *range_names[2] = {"from", "to"};
+    EastType *range_types[2] = {&east_integer_type, &east_integer_type};
+    const char *intake_names[4] = {"input", "type", "segments", "output"};
+    EastType *intake_types[4] = {&east_string_type, &east_string_type,
+                                 option_of(east_struct_type(range_names, range_types, 2)),
+                                 &east_string_type};
+    const char *work_names[3] = {"intake", "merge", "run"};
+    EastType *work_types[3] = {east_struct_type(intake_names, intake_types, 4),
+                               east_struct_type(merge_names, merge_types, 3),
                                east_struct_type(run_names, run_types, 3)};
     const char *names[4] = {"work", "platforms", "threads", "result"};
-    EastType *types[4] = {east_variant_type(work_names, work_types, 2), strings, &east_integer_type,
+    EastType *types[4] = {east_variant_type(work_names, work_types, 3), strings, &east_integer_type,
                           &east_string_type};
     return east_struct_type(names, types, 4);
 }
@@ -207,6 +215,7 @@ void east_unit_free(EastUnit *unit)
         free(unit->inputs[i]);
     free(unit->inputs);
     free(unit->range);
+    free(unit->type);
     free(unit->output.path);
     free(unit->output.merge);
     free(unit->output.zero);
@@ -218,23 +227,36 @@ void east_unit_free(EastUnit *unit)
     free(unit);
 }
 
-/* Reads the unit's fields out of its decoded value. False on OOM. */
-static bool unit_fields(EastUnit *unit, EastValue *value, const char *base)
+/* Reads an intake unit's work: the delivery as its one input, the type file,
+ * the range, and the manifest directory as a value output. False on OOM. */
+static bool intake_fields(EastUnit *unit, EastValue *body, const char *base)
+{
+    unit->num_inputs = 1;
+    unit->inputs = calloc(1, sizeof(char *));
+    if (!unit->inputs) return false;
+    unit->inputs[0] = resolve_path(base, east_struct_get_field_idx(body, 0));
+    unit->type = resolve_path(base, east_struct_get_field_idx(body, 1));
+    EastValue *segments = east_struct_get_field_idx(body, 2);
+    if (strcmp(east_variant_case_name(segments), "some") == 0) {
+        EastValue *range = segments->data.variant.value;
+        unit->has_segments = true;
+        unit->segments_from = east_struct_get_field_idx(range, 0)->data.integer;
+        unit->segments_to = east_struct_get_field_idx(range, 1)->data.integer;
+    }
+    unit->output.kind = EAST_UNIT_VALUE;
+    unit->output.path = resolve_path(base, east_struct_get_field_idx(body, 3));
+    return unit->inputs[0] && unit->type && unit->output.path;
+}
+
+/* Reads a run or merge unit's inputs — a run's parameters, a merge's parts —
+ * and its output. False on OOM. */
+static bool program_fields(EastUnit *unit, EastValue *body, const char *base)
 {
     bool oom = false;
-    EastValue *work = east_struct_get_field_idx(value, 0);
-    EastValue *body = work->data.variant.value;
-    unit->merge = strcmp(east_variant_case_name(work), "merge") == 0;
-    if (unit->merge) {
-        unit->range = resolve_option(base, east_struct_get_field_idx(body, 1), &oom);
-    } else {
-        unit->program = resolve_path(base, east_struct_get_field_idx(body, 0));
-        oom = oom || !unit->program;
-    }
     EastValue *inputs = east_struct_get_field_idx(body, unit->merge ? 0 : 1);
     unit->num_inputs = inputs->data.array.len;
     unit->inputs = calloc(unit->num_inputs ? unit->num_inputs : 1, sizeof(char *));
-    oom = oom || !unit->inputs;
+    oom = !unit->inputs;
     for (size_t i = 0; !oom && i < unit->num_inputs; i++) {
         unit->inputs[i] = resolve_path(base, inputs->data.array.items[i]);
         oom = !unit->inputs[i];
@@ -259,7 +281,26 @@ static bool unit_fields(EastUnit *unit, EastValue *value, const char *base)
                                                        : EAST_UNIT_VALUE;
         unit->output.path = resolve_path(base, payload);
     }
-    oom = oom || !unit->output.path;
+    return !oom && unit->output.path;
+}
+
+/* Reads the unit's fields out of its decoded value. False on OOM. */
+static bool unit_fields(EastUnit *unit, EastValue *value, const char *base)
+{
+    bool oom = false;
+    EastValue *work = east_struct_get_field_idx(value, 0);
+    EastValue *body = work->data.variant.value;
+    unit->merge = strcmp(east_variant_case_name(work), "merge") == 0;
+    unit->intake = strcmp(east_variant_case_name(work), "intake") == 0;
+    if (unit->intake) {
+        oom = !intake_fields(unit, body, base);
+    } else if (unit->merge) {
+        unit->range = resolve_option(base, east_struct_get_field_idx(body, 1), &oom);
+    } else {
+        unit->program = resolve_path(base, east_struct_get_field_idx(body, 0));
+        oom = oom || !unit->program;
+    }
+    if (!unit->intake) oom = !program_fields(unit, body, base) || oom;
 
     EastValue *platforms = east_struct_get_field_idx(value, 1);
     unit->num_platforms = platforms->data.array.len;
@@ -611,5 +652,32 @@ bool east_unit_merge_runs(const EastUnit *unit, EastCompiledFn *merge_fn)
     EastMergeStats stats;
     bool ok = east_merge_blobs(&cfg, &stats);
     free(path);
+    return ok;
+}
+
+/* ================================================================== */
+/*  Taking a delivery in                                               */
+/* ================================================================== */
+
+bool east_unit_intake(const EastUnit *unit, EastBeast2IntakeStats *stats)
+{
+    if (!east_type_type) east_type_of_type_init();
+    size_t len = 0;
+    uint8_t *bytes = read_file(unit->type, &len);
+    EastValue *declared = bytes ? east_beast2_decode_full(bytes, len, east_type_type) : NULL;
+    free(bytes);
+    EastType *type = declared ? east_type_from_value(declared) : NULL;
+    if (declared) east_value_release(declared);
+    if (!type) {
+        free(east_builtin_get_error());
+        east_builtin_error("exec: intake: its type file does not hold a type");
+        return false;
+    }
+    /* Frames deflate on a pool the unit's grant sizes (east_set_thread_limit):
+     * one thread frames inline. */
+    bool ok =
+        east_beast2_intake_file(unit->inputs[0], type, unit->has_segments, unit->segments_from,
+                                unit->segments_to, unit->output.path, true, stats);
+    east_type_release(type);
     return ok;
 }

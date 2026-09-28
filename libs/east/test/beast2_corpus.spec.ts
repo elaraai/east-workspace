@@ -10,9 +10,9 @@ import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType,
     RecursiveType, RefType, SetType, StringType, StructType, VariantType, VectorType,
     East, SortedMap, SortedSet, compareFor, equalFor, none, ref, some, variant, type option,
-    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_COUNT, checkBeast2WriterSegmentsFor, decodeBeast2For,
+    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_COUNT, decodeBeast2For,
     decodeCollectionManifest, encodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR,
-    mergeBeast2For, readBeast2Extents, recutBeast2For, segmentKeyTypeOf, spliceBeast2, spliceBeast2Tail,
+    intakeBeast2For, mergeBeast2For, recutBeast2For, segmentKeyTypeOf, spliceBeast2, spliceBeast2Tail,
     type Beast2RecutPiece, type Beast2Segment, type Beast2SegmentRef, type EastIR, type EastType, type ValueTypeOf,
 } from "../src/index.js";
 
@@ -490,14 +490,21 @@ describe("beast2 conformance corpus", () => {
                     { segments: segmentRefsOf(c.type, elements.slice(b)) },
                 ]), paged, "re-cut from pieces");
 
-                // The Writer check proves every segment of the paged blob: what
-                // a store carries as it stands when a delivery holds it.
-                const extents = readBeast2Extents({ size: paged.length, read: (offset, length) => paged.subarray(offset, offset + length) });
-                let proved = 0;
-                for await (const segment of checkBeast2WriterSegmentsFor(c.type)(extents, (offset, length) => Promise.resolve(paged.subarray(offset, offset + length)))) {
-                    assert.equal(segment.index, proved++);
+                // Taken in as a delivery, the paged blob is the Writer's in every
+                // row, so it comes out as the same directory with no segment
+                // read and written again. The whole-value blob is one segment,
+                // whose rows may alias one another, and comes out the same.
+                for (const [form, delivery] of [["paged", paged], ["whole-value", whole]] as const) {
+                    const taken = new Map<string, Uint8Array>();
+                    let takenManifest = null as Uint8Array | null;
+                    const stats = intakeBeast2For(c.type)({ size: delivery.length, read: (offset, length) => delivery.subarray(offset, offset + length) }, {
+                        object: (hash, bytes) => { taken.set(hash, bytes); },
+                        manifest: (bytes) => { takenManifest = bytes; },
+                    });
+                    assert.deepEqual(takenManifest, manifest, `the ${form} blob taken in is the Writer's manifest`);
+                    assert.deepEqual(taken, objects, `the ${form} blob taken in is the Writer's objects`);
+                    if (form === "paged") assert.equal(stats.rewritten, 0, "no segment of the paged blob is written again");
                 }
-                assert.equal(proved, extents.offsets.length, "the Writer check proves every segment");
 
                 valueCases.push({ name: c.name, value: whole, paged, manifest });
             });

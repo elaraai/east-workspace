@@ -7,10 +7,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-    ArrayType, BlobType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
-    East, EastError, SortedMap, SortedSet, compareFor, none, some, variant,
-    Beast2ManifestWriter, Beast2RunSorter, UnitOutcomeType, UnitType,
-    decodeBeast2For, decodeCollectionManifest, encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, mergeBeast2For, openBeast2LazyFor, spliceBeast2,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
+    East, EastError, EastTypeValueType, SortedMap, SortedSet, compareFor, none, some, toEastTypeValue, variant,
+    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_BYTES, UnitOutcomeType, UnitType,
+    decodeBeast2For, decodeCollectionManifest, encodeBeast2FenceFor, encodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR,
+    intakeBeast2For, mergeBeast2For, openBeast2LazyFor, readBeast2Extents, spliceBeast2, spliceBeast2Tail,
     type Beast2ManifestSource, type Beast2RunSorterOptions, type EastIR, type EastType, type ValueTypeOf,
 } from "../src/index.js";
 
@@ -22,7 +23,8 @@ import {
  * to: the outcome, every file the unit writes besides its result, byte for
  * byte, and paths it must not write. TypeScript works each case out with the
  * library's own Writer, RunSorter and Merger, from what the program emits or
- * returns when TypeScript runs it: the oracle the three runners are held to.
+ * returns when TypeScript runs it, or from the value a delivery holds: the
+ * oracle the three runners are held to.
  * Under EXPORT_TEST_IR (`make test-export`) the cases are written to
  * <dir>/runner_corpus/<case>/, with their names in <dir>/runner_corpus/
  * index.beast2, where each runner's tests execute every case with `exec`. */
@@ -709,4 +711,193 @@ describe("runner protocol corpus", () => {
             });
         });
     });
+
+    describe("intake", () => {
+        /** The intake unit a case holds: `delivery.beast2` taken in as
+         *  `type.beast2` says, into the manifest directory `output.beast2`. */
+        const intakeUnit = (segments: { from: bigint; to: bigint } | null, threads = 1n): Uint8Array => encodeBeast2For(UnitType)({
+            work: variant("intake", { input: "delivery.beast2", type: "type.beast2", segments: segments === null ? none : some(segments), output: "output.beast2" }),
+            platforms: [],
+            threads,
+            result: "result.beast2",
+        });
+
+        /** A case taking `delivery` in as `type`, whose output is the Writer's
+         *  directory of `elements` — held here to the TypeScript intake too. */
+        const taken = (dir: string, name: string, type: EastType, delivery: Uint8Array, elements: Iterable<unknown>, segments: { from: bigint; to: bigint } | null = null, threads = 1n): void => {
+            const out = new Map<string, Uint8Array>();
+            addManifest(out, "output.beast2", type, elements);
+            const intake = new Map<string, Uint8Array>();
+            intakeBeast2For(type)({ size: delivery.length, read: (offset, length) => delivery.subarray(offset, offset + length) }, {
+                object: (hash, bytes) => { intake.set(`output.beast2.segments/${hash}.beast2`, bytes.slice()); },
+                manifest: (bytes) => { intake.set("output.beast2", bytes.slice()); },
+            }, segments === null ? {} : { segments: { from: Number(segments.from), to: Number(segments.to) } });
+            assert.deepEqual(intake, out, "the TypeScript intake writes the Writer's directory");
+            cases.push({
+                dir,
+                files: new Map([
+                    ["delivery.beast2", delivery],
+                    ["type.beast2", encodeBeast2For(EastTypeValueType)(toEastTypeValue(type))],
+                    ["unit.beast2", intakeUnit(segments, threads)],
+                ]),
+                expected: { name, lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+            });
+        };
+
+        /** A case whose delivery is refused with exactly `message`, which
+         *  writes no manifest. */
+        const refused = (dir: string, name: string, type: EastType | null, delivery: Uint8Array, message: string, segments: { from: bigint; to: bigint } | null = null, typeFile?: Uint8Array): void => {
+            if (type !== null) {
+                let refusal = "";
+                try {
+                    intakeBeast2For(type)({ size: delivery.length, read: (offset, length) => delivery.subarray(offset, offset + length) }, { object: () => {}, manifest: () => {} },
+                        segments === null ? {} : { segments: { from: Number(segments.from), to: Number(segments.to) } });
+                } catch (err) {
+                    refusal = (err as Error).message;
+                }
+                assert.equal(refusal, message, "the TypeScript intake refuses it so");
+            }
+            cases.push({
+                dir,
+                files: new Map([
+                    ["delivery.beast2", delivery],
+                    ["type.beast2", typeFile ?? encodeBeast2For(EastTypeValueType)(toEastTypeValue(type!))],
+                    ["unit.beast2", intakeUnit(segments)],
+                ]),
+                expected: { name, lazy: false, outcome: variant("failed", { message, locations: [] }), outputs: [], absent: ["output.beast2"] },
+            });
+        };
+
+        /** A v5 blob of `type` whose segments hold the given rows as bytes —
+         *  the Writer's or not — each its own uncompressed frame, under the
+         *  Writer's header, with an index. */
+        const blobOf = (type: EastType, segments: readonly (readonly Uint8Array[])[]): Uint8Array => {
+            const chunks: Uint8Array[] = [new Beast2ElementWriter(type, { segment: () => {} }).header];
+            let at = chunks[0]!.length;
+            const index: { offset: number; count: number }[] = [];
+            for (const rows of segments) {
+                const logical = new Uint8Array(Buffer.concat([varint(rows.length), ...rows]));
+                const frame = new Uint8Array(Buffer.concat([varint(0), varint(logical.length), varint(logical.length), logical]));
+                index.push({ offset: at, count: rows.length });
+                chunks.push(frame);
+                at += frame.length;
+            }
+            return new Uint8Array(Buffer.concat([...chunks, spliceBeast2Tail(index, at)]));
+        };
+
+
+        const RowType = StructType({
+            id: IntegerType,
+            name: StringType,
+            score: FloatType,
+            at: DateTimeType,
+            flags: ArrayType(BooleanType),
+            lines: ArrayType(StructType({ sku: StringType, qty: IntegerType, price: FloatType })),
+            note: OptionType(StringType),
+            tags: SetType(StringType),
+        });
+        const TableType = DictType(StringType, RowType);
+        const rowOf = (i: number) => ({
+            id: BigInt(i),
+            name: `customer-${i}`.padEnd(40 + (i % 50), "."),
+            score: (i % 17) * 0.125 - 1,
+            at: new Date(Date.UTC(2024, 0, 1) + i * 3_600_000),
+            flags: Array.from({ length: i % 5 }, (_, j) => (i + j) % 2 === 0),
+            lines: Array.from({ length: 1 + (i % 4) }, (_, j) => ({ sku: `sku-${(i * 7 + j) % 1_000}`, qty: BigInt(j + 1), price: 9.5 + j })),
+            note: i % 3 === 0 ? none : some(`note ${i}`),
+            tags: new SortedSet([`t${i % 3}`, `u${i % 7}`], compareFor(StringType)),
+        });
+        const table = new SortedMap(Array.from({ length: 12_000 }, (_, i) => [`k${String(i).padStart(7, "0")}`, rowOf(i)] as [string, ReturnType<typeof rowOf>]), compareFor(StringType));
+
+        test("a delivery the Writer wrote, carried row by row, on one thread and on four", () => {
+            const delivery = encodeBeast2PagedFor(TableType)(table);
+            assert.ok(readBeast2Extents(delivery).offsets.length > 3, "the delivery spans segments");
+            taken("intake-writer", "a delivery the Writer wrote, carried row by row", TableType, delivery, table.entries());
+            taken("intake-writer-threads-4", "a delivery the Writer wrote, carried row by row, on four threads", TableType, delivery, table.entries(), null, 4n);
+        });
+
+        test("a delivery batched by count, cut again by the rule", () => {
+            const Wide = ArrayType(StringType);
+            const rows = Array.from({ length: 6_000 }, (_, i) => `${i}:`.padEnd(900, String.fromCharCode(97 + (i % 26))));
+            const batches = Array.from({ length: 6 }, (_, b) => rows.slice(b * 1_000, (b + 1) * 1_000));
+            taken("intake-batched", "a delivery batched by count, cut again by the rule", Wide, encodeBeast2SegmentsFor(Wide)(batches), rows);
+        });
+
+        test("a delivery whose rows the Writer would write otherwise, read and written again", () => {
+            const Nested = ArrayType(ArrayType(IntegerType));
+            const delivery = blobOf(Nested, [
+                [[1n, 2n], [3n]].map(encodeBeast2FenceFor(ArrayType(IntegerType))),
+                [
+                    // [1, 2] in two runs; an alias to the row before; [3] with
+                    // its length padded.
+                    new Uint8Array([0x00, 0x01, 0x02, 0x01, 0x04, 0x00]),
+                    new Uint8Array([0x01, 0x01]),
+                    new Uint8Array([0x00, 0x81, 0x00, 0x06, 0x00]),
+                ],
+            ]);
+            taken("intake-rewritten", "a delivery whose rows the Writer would write otherwise, read and written again", Nested, delivery, [[1n, 2n], [3n], [1n, 2n], [1n, 2n], [3n]]);
+
+            const Floats = ArrayType(FloatType);
+            taken("intake-negative-nan", "a delivery holding the negative NaN, written as the Writer's", Floats,
+                blobOf(Floats, [[new Uint8Array([0, 0, 0, 0, 0, 0, 0xf8, 0xff]), new Uint8Array([0, 0, 0, 0, 0, 0, 0xf0, 0x3f])]]), [NaN, 1]);
+        });
+
+        test("pieces of a delivery, by its index", () => {
+            const delivery = encodeBeast2PagedFor(TableType)(table);
+            const extents = readBeast2Extents(delivery);
+            const entries = [...table.entries()];
+            const split = Math.floor(extents.offsets.length / 2);
+            const rows = extents.counts.slice(0, split).reduce((a, b) => a + b, 0);
+            taken("intake-piece-head", "the head piece of a delivery, by its index", TableType, delivery, entries.slice(0, rows), { from: 0n, to: BigInt(split) });
+            taken("intake-piece-tail", "the tail piece of a delivery, by its index", TableType, delivery, entries.slice(rows), { from: BigInt(split), to: BigInt(extents.offsets.length) });
+        });
+
+        test("a version 4 delivery, and an empty one", () => {
+            const Names = SetType(StringType);
+            const names = new SortedSet(Array.from({ length: 2_000 }, (_, i) => `n${(i * 7919) % 2_000}`), compareFor(StringType));
+            taken("intake-v4", "a version 4 delivery, read whole", Names, encodeBeast2For(Names, { version: 4 })(names), names);
+            const Empty = DictType(StringType, IntegerType);
+            taken("intake-empty", "an empty delivery", Empty, encodeBeast2PagedFor(Empty)(new SortedMap<string, bigint>(undefined, compareFor(StringType))), []);
+        });
+
+        test("refusals", () => {
+            const Names = SetType(StringType);
+            refused("intake-unordered", "a Set delivery whose elements do not ascend", Names, blobOf(Names, [[encodeBeast2FenceFor(StringType)("b")], [encodeBeast2FenceFor(StringType)("a")]]),
+                `intake: the delivery's Set elements must ascend strictly in East order, and "a" follows "b"`);
+            const Lines = ArrayType(StringType);
+            refused("intake-undecodable", "a delivery with a row that does not decode", Lines, blobOf(Lines, [[encodeBeast2FenceFor(StringType)("ok")], [new Uint8Array([0x01, 0x80])]]),
+                "intake: segment 1 of the delivery holds a row that does not decode: a String is not well-formed UTF-8");
+            const header = new Beast2ElementWriter(Lines, { segment: () => {} }).header;
+            refused("intake-oversized", "a delivery with a segment larger than one is read in", Lines,
+                new Uint8Array(Buffer.concat([header, varint(1), varint(RUN_MAX_BYTES + 1), varint(1), new Uint8Array([0])])),
+                `intake: segment 0 of the delivery, at offset ${header.length}, holds ${RUN_MAX_BYTES + 1} bytes, more than the ${RUN_MAX_BYTES} a segment is read in — ` +
+                "write it again with a current Writer, whose segments stay under 8388608 bytes: it was encoded whole, or cut by an older Writer that bounded a segment by its element count alone");
+            const delivery = encodeBeast2PagedFor(TableType)(table);
+            const extents = readBeast2Extents(delivery);
+            refused("intake-truncated", "a delivery that ends inside a segment", TableType, delivery.subarray(0, extents.offsets[2]! + 10),
+                "intake: segment 2 of the delivery is malformed: its frame runs past the end of the delivery");
+            refused("intake-range", "a range past the delivery's segments", TableType, delivery,
+                `intake: segments [1, ${extents.offsets.length + 1}) are not a range of the delivery's ${extents.offsets.length}`, { from: 1n, to: BigInt(extents.offsets.length + 1) });
+            refused("intake-range-no-index", "a range of a delivery with no index", TableType, encodeBeast2For(TableType)(table),
+                "intake: the delivery has no index, so it has no segments to take a range of", { from: 0n, to: 1n });
+            refused("intake-not-beast2", "a delivery that is not a beast2 blob", TableType, new TextEncoder().encode("id,name\n1,a\n"),
+                "intake: the delivery is not a beast2 blob of version 4 or 5");
+            refused("intake-not-collection", "a declared type that is no collection", IntegerType as never, encodeBeast2For(IntegerType)(7n),
+                "intake: a delivery is an Array, Set or Dict, not Integer");
+            refused("intake-type-file", "a type file that holds no type", null, delivery,
+                "exec: intake: its type file does not hold a type", null, encodeBeast2For(StringType)("not a type"));
+        });
+    });
 });
+
+/** `n` as the varint the Writer writes. */
+function varint(n: number): Uint8Array {
+    const bytes: number[] = [];
+    while (n >= 0x80) {
+        bytes.push((n % 0x80) | 0x80);
+        n = Math.floor(n / 0x80);
+    }
+    bytes.push(n);
+    return new Uint8Array(bytes);
+}
+

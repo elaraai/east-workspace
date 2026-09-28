@@ -637,6 +637,33 @@ void east_beast2_manifest_writer_free(Beast2ManifestWriter *w);
 bool east_beast2_write_manifest_dir(EastValue *value, EastType *type, int32_t codec_id,
                                     const char *path);
 
+// Taking a delivered collection in (the C mirror of TypeScript's
+// intakeBeast2For): a beast2 blob of an Array, Set or Dict whose header names
+// exactly `type` is read a segment at a time and written through the manifest
+// writer as the manifest directory at `output` — the Writer's bytes for the
+// value it holds, however it was cut, framed or encoded. `ranged` limits it
+// to the delivery's segments [from, to), by its index: a piece of a large
+// delivery, whose rows are checked to ascend within it and whose seams are the
+// assembler's to check. Each segment's rows are walked by their type without a
+// decode: a segment whose rows are the Writer's bytes is carried as they
+// stand; one the decoder reads is decoded and written again row by row; any
+// other is refused. False with the refusal posted, in the words every runner
+// uses, leaving no manifest. `parallel` frames on a pool. `stats`, when given,
+// says what it came to.
+typedef struct {
+    size_t rows;      // rows taken in: elements, or a Dict's pairs
+    size_t segments;  // segments of the delivery read; a version 4 delivery counts as one
+    size_t rewritten; // of those, the segments read and written again
+} EastBeast2IntakeStats;
+bool east_beast2_intake(const uint8_t *data, size_t len, EastType *type, bool ranged, int64_t from,
+                        int64_t to, const char *output, bool parallel,
+                        EastBeast2IntakeStats *stats);
+// The same over the file at `path`, mapped; a declared type no delivery is
+// refused before the file is read.
+bool east_beast2_intake_file(const char *path, EastType *type, bool ranged, int64_t from,
+                             int64_t to, const char *output, bool parallel,
+                             EastBeast2IntakeStats *stats);
+
 // The byte budget of a pager's decoded-segment cache (issue #560): the sum of
 // cached segments' decompressed frame lengths stays at or under the budget
 // (the newest segment always caches, even alone over it). Defaults to 64 MiB;

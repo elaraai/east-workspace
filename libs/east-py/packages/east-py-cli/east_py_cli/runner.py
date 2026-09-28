@@ -200,7 +200,9 @@ def execute_unit(unit_path: Path) -> dict[str, Any]:
         platform_fns: list[PlatformFunction] = []
         for package in unit["platforms"]:
             platform_fns.extend(load_platform(package))
-        if unit["merge"]:
+        if unit["intake"]:
+            _intake_work(unit, lap)
+        elif unit["merge"]:
             _merge_work(unit, platform_fns, lap)
         else:
             _run_work(unit, platform_fns, lap)
@@ -324,6 +326,16 @@ def _merge_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
     lap("execute")
     _write_unit_value(value_type, output["path"], acc)
     lap("output")
+
+
+def _intake_work(unit: dict[str, Any], lap: Callable[[str], None]) -> None:
+    """An intake unit: the delivered collection taken in as the Writer writes
+    it, a segment at a time — east-c's intake, the code the east-c CLI runs."""
+    from east.serialization._beast2_eastc import _unit_intake
+
+    lap("load")
+    _unit_intake(unit["inputs"][0], unit["type"], unit["segments"], unit["output"]["path"])
+    lap("execute")
 
 
 def run_program(

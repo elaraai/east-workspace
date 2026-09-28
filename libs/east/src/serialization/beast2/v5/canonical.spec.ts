@@ -6,15 +6,17 @@
 /**
  * The canonical skipper, held to the encoder: it steps over exactly what the
  * encoder writes for any value, aliasing among its containers included, and
- * refuses what a decoder reads but the encoder would never write.
+ * refuses what a decoder reads but the encoder would never write. The lenient
+ * one steps over what the decoder reads, too.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, RefType, SetType, StringType,
+  ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, RefType, SetType, StringType,
   StructType, VariantType, type EastType,
 } from "../../../types.js";
+import type { EastTypeValue } from "../../../type_of_type.js";
 import { ref } from "../../../containers/ref.js";
 import { generateFuzzValues } from "../../../fuzz.js";
 import { BufferReader, BufferWriter } from "../../binary-utils.js";
@@ -90,8 +92,44 @@ describe("canonicalSkipperFor", () => {
     // An alias to a container before the value's own.
     refused(ArrayType(IntegerType), new Uint8Array([0x01, 0x01]), /a container alias reaches outside its root element/);
     refused(ArrayType(IntegerType), new Uint8Array([0x02]), /a container's tag is 0x2, neither NEW nor REF/);
+    // Nulls cost no bytes, so their count is bounded as every decoder bounds it.
+    refused(ArrayType(NullType), bytesOf((w) => { w.writeUint8(0); w.writeVarint(2 ** 28 + 1); w.writeVarint(0); }), /an Array holds more elements than a reader takes/);
     refused(VariantType({ a: IntegerType, b: StringType }), new Uint8Array([0x02]), /a Variant's case 2 is not one of its 2/);
     refused(FunctionType([], IntegerType), new Uint8Array([0x00]), /a function value/);
+  });
+
+  test("a lenient skipper reads what the decoder reads, and refuses the rest as the strict one does", () => {
+    const lenient = (type: EastType, bytes: Uint8Array, defs: EastTypeValue[] = []): number => {
+      const reader = new BufferReader(bytes, 0);
+      canonicalSkipperFor(type, { lenient: true })(reader, defs);
+      return reader.offset;
+    };
+    const refused = (type: EastType, bytes: Uint8Array, message: RegExp): void => {
+      assert.throws(() => lenient(type, bytes), (err: unknown) => err instanceof Beast2NotCanonicalError && message.test(err.message));
+    };
+    // Varints that are not minimal, padded to ten bytes for an Integer.
+    assert.equal(lenient(IntegerType, new Uint8Array([0x8a, 0x00])), 2);
+    assert.equal(lenient(IntegerType, new Uint8Array([0x8a, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00])), 10);
+    assert.equal(lenient(StringType, new Uint8Array([0x81, 0x00, 0x61])), 3);
+    // A DateTime padded past eight bytes is measured, not refused by length.
+    assert.equal(lenient(DateTimeType, new Uint8Array([0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00])), 9);
+    // The negative NaN, which the decoder reads as NaN.
+    assert.equal(lenient(FloatType, new Uint8Array([0, 0, 0, 0, 0, 0, 0xf8, 0xff])), 8);
+    // [1, 2] as two runs.
+    assert.equal(lenient(ArrayType(IntegerType), new Uint8Array([0x00, 0x01, 0x02, 0x01, 0x04, 0x00])), 6);
+    // An alias into an earlier row, when the rows share their definitions.
+    const shared: EastTypeValue[] = [];
+    assert.equal(lenient(ArrayType(IntegerType), new Uint8Array([0x00, 0x01, 0x02, 0x00]), shared), 4);
+    assert.equal(lenient(ArrayType(IntegerType), new Uint8Array([0x01, 0x01]), shared), 2);
+
+    refused(ArrayType(IntegerType), new Uint8Array([0x01, 0x01]), /a container alias reaches outside its segment/);
+    refused(FloatType, new Uint8Array([1, 0, 0, 0, 0, 0, 0xf0, 0x7f]), /a NaN other than the one the Writer writes/);
+    refused(BooleanType, new Uint8Array([0x02]), /a Boolean is neither 0 nor 1/);
+    refused(StringType, new Uint8Array([0x01, 0x80]), /a String is not well-formed UTF-8/);
+    refused(IntegerType, new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02]), /an Integer is larger than 64 bits/);
+    refused(DateTimeType, bytesOf((w) => w.writeZigzag(8_640_000_000_000_001n)), /a DateTime is outside the dates a Date holds/);
+    refused(SetType(StringType), bytesOf((w) => { w.writeUint8(0); w.writeVarint(1); w.writeStringUtf8Varint("b"); w.writeVarint(1); w.writeStringUtf8Varint("a"); w.writeVarint(0); }),
+      /a Set's elements do not strictly ascend/);
   });
 
   test("reads a varint only as the encoder writes it", () => {

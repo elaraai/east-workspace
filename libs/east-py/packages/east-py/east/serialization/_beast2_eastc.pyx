@@ -1252,12 +1252,15 @@ cdef object _py_path(const char* path):
 
 
 def _read_unit(object path):
-    """The unit file at ``path`` as a dict: ``merge`` (whether the work is a
-    merge rather than a run), ``program``, ``inputs`` (a merge's parts),
-    ``range``, ``output`` (its ``kind`` and its ``path``, ``merge``, ``zero``
-    and ``combine``), ``platforms``, ``threads`` and ``result``. Every path is
-    resolved against the unit file's directory. Raises ValueError with
-    east-c's message when the file does not hold a unit."""
+    """The unit file at ``path`` as a dict: ``merge`` and ``intake`` (whether
+    the work is a merge or an intake rather than a run), ``program``,
+    ``inputs`` (a merge's parts, an intake's delivery), ``range``, ``type``
+    and ``segments`` (an intake's type file, and ``(from, to)`` of its
+    delivery's segments or None), ``output`` (its ``kind`` and its ``path``,
+    ``merge``, ``zero`` and ``combine``), ``platforms``, ``threads`` and
+    ``result``. Every path is resolved against the unit file's directory.
+    Raises ValueError with east-c's message when the file does not hold a
+    unit."""
     _ensure_eastc_runtime()
     cdef bytes c_path = _c_path(path)
     cdef _eastc.EastUnit* unit = _eastc.east_unit_read(<const char*>c_path)
@@ -1273,9 +1276,12 @@ def _read_unit(object path):
             platforms.append((<bytes>unit.platforms[i]).decode("utf-8"))
         return {
             "merge": bool(unit.merge),
+            "intake": bool(unit.intake),
             "program": _py_path(unit.program),
             "inputs": inputs,
             "range": _py_path(unit.range),
+            "type": _py_path(unit.type),
+            "segments": (unit.segments_from, unit.segments_to) if unit.has_segments else None,
             "output": {
                 "kind": _UNIT_OUTPUT_KINDS[<int>unit.output.kind],
                 "path": _py_path(unit.output.path),
@@ -1534,6 +1540,38 @@ def _unit_merge_runs(object parts, object path, str kind, object range_path=None
         free(c_parts)
     if not ok:
         _consume_eastc_error("exec: the parts cannot be merged", ValueError)
+
+
+def _unit_intake(object input_path, object type_path, object segments, object output_path):
+    """An intake unit's delivery taken in — east-c's ``east_unit_intake``, the
+    very code the east-c CLI runs: ``input_path`` read a segment at a time as
+    the ``type_path`` file declares it, and written through the Writer as the
+    manifest directory at ``output_path``; ``segments`` is ``(from, to)`` of
+    the delivery's segments, or None for all of them. Returns ``{"rows",
+    "segments", "rewritten"}``. Raises ValueError with the refusal every runner
+    makes."""
+    _ensure_eastc_runtime()
+    cdef bytes c_input = _c_path(input_path)
+    cdef bytes c_type = _c_path(type_path)
+    cdef bytes c_output = _c_path(output_path)
+    cdef char* inputs[1]
+    inputs[0] = <char*>c_input
+    cdef _eastc.EastUnit unit
+    memset(&unit, 0, sizeof(unit))
+    unit.intake = True
+    unit.inputs = inputs
+    unit.num_inputs = 1
+    unit.type = <char*>c_type
+    if segments is not None:
+        unit.has_segments = True
+        unit.segments_from = segments[0]
+        unit.segments_to = segments[1]
+    unit.output.kind = _eastc.EAST_UNIT_VALUE
+    unit.output.path = <char*>c_output
+    cdef _eastc.EastBeast2IntakeStats stats
+    if not _eastc.east_unit_intake(&unit, &stats):
+        _consume_eastc_error("exec: the delivery cannot be taken in", ValueError)
+    return {"rows": stats.rows, "segments": stats.segments, "rewritten": stats.rewritten}
 
 
 def _set_thread_limit(int threads):

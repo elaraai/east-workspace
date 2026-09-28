@@ -9,11 +9,12 @@
  *
  * `east-node exec <unit.beast2>`, `east-c exec …` and `east-py exec …` read a
  * {@link UnitType} blob, do its work, and write a {@link UnitResultType} blob
- * where the unit says. A unit either runs a program, writing what it produces
- * by the kind of output it makes, or merges parts of one output kind that
- * earlier units wrote. Everything a unit needs is named by path, and a relative
- * path is relative to the unit file, so a unit file and the files it names are
- * a complete, replayable snapshot of the work.
+ * where the unit says. A unit runs a program, writing what it produces by the
+ * kind of output it makes; merges parts of one output kind that earlier units
+ * wrote; or takes a delivered collection in, as the Writer writes it.
+ * Everything a unit needs is named by path, and a relative path is relative to
+ * the unit file, so a unit file and the files it names are a complete,
+ * replayable snapshot of the work.
  *
  * The types live here, beside the collection layer, because every runner and
  * the platform that schedules them read them; east-c declares the same types
@@ -69,6 +70,21 @@ export const UnitWorkType = VariantType({
    * `[from, to)`. An array's parts never need a unit, and a value has none.
    */
   merge: StructType({ parts: ArrayType(StringType), range: OptionType(StringType), output: UnitOutputType }),
+  /**
+   * Take in `input`, a delivered beast2 file of an Array, Set or Dict, as the
+   * Writer writes it: the manifest directory `output`. `type` is a file holding
+   * the declared type, an `EastTypeValue` blob, which the delivery's header
+   * must name. `segments` limits the unit to the delivery's segments `[from,
+   * to)`, by its index, for a piece of a large one. Rows are read a segment at
+   * a time, and each segment is either the Writer's bytes, carried as they
+   * stand, or read and written again.
+   */
+  intake: StructType({
+    input: StringType,
+    type: StringType,
+    segments: OptionType(StructType({ from: IntegerType, to: IntegerType })),
+    output: StringType,
+  }),
 });
 export type UnitWorkType = typeof UnitWorkType;
 export type UnitWork = ValueTypeOf<typeof UnitWorkType>;
