@@ -42,6 +42,7 @@ from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
 from east.serialization.beast2 import open_beast2_file
+from east.types.coercion import EastTypeError
 from east.types.types import FunctionType
 from tests.segments import write_in_segments
 
@@ -260,6 +261,40 @@ def test_open_paged_file_maps_the_file_and_checks_its_type(tmp_path):
 
     with pytest.raises(ValueError, match="cannot open a blob of type"):
         open_paged_file(ArrayType(IntegerType), path)
+
+
+def test_decorated_platform_fn_returns_a_paged_hold(tmp_path):
+    """``@East.platform_function``'s output check takes a hold of the declared
+    type — it crosses the seam by pointer, un-hydrated — and refuses one of
+    another type, as the seam would."""
+    path = tmp_path / "input.beast2"
+    _dict_blob(tmp_path)
+
+    @East.platform_function(inputs=[], output=DT)
+    def source():
+        return open_paged_file(DT, path)
+
+    assert _compile_source_then_check(source)() == N + 49
+
+    @East.platform_function(inputs=[], output=ArrayType(IntegerType))
+    def mislabelled():
+        return open_paged_file(DT, path)
+
+    with pytest.raises(EastTypeError, match="returned a paged value whose type does not match"):
+        mislabelled()
+
+
+def test_bind_takes_a_paged_hold_by_pointer(tmp_path):
+    path = tmp_path / "input.beast2"
+    _dict_blob(tmp_path)
+    hold = open_paged_file(DT, path)
+    qty = East.function([StringType, DT], IntegerType, lambda b, k, d: d.get(k).qty)
+
+    assert qty.bind(hold)("k00007") == 49
+    assert paged_value_is_hydrated(hold._east_c_paged) is False
+    size = East.function([StringType, ArrayType(IntegerType)], IntegerType, lambda b, _k, a: a.size())
+    with pytest.raises(TypeError, match="paged input type does not match"):
+        size.bind(hold)
 
 
 def test_platform_fn_array_and_set_inputs(tmp_path):

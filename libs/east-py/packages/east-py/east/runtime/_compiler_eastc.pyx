@@ -537,6 +537,25 @@ def open_paged_file(object east_type, object path, bint frozen=True):
     return hold
 
 
+def paged_type_matches(object hold, object east_type):
+    """Whether a paged hold was opened as exactly ``east_type`` — the check
+    the call, bind and platform-return seams make, for a caller that
+    validates before a seam does (``@East.platform_function``'s output
+    check). ``east_type`` is a Python EastType or a raw ``EastType*``."""
+    cdef uintptr_t opened = <uintptr_t>getattr(hold, "_east_c_paged_type", 0)
+    if opened == 0:
+        return False
+    _ensure_runtime()
+    cdef bint own_type = False
+    cdef _eastc.EastType* want = _resolve_c_type(east_type, &own_type)
+    try:
+        return opened == <uintptr_t>want or bool(
+            _eastc.east_type_equal(<_eastc.EastType*>opened, want))
+    finally:
+        if own_type:
+            _eastc.east_type_release(want)
+
+
 # ─── Manifest-rooted inputs ──────────────────────────────────────────────
 #
 # A collection input e3 stages as a manifest: the file holds the manifest and
@@ -1881,6 +1900,10 @@ def bind_function(object function_callable, tuple bound_values):
     from east.types.values import type_of
     from east.types.values import is_value_of
     for j in range(n_bound):
+        # A paged hold binds by pointer below, where its type is checked
+        # exactly; it is not a python value for type_of to walk.
+        if getattr(bound_values[j], "_east_c_paged", 0):
+            continue
         expected = c_type_ptr_to_py_type(input_ptrs[first + j])
         # Declared-type equality first: O(1) for typed collections (their
         # element types are carried, not inferred from contents — the #399
