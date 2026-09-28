@@ -43,7 +43,7 @@ const processFile = East.function(
 );
 
 // Compile with Node.js platform and execute
-const compiled = East.compile(processFile.toIR(), NodePlatform);
+const compiled = East.compile(processFile, NodePlatform);
 compiled("/path/to/input.txt");
 ```
 
@@ -64,13 +64,13 @@ East Node provides these platform modules:
 **Complete platform:**
 ```typescript
 import { NodePlatform } from "@elaraai/east-node-std";
-const compiled = East.compile(myFunction.toIR(), NodePlatform);
+const compiled = East.compile(myFunction, NodePlatform);
 ```
 
 **Individual modules:**
 ```typescript
 import { Console, FileSystem } from "@elaraai/east-node-std";
-const compiled = East.compile(myFunction.toIR(), [...Console.Implementation, ...FileSystem.Implementation]);
+const compiled = East.compile(myFunction, [...Console.Implementation, ...FileSystem.Implementation]);
 ```
 
 ## Documentation

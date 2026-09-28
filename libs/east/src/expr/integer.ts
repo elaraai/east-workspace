@@ -53,7 +53,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const negate = East.function([IntegerType], IntegerType, ($, x) => {
    *   $.return(x.negate());
    * });
-   * const compiled = East.compile(negate.toIR(), []);
+   * const compiled = East.compile(negate, []);
    * compiled(5n);   // -5n
    * compiled(-3n);  // 3n
    * ```
@@ -80,7 +80,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const addIntegers = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => {
    *   $.return(x.add(y));
    * });
-   * const compiled = East.compile(addIntegers.toIR(), []);
+   * const compiled = East.compile(addIntegers, []);
    * compiled(3n, 4n);  // 7n
    *
    * // Adding with float promotes to float
@@ -125,7 +125,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const subtractIntegers = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => {
    *   $.return(x.subtract(y));
    * });
-   * const compiled = East.compile(subtractIntegers.toIR(), []);
+   * const compiled = East.compile(subtractIntegers, []);
    * compiled(10n, 3n);  // 7n
    * compiled(5n, 8n);   // -3n
    * ```
@@ -166,7 +166,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const multiplyIntegers = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => {
    *   $.return(x.multiply(y));
    * });
-   * const compiled = East.compile(multiplyIntegers.toIR(), []);
+   * const compiled = East.compile(multiplyIntegers, []);
    * compiled(6n, 7n);   // 42n
    * compiled(-3n, 4n);  // -12n
    * ```
@@ -212,7 +212,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const divideIntegers = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => {
    *   $.return(x.divide(y));
    * });
-   * const compiled = East.compile(divideIntegers.toIR(), []);
+   * const compiled = East.compile(divideIntegers, []);
    * compiled(10n, 3n);  // 3n
    * compiled(10n, 2n);  // 5n
    * compiled(-10n, 3n); // -3n (truncated toward zero)
@@ -261,7 +261,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const getRemainder = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => {
    *   $.return(x.remainder(y));
    * });
-   * const compiled = East.compile(getRemainder.toIR(), []);
+   * const compiled = East.compile(getRemainder, []);
    * compiled(10n, 3n);   // 1n (10 = 3*3 + 1)
    * compiled(10n, 4n);   // 2n
    * compiled(-10n, 3n);  // -1n (sign of the dividend)
@@ -307,7 +307,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const power = East.function([IntegerType, IntegerType], IntegerType, ($, base, exp) => {
    *   $.return(base.pow(exp));
    * });
-   * const compiled = East.compile(power.toIR(), []);
+   * const compiled = East.compile(power, []);
    * compiled(2n, 3n);    // 8n (2^3)
    * compiled(5n, 2n);    // 25n
    * compiled(10n, 0n);   // 1n (anything^0 = 1)
@@ -349,7 +349,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const absoluteValue = East.function([IntegerType], IntegerType, ($, x) => {
    *   $.return(x.abs());
    * });
-   * const compiled = East.compile(absoluteValue.toIR(), []);
+   * const compiled = East.compile(absoluteValue, []);
    * compiled(5n);    // 5n
    * compiled(-5n);   // 5n
    * compiled(0n);    // 0n
@@ -376,7 +376,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const getSign = East.function([IntegerType], IntegerType, ($, x) => {
    *   $.return(x.sign());
    * });
-   * const compiled = East.compile(getSign.toIR(), []);
+   * const compiled = East.compile(getSign, []);
    * compiled(42n);   // 1n
    * compiled(-17n);  // -1n
    * compiled(0n);    // 0n
@@ -406,7 +406,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const logarithm = East.function([IntegerType, IntegerType], IntegerType, ($, x, base) => {
    *   $.return(x.log(base));
    * });
-   * const compiled = East.compile(logarithm.toIR(), []);
+   * const compiled = East.compile(logarithm, []);
    * compiled(1000n, 10n);  // 3n (10^3 = 1000)
    * compiled(8n, 2n);      // 3n (2^3 = 8)
    * compiled(100n, 10n);   // 2n (10^2 = 100)
@@ -437,7 +437,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const convertToFloat = East.function([IntegerType], FloatType, ($, x) => {
    *   $.return(x.toFloat());
    * });
-   * const compiled = East.compile(convertToFloat.toIR(), []);
+   * const compiled = East.compile(convertToFloat, []);
    * compiled(42n);    // 42.0
    * compiled(-17n);   // -17.0
    * compiled(0n);     // 0.0
@@ -465,7 +465,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const isEqual = East.function([IntegerType, IntegerType], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled(5n, 5n);   // true
    * compiled(5n, 3n);   // false
    * ```
@@ -485,7 +485,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const isNotEqual = East.function([IntegerType, IntegerType], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled(5n, 3n);   // true
    * compiled(5n, 5n);   // false
    * ```
@@ -505,7 +505,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const isGreater = East.function([IntegerType, IntegerType], BooleanType, ($, a, b) => {
    *   $.return(a.greaterThan(b));
    * });
-   * const compiled = East.compile(isGreater.toIR(), []);
+   * const compiled = East.compile(isGreater, []);
    * compiled(5n, 3n);   // true
    * compiled(3n, 5n);   // false
    * compiled(5n, 5n);   // false
@@ -526,7 +526,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const isLess = East.function([IntegerType, IntegerType], BooleanType, ($, a, b) => {
    *   $.return(a.lessThan(b));
    * });
-   * const compiled = East.compile(isLess.toIR(), []);
+   * const compiled = East.compile(isLess, []);
    * compiled(3n, 5n);   // true
    * compiled(5n, 3n);   // false
    * compiled(5n, 5n);   // false
@@ -547,7 +547,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const isGreaterOrEqual = East.function([IntegerType, IntegerType], BooleanType, ($, a, b) => {
    *   $.return(a.greaterThanOrEqual(b));
    * });
-   * const compiled = East.compile(isGreaterOrEqual.toIR(), []);
+   * const compiled = East.compile(isGreaterOrEqual, []);
    * compiled(5n, 3n);   // true
    * compiled(5n, 5n);   // true
    * compiled(3n, 5n);   // false
@@ -568,7 +568,7 @@ export class IntegerExpr extends Expr<IntegerType> {
    * const isLessOrEqual = East.function([IntegerType, IntegerType], BooleanType, ($, a, b) => {
    *   $.return(a.lessThanOrEqual(b));
    * });
-   * const compiled = East.compile(isLessOrEqual.toIR(), []);
+   * const compiled = East.compile(isLessOrEqual, []);
    * compiled(3n, 5n);   // true
    * compiled(5n, 5n);   // true
    * compiled(5n, 3n);   // false

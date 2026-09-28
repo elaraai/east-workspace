@@ -62,7 +62,7 @@ export class StringExpr extends Expr<StringType> {
    * const parseInteger = East.function([StringType], IntegerType, ($, text) => {
    *   $.return(text.parse(IntegerType));
    * });
-   * const compiled = East.compile(parseInteger.toIR(), []);
+   * const compiled = East.compile(parseInteger, []);
    * compiled("42");       // 42n
    * compiled("-100");     // -100n
    * // compiled("3.14") would throw error (not an integer format)
@@ -95,7 +95,7 @@ export class StringExpr extends Expr<StringType> {
    * const parseJsonArray = East.function([StringType], ArrayType(IntegerType), ($, json) => {
    *   $.return(json.parseJson(ArrayType(IntegerType)));
    * });
-   * const compiled = East.compile(parseJsonArray.toIR(), []);
+   * const compiled = East.compile(parseJsonArray, []);
    * compiled("[1, 2, 3]");        // [1n, 2n, 3n]
    * compiled("[]");               // []
    * // compiled("{\"a\": 1}") would throw error (not an array)
@@ -123,7 +123,7 @@ export class StringExpr extends Expr<StringType> {
    * const joinStrings = East.function([StringType, StringType], StringType, ($, a, b) => {
    *   $.return(a.concat(b));
    * });
-   * const compiled = East.compile(joinStrings.toIR(), []);
+   * const compiled = East.compile(joinStrings, []);
    * compiled("Hello, ", "World!");  // "Hello, World!"
    * compiled("foo", "bar");         // "foobar"
    * compiled("", "test");           // "test"
@@ -152,7 +152,7 @@ export class StringExpr extends Expr<StringType> {
    * const repeatString = East.function([StringType, IntegerType], StringType, ($, str, n) => {
    *   $.return(str.repeat(n));
    * });
-   * const compiled = East.compile(repeatString.toIR(), []);
+   * const compiled = East.compile(repeatString, []);
    * compiled("abc", 3n);   // "abcabcabc"
    * compiled("x", 5n);     // "xxxxx"
    * compiled("test", 0n);  // ""
@@ -181,7 +181,7 @@ export class StringExpr extends Expr<StringType> {
    * const getLength = East.function([StringType], IntegerType, ($, str) => {
    *   $.return(str.length());
    * });
-   * const compiled = East.compile(getLength.toIR(), []);
+   * const compiled = East.compile(getLength, []);
    * compiled("hello");     // 5n
    * compiled("");          // 0n
    * compiled("😀🎉");      // 2n (2 emoji code points)
@@ -212,7 +212,7 @@ export class StringExpr extends Expr<StringType> {
    * const substr = East.function([StringType, IntegerType, IntegerType], StringType, ($, str, start, end) => {
    *   $.return(str.substring(start, end));
    * });
-   * const compiled = East.compile(substr.toIR(), []);
+   * const compiled = East.compile(substr, []);
    * compiled("hello world", 0n, 5n);    // "hello"
    * compiled("hello world", 6n, 11n);   // "world"
    * compiled("test", 1n, 3n);           // "es"
@@ -241,7 +241,7 @@ export class StringExpr extends Expr<StringType> {
    * const toUpper = East.function([StringType], StringType, ($, str) => {
    *   $.return(str.upperCase());
    * });
-   * const compiled = East.compile(toUpper.toIR(), []);
+   * const compiled = East.compile(toUpper, []);
    * compiled("hello");         // "HELLO"
    * compiled("Hello World");   // "HELLO WORLD"
    * compiled("test123");       // "TEST123"
@@ -268,7 +268,7 @@ export class StringExpr extends Expr<StringType> {
    * const toLower = East.function([StringType], StringType, ($, str) => {
    *   $.return(str.lowerCase());
    * });
-   * const compiled = East.compile(toLower.toIR(), []);
+   * const compiled = East.compile(toLower, []);
    * compiled("HELLO");         // "hello"
    * compiled("Hello World");   // "hello world"
    * compiled("TEST123");       // "test123"
@@ -296,7 +296,7 @@ export class StringExpr extends Expr<StringType> {
    * const splitString = East.function([StringType, StringType], ArrayType(StringType), ($, str, delim) => {
    *   $.return(str.split(delim));
    * });
-   * const compiled = East.compile(splitString.toIR(), []);
+   * const compiled = East.compile(splitString, []);
    * compiled("a,b,c", ",");           // ["a", "b", "c"]
    * compiled("hello world", " ");     // ["hello", "world"]
    * compiled("one", ",");             // ["one"]
@@ -325,7 +325,7 @@ export class StringExpr extends Expr<StringType> {
    * const trimString = East.function([StringType], StringType, ($, str) => {
    *   $.return(str.trim());
    * });
-   * const compiled = East.compile(trimString.toIR(), []);
+   * const compiled = East.compile(trimString, []);
    * compiled("  hello  ");      // "hello"
    * compiled("test\n");         // "test"
    * compiled("  ");             // ""
@@ -353,7 +353,7 @@ export class StringExpr extends Expr<StringType> {
    * const trimLeft = East.function([StringType], StringType, ($, str) => {
    *   $.return(str.trimStart());
    * });
-   * const compiled = East.compile(trimLeft.toIR(), []);
+   * const compiled = East.compile(trimLeft, []);
    * compiled("  hello");        // "hello"
    * compiled("\ttest");         // "test"
    * compiled("  hello  ");      // "hello  "
@@ -380,7 +380,7 @@ export class StringExpr extends Expr<StringType> {
    * const trimRight = East.function([StringType], StringType, ($, str) => {
    *   $.return(str.trimEnd());
    * });
-   * const compiled = East.compile(trimRight.toIR(), []);
+   * const compiled = East.compile(trimRight, []);
    * compiled("hello  ");        // "hello"
    * compiled("test\n");         // "test"
    * compiled("  hello  ");      // "  hello"
@@ -408,7 +408,7 @@ export class StringExpr extends Expr<StringType> {
    * const checkPrefix = East.function([StringType, StringType], BooleanType, ($, str, prefix) => {
    *   $.return(str.startsWith(prefix));
    * });
-   * const compiled = East.compile(checkPrefix.toIR(), []);
+   * const compiled = East.compile(checkPrefix, []);
    * compiled("hello world", "hello");   // true
    * compiled("test", "te");             // true
    * compiled("hello", "world");         // false
@@ -438,7 +438,7 @@ export class StringExpr extends Expr<StringType> {
    * const checkSuffix = East.function([StringType, StringType], BooleanType, ($, str, suffix) => {
    *   $.return(str.endsWith(suffix));
    * });
-   * const compiled = East.compile(checkSuffix.toIR(), []);
+   * const compiled = East.compile(checkSuffix, []);
    * compiled("hello world", "world");   // true
    * compiled("test", "st");             // true
    * compiled("hello", "world");         // false
@@ -468,7 +468,7 @@ export class StringExpr extends Expr<StringType> {
    * const hasSubstring = East.function([StringType, StringType], BooleanType, ($, str, substr) => {
    *   $.return(str.contains(substr));
    * });
-   * const compiled = East.compile(hasSubstring.toIR(), []);
+   * const compiled = East.compile(hasSubstring, []);
    * compiled("hello world", "world");   // true
    * compiled("test", "xyz");            // false
    *
@@ -476,7 +476,7 @@ export class StringExpr extends Expr<StringType> {
    * const hasDigits = East.function([StringType], BooleanType, ($, str) => {
    *   $.return(str.contains(/\d+/));
    * });
-   * compiled = East.compile(hasDigits.toIR(), []);
+   * compiled = East.compile(hasDigits, []);
    * compiled("test123");                // true
    * compiled("test");                   // false
    * ```
@@ -534,7 +534,7 @@ export class StringExpr extends Expr<StringType> {
    * const findIndex = East.function([StringType, StringType], IntegerType, ($, str, substr) => {
    *   $.return(str.indexOf(substr));
    * });
-   * const compiled = East.compile(findIndex.toIR(), []);
+   * const compiled = East.compile(findIndex, []);
    * compiled("hello world", "world");   // 6n
    * compiled("test", "t");              // 0n
    * compiled("hello", "xyz");           // -1n
@@ -543,7 +543,7 @@ export class StringExpr extends Expr<StringType> {
    * const findDigit = East.function([StringType], IntegerType, ($, str) => {
    *   $.return(str.indexOf(/\d/));
    * });
-   * compiled = East.compile(findDigit.toIR(), []);
+   * compiled = East.compile(findDigit, []);
    * compiled("abc123");                 // 3n
    * ```
    */
@@ -601,7 +601,7 @@ export class StringExpr extends Expr<StringType> {
    * const replaceAll = East.function([StringType, StringType, StringType], StringType, ($, str, search, replace) => {
    *   $.return(str.replace(search, replace));
    * });
-   * const compiled = East.compile(replaceAll.toIR(), []);
+   * const compiled = East.compile(replaceAll, []);
    * compiled("hello hello", "hello", "hi");         // "hi hi"
    * compiled("test_test_value", "test", "prod");    // "prod_prod_value"
    *
@@ -609,7 +609,7 @@ export class StringExpr extends Expr<StringType> {
    * const swapWords = East.function([StringType], StringType, ($, str) => {
    *   $.return(str.replace(/(\w+) (\w+)/, "$2 $1"));
    * });
-   * compiled = East.compile(swapWords.toIR(), []);
+   * compiled = East.compile(swapWords, []);
    * compiled("hello world");                        // "world hello"
    * ```
    */
@@ -673,7 +673,7 @@ export class StringExpr extends Expr<StringType> {
    * const encodeUtf8 = East.function([StringType], BlobType, ($, str) => {
    *   $.return(str.encodeUtf8());
    * });
-   * const compiled = East.compile(encodeUtf8.toIR(), []);
+   * const compiled = East.compile(encodeUtf8, []);
    * compiled("hello");          // Blob with UTF-8 bytes
    * compiled("😀");             // Blob with UTF-8 encoded emoji
    * ```
@@ -701,7 +701,7 @@ export class StringExpr extends Expr<StringType> {
    * const encodeUtf16 = East.function([StringType], BlobType, ($, str) => {
    *   $.return(str.encodeUtf16());
    * });
-   * const compiled = East.compile(encodeUtf16.toIR(), []);
+   * const compiled = East.compile(encodeUtf16, []);
    * compiled("hello");          // Blob with UTF-16 LE bytes + BOM
    * compiled("😀");             // Blob with UTF-16 encoded emoji
    * ```
@@ -728,7 +728,7 @@ export class StringExpr extends Expr<StringType> {
    * const isEqual = East.function([StringType, StringType], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled("hello", "hello");   // true
    * compiled("hello", "world");   // false
    * ```
@@ -748,7 +748,7 @@ export class StringExpr extends Expr<StringType> {
    * const isNotEqual = East.function([StringType, StringType], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled("hello", "world");   // true
    * compiled("hello", "hello");   // false
    * ```
@@ -768,7 +768,7 @@ export class StringExpr extends Expr<StringType> {
    * const isGreater = East.function([StringType, StringType], BooleanType, ($, a, b) => {
    *   $.return(a.greaterThan(b));
    * });
-   * const compiled = East.compile(isGreater.toIR(), []);
+   * const compiled = East.compile(isGreater, []);
    * compiled("b", "a");     // true
    * compiled("a", "b");     // false
    * compiled("a", "a");     // false
@@ -789,7 +789,7 @@ export class StringExpr extends Expr<StringType> {
    * const isLess = East.function([StringType, StringType], BooleanType, ($, a, b) => {
    *   $.return(a.lessThan(b));
    * });
-   * const compiled = East.compile(isLess.toIR(), []);
+   * const compiled = East.compile(isLess, []);
    * compiled("a", "b");     // true
    * compiled("b", "a");     // false
    * compiled("a", "a");     // false
@@ -810,7 +810,7 @@ export class StringExpr extends Expr<StringType> {
    * const isGreaterOrEqual = East.function([StringType, StringType], BooleanType, ($, a, b) => {
    *   $.return(a.greaterThanOrEqual(b));
    * });
-   * const compiled = East.compile(isGreaterOrEqual.toIR(), []);
+   * const compiled = East.compile(isGreaterOrEqual, []);
    * compiled("b", "a");     // true
    * compiled("a", "a");     // true
    * compiled("a", "b");     // false
@@ -831,7 +831,7 @@ export class StringExpr extends Expr<StringType> {
    * const isLessOrEqual = East.function([StringType, StringType], BooleanType, ($, a, b) => {
    *   $.return(a.lessThanOrEqual(b));
    * });
-   * const compiled = East.compile(isLessOrEqual.toIR(), []);
+   * const compiled = East.compile(isLessOrEqual, []);
    * compiled("a", "b");     // true
    * compiled("a", "a");     // true
    * compiled("b", "a");     // false

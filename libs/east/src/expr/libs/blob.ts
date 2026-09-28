@@ -38,7 +38,7 @@ export default {
    * const encodeArray = East.function([ArrayType(IntegerType)], BlobType, ($, arr) => {
    *   $.return(East.Blob.encodeBeast(arr));
    * });
-   * const compiled = East.compile(encodeArray.toIR(), []);
+   * const compiled = East.compile(encodeArray, []);
    * const blob = compiled([1n, 2n, 3n]);  // Binary blob containing encoded array
    * ```
    *
@@ -48,7 +48,7 @@ export default {
    * const encodeV2 = East.function([IntegerType], BlobType, ($, num) => {
    *   $.return(East.Blob.encodeBeast(num, 'v2'));
    * });
-   * const compiled = East.compile(encodeV2.toIR(), []);
+   * const compiled = East.compile(encodeV2, []);
    * const blob = compiled(42n);  // Binary blob with v2 encoding
    * ```
    */

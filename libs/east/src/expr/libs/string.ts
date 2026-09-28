@@ -24,7 +24,7 @@ export default {
    * const formatError = East.function([StringType, ArrayType(StackFrameType)], StringType, ($, msg, stack) => {
    *   $.return(East.printError(msg, stack));
    * });
-   * const compiled = East.compile(formatError.toIR(), []);
+   * const compiled = East.compile(formatError, []);
    * const result = compiled("Division by zero", [
    *   { filename: "app.ts", line: 42n, column: 10n },
    *   { filename: "main.ts", line: 15n, column: 5n }
@@ -52,7 +52,7 @@ export default {
    * const toJson = East.function([PersonType], StringType, ($, person) => {
    *   $.return(East.String.printJson(person));
    * });
-   * const compiled = East.compile(toJson.toIR(), []);
+   * const compiled = East.compile(toJson, []);
    * compiled({ name: "Alice", age: 30n });  // '{"name":"Alice","age":"30"}' — an Integer is a decimal string
    * ```
    *
@@ -62,7 +62,7 @@ export default {
    * const arrayToJson = East.function([ArrayType(IntegerType)], StringType, ($, arr) => {
    *   $.return(East.String.printJson(arr));
    * });
-   * const compiled = East.compile(arrayToJson.toIR(), []);
+   * const compiled = East.compile(arrayToJson, []);
    * compiled([1n, 2n, 3n]);  // '["1","2","3"]'
    * ```
    *
@@ -74,7 +74,7 @@ export default {
    * const optionToJson = East.function([OptionType(StringType)], StringType, ($, note) => {
    *   $.return(East.String.printJson(note));
    * });
-   * const compiled = East.compile(optionToJson.toIR(), []);
+   * const compiled = East.compile(optionToJson, []);
    * compiled(none);       // 'null'
    * compiled(some("x"));  // '"x"'
    * ```

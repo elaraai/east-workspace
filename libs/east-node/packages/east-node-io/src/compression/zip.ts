@@ -63,7 +63,7 @@ import { ZipOptionsType, ZipEntriesType, ZipExtractedType } from "./types.js";
  *     return $.return(zipBlob);
  * });
  *
- * const compiled = East.compile(createZip.toIR(), Compression.Zip.Implementation);
+ * const compiled = East.compile(createZip, Compression.Zip.Implementation);
  * const result = compiled("Hello", "World");  // ZIP archive blob
  * ```
  *
@@ -104,7 +104,7 @@ export const zip_compress = East.platform("zip_compress", [ZipEntriesType, ZipOp
  *     return $.return(files);
  * });
  *
- * const compiled = East.compile(extractZip.toIR(), Compression.Zip.Implementation);
+ * const compiled = East.compile(extractZip, Compression.Zip.Implementation);
  * const result = compiled(zipBlob);
  * // Map { "file1.txt" => Uint8Array, "file2.txt" => Uint8Array }
  * ```

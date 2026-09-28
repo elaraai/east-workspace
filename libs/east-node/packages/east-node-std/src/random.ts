@@ -618,7 +618,7 @@ const RandomImpl: PlatformFunction[] = [
  *     return Random.range(1n, 6n);
  * });
  *
- * const compiled = East.compile(rollDice.toIR(), Random.Implementation);
+ * const compiled = East.compile(rollDice, Random.Implementation);
  * const result = compiled();  // Random integer from 1 to 6
  * ```
  */
@@ -637,7 +637,7 @@ export const Random = {
      *     return Random.uniform();
      * });
      *
-     * const compiled = East.compile(generateRandom.toIR(), Random.Implementation);
+     * const compiled = East.compile(generateRandom, Random.Implementation);
      * const result = compiled();  // e.g., 0.7234891234
      * ```
      */
@@ -660,7 +660,7 @@ export const Random = {
      *     return z.multiply(2.5).add(10.0);  // N(10, 2.5)
      * });
      *
-     * const compiled = East.compile(generateNormal.toIR(), Random.Implementation);
+     * const compiled = East.compile(generateNormal, Random.Implementation);
      * const result = compiled();  // e.g., 9.234 (from N(10, 2.5))
      * ```
      */
@@ -684,7 +684,7 @@ export const Random = {
      *     return Random.range(1n, 6n);  // 1-6 inclusive
      * });
      *
-     * const compiled = East.compile(rollDice.toIR(), Random.Implementation);
+     * const compiled = East.compile(rollDice, Random.Implementation);
      * const result = compiled();  // e.g., 4n
      * ```
      */
@@ -709,7 +709,7 @@ export const Random = {
      *     return Random.exponential(0.2);
      * });
      *
-     * const compiled = East.compile(waitTime.toIR(), Random.Implementation);
+     * const compiled = East.compile(waitTime, Random.Implementation);
      * const result = compiled();  // e.g., 3.7 minutes
      * ```
      */
@@ -733,7 +733,7 @@ export const Random = {
      *     return Random.weibull(2.0);
      * });
      *
-     * const compiled = East.compile(lifetime.toIR(), Random.Implementation);
+     * const compiled = East.compile(lifetime, Random.Implementation);
      * const result = compiled();  // e.g., 1.23
      * ```
      */
@@ -757,7 +757,7 @@ export const Random = {
      *     return Random.bernoulli(0.5);
      * });
      *
-     * const compiled = East.compile(coinFlip.toIR(), Random.Implementation);
+     * const compiled = East.compile(coinFlip, Random.Implementation);
      * const result = compiled();  // e.g., 1n or 0n
      * ```
      */
@@ -782,7 +782,7 @@ export const Random = {
      *     return Random.binomial(10n, 0.5);
      * });
      *
-     * const compiled = East.compile(heads.toIR(), Random.Implementation);
+     * const compiled = East.compile(heads, Random.Implementation);
      * const result = compiled();  // e.g., 6n
      * ```
      */
@@ -807,7 +807,7 @@ export const Random = {
      *     return Random.geometric(1.0 / 6.0);
      * });
      *
-     * const compiled = East.compile(attempts.toIR(), Random.Implementation);
+     * const compiled = East.compile(attempts, Random.Implementation);
      * const result = compiled();  // e.g., 4n
      * ```
      */
@@ -832,7 +832,7 @@ export const Random = {
      *     return Random.poisson(3.0);
      * });
      *
-     * const compiled = East.compile(customers.toIR(), Random.Implementation);
+     * const compiled = East.compile(customers, Random.Implementation);
      * const result = compiled();  // e.g., 2n
      * ```
      */
@@ -857,7 +857,7 @@ export const Random = {
      *     return Random.pareto(1.16);
      * });
      *
-     * const compiled = East.compile(wealth.toIR(), Random.Implementation);
+     * const compiled = East.compile(wealth, Random.Implementation);
      * const result = compiled();  // e.g., 2.45
      * ```
      */
@@ -881,7 +881,7 @@ export const Random = {
      *     return Random.logNormal(0.0, 0.2);
      * });
      *
-     * const compiled = East.compile(stockPrice.toIR(), Random.Implementation);
+     * const compiled = East.compile(stockPrice, Random.Implementation);
      * const result = compiled();  // e.g., 1.15
      * ```
      */
@@ -906,7 +906,7 @@ export const Random = {
      *     return Random.irwinHall(12n);
      * });
      *
-     * const compiled = East.compile(irwinHall.toIR(), Random.Implementation);
+     * const compiled = East.compile(irwinHall, Random.Implementation);
      * const result = compiled();  // e.g., 6.234 (approximately N(6, 1))
      * ```
      */
@@ -931,7 +931,7 @@ export const Random = {
      *     return Random.bates(12n);
      * });
      *
-     * const compiled = East.compile(bates.toIR(), Random.Implementation);
+     * const compiled = East.compile(bates, Random.Implementation);
      * const result = compiled();  // e.g., 0.523 (approximately N(0.5, 1/144))
      * ```
      */
@@ -954,7 +954,7 @@ export const Random = {
      *     return Random.uniform();  // Will be reproducible
      * });
      *
-     * const compiled = East.compile(seedAndGenerate.toIR(), Random.Implementation);
+     * const compiled = East.compile(seedAndGenerate, Random.Implementation);
      * const result = compiled();  // Same result every time with same seed
      * ```
      *

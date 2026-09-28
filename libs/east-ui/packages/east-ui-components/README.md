@@ -39,7 +39,7 @@ const MyUI = East.function([], UIComponentType, $ => {
 });
 
 // Compile and get the UI IR
-const compiled = East.compile(MyUI.toIR());
+const compiled = East.compile(MyUI);
 const uiData = compiled();
 
 // Render in React

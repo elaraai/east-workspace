@@ -131,7 +131,7 @@ const ConsoleImpl: PlatformFunction[] = [
  *     $(Console.write("No newline here"));
  * });
  *
- * const compiled = East.compile(greet.toIR(), Console.Implementation);
+ * const compiled = East.compile(greet, Console.Implementation);
  * await compiled();
  * ```
  */
@@ -152,7 +152,7 @@ export const Console = {
      *     $(Console.log("Hello, World!"));
      * });
      *
-     * const compiled = East.compile(logMessage.toIR(), Console.Implementation);
+     * const compiled = East.compile(logMessage, Console.Implementation);
      * await compiled();  // Outputs: Hello, World!
      * ```
      */
@@ -174,7 +174,7 @@ export const Console = {
      *     $(Console.error("Error: Invalid input"));
      * });
      *
-     * const compiled = East.compile(logError.toIR(), Console.Implementation);
+     * const compiled = East.compile(logError, Console.Implementation);
      * await compiled();  // Outputs to stderr: Error: Invalid input
      * ```
      */
@@ -197,7 +197,7 @@ export const Console = {
      *     $(Console.log("done!"));
      * });
      *
-     * const compiled = East.compile(showProgress.toIR(), Console.Implementation);
+     * const compiled = East.compile(showProgress, Console.Implementation);
      * await compiled();  // Outputs: Processing... done!
      * ```
      */

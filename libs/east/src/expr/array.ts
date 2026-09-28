@@ -66,7 +66,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getSize = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.size());
    * });
-   * const compiled = East.compile(getSize.toIR(), []);
+   * const compiled = East.compile(getSize, []);
    * compiled([1n, 2n, 3n]);  // 3n
    * compiled([]);            // 0n
    * ```
@@ -93,7 +93,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getLength = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.length());
    * });
-   * const compiled = East.compile(getLength.toIR(), []);
+   * const compiled = East.compile(getLength, []);
    * compiled([1n, 2n, 3n]);  // 3n
    * compiled([]);            // 0n
    * ```
@@ -120,7 +120,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const hasElement = East.function([ArrayType(IntegerType), IntegerType], BooleanType, ($, arr, index) => {
    *   $.return(arr.has(index));
    * });
-   * const compiled = East.compile(hasElement.toIR(), []);
+   * const compiled = East.compile(hasElement, []);
    * compiled([10n, 20n, 30n], 1n);   // true
    * compiled([10n, 20n, 30n], 5n);   // false
    * compiled([10n, 20n, 30n], -1n);  // false
@@ -153,7 +153,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getElement = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, arr, index) => {
    *   $.return(arr.get(index));
    * });
-   * const compiled = East.compile(getElement.toIR(), []);
+   * const compiled = East.compile(getElement, []);
    * compiled([10n, 20n, 30n], 1n);  // 20n
    * // compiled([10n, 20n, 30n], 5n) would throw error
    *
@@ -161,7 +161,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getOrDefault = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, arr, index) => {
    *   $.return(arr.get(index, ($, i) => -1n));
    * });
-   * compiled = East.compile(getOrDefault.toIR(), []);
+   * compiled = East.compile(getOrDefault, []);
    * compiled([10n, 20n, 30n], 5n);  // -1n (out of bounds)
    * ```
    */
@@ -205,7 +205,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getElement = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, arr, index) => {
    *   $.return(arr.get(index));
    * });
-   * const compiled = East.compile(getElement.toIR(), []);
+   * const compiled = East.compile(getElement, []);
    * compiled([10n, 20n, 30n], 1n);  // 20n
    * // compiled([10n, 20n, 30n], 5n) would throw error
    *
@@ -213,7 +213,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getOrDefault = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, arr, index) => {
    *   $.return(arr.get(index, ($, i) => -1n));
    * });
-   * compiled = East.compile(getOrDefault.toIR(), []);
+   * compiled = East.compile(getOrDefault, []);
    * compiled([10n, 20n, 30n], 5n);  // -1n (out of bounds)
    * ```
    */
@@ -254,7 +254,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const tryGetElement = East.function([ArrayType(IntegerType), IntegerType], OptionType(IntegerType), ($, arr, index) => {
    *   $.return(arr.tryGet(index));
    * });
-   * const compiled = East.compile(tryGetElement.toIR(), []);
+   * const compiled = East.compile(tryGetElement, []);
    * compiled([10n, 20n, 30n], 1n);  // {_tag: "some", some: 20n}
    * compiled([10n, 20n, 30n], 5n);  // {_tag: "none", none: null}
    * ```
@@ -287,7 +287,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   $(arr.update(index, value));  // Mutate the array
    *   $.return(arr);
    * });
-   * const compiled = East.compile(updateElement.toIR(), []);
+   * const compiled = East.compile(updateElement, []);
    * compiled([10n, 20n, 30n], 1n, 99n);  // [10n, 99n, 30n]
    * ```
    */
@@ -340,7 +340,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   $(arr.pushLast(value));  // Mutate the array
    *   $.return(arr);
    * });
-   * const compiled = East.compile(appendValue.toIR(), []);
+   * const compiled = East.compile(appendValue, []);
    * compiled([1n, 2n, 3n], 4n);  // [1n, 2n, 3n, 4n]
    * ```
    */
@@ -369,7 +369,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const removeLastValue = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.popLast());
    * });
-   * const compiled = East.compile(removeLastValue.toIR(), []);
+   * const compiled = East.compile(removeLastValue, []);
    * compiled([1n, 2n, 3n]);  // 3n (arr is now [1n, 2n])
    * ```
    */
@@ -396,7 +396,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   $(arr.pushFirst(value));  // Mutate the array
    *   $.return(arr);
    * });
-   * const compiled = East.compile(prependValue.toIR(), []);
+   * const compiled = East.compile(prependValue, []);
    * compiled([1n, 2n, 3n], 0n);  // [0n, 1n, 2n, 3n]
    * ```
    */
@@ -425,7 +425,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const removeFirstValue = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.popFirst());
    * });
-   * const compiled = East.compile(removeFirstValue.toIR(), []);
+   * const compiled = East.compile(removeFirstValue, []);
    * compiled([1n, 2n, 3n]);  // 1n (arr is now [2n, 3n])
    * ```
    */
@@ -452,7 +452,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   $(arr1.append(arr2));  // Mutate arr1
    *   $.return(arr1);
    * });
-   * const compiled = East.compile(appendArray.toIR(), []);
+   * const compiled = East.compile(appendArray, []);
    * compiled([1n, 2n], [3n, 4n]);  // [1n, 2n, 3n, 4n]
    * ```
    */
@@ -481,7 +481,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   $(arr1.prepend(arr2));  // Mutate arr1
    *   $.return(arr1);
    * });
-   * const compiled = East.compile(prependArray.toIR(), []);
+   * const compiled = East.compile(prependArray, []);
    * compiled([3n, 4n], [1n, 2n]);  // [1n, 2n, 3n, 4n]
    * ```
    */
@@ -514,7 +514,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   arr1.mergeAll(arr2, ($, current, other, index) => current.add(other));
    *   $.return(null);
    * });
-   * const compiled = East.compile(mergeArrays.toIR(), []);
+   * const compiled = East.compile(mergeArrays, []);
    * const arr1 = [10n, 20n, 30n];
    * const arr2 = [1n, 2n, 3n];
    * compiled(arr1, arr2);  // null (arr1 is now [11n, 22n, 33n])
@@ -527,7 +527,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   arr1.mergeAll(arr2, ($, current, other, index) => current.concat(" + ").concat(other));
    *   $.return(arr1);
    * });
-   * const compiled = East.compile(mergeStrings.toIR(), []);
+   * const compiled = East.compile(mergeStrings, []);
    * compiled(["a", "b"], ["x", "y"]);  // ["a + x", "b + y"]
    * ```
    */
@@ -560,7 +560,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   arr.clear();
    *   $.return(arr);
    * });
-   * const compiled = East.compile(clearArray.toIR(), []);
+   * const compiled = East.compile(clearArray, []);
    * compiled([1n, 2n, 3n]);  // []
    * ```
    */
@@ -590,7 +590,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   arr.sortInPlace();
    *   $.return(arr);
    * });
-   * const compiled = East.compile(sortNumbers.toIR(), []);
+   * const compiled = East.compile(sortNumbers, []);
    * compiled([3n, 1n, 4n, 1n, 5n]);  // [1n, 1n, 3n, 4n, 5n]
    * ```
    *
@@ -602,7 +602,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   people.sortInPlace(($, p) => p.age);
    *   $.return(people);
    * });
-   * const compiled = East.compile(sortByAge.toIR(), []);
+   * const compiled = East.compile(sortByAge, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);
    * // [{ name: "Bob", age: 25n }, { name: "Alice", age: 30n }]
    * ```
@@ -647,7 +647,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const sortNumbers = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr) => {
    *   $.return(arr.sort());
    * });
-   * const compiled = East.compile(sortNumbers.toIR(), []);
+   * const compiled = East.compile(sortNumbers, []);
    * compiled([3n, 1n, 4n, 1n, 5n]);  // [1n, 1n, 3n, 4n, 5n]
    * ```
    *
@@ -658,7 +658,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const sortByAgeDesc = East.function([ArrayType(PersonType)], ArrayType(PersonType), ($, people) => {
    *   $.return(people.sort(($, p) => p.age.negate()));
    * });
-   * const compiled = East.compile(sortByAgeDesc.toIR(), []);
+   * const compiled = East.compile(sortByAgeDesc, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);
    * // [{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]
    * ```
@@ -699,7 +699,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   arr.reverseInPlace();
    *   $.return(arr);
    * });
-   * const compiled = East.compile(reverseArray.toIR(), []);
+   * const compiled = East.compile(reverseArray, []);
    * compiled([1n, 2n, 3n, 4n, 5n]);  // [5n, 4n, 3n, 2n, 1n]
    * ```
    *
@@ -729,7 +729,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const reverseArray = East.function([ArrayType(StringType)], ArrayType(StringType), ($, arr) => {
    *   $.return(arr.reverse());
    * });
-   * const compiled = East.compile(reverseArray.toIR(), []);
+   * const compiled = East.compile(reverseArray, []);
    * compiled(["a", "b", "c"]);  // ["c", "b", "a"]
    * ```
    *
@@ -757,7 +757,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const checkSorted = East.function([ArrayType(IntegerType)], BooleanType, ($, arr) => {
    *   $.return(arr.isSorted());
    * });
-   * const compiled = East.compile(checkSorted.toIR(), []);
+   * const compiled = East.compile(checkSorted, []);
    * compiled([1n, 2n, 3n, 4n]);  // true
    * compiled([1n, 3n, 2n, 4n]);  // false
    * ```
@@ -769,7 +769,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const checkSortedByAge = East.function([ArrayType(PersonType)], BooleanType, ($, people) => {
    *   $.return(people.isSorted(($, p) => p.age));
    * });
-   * const compiled = East.compile(checkSortedByAge.toIR(), []);
+   * const compiled = East.compile(checkSortedByAge, []);
    * compiled([{ name: "Bob", age: 25n }, { name: "Alice", age: 30n }]);  // true
    * ```
    */
@@ -812,7 +812,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findFirst = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, arr, value) => {
    *   $.return(arr.findSortedFirst(value));
    * });
-   * const compiled = East.compile(findFirst.toIR(), []);
+   * const compiled = East.compile(findFirst, []);
    * compiled([1n, 3n, 5n, 7n, 9n], 5n);  // 2n (index of 5)
    * compiled([1n, 3n, 5n, 7n, 9n], 4n);  // 2n (index where 4 would be inserted)
    * compiled([1n, 3n, 5n, 7n, 9n], 10n); // 5n (out of bounds)
@@ -825,7 +825,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findByAge = East.function([ArrayType(PersonType), IntegerType], IntegerType, ($, people, age) => {
    *   $.return(people.findSortedFirst(age, ($, p) => p.age));
    * });
-   * const compiled = East.compile(findByAge.toIR(), []);
+   * const compiled = East.compile(findByAge, []);
    * // Assumes people array is sorted by age
    * compiled([{ name: "Bob", age: 25n }, { name: "Alice", age: 30n }], 28n); // 1n
    * ```
@@ -871,7 +871,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findLast = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, arr, value) => {
    *   $.return(arr.findSortedLast(value));
    * });
-   * const compiled = East.compile(findLast.toIR(), []);
+   * const compiled = East.compile(findLast, []);
    * compiled([1n, 3n, 5n, 7n, 9n], 5n);  // 2n (index of 5)
    * compiled([1n, 3n, 5n, 7n, 9n], 6n);  // 2n (index of last element <= 6)
    * compiled([1n, 3n, 5n, 7n, 9n], 0n);  // -1n (all elements are greater)
@@ -918,7 +918,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findRange = East.function([ArrayType(IntegerType), IntegerType], StructType({ start: IntegerType, end: IntegerType }), ($, arr, value) => {
    *   $.return(arr.findSortedRange(value));
    * });
-   * const compiled = East.compile(findRange.toIR(), []);
+   * const compiled = East.compile(findRange, []);
    * compiled([1n, 3n, 5n, 5n, 5n, 7n, 9n], 5n);  // { start: 2n, end: 5n }
    * compiled([1n, 3n, 5n, 7n, 9n], 4n);          // { start: 2n, end: 2n } (not found)
    * ```
@@ -963,7 +963,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const sliceArray = East.function([ArrayType(IntegerType), IntegerType, IntegerType], ArrayType(IntegerType), ($, arr, start, end) => {
    *   $.return(arr.slice(start, end));
    * });
-   * const compiled = East.compile(sliceArray.toIR(), []);
+   * const compiled = East.compile(sliceArray, []);
    * compiled([10n, 20n, 30n, 40n, 50n], 1n, 4n);  // [20n, 30n, 40n]
    * compiled([10n, 20n, 30n, 40n, 50n], 0n, 2n);  // [10n, 20n]
    * ```
@@ -996,7 +996,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const concatArrays = East.function([ArrayType(IntegerType), ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr1, arr2) => {
    *   $.return(arr1.concat(arr2));
    * });
-   * const compiled = East.compile(concatArrays.toIR(), []);
+   * const compiled = East.compile(concatArrays, []);
    * compiled([1n, 2n, 3n], [4n, 5n]);  // [1n, 2n, 3n, 4n, 5n]
    * ```
    */
@@ -1027,7 +1027,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getMultiple = East.function([ArrayType(StringType), ArrayType(IntegerType)], ArrayType(StringType), ($, arr, indices) => {
    *   $.return(arr.getKeys(indices));
    * });
-   * const compiled = East.compile(getMultiple.toIR(), []);
+   * const compiled = East.compile(getMultiple, []);
    * compiled(["a", "b", "c", "d"], [0n, 2n, 3n]);  // ["a", "c", "d"]
    * ```
    *
@@ -1037,7 +1037,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getWithDefault = East.function([ArrayType(IntegerType), ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr, indices) => {
    *   $.return(arr.getKeys(indices, ($, key) => -1n));
    * });
-   * const compiled = East.compile(getWithDefault.toIR(), []);
+   * const compiled = East.compile(getWithDefault, []);
    * compiled([10n, 20n, 30n], [1n, 5n, 2n]);  // [20n, -1n, 30n]
    * ```
    */
@@ -1080,7 +1080,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   });
    *   $.return(null);
    * });
-   * const compiled = East.compile(forEachExample.toIR(), [log.implement(console.log)]);
+   * const compiled = East.compile(forEachExample, [log.implement(console.log)]);
    * compiled([10n, 20n, 30n]);
    * // Logs: "Index 0: 10", "Index 1: 20", "Index 2: 30"
    * ```
@@ -1116,7 +1116,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *   copy.pushLast(99n);
    *   $.return(copy);
    * });
-   * const compiled = East.compile(copyArray.toIR(), []);
+   * const compiled = East.compile(copyArray, []);
    * const original = [1n, 2n, 3n];
    * compiled(original);  // [1n, 2n, 3n, 99n]
    * // original is unchanged: [1n, 2n, 3n]
@@ -1144,7 +1144,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const doubleNumbers = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr) => {
    *   $.return(arr.map(($, x, i) => x.multiply(2n)));
    * });
-   * const compiled = East.compile(doubleNumbers.toIR(), []);
+   * const compiled = East.compile(doubleNumbers, []);
    * compiled([1n, 2n, 3n, 4n]);  // [2n, 4n, 6n, 8n]
    * ```
    *
@@ -1154,7 +1154,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const numbersToStrings = East.function([ArrayType(IntegerType)], ArrayType(StringType), ($, arr) => {
    *   $.return(arr.map(($, x, i) => Expr.str`Number: ${x}`));
    * });
-   * const compiled = East.compile(numbersToStrings.toIR(), []);
+   * const compiled = East.compile(numbersToStrings, []);
    * compiled([10n, 20n]);  // ["Number: 10", "Number: 20"]
    * ```
    *
@@ -1165,7 +1165,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getNames = East.function([ArrayType(PersonType)], ArrayType(StringType), ($, people) => {
    *   $.return(people.map(($, p, i) => p.name));
    * });
-   * const compiled = East.compile(getNames.toIR(), []);
+   * const compiled = East.compile(getNames, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);  // ["Alice", "Bob"]
    * ```
    */
@@ -1219,7 +1219,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const filterEven = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr) => {
    *   $.return(arr.filter(($, x, i) => x.modulo(2n).equal(0n)));
    * });
-   * const compiled = East.compile(filterEven.toIR(), []);
+   * const compiled = East.compile(filterEven, []);
    * compiled([1n, 2n, 3n, 4n, 5n, 6n]);  // [2n, 4n, 6n]
    * ```
    *
@@ -1229,7 +1229,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const filterFirstThree = East.function([ArrayType(StringType)], ArrayType(StringType), ($, arr) => {
    *   $.return(arr.filter(($, elem, index) => index.lessThan(3n)));
    * });
-   * const compiled = East.compile(filterFirstThree.toIR(), []);
+   * const compiled = East.compile(filterFirstThree, []);
    * compiled(["a", "b", "c", "d", "e"]);  // ["a", "b", "c"]
    * ```
    *
@@ -1240,7 +1240,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const filterAdults = East.function([ArrayType(PersonType)], ArrayType(PersonType), ($, people) => {
    *   $.return(people.filter(($, p, i) => p.age.greaterOrEqual(18n)));
    * });
-   * const compiled = East.compile(filterAdults.toIR(), []);
+   * const compiled = East.compile(filterAdults, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 15n }]);  // [{ name: "Alice", age: 30n }]
    * ```
    */
@@ -1295,7 +1295,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *     return $.if(num.isNone(), () => Expr.none, () => Expr.some(num.unwrap()));
    *   }));
    * });
-   * const compiled = East.compile(parseSafe.toIR(), []);
+   * const compiled = East.compile(parseSafe, []);
    * compiled(["10", "not-a-number", "20", "30"]);  // [10n, 20n, 30n]
    * ```
    *
@@ -1308,7 +1308,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *     $.if(p.active, () => Expr.some(p.name.toUpperCase()), () => Expr.none)
    *   ));
    * });
-   * const compiled = East.compile(getActiveNames.toIR(), []);
+   * const compiled = East.compile(getActiveNames, []);
    * compiled([
    *   { name: "Alice", age: 30n, active: true },
    *   { name: "Bob", age: 25n, active: false },
@@ -1393,7 +1393,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findValue = East.function([ArrayType(IntegerType), IntegerType], OptionType(IntegerType), ($, arr, val) => {
    *   $.return(arr.findFirst(val));
    * });
-   * const compiled = East.compile(findValue.toIR(), []);
+   * const compiled = East.compile(findValue, []);
    * compiled([10n, 20n, 30n, 20n], 20n);  // .some(1n)
    * compiled([10n, 20n, 30n], 99n);       // .none
    * ```
@@ -1405,7 +1405,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findByAge = East.function([ArrayType(PersonType), IntegerType], OptionType(IntegerType), ($, people, targetAge) => {
    *   $.return(people.findFirst(targetAge, ($, p, i) => p.age));
    * });
-   * const compiled = East.compile(findByAge.toIR(), []);
+   * const compiled = East.compile(findByAge, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }], 25n);  // .some(1n)
    * ```
    *
@@ -1450,7 +1450,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findAllValues = East.function([ArrayType(IntegerType), IntegerType], ArrayType(IntegerType), ($, arr, val) => {
    *   $.return(arr.findAll(val));
    * });
-   * const compiled = East.compile(findAllValues.toIR(), []);
+   * const compiled = East.compile(findAllValues, []);
    * compiled([10n, 20n, 30n, 20n, 10n], 20n);  // [1n, 3n]
    * compiled([10n, 20n, 30n], 99n);            // []
    * ```
@@ -1462,7 +1462,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findByRole = East.function([ArrayType(PersonType), StringType], ArrayType(IntegerType), ($, people, targetRole) => {
    *   $.return(people.findAll(targetRole, ($, p, i) => p.role));
    * });
-   * const compiled = East.compile(findByRole.toIR(), []);
+   * const compiled = East.compile(findByRole, []);
    * compiled([
    *   { name: "Alice", role: "admin" },
    *   { name: "Bob", role: "user" },
@@ -1515,7 +1515,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const sumArray = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.reduce(($, acc, val, index) => acc.add(val), 0n));
    * });
-   * const compiled = East.compile(sumArray.toIR(), []);
+   * const compiled = East.compile(sumArray, []);
    * compiled([1n, 2n, 3n, 4n]);  // 10n
    * compiled([]);                // 0n (initial value)
    * ```
@@ -1528,7 +1528,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    *     $.if(index.equal(0n), () => val, () => acc.concat(", ").concat(val))
    *   , ""));
    * });
-   * const compiled = East.compile(joinArray.toIR(), []);
+   * const compiled = East.compile(joinArray, []);
    * compiled(["a", "b", "c"]);  // "a, b, c"
    * ```
    *
@@ -1574,7 +1574,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const runningTotal = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, arr) => {
    *   $.return(arr.scan(($, acc, x, i) => acc.add(x), 0n));
    * });
-   * const compiled = East.compile(runningTotal.toIR(), []);
+   * const compiled = East.compile(runningTotal, []);
    * compiled([1n, 2n, 3n, 4n]);  // [1n, 3n, 6n, 10n]
    * compiled([]);                // []
    * ```
@@ -1585,7 +1585,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const forwardFill = East.function([ArrayType(StringType)], ArrayType(StringType), ($, cells) => {
    *   $.return(cells.scan(($, acc, cell, i) => cell.equal("").ifElse(() => acc, () => cell), ""));
    * });
-   * const compiled = East.compile(forwardFill.toIR(), []);
+   * const compiled = East.compile(forwardFill, []);
    * compiled(["a", "", "", "b", ""]);  // ["a", "a", "a", "b", "b"]
    * ```
    *
@@ -1648,7 +1648,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const allPositive = East.function([ArrayType(IntegerType)], BooleanType, ($, arr) => {
    *   $.return(arr.every(($, x, i) => x.greater(0n)));
    * });
-   * const compiled = East.compile(allPositive.toIR(), []);
+   * const compiled = East.compile(allPositive, []);
    * compiled([1n, 2n, 3n]);   // true
    * compiled([1n, -2n, 3n]);  // false
    * compiled([]);             // true (empty array)
@@ -1661,7 +1661,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const allAdults = East.function([ArrayType(PersonType)], BooleanType, ($, people) => {
    *   $.return(people.every(($, p, i) => p.age.greaterOrEqual(18n)));
    * });
-   * const compiled = East.compile(allAdults.toIR(), []);
+   * const compiled = East.compile(allAdults, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);  // true
    * ```
    *
@@ -1701,7 +1701,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const hasNegative = East.function([ArrayType(IntegerType)], BooleanType, ($, arr) => {
    *   $.return(arr.some(($, x, i) => x.less(0n)));
    * });
-   * const compiled = East.compile(hasNegative.toIR(), []);
+   * const compiled = East.compile(hasNegative, []);
    * compiled([1n, 2n, 3n]);    // false
    * compiled([1n, -2n, 3n]);   // true
    * compiled([]);              // false (empty array)
@@ -1714,7 +1714,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const hasMinor = East.function([ArrayType(PersonType)], BooleanType, ($, people) => {
    *   $.return(people.some(($, p, i) => p.age.less(18n)));
    * });
-   * const compiled = East.compile(hasMinor.toIR(), []);
+   * const compiled = East.compile(hasMinor, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 15n }]);  // true
    * ```
    *
@@ -1751,7 +1751,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const sumIntegers = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.sum());
    * });
-   * const compiled = East.compile(sumIntegers.toIR(), []);
+   * const compiled = East.compile(sumIntegers, []);
    * compiled([1n, 2n, 3n, 4n]);  // 10n
    * compiled([]);                // 0n
    * ```
@@ -1763,7 +1763,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const totalAge = East.function([ArrayType(PersonType)], IntegerType, ($, people) => {
    *   $.return(people.sum(($, p, i) => p.age));
    * });
-   * const compiled = East.compile(totalAge.toIR(), []);
+   * const compiled = East.compile(totalAge, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);  // 55n
    * ```
    */
@@ -1803,7 +1803,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const avgNumbers = East.function([ArrayType(IntegerType)], FloatType, ($, arr) => {
    *   $.return(arr.mean());
    * });
-   * const compiled = East.compile(avgNumbers.toIR(), []);
+   * const compiled = East.compile(avgNumbers, []);
    * compiled([1n, 2n, 3n, 4n]);  // 2.5
    * compiled([]);                // NaN
    * ```
@@ -1815,7 +1815,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const avgAge = East.function([ArrayType(PersonType)], FloatType, ($, people) => {
    *   $.return(people.mean(($, p, i) => p.age));
    * });
-   * const compiled = East.compile(avgAge.toIR(), []);
+   * const compiled = East.compile(avgAge, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 20n }]);  // 25.0
    * ```
    */
@@ -1856,7 +1856,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findMax = East.function([ArrayType(IntegerType)], OptionType(IntegerType), ($, arr) => {
    *   $.return(arr.findMaximum());
    * });
-   * const compiled = East.compile(findMax.toIR(), []);
+   * const compiled = East.compile(findMax, []);
    * compiled([3n, 1n, 4n, 1n, 5n]);  // .some(4n) - index of 5
    * compiled([]);                     // .none
    * ```
@@ -1868,7 +1868,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findOldest = East.function([ArrayType(PersonType)], OptionType(IntegerType), ($, people) => {
    *   $.return(people.findMaximum(($, p, i) => p.age));
    * });
-   * const compiled = East.compile(findOldest.toIR(), []);
+   * const compiled = East.compile(findOldest, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);  // .some(0n)
    * ```
    *
@@ -1935,7 +1935,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findMin = East.function([ArrayType(IntegerType)], OptionType(IntegerType), ($, arr) => {
    *   $.return(arr.findMinimum());
    * });
-   * const compiled = East.compile(findMin.toIR(), []);
+   * const compiled = East.compile(findMin, []);
    * compiled([3n, 1n, 4n, 1n, 5n]);  // .some(1n) - index of first 1
    * compiled([]);                     // .none
    * ```
@@ -1947,7 +1947,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const findYoungest = East.function([ArrayType(PersonType)], OptionType(IntegerType), ($, people) => {
    *   $.return(people.findMinimum(($, p, i) => p.age));
    * });
-   * const compiled = East.compile(findYoungest.toIR(), []);
+   * const compiled = East.compile(findYoungest, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);  // .some(1n)
    * ```
    *
@@ -2016,7 +2016,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getMax = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.maximum());
    * });
-   * const compiled = East.compile(getMax.toIR(), []);
+   * const compiled = East.compile(getMax, []);
    * compiled([3n, 1n, 4n, 1n, 5n]);  // 5n
    * // compiled([]) would throw error
    * ```
@@ -2028,7 +2028,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getOldest = East.function([ArrayType(PersonType)], PersonType, ($, people) => {
    *   $.return(people.maximum(($, p, i) => p.age));
    * });
-   * const compiled = East.compile(getOldest.toIR(), []);
+   * const compiled = East.compile(getOldest, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);
    * // { name: "Alice", age: 30n }
    * ```
@@ -2084,7 +2084,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getMin = East.function([ArrayType(IntegerType)], IntegerType, ($, arr) => {
    *   $.return(arr.minimum());
    * });
-   * const compiled = East.compile(getMin.toIR(), []);
+   * const compiled = East.compile(getMin, []);
    * compiled([3n, 1n, 4n, 1n, 5n]);  // 1n
    * // compiled([]) would throw error
    * ```
@@ -2096,7 +2096,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const getYoungest = East.function([ArrayType(PersonType)], PersonType, ($, people) => {
    *   $.return(people.minimum(($, p, i) => p.age));
    * });
-   * const compiled = East.compile(getYoungest.toIR(), []);
+   * const compiled = East.compile(getYoungest, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);
    * // { name: "Bob", age: 25n }
    * ```
@@ -2156,7 +2156,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const joinStrings = East.function([ArrayType(StringType), StringType], StringType, ($, arr, delimiter) => {
    *   $.return(arr.stringJoin(delimiter));
    * });
-   * const compiled = East.compile(joinStrings.toIR(), []);
+   * const compiled = East.compile(joinStrings, []);
    * compiled(["a", "b", "c"], ", ");  // "a, b, c"
    * compiled(["hello", "world"], " "); // "hello world"
    * compiled([], ", ");                // ""
@@ -2192,7 +2192,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const uniqueNumbers = East.function([ArrayType(IntegerType)], SetType(IntegerType), ($, arr) => {
    *   $.return(arr.toSet());
    * });
-   * const compiled = East.compile(uniqueNumbers.toIR(), []);
+   * const compiled = East.compile(uniqueNumbers, []);
    * compiled([1n, 2n, 3n, 2n, 1n]);  // Set{1n, 2n, 3n}
    * ```
    *
@@ -2203,7 +2203,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const uniqueAges = East.function([ArrayType(PersonType)], SetType(IntegerType), ($, people) => {
    *   $.return(people.toSet(($, p, i) => p.age));
    * });
-   * const compiled = East.compile(uniqueAges.toIR(), []);
+   * const compiled = East.compile(uniqueAges, []);
    * compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }, { name: "Carol", age: 30n }]);
    * // Set{25n, 30n}
    * ```
@@ -2241,7 +2241,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const indexToValue = East.function([ArrayType(StringType)], DictType(IntegerType, StringType), ($, arr) => {
    *   $.return(arr.toDict());
    * });
-   * const compiled = East.compile(indexToValue.toIR(), []);
+   * const compiled = East.compile(indexToValue, []);
    * compiled(["a", "b", "c"]);  // Dict{0n: "a", 1n: "b", 2n: "c"}
    * ```
    *
@@ -2252,7 +2252,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const idToName = East.function([ArrayType(PersonType)], DictType(IntegerType, StringType), ($, people) => {
    *   $.return(people.toDict(($, p, i) => p.id, ($, p, i) => p.name));
    * });
-   * const compiled = East.compile(idToName.toIR(), []);
+   * const compiled = East.compile(idToName, []);
    * compiled([{ id: 1n, name: "Alice" }, { id: 2n, name: "Bob" }]);
    * // Dict{1n: "Alice", 2n: "Bob"}
    *
@@ -2313,7 +2313,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const flattenArrays = East.function([ArrayType(ArrayType(IntegerType))], ArrayType(IntegerType), ($, arr) => {
    *   $.return(arr.flatMap());
    * });
-   * const compiled = East.compile(flattenArrays.toIR(), []);
+   * const compiled = East.compile(flattenArrays, []);
    * compiled([[1n, 2n], [3n, 4n], [5n]]);  // [1n, 2n, 3n, 4n, 5n]
    * ```
    *
@@ -2324,7 +2324,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const allFriends = East.function([ArrayType(PersonType)], ArrayType(StringType), ($, people) => {
    *   $.return(people.flatMap(($, p, i) => p.friends));
    * });
-   * const compiled = East.compile(allFriends.toIR(), []);
+   * const compiled = East.compile(allFriends, []);
    * compiled([
    *   { name: "Alice", friends: ["Bob", "Carol"] },
    *   { name: "Bob", friends: ["Alice"] }
@@ -2370,7 +2370,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const flattenSets = East.function([ArrayType(SetType(IntegerType))], SetType(IntegerType), ($, arr) => {
    *   $.return(arr.flattenToSet());
    * });
-   * const compiled = East.compile(flattenSets.toIR(), []);
+   * const compiled = East.compile(flattenSets, []);
    * compiled([Set{1n, 2n}, Set{2n, 3n}, Set{3n, 4n}]);  // Set{1n, 2n, 3n, 4n}
    * ```
    *
@@ -2416,7 +2416,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const flattenDicts = East.function([ArrayType(DictType(StringType, IntegerType))], DictType(StringType, IntegerType), ($, arr) => {
    *   $.return(arr.flattenToDict());
    * });
-   * const compiled = East.compile(flattenDicts.toIR(), []);
+   * const compiled = East.compile(flattenDicts, []);
    * compiled([Dict{"a": 1n, "b": 2n}, Dict{"c": 3n}]);  // Dict{"a": 1n, "b": 2n, "c": 3n}
    * ```
    *
@@ -3119,7 +3119,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const toCsv = East.function([ArrayType(PersonType)], BlobType, ($, people) => {
    *   $.return(people.encodeCsv({ delimiter: ',' }));
    * });
-   * const compiled = East.compile(toCsv.toIR(), []);
+   * const compiled = East.compile(toCsv, []);
    * const blob = compiled([{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }]);
    * new TextDecoder().decode(blob);  // "name,age\r\nAlice,30\r\nBob,25"
    * ```
@@ -3150,7 +3150,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const isEqual = East.function([ArrayType(IntegerType), ArrayType(IntegerType)], BooleanType, ($, a, b) => {
    *   $.return(a.equals(b));
    * });
-   * const compiled = East.compile(isEqual.toIR(), []);
+   * const compiled = East.compile(isEqual, []);
    * compiled([1n, 2n, 3n], [1n, 2n, 3n]);  // true
    * compiled([1n, 2n], [1n, 2n, 3n]);      // false
    * ```
@@ -3170,7 +3170,7 @@ export class ArrayExpr<T extends any> extends Expr<ArrayType<T>> {
    * const isNotEqual = East.function([ArrayType(IntegerType), ArrayType(IntegerType)], BooleanType, ($, a, b) => {
    *   $.return(a.notEquals(b));
    * });
-   * const compiled = East.compile(isNotEqual.toIR(), []);
+   * const compiled = East.compile(isNotEqual, []);
    * compiled([1n, 2n], [1n, 2n, 3n]);      // true
    * compiled([1n, 2n, 3n], [1n, 2n, 3n]);  // false
    * ```

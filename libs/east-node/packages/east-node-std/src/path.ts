@@ -201,7 +201,7 @@ const PathImpl: PlatformFunction[] = [
  *     return fullPath;
  * });
  *
- * const compiled = East.compile(buildPath.toIR(), Path.Implementation);
+ * const compiled = East.compile(buildPath, Path.Implementation);
  * await compiled();  // Returns: "dir/subdir/file.txt"
  * ```
  */
@@ -294,7 +294,7 @@ export const Path = {
      *     return Path.extname("file.txt");
      * });
      *
-     * const compiled = East.compile(getExtension.toIR(), Path.Implementation);
+     * const compiled = East.compile(getExtension, Path.Implementation);
      * await compiled();  // Returns: ".txt"
      * ```
      */

@@ -40,7 +40,7 @@ export default {
    *     ($, i) => i.multiply(10n)
    *   ));
    * });
-   * const compiled = East.compile(makeDict.toIR(), []);
+   * const compiled = East.compile(makeDict, []);
    * compiled();  // { "key0": 0n, "key1": 10n, "key2": 20n }
    * ```
    *
@@ -57,7 +57,7 @@ export default {
    *     ($, oldVal, newVal, key) => oldVal.greaterThan(newVal).ifElse(() => oldVal, () => newVal)
    *   ));
    * });
-   * const compiled = East.compile(makeDictConflict.toIR(), []);
+   * const compiled = East.compile(makeDictConflict, []);
    * compiled();  // { 0n: 3n, 1n: 4n, 2n: 2n }
    * ```
    */

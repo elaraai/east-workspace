@@ -35,7 +35,7 @@ export default {
    *     ($, i) => Expr.str`key${i}`
    *   ));
    * });
-   * const compiled = East.compile(makeSet.toIR(), []);
+   * const compiled = East.compile(makeSet, []);
    * compiled();  // Set(["key0", "key1", "key2"])
    * ```
    *
@@ -50,7 +50,7 @@ export default {
    *     ($, key) => null  // Ignore duplicates
    *   ));
    * });
-   * const compiled = East.compile(makeSetConflict.toIR(), []);
+   * const compiled = East.compile(makeSetConflict, []);
    * compiled();  // Set([0n, 1n, 2n])
    * ```
    */

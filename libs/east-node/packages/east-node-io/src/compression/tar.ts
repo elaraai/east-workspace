@@ -59,7 +59,7 @@ import { TarEntriesType, TarExtractedType } from "./types.js";
  *     return $.return(tarBlob);
  * });
  *
- * const compiled = East.compile(createTar.toIR(), Compression.Tar.Implementation);
+ * const compiled = East.compile(createTar, Compression.Tar.Implementation);
  * const result = compiled("Hello", "World");  // TAR archive blob
  * ```
  *
@@ -100,7 +100,7 @@ export const tar_create = East.asyncPlatform("tar_create", [TarEntriesType], Blo
  *     return $.return(files);
  * });
  *
- * const compiled = East.compile(extractTar.toIR(), Compression.Tar.Implementation);
+ * const compiled = East.compile(extractTar, Compression.Tar.Implementation);
  * const result = compiled(tarBlob);
  * // Map { "file1.txt" => Uint8Array, "file2.txt" => Uint8Array }
  * ```
