@@ -480,6 +480,27 @@ await describe("String", (test) => {
         $(assert.equal(East.value("naïve").upperCase(), "NAÏVE"));
     });
 
+    test("String repeat", $ => {
+        $(assert.equal(East.value("abc").repeat(3n), "abcabcabc"));
+        $(assert.equal(East.value("abc").repeat(1n), "abc"));
+        $(assert.equal(East.value("x").repeat(5n), "xxxxx"));
+
+        // A count of zero or less repeats nothing
+        $(assert.equal(East.value("abc").repeat(0n), ""));
+        $(assert.equal(East.value("abc").repeat(-1n), ""));
+        $(assert.equal(East.value("abc").repeat(-9223372036854775808n), ""));
+        $(assert.equal(East.value("").repeat(3n), ""));
+
+        // Whole code points; NUL bytes are ordinary characters (#480)
+        $(assert.equal(East.value("café").repeat(2n), "cafécafé"));
+        $(assert.equal(East.value("🚀").repeat(3n), "🚀🚀🚀"));
+        $(assert.equal(East.value("a\0").repeat(2n), "a\0a\0"));
+
+        // A computed count
+        const count = $.let(East.value(2n));
+        $(assert.equal(East.value("ab").repeat(count.add(1n)), "ababab"));
+    });
+
     assert.examples(test, {
         stringSplit: ex.stringSplit,
     });

@@ -64,6 +64,12 @@ REBUILD=1 make leak-check-all
   `east_set_at` / `east_dict_key_at` / `east_dict_val_at`.
 - `int64_t` for integers (no bigint).
 - Async preserved in IR but executed synchronously.
+- Typed jq queries (#875) reach east-c as ordinary East IR, translated by the
+  SDK that checked them (`libs/east/devdocs/QUERY.md` §15): nothing in the
+  runtime is query-specific. The compliance runners take the translated jq
+  conformance cases from `/tmp/east-test-ir/query-conformance/`, and
+  `tests/test_query_paged.c` runs the query corpus's translations over paged
+  inputs.
 
 ## Reference implementations
 

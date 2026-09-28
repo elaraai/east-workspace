@@ -42,10 +42,15 @@ export ASAN_OPTIONS="detect_leaks=1:exitcode=42"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# The suites beside the IR directory's own: jq 1.8's conformance cases,
+# translated (#924), when the export wrote them.
+shopt -s nullglob
+SUITES=("$IR_DIR"/*.json "$IR_DIR"/query-conformance/*.json)
+
 # Run all tests in parallel, capturing both stdout and stderr
 PIDS=()
 FILES=()
-for f in "$IR_DIR"/*.json; do
+for f in "${SUITES[@]}"; do
     name=$(basename "$f" .json)
     outfile="$TMPDIR/$name.out"
     errfile="$TMPDIR/$name.err"
@@ -67,7 +72,7 @@ LEAK_SUMMARY=""
 CLEAN_SUMMARY=""
 ERROR_SUMMARY=""
 
-for f in "$IR_DIR"/*.json; do
+for f in "${SUITES[@]}"; do
     name=$(basename "$f" .json)
     outfile="$TMPDIR/$name.out"
     errfile="$TMPDIR/$name.err"

@@ -36,12 +36,29 @@ def _resolve_ir_dir(s: str | Path) -> Path:
 
 TEST_IR_DIR = _resolve_ir_dir("/tmp/east-test-ir")
 
+# The suites beside the IR directory's own: jq 1.8's conformance cases,
+# translated (#924), which run through east-c here as east-c's
+# run_compliance.sh runs them (#925).
+SUITE_SUBDIRECTORIES = ("query-conformance",)
 
-def get_test_ir_files(ir_dir: Path | None = None):
+
+def get_test_ir_files(ir_dir: Path | None = None, subdirectories: tuple[str, ...] = ()):
     d = ir_dir or TEST_IR_DIR
     if not d.exists():
         return []
-    return sorted(d.glob("*.json"))
+    files = sorted(d.glob("*.json"))
+    for sub in subdirectories:
+        files += sorted((d / sub).glob("*.json"))
+    return files
+
+
+def suite_name(ir_file: Path, ir_dir: Path | None = None) -> str:
+    """A suite's name: its path under the IR directory, without `.json`."""
+    d = ir_dir or TEST_IR_DIR
+    try:
+        return ir_file.relative_to(d).with_suffix("").as_posix()
+    except ValueError:
+        return ir_file.stem
 
 
 def _freeze_platform() -> list:
@@ -247,7 +264,7 @@ def main():
         print(f"\nResults: {p}/{p + fl} passed")
         sys.exit(1 if fl > 0 else 0)
 
-    files = get_test_ir_files(ir_dir)
+    files = get_test_ir_files(ir_dir, SUITE_SUBDIRECTORIES)
     if not files:
         print(f"Error: No test IR files in {ir_dir}")
         sys.exit(1)
@@ -262,7 +279,7 @@ def main():
 
     t_start = time.perf_counter()
     for f in files:
-        name = f.stem
+        name = suite_name(f, ir_dir)
         result = run_one_in_subprocess(f, ir_dir, platform_modules, timeout=300)
         out = result.stdout + result.stderr
         m = re.search(r'Results:\s*(\d+)/(\d+)', out)
@@ -296,8 +313,8 @@ def main():
 
 def pytest_generate_tests(metafunc):
     if "test_file" in metafunc.fixturenames:
-        files = get_test_ir_files()
-        metafunc.parametrize("test_file", files, ids=[f.stem for f in files])
+        files = get_test_ir_files(subdirectories=SUITE_SUBDIRECTORIES)
+        metafunc.parametrize("test_file", files, ids=[suite_name(f) for f in files])
 
 
 def test_compliance(test_file):
