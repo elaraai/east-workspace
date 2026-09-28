@@ -29,3 +29,4 @@ export * from './functions.js';
 export * from './runner_protocol.js';
 export { executeUnit, type ExecuteUnitOptions, type UnitRunReport, type UnitRunInput } from './runner_exec.js';
 export { InMemoryUnitIO, type UnitIO, type UnitInputReport } from './runner_io.js';
+export * from './query/index.js';
