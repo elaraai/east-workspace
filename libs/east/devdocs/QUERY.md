@@ -28,6 +28,8 @@ for queries.
 | Corpus | `test/query.corpus.ts`, generating `test/fixtures/query-corpus.beast2` |
 | Shared fixture | `test/query.fixture.ts`, generating `test/fixtures/query-fixture.beast2` |
 | Conformance (§16) | `test/jq-conformance/` and `test/query.conformance.spec.ts` (#924) |
+| Constructs, paging on east-c (§16, §15.6) | `test/query.constructs.spec.ts`; `libs/east-c/packages/east-c/tests/test_query_paged.c` (#925) |
+| Performance (§16.4) | `test/query-bench/`, run by `make query-bench` (#925) |
 
 ## Contents
 
@@ -1409,7 +1411,11 @@ A new field gives the Struct type the checker inferred (§5).
 - **A lazy input stays lazy.** It is iterated, indexed, looked up and counted
   with the builtins that read a lazy value without reading it whole, and early
   exit stops reading it: `first(.orders[])` reads the first segment of the
-  orders, and `.orders | length` their index alone.
+  orders, and `.orders | length` their index alone. east-c's
+  `tests/test_query_paged.c` runs the corpus's translations over the
+  fixture's datasets opened paged, and holds each to the segments
+  `east_paged_stats` says it decoded: one for `first(… select …)` and for a
+  key lookup, none for `length`, and nothing hydrated.
 
 ### 15.7 `East.jq`
 
@@ -1509,7 +1515,10 @@ to both. A case that passes on an input runs again as a compliance test: its
 translation, called on its typed input, gives jq's expected outputs.
 `make test-export` writes these tests, a suite per file, to
 `/tmp/east-test-ir/query-conformance/`, where east-c and east-py run them
-(#925).
+(#925). Every IR node kind and builtin a translation uses, the corpus's and
+these, is exercised by a compliance suite that is not about queries:
+`test/query.constructs.spec.ts` checks the translations against the other
+exported suites, so no runtime runs a construct only queries test.
 
 <!-- conformance: written by `make query-corpus` from test/jq-conformance/summary.json -->
 | Suite | Cases | Pass | Deviation | Skipped | Fail |
@@ -1564,6 +1573,50 @@ builtin is unavailable:
 - a replacement that is a filter over the groups (`"\(.x | ascii_downcase)"`),
   or gives several strings (`"b", "c"`): a replacement interpolates the named
   groups as they are.
+
+### 16.4 Performance
+
+`make query-bench` (`test/query-bench/bench.ts`, #925) times the translated
+queries against jq 1.8.1 over the fixture scaled to 100 000 orders: the mock's
+generator drawing on from its seed, so the first 40 are the fixture's, written
+as beast2 for East and as JSON for jq (as jq sees it, §2). Each query runs
+whole-process in east-c, with its inputs eager (`EAST_LAZY_INPUT_BYTES=0`) and
+lazy (`=1`), in east-node and in jq, and in process in TypeScript's compiler
+over inputs decoded once. Every East runner's result equals TypeScript's. The
+table is a run's, pasted here by hand; nothing asserts a time.
+
+100,000 orders (2.6 MB as beast2, 24.0 MB of JSON with the customers); the
+median of 5 runs after one to warm the file cache, in milliseconds.
+
+| Query | east-c | east-c, lazy | east-node | TypeScript, compiled | jq |
+|---|--:|--:|--:|--:|--:|
+| `length` | 133 | 4.2 | 473 | 0.00 | 318 |
+| `first(… select …)` | 133 | 4.4 | 481 | 0.02 | 317 |
+| filter and count | 154 | 95 | 654 | 178 | 373 |
+| `reduce` by customer | 218 | 113 | 922 | 405 | 496 |
+| `group_by` totals | 278 | 265 | 776 | 299 | 523 |
+| top 3 by `sort_by` | 219 | 223 | 678 | 229 | 465 |
+| the mock's default query | 279 | 233 | 1442 | 831 | 581 |
+
+Intel Core Ultra 5 235T (14 threads), 14 GiB, Linux 7.0; node v22.22.3;
+east-c 1.0.80 built in Release; jq 1.8.1; 2026-09-28.
+
+- **Lazy inputs read what a query needs.** `length` reads the orders' index
+  and `first(… select …)` their first segment, where eager east-c decodes all
+  100 000 orders before it starts. A query that walks every order reads them a
+  segment at a time: filter and count and `reduce` took 95 and 113 ms lazily
+  against 154 and 218 eagerly, and `group_by` and `sort_by`, which need the
+  whole array, about what eager east-c takes.
+- **east-c is the quickest whole-process runner** on every query. east-node's
+  times include starting Node and loading East.
+- **The queries** are `.orders | length`;
+  `first(.orders[] | select(.total > 1000))`;
+  `[.orders[] | select(.status.type == "shipped" and .total > 1000)] | length`;
+  `reduce .orders[] as $o ({}; .[$o.customer_id] += $o.total)`;
+  `.orders | group_by(.customer_id) | map({customer: .[0].customer_id, total: map(.total) | add})`;
+  `.orders | sort_by(-.total) | .[:3] | map(.id)`; and the mock's default
+  query (§18.4). jq has no `year`, so it runs the last with
+  `(.status.value.date | .[0:4]) == "2026"`.
 
 ---
 

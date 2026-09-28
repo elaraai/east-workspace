@@ -145,14 +145,17 @@ function parkMiller(seed: number): () => number {
 }
 
 /**
- * Generates the 40 orders, ids 1001–1040, exactly as the mock does.
+ * Generates the orders, ids from 1001, exactly as the mock does: its 40, or
+ * the fixture scaled, the draws going on from the same seed, so the first 40
+ * of any count are the mock's.
  *
+ * @param count - how many orders; the mock's 40 when omitted
  * @returns the orders, in id order
  */
-function makeOrders(): ValueTypeOf<typeof Order>[] {
+export function makeOrders(count = 40): ValueTypeOf<typeof Order>[] {
   const draw = parkMiller(QUERY_FIXTURE_SEED);
   const orders: ValueTypeOf<typeof Order>[] = [];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < count; i++) {
     const customerId = CUSTOMERS[Math.floor(draw() * CUSTOMERS.length)]![0];
     const lineCount = 1 + Math.floor(draw() * 4);
     const used = new Set<number>();
