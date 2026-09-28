@@ -95,6 +95,22 @@ export interface CheckJqResult {
   typeAt(path: string, instance?: string): CheckedNode | null;
   /** The problems found, lints included, in the order found. */
   diagnostics: QueryError[];
+  /**
+   * What checking a node gave: its shape, with the variant cases its members
+   * came from and what narrowing proved, and its multiplicity. For
+   * completions and the translator. With no `instance`, outside every `def`,
+   * or else the first instance checked.
+   *
+   * @internal
+   */
+  resultAt(path: string, instance?: string): Result | null;
+  /**
+   * The variables and defs in scope at a node, by name (`name/arity` for a
+   * def), as {@link CheckJqResult.resultAt} finds the node.
+   *
+   * @internal
+   */
+  scopeAt(path: string, instance?: string): { vars: ReadonlyMap<string, Result>; defs: readonly string[] } | null;
 }
 
 /** A `def`, or a filter parameter, in scope. */
@@ -173,6 +189,8 @@ class Checker {
   readonly rewrites = new Map<string, JqNode>();
   /** The nodes checked, by path. */
   readonly nodes = new Map<string, JqNode>();
+  /** What is in scope at each node checked, by instance and path. */
+  readonly scopes = new Map<string, Env>();
   readonly reads: string[] = [];
   /** Defs being instantiated, by instance signature: their output so far, for recursion. */
   private readonly active = new Map<string, { result: Result; recursed: boolean; filters: boolean }>();
@@ -230,6 +248,7 @@ class Checker {
 
   check(node: JqNode, path: string, input: Result, env: Env): Result {
     this.nodes.set(path, node);
+    this.scopes.set(`${env.instance}|${path}`, env);
     // A node whose input has no values never runs (a branch narrowing rules
     // out, the elements of `[]`): it gives nothing, and `lo: 1, hi: 0` is the
     // identity of `either`, so a dead branch leaves its `if`'s bounds alone.
@@ -1717,6 +1736,15 @@ function isPipePosition(path: string): boolean {
   return path === "" || PIPE_POSITION.test(path);
 }
 
+/** A node's record in an instance; with none given, outside every def, or else the first instance checked. */
+function anyInstance<T>(records: ReadonlyMap<string, T>, path: string, instance: string | undefined): T | undefined {
+  if (instance !== undefined) return records.get(`${instance}|${path}`);
+  const outside = records.get(`|${path}`);
+  if (outside !== undefined) return outside;
+  for (const [key, value] of records) if (key.endsWith(`|${path}`) && key.slice(0, -path.length - 1).startsWith(">")) return value;
+  return undefined;
+}
+
 /** Whether a `break $name` for a label is in a node, outside any label of the same name inside it. */
 function breaksTo(node: JqNode, name: string): boolean {
   if (node.type === "break") return node.value === name;
@@ -1766,6 +1794,7 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
   const parsed = typeof program === "string" ? parseJq(program) : program;
   const empty = (diagnostics: QueryError[]): CheckJqResult => ({
     query: null, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
+    resultAt: () => null, scopeAt: () => null,
   });
   if (parsed.program.type === "none") return empty(parsed.diagnostics);
   const root = parsed.program.value;
@@ -1813,5 +1842,10 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
     stages,
     typeAt,
     diagnostics: checker.diagnostics,
+    resultAt: (path: string, instance?: string) => anyInstance(checker.records, path, instance) ?? null,
+    scopeAt: (path: string, instance?: string) => {
+      const env = anyInstance(checker.scopes, path, instance);
+      return env === undefined ? null : { vars: env.vars, defs: [...env.defs.keys()] };
+    },
   };
 }

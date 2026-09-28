@@ -14,3 +14,6 @@ export { pathAt, spanOf, toQuerySpan, type JqNode, type JqPattern, type JqRange,
 export {
   checkJq, type CheckJqOptions, type CheckJqResult, type CheckedNode, type CheckedStage, type JqMultiplicity,
 } from "./jq/check.js";
+export { describeJqType, plainKind } from "./jq/describe.js";
+export { SummaryLeafType, SummaryType, summaryProgram, type SummaryProgramOptions } from "./jq/summary.js";
+export { completeJq, type CompleteJqOptions, type JqCompletion, type JqCompletionKind, type JqCompletions } from "./jq/complete.js";

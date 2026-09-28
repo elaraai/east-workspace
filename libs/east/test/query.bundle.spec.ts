@@ -3,9 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/* The jq front end runs in a browser (#921 C5): esbuild bundles checkJq,
- * parseJq, printJq and lexJq for `platform: "browser"`, and nothing in their
- * module graph is a Node built-in. */
+/* The jq front end runs in a browser (#921 C5, #922 K4): esbuild bundles
+ * checkJq, completeJq, describeJqType, summaryProgram, parseJq, printJq and
+ * lexJq for `platform: "browser"`, and nothing in their module graph is a Node
+ * built-in. */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -43,7 +44,7 @@ describe("the jq front end in a browser (C5)", () => {
     const queryDir = fileURLToPath(new URL("../src/query/", import.meta.url));
     const result = await esbuild.build({
       stdin: {
-        contents: "export { checkJq, lexJq, parseJq, printJq } from \"./index.js\";",
+        contents: "export { checkJq, completeJq, describeJqType, lexJq, parseJq, printJq, summaryProgram } from \"./index.js\";",
         resolveDir: queryDir,
         loader: "js",
       },
@@ -59,7 +60,9 @@ describe("the jq front end in a browser (C5)", () => {
     const imports = Object.values(result.metafile.inputs).flatMap(input => input.imports.map(i => i.path));
     const nodeImports = imports.filter(path => path.startsWith("node:") || builtins.has(path));
     assert.deepEqual(nodeImports, []);
-    assert.ok(Object.keys(result.metafile.inputs).some(path => path.endsWith("query/jq/check.js")));
+    for (const module of ["check", "complete", "describe", "summary"]) {
+      assert.ok(Object.keys(result.metafile.inputs).some(path => path.endsWith(`query/jq/${module}.js`)), module);
+    }
     assert.ok(result.outputFiles[0]!.text.length > 0);
   });
 });
