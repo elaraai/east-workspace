@@ -137,27 +137,56 @@ jobs:
           echo "pep440=${PEP440}" >> $GITHUB_OUTPUT
           echo "vsix_version=$(node -p "require('./libs/east-ui/packages/east-ui-extension/package.json').version")" >> $GITHUB_OUTPUT
 
+      # Every file the bump rewrote travels to the jobs below, which build from
+      # a fresh checkout plus this artifact alone. The list is read from git,
+      # not kept by hand: a hand-kept one fell behind the bump twice, leaving
+      # uv.lock stale at v1.0.21 and E3_RELEASE at v1.0.80, each found only
+      # after everything had published. The root package.json, which holds the
+      # canonical version, is always among the files, so the artifact keeps
+      # each one's path from the repository root.
+      - name: List the bumped files
+        id: bumped
+        run: |
+          if git diff --quiet -- package.json; then
+            echo "::error::The bump left the root package.json unchanged."
+            exit 1
+          fi
+          git diff --name-only
+          {
+            echo 'files<<BUMPED_FILES'
+            git diff --name-only
+            echo 'BUMPED_FILES'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload bumped manifests
         uses: actions/upload-artifact@v4
         with:
           name: version-bump
-          path: |
-            package.json
-            libs/**/package.json
-            libs/east-py/packages/*/pyproject.toml
-            libs/east-py/uv.lock
-            libs/east-c/VERSION
-            .claude-plugin/marketplace.json
-            libs/east-claude-plugin/.claude-plugin/plugin.json
-            libs/east-codex-plugin/.codex-plugin/plugin.json
-          # uv.lock is re-locked by `Compute target version`; it MUST ride along
-          # in this artifact or `finalize`'s drift check sees the stale lock and
-          # the release fails after everything has already published (v1.0.21).
-          # The .claude-plugin/ dirs are hidden; without this the uploader
-          # silently drops plugin.json and the release commits version drift
-          # (exactly what happened at v1.0.4 and v1.0.5).
+          path: ${{ steps.bumped.outputs.files }}
+          # The .claude-plugin/ and .codex-plugin/ dirs are hidden; without this
+          # the uploader silently drops their plugin.json (v1.0.4 and v1.0.5).
           include-hidden-files: true
+          if-no-files-found: error
           retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────
+  # verify-version: every package on the one version, checked on the tree the
+  # build and publish jobs build from — this checkout plus prepare's artifact —
+  # before any of them starts, so a mismatch stops the release before anything
+  # reaches a registry. finalize checks again what it commits.
+  # ────────────────────────────────────────────────────────────────────────
+  verify-version:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Every package on one version
+        run: node scripts/check-version-drift.mjs
 
   # ────────────────────────────────────────────────────────────────────────
   # validate-release: publish-dry-run guard. On each OS, spins a throwaway
@@ -217,7 +246,7 @@ jobs:
   # packages it is generated here from the built binary, never committed.
   # ────────────────────────────────────────────────────────────────────────
   build-e3-job:
-    needs: prepare
+    needs: [prepare, verify-version]
     runs-on: windows-latest
     defaults:
       run:
@@ -259,7 +288,7 @@ jobs:
   # after e3-core's Windows job launcher (built by build-e3-job).
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: [prepare, validate-release, build-e3-job]
+    needs: [prepare, verify-version, validate-release, build-e3-job]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -346,7 +375,7 @@ jobs:
   # 3. publish-vsix: build + (optionally) publish the VSCode extension.
   # ────────────────────────────────────────────────────────────────────────
   publish-vsix:
-    needs: prepare
+    needs: [prepare, verify-version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -413,7 +442,7 @@ jobs:
   #     east-py-cli) via uv build.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-pure:
-    needs: prepare
+    needs: [prepare, verify-version]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -442,7 +471,7 @@ jobs:
   #     their scikit-build-core CMakeLists, so both need per-platform wheels.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-wheels:
-    needs: prepare
+    needs: [prepare, verify-version]
     strategy:
       fail-fast: false
       matrix:
@@ -506,7 +535,7 @@ jobs:
   #     (east-py, east-py-datascience).
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-sdist:
-    needs: prepare
+    needs: [prepare, verify-version]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -564,7 +593,7 @@ jobs:
   # 5. publish-c-native: linux-x64 + linux-arm64 + macos-arm64 + macos-x64 binary tarballs.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-native:
-    needs: prepare
+    needs: [prepare, verify-version]
     strategy:
       fail-fast: false
       matrix:
