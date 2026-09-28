@@ -182,14 +182,20 @@ jobs:
         working-directory: libs/e3
         run: make lint
 
+      # A hung test would otherwise hold its job to the 90-minute limit, and a
+      # job's log is readable only once the job ends. Each limit sits well
+      # above its step's slowest green run (Windows); e3's package test
+      # scripts also time a test file out after 8 minutes, naming it.
       - name: Run package tests
         if: matrix.shard == 'packages'
         working-directory: libs/e3
+        timeout-minutes: 15
         run: make test-packages
 
       - name: Run integration tests
         if: matrix.shard != 'packages'
         working-directory: libs/e3
+        timeout-minutes: 20
         env:
           MATRIX_SHARD: ${{ matrix.shard }}
         run: make test-integration-shard SHARD=${MATRIX_SHARD#integration-}
