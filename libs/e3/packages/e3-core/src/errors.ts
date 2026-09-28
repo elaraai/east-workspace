@@ -283,6 +283,32 @@ export class DatasetTypeMismatchError extends E3Error {
   }
 }
 
+/**
+ * Thrown when a runner refuses a delivered collection an intake unit took in:
+ * the delivery is not a beast2 collection of the declared type, a segment of
+ * it is malformed or larger than a segment is read in, a row does not decode,
+ * or its keys do not ascend.
+ *
+ * @remarks
+ * The refusal is the runner's own words, which every runner shares, and names
+ * the delivery's segment where it found the fault. It is the delivery's, so
+ * no other runner is tried.
+ */
+export class DeliveryRefusedError extends E3Error {
+  constructor(
+    /** The runner that refused it, as its command is named */
+    public readonly runner: string,
+    /** What the runner recorded */
+    public readonly refusal: string,
+    /** The tail of the runner's stderr */
+    public readonly stderr: string,
+    /** What the message calls the delivery */
+    public readonly delivery = 'the delivery',
+  ) {
+    super(`${runner} refused ${delivery}: ${refusal}`);
+  }
+}
+
 // =============================================================================
 // Task Errors
 // =============================================================================

@@ -50,7 +50,7 @@ e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
 | `--oidc` | Enable built-in OIDC authentication provider |
 | `--token-expiry <duration>` | Access token expiry, e.g., "5s", "15m", "1h" (default: 1h) |
 | `--refresh-token-expiry <duration>` | Refresh token expiry, e.g., "7d", "90d" (default: 90d) |
-| `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves (default: `E3_JOBS`, else the CPUs available) |
+| `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves and every upload it takes in (default: `E3_JOBS`, else the CPUs available) |
 | `--memory <size>` | Memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available, less a reserve for e3 and the OS) |
 
 ## Programmatic Usage
@@ -150,7 +150,10 @@ repository gate, mounted ahead of every repository's routes, checks that the
 repository exists and is not being removed, and opens it. The dataflow routes
 take the runner, the orchestrator that runs a repository's dataflows, and the
 state store it writes: a poll and a cancel read the latest run from that
-store, whichever instance answers them.
+store, whichever instance answers them. The dataset transfer routes
+(`createTransferRoutes`) take each repository's runner too: an upload whose
+bytes the store already holds as one object, and which is a collection, is
+taken in by intake units on it (`TaskRunner.intake`).
 
 ```typescript
 import { Hono } from 'hono';
@@ -263,6 +266,11 @@ The full protocol is in
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Poll a commit |
 | PUT | `/api/uploads/:id` | A package zip being imported (no `Authorization`) |
 | PUT | `/api/uploads/:id/parts/:n` | Part `n` of a dataset upload (no `Authorization`) |
+
+A commit takes a collection in by intake units on the repository's runner — a
+piece of its segments each, as many at once as the server's budget allows — and
+its `processing` says how many pieces are in. An upload stopped part way and
+sent again takes up from the pieces it finished.
 
 ### Tasks
 

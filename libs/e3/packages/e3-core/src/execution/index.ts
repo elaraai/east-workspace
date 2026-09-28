@@ -15,7 +15,14 @@ export {
   type RunningExecution,
   type SplitUnit,
   type UnitRequeue,
+  type IntakeSource,
+  type IntakeSpec,
+  type IntakeOptions,
+  type IntakeResult,
 } from './interfaces.js';
+
+// A local runner's intake of a delivered collection, on east-c or east-node
+export { runIntake, INTAKE_CANDIDATES, type IntakeCandidate, type RunIntakeOptions } from './intake.js';
 
 // TaskRunner implementations
 export { LocalTaskRunner } from './LocalTaskRunner.js';

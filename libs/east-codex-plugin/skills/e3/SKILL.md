@@ -103,16 +103,14 @@ A `file` source:
   the workspace is touched;
 - is hashed first, so a delivery the store already holds costs that one read;
 - is taken in without being read whole or modified — so replace a delivery with
-  a new file, never edit it in place. A collection goes a segment at a time,
-  and a new delivery stores only the segments that changed. One the Writer
-  wrote whole, in any runtime and with its default codec (`Beast2ElementWriter`,
-  `encodeBeast2PagedFor`, east-py's `write_beast2_file`), is carried: each
-  segment is checked against what the Writer writes and stored as it stands.
-  One written any other way — batches of your own through `Beast2Writer`,
-  shards spliced together by `write_beast2_file_parallel` or
-  `splice_beast2_files`, `codec: "none"` — is read and written again through
-  the Writer, which is slower. Any other value is taken in by reflink, hard
-  link or one copy;
+  a new file, never edit it in place. A collection is taken in on the runners —
+  east-c, or east-node where there is no east-c — in pieces of its segments, as
+  many at once as the budget allows: each row is walked, the bytes the Writer
+  writes for it kept as they stand and any other row written again, so the
+  delivery is stored as the Writer's value whichever writer wrote it, and a new
+  delivery stores only the segments that changed. A deploy or an upload
+  stopped part way takes up again from the pieces it finished. Any other value
+  is taken in by reflink, hard link or one copy;
 - may hold no segment of more than 64 MiB, the most a collection is read in at
   once. A value encoded whole is one such segment, and so can be a segment of
   wide rows from an older Writer, which bounded a segment by its element count
@@ -505,7 +503,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | **Datasets** | |
 | `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
 | `e3 dataset set [repo] <ws.name> <file> [--type <spec> \| --type-file <path>]` | Write from `.east`, `.beast2`, `.json` or `.csv` (JSON and CSV need the type). |
-| `e3 dataset set [repo] <ws.name> --from-file <path.beast2> [-j <n>]` | Take a beast2 file in as the value, a segment at a time, as a deploy takes a `file` source in, saying how far it has got; `-j`: the cores its segments are checked on (local). |
+| `e3 dataset set [repo] <ws.name> --from-file <path.beast2> [-j <n>] [--memory <size>]` | Take a beast2 file in as the value, as a deploy takes a `file` source in, saying how far it has got; `-j`, `--memory`: the budget its intake units run under (local). |
 | `e3 dataset list [repo] <ws> [-l]` · `status [repo] <ws.name>` · `find [repo] <ws> <pattern>` | Paths (`-l`: kind, type, status, size) · one dataset · by substring or glob. |
 | **Running** | |
 | `e3 dataflow run [repo] <ws> [--filter <p>] [--force] [-j <n>] [--memory <size>] [-v]` | Run what is stale, then print the outputs' paths. |
@@ -532,15 +530,16 @@ physical memory, less a reserve. A unit of a split task reserves the largest
 peak a unit of its stage has reached in the run, so a stage runs its first unit
 alone and then fans out; on Linux and macOS a guard stops the newest unit when
 the runners together pass the budget, and runs it again once it fits. A deploy
-takes its `file` sources in `-j` at a time, their segments checked on as many
-cores. The flags apply to a local repository; a server refuses them, since it
-runs work under its own (`e3-api-server -j`, `--memory`).
+takes its `file` sources in `-j` at a time, their pieces' intake units running
+under the same budget. The flags apply to a local repository; a server refuses
+them, since it runs work under its own (`e3-api-server -j`, `--memory`).
 
 **A deploy says how far it has got**, on stderr. Each `file` source prints a
 line once it is in: its size, time and rate, and how it was taken in
-(`unchanged, already in the store`, `carried`, or `written again: not the
-Writer's bytes`). A terminal also keeps a live line for the files in flight,
-with the rate and the time left across them. Against a server, the deploy line
+(`unchanged, already in the store`, `taken in by east-c`, or `carried` for a
+value that is not a collection), with why the first time a runner fell back to
+another. A terminal also keeps a live line for the files in flight, with their
+pieces, the rate and the time left across them. Against a server, the deploy line
 says what the job is doing, such as migrating a record or building an index;
 each delivery's upload line says what the server's commit is doing with it.
 While a deploy runs, its lock carries the same progress for `e3-ui` or any
@@ -593,8 +592,8 @@ takes a runner, `new LocalTaskRunner(repo)`.
 |---|---|
 | Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays? })` |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
-| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
-| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { onProgress? })` → `{ hash, size, segments, rows, taken }`, `taken` being `known`, `carried` or `written` |
+| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
+| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named) |
 | Runs | `dataflowExecute(storage, repo, ws, options?)`; `LocalOrchestrator` to start, poll and cancel a run |
 | Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex` |
 
@@ -621,7 +620,7 @@ repo/
 ├── workspaces/        # each workspace's state, dataset refs and run state
 ├── dataflows/         # run records
 ├── executions/        # execution attempts: status, owner, logs
-├── adoptions/         # the manifest each delivered file became
+├── adoptions/         # the manifest each delivered file, or piece of one, became
 ├── locks/             # locks, their holders, and how far each says it has got
 ├── envs/              # built execution environments
 └── tmp/               # scratch and staged uploads

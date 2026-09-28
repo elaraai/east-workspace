@@ -23,9 +23,9 @@ function fakeStream(tty: boolean): ProgressStream & { chunks: string[] } {
 const MB = 1024 * 1024;
 const sources = { count: 3, bytes: 30 * MB };
 const event = (path: string, rest: Partial<DeploySourceProgress>): DeploySourceProgress =>
-  ({ path, file: `/deliveries/${path.split('/').pop()}.beast2`, sources, phase: 'hash', bytes: 0, total: 10 * MB, foreign: false, ...rest });
+  ({ path, file: `/deliveries/${path.split('/').pop()}.beast2`, sources, phase: 'hash', bytes: 0, total: 10 * MB, ...rest });
 
-test('a line per file as it finishes, and a summary once the last is in', () => {
+test('a line per file as it finishes, naming the runner that took it in, and a summary once the last is in', () => {
   const stream = fakeStream(false);
   let clock = 0;
   const intake = intakeReporter(createProgress({ stream }), () => clock);
@@ -36,27 +36,42 @@ test('a line per file as it finishes, and a summary once the last is in', () => 
   clock = 2000;
   intake.report(event('inputs/a', { phase: 'done', bytes: 10 * MB, taken: 'carried' }));
   intake.report(event('inputs/b', { phase: 'done', bytes: 10 * MB, taken: 'known' }));
-  intake.report(event('inputs/c', { phase: 'take-in', bytes: 10 * MB, foreign: true }));
+  intake.report(event('inputs/c', { phase: 'take-in', bytes: 0, pieces: { done: 0, total: 4 } }));
   clock = 4000;
-  intake.report(event('inputs/c', { phase: 'done', bytes: 10 * MB, foreign: true, taken: 'written' }));
+  intake.report(event('inputs/c', { phase: 'done', bytes: 10 * MB, taken: 'taken', runners: ['east-c'] }));
   assert.deepStrictEqual(stream.chunks.join('').split('\n').filter(Boolean), [
     'taking in 3 files (30.0 MB) …',
     '✔ a 10.0 MB in 2.0 s (5.0 MB/s), carried',
     '✔ b 10.0 MB in 2.0 s (5.0 MB/s), unchanged, already in the store',
-    "✔ c 10.0 MB in 2.0 s (5.0 MB/s), written again: not the Writer's bytes",
-    '✔ took in 3 files, 30.0 MB in 4.0 s (7.5 MB/s): 1 unchanged, 1 carried, 1 written again',
+    '✔ c 10.0 MB in 2.0 s (5.0 MB/s), taken in by east-c',
+    '✔ took in 3 files, 30.0 MB in 4.0 s (7.5 MB/s): 1 unchanged, 1 carried, 1 taken in',
   ]);
 });
 
-test('on a terminal, the live line names the files in flight, and the pace across them', () => {
+test('a runner that fell back says why once, on the first file it took in', () => {
+  const stream = fakeStream(false);
+  const intake = intakeReporter(createProgress({ stream }), () => 0);
+  const fallback = 'east-c exited 2 without recording a result for the intake unit (Unknown command: exec)';
+  for (const path of ['inputs/a', 'inputs/b']) {
+    intake.report(event(path, { phase: 'done', bytes: 10 * MB, taken: 'taken', runners: ['east-node'], fallback }));
+  }
+  intake.report(event('inputs/c', { phase: 'done', bytes: 10 * MB, taken: 'taken', runners: [] }));
+  assert.deepStrictEqual(stream.chunks.join('').split('\n').filter(Boolean).slice(1, 4), [
+    `✔ a 10.0 MB in 0.0 s, taken in by east-node, since ${fallback}`,
+    '✔ b 10.0 MB in 0.0 s, taken in by east-node',
+    '✔ c 10.0 MB in 0.0 s, taken in from the pieces an earlier intake finished',
+  ]);
+});
+
+test('on a terminal, the live line names the files in flight, their pieces, and the pace across them', () => {
   const stream = fakeStream(true);
   let clock = 0;
   const intake = intakeReporter(createProgress({ stream }), () => clock);
   intake.report(event('inputs/a', { phase: 'hash', bytes: 2 * MB }));
   clock = 1000;
-  intake.report(event('inputs/a', { phase: 'take-in', bytes: 5 * MB }));
+  intake.report(event('inputs/a', { phase: 'take-in', bytes: 5 * MB, pieces: { done: 2, total: 4 } }));
   const out = stream.chunks.join('');
-  assert.ok(out.includes('taking in 0/3 files, 5.0 MB/30.0 MB, 5.0 MB/s, 5.0 s left: a 5.0 MB/10.0 MB'), out);
+  assert.ok(out.includes('taking in 0/3 files, 5.0 MB/30.0 MB, 5.0 MB/s, 5.0 s left: a 5.0 MB/10.0 MB (2/4 pieces)'), out);
 });
 
 test('a failed intake ends its live line without a summary', () => {
@@ -97,8 +112,8 @@ test('an upload hashes its delivery first, saying how far the read has got, at m
 test("a server's commit says what it is doing with the file", () => {
   const at = (step: IntakeFile['step']): string => commitText({ path: 'inputs/a', step, bytes: BigInt(4 * MB), total: BigInt(10 * MB) });
   assert.strictEqual(at(variant('hashing', null)), 'the server is hashing it: 4.0 MB/10.0 MB');
-  assert.strictEqual(at(variant('taking_in', { foreign: false })), 'the server is taking it in: 4.0 MB/10.0 MB');
-  assert.strictEqual(at(variant('taking_in', { foreign: true })), 'the server is writing it again: 4.0 MB/10.0 MB');
+  assert.strictEqual(at(variant('taking_in', { pieces: 1n, done: 0n })), 'the server is taking it in: 4.0 MB/10.0 MB');
+  assert.strictEqual(at(variant('taking_in', { pieces: 4n, done: 1n })), 'the server is taking it in (1/4 pieces): 4.0 MB/10.0 MB');
 });
 
 test("a server's deploy job says its files, then the record it migrates or indexes, then finishing", () => {

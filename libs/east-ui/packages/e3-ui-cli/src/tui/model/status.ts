@@ -81,9 +81,9 @@ const BAR_CELLS = 10;
 
 /**
  * A file source's status cell while a deploy takes it in: `○ waiting`, then
- * `◔ hashing`, and `◔ taking in` — or `◐ writing again` for a file another
- * writer wrote — each with a bar of how far it has got, then `● carried`,
- * `● unchanged` or `● written again` once it is in.
+ * `◔ hashing` and `◔ taking in`, each with a bar of how far it has got — a
+ * collection's moves as each piece of it is taken in — then `● taken in by`
+ * the runner that took it in, `● unchanged` or `● carried` once it is in.
  *
  * @param file - The file, as the deploy reports it
  * @param g - The glyph set
@@ -97,12 +97,15 @@ export function intakeCell(file: IntakeFile, g: Glyphs): StatusCell {
     switch (file.step.type) {
         case 'waiting': return { glyph: g.empty, tone: 'muted', word: 'waiting', detail: '' };
         case 'hashing': return { glyph: g.quarter, tone: 'info', word: 'hashing', detail: bar };
-        case 'taking_in': return file.step.value.foreign
-            ? { glyph: g.half, tone: 'warn', word: 'writing again', detail: bar }
-            : { glyph: g.quarter, tone: 'info', word: 'taking in', detail: bar };
+        case 'taking_in': return { glyph: g.quarter, tone: 'info', word: 'taking in', detail: bar };
         case 'done': {
-            const taken = file.step.value.type;
-            return { glyph: g.dot, tone: 'pos', word: taken === 'known' ? 'unchanged' : taken === 'carried' ? 'carried' : 'written again', detail: '' };
+            const taken = file.step.value;
+            if (taken.type === 'taken') {
+                return taken.value.length === 0
+                    ? { glyph: g.dot, tone: 'pos', word: 'taken in', detail: '' }
+                    : { glyph: g.dot, tone: 'pos', word: 'taken in by', detail: taken.value.join(' and ') };
+            }
+            return { glyph: g.dot, tone: 'pos', word: taken.type === 'known' ? 'unchanged' : 'carried', detail: '' };
         }
     }
 }

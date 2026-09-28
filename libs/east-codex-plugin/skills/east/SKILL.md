@@ -352,8 +352,9 @@ east-py   run prog.beast2 -p east-py-std -i a.beast2 -o out.beast2              
   else it is printed. IR and values may be `.beast2`, `.beast`, `.east` or
   `.json`.
 - `exec <unit>` is the runner protocol e3 speaks: it runs one unit file — a
-  program over its inputs, or a merge of an output's parts — writes the output by
-  its kind and records a result; exit 0 when it succeeded, 1 when it failed.
+  program over its inputs, a merge of an output's parts, or the intake of a
+  delivered collection — writes the output by its kind and records a result;
+  exit 0 when it succeeded, 1 when it failed.
 - `version [-p <package>…]` prints the runner's version and each package's.
 - east-c also has `convert <file> [-o <file>] [--type <east-type>]`, a value
   from one format to another, and the IR toolbox: `ir normalize` (the canonical
@@ -518,7 +519,7 @@ reads any container version its type was written in.
 | `new Beast2RunSorter(T, openRun, { merge } \| { union })` | Elements in ANY order in, sorted canonical runs out (a key added twice folds with `merge(key, acc, value)`, or `union` for a Set; without one it throws); then `mergeBeast2For(T, { merge } \| { union })(runs, sink)` writes the value. Memory is one run, then one segment per run. A run closes at `RUN_MAX_COUNT` elements or `RUN_MAX_BYTES`, platform constants, so every runtime writes the same runs |
 | `mergeBeast2For(T, opts?)(sources, sink)` | Sorted collections — blobs, range readers or manifests — into their union's blob or manifest, segment by segment; a key several hold folds in input order; `opts.from` / `opts.to` merge a key range |
 | `recutBeast2For(T)(pieces, sink)` | A collection in pieces, some already written, into its canonical segments: a segment the whole shares with its piece is carried unread (`sink.carried`), the rest re-cut (`sink.written`) |
-| `checkBeast2WriterSegmentsFor(T)(extents, read)` | Proves a collection blob from outside is, segment by segment, what the Writer writes for its value. Every element is stepped over, not decoded, and held to the Writer's encoding: minimal varints, well-formed UTF-8, the encoder's one NaN, containers in one run, keys strictly ascending. The elements, walked through the cut rule, must cut exactly where the blob does, and each frame is deflated again and compared byte for byte. That costs a walk of the bytes and a deflate per segment, not a decode and encode of every element. `extents` comes from `readBeast2ExtentsRanged`, and `read(offset, length)` is async. Yields each segment (`{ index, frame, count, fence }`) once proved. It throws `Beast2NotWritersError` at the first segment the Writer would not have written: batches of your own (even of exactly 4096, where the rule forces a cut), shards spliced together, an older cut, a value holding a function. It also throws at a segment larger than `RUN_MAX_BYTES`, the most a collection is read in at once, before reading or inflating it. It is how e3 carries a delivery as it stands |
+| `intakeBeast2For(T)(delivery, sink, opts?)` | A collection from outside — a `Beast2SyncRangeReader` over a v4 or v5 blob whose header names exactly `T` — through the Writer into a `Beast2ManifestSink`, a segment at a time: each row is walked by its type, the Writer's own bytes go on as they stand, and any other row is decoded and written again. `opts.segments` takes in the index's segments `[from, to)`, a piece of a large delivery. Refuses another type, a malformed segment or one over `RUN_MAX_BYTES`, a row that does not decode, and keys that do not ascend, with `Beast2IntakeError` in the words every runner uses. What e3's intake units run, on every runner |
 | `new Beast2Writer(T, sink)` · `encodeBeast2SegmentsFor(T)(batches)` | Segments of your own choosing: one per non-empty batch, Set/Dict batches in ascending order |
 | `iterBeast2SegmentsFor(T)(blob)` | One decoded segment at a time |
 | `openBeast2PagesFor(T)(source)` | Random access: `.elementCount` and `.segmentCount` in O(1); `.segment(i)`, `.element(row)`, `.slice(offset, limit)` and `.get(key)` decode only the segments they touch |
@@ -554,9 +555,7 @@ openBeast2PagesFor(Rows)(blob).element(4_000_000);  // one row: decodes ONE segm
 - **One encoding per value**: the element writer and `encodeBeast2PagedFor` cut
   by the same rule in every runtime, so equal values are equal bytes and share
   segments in a content-addressed store. `Beast2Writer` writes the batches you
-  give it, which every reader also reads — but a store that carries only the
-  Writer's bytes, such as e3 taking in a delivery, reads a batched blob as
-  foreign and writes it again.
+  give it, which every reader also reads.
 - Streaming and paging are v5 only. The writer's segments are self-contained,
   with an index, which paging and parallel decode need: pass
   `{ selfContained: false }` only when aliasing must span segments. `write()`

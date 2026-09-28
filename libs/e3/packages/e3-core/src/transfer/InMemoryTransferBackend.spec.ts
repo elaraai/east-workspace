@@ -20,6 +20,7 @@ import { packageImport } from '../packages.js';
 import { workspaceCreate, workspaceDeploy } from '../workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
+import { LocalTaskRunner } from '../execution/LocalTaskRunner.js';
 import { transferStagingPath } from '../storage/local/localHelpers.js';
 import type { RefStore, StorageBackend } from '../storage/index.js';
 import { InMemoryTransferBackend } from './InMemoryTransferBackend.js';
@@ -61,7 +62,9 @@ describe('an upload commit', () => {
       return storage.refs.adoptionWrite(...args);
     };
     const held = Object.assign(Object.create(storage) as StorageBackend, { refs });
-    const uploads = new InMemoryTransferBackend({ storage: held, getRepoPath: () => repo }).datasetUpload;
+    const uploads = new InMemoryTransferBackend({
+      storage: held, getRepoPath: () => repo, getRunner: (repoPath) => new LocalTaskRunner(repoPath),
+    }).datasetUpload;
 
     // A delivery the Writer wrote, staged as its parts stage it.
     const data = encodeBeast2PagedFor(RowsType)(Array.from({ length: 100 }, (_, i) => ({ id: BigInt(i), name: `row ${i}` })));
@@ -74,10 +77,10 @@ describe('an upload commit', () => {
     await reached;
     assert.deepEqual(await uploads.getCommitStatus('u1'), variant('processing', some({
       path: 'inputs/rows',
-      step: variant('taking_in', { foreign: false }),
+      step: variant('taking_in', { pieces: 1n, done: 1n }),
       bytes: BigInt(data.byteLength),
       total: BigInt(data.byteLength),
-    })), 'the Writer\'s bytes, carried whole, and not yet named by the dataset');
+    })), 'its one piece taken in, and not yet named by the dataset');
 
     release();
     assert.deepEqual(await committing, variant('completed', null));

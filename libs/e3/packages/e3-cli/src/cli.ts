@@ -184,7 +184,7 @@ program
       .option('--allow-drop-records', 'Drop a record the package no longer declares, with its state and history')
       .option('--plan', 'Say what the deploy would do to each record and index, and write nothing')
       .option('--quiet', 'Suppress progress and success output (errors only)')
-      .option('-j, --jobs <n>', "Cores: the package's file sources taken in at once, and runner processes for its migrations and index builds (local repositories; default: $E3_JOBS, else the CPUs available to e3)")
+      .option('-j, --jobs <n>', "Cores: the package's file sources taken in at once, and runner processes for their intake units and its migrations and index builds (local repositories; default: $E3_JOBS, else the CPUs available to e3)")
       .option(...MEMORY)
       .action(withDefaultRepo(workspaceCommand.deploy))
   )
@@ -243,7 +243,8 @@ program
       .option('--type <typespec>', 'Inline .east type specification (required for .json/.csv)')
       .option('--type-file <path>', 'Read .east type specification from a file (alternative to --type)')
       .option('--from-file <path>', 'Take an existing .beast2 file in as the value — read a segment at a time, never whole, and never modified')
-      .option('-j, --jobs <n>', 'Cores --from-file checks the file on (local repositories; default: $E3_JOBS, else the CPUs available to e3)')
+      .option('-j, --jobs <n>', 'Cores: runner processes --from-file takes the file in on, a piece each (local repositories; default: $E3_JOBS, else the CPUs available to e3)')
+      .option(...MEMORY)
       .action(withDefaultRepo(setCommand))
   )
   .addCommand(

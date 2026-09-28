@@ -22,15 +22,15 @@
  * reads, so a drifted file is refused before it is read whole; `--from-file`
  * ADOPTS a `.beast2` file without ever holding it — hashing it by streaming,
  * checking its header against the declared type, and taking it into the
- * object store: a collection split into segment objects a segment at a time,
- * any other value by link or one kernel copy. That is the form for a delivery
- * too big to decode at once, and the file is never modified.
+ * object store: a collection by intake units on the runners, a piece of its
+ * segments each, any other value by link or one kernel copy. That is the form
+ * for a delivery too big to decode at once, and the file is never modified.
  */
 
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import { stat } from 'node:fs/promises';
-import { datasetAdoptFile, workspaceResolveDataset, workspaceSetDataset, LocalStorage, type DatasetAdoptResult } from '@elaraai/e3-core';
+import { datasetAdoptFile, workspaceResolveDataset, workspaceSetDataset, LocalStorage, LocalTaskRunner, type DatasetAdoptResult } from '@elaraai/e3-core';
 import { readDatasetFileHeader, readDatasetFileType } from '@elaraai/e3';
 import {
   datasetGetStatus as datasetGetStatusRemote,
@@ -38,7 +38,6 @@ import {
   datasetSetStream,
 } from '@elaraai/e3-api-client';
 import {
-  configureFramePool,
   decodeBeast2,
   parseFor,
   fromJSONFor,
@@ -112,7 +111,8 @@ export async function setCommand(
       // Awaited, so a refusal lands in the catch below and prints as one line.
       return await setFromFile(repoArg, pathSpec, options.fromFile, options);
     }
-    if (options.jobs !== undefined) exitError('-j sets the cores --from-file checks a file on');
+    if (options.jobs !== undefined) exitError('-j sets the cores --from-file takes a file in on');
+    if (options.memory !== undefined) exitError('--memory sets the memory --from-file takes a file in with');
     if (!filePath) {
       exitError('Provide a file to read the value from, or --from-file to take in a .beast2 file without holding it');
     }
@@ -243,11 +243,11 @@ export async function setCommand(
  * Point a dataset at an existing `.beast2` file, adopted without holding it.
  *
  * Locally the file is adopted straight into the object store, saying how far it
- * has got, its segments checked on a frame pool of a worker for each core of
- * the command's budget (`-j`); against a remote repository it is streamed
- * through the transfer protocol, whose commit runs the same validation
- * server-side, its line saying how far the hash has got, then what the
- * server's commit is doing with the file.
+ * has got: a collection is taken in by intake units on the runners, as many at
+ * once as the command's budget has cores (`-j`). Against a remote repository it
+ * is streamed through the transfer protocol, whose commit runs the same
+ * validation server-side, its line saying how far the hash has got, then what
+ * the server's commit is doing with the file.
  */
 async function setFromFile(repoArg: string, pathSpec: string, file: string, flags: BudgetFlags): Promise<void> {
   const location = await parseRepoLocation(repoArg);
@@ -258,21 +258,20 @@ async function setFromFile(repoArg: string, pathSpec: string, file: string, flag
     const storage = new LocalStorage();
     const intake = intakeReporter(createProgress());
     const sources = { count: 1, bytes: (await stat(file)).size };
-    const pool = configureFramePool({ workers: commandBudget(flags).cores });
     let result: DatasetAdoptResult;
     try {
       result = await datasetAdoptFile(storage, location.path, ws, path, file, {
+        runner: new LocalTaskRunner(location.path, commandBudget(flags)),
         onProgress: (progress) => intake.report({ path: pathSpec, file, sources, ...progress }),
       });
     } catch (err) {
       intake.fail();
       throw err;
-    } finally {
-      configureFramePool({ workers: pool.workers });
     }
     intake.report({
-      path: pathSpec, file, sources, phase: 'done', bytes: result.size, total: result.size,
-      foreign: result.taken === 'written', taken: result.taken,
+      path: pathSpec, file, sources, phase: 'done', bytes: result.size, total: result.size, taken: result.taken,
+      ...(result.runners !== undefined && { runners: result.runners }),
+      ...(result.fallback !== undefined && { fallback: result.fallback }),
     });
     console.log(`Set ${pathSpec} from ${file}`);
     console.log(`Hash:   ${result.hash}`);

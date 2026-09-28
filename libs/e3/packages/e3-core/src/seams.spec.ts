@@ -63,7 +63,8 @@ const FILE_SYSTEM: Record<string, string> = {
   'packages.ts': 'an import reads, and an export writes, a zip on this machine',
   'workspaces.ts': 'an export writes a zip, and a deploy reads a `file` source, on this machine',
   'dataset-adopt.ts': 'an adoption takes in a file on this machine',
-  'store-collection.ts': 'the store\'s door reads a delivered file on this machine',
+  'delivery-intake.ts': 'an intake reads the index of a delivered file on this machine, to cut it into pieces',
+  'store-collection.ts': 'the store\'s door reads a runner\'s output files on this machine',
   'formats.ts': 'the CLI\'s formats read and write a user\'s files on this machine',
   'storage/in-memory/InMemoryStorage.ts': 'its object store adopts and materializes files on this machine, as the interface asks',
 };

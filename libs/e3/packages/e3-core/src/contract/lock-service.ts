@@ -22,7 +22,7 @@ const deploying = (done: number): LockProgress => variant('deployment', {
   startedAt: new Date('2026-09-28T00:00:00.000Z'),
   files: [0, 1, 2].map((i) => ({
     path: `inputs/s${i}`,
-    step: i < done ? variant('done', variant('carried', null)) : i === done ? variant('taking_in', { foreign: false }) : variant('waiting', null),
+    step: i < done ? variant('done', variant('taken', ['east-c'])) : i === done ? variant('taking_in', { pieces: 5n, done: 2n }) : variant('waiting', null),
     bytes: i < done ? 100n : i === done ? 40n : 0n,
     total: 100n,
   })),

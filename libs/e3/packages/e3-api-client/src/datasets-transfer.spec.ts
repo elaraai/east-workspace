@@ -90,7 +90,7 @@ function streamedSource(bytes: Uint8Array): DatasetTransferSource & { reads: str
 const payload = Uint8Array.from({ length: 10 }, (_, i) => 100 + i);
 
 /** A commit partway through taking the upload in, as the server says. */
-const takingIn: IntakeFile = { path: 'inputs/table', step: variant('taking_in', { foreign: false }), bytes: 4n, total: 10n };
+const takingIn: IntakeFile = { path: 'inputs/table', step: variant('taking_in', { pieces: 3n, done: 1n }), bytes: 4n, total: 10n };
 
 describe('datasetSetStream: the transfer protocol', () => {
   it('sends the parts the server plans, with their headers and no credentials, and polls the commit', async () => {

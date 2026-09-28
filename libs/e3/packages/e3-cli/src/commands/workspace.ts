@@ -44,7 +44,7 @@ import {
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { configureFramePool, type EastTypeValue } from '@elaraai/east';
+import type { EastTypeValue } from '@elaraai/east';
 import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import { treePath, type PackageObject, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
@@ -441,7 +441,8 @@ interface DeployTarget {
   allowDropRecords: boolean;
   /** Say what the deploy would do, and write nothing. */
   plan: boolean;
-  /** The budget a local deploy's migrations and index builds take from. */
+  /** The budget a local deploy's migrations, index builds and intake units
+   *  take from. */
   budget?: Budget;
 }
 
@@ -516,16 +517,12 @@ function deployReporter(target: DeployTarget): {
  *
  * @remarks
  * The package's `file` sources are taken in as many at a time as the budget
- * has cores, each saying how far it has got. Their segments are checked on the
- * frame pool, which the check keeps busy where the door's own writing does not:
- * while they are taken in it has a worker for each core.
+ * has cores, each saying how far it has got: intake units on the runners take
+ * each in, in pieces, their runner processes taking cores from the budget.
  */
 async function deployLocal(target: DeployTarget, storage: StorageBackend, repoPath: string, name: string, version: string): Promise<void> {
   const report = deployReporter(target);
   const intake = intakeReporter(target.progress);
-  const pool = target.budget !== undefined && !target.plan && !target.skipFileSources
-    ? configureFramePool({ workers: target.budget.cores })
-    : undefined;
   try {
     await workspaceDeploy(storage, repoPath, target.ws, name, version, {
       resolveFileSources: !target.skipFileSources,
@@ -541,8 +538,6 @@ async function deployLocal(target: DeployTarget, storage: StorageBackend, repoPa
   } catch (err) {
     intake.fail();
     throw err;
-  } finally {
-    if (pool !== undefined) configureFramePool({ workers: pool.workers });
   }
   if (target.plan) {
     report.endPlan();

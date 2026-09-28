@@ -5,13 +5,17 @@
 
 /**
  * How taking files into a repository shows as it goes: a `✔` line per file as
- * it finishes — its name, size, time, rate and how it was taken in — and, on a
- * terminal, a live line for the files in flight, each with how far it has got,
- * and the rate and time left across them all.
+ * it finishes — its name, size, time, rate and how it was taken in, naming the
+ * runner that took it in — and, on a terminal, a live line for the files in
+ * flight, each with how far it has got, and the rate and time left across them
+ * all.
  *
  * A file is hashed before it is taken in: the hash is how the store knows a
- * delivery it already holds, which then costs nothing more. The live line says
- * which a file is doing.
+ * delivery it already holds, which then costs nothing more. A collection is
+ * then taken in by intake units on the runners, a piece of its segments each,
+ * and moves forward as each piece finishes. The live line says which a file is
+ * doing. A runner that fell back to another says why once, on the line of the
+ * first file it took in.
  *
  * Against a server, a delivery is hashed here first, saying how far the read
  * has got, and the rest shows as the server says it: what its commit of the
@@ -29,15 +33,19 @@ const REDRAW_MS = 100;
 /** How many files in flight the live line names; it counts the rest. */
 const NAMED_IN_FLIGHT = 3;
 
-/** What each way a file was taken in says on its line. */
-const TAKEN: Record<DatasetTaken, string> = {
-  known: 'unchanged, already in the store',
-  carried: 'carried',
-  written: "written again: not the Writer's bytes",
-};
+/** What a file's line says of how it was taken in. */
+function takenText(file: Pick<DeploySourceProgress, 'taken' | 'runners'>): string {
+  switch (file.taken) {
+    case 'known': return 'unchanged, already in the store';
+    case 'taken': return file.runners === undefined || file.runners.length === 0
+      ? 'taken in from the pieces an earlier intake finished'
+      : `taken in by ${file.runners.join(' and ')}`;
+    default: return 'carried';
+  }
+}
 
 /** What each way a file was taken in says in the summary. */
-const TAKEN_SHORT: Record<DatasetTaken, string> = { known: 'unchanged', carried: 'carried', written: 'written again' };
+const TAKEN_SHORT: Record<DatasetTaken, string> = { known: 'unchanged', carried: 'carried', taken: 'taken in' };
 
 /** A file in flight. */
 interface InFlight {
@@ -46,7 +54,7 @@ interface InFlight {
   phase: 'hash' | 'take-in';
   bytes: number;
   total: number;
-  foreign: boolean;
+  pieces: { readonly done: number; readonly total: number } | undefined;
 }
 
 /** Reports files as they are taken in. */
@@ -71,12 +79,13 @@ export interface IntakeReporter {
  */
 export function intakeReporter(progress: Progress, now: () => number = Date.now): IntakeReporter {
   const inFlight = new Map<string, InFlight>();
-  const taken: Record<DatasetTaken, number> = { known: 0, carried: 0, written: 0 };
+  const taken: Record<DatasetTaken, number> = { known: 0, carried: 0, taken: 0 };
   let step: StepHandle | undefined;
   let started = 0;
   let finished = 0;
   let finishedBytes = 0;
   let drawn = 0;
+  let fellBack = false;
 
   /** Bytes taken in so far: every finished file's, and the in-flight files'
    *  past their hash. */
@@ -91,8 +100,10 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
     const seconds = (now() - started) / 1000;
     const rate = seconds > 0 ? done / seconds : 0;
     const files = [...inFlight.values()];
-    const named = files.slice(0, NAMED_IN_FLIGHT).map((file) =>
-      `${file.name} ${file.phase === 'hash' ? 'hashing ' : file.foreign ? 'writing again ' : ''}${formatBytes(file.bytes)}/${formatBytes(file.total)}`);
+    const named = files.slice(0, NAMED_IN_FLIGHT).map((file) => {
+      const pieces = file.phase === 'take-in' && file.pieces !== undefined && file.pieces.total > 1 ? ` (${file.pieces.done}/${file.pieces.total} pieces)` : '';
+      return `${file.name} ${file.phase === 'hash' ? 'hashing ' : ''}${formatBytes(file.bytes)}/${formatBytes(file.total)}${pieces}`;
+    });
     if (files.length > NAMED_IN_FLIGHT) named.push(`${files.length - NAMED_IN_FLIGHT} more`);
     const pace = rate > 0 ? `, ${formatBytes(rate)}/s, ${formatSeconds((sources.bytes - done) / rate)} left` : '';
     return `taking in ${finished}/${sources.count} files, ${formatBytes(done)}/${formatBytes(sources.bytes)}${pace}: ${named.join(', ')}`;
@@ -129,7 +140,10 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
         const way = p.taken ?? 'carried';
         taken[way]++;
         const seconds = (now() - (file?.since ?? now())) / 1000;
-        progress.phase(`${name} ${formatBytes(p.total)} in ${formatSeconds(seconds)}${rateOf(p.total, seconds)}, ${TAKEN[way]}`);
+        // Why a runner fell back is said once, on the first file it touched.
+        const why = p.fallback !== undefined && !fellBack ? `, since ${p.fallback}` : '';
+        if (p.fallback !== undefined) fellBack = true;
+        progress.phase(`${name} ${formatBytes(p.total)} in ${formatSeconds(seconds)}${rateOf(p.total, seconds)}, ${takenText(p)}${why}`);
         if (finished === p.sources.count) {
           step.done(summary(p.sources));
         } else {
@@ -137,11 +151,11 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
         }
         return;
       }
-      const file = inFlight.get(p.path) ?? { name, since: now(), phase: p.phase, bytes: 0, total: p.total, foreign: false };
+      const file = inFlight.get(p.path) ?? { name, since: now(), phase: p.phase, bytes: 0, total: p.total, pieces: undefined };
       file.phase = p.phase;
       file.bytes = p.bytes;
       file.total = p.total;
-      file.foreign = p.foreign;
+      file.pieces = p.pieces;
       inFlight.set(p.path, file);
       draw(p.sources, false);
     },
@@ -176,14 +190,15 @@ export async function hashDelivery(file: string, size: number, name: string, ste
 /**
  * What a server says of a delivery its commit is taking in, as the line that
  * uploaded it shows it: `the server is hashing it: 12.0 MB/67.4 MB`, then
- * `taking it in`, or `writing it again` for a file another writer wrote.
+ * `taking it in`, with its pieces when it has several.
  *
  * @param file - How far the commit has got, as the server says
  * @returns The text
  */
 export function commitText(file: IntakeFile): string {
   const doing = file.step.type === 'hashing' ? 'hashing it'
-    : file.step.type === 'taking_in' ? (file.step.value.foreign ? 'writing it again' : 'taking it in')
+    : file.step.type === 'taking_in'
+      ? (file.step.value.pieces > 1n ? `taking it in (${file.step.value.done}/${file.step.value.pieces} pieces)` : 'taking it in')
     : file.step.type === 'waiting' ? 'about to take it in'
     : 'done with it';
   return `the server is ${doing}: ${formatBytes(Number(file.bytes))}/${formatBytes(Number(file.total))}`;

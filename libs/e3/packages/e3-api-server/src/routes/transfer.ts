@@ -18,6 +18,7 @@ import {
 } from '@elaraai/e3-core';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
+import type { GetRunner } from './functions.js';
 import {
   TransferUploadRequestType,
   TransferUploadResponseType,
@@ -110,11 +111,21 @@ function sendCommitStatus(transfer: DatasetUpload, status: DatasetCommitStatus):
  * otherwise answers `processing`, which the client polls from the store,
  * whichever instance answers — so verifying a delivery of many gigabytes never
  * holds one request open for as long as its SHA-256 takes.
+ *
+ * The init's dedup takes a delivery the store holds whole in on the
+ * repository's runner, as intake units, when it is a collection.
+ *
+ * @param storage - Storage backend
+ * @param getRepoPath - The repository a request names, as a path
+ * @param transferBackend - The uploads, and where their commits run
+ * @param getRunner - The runner a repository's intake units run on
+ * @param options - How long a commit is waited for before it answers
  */
 export function createTransferRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
+  getRunner: GetRunner,
   options: TransferRouteOptions = {},
 ) {
   const api = new Hono();
@@ -218,7 +229,7 @@ export function createTransferRoutes(
     // is the only door that skips the commit.
     if (await deliveryKnown(storage, repoPath, hash)) {
       const treePath = urlPathToTreePath(pathStr);
-      await datasetAdoptObject(storage, repoPath, ws, treePath, hash);
+      await datasetAdoptObject(storage, repoPath, ws, treePath, hash, getRunner(repoPath));
       return sendSuccess(TransferUploadResponseType, variant('completed', null));
     }
 

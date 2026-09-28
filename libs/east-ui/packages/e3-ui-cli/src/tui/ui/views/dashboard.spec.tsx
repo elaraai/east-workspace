@@ -287,11 +287,11 @@ describe('the dashboard', () => {
                 { type: 'data/workspaces', workspaces: [{ name: 'scratch', deployed: false, packageName: none, packageVersion: none }] as never },
                 { type: 'data/workspaceState', ws: 'scratch', state: null },
                 { type: 'data/lock', ws: 'scratch', lock: deploying([
-                    file('sales', variant('done', variant('carried', null)), 10, 10),
+                    file('sales', variant('done', variant('taken', ['east-c'])), 10, 10),
                     file('calendar', variant('done', variant('known', null)), 2, 2),
-                    file('stock', variant('taking_in', { foreign: false }), 4, 8),
+                    file('stock', variant('taking_in', { pieces: 4n, done: 2n }), 4, 8),
                     file('prices', variant('hashing', null), 1, 6),
-                    file('legacy', variant('taking_in', { foreign: true }), 1, 4),
+                    file('legacy', variant('taking_in', { pieces: 1n, done: 0n }), 1, 4),
                     file('extra', variant('waiting', null), 0, 2),
                 ], [orders(variant('waiting', null)), audit(variant('waiting', null))]) },
             ],
@@ -302,11 +302,11 @@ describe('the dashboard', () => {
         assert.equal(lines[4], '');
         assert.match(lines[5]!, /^ INPUTS$/);
         assert.match(lines[6]!, /^  NAME\s+STATUS\s+SIZE$/);
-        assert.match(lines[7]!, /^  sales\s+● carried\s+10 MB$/);
+        assert.match(lines[7]!, /^  sales\s+● taken in by east-c\s+10 MB$/);
         assert.match(lines[8]!, /^  calendar\s+● unchanged\s+2 MB$/);
         assert.match(lines[9]!, /^  stock\s+◔ taking in █████░░░░░ 50%\s+8 MB$/);
         assert.match(lines[10]!, /^  prices\s+◔ hashing ██░░░░░░░░ 16%\s+6 MB$/);
-        assert.match(lines[11]!, /^  legacy\s+◐ writing again ███░░░░░░░ 25%\s+4 MB$/);
+        assert.match(lines[11]!, /^  legacy\s+◔ taking in ███░░░░░░░ 25%\s+4 MB$/);
         assert.match(lines[12]!, /^  extra\s+○ waiting\s+2 MB$/);
         assert.equal(lines[13], '');
         assert.match(lines[14]!, /^ RECORDS$/);

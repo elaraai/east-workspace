@@ -22,7 +22,9 @@ import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { E3_RELEASE, PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
+import {
+  E3_RELEASE, PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject, isCollectionRoot,
+} from '@elaraai/e3-types';
 import type {
   DeployProgress, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState, RecordDeployStep, RecordIndexPlan,
   RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, TreePath,
@@ -276,18 +278,22 @@ export interface DeploySourceProgress {
   /** The delivery's file. */
   readonly file: string;
   /** `hash` while the file is read for its SHA-256, which says whether the
-   *  store already knows it; `take-in` while it goes into the store; `done`
+   *  store already knows it; `take-in` while intake units take it in; `done`
    *  once it is in. */
   readonly phase: 'hash' | 'take-in' | 'done';
-  /** Bytes of the file the phase has read; the file's size once `done`. */
+  /** Bytes of the file the phase has covered: read for its hash, or covered by
+   *  the pieces taken in; the file's size once `done`. */
   readonly bytes: number;
   /** The file's size. */
   readonly total: number;
-  /** In `take-in`: whether the file is being read as foreign, to be written
-   *  again, rather than carried. */
-  readonly foreign: boolean;
+  /** In `take-in`: the delivery's pieces, and how many have been taken in. */
+  readonly pieces?: { readonly done: number; readonly total: number };
   /** Once `done`: how the file was taken in. */
   readonly taken?: DatasetTaken;
+  /** Once `done`, when `taken`: the runners that took it in. */
+  readonly runners?: readonly string[];
+  /** Once `done`: why a runner fell back to another, when one did. */
+  readonly fallback?: string;
   /** Every `file` source the deploy takes in: how many, and their bytes
    *  together. */
   readonly sources: { readonly count: number; readonly bytes: number };
@@ -366,7 +372,8 @@ export interface WorkspaceDeployOptions {
    */
   resolveFileSources?: boolean;
   /**
-   * Task runner for the migrations and index builds a deploy owes.
+   * Task runner for the migrations and index builds a deploy owes, and the
+   * intake units that take its collection file sources in.
    *
    * @remarks
    * A record that declares an index needs that index built before anything can
@@ -374,11 +381,12 @@ export interface WorkspaceDeployOptions {
    * runner its author chose. Deploy is where that debt falls due: a record
    * minted here has no index yet, and a record whose declaration changed has
    * one built under the wrong declaration. A migration runs on its author's
-   * runner too.
+   * runner too. A collection delivery is taken in by intake units, in pieces,
+   * on the runner.
    *
-   * Omit it only where no package can declare an index or a migration: a
-   * deploy that owes either without a runner is refused before it writes
-   * anything.
+   * Omit it only where no package can declare an index, a migration or a
+   * collection file source: a deploy that owes any of them without a runner is
+   * refused before it writes anything.
    */
   runner?: TaskRunner;
   /**
@@ -397,9 +405,9 @@ export interface WorkspaceDeployOptions {
    * How many `file` sources the deploy takes in at once.
    *
    * @remarks
-   * Each delivery is hashed, checked and stored on its own, so a deploy of
-   * many takes them in side by side, the frame pool's workers shared between
-   * them. A local deploy takes as many as its budget has cores.
+   * Each delivery is hashed and taken in on its own, so a deploy of many takes
+   * them in side by side, their pieces sharing the runner's room. A local
+   * deploy takes as many as its budget has cores.
    *
    * @defaultValue 1
    */
@@ -514,6 +522,13 @@ export async function workspaceDeploy(
     const sourceFiles = validateDatasetSources(
       pkg, options.sourceWarning, options.resolveFileSources ?? true,
     );
+    if (options.runner === undefined) {
+      for (const [refPath, { declared }] of sourceFiles) {
+        if (isCollectionRoot(declared.type)) {
+          throw new Error(`input '${refPath.split('/').pop() ?? refPath}': a collection delivery is taken in by intake units, and the deploy was given no runner to run them`);
+        }
+      }
+    }
 
     // The tasks lock is held from the first object this deploy writes — an
     // adopted delivery's segments, an index build's output — to the last ref
@@ -549,12 +564,16 @@ export async function workspaceDeploy(
             options.onSourceProgress?.(progress);
             reports.file(progress);
           };
-          const { hash, size, taken } = await objectAdoptFile(storage, repo, file, {
+          const { hash, size, taken, runners, fallback } = await objectAdoptFile(storage, repo, file, {
             declared,
+            runner: options.runner,
             onProgress: (progress) => hear({ path: refPath, file, sources, ...progress }),
           });
           hashes[i] = hash;
-          hear({ path: refPath, file, sources, phase: 'done', bytes: size, total: size, foreign: taken === 'written', taken });
+          hear({
+            path: refPath, file, sources, phase: 'done', bytes: size, total: size, taken,
+            ...(runners !== undefined && { runners }), ...(fallback !== undefined && { fallback }),
+          });
         });
         const adoptedSources = new Map(deliveries.map(([refPath], i) => [refPath, hashes[i]!]));
 
@@ -703,9 +722,9 @@ function deployReports(
   return {
     file(progress) {
       const step: IntakeStep = progress.phase === 'hash' ? variant('hashing', null)
-        : progress.phase === 'take-in' ? variant('taking_in', { foreign: progress.foreign })
+        : progress.phase === 'take-in' ? variant('taking_in', { pieces: BigInt(progress.pieces?.total ?? 0), done: BigInt(progress.pieces?.done ?? 0) })
         : progress.taken === 'known' ? variant('done', variant('known', null))
-        : progress.taken === 'written' ? variant('done', variant('written', null))
+        : progress.taken === 'taken' ? variant('done', variant('taken', [...progress.runners ?? []]))
         : variant('done', variant('carried', null));
       files.set(progress.path, { path: progress.path, step, bytes: BigInt(progress.bytes), total: BigInt(progress.total) });
       if (progress.phase === 'done' || Date.now() - reportedAt >= REPORT_MS) send();

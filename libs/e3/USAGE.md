@@ -129,7 +129,7 @@ Defines an input dataset. CLI users address it as `<ws>.${name}`; the on-disk st
 The third argument says where the initial value comes from, and is always a variant:
 
 - `variant('value', v)` — an inline value, carried in the package.
-- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` takes the file into the object store as the value it holds — a collection a segment at a time, as the store's own segment objects; any other value by a reflink, hard link or one kernel copy. The file is never read whole and never modified. Relative paths resolve against the working directory at export.
+- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` takes the file into the object store as the value it holds — a collection by intake units on the runners, in pieces, as the store's own segment objects; any other value by a reflink, hard link or one kernel copy. The file is never read whole and never modified. Relative paths resolve against the working directory at export.
 - omitted — unassigned until set.
 
 ```typescript
@@ -156,15 +156,13 @@ not beast2, or a header whose type differs from the declared one fails with the
 input's name, both types and the first differing field.
 
 A delivery is hashed first, so bytes the store already holds cost only that
-read. A collection the Writer wrote whole, in any runtime and with its default
-codec — `Beast2ElementWriter` or `encodeBeast2PagedFor` in TypeScript,
-`write_beast2_file` in python — is carried: each segment is checked against
-what the Writer writes, for a deflate each rather than a decode and encode of
-every row, and stored as it stands. One written any other way — segments of
-your own through `Beast2Writer`, shards spliced by `write_beast2_file_parallel`
-or `splice_beast2_files`, no compression, or a value encoded whole — is read
-and written again through the Writer, which is slower. It may hold no segment
-larger than a collection is read in at once (64 MiB). A value encoded whole is
+read. A collection is then taken in on the runners — east-c, or east-node where
+e3 finds no east-c — in pieces of its segments, as many at once as the budget
+allows. Each row is walked by its type: the bytes the Writer writes for it are
+kept as they stand, and any other row is written again, so whichever writer
+wrote the delivery, it is stored as the Writer's value. A deploy or an upload
+stopped part way takes up again from the pieces it finished. A delivery may
+hold no segment larger than a collection is read in at once (64 MiB). A value encoded whole is
 one such segment, and so can be a segment of wide rows from an older Writer,
 which bounded a segment by its element count alone; either is refused with a
 message saying to write it again with a current Writer, whose segments stay
@@ -183,11 +181,13 @@ inputs unset. `--skip-file-sources` deploys without reading them and prints the
 `e3 dataset set <repo> <ws>.<name> --from-file <path>` that completes each.
 
 A local deploy takes its file sources in `-j` at a time (by default, as many as
-e3 has cores). It says how far it has got on stderr, and `--quiet` silences it.
-Each file prints a line once it is in: its size, time and rate, and how it was
-taken in (`unchanged, already in the store`, `carried`, or `written again: not
-the Writer's bytes`). A terminal also keeps a live line for the files in flight,
-with the rate and the time left. Against a server, the deploy line says what
+e3 has cores), their pieces' intake units running under the same budget. It
+says how far it has got on stderr, and `--quiet` silences it. Each file prints a
+line once it is in: its size, time and rate, and how it was taken in
+(`unchanged, already in the store`, `taken in by east-c`, or `carried` for a
+value that is not a collection), with why the first time a runner fell back to
+another. A terminal also keeps a live line for the files in flight, with their
+pieces, the rate and the time left. Against a server, the deploy line says what
 the server's job is doing, and each upload's line how far its hash has got,
 then what the server's commit is doing with the file. While a deploy runs,
 `e3-ui` shows its files and records at the step each has reached.
@@ -545,7 +545,7 @@ Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
-e3 dataset set <repo> <ws.name> --from-file <path.beast2> [-j <n>]   # Take a beast2 file in as the value
+e3 dataset set <repo> <ws.name> --from-file <path.beast2> [-j <n>] [--memory <size>]   # Take a beast2 file in as the value
 e3 dataset list <repo> <ws> [-l]                 # List paths (with -l for type/status/size table)
 e3 dataset status <repo> <ws.name>               # Kind, type, status, size (+ segments/rows for a collection)
 e3 dataset find <repo> <ws> <pattern>            # Substring or glob (`*`, `?`) match
@@ -566,11 +566,11 @@ not merely assignable, since runners decode by the declared type — and
 refuses a mismatch before anything is written, naming the dataset, both types
 and the first differing field. `--from-file` never holds the file whole: its
 hash is streamed and its header checked by ranged reads; a collection is then
-taken in a segment at a time as a deploy takes a file source in — carried as it
-stands when the Writer wrote it, else read and written again — bytes the store
-has taken before cost only their hash — and any other value enters the object
-store by reflink, hard link or one kernel copy. It says how far it has got, as a
-deploy does, and `-j` sets the cores it checks segments on. Against a remote
+taken in by intake units on the runners, as a deploy takes a file source in —
+bytes the store has taken before cost only their hash — and any other value
+enters the object store by reflink, hard link or one kernel copy. It says how
+far it has got, as a deploy does, and `-j` and `--memory` set the budget its
+intake units run under. Against a remote
 repository the file is streamed through the transfer protocol and checked the
 same way at the server's commit. `--type`/`--type-file` on a `.beast2` argument
 is checked against the file's own header rather than silently overriding it.
@@ -642,7 +642,7 @@ pass the budget, and runs it again once there is room.
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy
 taking its file sources in `-j` at a time; `e3 dataset set --from-file` takes
-`-j` for the cores it checks a file on. Against a server they are refused: it
+both for its intake units. Against a server they are refused: it
 runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
 A local run gives every execution a scratch directory — its inputs are marshalled

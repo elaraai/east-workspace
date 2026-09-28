@@ -44,7 +44,7 @@ The other documents in this directory record earlier designs. #956 lists those t
 | Layer | Owns | Never |
 |---|---|---|
 | **beast2**: `east` (TypeScript) and `east-c` (C, which east-py binds) | the canonical form, the manifest, the collection primitives (§3.4) and the runner protocol's types (§3.5) | knows about tasks |
-| **Runners**: east-node-cli, east-c-cli, east-py-cli | evaluating East; executing units; writing outputs through beast2's Writer and RunSorter; reporting a typed result | plans, schedules, merges runs it was not given as a unit, or checks emission order |
+| **Runners**: east-node-cli, east-c-cli, east-py-cli | evaluating East; executing units; taking a delivered collection in; writing outputs through beast2's Writer and RunSorter; reporting a typed result | plans, schedules, merges runs it was not given as a unit, or checks emission order |
 | **e3-core** | planning unit graphs, scheduling units, assembling outputs (manifest concatenation and Recut), the store's door, the execution cache, GC | evaluates user East |
 | **e3 SDK** | the authoring API and the typed task object; automatic parallelism, once built (§3.9) | makes run-time decisions |
 
@@ -170,8 +170,9 @@ east-node | east-c | east-py  exec <unit.beast2>
 The types live in `east` (`src/runner_protocol.ts`), which every runner and e3-core depend on, with a C decoder in east-c that east-py binds:
 
 ```
-Unit   = { work: run   { program: path, inputs: [path], output: Output }
-               | merge { parts: [path], range: Option<path>, output: Output },
+Unit   = { work: run    { program: path, inputs: [path], output: Output }
+               | merge  { parts: [path], range: Option<path>, output: Output }
+               | intake { input: path, type: path, segments: Option<{ from, to }>, output: path },
            platforms: [String], threads: Integer, result: path }
 Output = value(path) | array(dir) | set(dir) | dict(dir, merge: Option<path>)
        | fold(path, zero: path, combine: path)
@@ -185,6 +186,7 @@ Result = { outcome: ok | failed { message, locations: [Location] },
   - `set` and `dict`: through the RunSorter, as a directory of runs, each the manifest directory `<dir>/<n>.beast2`, numbered from 0 in the order the runs close. A set's equal elements collapse; a dict's equal keys fold with `merge`, and without it are refused;
   - `fold`: every emitted value folded into an accumulator that starts at `zero`, written as a `value` is.
 - `merge` assembles parts of one output kind: a k-way merge of sorted set or dict parts, optionally over one key range, written as one run, `<dir>/0.beast2`; or a fold of partials in order, starting at `zero`. Array parts never need a runner, and a `value` has no parts.
+- `intake` takes a delivered collection in (§3.6): the file `input`, whose header must name the type in the file `type`, an `EastTypeValue` blob, written through the Writer as the manifest directory `output`. `segments` limits it to the delivery's segments `[from, to)` by its index, a piece of a large one.
 - Paths in a unit may be relative to the unit file, so a unit file and the files it names are a complete, replayable snapshot of any unit: `exec` replays it wherever they are moved together.
 - A runner sizes its own thread pools to `threads`; one thread frames inline.
 - `peakBytes` is the process's peak resident memory, measured per platform:
@@ -210,8 +212,8 @@ One function in e3-core, `storeCollection` (`store-collection.ts`), is the only 
 | a manifest in the store | carries its segments by reference, never reading them, and re-cuts only the seams between sources. One cut under another rule or header, which an older e3 wrote, is refused |
 | a stock runner's output: a manifest directory, or a blob | stores its segments as they stand, never decoded: a directory's segment files are linked in under the hashes that name them, 16 at a time, and a blob's segments are carved out of the file. The Writer wrote them, and the corpus pins its bytes in every runtime |
 | the runs of a unit graph | assembled by the engine (§3.7), and handed over as the manifests they are |
-| a delivered file, or a delivery a transfer stored whole | checked: each segment is proved the Writer's (east's `checkBeast2WriterSegmentsFor`, below) and stored as it stands as it is proved. A delivery the check refuses anywhere is read as foreign, in the row below; the segments stored before the refusal are named by nothing, and gc's |
-| foreign bytes: a delivered file the check refused, an API `PUT` body, a custom task's output | read a source segment at a time and written again through the Writer, so nothing about the source's layout survives into the store. A segment whose logical size passes the RunSorter's 64 MiB cap is refused before it is read, naming the fix: write it again with a current Writer, whose segments stay under 8 MiB. Such a segment is a whole-value encode, a v4 blob, an oversized batch, or an older Writer's cut, which bounded a segment by its element count alone |
+| a delivered file, or a delivery a transfer stored whole | taken in by intake units on the runners (below), each of which writes a manifest directory the door stores as it stores any stock runner's; the pieces' manifests are concatenated, the seams re-cut |
+| foreign bytes: an API `PUT` body, a custom task's output, a collection stored whole | read a source segment at a time and written again through the Writer, so nothing about the source's layout survives into the store. A segment whose logical size passes the RunSorter's 64 MiB cap is refused before it is read, naming the fix: write it again with a current Writer, whose segments stay under 8 MiB. Such a segment is a whole-value encode, a v4 blob, an oversized batch, or an older Writer's cut, which bounded a segment by its element count alone |
 | elements in memory (`datasetWrite`, export defaults) | written through the Writer |
 
 It checks the declared type and never decodes a value whole. Every door routes through it:
@@ -224,25 +226,21 @@ It checks the declared type and never decodes a value whole. Every door routes t
 - API `PUT`;
 - export.
 
-**The check.** Every runtime's Writer writes the same bytes for a value, so a delivery one of them wrote is already the store's. Writing it again would decode and encode every row only to reproduce its input. The check proves it instead, for the cost of stepping over every row and deflating each segment again:
-- the delivery's header is the Writer's for its type, and its segments are self-contained;
-- each row is the Writer's encoding of the row it holds. It is stepped over without being decoded (east's `canonicalSkipperFor`), against a definition table of its own. Its varints are minimal, its strings well-formed UTF-8, and its NaNs the one NaN the encoder writes. Its containers are each written in one run, and its aliases name earlier containers of the same type. A Set's elements and a Dict's keys, inside it and across the delivery, strictly ascend;
-- the rows, walked in order through the cutter, start a segment exactly where the delivery's segments start, and nowhere else;
-- each frame is the pinned deflate of its logical bytes, byte for byte;
-- no segment passes 64 MiB. A larger one, which the Writer writes only for a row that large, is refused before it is read or inflated, so the check never holds more of a delivery than reading it as foreign would.
+**Taking a delivery in.** Every row of a delivered collection is read by a runner, never by e3's own thread (`delivery-intake.ts`):
+- **The unit.** An `intake` unit (§3.5) inflates the delivery a segment at a time and walks each row by its type without building a value (east's `canonicalSkipperFor`). A row that is the Writer's encoding — minimal varints, well-formed UTF-8, the one NaN the encoder writes, containers each in one run, aliases scoped to the row — goes to the Writer as it stands, which cuts and frames it again. A segment with any other row is held to what the decoder reads, decoded against one definition table, as an older writer's aliases need, and each row encoded again on its own. A Set's elements and a Dict's keys must strictly ascend. The header must name exactly the declared type. A segment over 64 MiB is refused before it is read or inflated, naming the fix, as the door refuses a foreign one; a v4 delivery, which has no segments, is read whole within the same limit. Memory is one segment of the delivery and the Writer's frames in flight. east-c runs it natively, east-py through east-c, and east-node over east's TypeScript intake (`intakeBeast2For`); the conformance corpus holds the three to the same output bytes and the same refusals, which name the delivery's segment.
+- **Pieces.** A delivery with an index is cut into runs of its segments, each closed once it holds 64 MiB of the delivery's bytes, so the same delivery is always cut the same way, and each piece is taken in by a unit of its own, as many at once as the runner admits. One with no index, or whose segments alias one another, is taken in whole by one unit. The pieces' manifests are concatenated through the door, which re-cuts the seams, so the delivery is stored as the manifest the Writer writes for its rows however it was cut. A piece cannot see where it meets the next, so e3 checks a Set's or a Dict's order there: each piece's last key, one segment decode, against the next one's first, its fence.
+- **The seam.** A backend runs the units through `TaskRunner.intake(storage, spec)`: the delivery — a file its runner reads, or an object stored whole — the declared type and the run of segments. It stores what the unit wrote through the door and answers the manifest and the runner that took it in. The local runner runs east-c, or east-node where e3 finds no east-c, under its budget. An east-c that cannot run the unit at all, recording no result — a release from before the unit, or a crash — is not tried again by that runner: the rest run on east-node, and the adoption says why. A failure a runner records is the delivery's refusal (`DeliveryRefusedError`), and no other runner is tried. With no runner found, the adoption is refused, naming the package to add.
 
-What a writer batched, what an older rule cut, a frame deflated another way, a row that aliases another or that decodes but would encode otherwise, a row holding a function: each fails, and the delivery is foreign. Checking only where each segment starts is not enough: the rule forces a cut at 4096 rows, so a file cut every 4096 rows starts every segment where the rule would. The walk runs on the calling thread, at about 650 MB/s of logical bytes; the deflates run on the frame pool's workers, two frames in flight per worker across every check in the process. A frame whose worker is lost is framed on the calling thread, as is every frame of the check after it.
-
-**The adoption memo.** A delivery the door has split is remembered by its SHA-256: the backend records the file's hash and the manifest it became. The hash is read first, so an adoption, or a transfer init, that finds a live entry points the dataset at that manifest without taking the file in again: an unchanged delivery costs a hash locally and a round trip remotely. An entry is not a GC root, and one whose manifest is gone is a miss.
+**The adoption memo.** A delivery taken in is remembered by its SHA-256: the backend records the file's hash and the manifest it became. The hash is read first, so an adoption, or a transfer init, that finds a live entry points the dataset at that manifest without taking the file in again: an unchanged delivery costs a hash locally and a round trip remotely. Each piece taken in is remembered too, under a key of the delivery's hash and the piece's segments, so a delivery taken in again after an intake stopped part way — interrupted, or failed on a later piece — runs only the pieces that had not finished. An entry is not a GC root. One whose objects are gone, or that was cut under another rule or header, is a miss.
 
 **Progress.**
-- An adoption reports how far it has got (`onProgress`): its hash as it is read, then its take-in, and whether it reads the file as foreign.
-- A deploy takes its file sources in `sourceConcurrency` at a time; a local deploy takes its budget's cores.
-- The deploy reports each file (`onSourceProgress`). It also reports the whole, each file source's step and each record's, through its lock and to its caller (`onDeployProgress`, §3.16, §3.18).
+- An adoption reports how far it has got (`onProgress`): its hash as it is read, then its pieces as each is taken in.
+- A deploy takes its file sources in `sourceConcurrency` at a time; a local deploy takes its budget's cores, and every piece of every source shares the runner's budget.
+- The deploy reports each file (`onSourceProgress`), with the runners that took it in. It also reports the whole, each file source's step and each record's, through its lock and to its caller (`onDeployProgress`, §3.16, §3.18).
 
 The backend capabilities every path relies on are required, with no whole-object fallback: ranged reads, adoption by link, `materialize`, plan and owner records, and the adoption memo.
 
-The door frames on the worker frame pool once a value is large enough to be worth it. The pool holds the frames in flight and nothing more. Each worker reuses its slots' shared buffers and its deflate's working buffers, so nothing a frame leaves waits on a worker's GC, which V8 runs only after about 64 MB of buffers per worker. Its memory is bounded by the workers and the largest segment, whatever it frames. A worker that fails abandons the pool, and the process frames inline from then on. e3's own pool is sized by the budget (§3.8). While a deploy or `e3 dataset set --from-file` takes files in, the pool has a worker for each of its budget's cores: the check keeps them busy, where the door's own writing does not.
+The door frames on the worker frame pool once a value is large enough to be worth it. The pool holds the frames in flight and nothing more. Each worker reuses its slots' shared buffers and its deflate's working buffers, so nothing a frame leaves waits on a worker's GC, which V8 runs only after about 64 MB of buffers per worker. Its memory is bounded by the workers and the largest segment, whatever it frames. A worker that fails abandons the pool, and the process frames inline from then on. e3's own pool is sized by the budget (§3.8).
 
 Scratch defaults to a directory inside the repository, `tmp/scratch/`, on the object store's filesystem. Runner output then links in without a copy and never sits on tmpfs.
 
@@ -313,9 +311,9 @@ One budget of cores and memory is the one setting a person makes (`execution/bud
 - **Capacity.**
   - Cores: `-j` or `E3_JOBS`, defaulting to the CPUs available (affinity and the cgroup's `cpu.max`).
   - Memory: `--memory` or `E3_MEMORY`, defaulting to the cgroup's `memory.max` found the same way, else physical memory, less a reserve for e3 and the OS.
-  - e3's own framing: the door frames on a worker pool in e3's process (§3.6), whose workers take cores too. The CLI and the API server cap the pool from the budget, at two workers by default: the door's writing thread is the bottleneck, and two give it all the speed-up measured on narrow rows. Taking files in is the exception: the check deflates every segment of a delivery, so a deploy and `dataset set --from-file` give the pool a worker for each core while they take files in.
-  - One budget per e3 process. A server's is shared by every run and every unit it spawns — dataflow units, function calls, mutations and index builds — since the memory is the machine's; each CLI command that runs units holds its own.
-  - Every command that runs units takes `-j` and `--memory` for a local repository: `e3 dataflow run`, `watch`, `run`, `call`, `mutate`, `reindex` and `workspace deploy`, `e3-api-server`, and `e3-ui` for its embedded server. Against a server they are refused, since the server's budget runs the work.
+  - e3's own framing: the door frames on a worker pool in e3's process (§3.6), whose workers take cores too. The CLI and the API server cap the pool from the budget, at two workers by default: the door's writing thread is the bottleneck, and two give it all the speed-up measured on narrow rows.
+  - One budget per e3 process. A server's is shared by every run and every unit it spawns — dataflow units, function calls, mutations, index builds and the intake units of the deliveries it takes in — since the memory is the machine's; each CLI command that runs units holds its own.
+  - Every command that runs units takes `-j` and `--memory` for a local repository: `e3 dataflow run`, `watch`, `run`, `call`, `mutate`, `reindex`, `workspace deploy` and `dataset set --from-file`, `e3-api-server`, and `e3-ui` for its embedded server. Against a server they are refused, since the server's budget runs the work.
 - **Layering.** The budget is the local runner's, never a shared layer's.
   - The dataflow's loop, its step functions, its state, the `TaskRunner` interface and the API's types know no budget. The loop keeps `width` tasks and units in flight, four unless its caller sets it: the CLI and the API server set it to their budget's cores, and a remote backend sets its own.
   - `LocalTaskRunner` holds the budget, so admission, the thread grant, the guard and cgroups all happen inside it. A remote backend's runners hold whatever capacity is theirs.
@@ -393,8 +391,8 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 | Platform constants (in rule ids and code; not configurable) | Machine settings (never in a package) |
 |---|---|
 | the segment cut rules' parameters, for Set/Dict and for Array (§3.4) | `-j` cores |
-| the piece rule's sizes: 16, 64 and 256 MiB of stored bytes (§3.7) | `--memory` |
-| the RunSorter's caps, 131,072 elements or 64 MiB, the second also the door's cap on a foreign segment | the scratch directory (`E3_SCRATCH_DIR`) |
+| the piece rule's sizes: 16, 64 and 256 MiB of stored bytes (§3.7); a delivery's intake pieces close at 64 MiB of its bytes (§3.6) | `--memory` |
+| the RunSorter's caps, 131,072 elements or 64 MiB, the second also the cap on a foreign segment and a delivery's | the scratch directory (`E3_SCRATCH_DIR`) |
 | merge and fold fan-in, 32; the merge range size, 64 MiB | the lazy-open threshold (`EAST_LAZY_INPUT_BYTES`) |
 | | cgroup use (`E3_CGROUPS`); verbosity |
 
@@ -436,7 +434,7 @@ A local repository is a directory of records and objects:
 | `executions/<task>/<inputs>/<id>/owner.beast2` | the orchestrator that launched it | `ExecutionOwnerType` |
 | `executions/<task>/<inputs>/<id>/stdout.txt`, `stderr.txt` | its logs, the runner's own text | — |
 | `executions/<task>/<inputs>/plan.beast2` | the `$plan` of the stage a split task is in | String |
-| `adoptions/<ab>/<rest>.beast2` | the manifest a delivery became | String |
+| `adoptions/<ab>/<rest>.beast2` | the manifest a delivery, or a piece of one, became | String |
 | `locks/<resource>/` | a lock, its holders, and how far the exclusive holder says it has got (§3.16) | `LockStateType`, `LockProgressType` |
 | `envs/<hash>/` | a built environment, a cache | — |
 | `tmp/scratch/`, `tmp/transfers/` | working space: executions, staged uploads and package zips | — |
@@ -555,11 +553,12 @@ const TransferDoneResponseType = VariantType({
 });
 const IntakeFileType = StructType({
   path: StringType,
-  step: VariantType({                                         // done: how it was taken in
-    waiting: NullType, hashing: NullType, taking_in: StructType({ foreign: BooleanType }),
-    done: VariantType({ known: NullType, carried: NullType, written: NullType }),
+  step: VariantType({
+    waiting: NullType, hashing: NullType,
+    taking_in: StructType({ pieces: IntegerType, done: IntegerType }),  // intake units, a piece each
+    done: VariantType({ known: NullType, carried: NullType, taken: ArrayType(StringType) }),  // taken: by these runners
   }),
-  bytes: IntegerType, total: IntegerType,                     // of the file the step has read
+  bytes: IntegerType, total: IntegerType,                     // of the file the step has covered
 });
 ```
 
@@ -574,7 +573,7 @@ const IntakeFileType = StructType({
 
 **Commit.**
 - The server checks that the staged bytes are `size` bytes hashing to `hash`, and checks the header against the dataset's declared type.
-- It takes the bytes into the store: a collection through the door, split a segment at a time into the store's own segments (§3.6), and any other value as the object the bytes are.
+- It takes the bytes into the store: a collection by intake units on its runner, in pieces, as a local adoption does (§3.6), and any other value as the object the bytes are.
 - It then points the dataset at what it stored, with the version vector's self entry.
 - A refusal is an `error` answer, or the `dataset_type_mismatch` API error.
 - A commit may answer `processing` instead. The client then polls `GET …/upload/<id>` (100 ms, doubling to 1 s) until it answers `completed` or `error`. Once the store has said how far the commit has taken the file in, `processing` carries it, and e3-api-client's `datasetSetStream` hands it to its caller (`onCommitProgress`).
@@ -582,7 +581,7 @@ const IntakeFileType = StructType({
 - A commit asked for again starts nothing new and answers as the first does. A finished commit's answer stays pollable for a while, so a client whose response was lost asks again and hears the same thing.
 - Once a commit has been asked for, the upload takes no more parts, since a part sent then could rewrite the bytes being verified.
 
-**Dedup.** An init whose hash the store already knows answers `completed`. The store knows the bytes as the manifest a delivery of them was split into (the adoption memo, §3.6), or as an object. Either is checked against the dataset's declared type first, and a collection object goes through the store's door. It is the one door that skips the commit.
+**Dedup.** An init whose hash the store already knows answers `completed`. The store knows the bytes as the manifest a delivery of them was split into (the adoption memo, §3.6), or as an object. Either is checked against the dataset's declared type first, and a collection object is taken in by intake units on the repository's runner, which the transfer routes are given (`createTransferRoutes`'s `getRunner`). It is the one door that skips the commit.
 
 **The local server.**
 - Parts stream to their own offsets in one staged file under `<repo>/tmp/transfers`, so the commit takes the file in with nothing to assemble.

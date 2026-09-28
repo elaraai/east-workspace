@@ -21,7 +21,10 @@ import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTa
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue } from './interfaces.js';
+import type {
+  IntakeOptions, IntakeResult, IntakeSpec, RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue,
+} from './interfaces.js';
+import { runIntake } from './intake.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { storeDatasetFile } from '../store-collection.js';
@@ -134,6 +137,10 @@ export class LocalTaskRunner implements TaskRunner {
    */
   constructor(private readonly repo: string, private readonly budget?: Budget) {}
 
+  /** The runners, by command, that could not run an intake unit at all, with
+   *  why: not tried again by this runner. */
+  private readonly intakeUnusable = new Map<string, string>();
+
   async execute(
     storage: StorageBackend,
     taskHash: string,
@@ -210,6 +217,21 @@ export class LocalTaskRunner implements TaskRunner {
       repo: this.repo,
       extraEnv: options?.extraEnv,
     }, this.budget);
+  }
+
+  /**
+   * Takes a delivery in through an `intake` unit on east-c, or on east-node
+   * when e3 finds no east-c, under the runner's budget ({@link runIntake}). An
+   * east-c that cannot run the unit at all is not tried again by this runner.
+   */
+  async intake(storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions): Promise<IntakeResult> {
+    return runIntake(storage, this.repo, spec, {
+      signal: options?.signal,
+      verbose: options?.verbose,
+      budget: this.budget,
+      // Anchored at the project, as a task's runner is found.
+      runnerSearchDir: path.dirname(this.repo),
+    }, this.intakeUnusable);
   }
 }
 
