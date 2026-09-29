@@ -171,6 +171,21 @@ describe('planning the pieces of an input', () => {
     );
   });
 
+  it('names the first listed partitioned input that is not a stored collection, however its reads fall', async () => {
+    // Both inputs are refused, and their manifests are read at once: the
+    // message names the first listed whichever read fails first.
+    const later = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 500)(table(0, 8000)));
+    const earlier = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 500)(table(0, 100)));
+    await assert.rejects(
+      planPieces(storage, repo, [
+        { path: [variant('field', 'sales')], partition: some({ by: [] }) },
+        { path: [variant('field', 'returns')], partition: some({ by: [] }) },
+      ], [earlier, later], EVERY_SEGMENT),
+      { message: `partitioned input 1 is not a stored collection: the collection ${earlier} is stored as one blob: ` +
+        'an older e3 wrote this repository — re-create it: deploy again and import its data again' },
+    );
+  });
+
   it('cuts an Array by position', async () => {
     const values = Array.from({ length: 9000 }, (_, i) => BigInt((i * 7919) % 9000));
     const hash = await datasetWrite(storage, repo, values, ArrayType(IntegerType));

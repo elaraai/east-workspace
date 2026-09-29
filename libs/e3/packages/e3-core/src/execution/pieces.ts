@@ -217,16 +217,18 @@ export async function planPieces(
   const marked = inputs.flatMap((input, index) => input.partition.type === 'some' ? [{ index, by: input.partition.value.by }] : []);
   if (marked.length === 0) throw new Error('no input is partitioned');
 
-  // Every partitioned input's manifest says what it weighs, so each is opened
-  // before the primary is chosen.
-  const partitioned: { index: number; by: readonly string[]; input: DatasetSegments }[] = [];
-  for (const { index, by } of marked) {
-    try {
-      partitioned.push({ index, by, input: await DatasetSegments.open(storage, repo, inputHashes[index]!) });
-    } catch (err) {
+  // Every partitioned input's manifest says what it weighs, so each is opened —
+  // all at once — before the primary is chosen. Of those that cannot be, the
+  // first listed is named, whichever read fails first.
+  const opened = await Promise.allSettled(marked.map(({ index }) => DatasetSegments.open(storage, repo, inputHashes[index]!)));
+  const partitioned = marked.map(({ index, by }, i) => {
+    const open = opened[i]!;
+    if (open.status === 'rejected') {
+      const err: unknown = open.reason;
       throw new Error(`partitioned input ${index + 1} is not a stored collection: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }
+    return { index, by, input: open.value };
+  });
   const first = partitioned.reduce((heaviest, next) => (next.input.bytes > heaviest.input.bytes ? next : heaviest));
   const segments = first.input;
   const plan = (pieces: string[][]): PiecePlan => ({ pieces, primary: first.index, primaryBytes: segments.bytes });
