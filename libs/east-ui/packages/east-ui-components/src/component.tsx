@@ -79,6 +79,7 @@ import { EastChakraBarStrip } from "./display/bar-strip";
 import { EastChakraTrace } from "./display/trace";
 import { EastChakraLibrary } from "./collections/library";
 import { EastChakraDeck, EastChakraDeckReadout, EastChakraDeckRows, EastChakraDeckNote } from "./collections/deck";
+import { EastChakraLayout } from "./collections/layout";
 import { EastChakraValueTree } from "./collections/value-tree";
 import { EastChakraRoster } from "./collections/roster";
 import { EastChakraBoard } from "./collections/board";
@@ -267,6 +268,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             DeckReadout: (v) => <EastChakraDeckReadout value={v} />,
             DeckRows: (v) => <EastChakraDeckRows value={v} />,
             DeckNote: (v) => <EastChakraDeckNote value={v} />,
+            Layout: (v) => <EastChakraLayout value={v} storageKey={childKey(storageKey, "Layout")} />,
             ValueTree: (v) => <EastChakraValueTree value={v} storageKey={childKey(storageKey, "ValueTree")} />,
             Roster: (v) => <EastChakraRoster value={v} storageKey={childKey(storageKey, "Roster")} />,
             Board: (v) => <EastChakraBoard value={v} storageKey={childKey(storageKey, "Board")} />,

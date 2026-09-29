@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1211,
-    "totalFiles": 198,
+    "totalEntries": 1213,
+    "totalFiles": 199,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 371,
+      "east-ui": 373,
       "e3-ui": 42,
       "e3": 15,
       "e3-ui-cli": 8,
@@ -30914,6 +30914,70 @@
         "tsx"
       ],
       "source": "// Hover glances + click-to-drill on one canvas — stateHover/linkHover/triggerHover cards plus onSelectState/onSelectLink opening a programmatic Drawer\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const StateRow = StructType({ code: StringType, name: StringType, phase: StringType, util: FloatType });\n        const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, vol: FloatType, n: IntegerType, decision: OptionType(StringType) });\n        const states = $.const([\n            { code: \"MIX\", name: \"Mixing\", phase: \"prep\", util: 72.0 },\n            { code: \"FIL\", name: \"Filling\", phase: \"line\", util: 91.0 },\n            { code: \"CAP\", name: \"Capping\", phase: \"line\", util: 64.0 },\n            { code: \"PAL\", name: \"Palletised\", phase: \"out\", util: 38.0 },\n        ], ArrayType(StateRow));\n        const links = $.const([\n            { id: \"m-f\", src: \"MIX\", dst: \"FIL\", vol: 182.4, n: 9210n, decision: some(\"release\") },\n            { id: \"f-c\", src: \"FIL\", dst: \"CAP\", vol: 180.9, n: 9184n, decision: none },\n            { id: \"c-p\", src: \"CAP\", dst: \"PAL\", vol: 179.7, n: 9102n, decision: none },\n        ], ArrayType(LinkRow));\n        // --- hover glances: dev-defined cards in the standard 400ms shell ---\n        const stateHover = $.const(East.function([StringType], UIComponentType, ($, key) => {\n            const row = $.let(states.filter(($, s) => East.equal(s.code, key)).get(0n));\n            return (\n                <VStack gap=\"2\" align=\"stretch\" minWidth=\"180px\">\n                    <Text fontFamily=\"mono\" fontWeight=\"bold\" textStyle=\"body-sm\">{East.str`${row.code} · ${row.name}`}</Text>\n                    <Meter value={row.util} tone=\"success\" label={<Text textStyle=\"caption\" color=\"fg.muted\">util</Text>} />\n                </VStack>\n            );\n        }));\n        const linkHover = $.const(East.function([StringType], UIComponentType, ($, key) => {\n            const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));\n            return (\n                <VStack gap=\"1\" align=\"stretch\">\n                    <Text fontFamily=\"mono\" fontWeight=\"bold\" textStyle=\"body-sm\">{East.str`${row.src} → ${row.dst}`}</Text>\n                    <Text textStyle=\"caption\" color=\"fg.muted\">{East.str`${row.vol} kt · ${row.n} transfers`}</Text>\n                </VStack>\n            );\n        }));\n        const triggerHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (\n            <VStack gap=\"1\" align=\"stretch\">\n                <Text fontFamily=\"mono\" fontWeight=\"bold\" textStyle=\"body-sm\">{East.str`decision · ${key}`}</Text>\n                <Text textStyle=\"caption\" color=\"fg.muted\">owner · line-scheduler</Text>\n            </VStack>\n        )));\n        // --- click-to-drill: the same entities open a host-owned Drawer ---\n        const onSelectLink = $.const(East.function([StringType], NullType, ($, key) => {\n            const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));\n            $(Drawer.open(East.value({\n                body: [\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text textStyle=\"body-sm\">{East.str`Volume ${row.vol} kt across ${row.n} transfers.`}</Text>\n                        <Meter value={row.vol} max={200.0} tone=\"success\" label={<Text textStyle=\"caption\" color=\"fg.muted\">share of line cap</Text>} />\n                    </VStack>,\n                ],\n                eyebrow: some(\"Transition\"),\n                title: some(East.str`${row.src} → ${row.dst}`),\n                description: some(\"Selected from the flowchart\"),\n                style: none,\n            }, Drawer.Types.OpenInput)));\n        }));\n        const onSelectState = $.const(East.function([StringType], NullType, ($, key) => {\n            const row = $.let(states.filter(($, s) => East.equal(s.code, key)).get(0n));\n            $(Drawer.open(East.value({\n                body: [\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text textStyle=\"body-sm\">{East.str`${row.name} sits in the ${row.phase} phase.`}</Text>\n                        <Text textStyle=\"caption\" color=\"fg.muted\">Open upstream / downstream analyses from here.</Text>\n                    </VStack>,\n                ],\n                eyebrow: some(\"State\"),\n                title: some(East.str`${row.code} · ${row.name}`),\n                description: some(\"Selected from the flowchart\"),\n                style: none,\n            }, Drawer.Types.OpenInput)));\n        }));\n        return (\n            <Flowchart\n                states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}\n                links={links}\n                link={l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,\n                    evidence: { volume: some(l.vol), count: some(l.n), unit: \"kt\" } })}\n                lanes={[{ key: \"prep\", label: \"Prep\" }, { key: \"line\", label: \"Line\" }, { key: \"out\", label: \"Outbound\" }]}\n                triggers={[{ id: \"release\", name: \"release\", who: \"line-scheduler\" }]}\n                trigger={t => ({ key: t.id, label: t.name, owner: t.who })}\n                stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}\n                onSelectLink={onSelectLink} onSelectState={onSelectState}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:layout.examples.tsx:layoutPage",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/layout.examples.tsx",
+      "suite": "",
+      "test": "A page of tiles on the 12-column grid — a KPI rail across the top, a revenue trend beside a breakdown, and an assignment board below; each tile is a cell mapped from a row, and its content is chosen by the row's kind",
+      "keywords": [
+        "Layout",
+        "tiles",
+        "tile",
+        "grid",
+        "12-column",
+        "columns",
+        "span",
+        "row",
+        "rows",
+        "cell",
+        "page",
+        "canvas",
+        "frame",
+        "height",
+        "align",
+        "responsive",
+        "width",
+        "Studio"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Chart, HStack, Layout, Stat, Table, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A page of tiles on the 12-column grid — a KPI rail across the top, a revenue trend beside a breakdown, and an assignment board below; each tile is a cell mapped from a row, and its content is chosen by the row's kind\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Kind = VariantType({ kpis: NullType, trend: NullType, breakdown: NullType, board: NullType });\n        const Tile = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType), kind: Kind });\n        const tiles = $.const([\n            { id: \"kpi-rail\", row: \"top\", span: 12n, height: none, kind: variant(\"kpis\", null) },\n            { id: \"revenue-trend\", row: \"middle\", span: 8n, height: some(280n), kind: variant(\"trend\", null) },\n            { id: \"breakdown-bars\", row: \"middle\", span: 4n, height: some(280n), kind: variant(\"breakdown\", null) },\n            { id: \"assignment-board\", row: \"bottom\", span: 12n, height: none, kind: variant(\"board\", null) },\n        ], ArrayType(Tile));\n        const Day = StructType({ day: StringType, revenue: FloatType });\n        const days = $.const([\n            { day: \"Mon\", revenue: 4.2 }, { day: \"Tue\", revenue: 5.1 }, { day: \"Wed\", revenue: 4.8 },\n            { day: \"Thu\", revenue: 6.3 }, { day: \"Fri\", revenue: 7.0 }, { day: \"Sat\", revenue: 5.6 },\n        ], ArrayType(Day));\n        const Region = StructType({ region: StringType, revenue: FloatType });\n        const regions = $.const([\n            { region: \"North\", revenue: 12.4 }, { region: \"South\", revenue: 9.1 },\n            { region: \"East\", revenue: 7.6 }, { region: \"West\", revenue: 5.2 },\n        ], ArrayType(Region));\n        const Assignment = StructType({ crew: StringType, site: StringType, shift: StringType });\n        const assignments = $.const([\n            { crew: \"Crew 1\", site: \"Depot A\", shift: \"Early\" },\n            { crew: \"Crew 2\", site: \"Depot B\", shift: \"Late\" },\n            { crew: \"Crew 3\", site: \"Depot A\", shift: \"Night\" },\n        ], ArrayType(Assignment));\n        return (\n            <Layout\n                data={tiles}\n                width=\"1440px\"\n                cell={t => Layout.cell({\n                    key: t.id, row: t.row, span: t.span, height: t.height,\n                    content: t.kind.match({\n                        kpis: () => (\n                            <HStack gap=\"8\" padding=\"4\">\n                                <Stat label=\"Orders\" value={128n} />\n                                <Stat label=\"Revenue\" value={32.4} />\n                                <Stat label=\"Late\" value={9n} />\n                                <Stat label=\"Returns\" value={4n} />\n                            </HStack>\n                        ),\n                        trend: () => <Chart height=\"fill\" grid layers={Chart.Area(days, { x: r => r.day, y: r => r.revenue })} />,\n                        breakdown: () => <Chart height=\"fill\" grid={false} layers={Chart.Bar(regions, { x: r => r.revenue, y: r => r.region })} />,\n                        board: () => (\n                            <Table data={assignments} columns={{\n                                crew: { header: \"Crew\" },\n                                site: { header: \"Site\" },\n                                shift: { header: \"Shift\" },\n                            }} />\n                        ),\n                    }),\n                })}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:layout.examples.tsx:layoutWireframe",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/layout.examples.tsx",
+      "suite": "",
+      "test": "A page's wireframe — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnail",
+      "keywords": [
+        "Layout",
+        "wireframe",
+        "thumbnail",
+        "outline",
+        "template",
+        "preview",
+        "page library",
+        "variant",
+        "tiles",
+        "grid"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Chart, HStack, Layout, Stat, Table, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A page's wireframe — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnail\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Tile = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n        const tiles = $.const([\n            { id: \"kpi-1\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"kpi-2\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"kpi-3\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"kpi-4\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"trend\", row: \"middle\", span: 8n, height: some(120n) },\n            { id: \"bars\", row: \"middle\", span: 4n, height: some(120n) },\n            { id: \"board\", row: \"bottom\", span: 12n, height: none },\n        ], ArrayType(Tile));\n        return (\n            <Layout\n                data={tiles}\n                variant=\"wireframe\"\n                width=\"480px\"\n                cell={t => Layout.cell({ key: t.id, row: t.row, span: t.span, height: t.height, content: <Stat label=\"Tile\" value={0n} /> })}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:library.examples.tsx:libraryPeople",

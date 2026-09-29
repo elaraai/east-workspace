@@ -83,7 +83,9 @@ export type {
 } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+export { DataList, Deck, Layout, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+export { LayoutCellType, LayoutRootType, LayoutAlignType, LayoutVariantType } from "./collections/index.js";
+export type { LayoutConfig, LayoutCellFields, LayoutData, LayoutRowOf, LayoutBindHandle, LayoutAlignLiteral, LayoutVariantLiteral } from "./collections/index.js";
 export type {
     PlanConfig, PlanRowBaseInput, PlanSpanInput, PlanBucketsInput, PlanChartInput,
     PlanHeatInput, PlanTableInput, PlanCardsInput, PlanEventsInput, PlanGroupInput,

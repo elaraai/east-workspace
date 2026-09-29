@@ -175,6 +175,21 @@ export {
     type DeckStyle,
 } from "./deck/index.js";
 export {
+    Layout,
+    LayoutCellType,
+    LayoutRootType,
+    LayoutAlignType,
+    LayoutVariantType,
+    type LayoutNamespace,
+    type LayoutConfig,
+    type LayoutCellFields,
+    type LayoutData,
+    type LayoutRowOf,
+    type LayoutBindHandle,
+    type LayoutAlignLiteral,
+    type LayoutVariantLiteral,
+} from "./layout/index.js";
+export {
     ValueTree,
     ValueTreeStepType,
     ValueTreePathType,
