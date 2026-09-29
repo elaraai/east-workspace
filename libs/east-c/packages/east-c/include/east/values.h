@@ -37,8 +37,9 @@ typedef struct EastValue EastValue;
 typedef struct EastCompiledFn EastCompiledFn;
 typedef struct Beast2Pages Beast2Pages;
 
-/* tidwall/btree.c — the ordered store backing Set (and, later, Dict). Only
- * values.c touches the concrete type; everywhere else holds the opaque pointer. */
+/* tidwall/btree.c — the ordered store of a Set or Dict too large for its sorted
+ * arrays. Only values.c touches the concrete type; everywhere else holds the
+ * opaque pointer. */
 struct btree;
 
 /* Longest string held directly inside the node, excluding the NUL.
@@ -50,6 +51,14 @@ struct btree;
  * dependent: 47 on LP64, 23 on ILP32 (the win32 wheels cibuildwheel produces).
  * The static_assert in values.c is what holds this honest if an arm widens. */
 #define EAST_STRING_INLINE_CAP (8 * sizeof(void *) - sizeof(char *) - sizeof(size_t) - 1)
+
+/* The most elements a Set, or entries a Dict, keeps in its sorted arrays alone
+ * (#1005). A B-tree allocates each leaf whole — 255 slots, 2 KB of pointers for
+ * a Set and 4 KB of pairs for a Dict — so a tree holding a handful of entries
+ * costs kilobytes, where the arrays grow with what they hold. Up to here a
+ * lookup is the same binary search and an insert the same shift a leaf makes;
+ * one more moves the elements into a tree, whose inserts stay logarithmic. */
+#define EAST_SMALL_COLLECTION_MAX 256
 
 /* The uniform frozen-mutation error message, identical across the TS, C and
  * Python runtimes (compliance-tested). */
@@ -101,23 +110,29 @@ struct EastValue {
             bool frozen; /* task-input decode: mutating builtins refuse; value-typed under Is */
         } array;
         struct {
-            struct btree *tree; /* authoritative ordered store (item = EastValue*) */
-            EastValue **items;  /* lazy flat cache of `tree` for readers that index in
-                                 * order; rebuilt by east_set_sync when `dirty`. Borrows
-                                 * the tree's elements (holds no reference of its own). */
+            struct btree *tree; /* the ordered store (item = EastValue*) once the set has
+                                 * outgrown `items`; NULL while it is small */
+            EastValue **items;  /* while `tree` is NULL, the store itself: the elements in
+                                 * order, a reference held for each, never stale. Once
+                                 * there is a tree, its lazy flat cache for readers that
+                                 * index in order, rebuilt by east_set_sync when `dirty`,
+                                 * borrowing the tree's elements. */
             size_t len;         /* element count, maintained eagerly (always valid) */
-            size_t cap;         /* capacity of the `items` cache */
-            bool dirty;         /* `items` is stale and must be resynced before use */
+            size_t cap;         /* capacity of `items` */
+            bool dirty;         /* a tree's `items` is stale and must be resynced before use */
             bool frozen;        /* task-input decode: mutating builtins refuse */
             EastType *elem_type;
         } set;
         struct {
-            struct btree *tree; /* authoritative ordered store (item = {key, val} pair) */
-            EastValue **keys;   /* lazy parallel caches of `tree`, rebuilt by east_dict_sync */
-            EastValue **values; /* when `dirty`; borrow the tree's elements (own no ref) */
+            struct btree *tree; /* the ordered store (item = {key, val} pair) once the dict
+                                 * has outgrown its arrays; NULL while it is small */
+            EastValue **keys;   /* while `tree` is NULL, the store itself: the entries in */
+            EastValue **values; /* key order, a reference held for each, never stale. Once
+                                 * there is a tree, its lazy parallel caches, rebuilt by
+                                 * east_dict_sync when `dirty`, borrowing the tree's. */
             size_t len;         /* entry count, maintained eagerly (always valid) */
-            size_t cap;         /* capacity of the `keys`/`values` caches */
-            bool dirty;         /* caches are stale and must be resynced before use */
+            size_t cap;         /* capacity of `keys` and of `values` */
+            bool dirty;         /* a tree's caches are stale and must be resynced before use */
             bool frozen;        /* task-input decode: mutating builtins refuse */
             EastType *key_type;
             EastType *val_type;
@@ -342,11 +357,12 @@ size_t east_set_len(EastValue *set);
 /* Rebuilds the `items` cache from the tree if it is stale. Call once before
  * indexing `set->data.set.items[0..len)`. No-op if already in sync. */
 void east_set_sync(EastValue *set);
-/* In-order visit of a set's elements straight off the tree (no `items` cache) —
- * for the GC traversal, which must see live elements even while `items` is stale. */
+/* In-order visit of a set's elements straight off its store — the tree, or
+ * `items` while the set is small — for the GC traversal, which must see live
+ * elements even while a tree's `items` cache is stale. */
 void east_set_visit(EastValue *set, void (*visit)(EastValue *elem, void *ctx), void *ctx);
-/* Releases a set's elements and frees its tree + cache (and elem_type), nulling
- * the fields. Shared by the refcount release path and the GC cycle-collector. */
+/* Releases a set's elements and frees its store (and elem_type), nulling the
+ * fields. Shared by the refcount release path and the GC cycle-collector. */
 void east_set_release_contents(EastValue *set);
 
 EastValue *east_dict_new(EastType *key_type, EastType *val_type);
@@ -365,10 +381,11 @@ size_t east_dict_len(EastValue *dict);
 /* Rebuilds the `keys`/`values` caches from the tree if stale. Call once before
  * indexing keys[0..len)/values[0..len). No-op if already in sync. */
 void east_dict_sync(EastValue *dict);
-/* In-order visit of a dict's key AND value straight off the tree (no cache) —
- * for the GC traversal, which must see live entries even while the cache is stale. */
+/* In-order visit of a dict's key AND value straight off its store — the tree,
+ * or the arrays while the dict is small — for the GC traversal, which must see
+ * live entries even while a tree's caches are stale. */
 void east_dict_visit(EastValue *dict, void (*visit)(EastValue *child, void *ctx), void *ctx);
-/* Releases a dict's keys+values and frees its tree + caches (and key/val types),
+/* Releases a dict's keys+values and frees its store (and key/val types),
  * nulling the fields. Shared by the refcount release path and the GC collector. */
 void east_dict_release_contents(EastValue *dict);
 

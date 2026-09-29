@@ -8,6 +8,7 @@ All formats (JSON, BEAST2, East text) go straight from raw bytes to C
 with no Python IR round-trip.
 """
 
+import contextlib
 import os
 import sys
 from collections.abc import Callable, Sequence
@@ -36,6 +37,49 @@ def _format_file_size(path: Path) -> str:
         return _format_size(Path(path).stat().st_size)
     except OSError:
         return "?"
+
+
+def _format_input_size(path: Path) -> str:
+    """What an input weighs, for the verbose account: a manifest the
+    collection it names — its own file is a few dozen bytes per segment — any
+    other file its own bytes, or ``?`` when it cannot be read."""
+    from east.runtime._compiler_eastc import manifest_segment_bytes
+
+    try:
+        size = Path(path).stat().st_size
+    except OSError:
+        return "?"
+    if Path(path).suffix.lower() in (".beast2", ".beast"):
+        # A manifest that does not read weighs its own file: opening the
+        # input says why.
+        with contextlib.suppress(OSError, ValueError):
+            size += manifest_segment_bytes(path) or 0
+    return _format_size(size)
+
+
+def _report_input(i: int, path: Path, param_type: Any) -> None:
+    """The verbose account of input ``i`` before it is read: its file, what
+    it weighs, and the type it is read as. ``run -v`` and ``exec -v`` print it
+    alike, so a task's log carries it."""
+    print(f"  input {i}: {path}  ({_format_input_size(path)})", file=sys.stderr)
+    print(f"    {print_type(param_type)}", file=sys.stderr)
+
+
+def _report_input_reads(i: int, value: object) -> None:
+    """What reading lazily opened input ``i`` came to — the account residency
+    cannot give on a mapping, where the kernel decides how much of a touched
+    file is resident."""
+    from east.runtime._compiler_eastc import paged_value_stats
+
+    stats = paged_value_stats(getattr(value, "_east_c_paged", 0))
+    if stats is None:
+        return
+    segments, decoded, fences, hydrated = stats
+    if hydrated:
+        print(f"  input {i}: decoded whole (an operation the pager cannot serve)", file=sys.stderr)
+    else:
+        print(f"  input {i}: {decoded} of {segments} segments decoded, {fences} fences probed",
+              file=sys.stderr)
 
 
 # east-node parity: indexed beast2 collection inputs at or above this many
@@ -158,14 +202,17 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], lazy: Callable[[int, 
     return inputs, lazy_inputs
 
 
-def execute_unit(unit_path: Path) -> dict[str, Any]:
+def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
     """Execute a unit — ``east-py exec``: do its work, write its output, and
     record its result where the unit says.
 
     The unit, the result and the output writers are east-c's (east/unit.h),
     the very code the east-c CLI runs, so the two runners read the same units
     and write the same bytes; east-node implements the same protocol, and the
-    conformance corpus holds the three to it.
+    conformance corpus holds the three to it. With ``verbose``, a run unit
+    prints the account of each input ``run -v`` prints — its file and what it
+    weighs, whether it opened lazily, and what reading it came to — on
+    stderr, which is what reaches a task's log.
 
     Returns the result: ``ok``, a failure's ``message`` and ``locations``
     (``(filename, line, column)``, innermost first), ``peak_bytes`` and
@@ -205,7 +252,7 @@ def execute_unit(unit_path: Path) -> dict[str, Any]:
         elif unit["merge"]:
             _merge_work(unit, platform_fns, lap)
         else:
-            _run_work(unit, platform_fns, lap)
+            _run_work(unit, platform_fns, lap, verbose)
         result = {"ok": True, "message": None, "locations": []}
     except EastError as e:
         result = {
@@ -235,9 +282,9 @@ def _emit_parameter(kind: str, emit_type: Any) -> list[Any]:
 
 
 def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
-              lap: Callable[[str], None]) -> None:
+              lap: Callable[[str], None], verbose: bool) -> None:
     """A run unit: the program evaluated on its inputs, its output written by
-    kind."""
+    kind; ``verbose`` gives the account of each input ``run -v`` gives."""
     from east.runtime._compiler_eastc import _eastc_call, load_frozen_value
     from east.serialization._beast2_eastc import _UnitSinkCore, _write_unit_value
 
@@ -271,20 +318,33 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
                              combine=combine, zero=zero)
     lap("compile")
 
+    paths = [Path(p) for p in unit["inputs"]]
+    if verbose:
+        print(f"Running: {unit['program']}  ({_format_file_size(unit['program'])})", file=sys.stderr)
+        for i, (path, param_type) in enumerate(zip(paths, params, strict=True)):
+            _report_input(i, path, param_type)
     threshold = _lazy_input_threshold()
-    inputs, _ = _open_inputs(handle, [Path(p) for p in unit["inputs"]],
-                             lambda _i, size: threshold > 0 and size >= threshold, False)
+    inputs, lazy_inputs = _open_inputs(
+        handle, paths, lambda _i, size: threshold > 0 and size >= threshold, verbose)
     if sink is not None:
         inputs.append(sink.function_value())
     lap("load")
 
-    returned = _eastc_call(handle._compiled, handle._input_types, handle._output_type, tuple(inputs))
-    lap("execute")
-    if sink is not None:
-        sink.finish()
-    else:
-        _write_unit_value(handle.get_output_type(), output["path"], returned)
-    lap("output")
+    try:
+        returned = _eastc_call(handle._compiled, handle._input_types, handle._output_type,
+                               tuple(inputs))
+        lap("execute")
+        if sink is not None:
+            sink.finish()
+        else:
+            _write_unit_value(handle.get_output_type(), output["path"], returned)
+        lap("output")
+    finally:
+        # What reading each lazy input came to, the output's writing included
+        # — or up to the failure.
+        if verbose:
+            for i in lazy_inputs:
+                _report_input_reads(i, inputs[i])
 
 
 def _merge_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
@@ -384,8 +444,7 @@ def run_program(
             file=sys.stderr,
         )
         for i, (file_path, param_type) in enumerate(zip(input_files, input_types, strict=False)):
-            print(f"  input {i}: {file_path}  ({_format_file_size(file_path)})", file=sys.stderr)
-            print(f"    {print_type(param_type)}", file=sys.stderr)
+            _report_input(i, file_path, param_type)
         print("  return:", file=sys.stderr)
         print(f"    {print_type(output_type)}", file=sys.stderr)
 
@@ -425,21 +484,7 @@ def run_program(
             "output": (t4 - t3) * 1000,
         }, _peak_bytes())
 
-        # What each lazy input's reads came to — the account residency
-        # cannot give on a mapping, where the kernel decides how much of a
-        # touched file is resident.
-        from east.runtime._compiler_eastc import paged_value_stats
-
         for i in lazy_inputs:
-            stats = paged_value_stats(getattr(inputs[i], "_east_c_paged", 0))
-            if stats is None:
-                continue
-            segments, decoded, fences, hydrated = stats
-            if hydrated:
-                print(f"  input {i}: decoded whole (an operation the pager cannot serve)",
-                      file=sys.stderr)
-            else:
-                print(f"  input {i}: {decoded} of {segments} segments decoded, {fences} fences probed",
-                      file=sys.stderr)
+            _report_input_reads(i, inputs[i])
 
     return result

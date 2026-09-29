@@ -319,6 +319,179 @@ static bool is_truthy(EastValue *v)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Frames only their own closures hold (#1002)                         */
+/* ------------------------------------------------------------------ */
+
+/* A closure shares the frame it was made in (IR_FUNCTION), so one bound in
+ * that frame — `const f = $.const(East.function(...))`, or the Let
+ * linkImports embeds an imported function under — holds the frame that holds
+ * it. Reference counting never frees that cycle, and the cycle collector,
+ * which walks values, cannot see a frame: every evaluation of such a body kept
+ * its frames, the closure and everything they held — a merge's arguments,
+ * fold after fold.
+ *
+ * So when the evaluator lets go of a frame something else still holds, it
+ * asks whether everything holding it is a closure bound in it — directly, or
+ * through frames nothing but those closures hold (the Block a build's hoisted
+ * constants sit in) — and if so unbinds those frames: the closures, the
+ * frames between and the frame itself go at once, as they would with no
+ * closure in them. A closure held from anywhere else — returned, stored in a
+ * collection, bound further out — keeps all of it. */
+
+/* A frame or closure the check has reached, and the references to it from
+ * inside what it has reached. */
+typedef struct {
+    void *node;
+    int refs;
+} FrameHolder;
+
+typedef struct {
+    FrameHolder *items;
+    size_t len, cap;
+} FrameHolders;
+
+/* Past this many frames or closures the check gives up and the frame stays,
+ * as before: a body binds a handful of closures, and the lookups are linear. */
+#define FRAME_HOLDERS_MAX 1024
+
+static size_t holders_find(const FrameHolders *h, const void *node)
+{
+    for (size_t i = 0; i < h->len; i++)
+        if (h->items[i].node == node) return i;
+    return SIZE_MAX;
+}
+
+static bool holders_add(FrameHolders *h, void *node)
+{
+    if (h->len == h->cap) {
+        if (h->cap >= FRAME_HOLDERS_MAX) return false;
+        size_t cap = h->cap ? h->cap * 2 : 8;
+        FrameHolder *grown = realloc(h->items, cap * sizeof(FrameHolder));
+        if (!grown) return false;
+        h->items = grown;
+        h->cap = cap;
+    }
+    h->items[h->len++] = (FrameHolder){.node = node, .refs = 0};
+    return true;
+}
+
+/* The compiled function of a closure that holds a frame, else NULL. */
+static inline EastCompiledFn *frame_closure(const EastValue *v)
+{
+    if (!v || v->kind != EAST_VAL_FUNCTION) return NULL;
+    EastCompiledFn *fn = v->data.function.compiled;
+    return fn && !fn->invoke && fn->captures ? fn : NULL;
+}
+
+static void binds_closure(const char *name, void *value, void *ctx)
+{
+    (void)name;
+    if (frame_closure(value)) *(bool *)ctx = true;
+}
+
+typedef struct {
+    FrameHolders *frames, *closures;
+    bool ok;
+} FrameReach;
+
+/* A binding of a reached frame: a closure whose frames meet a reached frame
+ * is reached, with its frames below that point. A closure over anything else
+ * holds none of them. */
+static void reach_binding(const char *name, void *value, void *ctx)
+{
+    (void)name;
+    FrameReach *r = ctx;
+    EastCompiledFn *fn = frame_closure(value);
+    if (!r->ok || !fn || holders_find(r->closures, value) != SIZE_MAX) return;
+    size_t mark = r->frames->len;
+    Environment *e = fn->captures;
+    for (; e && holders_find(r->frames, e) == SIZE_MAX; e = e->parent) {
+        if (!holders_add(r->frames, e)) {
+            r->ok = false;
+            return;
+        }
+    }
+    if (!e) {
+        r->frames->len = mark;
+        return;
+    }
+    if (!holders_add(r->closures, value)) r->ok = false;
+}
+
+/* A binding of a reached frame, counted as a reference to a reached closure. */
+static void count_binding(const char *name, void *value, void *ctx)
+{
+    (void)name;
+    FrameHolders *closures = ctx;
+    size_t i = holders_find(closures, value);
+    if (i != SIZE_MAX) closures->items[i].refs++;
+}
+
+/* Whether everything holding `frame`, besides the evaluator's reference about
+ * to go, is what the frame reaches: every reference to every frame and
+ * closure gathered into `frames` and `closures` comes from inside them. */
+static bool frame_orphaned(Environment *frame, FrameHolders *frames, FrameHolders *closures)
+{
+    if (!holders_add(frames, frame)) return false;
+    FrameReach reach = {frames, closures, true};
+    for (size_t i = 0; i < frames->len && reach.ok; i++)
+        env_visit(frames->items[i].node, reach_binding, &reach);
+    if (!reach.ok || closures->len == 0) return false;
+
+    frames->items[0].refs = 1; /* the evaluator's own */
+    for (size_t i = 0; i < frames->len; i++) {
+        Environment *f = frames->items[i].node;
+        size_t parent = holders_find(frames, f->parent);
+        if (parent != SIZE_MAX) frames->items[parent].refs++;
+        env_visit(f, count_binding, closures);
+    }
+    for (size_t i = 0; i < closures->len; i++) {
+        EastValue *v = closures->items[i].node;
+        size_t captured = holders_find(frames, v->data.function.compiled->captures);
+        if (captured != SIZE_MAX) frames->items[captured].refs++;
+    }
+    for (size_t i = 0; i < frames->len; i++)
+        if (frames->items[i].refs != ((Environment *)frames->items[i].node)->ref_count)
+            return false;
+    for (size_t i = 0; i < closures->len; i++)
+        if (closures->items[i].refs != ((EastValue *)closures->items[i].node)->ref_count)
+            return false;
+    return true;
+}
+
+/* Unbinds `frame`, the closures it reaches and the frames between when
+ * nothing else holds them (frame_orphaned), and otherwise leaves all of it
+ * as it was. The evaluator's reference to `frame` stays for it to release. */
+static void frame_collect(Environment *frame)
+{
+    bool binds = false;
+    env_visit(frame, binds_closure, &binds);
+    if (!binds) return;
+    FrameHolders frames = {0}, closures = {0};
+    if (frame_orphaned(frame, &frames, &closures)) {
+        /* Each frame is held while they are all unbound, so none goes before
+         * the last is reset: unbinding releases the closures, which release
+         * the frames they hold. */
+        for (size_t i = 0; i < frames.len; i++)
+            env_retain(frames.items[i].node);
+        for (size_t i = 0; i < frames.len; i++)
+            env_reset(frames.items[i].node);
+        for (size_t i = 0; i < frames.len; i++)
+            env_release(frames.items[i].node);
+    }
+    free(frames.items);
+    free(closures.items);
+}
+
+/* The evaluator letting go of a frame it made: one that only its own
+ * closures still hold goes with them (frame_collect). */
+static inline void frame_release(Environment *frame)
+{
+    if (frame && frame->ref_count > 1) frame_collect(frame);
+    env_release(frame);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Resolved bindings (ir_resolve_scopes)                              */
 /* ------------------------------------------------------------------ */
 
@@ -350,9 +523,11 @@ static inline Environment *frame_for(Environment *parent, IRScope *scope)
 
 /* The frame for the next iteration of a loop: the previous one, reset, when
  * nothing captured it (a closure is the only thing that can, and holds a
- * reference), else a fresh one. `*frame` is NULL before the first pass. */
+ * reference) or only closures bound in it did (frame_collect), else a fresh
+ * one. `*frame` is NULL before the first pass. */
 static inline void loop_frame(Environment **frame, Environment *parent, IRScope *scope)
 {
+    if (*frame && (*frame)->ref_count > 1) frame_collect(*frame);
     if (*frame && (*frame)->ref_count == 1) {
         env_reset(*frame);
         return;
@@ -531,7 +706,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
             EvalResult out;
             PagedLoopStep step = paged_loop_step(&body_res, loop_label, &out);
             if (step == PAGED_LOOP_RETURN) {
-                env_release(iter_env);
+                frame_release(iter_env);
                 east_value_release(seg);
                 if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
@@ -539,7 +714,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
                 return out;
             }
             if (step == PAGED_LOOP_STOP) {
-                env_release(iter_env);
+                frame_release(iter_env);
                 east_value_release(seg);
                 if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
@@ -551,7 +726,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
         east_value_release(seg);
     }
 
-    if (iter_env) env_release(iter_env);
+    if (iter_env) frame_release(iter_env);
     if (proj) east_beast2_projection_free(proj);
     paged_iter_unlock(subject);
     east_value_release(subject);
@@ -697,13 +872,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(last);
             EvalResult r = eval_ir(node->data.block.stmts[i], block_env, platform, builtins);
             if (r.status != EVAL_OK) {
-                if (block_env != env) env_release(block_env);
+                if (block_env != env) frame_release(block_env);
                 return r;
             }
             last = r.value;
         }
 
-        if (block_env != env) env_release(block_env);
+        if (block_env != env) frame_release(block_env);
         return eval_ok(last);
     }
 
@@ -746,7 +921,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     bind_var(match_env, 0, mc->bind.name, inner);
                 }
                 EvalResult body_res = eval_ir(mc->body, match_env, platform, builtins);
-                env_release(match_env);
+                frame_release(match_env);
                 east_value_release(val);
                 return body_res;
             }
@@ -840,7 +1015,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
-                env_release(iter_env);
+                frame_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
@@ -850,13 +1025,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
-                env_release(iter_env);
+                frame_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
-                env_release(iter_env);
+                frame_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
@@ -864,7 +1039,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
-        if (iter_env) env_release(iter_env);
+        if (iter_env) frame_release(iter_env);
         arr->iter_lock--;
 
         east_value_release(arr);
@@ -912,7 +1087,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
-                env_release(iter_env);
+                frame_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
@@ -922,13 +1097,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
-                env_release(iter_env);
+                frame_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
-                env_release(iter_env);
+                frame_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
@@ -936,7 +1111,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
-        if (iter_env) env_release(iter_env);
+        if (iter_env) frame_release(iter_env);
         set->iter_lock--;
 
         east_value_release(set);
@@ -986,7 +1161,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
-                env_release(iter_env);
+                frame_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
@@ -996,13 +1171,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
-                env_release(iter_env);
+                frame_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
-                env_release(iter_env);
+                frame_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
@@ -1010,7 +1185,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
-        if (iter_env) env_release(iter_env);
+        if (iter_env) frame_release(iter_env);
         dict->iter_lock--;
 
         east_value_release(dict);
@@ -1024,10 +1199,15 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastCompiledFn *fn = east_calloc(1, sizeof(EastCompiledFn));
         if (!fn) return eval_error_at(node, "out of memory");
 
-        /* Share the enclosing environment for captured variables.
-         * Mutable captures must see modifications from both sides. */
-        fn->captures = env;
-        env_retain(env);
+        /* Share the enclosing environment for captured variables — mutable
+         * captures must see modifications from both sides. A closed function
+         * (the resolver's mark: its body reads nothing it does not bind)
+         * shares none, so bound in the frame it was made in it does not hold
+         * the frame that holds it (#1002). */
+        if (!node->data.function.closed) {
+            fn->captures = env;
+            env_retain(env);
+        }
 
         /* Store parameter names */
         fn->num_params = node->data.function.num_params;
@@ -1132,7 +1312,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             EvalResult body_res = eval_ir(fnode->data.function.body, call_env, platform, builtins);
             prof_exit();
 
-            env_release(call_env);
+            frame_release(call_env);
             for (size_t i = 0; i < nargs; i++)
                 east_value_release(args[i]);
             if (heap_args) free(args);
@@ -1259,7 +1439,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult body_res = eval_ir(cfn->ir, call_env, cfn->platform, cfn->builtins);
         prof_exit();
 
-        env_release(call_env);
+        frame_release(call_env);
 
         /* Clean up args */
         for (size_t i = 0; i < nargs; i++)
@@ -1548,7 +1728,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             eval_result_free(&try_res);
 
             result = eval_ir(node->data.try_catch.catch_body, catch_env, platform, builtins);
-            env_release(catch_env);
+            frame_release(catch_env);
         } else {
             result = try_res;
         }
@@ -2250,7 +2430,7 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
     prof_enter(fn->ir, fn->name, fn->loc_id, 0);
     EvalResult result = eval_ir(fn->ir, call_env, fn->platform, fn->builtins);
     prof_exit();
-    env_release(call_env);
+    frame_release(call_env);
 
     /* If body returned via IR_RETURN, unwrap to EVAL_OK */
     if (result.status == EVAL_RETURN) {

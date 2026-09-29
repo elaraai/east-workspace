@@ -24,7 +24,11 @@
  *      shadow memory dominates RSS;
  *   3. manifests — a manifest-rooted input, as e3 stages one, pages over its
  *      directory's segment files: one segment decoded for a keyed read, and
- *      the lazy threshold weighing the segments, not the manifest's file.
+ *      the lazy threshold weighing the segments, not the manifest's file;
+ *   4. exec — a run unit over that input, the protocol e3 runs a task
+ *      through and the only form whose stderr reaches its log, gives the
+ *      account `run -v` gives: the input and what it weighs, that it opened
+ *      lazily, and what reading it came to.
  *
  * The errors a lazily opened input raises — a write to it, a write through a
  * read-out element, a keyed read of a corrupt blob — are runner protocol
@@ -327,6 +331,52 @@ static void remove_manifest_dir(const char *path)
     remove(path);
 }
 
+/* Writes a run unit — `program` on `input`, its value output and its result at
+ * the paths given, as e3 stages one — to `path`. */
+static bool write_run_unit(const char *path, const char *program, const char *input,
+                           const char *output, const char *result)
+{
+    EastType *unit_t = east_unit_type();
+    EastType *work_t = unit_t->data.struct_.fields[0].type;
+    EastType *run_t = work_t->data.variant.cases[east_variant_type_case_idx(work_t, "run")].type;
+    EastType *output_t = run_t->data.struct_.fields[2].type;
+    EastValue *inputs = east_array_new(&east_string_type);
+    EastValue *in = east_string(input);
+    east_array_push(inputs, in);
+    east_value_release(in);
+    EastValue *out = east_string(output);
+    EastValue *run_fields[3] = {east_string(program), inputs,
+                                east_variant_new("value", out, output_t)};
+    east_value_release(out);
+    EastValue *run = east_struct_new_owned((const char *[]){"program", "inputs", "output"},
+                                           run_fields, 3, run_t);
+    EastValue *unit_fields[4] = {east_variant_new("run", run, work_t),
+                                 east_array_new(&east_string_type), east_integer(1),
+                                 east_string(result)};
+    east_value_release(run);
+    EastValue *unit = east_struct_new_owned(
+        (const char *[]){"work", "platforms", "threads", "result"}, unit_fields, 4, unit_t);
+    ByteBuffer *bytes = unit ? east_beast2_encode_full(unit, unit_t) : NULL;
+    if (unit) east_value_release(unit);
+    FILE *f = bytes ? fopen(path, "wb") : NULL;
+    bool ok = f && fwrite(bytes->data, 1, bytes->len, f) == bytes->len;
+    if (f) ok = fclose(f) == 0 && ok;
+    if (bytes) byte_buffer_free(bytes);
+    return ok;
+}
+
+/* Whether the -v account weighs input 0, `path`, in megabytes — the
+ * collection its manifest names — rather than the manifest's few kilobytes. */
+static bool input_weighed_in_mb(const char *err, const char *path)
+{
+    char line[1100];
+    snprintf(line, sizeof(line), "input 0: %s  (", path);
+    const char *at = strstr(err, line);
+    if (!at) return false;
+    const char *close = strchr(at + strlen(line), ')');
+    return close && close - 2 >= at && strncmp(close - 2, "MB", 2) == 0;
+}
+
 /* A manifest-rooted input — how e3 stages a collection input for a runner
  * that opens manifests — pages over its directory's segment files: a keyed
  * read decodes one segment, the lazy threshold weighs the segments rather
@@ -357,8 +407,43 @@ static void test_paged_manifest(const char *bin, const char *fixtures)
         CHECK(!accounted || (segments >= 8 && decoded == 1),
               "a keyed read of the manifest decoded %zu of %zu segments (expected 1)", decoded,
               segments);
+        CHECK(input_weighed_in_mb(err, table),
+              "the manifest input is not weighed by its segments:\n%s", err);
         free(err);
     }
+
+    /* exec -v gives the same account for the same read, run as a unit. */
+    const char *unit = "manifest_unit.beast2";
+    char program[1024];
+    snprintf(program, sizeof(program), "%s/paged_has.beast2", fixtures);
+    CHECK(write_run_unit(unit, program, table, "manifest_exec_out.beast2",
+                         "manifest_exec_result.beast2"),
+          "the unit was not written");
+    snprintf(cmd, sizeof(cmd), LAZY_ENV "\"%s\" exec \"%s\" -v", bin, unit);
+    rc = run_cli(cmd, "manifest_out.txt", "manifest_err.txt");
+    CHECK(rc == 0, "manifest exec (lazy): expected exit 0, got %d", rc);
+    err = read_text("manifest_err.txt");
+    if (err) {
+        CHECK(strstr(err, "input 0: opened lazily") != NULL,
+              "exec -v does not say the input opened lazily:\n%s", err);
+        size_t decoded = 0, segments = 0, fences = 0;
+        bool accounted = parse_paging_account(err, &decoded, &segments, &fences);
+        CHECK(accounted && segments >= 8 && decoded == 1,
+              "exec -v does not report the keyed read's paging account:\n%s", err);
+        CHECK(input_weighed_in_mb(err, table),
+              "exec -v does not weigh the input by its segments:\n%s", err);
+        free(err);
+    }
+    snprintf(cmd, sizeof(cmd), LAZY_ENV "\"%s\" exec \"%s\"", bin, unit);
+    rc = run_cli(cmd, "manifest_out.txt", "manifest_err.txt");
+    CHECK(rc == 0, "manifest exec (quiet): expected exit 0, got %d", rc);
+    err = read_text("manifest_err.txt");
+    CHECK(err && strstr(err, "input 0:") == NULL, "exec without -v reports its inputs:\n%s",
+          err ? err : "");
+    free(err);
+    remove(unit);
+    remove("manifest_exec_out.beast2");
+    remove("manifest_exec_result.beast2");
 
     /* 1 MiB: far above the manifest file, far below its segments. */
 #ifdef _WIN32

@@ -89,7 +89,7 @@ Emission order is free: the platform sorts sets and dicts. A producer is a `stre
 **`e3.partition(dataset, { by })`** marks an input the work may be split over:
 - The body receives one piece, typed as the whole dataset. Pieces are content-defined ranges: key ranges of a Set or Dict, position ranges of an Array (§3.7).
 - `by` names leading key fields — `['account']`, or `['a.b']` for a first-field path. Rows with equal values of those fields are never split across pieces. It is data, validated against the key type at definition.
-- Two or more partitioned inputs are cut at the same keys. They must be Sets or Dicts whose keys, or whose `by` fields, have the same types.
+- Two or more partitioned inputs are cut at the same keys: the keys the one that weighs the most in the store is cut at, whatever the order they are listed in. They must be Sets or Dicts whose keys, or whose `by` fields, have the same types.
 - Unmarked inputs reach every piece whole, opened lazily when large. A change to one re-runs every piece.
 - With no partitioned input, the task is one unit with exact left-to-right semantics.
 
@@ -250,6 +250,7 @@ Every task execution is a **unit graph**, built by one engine (`execution/engine
 
 1. **Plan.** With no partitioned input, the graph is one `run` unit. Otherwise it is cut into pieces (`execution/pieces.ts`):
    - **The piece rule.** Boundaries fall at segment fences chosen by a content-defined rule over the primary input's manifest.
+     - The primary is the partitioned input that weighs the most in the store, the first listed of those that weigh the same. So the pieces do not depend on the order the inputs are listed in, and the task's log names the input they were cut over.
      - Its segments are walked in order, with `b` the stored bytes of the open piece.
      - A segment closes the piece after it when `b` reaches 256 MiB, or when `b` is at least 16 MiB and the first 32 bits of the segment's SHA-256, the hash the store names it by, fall under `2^32 × s / D`.
      - Here `s` is the segment's stored bytes, and `D` is 256 MiB until the piece holds 64 MiB and 16 MiB after, so most pieces hold 64 to 100 MiB.

@@ -2,13 +2,14 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""``run``'s lazy inputs, and ``exec``'s stdin lifeline.
+"""``run``'s lazy inputs, and ``exec``'s account of them and its stdin lifeline.
 
 The fixtures in ``tests/fixtures`` are generated from the TypeScript side by
 ``libs/east-c/packages/east-c-cli/tests/generate_fixtures.mjs`` and shared
 with east-c's CLI gates. ``run`` opens an indexed collection input lazily at
 or above ``EAST_LAZY_INPUT_BYTES``, and its verbose account says what paging
-came to; ``exec --exit-with-parent`` exits once its stdin pipe closes (#770).
+came to, as ``exec -v``'s does (#1004); ``exec --exit-with-parent`` exits
+once its stdin pipe closes (#770).
 The errors a lazily opened input raises are runner protocol corpus cases
 (test_exec_corpus.py).
 """
@@ -110,6 +111,8 @@ def test_a_manifest_input_pages_over_its_directory(tmp_path, monkeypatch, capsys
 
     lazy = run("1")
     assert "input 0: opened lazily" in lazy
+    assert re.search(rf"  input 0: {re.escape(str(table))}  \([\d.]+ MB\)", lazy), \
+        f"the manifest input is not weighed by its segments:\n{lazy}"
     account = re.search(r"input 0: (\d+) of (\d+) segments decoded", lazy)
     assert account is not None, lazy
     decoded, segments = (int(g) for g in account.groups())
@@ -139,6 +142,41 @@ def test_a_nested_input_opens_lazily_and_frozen(tmp_path, monkeypatch, capsys):
         with pytest.raises(EastError, match="cannot mutate a frozen value"):
             run_program(FIXTURES / "paged_nested_mutate.beast2", [], [], [source], verbose=True)
         assert "input 0: opened lazily" in capsys.readouterr().err, source
+
+
+def test_exec_verbose_gives_the_account_of_each_input(tmp_path):
+    # exec is the protocol e3 runs a task through, and the only form whose
+    # stderr reaches its log: -v gives the account `run -v` gives (#1004) —
+    # the input and what it weighs, which is the collection its manifest
+    # names rather than the manifest's own few kilobytes, that it opened
+    # lazily, and what reading it came to. The unit's paths are relative: it
+    # runs beside the program and the input it names.
+    for name in ("paged_has_unit.beast2", "paged_has.beast2"):
+        shutil.copy(FIXTURES / name, tmp_path / name)
+    table = tmp_path / "paged_has_table.beast2"
+    with Beast2ManifestWriter(INT_STR_DICT, table, codec="none") as writer:
+        writer.add_all(EastDict(IntegerType, StringType,
+                                {i: f"row-{i}-" + chr(97 + i % 26) * 190 for i in range(80_000)}))
+
+    def exec_unit(*flags: str) -> str:
+        proc = subprocess.run(
+            [sys.executable, "-m", "east_py_cli", "exec", str(tmp_path / "paged_has_unit.beast2"),
+             *flags],
+            env={**os.environ, "EAST_LAZY_INPUT_BYTES": "1"}, capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return proc.stderr
+
+    verbose = exec_unit("-v")
+    assert re.search(rf"  input 0: {re.escape(str(table))}  \([\d.]+ MB\)", verbose), \
+        f"the input is not weighed by the collection its manifest names:\n{verbose}"
+    assert "input 0: opened lazily — mapped from the file" in verbose
+    account = re.search(r"input 0: (\d+) of (\d+) segments decoded", verbose)
+    assert account is not None, verbose
+    decoded, segments = (int(g) for g in account.groups())
+    assert segments >= 8
+    assert decoded == 1, f"a keyed read decoded {decoded} of {segments} segments"
+    assert "input 0:" not in exec_unit(), "without -v the inputs are not reported"
 
 
 def test_a_runner_given_the_stdin_lifeline_exits_once_stdin_closes(tmp_path):

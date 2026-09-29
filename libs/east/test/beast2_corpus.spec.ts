@@ -257,6 +257,27 @@ const values: { name: string; type: EastType; value: unknown }[] = [
     },
 ];
 
+/** How a run folds a key's values, stated as the rule rather than the
+ *  sorter's stack: the values split into blocks of the powers of two in their
+ *  count, largest first; each block folds as a perfect binary tree; the blocks
+ *  fold right to left. One value is itself. */
+function foldAsARun<V>(values: readonly V[], merge: (older: V, newer: V) => V): V {
+    const tree = (lo: number, n: number): V => n === 1 ? values[lo]! : merge(tree(lo, n / 2), tree(lo + n / 2, n / 2));
+    const blocks: V[] = [];
+    let lo = 0;
+    let size = 1;
+    while (size * 2 <= values.length) size *= 2;
+    for (; size >= 1; size /= 2) {
+        if (values.length - lo >= size) {
+            blocks.push(tree(lo, size));
+            lo += size;
+        }
+    }
+    let acc: V = blocks.pop()!;
+    while (blocks.length > 0) acc = merge(blocks.pop()!, acc);
+    return acc;
+}
+
 /** The segments the Writer cuts a collection's elements into, as a re-cut
  *  takes them: by reference, never read unless a seam needs it. */
 function segmentRefsOf(type: EastType, elements: readonly unknown[]): Beast2SegmentRef[] {
@@ -529,20 +550,25 @@ describe("beast2 conformance corpus", () => {
                 }
                 sorter.finish();
 
-                // The oracle: each run the fold of its share of the elements,
-                // in emission order, and the whole those runs folded in order.
+                // The oracle: each run its share of the elements, a key's
+                // values folded as a run folds them, in emission order; and
+                // the whole those runs folded in order.
                 const cmp = compareFor(segmentKeyTypeOf(c.type)!);
                 const total = dict ? new SortedMap<unknown, unknown>(undefined, cmp) : new SortedSet<unknown>(undefined, cmp);
                 const expected: Uint8Array[] = [];
                 for (let start = 0; start < c.elements.length; start += RUN_MAX_COUNT) {
-                    const run = dict ? new SortedMap<unknown, unknown>(undefined, cmp) : new SortedSet<unknown>(undefined, cmp);
-                    for (const element of c.elements.slice(start, start + RUN_MAX_COUNT)) {
-                        if (run instanceof SortedMap) {
-                            const { key, value } = element as { key: unknown; value: unknown };
-                            run.set(key, run.has(key) ? apply!(key, run.get(key), value) : value);
-                        } else {
-                            run.add(element);
+                    const share = c.elements.slice(start, start + RUN_MAX_COUNT);
+                    let run: SortedMap<unknown, unknown> | SortedSet<unknown>;
+                    if (dict) {
+                        const added = new SortedMap<unknown, unknown[]>(undefined, cmp);
+                        for (const { key, value } of share as { key: unknown; value: unknown }[]) {
+                            const values = added.get(key);
+                            if (values === undefined) added.set(key, [value]);
+                            else values.push(value);
                         }
+                        run = new SortedMap([...added].map(([key, values]) => [key, foldAsARun(values, (older, newer) => apply!(key, older, newer))] as [unknown, unknown]), cmp);
+                    } else {
+                        run = new SortedSet(share, cmp);
                     }
                     expected.push(encodeBeast2PagedFor(c.type)(run as never));
                     if (run instanceof SortedMap && total instanceof SortedMap) {

@@ -2,9 +2,10 @@
  * Sorted runs, pinned across runtimes.
  *
  * Each run is the canonical blob of its sorted, folded value; a key's values
- * fold in the order they were added; a run closes at the element cap or the
- * byte cap; and the runs a pinned sequence of elements closes are the runs
- * TypeScript closes for it (`east/src/serialization/beast2/v5/runs.spec.ts`),
+ * fold pairwise in the order they were added, grouped as TypeScript groups
+ * them; a run closes at the element cap or the byte cap; and the runs a
+ * pinned sequence of elements closes are the runs TypeScript closes for it
+ * (`east/src/serialization/beast2/v5/runs.spec.ts`),
  * compared by a digest of every run's bytes. Merging the runs back is the
  * canonical blob of the whole value. Run under ASan/LSan for the sorter's
  * lifetimes, its error paths included.
@@ -139,6 +140,22 @@ static EvalResult concat_invoke(EastCompiledFn *self, EastValue **args, size_t n
     return eval_ok(v);
 }
 
+/* "(" older newer ")" — shows how a fold grouped its values. */
+static EvalResult bracket_invoke(EastCompiledFn *self, EastValue **args, size_t n)
+{
+    (void)self;
+    if (n != 3) return eval_error("bracket: wrong arity");
+    size_t la = args[1]->data.string.len, lb = args[2]->data.string.len;
+    char *joined = malloc(la + lb + 2);
+    joined[0] = '(';
+    memcpy(joined + 1, args[1]->data.string.data, la);
+    memcpy(joined + 1 + la, args[2]->data.string.data, lb);
+    joined[la + lb + 1] = ')';
+    EastValue *v = east_string_len(joined, la + lb + 2);
+    free(joined);
+    return eval_ok(v);
+}
+
 /* A foreign `(K, V, V) -> V`. */
 static EastValue *fold_fn(EastInvokeFn invoke, EastType *key, EastType *value)
 {
@@ -225,6 +242,33 @@ static void test_fold_order(void)
     }
     runs_free(&r);
     east_value_release(concat);
+    east_type_release(type);
+}
+
+/* Four or more of a key's values fold pairwise, in order: the grouping
+ * TypeScript's runs.spec.ts pins with the same string, since for a fold over
+ * floats it decides the bytes. */
+static void test_fold_pairwise(void)
+{
+    EastType *type = east_dict_type(&east_string_type, &east_string_type);
+    EastValue *bracket = fold_fn(bracket_invoke, &east_string_type, &east_string_type);
+    Runs r;
+    Beast2RunSorter *s = sorter_new(&r, type, EAST_BEAST2_CODEC_DEFLATE, bracket, false);
+    const char *values[7] = {"a", "b", "c", "d", "e", "f", "g"};
+    bool ok = s != NULL;
+    for (int i = 0; ok && i < 7; i++)
+        ok = add_pair_ss(s, "k", values[i]);
+    ok = s && sorter_finish(s, &r) && ok;
+    EastValue *run =
+        ok && r.n == 1 ? east_beast2_decode_full(r.runs[0]->data, r.runs[0]->len, type) : NULL;
+    EastValue *k = east_string("k");
+    EastValue *v = run ? east_dict_get(run, k) : NULL;
+    CHECK(v && strcmp(v->data.string.data, "(((ab)(cd))((ef)g))") == 0, "seven values folded to %s",
+          v ? v->data.string.data : "?");
+    east_value_release(k);
+    if (run) east_value_release(run);
+    runs_free(&r);
+    east_value_release(bracket);
     east_type_release(type);
 }
 
@@ -591,6 +635,7 @@ int main(void)
 
     test_run_is_canonical();
     test_fold_order();
+    test_fold_pairwise();
     test_union_and_duplicates();
     test_count_cap();
     test_byte_cap();

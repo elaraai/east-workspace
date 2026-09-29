@@ -7,7 +7,9 @@
  * The pieces of a task whose work is split over its inputs.
  *
  * A stream task marks each input its work may be split over with
- * `e3.partition`, and the first one marked is the primary. A piece is a run of
+ * `e3.partition`, and the one that weighs the most in the store is the primary
+ * — the first listed of those that weigh the same — so the pieces do not
+ * depend on the order the inputs are listed in. A piece is a run of
  * whole segments of the primary, closed by a rule over the primary's manifest
  * ({@link pieceBoundaries}) that looks only at the segments around a boundary,
  * so an insertion moves only the pieces around it. A boundary moves forward to
@@ -165,23 +167,39 @@ function cutOf(keyType: EastTypeValue, by: readonly string[], where: string): Cu
   };
 }
 
+/** The pieces of a task, and the input they were cut over. */
+export interface PiecePlan {
+  /** Each piece's input hashes, in piece order: an unmarked input as it is,
+   *  and each partitioned input's piece of it. A single piece's are the
+   *  task's input hashes themselves. */
+  readonly pieces: string[][];
+  /** The input the pieces were cut over, by its position in the task's
+   *  inputs: the partitioned input that weighs the most. */
+  readonly primary: number;
+  /** What the primary weighs in the store, in bytes: its segments and its
+   *  manifest. */
+  readonly primaryBytes: number;
+}
+
 /**
  * Plans the pieces of a task whose work is split over its inputs, and stores
  * each piece's inputs.
  *
  * @remarks
- * The primary's pieces are runs of the segments its manifest names. Nothing is
- * decoded but a segment where a `by` group or another input's split has to be
- * found.
+ * The primary is the partitioned input that weighs the most in the store, the
+ * first listed of those that weigh the same, and every other partitioned input
+ * is cut at the keys its pieces start at. So the pieces do not depend on the
+ * order the inputs are listed in, and a small input listed first no longer
+ * carries a large one whole into its few pieces. The primary's pieces are runs
+ * of the segments its manifest names. Nothing is decoded but a segment where a
+ * `by` group or another input's split has to be found.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param inputs - The task's inputs, as its task object lists them
  * @param inputHashes - The input hashes, in the same order
  * @param sizes - The piece sizes
- * @returns Each piece's input hashes, in piece order: an unmarked input as it
- *   is, and each partitioned input's piece of it. A single piece's are
- *   `inputHashes` themselves.
+ * @returns The pieces, and the input they were cut over
  * @throws {Error} When no input is partitioned, a partitioned input is not a
  *   stored collection, co-partitioned inputs are not all Sets or Dicts cut by
  *   fields of the same types, or a read fails.
@@ -192,23 +210,28 @@ export async function planPieces(
   inputs: readonly TaskInput[],
   inputHashes: readonly string[],
   sizes: PieceSizes,
-): Promise<string[][]> {
+): Promise<PiecePlan> {
   if (inputs.length !== inputHashes.length) {
     throw new Error(`the task reads ${inputs.length} inputs, and ${inputHashes.length} were given`);
   }
   const marked = inputs.flatMap((input, index) => input.partition.type === 'some' ? [{ index, by: input.partition.value.by }] : []);
   if (marked.length === 0) throw new Error('no input is partitioned');
 
-  const open = async (index: number): Promise<DatasetSegments> => {
-    try {
-      return await DatasetSegments.open(storage, repo, inputHashes[index]!);
-    } catch (err) {
+  // Every partitioned input's manifest says what it weighs, so each is opened —
+  // all at once — before the primary is chosen. Of those that cannot be, the
+  // first listed is named, whichever read fails first.
+  const opened = await Promise.allSettled(marked.map(({ index }) => DatasetSegments.open(storage, repo, inputHashes[index]!)));
+  const partitioned = marked.map(({ index, by }, i) => {
+    const open = opened[i]!;
+    if (open.status === 'rejected') {
+      const err: unknown = open.reason;
       throw new Error(`partitioned input ${index + 1} is not a stored collection: ${err instanceof Error ? err.message : String(err)}`);
     }
-  };
-
-  const first = marked[0]!;
-  const segments = await open(first.index);
+    return { index, by, input: open.value };
+  });
+  const first = partitioned.reduce((heaviest, next) => (next.input.bytes > heaviest.input.bytes ? next : heaviest));
+  const segments = first.input;
+  const plan = (pieces: string[][]): PiecePlan => ({ pieces, primary: first.index, primaryBytes: segments.bytes });
   const typeValue = segments.typeValue;
   const primary = segments.hash;
   const count = segments.segmentCount;
@@ -243,7 +266,7 @@ export async function planPieces(
     return s + 1 < count ? { seg: s + 1, offset: 0 } : null;
   };
   const starts = await pieceBoundaries(segments.manifest.entries, sizes, groupEnd);
-  if (starts.length === 1) return [[...inputHashes]];
+  if (starts.length === 1) return plan([[...inputHashes]]);
   const end: SplitPoint = { seg: count, offset: 0 };
 
   // Every other partitioned input splits where the primary's pieces start: at
@@ -264,8 +287,8 @@ export async function planPieces(
       }
       bounds.push(cut!.project(key));
     }
-    for (const { index, by } of marked.slice(1)) {
-      const input = await open(index);
+    for (const { index, by, input } of partitioned) {
+      if (index === first.index) continue;
       const inputKey = segmentKeyTypeOf(input.typeValue);
       if (inputKey === null) {
         throw new Error(`partitioned input ${index + 1} is an Array, cut by position, and inputs partitioned together are cut at the same keys`);
@@ -349,5 +372,5 @@ export async function planPieces(
     }
     pieces.push(piece);
   }
-  return pieces;
+  return plan(pieces);
 }

@@ -430,6 +430,59 @@ static EastValue *load_input_value(const char *path, EastType *type, size_t thre
     return val;
 }
 
+/* What input `path` weighs, for the -v account: a manifest's own file is a
+ * few dozen bytes per segment, so a manifest counts the segments it names —
+ * the weight the lazy threshold is taken against. */
+static void format_input_size(const char *path, char *buf, size_t buflen)
+{
+    size_t len = 0;
+    void *map_ctx = NULL;
+    uint8_t *data = detect_format(path) == FMT_BEAST2 ? map_input_file(path, &len, &map_ctx) : NULL;
+    EastValue *manifest = NULL;
+    int found = data ? east_beast2_read_manifest(data, len, &manifest) : 0;
+    if (found == 1) {
+        format_size((off_t)(len + manifest_segment_bytes(manifest)), buf, buflen);
+        east_value_release(manifest);
+    } else {
+        if (found == -1) free(east_builtin_get_error());
+        format_file_size(path, buf, buflen);
+    }
+    if (data) input_release_mapping(map_ctx, data, len);
+}
+
+/* The -v account of input `i` before it is read: its file, what it weighs,
+ * and the type it is read as. `run -v` and `exec -v` print it alike, so a
+ * task's log carries it. */
+static void report_input(size_t i, const char *path, EastType *type)
+{
+    char size[32];
+    format_input_size(path, size, sizeof(size));
+    char *printed = format_type(type);
+    fprintf(stderr, "  input %zu: %s  (%s)\n    %s\n", i, path, size, printed ? printed : "?");
+    free(printed);
+}
+
+/* The -v account of an input that opened lazily. */
+static void report_input_lazy(size_t i)
+{
+    fprintf(stderr, "  input %zu: opened lazily — mapped from the file\n", i);
+}
+
+/* The -v account of what reading a lazily opened input came to — the account
+ * residency cannot give on a mapping, where the kernel decides how much of a
+ * touched file is resident. Nothing for an input read whole. */
+static void report_input_reads(size_t i, EastValue *input)
+{
+    size_t segments = 0, decoded = 0, fences = 0;
+    bool hydrated = false;
+    if (!east_paged_stats(input, &segments, &decoded, &fences, &hydrated)) return;
+    if (hydrated)
+        fprintf(stderr, "  input %zu: decoded whole (an operation the pager cannot serve)\n", i);
+    else
+        fprintf(stderr, "  input %zu: %zu of %zu segments decoded, %zu fences probed\n", i, decoded,
+                segments, fences);
+}
+
 static int save_value(const char *path, EastValue *value, EastType *type)
 {
     FileFormat fmt = detect_format(path);
@@ -721,16 +774,13 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         fprintf(stderr, "Function: %zu inputs, %s\n", num_params,
                 ir->kind == IR_ASYNC_FUNCTION ? "async" : "sync");
         for (size_t i = 0; i < num_params; i++) {
-            char *ts = format_type(param_types[i]);
             if (i < (size_t)num_inputs && input_files[i]) {
-                char sz[32];
-                format_file_size(input_files[i], sz, sizeof(sz));
-                fprintf(stderr, "  input %zu: %s  (%s)\n", i, input_files[i], sz);
-                fprintf(stderr, "    %s\n", ts ? ts : "?");
+                report_input(i, input_files[i], param_types[i]);
             } else {
+                char *ts = format_type(param_types[i]);
                 fprintf(stderr, "  input %zu:\n    %s\n", i, ts ? ts : "?");
+                free(ts);
             }
-            free(ts);
         }
         char *rs = format_type(return_type);
         fprintf(stderr, "  return:\n    %s\n", rs ? rs : "?");
@@ -756,16 +806,12 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     size_t num_args = (size_t)num_inputs;
     size_t threshold = lazy_input_threshold();
     EastValue **args = NULL;
-    bool *lazy_inputs = num_inputs > 0 ? calloc((size_t)num_inputs, sizeof(bool)) : NULL;
     if (num_args > 0) {
         args = calloc(num_args, sizeof(EastValue *));
         for (int i = 0; i < num_inputs; i++) {
             bool mapped = false;
             args[i] = load_input_value(input_files[i], param_types[i], threshold, &mapped);
-            if (lazy_inputs) lazy_inputs[i] = mapped;
-            if (verbose && mapped) {
-                fprintf(stderr, "  input %d: opened lazily — mapped from the file\n", i);
-            }
+            if (verbose && mapped) report_input_lazy((size_t)i);
             if (!args[i]) {
                 char *ts = format_type(param_types[i]);
                 fprintf(stderr, "Error: Failed to parse input %d (%s) as %s\n", i, input_files[i],
@@ -774,7 +820,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                 for (int j = 0; j < i; j++)
                     east_value_release(args[j]);
                 free(args);
-                free(lazy_inputs);
                 ir_node_release(ir);
                 east_source_map_release(decoded_source_map);
                 platform_registry_free(platform);
@@ -800,7 +845,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         for (size_t i = 0; i < num_args; i++)
             east_value_release(args[i]);
         free(args);
-        free(lazy_inputs);
         /* The map never reached a compiled function: stop it being the
          * current one, then drop it. */
         east_set_source_map(NULL);
@@ -867,24 +911,10 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
 
     clock_gettime(CLOCK_MONOTONIC, &t4);
 
-    /* What each lazy input's reads came to — the account residency cannot
-     * give on a mapping, where the kernel decides how much of a touched
-     * file is resident. */
-    if (verbose && lazy_inputs) {
-        for (int i = 0; i < num_inputs; i++) {
-            size_t segments = 0, decoded = 0, fences = 0;
-            bool hydrated = false;
-            if (!lazy_inputs[i] ||
-                !east_paged_stats(args[i], &segments, &decoded, &fences, &hydrated))
-                continue;
-            if (hydrated) {
-                fprintf(stderr, "  input %d: decoded whole (an operation the pager cannot serve)\n",
-                        i);
-            } else {
-                fprintf(stderr, "  input %d: %zu of %zu segments decoded, %zu fences probed\n", i,
-                        decoded, segments, fences);
-            }
-        }
+    /* What reading each lazy input came to. */
+    if (verbose) {
+        for (size_t i = 0; i < num_args; i++)
+            report_input_reads(i, args[i]);
     }
 
     /* The profile resolves its sites through the map the compiled function
@@ -901,7 +931,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     for (size_t i = 0; i < num_args; i++)
         east_value_release(args[i]);
     free(args);
-    free(lazy_inputs);
     ir_node_release(ir);
     platform_registry_free(platform);
     builtin_registry_free(builtins);
@@ -1019,8 +1048,10 @@ static bool exec_function(const char *path, PlatformRegistry *platform, BuiltinR
 }
 
 /* A run unit: the program evaluated on its inputs, its output written by
- * kind. */
-static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
+ * kind. `verbose` gives the account of each input `run -v` gives — its file,
+ * how it opened, and what reading it came to — which is what reaches a
+ * task's log. */
+static EvalResult exec_run(const EastUnit *unit, ExecClock *clock, bool verbose)
 {
     BuiltinRegistry *builtins = NULL;
     PlatformRegistry *platform = NULL;
@@ -1081,8 +1112,17 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
     /* The inputs, frozen; one at or above the lazy threshold opens as a paged
      * value, weighed by the value it holds. */
     size_t threshold = lazy_input_threshold();
+    if (verbose && r.status != EVAL_ERROR) {
+        char size[32];
+        format_file_size(unit->program, size, sizeof(size));
+        fprintf(stderr, "Running: %s  (%s)\n", unit->program, size);
+        for (size_t i = 0; i < file_params; i++)
+            report_input(i, unit->inputs[i], param_types[i]);
+    }
     for (size_t i = 0; r.status != EVAL_ERROR && i < file_params; i++) {
-        args[i] = load_input_value(unit->inputs[i], param_types[i], threshold, NULL);
+        bool mapped = false;
+        args[i] = load_input_value(unit->inputs[i], param_types[i], threshold, &mapped);
+        if (verbose && mapped) report_input_lazy(i);
         if (!args[i]) {
             char *ts = format_type(param_types[i]);
             snprintf(msg, sizeof(msg), "exec: input %zu (%s) cannot be read as %s", i,
@@ -1130,6 +1170,12 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
             eval_result_free(&r);
             r = ok ? eval_ok(east_null()) : exec_error("exec: the output cannot be written");
             exec_lap(clock, &clock->output);
+        }
+        /* What reading each lazy input came to, the output's writing
+         * included — or up to the failure. */
+        if (verbose) {
+            for (size_t i = 0; i < file_params; i++)
+                report_input_reads(i, args[i]);
         }
     }
 
@@ -1271,7 +1317,7 @@ static int cmd_exec(const char *unit_path, bool verbose)
     clock_gettime(CLOCK_MONOTONIC, &clock.mark);
     EvalResult outcome = unit->intake  ? exec_intake(unit, &clock)
                          : unit->merge ? exec_merge(unit, &clock)
-                                       : exec_run(unit, &clock);
+                                       : exec_run(unit, &clock, verbose);
 
     bool ok = outcome.status != EVAL_ERROR;
     size_t num_locations = ok ? 0 : outcome.num_locations;

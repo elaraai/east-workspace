@@ -282,6 +282,16 @@ add_executable(test_value_layout tests/test_value_layout.c)
 target_link_libraries(test_value_layout east-c)
 add_test(NAME value_layout COMMAND test_value_layout)
 
+# Small collections gate (issue #1005): a Set or Dict of up to
+# EAST_SMALL_COLLECTION_MAX elements keeps them in its sorted arrays, not a
+# B-tree whose first leaf is allocated whole. Pins the representation, every
+# operation against a reference model across the move into a tree and back
+# after a clear, and the references each element holds. Run under ASan/LSan
+# (run_leak_check.sh's build-asan config): the small store owns its references.
+add_executable(test_small_collections tests/test_small_collections.c)
+target_link_libraries(test_small_collections east-c)
+add_test(NAME small_collections COMMAND test_small_collections)
+
 # GC pacing + pure-data untracking gate (issue #437): full collections must be
 # paced on old-generation growth (a fixed interval is quadratic while building
 # a large live structure — CPython bpo-4074), and containers whose type cannot
@@ -448,6 +458,18 @@ add_test(NAME scope_and_datetime COMMAND test_scope_and_datetime)
 add_executable(test_scope_resolution tests/test_scope_resolution.c)
 target_link_libraries(test_scope_resolution east-c)
 add_test(NAME scope_resolution COMMAND test_scope_resolution)
+
+# Closure-frame gate (#1002): a closure bound in the frame it was made in —
+# `$.const(East.function(...))`, the Let linkImports embeds an import under —
+# must not keep that frame alive once the body is done. A closed function
+# holds no frame, and a frame only its own closures hold goes when the
+# evaluator lets go of it. Each shape runs its body many times with
+# resolution on and off and must leave no tracked value behind; the closures
+# that escape their block must still read it. Run under ASan/LSan: unbinding
+# a frame a live closure reads is a use-after-free there.
+add_executable(test_closure_frames tests/test_closure_frames.c)
+target_link_libraries(test_closure_frames east-c)
+add_test(NAME closure_frames COMMAND test_closure_frames)
 
 # Field-read inline cache gate: a GetField node remembers the struct type it
 # last read and the field's index, so a value that borrows its names from

@@ -5,9 +5,9 @@
 
 /**
  * Sorted runs: each run is the canonical blob of its sorted, folded value, or
- * that value's manifest directory; a key's values fold in the order they were
- * added; a run closes at the element cap or the byte cap; and the runs a
- * pinned sequence of elements closes are the runs east-c closes for it.
+ * that value's manifest directory; a key's values fold pairwise in the order
+ * they were added; a run closes at the element cap or the byte cap; and the
+ * runs a pinned sequence of elements closes are the runs east-c closes for it.
  */
 
 import { describe, test } from "node:test";
@@ -68,6 +68,28 @@ describe("beast2 v5 sorted runs", () => {
       merge: (_key: string, acc: string, value: string) => acc + value,
     });
     assert.deepEqual([...decodeBeast2For(type)(run!)], [["j", "x"], ["k", "abc"]]);
+  });
+
+  test("folds four or more of a key's values pairwise, in order", () => {
+    // The grouping is a rule: east-c's `tests/test_beast2_runs.c` pins the
+    // same string, since for a fold over floats it decides the bytes.
+    const type = DictType(StringType, StringType);
+    const added = ["a", "b", "c", "d", "e", "f", "g"].map((v) => ["k", v] as [string, string]);
+    const [run] = sortInto(type, added, { merge: (_key: string, older: string, newer: string) => `(${older}${newer})` });
+    assert.deepEqual([...decodeBeast2For(type)(run!)], [["k", "(((ab)(cd))((ef)g))"]]);
+  });
+
+  test("copies each value O(log n) times through a merge that copies its operands", () => {
+    // A merge that builds a new value from both of its own copies what each
+    // holds; folded one value at a time that is O(n²) for a key's n values.
+    const type = DictType(StringType, ArrayType(IntegerType));
+    const n = 4_096;
+    let copied = 0;
+    const [run] = sortInto(type, Array.from({ length: n }, (_, i) => ["k", [BigInt(i)]] as [string, bigint[]]), {
+      merge: (_key: string, older: bigint[], newer: bigint[]) => { copied += older.length + newer.length; return [...older, ...newer]; },
+    });
+    assert.deepEqual(decodeBeast2For(type)(run!).get("k"), Array.from({ length: n }, (_, i) => BigInt(i)));
+    assert.equal(copied, n * Math.log2(n), "each of n values copied log2(n) times");
   });
 
   test("keeps a Set's repeated element once under union, and refuses it without", () => {

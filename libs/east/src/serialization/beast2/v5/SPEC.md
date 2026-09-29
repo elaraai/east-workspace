@@ -589,21 +589,26 @@ which east-py binds).
   settings.
 - **Sorting a run.** A run's elements sort by key in East order, and equal
   keys by the order they were added. A key added more than once then folds: a
-  Dict's values fold `acc = merge(key, acc, value)`, starting from the first
-  value added and in the order added, and the entry keeps the first key's
-  bytes; a Set's equal elements collapse to the first under union. Without a
-  fold, a repeated key is refused.
+  Dict's values fold pairwise in the order added, `merge(key, older, newer)` —
+  each value becomes the newest partial fold, and while the newest two
+  partials cover equally many values they fold into one; the partials left
+  then fold newest into oldest. So two or three values fold as
+  `acc = merge(key, acc, value)` from the first, and more group as a balanced
+  binary tree: a merge that copies its operands copies each value O(log n)
+  times rather than O(n). The entry keeps the first key's bytes; a Set's
+  equal elements collapse to the first under union. Without a fold, a
+  repeated key is refused.
 - **Writing a run.** A run is the canonical blob of its sorted, folded value —
   its elements cut by the segmentation rules, as any writer of that value
   writes them.
 - **Merging.** A merge reads sorted Set or Dict collections of one type,
   blobs or manifests, and writes the canonical blob of their union, or the
-  union as a manifest and its segments. A key
-  several inputs hold folds in input order, as within a run, and a merge over
-  a key range `[from, to)` merges just those keys. Merging a producer's runs
-  in run order folds every key's values in the order they were added, grouped
-  by run, so with an associative merge function the result is the value a
-  single run would have held.
+  union as a manifest and its segments. A key several inputs hold folds in
+  input order, `acc = merge(key, acc, value)`, and a merge over a key range
+  `[from, to)` merges just those keys. Merging a producer's runs in run order
+  folds every key's values in the order they were added, grouped by run, so
+  with an associative merge function the result is the value a single run
+  would have held.
 
 ## Re-cutting
 

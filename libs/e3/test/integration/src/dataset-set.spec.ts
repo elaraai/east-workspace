@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 
 import e3 from '@elaraai/e3';
 import { workspaceDeploy as workspaceDeployRemote } from '@elaraai/e3-api-client';
+import { formatSize } from '@elaraai/e3-cli/internal';
 import { createServer, type Server } from '@elaraai/e3-api-server';
 import {
   ArrayType,
@@ -199,6 +200,12 @@ describe('e3 dataset set', () => {
       assert.match(status.stdout, new RegExp(`Hash: +${stored.hash}`));
       assert.match(status.stdout, new RegExp(`Segments: ${stored.segments}\\b`));
       assert.match(status.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
+      // Its size is what the table weighs in the store — its segments and its
+      // manifest — not the manifest object's few dozen bytes a segment (#1007).
+      const manifestPath = join(repoDir, 'objects', stored.hash.slice(0, 2), `${stored.hash.slice(2)}.beast2`);
+      const segmentBytes = decodeCollectionManifest(readFileSync(manifestPath)).entries
+        .reduce((sum, entry) => sum + Number(entry.bytes), 0);
+      assert.match(status.stdout, new RegExp(`Size: +${formatSize(statSync(manifestPath).size + segmentBytes)}\\n`));
     });
 
     it('refuses a drifted delivery with the same message, writing nothing', async () => {

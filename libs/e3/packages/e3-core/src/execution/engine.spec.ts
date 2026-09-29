@@ -28,6 +28,7 @@ import { SplitTask, executeSplitTask } from './engine.js';
 import { processOwner } from './processHelpers.js';
 import { Budget } from './budget.js';
 import { executionReadLog, inputsHash } from '../executions.js';
+import { DatasetSegments } from '../dataset-open.js';
 import { uuidv7 } from '../uuid.js';
 import { datasetWrite } from '../trees.js';
 import { packageImport, packageRead } from '../packages.js';
@@ -81,10 +82,15 @@ describe('a task split into pieces', () => {
     return taskExecute(storage, repo, taskHash, inputHashes, options);
   }
 
-  /** The lines of a run's log naming its units. */
-  async function unitLines(taskHash: string, result: ExecutionResult): Promise<string[]> {
+  /** The lines of a run's log: the whole of it, with no blank lines. */
+  async function logLines(taskHash: string, result: ExecutionResult): Promise<string[]> {
     const log = await executionReadLog(storage, repo, taskHash, result.inputsHash, result.executionId, 'stdout');
     return log.data.split('\n').filter((line) => line !== '');
+  }
+
+  /** The lines of a run's log naming its units: all but the plan's. */
+  async function unitLines(taskHash: string, result: ExecutionResult): Promise<string[]> {
+    return (await logLines(taskHash, result)).filter((line) => !line.startsWith('plan '));
   }
 
   /** Asserts a run succeeded with the output the value path writes for `value`. */
@@ -256,6 +262,35 @@ describe('a task split into pieces', () => {
     await assertOutput(result, CountsType,
       new SortedMap(Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i) - (i % 3 === 0 && i < 7998 ? 1n : 0n)] as [bigint, bigint]), compareFor(IntegerType)));
     assert.ok((await unitLines(taskHash, result)).length > 4, 'the inputs ran as many pieces');
+  });
+
+  it('cuts co-partitioned inputs over the one that weighs the most, listed first or not, and names it in the log', async () => {
+    const refunds = e3.input('refunds', SalesType);
+    // The lighter input listed first, whose one piece would carry the heavier
+    // whole into one unit if the first listed were cut.
+    const taskHash = await deploy(e3.streamTask('net_lighter_first', {
+      inputs: [e3.partition(refunds), e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType),
+    }, ($, refunds, sales, emit) => {
+      $.for(sales, ($, amount, key) => {
+        $(emit(key, amount.subtract(refunds.get(key, ($, _key) => 0n))));
+      });
+    }));
+
+    const refunded = new SortedMap<bigint, bigint>(
+      Array.from({ length: 10 }, (_, i) => [BigInt(3 * i), 1n] as [bigint, bigint]), compareFor(IntegerType));
+    const result = await run(taskHash, [[SalesType, refunded], [SalesType, salesOf(8000)]]);
+    await assertOutput(result, CountsType,
+      new SortedMap(Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i) - (i % 3 === 0 && i < 30 ? 1n : 0n)] as [bigint, bigint]), compareFor(IntegerType)));
+    const lines = await logLines(taskHash, result);
+    const plan = lines.map((line) => /^plan pieces=(\d+) over=(\S+) bytes=(\d+)$/.exec(line)).find((match) => match !== null);
+    assert.ok(plan, `the log names the input the pieces were cut over:\n${lines.join('\n')}`);
+    assert.equal(plan[2], '.inputs.sales', 'the heavier input, listed second');
+    assert.equal(plan[3], String((await DatasetSegments.open(storage, repo, await datasetWrite(storage, repo, salesOf(8000), SalesType))).bytes),
+      'and what it weighs');
+    const pieces = (await unitLines(taskHash, result)).filter((line) => line.startsWith('piece '));
+    assert.ok(pieces.length > 4, `the heavier input ran as many pieces:\n${lines.join('\n')}`);
+    assert.equal(Number(plan[1]), pieces.length, 'as many as the plan names');
   });
 
   it('re-runs only the pieces an insertion touches', async () => {

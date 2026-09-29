@@ -285,8 +285,10 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
  * `by` names leading key fields, in order — `['account']`, or
  * `['account', 'at.day']`, whose last entry reads the first field of `at`. Two
  * or more partitioned inputs are cut at the same keys, so they must be Sets or
- * Dicts whose keys, or whose `by` fields, have the same types. {@link
- * streamTask} checks all of this against the dataset, naming the task.
+ * Dicts whose keys, or whose `by` fields, have the same types. Their pieces are
+ * cut over the one that weighs the most in the store, whatever the order they
+ * are listed in, and the task's log names it. {@link streamTask} checks all of
+ * this against the dataset, naming the task.
  *
  * @typeParam T - The dataset's East type
  * @param dataset - The dataset
