@@ -13,7 +13,7 @@ import { variant } from '@elaraai/east';
 import type { DeploySourceProgress } from '@elaraai/e3-core';
 import type { DeployProgress, IntakeFile, RecordDeployState } from '@elaraai/e3-types';
 import { createProgress, type ProgressStream, type StepHandle } from './progress.js';
-import { commitText, deployJobText, hashDelivery, intakeReporter } from './intake.js';
+import { commitText, deployJobText, hashDelivery, intakeReporter, uploadReporter } from './intake.js';
 
 function fakeStream(tty: boolean): ProgressStream & { chunks: string[] } {
   const chunks: string[] = [];
@@ -80,6 +80,52 @@ test('a failed intake ends its live line without a summary', () => {
   intake.report(event('inputs/a', { phase: 'hash', bytes: MB }));
   intake.fail();
   assert.strictEqual(stream.chunks.join('').includes('took in'), false);
+});
+
+test('uploads side by side: a line per file as it finishes, and a summary once the last is in', () => {
+  const stream = fakeStream(false);
+  let clock = 0;
+  const upload = uploadReporter(createProgress({ stream }), 2, 20 * MB, () => clock);
+  const a = upload.start('a', 10 * MB);
+  const b = upload.start('b', 10 * MB);
+  a.hashing(5 * MB);
+  b.sending();
+  clock = 1000;
+  b.done('uploaded ws.b (10.0 MB, 0123456789ab...)');
+  clock = 2000;
+  a.done('uploaded ws.a (10.0 MB, ba9876543210...)');
+  assert.deepStrictEqual(stream.chunks.join('').split('\n').filter(Boolean), [
+    'uploading 2 files (20.0 MB) …',
+    '✔ uploaded ws.b (10.0 MB, 0123456789ab...)',
+    '✔ uploaded ws.a (10.0 MB, ba9876543210...)',
+    '✔ uploaded 2 files, 20.0 MB in 2.0 s (10.0 MB/s)',
+  ]);
+});
+
+test('on a terminal, the upload line names the files in flight and what each is doing', () => {
+  const stream = fakeStream(true);
+  let clock = 0;
+  const upload = uploadReporter(createProgress({ stream }), 5, 50 * MB, () => clock);
+  const [a, b, c] = ['a', 'b', 'c', 'd'].map((name) => upload.start(name, 10 * MB));
+  clock = 1000;
+  a!.hashing(4 * MB);
+  b!.sending();
+  clock = 2000;
+  c!.committing({ path: 'inputs/c', step: variant('taking_in', { pieces: 4n, done: 1n }), bytes: BigInt(3 * MB), total: BigInt(10 * MB) });
+  upload.fail();
+  const out = stream.chunks.join('');
+  assert.ok(out.includes('uploading 0/5 files: a hashing 4.0 MB/10.0 MB, b sending 10.0 MB, c server taking in 3.0 MB/10.0 MB (1/4 pieces), 1 more'), out);
+});
+
+test('a failed upload ends the live line without a summary, and the uploads still in flight are no longer heard', () => {
+  const stream = fakeStream(false);
+  const upload = uploadReporter(createProgress({ stream }), 2, 20 * MB, () => 0);
+  const a = upload.start('a', 10 * MB);
+  const b = upload.start('b', 10 * MB);
+  upload.fail();
+  a.done('uploaded ws.a (10.0 MB, 0123456789ab...)');
+  b.done('uploaded ws.b (10.0 MB, ba9876543210...)');
+  assert.deepStrictEqual(stream.chunks.join('').split('\n').filter(Boolean), ['uploading 2 files (20.0 MB) …']);
 });
 
 test('an upload hashes its delivery first, saying how far the read has got, at most every tenth of a second', async () => {

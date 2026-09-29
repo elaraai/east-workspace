@@ -413,5 +413,27 @@ describe('e3 dataset set', () => {
       assert.match(skipped.stdout, /Left pkgws\.table unset \(file source .*TABLE\.beast2\); set it with: e3 dataset set \S+ pkgws\.table --from-file /);
       assert.match(await statusOf('pkgws'), /Status: unset/);
     });
+
+    it('uploads several file sources side by side, a line for each and one once all are in', async () => {
+      const env = { env: { E3_CREDENTIALS_PATH: credentialsPath } };
+      const e3At = (args: string[]) => runE3Command(args, projectDir, env);
+      const more = Array.from({ length: ROW_COUNT + 500 }, (_, i) => ({ id: BigInt(i), name: `row-${i}`, score: i / 7 }));
+      const other = join(projectDir, 'OTHER.beast2');
+      writeFileSync(other, encodeInSegmentsOf(ArrayType(Row), 100)(more));
+      const zip = join(testDir, 'remote-pair.zip');
+      await e3.export(e3.package(
+        'remote-pair', '1.0.0',
+        e3.input('table', ArrayType(Row), variant('file', delivery)),
+        e3.input('other', ArrayType(Row), variant('file', other)),
+      ), zip);
+
+      const deployed = await e3At(['workspace', 'deploy', remoteUrl, 'pairws', '--from-zip', zip]);
+      assert.strictEqual(deployed.exitCode, 0, `--from-zip deploy failed: ${deployed.stderr}\n${deployed.stdout}`);
+      assert.match(deployed.stderr, /✔ uploaded pairws\.table \(/);
+      assert.match(deployed.stderr, /✔ uploaded pairws\.other \(/);
+      assert.match(deployed.stderr, /✔ uploaded 2 files, /);
+      assert.match((await e3At(['dataset', 'status', remoteUrl, 'pairws.table'])).stdout, new RegExp(`Hash: +${stored.hash}`));
+      assert.match((await e3At(['dataset', 'status', remoteUrl, 'pairws.other'])).stdout, new RegExp(`Hash: +${(await storedAs(more)).hash}`));
+    });
   });
 });

@@ -19,7 +19,9 @@
  *
  * Against a server, a delivery is hashed here first, saying how far the read
  * has got, and the rest shows as the server says it: what its commit of the
- * upload is doing with the file, and what its deploy job is doing.
+ * upload is doing with the file, and what its deploy job is doing. A deploy
+ * uploads its file sources side by side, shown as a local deploy's are: a `✔`
+ * line per file as it finishes, and a live line for the files in flight.
  */
 
 import { sha256File } from '@elaraai/e3';
@@ -163,6 +165,132 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
       step?.fail();
     },
   };
+}
+
+/** A file being uploaded, as the live line shows it. */
+interface Uploading {
+  readonly name: string;
+  /** What it is doing, as the live line says it after its name. */
+  doing: string;
+}
+
+/** One upload, as it tells an {@link UploadReporter} how far it has got. */
+export interface UploadHandle {
+  /**
+   * Hears how far this machine has hashed the file.
+   *
+   * @param bytes - The bytes read so far
+   */
+  hashing(bytes: number): void;
+  /** Hears that the file's bytes are being sent. */
+  sending(): void;
+  /**
+   * Hears how far the server's commit has taken the file in.
+   *
+   * @param file - How far it has got, as the server says
+   */
+  committing(file: IntakeFile): void;
+  /**
+   * Prints the file's line: it is in.
+   *
+   * @param text - What the line says
+   */
+  done(text: string): void;
+}
+
+/** Reports files uploaded side by side. */
+export interface UploadReporter {
+  /**
+   * Starts a file's upload, which joins the live line.
+   *
+   * @param name - What the lines call the file
+   * @param total - Its size
+   * @returns Where the upload says how far it has got
+   */
+  start(name: string, total: number): UploadHandle;
+  /** Ends the live line without a summary: an upload failed, and the uploads
+   *  still in flight are no longer heard. */
+  fail(): void;
+}
+
+/**
+ * Builds the reporter of files uploaded side by side: a `✔` line per file as
+ * it finishes, a summary once the last is in, and on a terminal a live line
+ * naming the files in flight, each with what it is doing — hashing here,
+ * sending, or being taken in by the server's commit.
+ *
+ * @param progress - Where the lines go
+ * @param count - How many files
+ * @param bytes - Their bytes between them
+ * @param now - The clock, in milliseconds (injectable for tests)
+ * @returns The reporter, whose live line starts at once
+ */
+export function uploadReporter(progress: Progress, count: number, bytes: number, now: () => number = Date.now): UploadReporter {
+  const files = `${count} file${count === 1 ? '' : 's'}`;
+  const started = now();
+  const step = progress.step(`uploading ${files} (${formatBytes(bytes)})`);
+  const inFlight = new Set<Uploading>();
+  let finished = 0;
+  let drawn = 0;
+  let failed = false;
+
+  const draw = (force: boolean): void => {
+    const at = now();
+    if (!force && at - drawn < REDRAW_MS) return;
+    drawn = at;
+    const named = [...inFlight].slice(0, NAMED_IN_FLIGHT).map((file) => `${file.name} ${file.doing}`);
+    if (inFlight.size > NAMED_IN_FLIGHT) named.push(`${inFlight.size - NAMED_IN_FLIGHT} more`);
+    step.update(`uploading ${finished}/${count} files: ${named.join(', ')}`);
+  };
+
+  return {
+    start(name, total) {
+      const file: Uploading = { name, doing: `hashing 0 B/${formatBytes(total)}` };
+      const hear = (doing: string, force: boolean): void => {
+        if (failed || !inFlight.has(file)) return;
+        file.doing = doing;
+        draw(force);
+      };
+      if (!failed) {
+        inFlight.add(file);
+        draw(true);
+      }
+      return {
+        hashing: (read) => hear(`hashing ${formatBytes(read)}/${formatBytes(total)}`, false),
+        sending: () => hear(`sending ${formatBytes(total)}`, true),
+        committing: (intake) => hear(`server ${serverDoing(intake)}`, false),
+        done(text) {
+          if (failed || !inFlight.delete(file)) return;
+          finished++;
+          progress.phase(text);
+          if (finished < count) {
+            draw(true);
+            return;
+          }
+          const seconds = (now() - started) / 1000;
+          step.done(`uploaded ${files}, ${formatBytes(bytes)} in ${formatSeconds(seconds)}${rateOf(bytes, seconds)}`);
+        },
+      };
+    },
+    fail() {
+      failed = true;
+      step.fail();
+    },
+  };
+}
+
+/** What a server's commit is doing with an upload, as the live line says it. */
+function serverDoing(file: IntakeFile): string {
+  const moved = `${formatBytes(Number(file.bytes))}/${formatBytes(Number(file.total))}`;
+  switch (file.step.type) {
+    case 'waiting': return 'waiting';
+    case 'hashing': return `hashing ${moved}`;
+    case 'taking_in': {
+      const { pieces, done } = file.step.value;
+      return `taking in ${moved}${pieces > 1n ? ` (${done}/${pieces} pieces)` : ''}`;
+    }
+    default: return 'done';
+  }
 }
 
 /**

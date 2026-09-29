@@ -498,7 +498,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 workspace create [repo] <ws>` · `list [repo]` · `status [repo] <ws>` · `remove [repo] <ws>` | `status` shows tasks, datasets and locks. |
 | `e3 workspace deploy [repo] <ws> <pkg[@ver]>` | Deploy an imported package. |
 | `… --from-zip <zip>` · `… --from-source <src.ts> [--functions <manifest…>]` | Import the zip (or bundle the source) and deploy, creating the workspace. |
-| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, `file` sources and the budget; says how far it has got (below), `--quiet` aside. |
+| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on; `--memory`: what those may reserve (local). |
 | `e3 workspace export [repo] <ws> <zip> [--name <n>] [--version <v>]` | The workspace's state as a package. |
 | **Datasets** | |
 | `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
@@ -509,14 +509,14 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 dataflow run [repo] <ws> [--filter <p>] [--force] [-j <n>] [--memory <size>] [-v]` | Run what is stale, then print the outputs' paths. |
 | `e3 task list [repo] <ws>` | Tasks with their execution status. |
 | `e3 task logs [repo] <ws.task> [-n <lines>] [--all] [--follow] [--execution <task>/<inputs>/<id>]` | The last 200 lines by default; `--execution`: one unit's log, as a split task's log names it (local). |
-| `e3 run <repo> <pkg[@ver].task> [inputs.beast2…] -o <out> [--force] [-v] [-j] [--memory]` | Run one task ad hoc. |
-| `e3 call <repo> <pkg[@ver].fn> [args…] [-o <out.beast2>] [-v]` · `e3 call <repo> -w <ws> <fn> [args…]` | Call a function; each argument is an `.east` literal or a `.beast2`/`.json`/`.east` file. |
+| `e3 run <repo> <pkg[@ver].task> [inputs.beast2…] -o <out> [--force] [-v] [-j <n>] [--memory <size>]` | Run one task ad hoc. |
+| `e3 call <repo> <pkg[@ver].fn> [args…] [-o <out.beast2>] [-j <n>] [--memory <size>] [-v]` · `e3 call <repo> -w <ws> <fn> [args…]` | Call a function; each argument is an `.east` literal or a `.beast2`/`.json`/`.east` file. |
 | **Records** (`-w <ws>` required) | |
-| `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-v]` | Apply a mutation. |
+| `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-j <n>] [--memory <size>] [-v]` | Apply a mutation. |
 | `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target; local). |
-| `e3 reindex <repo> <record> -w <ws> [--index <name>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes · collapse the history to a `$compact` root, the state kept. |
+| `e3 reindex <repo> <record> -w <ws> [--index <name>] [-j <n>] [--memory <size>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes (local) · collapse the history to a `$compact` root, the state kept. |
 | **Development** | |
-| `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--abort-on-change] [--functions <manifest…>] [-j] [--memory]` | Redeploy on each change (and run, with `--start`). |
+| `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--abort-on-change] [--functions <manifest…>] [-j <n>] [--memory <size>]` | Redeploy on each change (and run, with `--start`). |
 | `e3 convert [input] [--from <f>] [--to <f>] [--type <spec>] [-o <out>]` | Convert between `.east`, `.json` and `.beast2`. |
 | `e3 completion install [--shell <s>]` · `uninstall` · `bash` \| `zsh` \| `fish` | Shell completion. |
 | **Servers** | |
@@ -531,8 +531,11 @@ peak a unit of its stage has reached in the run, so a stage runs its first unit
 alone and then fans out; on Linux and macOS a guard stops the newest unit when
 the runners together pass the budget, and runs it again once it fits. A deploy
 takes its `file` sources in `-j` at a time, their pieces' intake units running
-under the same budget. The flags apply to a local repository; a server refuses
-them, since it runs work under its own (`e3-api-server -j`, `--memory`).
+under the same budget. The commands that run East — `workspace deploy`,
+`dataset set --from-file`, `dataflow run`, `run`, `call`, `mutate`, `reindex`
+and `watch` — take the flags for a local repository; against a server the CLI
+refuses them, since the server runs the work under its own budget
+(`e3-api-server -j`, `--memory`).
 
 **A deploy says how far it has got**, on stderr. Each `file` source prints a
 line once it is in: its size, time and rate, and how it was taken in
@@ -541,7 +544,8 @@ value that is not a collection), with why the first time a runner fell back to
 another. A terminal also keeps a live line for the files in flight, with their
 pieces, the rate and the time left across them. Against a server, the deploy line
 says what the job is doing, such as migrating a record or building an index;
-each delivery's upload line says what the server's commit is doing with it.
+the deliveries then upload a few at a time, each printing a line once it is in,
+and the live line says what the server's commit is doing with each in flight.
 While a deploy runs, its lock carries the same progress for `e3-ui` or any
 client to read (`workspaceLockStatus`). A workspace deployed for the first time
 has no status until its deploy ends, so the lock is the only place to see it.
@@ -603,7 +607,7 @@ over itself.
 **`e3-api-server`** serves repositories: `--repos <dir>` (each subdirectory a
 repository) or `--repo <path>` (one, served as `default`), `-p`/`--port` (3000),
 `-H`/`--host` (localhost), `--cors`, `-j`/`--memory` (the server's budget, for
-every run and call it serves), and auth — `--oidc`, a built-in provider for `e3
+every run and call it serves and every upload it takes in), and auth — `--oidc`, a built-in provider for `e3
 auth login` (`--token-expiry`, `--refresh-token-expiry`), or an external JWT
 issuer (`--auth-key`, `--auth-issuer`, `--auth-audience`). In code,
 `createServer({ reposDir | singleRepoPath, port, host, … })` starts one, and its

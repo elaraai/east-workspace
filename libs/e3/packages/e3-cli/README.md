@@ -79,9 +79,10 @@ once it is in: its size, time and rate, and how it was taken in (`unchanged,
 already in the store`, `taken in by east-c`, or `carried` for a value that is
 not a collection), with why the first time a runner fell back to another. A
 terminal also keeps a live line for the files in flight, with their pieces, the
-rate and the time left. Against a server, the deploy line says what the server's job is doing,
-and each upload's line how far its hash has got, then what the server's commit
-is doing with the file.
+rate and the time left. Against a server, the deploy line says what the server's job is doing;
+the deliveries then upload a few at a time, each printing a line once it is in,
+and a terminal's live line names those in flight: how far each hash has got,
+then what the server's commit is doing with it.
 
 ### Datasets
 
@@ -142,8 +143,8 @@ pass the budget, and runs it again once there is room.
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy
 taking its `file` sources in `-j` at a time; `e3 dataset set --from-file` takes
-both for its intake units. Against a server they are refused: it
-runs the work under its own budget (`e3-api-server -j` / `--memory`).
+both for its intake units. Against a server the CLI refuses them, since the
+server runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
 A local run's per-execution scratch directories are created inside the
 repository, under `<repo>/tmp/scratch` — on the object store's filesystem, so

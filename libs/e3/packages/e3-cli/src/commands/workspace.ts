@@ -45,12 +45,12 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { EastTypeValue } from '@elaraai/east';
-import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
+import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader, sha256File } from '@elaraai/e3';
 import { treePath, type PackageObject, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
-import { commitText, deployJobText, hashDelivery, intakeReporter } from '../intake.js';
+import { deployJobText, intakeReporter, uploadReporter } from '../intake.js';
 import { fileTransferSource } from '../file-transfer-source.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
@@ -626,6 +626,9 @@ async function latestRemoteVersion(location: RepoLocation, name: string): Promis
   return latest;
 }
 
+/** How many file sources a remote deploy uploads at once. */
+const UPLOAD_CONCURRENCY = 4;
+
 /**
  * Deploy an imported package to a REMOTE workspace, completing its `file`
  * sources from this machine; with `--plan`, only saying what it would do.
@@ -641,9 +644,11 @@ async function latestRemoteVersion(location: RepoLocation, name: string): Promis
  * and each delivery is then streamed over the dataset transfer protocol, whose
  * commit runs the same validation a local deploy's adopt does. The transfer
  * dedups on the hash, so a redeploy whose delivery has not changed costs one
- * round trip and no bytes. Each upload's line says how far the hash has got,
- * then what the server's commit is doing with the file. A plan writes nothing,
- * so it reads no source.
+ * round trip and no bytes. The deliveries are uploaded a few at a time, as a
+ * local deploy takes them in side by side, one live line naming those in
+ * flight: how far each hash has got, then what the server's commit is doing
+ * with it. The first failure is reported at once. A plan writes nothing, so it
+ * reads no source.
  */
 async function deployRemote(target: DeployTarget, name: string, version: string): Promise<void> {
   const { location, ws, progress } = target;
@@ -687,23 +692,42 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
     reportSkippedFileSources(target, sources);
     return;
   }
-  for (const source of sources) {
-    const step = progress.step(`uploading ${source.name} from ${source.file}`);
-    try {
-      const { size } = readDatasetFileHeader(source.file, `input '${source.name}'`, source.type);
-      const hash = await hashDelivery(source.file, size, source.name, step);
-      step.update(`uploading ${source.name} from ${source.file}`);
-      await datasetSetStream(
-        location.baseUrl, location.repo, ws, source.treePath,
-        fileTransferSource(source.file, size, hash),
-        auth,
-        { onCommitProgress: (file) => step.update(`uploaded ${source.name}, and ${commitText(file)}`) },
-      );
-      step.done(`uploaded ${ws}.${source.name} (${formatBytes(size)}, ${hash.slice(0, 12)}...)`);
-    } catch (err) {
-      step.fail();
-      throw err;
+  if (sources.length === 0) return;
+  const sized = sources.map((source) => ({
+    source,
+    size: readDatasetFileHeader(source.file, `input '${source.name}'`, source.type).size,
+  }));
+  const upload = uploadReporter(progress, sized.length, sized.reduce((sum, { size }) => sum + size, 0));
+  let next = 0;
+  let failed = false;
+  const uploader = async (): Promise<void> => {
+    // Files are claimed one at a time; once one fails the rest are left unsent.
+    for (let index = next++; index < sized.length && !failed; index = next++) {
+      const { source, size } = sized[index]!;
+      const file = upload.start(source.name, size);
+      try {
+        const hash = await sha256File(source.file, (read) => file.hashing(read));
+        file.sending();
+        await datasetSetStream(
+          location.baseUrl, location.repo, ws, source.treePath,
+          fileTransferSource(source.file, size, hash),
+          auth,
+          { onCommitProgress: (intake) => file.committing(intake) },
+        );
+        file.done(`uploaded ${ws}.${source.name} (${formatBytes(size)}, ${hash.slice(0, 12)}...)`);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
     }
+  };
+  try {
+    // The first failure is reported without waiting on the uploads in flight,
+    // which end with the command.
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, sized.length) }, uploader));
+  } catch (err) {
+    upload.fail();
+    throw err;
   }
 }
 

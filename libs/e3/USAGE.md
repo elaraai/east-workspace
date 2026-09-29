@@ -174,8 +174,9 @@ rather than editing one in place.
 The file is read on the machine that runs `e3 workspace deploy`, whichever
 repository it deploys to. Against a remote repository — a package spec,
 `--from-zip` or `--from-source` — the CLI checks every delivery before it
-touches the remote workspace and streams each over the transfer protocol after
-the deploy; an unchanged delivery costs a round trip, not its bytes. The server
+touches the remote workspace and streams them over the transfer protocol after
+the deploy, a few at a time; an unchanged delivery costs a round trip, not its
+bytes. The server
 never opens a path, so a deploy made straight through the API leaves those
 inputs unset. `--skip-file-sources` deploys without reading them and prints the
 `e3 dataset set <repo> <ws>.<name> --from-file <path>` that completes each.
@@ -188,8 +189,10 @@ line once it is in: its size, time and rate, and how it was taken in
 value that is not a collection), with why the first time a runner fell back to
 another. A terminal also keeps a live line for the files in flight, with their
 pieces, the rate and the time left. Against a server, the deploy line says what
-the server's job is doing, and each upload's line how far its hash has got,
-then what the server's commit is doing with the file. While a deploy runs,
+the server's job is doing; the deliveries then upload a few at a time, each
+printing a line once it is in, and a terminal's live line names those in
+flight: how far each hash has got, then what the server's commit is doing with
+it. While a deploy runs,
 `e3-ui` shows its files and records at the step each has reached.
 
 A bare third argument (`e3.input('name', StringType, 'World')`) is refused at
@@ -642,8 +645,8 @@ pass the budget, and runs it again once there is room.
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy
 taking its file sources in `-j` at a time; `e3 dataset set --from-file` takes
-both for its intake units. Against a server they are refused: it
-runs the work under its own budget (`e3-api-server -j` / `--memory`).
+both for its intake units. Against a server the CLI refuses them, since the
+server runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
 A local run gives every execution a scratch directory — its inputs are marshalled
 there and its output written there before it is stored — inside the repository,
