@@ -33,10 +33,11 @@ fi
 
 pass=0
 fail=0
-# The suites beside the IR directory's own: jq 1.8's conformance cases,
-# translated (#924), when the export wrote them.
+# The suites beside the IR directory's own: the query suites, each in a
+# `query-*` directory of its own when the export wrote them — jq 1.8's
+# conformance cases (#924), the type matrix and the query corpus (#987).
 shopt -s nullglob
-suites=("$IR_DIR"/*.json "$IR_DIR"/query-conformance/*.json)
+suites=("$IR_DIR"/*.json "$IR_DIR"/query-*/*.json)
 [ "${#suites[@]}" -gt 0 ] || { echo "Error: no IR .json files in $IR_DIR"; exit 1; }
 for ir in "${suites[@]}"; do
     name="${ir#"$IR_DIR"/}"

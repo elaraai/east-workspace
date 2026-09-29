@@ -33,6 +33,19 @@ await describe("Variant", (test) => {
         $(assert.equal(f(none), 0n));
     });
 
+    test("Match statement whose every case returns diverges", $ => {
+        // The statement is Never, so it can end a body that gives an Integer.
+        const f = $.const(East.function([VariantType({ none: NullType, some: IntegerType })], IntegerType, ($, x) => {
+            $.match(x, {
+                some: ($, data) => $.return(data),
+                none: ($) => $.return(0n),
+            });
+        }));
+
+        $(assert.equal(f(some(42n)), 42n));
+        $(assert.equal(f(none), 0n));
+    });
+
     assert.examples(test, {
         variantMatchTagStatement: ex.variantMatchTagStatement,
     });

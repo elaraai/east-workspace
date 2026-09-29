@@ -30,6 +30,7 @@ for queries.
 | Conformance (§16) | `test/jq-conformance/` and `test/query.conformance.spec.ts` (#924) |
 | Constructs, paging on east-c (§16, §15.6) | `test/query.constructs.spec.ts`; `libs/east-c/packages/east-c/tests/test_query_paged.c` (#925) |
 | Performance (§16.4) | `test/query-bench/`, run by `make query-bench` (#925) |
+| The type matrix (§16.5) | `test/query-types/` and `test/query.types.spec.ts`, over `test/fixtures/query-types.json`, which `make query-types` writes (#987) |
 
 ## Contents
 
@@ -558,8 +559,7 @@ changes `QueryType`.
 | `arrays` | 0 | the input when it is an array; narrows | maybe | a type test |
 | `ascii_downcase` | 0 | String → String (§13.18) | one | StringLowerCase |
 | `ascii_upcase` | 0 | String → String (§13.18) | one | StringUpperCase |
-| `@base32` | 0 | any → String | one | tostring, StringEncodeUtf8, then RFC 4648 over BlobGetUint8 |
-| `@base64` | 0 | any → String | one | tostring, StringEncodeUtf8, then RFC 4648 over BlobGetUint8 |
+| `@base64` | 0 | any → String | one | a Blob's bytes, or tostring's StringEncodeUtf8, then RFC 4648 over BlobGetUint8 |
 | `booleans` | 0 | the input when it is a Boolean; narrows | maybe | a type test |
 | `bsearch` | 1 | Array<T>, T → Integer | one | ArrayFindSortedFirst, with jq's −1 − insertion point when absent |
 | `builtins` | 0 | → Array<String> | one | the catalog's names, as a literal |
@@ -706,7 +706,6 @@ Refused, with the diagnostic's reason (§12):
 | `atan` | 0 | unavailable: East has no builtin for it |
 | `atan2` | 2 | unavailable: East has no builtin for it |
 | `atanh` | 0 | unavailable: East has no builtin for it |
-| `@base32d` | 0 | unavailable: no East builtin makes a Blob from bytes |
 | `@base64d` | 0 | unavailable: no East builtin makes a Blob from bytes |
 | `capture` | 1, 2 | unavailable: East regular expressions have no capture groups (§13.8) |
 | `cbrt` | 0 | unavailable: East has no builtin for it |
@@ -904,6 +903,7 @@ before a type is `an` before a vowel.
 | `type_mismatch` | type_mismatch: {name} needs {what}; its input is {T}. |
 | `type_mismatch` | type_mismatch: {name} needs a string; its input is DateTime. Compare its parts (year == 2026 and month == 9), or its text (todate \| {name}(…)). |
 | `type_mismatch` | type_mismatch: {name}'s {nth} argument must be {what}, not {T}. |
+| `type_mismatch` | type_mismatch: {name} takes an array as a run of elements, which must be {E}, not {T}. To find one element, wrap it: {wrapped}. |
 | `type_mismatch` | type_mismatch: {name}'s {nth} argument must be {what}, written in the query. |
 | `type_mismatch` | type_mismatch: {"text"} is not an ISO-8601 date — DateTime literals are parsed at check time. |
 | `type_mismatch` | type_mismatch: {range(…)} yields nothing. |
@@ -949,7 +949,11 @@ or looks up a key according to the target's type (§4).
 
 ### 13.3 Integers are exact to 64 bits
 
-Integer operations stay Integer, and `/` gives a Float (§6).
+Integer operations stay Integer, and `/` gives a Float (§6). They are exact
+to 64 bits, and wrap past them as East's Integer builtins do, where jq
+computes with doubles: `9007199254740993 + 1` is `9007199254740994`, where jq
+gives `9007199254740992`, and `9223372036854775807 + 1` is
+`-9223372036854775808`. `length` of −2⁶³ is itself.
 
 ### 13.4 DateTime is a type
 
@@ -987,16 +991,28 @@ interpolates only the pattern's named groups.
 ### 13.9 `tostring` and `tojson` are East's
 
 `tostring` prints a non-string as East text, and so do string interpolation,
-`@text`, `@html`, `@uri`, `@base64` and `@base32`, which jq defines by it: a
-whole Float prints as `3.0`, where jq prints `3`. `tojson` and `@json` use
-East's JSON codec, which writes an Integer as a string (`"5"`). `join`,
-`@csv`, `@tsv` and `@sh` print a number as jq does (`3`, `2.5`).
+`@text`, `@html`, `@uri` and `@base64`, which jq defines by it (a Blob's
+`@base64` encodes its bytes, §2): a whole Float prints as `3.0`, where jq
+prints `3`. `tojson` and `@json` use East's JSON codec, which writes an
+Integer as a string (`"5"`). `join`, `@csv`, `@tsv` and `@sh` print a number
+as jq 1.8 prints one it computed: `3`, `2.5`, `1e-05`, `1e+17`, −0.0 as `-0`,
+±Infinity as `±1.7976931348623157e+308`, and NaN as `null` (`join`, `@sh`) or
+nothing (`@csv`, `@tsv`). jq prints a number it read from its input as the
+input wrote it (`1E+300`), which East, whose numbers are values, does not.
 
 ### 13.10 Order is East's total order
 
-`sort`, `group_by`, `unique`, `min`, `max` and `keys` order values as East
-does (§11). NaN is the greatest number, where jq orders it below every
-number: `[1.0, nan] | sort` keeps NaN last, and jq puts it first.
+`sort`, `group_by`, `unique`, `min`, `max`, `bsearch` and `keys` order values
+as East does (§11), and `==` compares them as East does:
+
+- NaN is the greatest number, where jq orders it below every number:
+  `[1.0, nan] | sort` keeps NaN last, and jq puts it first.
+- NaN equals itself (`nan == nan` is true, and `unique` keeps one NaN), where
+  jq's NaN equals nothing.
+- −0.0 is a value of its own, below 0.0 and not equal to it (`-0.0 < 0` is
+  true, and `unique` keeps both), where jq's zeros are one number; and `-.`
+  on 0.0 is −0.0, where jq keeps or drops a zero's sign as the number was
+  written.
 
 ### 13.11 Function values are callable, and inspecting them is tooling
 
@@ -1037,7 +1053,7 @@ A builtin with no definition by East's builtins is `unsupported`, saying why
 (§10): the path builtins (`path`, `paths`, `getpath`, `setpath`, `delpaths`,
 `tostream`, `fromstream`, `truncate_stream`), whose path arrays mix strings
 and integers; `JOIN`, whose pairs mix two types; `fromjson`, whose result has
-no static type; `implode`, `explode`, `@base64d` and `@base32d`; the capture
+no static type; `implode`, `explode`, `@base64d` and `@urid`; the capture
 builtins (§13.8); `have_decnum` and `have_literal_numbers`; and the math
 builtins East's Float lacks (`atan`, `cbrt`, `gamma`, …). `builtins` lists
 those a query may call, each arity once: 158 names where jq 1.8.1 lists 226.
@@ -1090,7 +1106,11 @@ Along these paths:
   its own type: `(.. | numbers) |= . * 1.5` on Integers is a type error, where
   jq mixes the types;
 - a variant's `.type` is not updated, and `..` walks through a variant to its
-  payload, not its case's name.
+  payload, not its case's name;
+- `walk(f)` rebuilds an option's value, a variant's payload (not its case's
+  name), an array's elements, a dict's values and a struct's fields, and runs
+  `f` on a set, a vector or a matrix whole, where jq rebuilds their elements
+  as an array's.
 
 ### 13.24 `reduce` and `foreach` keep their state through an update with no output
 
@@ -1137,6 +1157,18 @@ index, rounds a slice's bounds outward, and takes NaN as the start or the end.
 `ltrimstr(1)` and `strftime([])` are `type_mismatch` when the query is checked,
 even inside `try` or after `?`, where jq raises an error at run time. (An
 input of a type a builtin cannot take is a run-time error there, as in jq.)
+
+### 13.31 Rounding gives an Integer
+
+`floor`, `ceil`, `round` and `trunc` give an Integer (§6), so one of a Float
+that is NaN, ±Infinity or past 64 bits raises an error, where jq gives a
+number: `1e300 | floor` raises, and jq gives `1e+300`.
+
+### 13.32 `bsearch` finds the first of equal elements
+
+Where the sorted input holds the value more than once, `bsearch` gives the
+first index holding it, where jq gives the one its binary search reaches:
+`[1, 1, 2, 3] | bsearch(1)` is `0`, and jq's is `1`.
 
 ---
 
@@ -1235,9 +1267,14 @@ editor turns the fixes it recognises into edits of its steps.
 **The checker's rewrites**, so that no runtime parses text:
 
 - an ISO string compared with a DateTime, used as a DateTime key or passed as
-  a DateTime argument becomes a DateTime literal (`"2026-09-01"` is midnight
-  UTC, and a date-time with no offset is UTC);
-- a number literal takes its operand's type;
+  a DateTime argument, alone or as an element of an array literal
+  (`index(["2026-09-01"])`), becomes a DateTime literal (`"2026-09-01"` is
+  midnight UTC, and a date-time with no offset is UTC); one that is a
+  filter's input (`"2026-09-01" | in($byDay)`) stays a String;
+- a number literal takes its operand's type, unless another check of it
+  keeps it an Integer (a `def` called with an Integer and with a Float, a
+  `walk` meeting both): then it stays as written, and each translation
+  widens it where it needs a Float;
 - a `strftime` or `strptime` format becomes a token array;
 - a regular expression is validated;
 - on an e3 root, `keys`, `keys_unsorted` and `has("name")` are answered from
@@ -1352,8 +1389,9 @@ first(.orders[] | select(.total > 1000)) | .id
   the cases of one variant, and needs no recursion in the IR. The walk is
   pre-order, fields in declared order.
 - `walk(f)` rebuilds bottom-up: a value's parts first, then `f` on the value
-  rebuilt. A recursive type is rebuilt by a function reached through a
-  reference.
+  rebuilt, once. Its parts are an option's value, a variant's payload, an
+  array's elements, a dict's values and a struct's fields (§13.23). A
+  recursive type is rebuilt by a function reached through a reference.
 
 ```jq
 def fact: if . <= 1 then 1 else . * (. - 1 | fact) end; 5 | fact
@@ -1523,8 +1561,9 @@ to both. A case that passes on an input runs again as a compliance test: its
 translation, called on its typed input, gives jq's expected outputs.
 `make test-export` writes these tests, a suite per file, to
 `/tmp/east-test-ir/query-conformance/`, where east-c and east-py run them
-(#925). Every IR node kind and builtin a translation uses, the corpus's and
-these, is exercised by a compliance suite that is not about queries:
+(#925). Every IR node kind and builtin a translation uses, the corpus's,
+these and the type matrix's (§16.5), is exercised by a compliance suite that
+is not about queries:
 `test/query.constructs.spec.ts` checks the translations against the other
 exported suites, so no runtime runs a construct only queries test.
 
@@ -1625,6 +1664,85 @@ east-c 1.0.80 built in Release; jq 1.8.1; 2026-09-28.
   `.orders | sort_by(-.total) | .[:3] | map(.id)`; and the mock's default
   query (§18.4). jq has no `year`, so it runs the last with
   `(.status.value.date | .[0:4]) == "2026"`.
+
+### 16.5 The type matrix
+
+jq's suites and the corpus give a query JSON-shaped inputs over one fixture.
+The type matrix (#987, `test/query-types/`) gives it every East type: a
+**shape** is a type and its values (typical ones, its edge values and its
+empty one), and a **program** is a jq program with the kinds of type it
+applies to. Every shape × every program that applies to it is a **pair**,
+run on each of the shape's values: a **case**.
+
+- **Shapes**: scalars (NaN, ±Infinity and −0.0; integers at ±2⁵³ and at 64
+  bits; non-BMP text), arrays, sets and dicts of each kind, dicts keyed by
+  every orderable type, vectors and matrices, structs, variants and options
+  (`Option<Option<T>>` included), recursive types, references, function
+  values (a closure included), and composites of them.
+- **jq judges** a case where it can see the input and the result (§2): the
+  input is East's JSON (`encodeJSONFor`) behind a jq filter, generated from
+  the type, that turns it into the value jq sees, and each output comes back
+  through a filter that turns it into East JSON, which East's decoder reads
+  as a value of the query's element type (`decodeJSONFor`). jq's text must
+  be that value's own encoding, so a set jq gives out of order, or with
+  duplicates, is not read as the set it would decode to. `make query-types`
+  runs jq 1.8.1 on every such case and records its outputs, or its error, in
+  `test/fixtures/query-types.json`; CI, without jq, holds East to the record,
+  and fails while a case's input or program is not the one recorded.
+- **Where jq differs** by a deviation of §13, the case lists it, and East
+  gives the value that section says; each listed deviation must still differ
+  in some case.
+- **Where jq cannot see** the input or the result (a DateTime, a Blob, a dict
+  keyed by another type, a function), the case gives the value of the
+  section its oracle follows.
+- **East refuses** a program for a type only where jq raises an error too,
+  or where a section says so; every case of a refused pair is refused.
+- **Every case** that runs is a compliance test: each kind's pairs are a
+  suite, each pair's query as `East.jq` builds it, called on each value, and
+  equal to the expected result or raising an error. `make test-export`
+  writes them to `/tmp/east-test-ir/query-types/`, and the corpus's cases
+  that have an output to `/tmp/east-test-ir/query-corpus/`, each reading the
+  fixture from the bytes of `test/fixtures/query-fixture.beast2` and held to
+  the value TypeScript's translation gives over it. east-c runs these suites
+  and jq's (§16.2), compiled and under ASan/LSan; east-py runs them compiled,
+  in the eager replay and through the IR round trips; and CI stages them as
+  a local run does.
+
+<!-- matrix: written by `make query-types` from test/query-types/ and test/fixtures/query-types.json -->
+| Kind | Shapes | Pairs | Cases | Pass | Deviation | East-only | Error | Refused | Fail |
+|---|---|---|---|---|---|---|---|---|---|
+| scalars | 10 | 383 | 1307 | 993 | 117 | 180 | 6 | 11 | 0 |
+| arrays | 12 | 782 | 923 | 717 | 78 | 123 | 0 | 5 | 0 |
+| sets | 6 | 373 | 439 | 334 | 44 | 60 | 0 | 1 | 0 |
+| dicts | 12 | 448 | 487 | 204 | 30 | 252 | 0 | 1 | 0 |
+| tensors | 5 | 243 | 309 | 279 | 30 | 0 | 0 | 0 | 0 |
+| structs | 7 | 250 | 322 | 272 | 50 | 0 | 0 | 0 | 0 |
+| variants | 8 | 194 | 462 | 392 | 67 | 0 | 0 | 3 | 0 |
+| recursive | 5 | 174 | 256 | 213 | 41 | 0 | 0 | 2 | 0 |
+| refs | 3 | 152 | 152 | 137 | 15 | 0 | 0 | 0 | 0 |
+| functions | 2 | 6 | 9 | 0 | 0 | 6 | 0 | 3 | 0 |
+| composites | 3 | 142 | 142 | 57 | 7 | 78 | 0 | 0 | 0 |
+| All | 73 | 3147 | 4808 | 3598 | 479 | 699 | 6 | 26 | 0 |
+
+| Deviation | Cases |
+|---|---|
+| §13.3 Integers are exact to 64 bits | 25 |
+| §13.9 `tostring` and `tojson` are East's | 314 |
+| §13.10 Order is East's total order | 33 |
+| §13.14 `error(v)` takes any type, and its message is `v`'s East text | 89 |
+| §13.15 `add` of no values of a type with an identity gives the identity | 4 |
+| §13.18 `ascii_downcase`, `ascii_upcase` and the trims are East's string builtins | 1 |
+| §13.31 Rounding gives an Integer | 12 |
+| §13.32 `bsearch` finds the first of equal elements | 1 |
+
+| Refused by | Pairs |
+|---|---|
+| jq raises an error too | 3: boolean:every.length, string:string.at-base32, string-escapes:string.at-base32 |
+| §10 Builtins | 3: datetime:every.length, function-integer:every.length, function-struct:every.length |
+| §13.5 A program's outputs share one element type | 2: variant:variant.payload, recursive-json:variant.payload |
+| §13.27 Values of two types do not compare | 2: array-array-integer:sequence.index-of, array-array-integer:sequence.indices-of |
+| §14 Wire types | 3: array-datetime:sequence.inside-probe, set-datetime:sequence.inside-probe, dict-datetime-float:dict.in |
+<!-- /matrix -->
 
 ---
 

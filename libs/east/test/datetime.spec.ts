@@ -295,6 +295,12 @@ await describe("DateTime", (test) => {
         $(assert.equal(baseDate.durationWeeks(baseDate), 0.0))
     });
 
+    test("Duration from a literal", $ => {
+        // The receiver is a literal: its builtin holds it second, after the other date.
+        const later = $.const(new Date("2024-01-01T12:01:30.500Z"), DateTimeType);
+        $(assert.equal(East.value(new Date("2024-01-01T12:00:00.000Z")).durationMilliseconds(later), 90500n));
+    });
+
     assert.examples(test, {
         datetimeToEpochMilliseconds: ex.datetimeToEpochMilliseconds,
         datetimeFromEpochMilliseconds: ex.datetimeFromEpochMilliseconds,

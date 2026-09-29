@@ -27,7 +27,7 @@ from __future__ import annotations
 import pytest
 
 from tests.eager_replay import EagerEvaluator, Report, load_ir
-from tests.test_compliance import TEST_IR_DIR, get_test_ir_files
+from tests.test_compliance import SUITE_SUBDIRECTORIES, TEST_IR_DIR, get_test_ir_files, suite_name
 
 # Builtins the corpus exercises that still route through the funnel — the
 # measured register gap (#452's ratchet): shrinking it is progress, growing
@@ -51,7 +51,8 @@ _TOTAL = Report()
 
 def pytest_generate_tests(metafunc):
     if "stem" in metafunc.fixturenames:
-        stems = [f.stem for f in get_test_ir_files()]
+        # Each suite by its path under the IR directory: the query suites (#924, #987) are in directories of their own.
+        stems = [suite_name(f) for f in get_test_ir_files(subdirectories=SUITE_SUBDIRECTORIES)]
         metafunc.parametrize("stem", stems, ids=stems)
 
 

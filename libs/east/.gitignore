@@ -9,3 +9,5 @@ coverage
 *.cpuprofile
 # The jq conformance summary is pinned (#924): `make query-corpus` rewrites it.
 !test/jq-conformance/summary.json
+# What jq 1.8.1 gives on the type matrix's cases (#987): `make query-types` rewrites it.
+!test/fixtures/query-types.json

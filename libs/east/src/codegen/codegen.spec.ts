@@ -26,8 +26,8 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
-  East, Expr, variant, ref, some, none,
-  ArrayType, BlobType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType,
+  East, Expr, variant, ref, some, none, SortedSet, SortedMap, compareFor,
+  ArrayType, BlobType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType,
   SetType, StringType, StructType, VariantType, VectorType,
   IRType, EastTypeType, fromJSONFor, equalFor, isVariant, isPlatformDeclaration, toSource, RAW_ONLY,
   type ToSourceOptions,
@@ -616,6 +616,38 @@ describe("codegen: toSource round trips the builder surface", () => {
     });
     const main = await roundTrip(fn, "regex+csv");
     assert.equal(main.toIR().compile([])("aab foo", [{ a: 1n }]), fn.toIR().compile([])("aab foo", [{ a: 1n }]));
+  });
+
+  test("a regex JavaScript would re-spell prints raw, and rebuilds as it was", async () => {
+    // `new RegExp("").source` is `(?:)`, a `/` reads back `\/`, and flags come back in JavaScript's order
+    const fn = East.function([StringType], StringType, ($, s) => {
+      const empty = $.const(East.builtin("RegexContains", [], [s, "", ""], BooleanType));
+      const slash = $.const(East.builtin("RegexIndexOf", [], [s, "a/b", ""], IntegerType));
+      const order = $.const(East.builtin("RegexContains", [], [s, "x", "mi"], BooleanType));
+      return East.str`${empty} ${slash} ${order}`;
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.doesNotMatch(source, /new RegExp/, source);
+    const main = await roundTrip(fn, "regex re-spelled");
+    assert.equal(main.toIR().compile([])("xa/b"), fn.toIR().compile([])("xa/b"));
+  });
+
+  test("an option's none over a computed null, and a Float key of -0.0, print as they are and rebuild", async () => {
+    const Opt = OptionType(IntegerType);
+    const fn = East.function([Opt], IntegerType, ($, o) => {
+      // `none` spells the null literal only: a payload computed some other way stays
+      const same = $.const(o.match({ none: ($, n) => East.value(variant("none", n), Opt), some: ($, x) => East.value(some(x), Opt) }));
+      // JavaScript's Set and Map fold -0 into 0; East keeps -0.0 apart from 0.0
+      const zeros = $.const(new SortedSet([-0, 0, 1.5], compareFor(FloatType)), SetType(FloatType));
+      const keyed = $.const(new SortedMap([[-0, 1n], [0, 2n]], compareFor(FloatType)), DictType(FloatType, IntegerType));
+      return zeros.size().add(keyed.size()).add(same.match({ none: ($) => 0n, some: ($, x) => x }));
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /variant\("none", n\)/, source);
+    assert.match(source, /new SortedSet\(\[-0, 0, 1\.5\], compareFor\(FloatType\)\)/, source);
+    assert.match(source, /new SortedMap\(\[\[-0, 1n\], \[0, 2n\]\], compareFor\(FloatType\)\)/, source);
+    const main = await roundTrip(fn, "none payload and -0.0 keys");
+    assert.equal(main.toIR().compile([])(some(4n)), 9n);   // three floats, two keys, and the 4
   });
 
   test("another builder's fresh names print as one v_N sequence, and the printed module prints to itself", async () => {

@@ -7,8 +7,9 @@
  * East IR (#923), so every runtime runs them with the compiler it has; that
  * holds only while a translation uses nothing the runtimes' own compliance
  * suites leave untested. This lists every IR node kind and builtin in the
- * translation of each corpus case and each jq conformance case that passes,
- * and holds each to a compliance suite that is not about queries. The other
+ * translation of each corpus case, each jq conformance case that passes and
+ * each pair of the type matrix that checks (#987), and holds each to a
+ * compliance suite that is not about queries. The other
  * suites are read from the exported IR (`make test-export`); without it the
  * check skips, unless EAST_CONFORMANCE_REQUIRED=1. */
 
@@ -19,12 +20,17 @@ import { join } from "node:path";
 
 import { IRType, checkJq, fromJSONFor, translateJq, walkIR, type IR } from "../src/index.js";
 import { conformanceCases, runCase } from "./jq-conformance/run.js";
+import { checkPair, matrixPairs } from "./query-types/run.js";
 import { QUERY_CORPUS } from "./query.corpus.js";
 
 const CORPUS_DIR = process.env["EAST_TEST_IR_DIR"] ?? "/tmp/east-test-ir";
 const REQUIRED = process.env["EAST_CONFORMANCE_REQUIRED"] === "1";
 
-/** The exported suites about queries, which do not count: East.jq's spec (#923). jq's cases (#924) are in a directory of their own. */
+/**
+ * The exported suites about queries, which do not count: East.jq's spec
+ * (#923). jq's cases (#924), the type matrix and the corpus (#987) are each in
+ * a directory of their own.
+ */
 const QUERY_SUITES: ReadonlySet<string> = new Set(["East_jq.json"]);
 
 const decodeIR = fromJSONFor(IRType);
@@ -37,7 +43,11 @@ function constructsOf(ir: IR, into: Set<string>): void {
   });
 }
 
-/** Every translation the query suites run: each corpus case that checks, and each jq conformance case that passes on an input. */
+/**
+ * Every translation the query suites run: each corpus case that checks, each
+ * jq conformance case that passes on an input, and each pair of the type
+ * matrix that checks.
+ */
 function translations(): { label: string; ir: IR }[] {
   const out: { label: string; ir: IR }[] = [];
   for (const c of QUERY_CORPUS) {
@@ -47,6 +57,10 @@ function translations(): { label: string; ir: IR }[] {
   for (const r of conformanceCases().map(runCase)) {
     if (r.outcome.bucket !== "pass" || r.case.mustFail || r.passed === undefined) continue;
     out.push({ label: r.case.id, ir: translateJq(r.passed.checked).fn().toIR().ir });
+  }
+  for (const pair of matrixPairs()) {
+    const check = checkPair(pair);
+    if ("checked" in check) out.push({ label: `matrix ${pair.id}`, ir: translateJq(check.checked).fn().toIR().ir });
   }
   return out;
 }

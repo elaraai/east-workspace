@@ -373,16 +373,16 @@ describe("coerce_to: opaque source fallback (single outer As)", () => {
         assert.equal(out.value.value, ir);
     });
 
-    it("Value(Never) → any widens (Never is subtype of everything)", () => {
+    it("Value(Never) → any passes through: it never arrives, and the analyzer casts no Never", () => {
         const never_ir = variant("Error", {
             type: variant("Never", null),
             loc_id: LOC,
             message: mkValue(StringType, "boom"),
         });
-        // Never <: Integer, so this is a valid widening via the As fallback.
+        // Never <: Integer, but an As over it is refused ("Cannot cast .Never"):
+        // the value stands where an Integer is expected, as it is.
         const out: any = coerce_to(never_ir as any, NeverType, IntegerType, LOC);
-        assert.equal(out.type, "As");
-        assert.deepEqual(out.value.type, toEastTypeValue(IntegerType));
+        assert.equal(out, never_ir);
     });
 
     it("Struct IR source but non-Struct target falls back to As", () => {

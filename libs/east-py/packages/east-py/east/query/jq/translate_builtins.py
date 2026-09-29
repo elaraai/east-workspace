@@ -335,57 +335,10 @@ def _range(t: Translator, c: CallSite) -> None:
 rule("range", _range)
 
 
-def _recurse_kinds(typ: EastType) -> list[EastType]:
-    """The kinds of value ``recurse`` finds directly inside a value of a type: what ``.[]?`` gives."""
-    u = unwrap(typ)
-    if u.type in ("Array", "Set", "Vector"):
-        return [u.value]
-    if u.type == "Matrix":
-        return [ArrayType(u.value)]
-    if u.type == "Dict":
-        return [dict_value(u)]
-    if u.type == "Struct":
-        return list(fields_of(u).values())
-    return []
-
-
 def _recurse(t: Translator, c: CallSite) -> None:
     if len(c.args) == 0:
-        x = _input(t, c)
-        kinds: list[EastType] = []
-        recursive = [False]
-
-        def visit(typ: EastType) -> None:
-            # A value typed as a recursive type's node meets the type as a kind already seen: it recurses all the same.
-            if typ.type == "Recursive":
-                recursive[0] = True
-            if any(type_equal(k, typ) for k in kinds):
-                return
-            kinds.append(typ)
-            for k in _recurse_kinds(typ):
-                visit(k)
-        visit(x.type)
-
-        def children(b: Block, v: A, emit: Emit) -> None:
-            o = t.open(v)
-            ot = o.type
-            if ot.type == "Struct":
-                s = t.bind(b, o, "struct")
-                for name in fields_of(ot):
-                    emit(b, t.field(s, name))
-            elif _recurse_kinds(ot):
-                t.for_each(b, o, lambda b2, item, _k, _l: emit(b2, item), c.path)
-        if not recursive[0]:
-            def walk(b: Block, v: A) -> None:
-                c.emit(b, v)
-                children(b, v, walk)
-            walk(c.block, x)
-            return
-
-        def each(b: Block, v: A, push: Emit) -> None:
-            c.emit(b, v)
-            children(b, v, push)
-        t.walk_stack(c.block, x, kinds, c.path, each)
+        # `recurse` is `..`: jq defines both as `recurse(.[]?)`.
+        t.descend(c.block, _input(t, c), c.path, c.emit)
         return
     # `recurse(f)`, `recurse(f; cond)`: the value, then f of it, and so on, depth first.
     typ = _output_type(t, c)
@@ -531,9 +484,18 @@ def _walk(t: Translator, c: CallSite) -> None:  # noqa: C901
         out = t.one(c.args[0], c.arg_paths[0], b, v, c.env, _arg_type(t, c, 0, v))
         return t.bind(b, out, "walked")
 
-    def rebuild(b: Block, v: A) -> A:
+    def rebuild(b: Block, v: A) -> A:  # noqa: C901
         o = t.open(v)
         ot = o.type
+        # An option's value's parts, where it holds one; f runs once, on the whole.
+        if nullable_payload(ot) is not None:
+            return t.match_auto(o, {"none": lambda _b2, _p: t.null(c.path), "some": lambda b2, p: rebuild(b2, p)}, c.path)
+        # A variant's payload is walked; its case's name is its type.
+        if ot.type == "Variant":
+            return t.map_payloads(o, lambda b2, _name, payload: walk(b2, payload), c.path)
+        # A collection of Never is empty: nothing to walk.
+        if (ot.type == "Array" and ot.value.type == "Never") or (ot.type == "Dict" and dict_value(ot).type == "Never"):
+            return o
         if ot.type == "Array":
             state: dict[str, A] = {}
             decl = t.block()
@@ -565,7 +527,9 @@ def _walk(t: Translator, c: CallSite) -> None:  # noqa: C901
             for name in fields_of(ot):
                 values[name] = walk(b, t.field(s, name))
                 types[name] = values[name].type
-            rebuilt_type = v.type if v is not o and type_equal(StructType(list(types.items())), ot) \
+            # A recursive value keeps its type; a reference's value is read through it.
+            vt = v.type
+            rebuilt_type = vt if vt.type == "Recursive" and type_equal(StructType(list(types.items())), ot) \
                 else StructType(list(types.items()))
             return t.struct(rebuilt_type, values)
         return v
@@ -1419,9 +1383,17 @@ def _min_max_by(t: Translator, c: CallSite) -> None:
         t.if_else(b, better, lambda b2: t.assign(b2, best, t.some(p, OptionType(pair))), None, c.path)
     t.for_each(c.block, pairs, each, c.path, "pair")
     option = OptionType(element)
-    c.emit(c.block, t.match_value(best, {"none": lambda _b, _p: t.none(option),
-                                         "some": lambda _b, current: t.some(t.field(current, "value"), option)},
-                                  option, c.path))
+    out = _output_type(t, c)
+    if nullable_payload(option) is not None:
+        c.emit(c.block, t.match_value(best, {"none": lambda _b, _p: t.none(option),
+                                             "some": lambda _b, current: t.some(t.field(current, "value"), option)},
+                                      option, c.path))
+        return
+    # An element that can be null already is the answer as it is, and no element is its null.
+    c.emit(c.block, t.match_value(best, {
+        "none": lambda b, _p: t.widen_to(b, t.null(c.path), out, c.path),
+        "some": lambda b, current: t.widen_to(b, t.field(current, "value"), out, c.path),
+    }, out, c.path))
 
 
 rule(("min_by", "max_by"), _min_max_by)
@@ -1467,7 +1439,13 @@ def _min_max(t: Translator, c: CallSite) -> None:
         better = t.match_value(best, {"none": lambda _b2, _p: t.bool_(True), "some": against}, BooleanType, c.path)
         t.if_else(b, better, lambda b2: t.assign(b2, best, t.some(item, option)), None, c.path)
     t.for_each(c.block, array, each, c.path)
-    c.emit(c.block, t.widen_to(c.block, best, _output_type(t, c), c.path))
+    out = _output_type(t, c)
+    if nullable_payload(option) is not None:
+        c.emit(c.block, t.widen_to(c.block, best, out, c.path))
+        return
+    # An element that can be null already is the answer as it is, and no element is its null.
+    c.emit(c.block, t.match_value(best, {"none": lambda b, _p: t.widen_to(b, t.null(c.path), out, c.path),
+                                         "some": lambda b, v: t.widen_to(b, v, out, c.path)}, out, c.path))
 
 
 rule(("min", "max"), _min_max)
@@ -1496,8 +1474,16 @@ rule("reverse", _reverse)
 
 def _contains(t: Translator, c: CallSite, b: Block, a: A, a2: A) -> A:  # noqa: C901
     """Whether ``a`` holds ``a2``, as jq's ``contains`` decides it."""
-    va = t.open(a)
-    vb = t.open(a2)
+    # Sets, vectors and matrices are arrays to jq.
+    def array(v: A) -> A:
+        if _array_like(v.type) and v.type.type != "Array":
+            converted = t.as_array(b, v, c.path)
+            assert converted is not None  # every array-like value has its array
+            return converted
+        return v
+
+    va = array(t.open(a))
+    vb = array(t.open(a2))
     ta = va.type
     tb = vb.type
     if ta.type == "String" and tb.type == "String":
@@ -1633,7 +1619,12 @@ def _index_rule(t: Translator, c: CallSite) -> None:
     def with_sub(b: Block, vs: list[A]) -> None:
         sub = vs[0]
         x = t.open(_input(t, c))
-        found_all = _indices(t, c, b, x, sub) if x.type.type == "String" else _indices_in(t, c, b, x, sub)
+        if x.type.type == "String":
+            found_all = _indices(t, c, b, x, sub)
+        else:
+            array = t.as_array(b, x, c.path)
+            assert array is not None  # the checker gives index an array-like input or a string
+            found_all = _indices_in(t, c, b, array, sub)
         if c.name == "indices":
             c.emit(b, found_all)
             return
@@ -1678,8 +1669,12 @@ def _bsearch(t: Translator, c: CallSite) -> None:
 rule("bsearch", _bsearch)
 
 
-def _cell_text(t: Translator, _b: Block, v: A, path: str, null_text: str) -> A:
-    """A scalar as text for join and the text formats: null as ``null_text``, a Float as JSON writes it."""
+def _cell_text(t: Translator, b: Block, v: A, path: str, null_text: str, nan_text: str) -> A:
+    """A scalar as text for join and the text formats.
+
+    A string as it is, an Integer in decimal, a Float as jq writes a number, a
+    boolean as ``true`` or ``false``, null as ``null_text``, and NaN as ``nan_text``.
+    """
     o = t.open(v)
     ot = o.type
     if ot.type == "String":
@@ -1688,17 +1683,134 @@ def _cell_text(t: Translator, _b: Block, v: A, path: str, null_text: str) -> A:
         return t.str_(null_text, path)
     if nullable_payload(ot) is not None:
         return t.match_value(o, {"none": lambda _b2, _p: t.str_(null_text, path),
-                                 "some": lambda b2, p: _cell_text(t, b2, p, path, null_text)}, StringType, path)
+                                 "some": lambda b2, p: _cell_text(t, b2, p, path, null_text, nan_text)}, StringType, path)
     if ot.type == "Float":
-        return t.b("StringPrintJSON", [ot], [o], StringType, path)
+        return _jq_number(t, b, o, path, nan_text)
     return t.b("Print", [ot], [o], StringType, path)
+
+
+def _jq_number(t: Translator, b: Block, f: A, path: str, nan_text: str) -> A:
+    """A Float as jq writes a number.
+
+    −0.0 as ``-0``, ±Infinity as ``±1.7976931348623157e+308``, NaN as
+    ``nan_text``, and any other as :func:`_jq_digits` writes it.
+    """
+    x = t.bind(b, f, "number")
+
+    def text(s: str) -> Callable[[Block], A]:
+        return lambda _b2: t.str_(s, path)
+
+    def finite(b2: Block) -> A:
+        return _jq_digits(t, b2, x, path)
+
+    def not_negative_zero(_b2: Block) -> A:
+        return t.if_value(t.eq(x, t.float_(-0.0), path), text("-0"), finite, StringType, path)
+
+    def not_zero(_b2: Block) -> A:
+        return t.if_value(t.eq(x, t.float_(0.0), path), text("0"), not_negative_zero, StringType, path)
+
+    def not_negative_infinity(_b2: Block) -> A:
+        return t.if_value(t.eq(x, t.float_(-math.inf), path), text("-1.7976931348623157e+308"), not_zero, StringType,
+                          path)
+
+    def not_infinity(_b2: Block) -> A:
+        return t.if_value(t.eq(x, t.float_(math.inf), path), text("1.7976931348623157e+308"), not_negative_infinity,
+                          StringType, path)
+    return t.if_value(t.is_nan(x, path), text(nan_text), not_infinity, StringType, path)
+
+
+def _jq_digits(t: Translator, b: Block, x: A, path: str) -> A:
+    """A finite, non-zero Float as jq 1.8 writes one it computed (``jvp_dtoa_fmt``).
+
+    The shortest digits that read back as it, which East's JSON writes too;
+    placed fixed-point, or as ``d.ddde±XX`` (at least two exponent digits)
+    where the decimal point falls four or more places before the digits, or
+    more than fifteen past their end. So ``0.0001``, ``1e-05``, ``1e+16``,
+    ``123456789012345680000`` and ``1.5e+300``.
+    """
+    s_type = StringType
+    i_type = IntegerType
+
+    def length(s: A) -> A:
+        return t.b("StringLength", [], [s], i_type, path)
+
+    def slice_(s: A, start: A, end: A) -> A:
+        return t.b("StringSubstring", [], [s, start, end], s_type, path)
+
+    def strip(s: A, pattern: str) -> A:
+        return t.b("RegexReplace", [], [s, t.str_(pattern), t.str_(""), t.str_("")], s_type, path)
+
+    def minus(a: A, a2: A) -> A:
+        return t.b("IntegerSubtract", [], [a, a2], i_type, path)
+
+    def at_most(a: A, a2: A) -> A:
+        return t.b("LessEqual", [i_type], [a, a2], BooleanType, path)
+
+    def zeros(n: A) -> A:
+        return t.b("StringRepeat", [], [t.str_("0"), n], s_type, path)
+
+    # East's JSON of the number: an optional -, digits with an optional point, and an optional exponent.
+    json = t.bind(b, t.b("StringPrintJSON", [FloatType], [x], s_type, path), "json")
+    negative = t.bind(b, t.b("StringStartsWith", [], [json, t.str_("-")], BooleanType, path), "negative")
+    body = t.bind(b, t.if_value(negative, lambda _b2: slice_(json, t.int_(1), length(json)), lambda _b2: json, s_type,
+                                path), "body")
+    e = t.bind(b, t.b("StringIndexOf", [], [body, t.str_("e")], i_type, path), "e")
+    mantissa = t.bind(b, t.if_value(t.lt(e, t.int_(0), path), lambda _b2: body, lambda _b2: slice_(body, t.int_(0), e),
+                                    s_type, path), "mantissa")
+    exponent = t.bind(b, t.if_value(
+        t.lt(e, t.int_(0), path), lambda _b2: t.int_(0),
+        lambda _b2: t.b("Parse", [i_type], [t.b("StringReplace", [], [
+            slice_(body, t.add(e, t.int_(1), path), length(body)), t.str_("+"), t.str_("")], s_type, path)], i_type, path),
+        i_type, path), "exponent")
+    dot = t.bind(b, t.b("StringIndexOf", [], [mantissa, t.str_(".")], i_type, path), "dot")
+    whole = t.bind(b, t.if_value(t.lt(dot, t.int_(0), path), lambda _b2: mantissa,
+                                 lambda _b2: slice_(mantissa, t.int_(0), dot), s_type, path), "whole")
+    fraction = t.bind(b, t.if_value(t.lt(dot, t.int_(0), path), lambda _b2: t.str_(""),
+                                    lambda _b2: slice_(mantissa, t.add(dot, t.int_(1), path), length(mantissa)), s_type,
+                                    path), "fraction")
+    # The significant digits, and where the decimal point falls among them.
+    all_digits = t.bind(b, t.concat(whole, fraction, path), "all")
+    lead = t.bind(b, strip(all_digits, "^0+"), "lead")
+    digits = t.bind(b, strip(lead, "0+$"), "digits")
+    count = t.bind(b, length(digits), "count")
+    point = t.bind(b, minus(t.add(length(whole), exponent, path), minus(length(all_digits), length(lead))), "point")
+    exponential = t.b("BooleanOr", [], [at_most(point, t.int_(-4)), t.lt(t.add(count, t.int_(15), path), point, path)],
+                      BooleanType, path)
+
+    def scientific(b2: Block) -> A:
+        power = t.bind(b2, t.add(point, t.int_(-1), path), "power")
+        magnitude = t.bind(b2, t.b("Print", [i_type], [t.b("IntegerAbs", [], [power], i_type, path)], s_type, path),
+                           "magnitude")
+        first = t.if_value(t.lt(t.int_(1), count, path),
+                           lambda _b3: t.concat(t.concat(slice_(digits, t.int_(0), t.int_(1)), t.str_("."), path),
+                                                slice_(digits, t.int_(1), count), path),
+                           lambda _b3: digits, s_type, path)
+        sign = t.if_value(t.lt(power, t.int_(0), path), lambda _b3: t.str_("e-"), lambda _b3: t.str_("e+"), s_type, path)
+        padded = t.if_value(t.lt(length(magnitude), t.int_(2), path), lambda _b3: t.concat(t.str_("0"), magnitude, path),
+                            lambda _b3: magnitude, s_type, path)
+        return t.concat(t.concat(first, sign, path), padded, path)
+
+    def fixed(_b2: Block) -> A:
+        return t.if_value(
+            at_most(point, t.int_(0)),
+            lambda _b3: t.concat(t.concat(t.str_("0."), zeros(minus(t.int_(0), point)), path), digits, path),
+            lambda _b3: t.if_value(
+                at_most(count, point),
+                lambda _b4: t.concat(digits, zeros(minus(point, count)), path),
+                lambda _b4: t.concat(t.concat(slice_(digits, t.int_(0), point), t.str_("."), path),
+                                     slice_(digits, point, count), path),
+                s_type, path),
+            s_type, path)
+    text = t.bind(b, t.if_value(exponential, scientific, fixed, s_type, path), "text")
+    return t.if_value(negative, lambda _b2: t.concat(t.str_("-"), text, path), lambda _b2: text, s_type, path)
 
 
 def _join(t: Translator, c: CallSite) -> None:
     def with_sep(b: Block, vs: list[A]) -> None:
         parts = t.declare(b, t.empty_array(StringType), "parts")
-        t.for_each(b, _input(t, c), lambda b2, item, _k, _l: t.push(b2, parts, _cell_text(t, b2, item, c.path, ""), c.path),
-                   c.path)
+        # jq's join writes a number as tojson does: NaN as null.
+        t.for_each(b, _input(t, c), lambda b2, item, _k, _l: t.push(
+            b2, parts, _cell_text(t, b2, item, c.path, "", "null"), c.path), c.path)
         c.emit(b, t.b("ArrayStringJoin", [], [parts, vs[0]], StringType, c.path))
     _values(t, c, [0], c.block, with_sep)
 
@@ -1937,8 +2049,7 @@ def _string_builtin(builtin: str) -> Callable[[Translator, CallSite, Block, A, l
 for _name, _builtin in (("trim", "StringTrim"), ("ltrim", "StringTrimStart"), ("rtrim", "StringTrimEnd"),
                         ("ascii_downcase", "StringLowerCase"), ("ascii_upcase", "StringUpperCase")):
     rule(_name, _on_string([], _string_builtin(_builtin)))
-rule("split", _on_string([0], lambda t, c, b, s, args: c.emit(b, t.b("StringSplit", [], [s, args[0]],
-                                                                     ArrayType(StringType), c.path))))
+rule("split", _on_string([0], lambda t, c, b, s, args: c.emit(b, t.split(b, s, args[0], c.path))))
 
 
 def _regex_flags(t: Translator, c: CallSite, i: int | None) -> tuple[str, bool]:
@@ -2060,14 +2171,28 @@ def _string_cell(t: Translator, v: A, f: Callable[[A], A], path: str, null_text:
     return t.match_value(o, {"none": lambda _b2, _p: t.str_(null_text, path), "some": lambda _b2, s: f(s)}, StringType, path)
 
 
-# RFC 4648's alphabets.
+# RFC 4648's alphabet.
 _BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-_BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+
+def _bytes_of(t: Translator, b: Block, v: A, path: str) -> A:
+    """The bytes ``@base64`` encodes: a Blob's own, or the UTF-8 of any other value's text."""
+    o = t.open(v)
+    ot = o.type
+    if ot.type == "Blob":
+        return o
+    payload = nullable_payload(ot)
+    if payload is not None and unwrap(payload).type == "Blob":
+        return t.match_value(o, {
+            "none": lambda _b2, _p: t.b("StringEncodeUtf8", [], [t.str_("null", path)], BlobType, path),
+            "some": lambda b2, p: _bytes_of(t, b2, p, path),
+        }, BlobType, path)
+    return t.b("StringEncodeUtf8", [], [t.tostring(b, o, path)], BlobType, path)
 
 
 def _base_encode(t: Translator, b: Block, v: A, path: str, alphabet: str, bits: int, group: int) -> A:
-    """Base-2ᵏ text of a string's UTF-8 bytes, RFC 4648 with padding."""
-    data = t.declare(b, t.b("StringEncodeUtf8", [], [t.tostring(b, v, path)], BlobType, path), "bytes", False)
+    """Base-2ᵏ text of a value's bytes, RFC 4648 with padding: ``bits`` bits a character, in groups of ``group`` bytes."""
+    data = t.declare(b, _bytes_of(t, b, v, path), "bytes", False)
     size = t.declare(b, t.b("BlobSize", [], [data], IntegerType, path), "size", False)
     letters = t.declare(b, t.value(list(alphabet), ArrayType(StringType), path), "alphabet", False)
     out = t.declare(b, t.empty_array(StringType), "letters")
@@ -2127,18 +2252,19 @@ def _uri(t: Translator, b: Block, v: A, path: str) -> A:
     return t.b("ArrayStringJoin", [], [out, t.str_("")], StringType, path)
 
 
+# jq writes NaN in a CSV or TSV cell as nothing, and elsewhere as null.
 def _csv_cell(t: Translator, b: Block, item: A, path: str) -> A:
     if _is_string_cell(t, item):
         return _string_cell(t, item, lambda s: t.concat(t.concat(t.str_('"'), _replace_all(t, s, [('"', '""')], path), path),
                                                          t.str_('"'), path), path, "")
-    return _cell_text(t, b, item, path, "")
+    return _cell_text(t, b, item, path, "", "")
 
 
 def _tsv_cell(t: Translator, b: Block, item: A, path: str) -> A:
     if _is_string_cell(t, item):
         return _string_cell(t, item, lambda s: _replace_all(t, s, [("\\", "\\\\"), ("\t", "\\t"), ("\n", "\\n"),
                                                                    ("\r", "\\r")], path), path, "")
-    return _cell_text(t, b, item, path, "")
+    return _cell_text(t, b, item, path, "", "")
 
 
 def _sh(t: Translator, b: Block, v: A, path: str) -> A:
@@ -2148,7 +2274,7 @@ def _sh(t: Translator, b: Block, v: A, path: str) -> A:
     def cell(b2: Block, item: A) -> A:
         if _is_string_cell(t, item):
             return _string_cell(t, item, quote, path, "null")
-        return _cell_text(t, b2, item, path, "null")
+        return _cell_text(t, b2, item, path, "null", "null")
     o = t.open(v)
     if not _array_like(o.type):
         return cell(b, o)
@@ -2163,7 +2289,6 @@ FORMATS: dict[str, Format] = {
         ("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("'", "&apos;"), ('"', "&quot;")], path),
     "uri": _uri,
     "base64": lambda t, b, v, path: _base_encode(t, b, v, path, _BASE64, 6, 3),
-    "base32": lambda t, b, v, path: _base_encode(t, b, v, path, _BASE32, 5, 5),
     "csv": lambda t, b, v, path: _cells(t, b, v, path, lambda b2, item: _csv_cell(t, b2, item, path), ","),
     "tsv": lambda t, b, v, path: _cells(t, b, v, path, lambda b2, item: _tsv_cell(t, b2, item, path), "\t"),
     "sh": _sh,

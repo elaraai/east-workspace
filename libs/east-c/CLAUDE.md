@@ -66,10 +66,11 @@ REBUILD=1 make leak-check-all
 - Async preserved in IR but executed synchronously.
 - Typed jq queries (#875) reach east-c as ordinary East IR, translated by the
   SDK that checked them (`libs/east/devdocs/QUERY.md` §15): nothing in the
-  runtime is query-specific. The compliance runners take the translated jq
-  conformance cases from `/tmp/east-test-ir/query-conformance/`, and
-  `tests/test_query_paged.c` runs the query corpus's translations over paged
-  inputs.
+  runtime is query-specific. The compliance runners and the leak check take
+  the query suites from `/tmp/east-test-ir/query-*/`: jq 1.8's conformance
+  cases (`query-conformance/`, #924), the type matrix (`query-types/`) and the
+  query corpus (`query-corpus/`, #987). `tests/test_query_paged.c` runs the
+  query corpus's translations over paged inputs.
 
 ## Reference implementations
 

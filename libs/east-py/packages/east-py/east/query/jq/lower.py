@@ -138,12 +138,15 @@ def coerce_to(value_ir: Any, source_type: EastType, target_type: EastType, loc_i
     """Casts an IR value from one type to a wider one, as ``ast_to_ir.ts``'s ``coerce_to`` does.
 
     A struct or variant literal is rebuilt with the wider type, each child cast;
-    anything else is one outer ``As``.
+    anything else is one outer ``As``. A value of Never is left as it is: it
+    never arrives, and the analyzer casts no Never.
 
     Raises:
         TypeError: When ``source_type`` is not a subtype of ``target_type``.
     """
     if type_equal(source_type, target_type):
+        return value_ir
+    if source_type.type == "Never":
         return value_ir
     if not is_subtype(source_type, target_type):
         raise TypeError(f"{print_type(source_type)} is not a subtype of {print_type(target_type)} at loc_id {loc_id}")

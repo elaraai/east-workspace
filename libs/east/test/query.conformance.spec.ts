@@ -17,9 +17,9 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import { translateJq } from "../src/index.js";
+import { inExportSubdirectory } from "./export-subdirectory.js";
 import { DEVIATIONS, SKIPS } from "./jq-conformance/deviations.js";
 import {
   SUITES, conformanceCases, conformanceSummary, runCase, summaryText, withConformanceTables,
@@ -83,18 +83,6 @@ describe("jq 1.8 conformance", () => {
     console.log(`[+] jq conformance: ${compliance.length} cases that pass on an input run as compliance tests`);
   });
 });
-
-/** Runs `f` with `make test-export`'s directory, EXPORT_TEST_IR, set to a subdirectory of it. */
-function inExportSubdirectory<T>(name: string, f: () => T): T {
-  const root = process.env.EXPORT_TEST_IR;
-  if (root === undefined || root === "") return f();
-  process.env.EXPORT_TEST_IR = join(root, name);
-  try {
-    return f();
-  } finally {
-    process.env.EXPORT_TEST_IR = root;
-  }
-}
 
 for (const suite of SUITES) {
   const cases = compliance.filter(r => r.case.file === suite);

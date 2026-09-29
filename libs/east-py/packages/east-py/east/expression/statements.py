@@ -625,7 +625,8 @@ class Block:
                 then the payload expression (either may be omitted).
 
         Returns:
-            The Null-typed Match statement.
+            The Match statement: Null-typed, or Never-typed when every case
+            diverges.
         """
         from east.expression.expr import Expression
 
@@ -650,9 +651,11 @@ class Block:
                 body = _run_block(handler, (Expression(var, c["type"]),),
                                   return_type=frame.return_type, mode="null_block").ir
             case_nodes.append((c["name"], var, body))
-        node = _k_match(NullType, v.ir, case_nodes)
+        # Every case diverges: so does the statement, as the analyzer requires.
+        out_t = NeverType if all(_is_never(_node_type(body)) for _name, _var, body in case_nodes) else NullType
+        node = _k_match(out_t, v.ir, case_nodes)
         frame.statements.append(node)
-        return Expression(node, NullType)
+        return Expression(node, out_t)
 
     def while_(self, predicate: Any, body: Any) -> Any:
         """Loop while ``predicate`` holds (TS ``$.while``).

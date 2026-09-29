@@ -239,10 +239,11 @@ def test_call_of_narrow_type_wraps_in_as():
     assert out.ir.type == "As" and out.ir.value["value"] is e.ir
 
 
-def test_never_widens_to_anything_through_as():
+def test_never_stands_for_anything_uncast():
+    # Never <: Integer, but an As over it is refused ("Cannot cast .Never"):
+    # the value stands where an Integer is expected, as it is.
     never = Expression(ir_error(NeverType, ir_value(StringType, "boom", LOC), LOC), NeverType)
-    out = _coerce(never, IntegerType)
-    assert out.ir.type == "As" and out.ir.value["type"] == IntegerType
+    assert _coerce(never, IntegerType) is never
 
 
 def test_struct_to_the_same_struct_is_a_no_op():

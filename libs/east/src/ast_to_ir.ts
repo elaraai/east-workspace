@@ -49,6 +49,10 @@ type Ctx = {
  * and Variant (subset + covariant cases). All mutable-container parameters
  * (Array/Set/Dict/Vector/Matrix/Ref) are invariant per isSubtypeImpl.
  *
+ * A value of `Never` (an error, a return) is left as it is: it never arrives,
+ * so it stands wherever a value is expected, and the analyzer refuses to cast
+ * one — `$.assign(x, East.error(…))` compiles.
+ *
  * @internal
  */
 export function coerce_to(
@@ -59,6 +63,7 @@ export function coerce_to(
   visited?: Set<string>,
 ): IR {
   if (isTypeEqual(source_type, target_type)) return value_ir;
+  if (source_type.type === "Never") return value_ir;
 
   if (!isSubtype(source_type, target_type)) {
     throw typeMismatchError(source_type, target_type, { loc_id });

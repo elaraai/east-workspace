@@ -13,16 +13,17 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  ArrayType, DictType, EastError, East, Expr, FloatType, IntegerType, NeverType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
+  ArrayType, BlobType, DictType, EastError, East, Expr, FloatType, IntegerType, NeverType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
   SummaryLeafType, SummaryType, checkJq, compareFor, equalFor, evaluateJq, printFor, QueryError, some, summaryProgram, translateJq,
   type ArrayExpr, type EastType, type ValueTypeOf,
 } from "../src/index.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
 import { BUILTIN_RULES, FORMATS } from "../src/query/jq/translate-builtins.js";
 import type { AST } from "../src/ast.js";
+import { inExportSubdirectory } from "./export-subdirectory.js";
 import { describeEast, assertEast } from "./platforms.spec.js";
 import { QUERY_CORPUS, translatedBytes } from "./query.corpus.js";
-import { FixtureRoot, Order, queryFixture } from "./query.fixture.js";
+import { FixtureRoot, Order, queryFixture, queryFixtureBytes } from "./query.fixture.js";
 import * as ex from "./query.examples.js";
 
 /** Asserts two East values of a type are equal, as East compares them. */
@@ -107,6 +108,55 @@ describe("the query corpus over the fixture (E1)", () => {
     });
   }
 });
+
+// ─── The corpus as a compliance suite (#987) ─────────────────────────────
+
+/** Whether values of a type hold a function, which a test cannot write as a constant. */
+function holdsFunction(type: EastType): boolean {
+  const seen = new Set<EastType>();
+  const visit = (t: EastType): boolean => {
+    if (seen.has(t)) return false;
+    seen.add(t);
+    switch (t.type) {
+      case "Function": case "AsyncFunction": return true;
+      case "Array": case "Ref": return visit(t.value as EastType);
+      case "Set": return visit(t.key as EastType);
+      case "Dict": return visit(t.key as EastType) || visit(t.value as EastType);
+      case "Struct": return Object.values(t.fields as Record<string, EastType>).some(visit);
+      case "Variant": return Object.values(t.cases as Record<string, EastType>).some(visit);
+      case "Recursive": return visit(t.node as EastType);
+      default: return false;
+    }
+  };
+  return visit(type);
+}
+
+// Each corpus case over the fixture with an output, run by East.jq in an East
+// test and equal to the value TypeScript's translation gives, which E1 holds
+// to the corpus's text: a suite in <dir>/query-corpus/, which every runtime runs.
+{
+  const fixture = queryFixture();
+  const bytes = queryFixtureBytes();
+  const corpus = QUERY_CORPUS.flatMap(c => {
+    if (c.output === undefined || c.input !== FixtureRoot) return [];
+    const checked = checkJq(c.program, c.input, { root: c.root === true });
+    const resultType = translateJq(checked).resultType;
+    return holdsFunction(resultType) ? [] : [{ c, resultType, expected: evaluateJq(checked, fixture) }];
+  });
+  await inExportSubdirectory("query-corpus", () => describeEast("jq corpus", test => {
+    for (const { c, resultType, expected } of corpus) {
+      test(c.name, $ => {
+        // The fixture as test/fixtures/query-fixture.beast2 holds it, its model
+        // with it: its value written into each test would be a hundred times the bytes.
+        const root = $.let($.const(bytes, BlobType).decodeBeast(FixtureRoot, "v2"));
+        const input = c.root === true
+          ? Object.fromEntries(Object.keys(FixtureRoot.fields).map(name => [name, (root as any)[name] as Expr]))
+          : root;
+        $(assertEast.equal(East.jq(input, c.program, resultType), expected as never));
+      });
+    }
+  }));
+}
 
 // ─── The query editor's default query (E2) ───────────────────────────────
 

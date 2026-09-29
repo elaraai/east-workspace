@@ -18,10 +18,10 @@ TypeScript wrote them.
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
+from pathlib import Path
 
 import pytest
 from east.runtime._compiler_eastc import diff_ir, normalize_ir
@@ -29,9 +29,11 @@ from east.runtime._compiler_eastc import diff_ir, normalize_ir
 from east.expression.finalize import _node_children
 from east.serialization.json import decode_json_for, encode_json_for
 from east.types.type_of_type import IRType
+from tests.test_compliance import SUITE_SUBDIRECTORIES, get_test_ir_files, suite_name
 
 IR_DIR = os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")
-FILES = sorted(glob.glob(os.path.join(IR_DIR, "*.json")))
+# The corpus's suites, the query suites' directories (#924, #987) included.
+FILES = [str(f) for f in get_test_ir_files(Path(IR_DIR), SUITE_SUBDIRECTORIES)]
 
 pytestmark = pytest.mark.skipif(not FILES, reason=f"no exported IR corpus in {IR_DIR}")
 
@@ -81,7 +83,7 @@ def _labels(ir) -> list[str]:
     return [n.value["label"]["name"] for n in _walk(ir) if n.type in ("While", "ForArray", "ForSet", "ForDict", "Break", "Continue")]
 
 
-@pytest.mark.parametrize("path", FILES, ids=[os.path.basename(f) for f in FILES])
+@pytest.mark.parametrize("path", FILES, ids=[suite_name(Path(f), Path(IR_DIR)) for f in FILES])
 def test_typescript_program_normalizes_in_the_lowerings_order(path):
     """Normalization renumbers recursive type ids and zeroes loc_ids, so the
     comparison is on what the LOWERING chose: every slot TypeScript left

@@ -313,7 +313,10 @@ class Translator:
     def as_(self, e: A, t: EastType) -> A:
         """A value as a wider type it is a subtype of, through a recursive wrapper where one is between."""
         source = e.type
-        if t.type == "Recursive" and source.type != "Recursive" and source.type != "Never":
+        # A value of Never, which never arrives, is one of every type: East casts none.
+        if source.type == "Never":
+            return e
+        if t.type == "Recursive" and source.type != "Recursive":
             return A("WrapRecursive", t, UNKNOWN_LOC_ID, value=self.as_(e, node_of(t)))
         if source.type == "Recursive" and t.type != "Recursive":
             return self.as_(self.open(e), t)
@@ -324,7 +327,13 @@ class Translator:
         return A("As", t, UNKNOWN_LOC_ID, value=e)
 
     def some(self, payload: A, option_type: EastType) -> A:
+        """An option holding a value. An option that can only be none
+        (``Option<Never>``, over an empty collection's elements) is never made
+        some: the payload, a value that never arrives, stands for it, as East's
+        builders cannot spell a case of Never."""
         p = cases_of_type(option_type)["some"]
+        if p.type == "Never":
+            return payload
         return A("Variant", option_type, UNKNOWN_LOC_ID, case="some", value=self.as_(payload, p))
 
     def none(self, option_type: EastType) -> A:
@@ -332,20 +341,27 @@ class Translator:
                  value=A("Value", NullType, UNKNOWN_LOC_ID, value=None))
 
     def variant_of(self, t: EastType, name: str, payload: A) -> A:
-        """A case of a variant type, wrapped when the type is recursive."""
+        """A case of a variant type, wrapped when the type is recursive. A case of
+        Never is never made: the payload, which never arrives, stands for it."""
         node_t = _node_type(t)
         p = cases_of_type(node_t)[name]
+        if p.type == "Never":
+            return payload
         built = A("Variant", node_t, UNKNOWN_LOC_ID, case=name, value=self.as_(payload, p))
         return A("WrapRecursive", t, UNKNOWN_LOC_ID, value=built) if t.type == "Recursive" else built
 
     def struct(self, t: EastType, values: dict[str, A]) -> A:
-        """A struct of a type from its fields' values, wrapped when the type is recursive."""
+        """A struct of a type from its fields' values, wrapped when the type is
+        recursive. A struct with a field of Never is never made: that field's
+        value, which never arrives, stands for it."""
         node_t = _node_type(t)
         fields: dict[str, A] = {}
         for name, field_type in fields_of(node_t).items():
             v = values.get(name)
             if v is None:
                 raise self.gap(f"no value for the field {name}")
+            if field_type.type == "Never":
+                return v
             fields[name] = self.as_(v, field_type)
         built = A("Struct", node_t, UNKNOWN_LOC_ID, fields=fields)
         return A("WrapRecursive", t, UNKNOWN_LOC_ID, value=built) if t.type == "Recursive" else built
@@ -452,12 +468,19 @@ class Translator:
             s.append(A("Value", NullType, UNKNOWN_LOC_ID, value=None))
         return A("Block", s[-1].type, UNKNOWN_LOC_ID, statements=s)
 
+    def diverging(self, statements: list[A]) -> A:
+        """Statements the last of which diverges, as one body, assembled as the
+        builders assemble one: a single statement is that statement."""
+        if len(statements) == 1:
+            return statements[0]
+        return A("Block", NeverType, UNKNOWN_LOC_ID, statements=statements)
+
     def block_value(self, build: Callable[[Block], A], t: EastType) -> A:
         """A block that gives a value: its statements, then the value."""
         inner = Block()
         v = build(inner)
         if self.ended(inner):
-            return A("Block", NeverType, UNKNOWN_LOC_ID, statements=inner.statements)
+            return self.diverging(inner.statements)
         value_ast = self.as_(v, t)
         if not inner.statements:
             return value_ast
@@ -585,6 +608,26 @@ class Translator:
                 return build(inner, var)
             out[name] = (var, self.block_value(value_of, t))
         return A("Match", t, self.loc(path), variant=opened, cases=out)
+
+    def map_payloads(self, v: A, f: Callable[[Block, str, A], A], path: str) -> A:
+        """A variant with each case's payload given by ``f`` of it, of the variant type the new payloads make."""
+        opened = self.open(v)
+        built: list[tuple[str, EastType, A, Block, A]] = []
+        for name, typ in cases_of_type(opened.type).items():
+            var = variable(typ, "payload")
+            blk = Block()
+            value = f(blk, name, var)
+            built.append((name, typ, var, blk, value))
+        new_type = VariantType([(name, typ if self.ended(blk) else value.type) for name, typ, _var, blk, value in built])
+        out: dict[str, tuple[A, A]] = {}
+        for name, _typ, var, blk, value in built:
+            if self.ended(blk):
+                out[name] = (var, self.diverging(blk.statements))
+                continue
+            wrapped = self.variant_of(new_type, name, value)
+            out[name] = (var, wrapped if not blk.statements else A("Block", new_type, UNKNOWN_LOC_ID,
+                                                                    statements=[*blk.statements, wrapped]))
+        return A("Match", new_type, self.loc(path), variant=opened, cases=out)
 
     def if_value(self, condition: A, then: Callable[[Block], A], otherwise: Callable[[Block], A], t: EastType,
                  path: str) -> A:
@@ -744,6 +787,9 @@ class Translator:
             return self.as_(e, to)
         if source.type == "Never":
             return self.as_(e, to)
+        # A reference is read through, as jq sees its value.
+        if source.type == "Ref" and to.type != "Ref":
+            return self.widen_to(b, self.open(e), to, path)
         # An option of Never is always none: as Null, it is null.
         source_payload = nullable_payload(source)
         if to.type == "Null" and source_payload is not None and source_payload.type == "Never":
@@ -1399,6 +1445,8 @@ class Translator:
             return self.child_kinds(payload)
         if t.type in ("Array", "Set", "Vector"):
             return [t.value]
+        if t.type == "Matrix":
+            return [ArrayType(t.value)]
         if t.type == "Dict":
             return [dict_value(t)]
         if t.type == "Struct":
@@ -1414,7 +1462,10 @@ class Translator:
         if nullable_payload(t) is not None:
             self.match(b, e, {"some": lambda b2, p: self.children(b2, p, path, emit)}, path)
             return
-        if t.type in ("Array", "Set", "Dict", "Vector"):
+        if t.type in ("Array", "Set", "Dict", "Vector", "Matrix"):
+            # A collection of Never is empty: nothing is inside it.
+            if self.child_kinds(t)[0].type == "Never":
+                return
             self.for_each(b, e, lambda b2, value, _k, _l: emit(b2, value), path)
             return
         if t.type == "Struct":
@@ -1749,17 +1800,10 @@ class Translator:
             self.for_each(b, va, each, path)
             return out
         if op in ("+", "*") and ta.type == "Struct" and tb.type == "Struct":
-            return self.merge_structs(b, va, vb, op == "*")
-        if op == "+" and ta.type == "Dict" and tb.type == "Dict":
-            merged = unify(ta, tb)
-            if merged is None:
-                raise self.gap(f"{print_type(ta)} + {print_type(tb)}")
-            out = self.declare(b, self.b("DictCopy", [dict_key(merged), dict_value(merged)],
-                                         [self.widen_to(b, va, merged, path)], merged, path), "merged")
-            self.for_each(b, self.widen_to(b, vb, merged, path),
-                          lambda b3, value, key, _l: self.put(b3, out, key, value, path), path)  # type: ignore[arg-type]
-            return out
-        if op == "+" and (ta.type == "Dict" or tb.type == "Dict") and (ta.type == "Struct" or tb.type == "Struct"):
+            return self.merge_structs(b, va, vb, op == "*", path)
+        if op in ("+", "*") and ta.type == "Dict" and tb.type == "Dict":
+            return self.merge_dicts(b, va, vb, op == "*", path)
+        if op in ("+", "*") and (ta.type == "Dict" or tb.type == "Dict") and (ta.type == "Struct" or tb.type == "Struct"):
             return va if ta.type == "Dict" else vb
         # A string repeated, the count a number on either side.
         if op == "*" and ta.type == "String" and number(tb):
@@ -1767,8 +1811,16 @@ class Translator:
         if op == "*" and number(ta) and tb.type == "String":
             return self.repeat(b, vb, va, path)
         if op == "/" and ta.type == "String" and tb.type == "String":
-            return self.b("StringSplit", [], [va, vb], ArrayType(StringType), path)
+            return self.split(b, va, vb, path)
         return self.failure(f"{jq_kind(ta)} and {jq_kind(tb)} cannot be combined with {op}", path)
+
+    def split(self, b: Block, s: A, separator: A, path: str) -> A:
+        """jq's split of a string by a separator: an empty string has no parts."""
+        text = self.bind(b, s, "text")
+        return self.if_value(self.eq(self.b("StringLength", [], [text], IntegerType, path), self.int_(0), path),
+                             lambda _b2: self.empty_array(StringType),
+                             lambda _b2: self.b("StringSplit", [], [text, separator], ArrayType(StringType), path),
+                             ArrayType(StringType), path)
 
     def remainder(self, b: Block, a: A, b2: A, path: str) -> A:
         """jq's ``%``: the remainder of the numbers truncated to 64-bit integers."""
@@ -1852,16 +1904,15 @@ class Translator:
         for name, var, blk, value in built:
             # A case that raises: its statements, the error last.
             if self.ended(blk) or value.type.type == "Never":
-                statements = blk.statements if self.ended(blk) else [*blk.statements, value]
-                out[name] = (var, A("Block", NeverType, UNKNOWN_LOC_ID, statements=statements))
+                out[name] = (var, self.diverging(blk.statements if self.ended(blk) else [*blk.statements, value]))
                 continue
             w = self.widen_to(blk, value, typ, path)
             out[name] = (var, w if not blk.statements else A("Block", typ, UNKNOWN_LOC_ID,
                                                               statements=[*blk.statements, w]))
         return A("Match", typ, self.loc(path), variant=opened, cases=out)
 
-    def merge_structs(self, b: Block, a: A, b2: A, deep: bool) -> A:
-        """``a + b`` on structs: ``b``'s fields win, and new ones follow; ``a * b`` merges struct fields too."""
+    def merge_structs(self, b: Block, a: A, b2: A, deep: bool, path: str) -> A:
+        """``a + b`` on structs: ``b``'s fields win, and new ones follow; ``a * b`` merges fields that are objects in both deeply."""
         left = self.bind(b, self.open(a), "left")
         right = self.bind(b, self.open(b2), "right")
         af = fields_of(left.type)
@@ -1872,12 +1923,62 @@ class Translator:
             values[name] = self.field(left, name)
             types[name] = af[name]
         for name, t in bf.items():
-            if deep and name in af and unwrap(af[name]).type == "Struct" and unwrap(t).type == "Struct":
-                values[name] = self.merge_structs(b, self.field(left, name), self.field(right, name), True)
+            if deep and name in af and _merges_deeply(af[name], t):
+                values[name] = self.bind(b, self.deep_merge(b, self.field(left, name), self.field(right, name), path), name)
             else:
                 values[name] = self.field(right, name)
             types[name] = values[name].type
         return self.struct(StructType(list(types.items())), values)
+
+    def merge_dicts(self, b: Block, a: A, b2: A, deep: bool, path: str) -> A:
+        """``a + b`` on dicts: every key of both, ``b``'s value where both hold one; ``a * b`` merges those values
+        deeply where both are objects."""
+        merged = unify(a.type, b2.type)
+        if merged is None:
+            raise self.gap(f"{print_type(a.type)} {'*' if deep else '+'} {print_type(b2.type)}")
+        k_type = dict_key(merged)
+        v_type = dict_value(merged)
+        out = self.declare(b, self.b("DictCopy", [k_type, v_type], [self.widen_to(b, a, merged, path)], merged, path),
+                           "merged")
+
+        def each(b3: Block, value: A, key: A | None, _l: Label) -> None:
+            assert key is not None  # a dict's loop gives each value its key
+            if not deep or not _merges_deeply(v_type, v_type):
+                self.put(b3, out, key, value, path)
+                return
+            self.match(b3, self.b("DictTryGet", [k_type, v_type], [out, key], OptionType(v_type), path), {
+                "none": lambda b4, _p: self.stmt(b4, self.b("DictInsert", [k_type, v_type], [out, key, value],
+                                                            NullType, path)),
+                "some": lambda b4, held: self.stmt(b4, self.b(
+                    "DictUpdate", [k_type, v_type],
+                    [out, key, self.widen_to(b4, self.deep_merge(b4, held, value, path), v_type, path)], NullType, path)),
+            }, path)
+        self.for_each(b, self.widen_to(b, b2, merged, path), each, path)
+        return out
+
+    def deep_merge(self, b: Block, a: A, b2: A, path: str) -> A:
+        """Two values merged as jq's ``*`` merges them: structs and dicts deeply, an option of one where both hold a
+        value; anything else is ``b2``."""
+        va = self.open(a)
+        vb = self.open(b2)
+        ta = va.type
+        tb = vb.type
+        if ta.type == "Struct" and tb.type == "Struct":
+            return self.merge_structs(b, va, vb, True, path)
+        if ta.type == "Dict" and tb.type == "Dict":
+            return self.merge_dicts(b, va, vb, True, path)
+        if not _merges_deeply(ta, tb):
+            return vb
+        # Options of one object type: merged where both hold one, else b2's.
+        left = self.bind(b, va, "left")
+        right = self.bind(b, vb, "right")
+        return self.match_value(right, {
+            "none": lambda _b2, _p: right,
+            "some": lambda _b2, q: self.match_value(left, {
+                "none": lambda _b3, _p: right,
+                "some": lambda b3, p: self.some(self.deep_merge(b3, p, q, path), tb),
+            }, tb, path),
+        }, tb, path)
 
     def gen_alternative(self, n: JqNode, path: str, b: Block, x: Value, env: Env, emit: Emit) -> None:
         # `a // b`: a's outputs that are neither false nor null, its errors
@@ -2312,9 +2413,15 @@ class Translator:
             optional = tv["optional"]
             literal = self.literal_of(index)
             key_path = at("index.index")
-            # The key is taken on the index's own input, as jq takes it.
-            key = None if literal is not None and literal[0].type == "String" \
-                else self.one(index, key_path, b, v, env, self.type_at(key_path, self.env_for(key_path, env, v)))
+            # The key is taken on the index's own input, as jq takes it; a literal is its own value, as the
+            # checker rewrote it.
+            key: A | None
+            if literal is not None and literal[0].type == "String":
+                key = None
+            elif literal is not None:
+                key = self.value(literal[1], literal[0], key_path)
+            else:
+                key = self.one(index, key_path, b, v, env, self.type_at(key_path, self.env_for(key_path, env, v)))
 
             def on_target(b2: Block, inner: A) -> Update:
                 if key is not None:
@@ -2491,7 +2598,7 @@ class Translator:
         out: dict[str, tuple[A, A]] = {}
         for name, _typ, var, blk, value in built:
             if self.ended(blk):
-                out[name] = (var, A("Block", NeverType, UNKNOWN_LOC_ID, statements=blk.statements))
+                out[name] = (var, self.diverging(blk.statements))
                 continue
             wrapped = self.variant_of(new_type, name, value)
             out[name] = (var, wrapped if not blk.statements else A("Block", new_type, UNKNOWN_LOC_ID,
@@ -2542,9 +2649,10 @@ class Translator:
             k = self.bind(b, self.widen_to(b, key, k_type, path), "key")
             if t.type == "Dict":
                 found = self.b("DictTryGet", [k_type, v0], [e, k], OptionType(v0), path)
+                # A missing key is null: an option of the value, or the value's own null where it can be null.
                 if nullable_payload(OptionType(v0)) is None:
-                    old = self.match_value(found, {"none": lambda _b2, _p: self.null(path), "some": lambda _b2, p: p}, v0,
-                                           path)
+                    old = self.match_value(found, {"none": lambda b2, _p: self.widen_to(b2, self.null(path), v0, path),
+                                                   "some": lambda _b2, p: p}, v0, path)
                 else:
                     old = found
             else:
@@ -2881,6 +2989,22 @@ def _library_function(name: str) -> A:
 
 #: The error an update raises where it gives no value for a position that cannot be deleted.
 _UNDELETABLE = "an update gave no value for a struct field, which cannot be deleted"
+
+
+def _merges_deeply(a: EastType, b: EastType) -> bool:
+    """Whether ``*`` merges values of two types deeply, as jq merges objects.
+
+    Two structs, two dicts, or options of one struct or dict type (merged where
+    both hold one).
+    """
+    ua = unwrap(a)
+    ub = unwrap(b)
+    if ua.type == "Struct" and ub.type == "Struct":
+        return True
+    if ua.type == "Dict" and ub.type == "Dict":
+        return True
+    payload = nullable_payload(ua)
+    return payload is not None and type_equal(ua, ub) and unwrap(payload).type in ("Struct", "Dict")
 
 
 def _variable_node(name: str) -> JqNode:

@@ -153,13 +153,14 @@ def _coerce(expr: Expression, target: EastType, _visited: set | None = None) -> 
     """Widen ``expr`` to ``target`` the way the TypeScript lowering does
     (``ast_to_ir.coerce_to``): an equal type is left alone; a Struct or
     Variant LITERAL node is re-typed to the wider type (its fields/payload
-    coerced in turn); anything else is wrapped in an ``As`` node. A type that
-    is not a subtype raises."""
+    coerced in turn); anything else is wrapped in an ``As`` node. A value of
+    Never (an error, a return) is left alone too: it never arrives, and the
+    analyzer casts no Never. A type that is not a subtype raises."""
     from east.expression.expr import Expression
     from east.expression.nodes import _type_key
 
     src = expr.east_type
-    if is_type_equal(src, target):
+    if is_type_equal(src, target) or src.type == "Never":
         return expr
     if not is_subtype(src, target):
         raise ExpressionError(
@@ -321,6 +322,10 @@ def as_(v: Any, typ: EastType) -> Any:
         raise ExpressionError(
             f"East.as_(): East type {e.east_type.type} is not a subtype of {typ.type}"
         )
+    if e.east_type.type == "Never":
+        # It never arrives, so it stands as a ``typ`` uncast, as the
+        # TypeScript lowering leaves it: the analyzer casts no Never.
+        return Expression(e.ir, typ)
     return Expression(ir_as(typ, e.ir, _loc_id()), typ)
 
 

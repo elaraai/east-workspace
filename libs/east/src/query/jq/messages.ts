@@ -172,6 +172,8 @@ export const MESSAGES = {
     `type_mismatch: ${name} needs a string; its input is DateTime. Compare its parts (year == 2026 and month == 9), or its text (todate | ${name}(…)).`,
   argument: (name: string, position: string, expected: string, given: string) =>
     `type_mismatch: ${name}'s ${position} argument must be ${expected}, not ${given}.`,
+  runArgument: (name: string, element: string, given: string, wrapped: string) =>
+    `type_mismatch: ${name} takes an array as a run of elements, which must be ${element}, not ${given}. To find one element, wrap it: ${wrapped}.`,
   literalArgument: (name: string, position: string, expected: string) =>
     `type_mismatch: ${name}'s ${position} argument must be ${expected}, written in the query.`,
   isoDate: (value: string) => `type_mismatch: ${value} is not an ISO-8601 date — DateTime literals are parsed at check time.`,
