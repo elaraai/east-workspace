@@ -468,7 +468,7 @@ function createSnapGrid<T extends SnapGridData>(data: T, config: SnapGridConfig<
         ? (resolved.rows as ExprType<ArrayType<EastType>>).map((_$, row) => toCell(row))
         : (resolved.rows as ExprType<DictType<EastType, EastType>>).toArray((_$, row) => toCell(row));
     const editing = config.edit !== undefined && config.editing !== undefined
-        ? buildLayoutEditing(resolved, config.edit as unknown as SnapGridEditConfig<EastType>, config.editing, toCell)
+        ? buildSnapGridEditing(resolved, config.edit as unknown as SnapGridEditConfig<EastType>, config.editing, toCell)
         : undefined;
     const gridVariant = config.variant;
     // The cells' content is `UIComponentType` here and the recursion node in
@@ -513,7 +513,7 @@ function createSnapGrid<T extends SnapGridData>(data: T, config: SnapGridConfig<
  * @throws {Error} When the source is not an Array of structs, a named field is not one of the rows' at its type,
  *   the declaration is inconsistent, or a callback has another signature
  */
-function buildLayoutEditing(
+function buildSnapGridEditing(
     resolved: ResolvedRowSource,
     edit: SnapGridEditConfig<EastType>,
     input: SnapGridEditingConfig,

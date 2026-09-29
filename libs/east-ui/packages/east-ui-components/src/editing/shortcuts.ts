@@ -6,7 +6,7 @@
 /**
  * The history shortcuts (#988) — one reading of a key press for every
  * editable collection, so Undo and Redo take the same keys on the Sheet, the
- * Plan and the Layout.
+ * Plan and the SnapGrid.
  *
  * @packageDocumentation
  */

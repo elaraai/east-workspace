@@ -740,7 +740,7 @@ export const EditingType = StructType(EditingSessionFields);
  * when a batch first reaches it.
  *
  * @internal
- * @param label - The collection, for the message (`"Plan"`, `"Layout"`)
+ * @param label - The collection, for the message (`"Plan"`, `"SnapGrid"`)
  * @param value - The author's function
  * @param inputs - Its parameter types
  * @param output - Its result type

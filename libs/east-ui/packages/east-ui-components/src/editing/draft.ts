@@ -131,7 +131,7 @@ const AUTHOR_TEXT = {
 /**
  * The author's readiness check over drafted WHOLE entries — the session's
  * `ready` for a collection whose drafts are whole entries
- * (`Editing.Types.DraftField(E)`: the Plan, the Layout). Every entry a draft
+ * (`Editing.Types.DraftField(E)`: the Plan, the SnapGrid). Every entry a draft
  * changed is encoded and checked in one call; an entry a draft left as the
  * source holds it is the source's to check. Each refusal becomes issues
  * raised with its own kind, and a check that throws refuses every entry it

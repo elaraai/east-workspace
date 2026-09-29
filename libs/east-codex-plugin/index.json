@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1216,
-    "totalFiles": 200,
+    "totalEntries": 1221,
+    "totalFiles": 201,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 374,
-      "e3-ui": 44,
+      "e3-ui": 49,
       "e3": 15,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -42767,6 +42767,141 @@
         "tsx"
       ],
       "source": "// How a placement renders: the component its surface lists under the key; a key the surface does not list is a placeholder naming it; a key two listed components share is an error naming it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const hello = $.let(Studio.component(\"hello\", {\n            name: \"Hello\", category: \"Display\", icon: \"hand\",\n        }, East.function([], UIComponentType, _$ => <Text>Hello from a component</Text>)));\n        const components = $.let([hello]);\n        const twice = $.let([hello, hello]);\n        return (\n            <VStack gap=\"4\" align=\"stretch\">\n                {Studio.dispatch(components, \"hello\")}\n                {Studio.dispatch(components, \"retired\")}\n                {Studio.dispatch(twice, \"hello\")}\n            </VStack>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:pages.examples.ts:studioChanges",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/pages.examples.ts",
+      "suite": "",
+      "test": "The changes from a page's published layout to its draft — what the builder counts and the publish preview lists: a tile resized, and a card added beside it",
+      "keywords": [
+        "Studio",
+        "Studio.changes",
+        "changes",
+        "change list",
+        "publish preview",
+        "layout",
+        "page",
+        "cells",
+        "added",
+        "moved",
+        "resized",
+        "diff"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, IntegerType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Studio } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// The changes from a page's published layout to its draft — what the builder counts and the publish preview lists: a tile resized, and a card added beside it\n// inputs: []  returns: [\n        variant(\"resized\", { cell: \"c-trend\", component: \"revenue_trend\", detail: \"span 12 → 8\" }),\n        variant(\"added\", { cell: \"c-bars\", component: \"breakdown_bars\", detail: \"row 2 · span 4\" }),\n    ]\nEast.function([], ArrayType(Studio.Types.Change), ($) => {\n        const live = $.const({\n            title: \"Overview\",\n            cells: [\n                { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                { key: \"c-trend\", row: \"r2\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"revenue_trend\", fingerprint: \"fp-trend\" },\n            ],\n        }, Studio.Types.Page);\n        const draft = $.const({\n            title: \"Overview\",\n            cells: [\n                { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                { key: \"c-trend\", row: \"r2\", span: 8n, height: none, align: variant(\"top\", null), title: none, component: \"revenue_trend\", fingerprint: \"fp-trend\" },\n                { key: \"c-bars\", row: \"r2\", span: 4n, height: none, align: variant(\"top\", null), title: none, component: \"breakdown_bars\", fingerprint: \"fp-bars\" },\n            ],\n        }, Studio.Types.Page);\n        return Studio.changes(live, draft);\n    })"
+    },
+    {
+      "id": "e3-ui:pages.examples.ts:studioPublish",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/pages.examples.ts",
+      "suite": "",
+      "test": "A publish is one patch of the page: applied, the page's live version is its draft, numbered from 1",
+      "keywords": [
+        "Studio",
+        "Studio.publish",
+        "publish",
+        "version",
+        "live",
+        "draft",
+        "patch",
+        "record",
+        "pages",
+        "Studio.Types.Pages"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, IntegerType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Studio } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A publish is one patch of the page: applied, the page's live version is its draft, numbered from 1\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const pages = $.const(new Map([\n            [{ project: \"ops\", page: \"overview\" }, variant(\"page\", {\n                draft: {\n                    title: \"Overview\",\n                    cells: [\n                        { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                    ],\n                },\n                live: none,\n            })],\n        ]), Studio.Types.Pages);\n        const key = $.const({ project: \"ops\", page: \"overview\" }, Studio.Types.Key);\n        const published = $.const(East.applyPatch(pages, Studio.publish(pages, key)), Studio.Types.Pages);\n        return published.get(key).match({\n            page: (_$, page) => page.live.match({ some: (_$2, live) => live.version, none: (_$2) => East.value(0n) }),\n            template: (_$) => East.value(0n),\n        });\n    })"
+    },
+    {
+      "id": "e3-ui:pages.examples.ts:studioNewPage",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/pages.examples.ts",
+      "suite": "",
+      "test": "A new page starts from a template's cells, under its own title, with no live version — one inserting patch",
+      "keywords": [
+        "Studio",
+        "Studio.newPage",
+        "new page",
+        "template",
+        "Studio.saveTemplate",
+        "save as template",
+        "blank grid",
+        "patch"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, IntegerType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Studio } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A new page starts from a template's cells, under its own title, with no live version — one inserting patch\n// inputs: []  returns: 1n\nEast.function([], IntegerType, ($) => {\n        const pages = $.const(new Map([\n            [{ project: \"ops\", page: \"tpl-kpis\" }, variant(\"template\", {\n                title: \"KPIs\",\n                cells: [\n                    { key: \"t-kpi\", row: \"t1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                ],\n            })],\n        ]), Studio.Types.Pages);\n        const key = $.const({ project: \"ops\", page: \"detail\" }, Studio.Types.Key);\n        const template = $.const(some({ project: \"ops\", page: \"tpl-kpis\" }), OptionType(Studio.Types.Key));\n        const started = $.const(East.applyPatch(pages, Studio.newPage(pages, key, \"Detail\", template)), Studio.Types.Pages);\n        return started.get(key).match({\n            page: (_$, page) => page.draft.cells.size(),\n            template: (_$) => East.value(0n),\n        });\n    })"
+    },
+    {
+      "id": "e3-ui:pages.examples.ts:studioUsage",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/pages.examples.ts",
+      "suite": "",
+      "test": "How many pages place each component — \"Used in N\" — a page counted once whether its draft, its live version or both place it",
+      "keywords": [
+        "Studio",
+        "Studio.usage",
+        "used in",
+        "usage",
+        "component",
+        "count",
+        "pages",
+        "catalog"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, IntegerType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Studio } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// How many pages place each component — \"Used in N\" — a page counted once whether its draft, its live version or both place it\n// inputs: []  returns: new Map([[\"kpi_rail\", 2n], [\"revenue_trend\", 1n]])\nEast.function([], DictType(StringType, IntegerType), ($) => {\n        const pages = $.let(new Map(), Studio.Types.Pages);\n        $(pages.insert({ project: \"ops\", page: \"overview\" }, variant(\"page\", {\n            draft: {\n                title: \"Overview\",\n                cells: [\n                    { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                ],\n            },\n            live: some({\n                version: 1n,\n                page: {\n                    title: \"Overview\",\n                    cells: [\n                        { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                        { key: \"c-trend\", row: \"r2\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"revenue_trend\", fingerprint: \"fp-trend\" },\n                    ],\n                },\n            }),\n        })));\n        $(pages.insert({ project: \"ops\", page: \"detail\" }, variant(\"page\", {\n            draft: {\n                title: \"Detail\",\n                cells: [\n                    { key: \"d-kpi\", row: \"d1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                ],\n            },\n            live: none,\n        })));\n        return Studio.usage(pages);\n    })"
+    },
+    {
+      "id": "e3-ui:pages.examples.ts:studioStatus",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/pages.examples.ts",
+      "suite": "",
+      "test": "A page is live when its draft is its published layout, and a draft when it has changes the site does not show",
+      "keywords": [
+        "Studio",
+        "Studio.status",
+        "status",
+        "live",
+        "draft",
+        "published",
+        "page library"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, IntegerType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Studio } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A page is live when its draft is its published layout, and a draft when it has changes the site does not show\n// inputs: []  returns: \"Draft\"\nEast.function([], StringType, ($) => {\n        const page = $.const({\n            draft: {\n                title: \"Overview\",\n                cells: [\n                    { key: \"c-kpi\", row: \"r1\", span: 8n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                ],\n            },\n            live: some({\n                version: 1n,\n                page: {\n                    title: \"Overview\",\n                    cells: [\n                        { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                    ],\n                },\n            }),\n        }, Studio.Types.PageEntry);\n        return Studio.status(page).match({ live: (_$) => East.value(\"Live\"), draft: (_$) => East.value(\"Draft\") });\n    })"
     },
     {
       "id": "e3:static:input-basic",
