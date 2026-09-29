@@ -359,15 +359,53 @@ static void ensure_utf8_locale(void)
     }
 }
 
+/* The letters past U+FFFF that have case, as runs of capitals, each run's small
+ * letters a fixed offset above it: Unicode 17's, as JavaScript's toLowerCase and
+ * toUpperCase map them (the reference). A table rather than towlower/towupper:
+ * Windows' wint_t is 16 bits, so a code point past U+FFFF was cut short there
+ * (U+1D11E came back as U+D11E), and each libc knows another Unicode. */
+static const struct {
+    uint32_t first, last, offset;
+} east_case_runs[] = {
+    {0x10400, 0x10427, 0x28}, /* Deseret */
+    {0x104B0, 0x104D3, 0x28}, /* Osage */
+    {0x10570, 0x1057A, 0x27}, /* Vithkuqi, in four runs */
+    {0x1057C, 0x1058A, 0x27}, /* Vithkuqi */
+    {0x1058C, 0x10592, 0x27}, /* Vithkuqi */
+    {0x10594, 0x10595, 0x27}, /* Vithkuqi */
+    {0x10C80, 0x10CB2, 0x40}, /* Old Hungarian */
+    {0x10D50, 0x10D65, 0x20}, /* Garay */
+    {0x118A0, 0x118BF, 0x20}, /* Warang Citi */
+    {0x16E40, 0x16E5F, 0x20}, /* Medefaidrin */
+    {0x16EA0, 0x16EB8, 0x1B}, /* Beria Erfe */
+    {0x1E900, 0x1E921, 0x22}, /* Adlam */
+};
+
+/* A code point past U+FFFF in the other case: lower-cased when `lower`, else
+ * upper-cased; itself when it has no case. */
+static uint32_t east_cp_case_astral(uint32_t cp, int lower)
+{
+    for (size_t i = 0; i < sizeof(east_case_runs) / sizeof(east_case_runs[0]); i++) {
+        uint32_t first = east_case_runs[i].first;
+        uint32_t last = east_case_runs[i].last;
+        uint32_t offset = east_case_runs[i].offset;
+        if (lower && cp >= first && cp <= last) return cp + offset;
+        if (!lower && cp >= first + offset && cp <= last + offset) return cp - offset;
+    }
+    return cp;
+}
+
 /* ASCII and the Latin-1 Supplement (e.g. é<->É) are mapped locale-independently
  * so the result is identical on every platform — the "C.UTF-8" locale that
  * makes towupper/towlower handle them isn't available on macOS or Windows.
- * Higher code points fall through to towupper/towlower (locale-dependent). */
+ * Code points past U+FFFF are mapped by the table above; the rest of the Basic
+ * Multilingual Plane falls through to towupper/towlower (locale-dependent). */
 static uint32_t east_cp_toupper(uint32_t cp)
 {
     if (cp < 0x80) return (cp >= 'a' && cp <= 'z') ? cp - 0x20u : cp;
     if (cp >= 0x00E0 && cp <= 0x00FE && cp != 0x00F7) return cp - 0x20u; /* à-þ -> À-Þ */
     if (cp == 0x00FF) return 0x0178;                                     /* ÿ -> Ÿ */
+    if (cp > 0xFFFF) return east_cp_case_astral(cp, 0);
     return (uint32_t)towupper((wint_t)cp);
 }
 static uint32_t east_cp_tolower(uint32_t cp)
@@ -375,6 +413,7 @@ static uint32_t east_cp_tolower(uint32_t cp)
     if (cp < 0x80) return (cp >= 'A' && cp <= 'Z') ? cp + 0x20u : cp;
     if (cp >= 0x00C0 && cp <= 0x00DE && cp != 0x00D7) return cp + 0x20u; /* À-Þ -> à-þ */
     if (cp == 0x0178) return 0x00FF;                                     /* Ÿ -> ÿ */
+    if (cp > 0xFFFF) return east_cp_case_astral(cp, 1);
     return (uint32_t)towlower((wint_t)cp);
 }
 
