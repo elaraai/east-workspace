@@ -56,7 +56,7 @@ MANY = Mult(0, 2)
 SOME = Mult(1, 2)
 
 
-def then(a: Mult, b: Mult) -> Mult:
+def piped(a: Mult, b: Mult) -> Mult:
     """The multiplicity of ``a | b``: each output of ``a`` feeds ``b``."""
     lo = 1 if a.lo == 1 and b.lo == 1 else 0
     hi = 0 if a.hi == 0 or b.hi == 0 else (2 if a.hi == 2 or b.hi == 2 else 1)
@@ -711,6 +711,6 @@ __all__ = [
     "CaseOf", "ErrorShape", "Facts", "Member", "Mult", "Partial", "Proof", "Result", "Shape", "TypeShape",
     "UnionShape", "also", "can_be_null", "cases_of", "cases_of_type", "descend_types", "describe_type", "dict_key",
     "dict_value", "either", "fields_of", "is_ordered", "jq_type_names", "members_of", "narrow_types", "node_of",
-    "nullable_payload", "or_null", "refine", "then", "type_equal", "typed", "unify", "unify_shape", "unwrap",
+    "nullable_payload", "or_null", "piped", "refine", "type_equal", "typed", "unify", "unify_shape", "unwrap",
     "wire_multiplicity",
 ]

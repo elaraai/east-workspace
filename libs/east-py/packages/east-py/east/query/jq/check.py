@@ -53,8 +53,8 @@ from east.query.jq.shapes import (
     node_of,
     nullable_payload,
     or_null,
+    piped,
     refine,
-    then,
     type_equal,
     typed,
     unify,
@@ -670,7 +670,7 @@ class _Checker:
             mult = ONE
             for i, part in enumerate(v):
                 if part.type == "interpolate":
-                    mult = then(mult, self.check(part.value, at(f"string[{i}].interpolate"), input_, env).mult)
+                    mult = piped(mult, self.check(part.value, at(f"string[{i}].interpolate"), input_, env).mult)
             return Result(typed(StringType), mult)
         if kind == "format":
             return self.format(n, path, input_, env)
@@ -708,7 +708,7 @@ class _Checker:
         prefix = left.access
         return Result(
             shape=right.shape,
-            mult=then(left.mult, right.mult),
+            mult=piped(left.mult, right.mult),
             access=(*prefix, *right.access) if prefix is not None and right.access is not None else None,
             case_of=replace(right.case_of, path=(*prefix, *right.case_of.path))
             if prefix is not None and right.case_of is not None else None,
@@ -1012,7 +1012,7 @@ class _Checker:
             return Result(typed(value, element_facts), ONE)
 
         out = self.map_members(base, each)
-        return Result(out.shape, then(key.mult, then(base.mult, out.mult)))
+        return Result(out.shape, piped(key.mult, piped(base.mult, out.mult)))
 
     def key_fits(self, given: EastType, wanted: EastType, n: JqNode, path: str) -> bool:
         """Whether a key of ``given`` type indexes by ``wanted``, rewriting a literal that takes its operand's type."""
@@ -1093,7 +1093,7 @@ class _Checker:
                 continue
             bound_path = child_path(path, step)
             r = self.check(bound.value, bound_path, input_, env)
-            mult = then(mult, r.mult)
+            mult = piped(mult, r.mult)
             t = self.collect(r, self.range(bound_path))
             if t is not None and not self.key_fits(t, IntegerType, bound.value, bound_path) and not can_be_null(t):
                 self.mismatch(env, self.range(bound_path), "type_mismatch", MESSAGES.slice_bound(describe_type(t)))
@@ -1128,7 +1128,7 @@ class _Checker:
                 self.source(child_path(path, "slice.target")) or ".", describe_type(member.type)))
 
         out = self.map_members(base, each)
-        return Result(out.shape, then(mult, out.mult))
+        return Result(out.shape, piped(mult, out.mult))
 
     def iterate(self, n: JqNode, path: str, input_: Result, env: Env) -> Result:
         optional = n.value["optional"]
@@ -1140,7 +1140,7 @@ class _Checker:
         inner_env = replace(env, lenient=True) if optional else env
         out = self.map_members(base, lambda member, _c: self.elements_of(member, optional, inner_env, form,
                                                                           self.range(path)))
-        return Result(out.shape, then(base.mult, out.mult), stream=path)
+        return Result(out.shape, piped(base.mult, out.mult), stream=path)
 
     def elements_of(self, member: TypeShape, optional: bool, env: Env, form: str, span: JqRange | None) -> Result:
         """The elements ``.[]`` gives on one member."""
@@ -1287,18 +1287,18 @@ class _Checker:
             if left.shape.kind == "error" or right.shape.kind == "error":
                 return Result(ERROR, ONE)
             proves = (*(left.proves or ()), *(right.proves or ())) if op == "and" else None
-            return Result(typed(BooleanType), then(left.mult, right.mult), proves=proves if proves else None)
+            return Result(typed(BooleanType), piped(left.mult, right.mult), proves=proves if proves else None)
         left = self.check(n.value["left"], left_path, input_, env)
         right = self.check(n.value["right"], right_path, input_, env)
         if left.shape.kind == "error" or right.shape.kind == "error":
-            return Result(ERROR, then(left.mult, right.mult))
-        mult = then(left.mult, right.mult)
+            return Result(ERROR, piped(left.mult, right.mult))
+        mult = piped(left.mult, right.mult)
         if op in _COMPARISON:
             return replace(self.comparison(op, n, path, left, right, env), mult=mult)
         if op in _ARITHMETIC:
             out = self.arithmetic(op, left, right, _Operands(n.value["left"], left_path, n.value["right"], right_path,
                                                              self.range(path)), env)
-            return Result(out.shape, then(mult, out.mult), partial=out.partial)
+            return Result(out.shape, piped(mult, out.mult), partial=out.partial)
         raise ValueError(f"checkJq: {json_string(op)} is not a jq binary operator")
 
     def comparison(self, op: str, n: JqNode, path: str, left: Result, right: Result, env: Env) -> Result:  # noqa: C901
@@ -1594,7 +1594,7 @@ class _Checker:
                 # `{"\(f)"}` holds the input's value at the key, `.[key]`.
                 v = self.check(entry["value"].value, value_path, input_, env) if entry["value"].type == "some" \
                     else self.entry_at(input_, k, key_path, env)
-                mult = then(mult, then(k.mult, v.mult))
+                mult = piped(mult, piped(k.mult, v.mult))
                 if k.shape.kind == "error" or v.shape.kind == "error":
                     error = True
                 computed.append((k, v, key_path))
@@ -1604,7 +1604,7 @@ class _Checker:
                     else self.read_field(input_, name, self.range(path), env, False, path)
             if value.shape.kind == "error":
                 error = True
-            mult = then(mult, value.mult)
+            mult = piped(mult, value.mult)
             earlier = next((j for j, (lname, _r) in enumerate(literal) if lname == name), -1)
             if earlier != -1:
                 self.warn(self.range(path), "duplicate_key", MESSAGES.duplicate_key(json_string(name)))
@@ -1698,7 +1698,7 @@ class _Checker:
                     if part.type == "interpolate":
                         part_path = child_path(child_path(path, "format.string.some"), f"string[{i}].interpolate")
                         r = self.check(part.value, part_path, input_, env)
-                        mult = then(mult, r.mult)
+                        mult = piped(mult, r.mult)
                         # Each interpolated value is formatted, so it must be one the format takes.
                         if r.shape.kind != "error":
                             builtin.typing(self.context(builtin, f"@{name}", part_path, r, env, [], []))
@@ -1730,7 +1730,7 @@ class _Checker:
             condition = self.check(branch["condition"], child_path(path, f"if.branches[{i}].condition"), rest, env)
             # A condition after one that is always true never runs.
             if rest is not _NOTHING:
-                cond_mult = then(cond_mult, condition.mult)
+                cond_mult = piped(cond_mult, condition.mult)
             # A literal condition decides the branch, as the translation does.
             truth = self.truth_of(branch["condition"])
             if truth is False:
@@ -1765,7 +1765,7 @@ class _Checker:
         if other.shape.kind == "error" or error:
             return Result(ERROR, ONE)
         members.extend(members_of(other.shape))
-        return Result(union(members), then(cond_mult, either(mult if mult is not None else ONE, other.mult)))
+        return Result(union(members), piped(cond_mult, either(mult if mult is not None else ONE, other.mult)))
 
     def truth_of(self, n: JqNode) -> bool | None:
         """A literal's truth to jq: ``false`` and ``null`` are false, any other literal true."""
@@ -1887,7 +1887,7 @@ class _Checker:
                     facts = r.shape.facts
             variables[name] = Result(typed(t, facts), ONE)
         body = self.check(n.value["body"], child_path(path, "bind.body"), input_, replace(env, vars=variables))
-        return Result(body.shape, then(source.mult, body.mult), stream=body.stream)
+        return Result(body.shape, piped(source.mult, body.mult), stream=body.stream)
 
     def destructure(self, pattern: JqPattern, path: str, source: Result, env: Env) -> dict[str, Result] | None:
         """The variables a pattern binds from a source, or ``None`` after a reported problem."""
@@ -2009,7 +2009,7 @@ class _Checker:
             arg_path = child_path(path, f"call.args[{i}]")
             if param.startswith("$"):
                 value = self.check(n.value["args"][i], arg_path, input_, env)
-                mult = then(mult, value.mult)
+                mult = piped(mult, value.mult)
                 t = self.collect(value, self.range(arg_path))
                 shape = ERROR if t is None else typed(t)
                 variables[param[1:]] = Result(shape, ONE)
@@ -2038,7 +2038,7 @@ class _Checker:
                 state["recursed"] = False
                 result = self.check(definition["body"], child_path(binding.path, "def.body"), input_, body_env)
                 if result.shape.kind == "error" or not state["recursed"]:
-                    return replace(result, mult=then(mult, result.mult))
+                    return replace(result, mult=piped(mult, result.mult))
                 before = unify_shape(state["result"].shape)
                 after = unify_shape(result.shape)
                 merged = None if before is None or after is None else unify(before, after)
@@ -2047,7 +2047,7 @@ class _Checker:
                 previous: Mult = state["result"].mult
                 nxt = Mult(1 if previous.lo == 1 and result.mult.lo == 1 else 0, max(previous.hi, result.mult.hi))
                 if type_equal(merged, before) and nxt.lo == previous.lo and nxt.hi == previous.hi:  # type: ignore[arg-type]
-                    return Result(result.shape, then(mult, result.mult))
+                    return Result(result.shape, piped(mult, result.mult))
                 # A round that changed what the recursion gives is checked again; drop its problems.
                 del self.diagnostics[errors:]
                 state["result"] = Result(typed(merged), nxt)
@@ -2720,7 +2720,7 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
         span = parsed.spans.get(stage_path)
         if record is None or span is None:
             break
-        cumulative = then(cumulative, record.mult)
+        cumulative = piped(cumulative, record.mult)
         stage_type = unify_shape(record.shape)
         if stage_type is None:
             break

@@ -26,7 +26,7 @@ import { MESSAGES, closest, edit, report, type QueryError, type QueryFix } from 
 import { parseJq, type ParsedJq } from "./parse.js";
 import {
   ERROR, MANY, MAYBE, ONE, SOME, ZERO, also, canBeNull, casesOf, describeType, descendTypes, either, membersOf, nullablePayload,
-  JQ_TYPE_NAMES, narrowTypes, orNull, refine, then, typed, unify, unifyShape, union, unwrap, wireMultiplicity,
+  JQ_TYPE_NAMES, narrowTypes, orNull, piped, refine, typed, unify, unifyShape, union, unwrap, wireMultiplicity,
   type Facts, type Member, type Mult, type Proof, type Result, type Shape, type TypeShape,
 } from "./shapes.js";
 import { childPath, jqChildren, type JqNode, type JqPattern, type JqRange, type JqSpans } from "./spans.js";
@@ -469,7 +469,7 @@ class Checker {
       case "string": {
         let mult = ONE;
         node.value.forEach((part, i) => {
-          if (part.type === "interpolate") mult = then(mult, this.check(part.value, at(`string[${i}].interpolate`), input, env).mult);
+          if (part.type === "interpolate") mult = piped(mult, this.check(part.value, at(`string[${i}].interpolate`), input, env).mult);
         });
         return { shape: typed(StringType), mult };
       }
@@ -512,7 +512,7 @@ class Checker {
     const prefix = left.access;
     return {
       shape: right.shape,
-      mult: then(left.mult, right.mult),
+      mult: piped(left.mult, right.mult),
       access: prefix !== undefined && right.access !== undefined ? [...prefix, ...right.access] : undefined,
       caseOf: prefix !== undefined && right.caseOf !== undefined ? { ...right.caseOf, path: [...prefix, ...right.caseOf.path] } : undefined,
       proves: prefix !== undefined && right.proves !== undefined ? right.proves.map(p => ({ ...p, path: [...prefix, ...p.path] })) : undefined,
@@ -779,7 +779,7 @@ class Checker {
       if (value === undefined) return this.mismatch(lenient, range, "ambiguous_output", MESSAGES.noCommonType(describeType(element.value), "Null"));
       return { shape: typed(value, element.facts), mult: ONE };
     });
-    return { shape: out.shape, mult: then(key.mult, then(base.mult, out.mult)) };
+    return { shape: out.shape, mult: piped(key.mult, piped(base.mult, out.mult)) };
   }
 
   /** Whether a key of `given` type indexes by `wanted`, rewriting a literal that takes its operand's type. */
@@ -854,7 +854,7 @@ class Checker {
       if (bound.type !== "some") continue;
       const boundPath = childPath(path, step);
       const r = this.check(bound.value, boundPath, input, env);
-      mult = then(mult, r.mult);
+      mult = piped(mult, r.mult);
       const t = this.collect(r, this.range(boundPath));
       if (t !== undefined && !this.keyFits(t, IntegerType, bound.value, boundPath) && !canBeNull(t)) {
         this.mismatch(env, this.range(boundPath), "type_mismatch", MESSAGES.sliceBound(describeType(t)));
@@ -882,7 +882,7 @@ class Checker {
           return this.mismatch(lenient, this.range(path), "not_indexable", MESSAGES.notIndexable(this.source(childPath(path, "slice.target")) || ".", describeType(member.type)));
       }
     });
-    return { shape: out.shape, mult: then(mult, out.mult) };
+    return { shape: out.shape, mult: piped(mult, out.mult) };
   }
 
   iterate(node: Extract<JqNode, { type: "iterate" }>, path: string, input: Result, env: Env): Result {
@@ -891,7 +891,7 @@ class Checker {
     if (this.refuseRoot(base, path, env)) return { shape: ERROR, mult: ONE };
     const form = `${this.source(childPath(path, "iterate.target")) === "." ? "." : this.source(childPath(path, "iterate.target"))}[]`;
     const out = this.mapMembers(base, member => this.elementsOf(member, optional, optional ? { ...env, lenient: true } : env, form, this.range(path)));
-    return { shape: out.shape, mult: then(base.mult, out.mult), stream: path };
+    return { shape: out.shape, mult: piped(base.mult, out.mult), stream: path };
   }
 
   /** The elements `.[]` gives on one member. */
@@ -1030,16 +1030,16 @@ class Checker {
       const right = this.check(node.value.right, rightPath, rightInput, env);
       if (left.shape.kind === "error" || right.shape.kind === "error") return { shape: ERROR, mult: ONE };
       const proves = op === "and" ? [...(left.proves ?? []), ...(right.proves ?? [])] : undefined;
-      return { shape: typed(BooleanType), mult: then(left.mult, right.mult), proves: proves?.length ? proves : undefined };
+      return { shape: typed(BooleanType), mult: piped(left.mult, right.mult), proves: proves?.length ? proves : undefined };
     }
     const left = this.check(node.value.left, leftPath, input, env);
     const right = this.check(node.value.right, rightPath, input, env);
-    if (left.shape.kind === "error" || right.shape.kind === "error") return { shape: ERROR, mult: then(left.mult, right.mult) };
-    const mult = then(left.mult, right.mult);
+    if (left.shape.kind === "error" || right.shape.kind === "error") return { shape: ERROR, mult: piped(left.mult, right.mult) };
+    const mult = piped(left.mult, right.mult);
     if (COMPARISON.has(op)) return { ...this.comparison(op, node, path, left, right, env), mult };
     if (ARITHMETIC.has(op)) {
       const out = this.arithmetic(op, left, right, { left: node.value.left, leftPath, right: node.value.right, rightPath, range: this.range(path) }, env);
-      return { shape: out.shape, mult: then(mult, out.mult), partial: out.partial };
+      return { shape: out.shape, mult: piped(mult, out.mult), partial: out.partial };
     }
     throw new Error(`checkJq: ${printString(op)} is not a jq binary operator`);
   }
@@ -1302,7 +1302,7 @@ class Checker {
         const v = entry.value.type === "some"
           ? this.check(entry.value.value, valuePath, input, env)
           : this.entryAt(input, k, keyPath, env);
-        mult = then(mult, then(k.mult, v.mult));
+        mult = piped(mult, piped(k.mult, v.mult));
         if (k.shape.kind === "error" || v.shape.kind === "error") error = true;
         computed.push({ key: k, value: v, keyPath });
         return;
@@ -1313,7 +1313,7 @@ class Checker {
           : this.readField(input, name, this.range(path), env, false, path);
       }
       if (value.shape.kind === "error") error = true;
-      mult = then(mult, value.mult);
+      mult = piped(mult, value.mult);
       const earlier = literal.findIndex(l => l.name === name);
       if (earlier !== -1) {
         this.warn(this.range(path), "duplicate_key", MESSAGES.duplicateKey(printString(name)));
@@ -1395,7 +1395,7 @@ class Checker {
           if (part.type === "interpolate") {
             const partPath = childPath(childPath(path, "format.string.some"), `string[${i}].interpolate`);
             const r = this.check(part.value, partPath, input, env);
-            mult = then(mult, r.mult);
+            mult = piped(mult, r.mult);
             // Each interpolated value is formatted, so it must be one the format takes.
             if (r.shape.kind !== "error") builtin.typing!(this.context(builtin, `@${name}`, partPath, r, env, [], []));
           }
@@ -1429,7 +1429,7 @@ class Checker {
     branches.forEach((branch, i) => {
       const condition = this.check(branch.condition, childPath(path, `if.branches[${i}].condition`), rest, env);
       // A condition after one that is always true never runs.
-      if (rest !== NOTHING) condMult = then(condMult, condition.mult);
+      if (rest !== NOTHING) condMult = piped(condMult, condition.mult);
       // A literal condition decides the branch, as the translation does: the branch it rules out never runs.
       const truth = this.truthOf(branch.condition);
       const thenInput = truth === false ? NOTHING : condition.proves !== undefined ? this.narrow(rest, condition.proves) : rest;
@@ -1457,7 +1457,7 @@ class Checker {
       : rest === NOTHING ? DEAD : { shape: rest.shape, mult: ONE };
     if (other.shape.kind === "error" || error) return { shape: ERROR, mult: ONE };
     members.push(...membersOf(other.shape));
-    return { shape: union(members), mult: then(condMult, either(mult ?? ONE, other.mult)) };
+    return { shape: union(members), mult: piped(condMult, either(mult ?? ONE, other.mult)) };
   }
 
   /** A literal's truth to jq: `false` and `null` are false, any other literal true; `undefined` for any other node. */
@@ -1556,7 +1556,7 @@ class Checker {
       vars.set(name, { shape: typed(type, facts), mult: ONE });
     }
     const body = this.check(node.value.body, childPath(path, "bind.body"), input, { ...env, vars });
-    return { shape: body.shape, mult: then(source.mult, body.mult), stream: body.stream };
+    return { shape: body.shape, mult: piped(source.mult, body.mult), stream: body.stream };
   }
 
   /** The variables a pattern binds from a source, or `undefined` after a reported problem. */
@@ -1658,7 +1658,7 @@ class Checker {
       const argPath = childPath(path, `call.args[${i}]`);
       if (param.startsWith("$")) {
         const value = this.check(node.value.args[i]!, argPath, input, env);
-        mult = then(mult, value.mult);
+        mult = piped(mult, value.mult);
         const t = this.collect(value, this.range(argPath));
         const shape = t === undefined ? ERROR : typed(t);
         vars.set(param.slice(1), { shape, mult: ONE });
@@ -1688,14 +1688,14 @@ class Checker {
         const errors = this.diagnostics.length;
         state.recursed = false;
         const result = this.check(def.body, childPath(binding.path, "def.body"), input, bodyEnv);
-        if (result.shape.kind === "error" || !state.recursed) return { ...result, mult: then(mult, result.mult) };
+        if (result.shape.kind === "error" || !state.recursed) return { ...result, mult: piped(mult, result.mult) };
         const before = unifyShape(state.result.shape);
         const after = unifyShape(result.shape);
         const merged = before === undefined || after === undefined ? undefined : unify(before, after);
         if (merged === undefined) return this.fail(this.range(path), "cannot_infer", MESSAGES.recursion(def.name));
         const next: Mult = { lo: state.result.mult.lo === 1 && result.mult.lo === 1 ? 1 : 0, hi: Math.max(state.result.mult.hi, result.mult.hi) as 0 | 1 | 2 };
         if (isTypeEqual(merged, before!) && next.lo === state.result.mult.lo && next.hi === state.result.mult.hi) {
-          return { shape: result.shape, mult: then(mult, result.mult) };
+          return { shape: result.shape, mult: piped(mult, result.mult) };
         }
         // A round that changed what the recursion gives is checked again; drop its problems.
         this.diagnostics.length = errors;
@@ -2340,7 +2340,7 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
     const record = checker.records.get(`|${stage.path}`);
     const range = parsed.spans.get(stage.path);
     if (record === undefined || range === undefined) break;
-    cumulative = then(cumulative, record.mult);
+    cumulative = piped(cumulative, record.mult);
     const type = unifyShape(record.shape);
     if (type === undefined) break;
     stages.push({ path: stage.path, from: range.from, to: range.to, type, multiplicity: wireMultiplicity(cumulative) });

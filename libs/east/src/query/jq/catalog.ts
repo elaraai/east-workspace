@@ -23,7 +23,7 @@ import {
 } from "../../types.js";
 import { MESSAGES, edit, type QueryFix } from "./messages.js";
 import {
-  ERROR, MANY, MAYBE, ONE, ZERO, describeType, descendTypes, either, isOrdered, membersOf, nullablePayload, orNull, then,
+  ERROR, MANY, MAYBE, ONE, ZERO, describeType, descendTypes, either, isOrdered, membersOf, nullablePayload, orNull, piped,
   typed, unify, union, unwrap, type Member, type Mult, type Proof, type Result, type Shape, type TypeShape,
 } from "./shapes.js";
 import type { JqNode, JqRange } from "./spans.js";
@@ -372,7 +372,7 @@ function math2(ctx: CallContext): Result {
   const a = argOf(ctx, 0, "a number", isNumber);
   const b = argOf(ctx, 1, "a number", isNumber);
   if (a === undefined || b === undefined) return { shape: ERROR, mult: ONE };
-  return one(FloatType, then(a.result.mult, b.result.mult));
+  return one(FloatType, piped(a.result.mult, b.result.mult));
 }
 
 /** A type selector (`numbers`, `strings`, …): each member is kept, dropped, or kept when present. */
@@ -748,8 +748,8 @@ supported("range", [1, 2, 3], "ArrayRange, or a Float loop, streamed", ctx => {
     if (count === 0) return ctx.fail("type_mismatch", MESSAGES.emptyRange(ctx.source()));
     if (count > 1000) ctx.warn("long_range", MESSAGES.longRange(ctx.source(), count.toLocaleString("en-US").replace(/,/g, " ")));
   }
-  const mult = args.reduce((m, a) => then(m, a!.result.mult), ONE);
-  return { shape: typed(float ? FloatType : IntegerType), mult: then(mult, MANY) };
+  const mult = args.reduce((m, a) => piped(m, a!.result.mult), ONE);
+  return { shape: typed(float ? FloatType : IntegerType), mult: piped(mult, MANY) };
 });
 supported("recurse", [0, 1, 2], "a depth-first walk with an explicit stack", ctx => {
   if (ctx.args.length === 0) {
@@ -1489,7 +1489,7 @@ supported("call", [1, 2, 3, 4, 5, 6, 7, 8], "a call of the function value", ctx 
     if (got === undefined) return { shape: ERROR, mult: ONE };
     const fits = isTypeEqual(unwrap(got), unwrap(want)) || (unwrap(want).type === "Float" && unwrap(got).type === "Integer") || callStructFits(got, want);
     if (!fits) return ctx.fail("type_mismatch", MESSAGES.argument("call", ordinal(i), describeType(want), describeType(got)), { arg: i });
-    mult = then(mult, a.mult);
+    mult = piped(mult, a.mult);
   }
   return one(fn.output as EastType, mult);
 });

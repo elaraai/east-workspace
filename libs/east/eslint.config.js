@@ -60,6 +60,11 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       'doc-examples/compile-takes-the-function': 'error',
+      // A module that exports a `then` is a thenable: a promise resolved with
+      // its namespace calls that `then` and waits on it forever. vitest's
+      // module runner resolves every module that way, so each suite that
+      // imported East hung until CI killed it.
+      'no-restricted-exports': ['error', { restrictedNamedExports: ['then'] }],
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { 'argsIgnorePattern': '^_', 'varsIgnorePattern': '^_' }],
       '@typescript-eslint/explicit-function-return-type': 'off',
