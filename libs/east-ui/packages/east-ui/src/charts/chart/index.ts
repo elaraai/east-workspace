@@ -776,9 +776,11 @@ export interface AxisOptions {
 
 /** Options for {@link createChartRoot}. */
 export interface ChartOptions {
-    /** Plot height in px, or `"fill"` to grow to the parent's height
-     *  (requires a parent with a definite height — a sized `Box`, a Story
-     *  stage, a Grid cell). Default 240. */
+    /** Plot height in px, or `"fill"` to take the parent's height — a sized
+     *  `Box`, a Story stage, a Grid cell, a SnapGrid tile given a height — and
+     *  never less than the chart's natural height, which is what a parent with
+     *  no height of its own (a tile sized by its content) shows it at.
+     *  Default 240. */
     height?: SubtypeExprOrValue<FloatType> | "fill";
     /** Plot width in px; omit for responsive. */
     width?: SubtypeExprOrValue<FloatType>;

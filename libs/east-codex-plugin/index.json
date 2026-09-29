@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1221,
-    "totalFiles": 201,
+    "totalEntries": 1226,
+    "totalFiles": 202,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 374,
-      "e3-ui": 49,
+      "east-ui": 376,
+      "e3-ui": 52,
       "e3": 15,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -39205,14 +39205,44 @@
         "sidebar"
       ],
       "imports": [
-        "import { ArrayType, East, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { ArrayType, East, NullType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { App, Configurator, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
+        "import { App, Breadcrumb, Configurator, NavList, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const LOGO =\n            \"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%233a7780'/%3E%3C/svg%3E\";\n        const LineRow = StructType({ id: StringType, line: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" }, badge: \"3\" },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n            settings: { value: NullType, label: \"Settings\", section: \"Manage\", icon: { prefix: \"fas\", name: \"gear\" } },\n            // Deep route — no `section`, so it's hidden from the rail (reached from Overview).\n            line: { value: LineRow, label: \"Line\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.example.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures capturing the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const openLine = $.const(East.function([], NullType, $ => {\n                        $(nav.go.line(East.value({ id: \"L-1\", line: \"A\" }, LineRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — production lines</Text>\n                            <Button onClick={openLine}>Open line L-1</Button>\n                        </VStack>\n                    );\n                }));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                const settingsPage = $.const(East.function([], UIComponentType, (_$) => <Text>Settings</Text>));\n                const linePage = $.const(East.function([LineRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Line ${row.id} · ${row.line}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                            settings: () => settingsPage(),\n                            line: (_$, row) => linePage(row),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:app.examples.tsx:appRail",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
+      "suite": "",
+      "test": "App shell whose rail is data — one route keyed by page, a rail row per page mapped from an array, and a breadcrumb naming the open page",
+      "keywords": [
+        "App",
+        "app shell",
+        "rail",
+        "breadcrumb",
+        "NavList",
+        "Breadcrumb",
+        "data",
+        "rows",
+        "payload",
+        "Navigation",
+        "navigateTo"
+      ],
+      "imports": [
+        "import { ArrayType, East, NullType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { App, Breadcrumb, Configurator, NavList, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// App shell whose rail is data — one route keyed by page, a rail row per page mapped from an array, and a breadcrumb naming the open page\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const routes = Navigation.config({ page: { value: StringType, label: \"Page\" } });\n        return (\n            <Reactive>{$ => {\n                const pages = $.const([\n                    { key: \"overview\", title: \"Overview\" },\n                    { key: \"weekly\", title: \"Weekly\" },\n                    { key: \"detail\", title: \"Detail\" },\n                ], ArrayType(StructType({ key: StringType, title: StringType })));\n                const nav = $.let(Navigation.bind(routes, \"app.rail.route\", [routes.Page.page(\"overview\")]));\n                const open = $.let(nav.current().match({ page: (_$2, key) => key }));\n                const select = $.const(East.function([StringType], NullType, ($2, key) => {\n                    $2(nav.navigateTo([variant(\"page\", key)]));\n                }));\n                const sections = $.let([{\n                    label: none,\n                    items: pages.map((_$2, page) => East.value({\n                        key: page.key, label: page.title, icon: none, badge: none, active: some(page.key.equal(open)),\n                    }, NavList.Types.Item)),\n                }], ArrayType(NavList.Types.Section));\n                const crumbs = $.let(pages\n                    .filter((_$2, page) => page.key.equal(open))\n                    .map((_$2, page) => East.value({ label: page.title, current: some(true), onClick: none }, Breadcrumb.Types.Item)));\n                return (\n                    <App nav={nav} config={routes} title=\"Acme Operations\"\n                        rail={<NavList sections={sections} surface=\"shell\" onSelect={select} />}\n                        breadcrumb={<Breadcrumb items={crumbs} leadingSeparator />}\n                        pages={{ page: (_$2, key) => <Text>{East.str`The ${key} page`}</Text> }} />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:app.examples.tsx:appVariants",
@@ -39237,9 +39267,9 @@
         "configurator"
       ],
       "imports": [
-        "import { ArrayType, East, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { ArrayType, East, NullType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { App, Configurator, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
+        "import { App, Breadcrumb, Configurator, NavList, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -39315,7 +39345,7 @@
         "section"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Configurator, HStack, NavList, SegmentGroup, Switch, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
@@ -39323,6 +39353,35 @@
         "tsx"
       ],
       "source": "// Basic single-section nav list — three items, no active item\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <NavList sections={[\n                {\n                    items: [\n                        { key: \"home\", label: \"Home\" },\n                        { key: \"scenarios\", label: \"Scenarios\" },\n                        { key: \"audit\", label: \"Audit trail\" },\n                    ],\n                },\n            ]} />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:nav-list.examples.tsx:navListFromData",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/nav-list.examples.tsx",
+      "suite": "",
+      "test": "A nav list whose rows are data — one section mapped from an array of pages, the open page's row active",
+      "keywords": [
+        "NavList",
+        "section",
+        "data",
+        "rows",
+        "map",
+        "East array",
+        "NavList.Types.Section",
+        "NavList.Types.Item",
+        "rail",
+        "active"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Configurator, HStack, NavList, SegmentGroup, Switch, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A nav list whose rows are data — one section mapped from an array of pages, the open page's row active\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const pages = $.const([\n            { key: \"overview\", title: \"Overview\" },\n            { key: \"weekly\", title: \"Weekly\" },\n            { key: \"detail\", title: \"Detail\" },\n        ], ArrayType(StructType({ key: StringType, title: StringType })));\n        const open = $.const(\"weekly\");\n        const sections = $.let([{\n            label: some(\"Pages\"),\n            items: pages.map((_$, page) => East.value({\n                key: page.key, label: page.title, icon: none, badge: none, active: some(page.key.equal(open)),\n            }, NavList.Types.Item)),\n        }], ArrayType(NavList.Types.Section));\n        return <NavList sections={sections} surface=\"shell\" />;\n    })"
     },
     {
       "id": "east-ui:nav-list.examples.tsx:navListVariants",
@@ -39354,7 +39413,7 @@
         "interactive"
       ],
       "imports": [
-        "import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Configurator, HStack, NavList, SegmentGroup, Switch, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
@@ -42767,6 +42826,99 @@
         "tsx"
       ],
       "source": "// How a placement renders: the component its surface lists under the key; a key the surface does not list is a placeholder naming it; a key two listed components share is an error naming it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const hello = $.let(Studio.component(\"hello\", {\n            name: \"Hello\", category: \"Display\", icon: \"hand\",\n        }, East.function([], UIComponentType, _$ => <Text>Hello from a component</Text>)));\n        const components = $.let([hello]);\n        const twice = $.let([hello, hello]);\n        return (\n            <VStack gap=\"4\" align=\"stretch\">\n                {Studio.dispatch(components, \"hello\")}\n                {Studio.dispatch(components, \"retired\")}\n                {Studio.dispatch(twice, \"hello\")}\n            </VStack>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:page.examples.tsx:studioPage",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/page.examples.tsx",
+      "suite": "",
+      "test": "One page's published layout with no chrome: each placement its component's own UI on the snap grid — a frameless KPI rail, and charts that take a tile's natural height",
+      "keywords": [
+        "Studio",
+        "Studio.Page",
+        "page",
+        "live",
+        "draft",
+        "published",
+        "SnapGrid",
+        "tiles",
+        "component",
+        "frame",
+        "Chart",
+        "fill",
+        "natural height"
+      ],
+      "imports": [
+        "import {",
+        "import { Button, Chart, Format, HStack, Reactive, Stat, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Record, Studio } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// One page's published layout with no chrome: each placement its component's own UI on the snap grid — a frameless KPI rail, and charts that take a tile's natural height\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const components = $.let([\n            Studio.component(\"kpi_rail\", { name: \"KPI rail\", category: \"Display\", icon: \"gauge-high\", frame: \"none\" },\n                East.function([], UIComponentType, (_$) => (\n                    <HStack gap=\"3\" align=\"stretch\">\n                        <Stat label=\"Revenue\" value={1280000.0} format={Format.Currency({ currency: \"USD\", compact: \"short\" })} />\n                        <Stat label=\"Orders\" value={8412.0} format={Format.Number()} />\n                        <Stat label=\"Avg ticket\" value={152.0} format={Format.Currency({ currency: \"USD\", maximumFractionDigits: 0n })} />\n                        <Stat label=\"Fill rate\" value={0.94} format={Format.Percent()} />\n                    </HStack>\n                ))),\n            Studio.component(\"revenue_trend\", { name: \"Revenue trend\", category: \"Charts\", icon: \"chart-area\", span: 8n },\n                East.function([], UIComponentType, ($2) => {\n                    const days = $2.const([\n                        { day: \"Mar 1\", revenue: 2.61 }, { day: \"Mar 8\", revenue: 2.84 }, { day: \"Mar 15\", revenue: 3.02 },\n                        { day: \"Mar 22\", revenue: 2.95 }, { day: \"Mar 29\", revenue: 3.31 }, { day: \"Apr 5\", revenue: 3.48 },\n                    ], ArrayType(StructType({ day: StringType, revenue: FloatType })));\n                    return <Chart height=\"fill\" grid layers={Chart.Area(days, { x: r => r.day, y: r => r.revenue })} />;\n                })),\n            Studio.component(\"breakdown_bars\", { name: \"Breakdown bars\", category: \"Display\", icon: \"chart-bar\", span: 4n },\n                East.function([], UIComponentType, ($2) => {\n                    const regions = $2.const([\n                        { region: \"North\", share: 42.0 }, { region: \"South\", share: 31.0 }, { region: \"West\", share: 27.0 },\n                    ], ArrayType(StructType({ region: StringType, share: FloatType })));\n                    return <Chart height=\"fill\" grid={false} layers={Chart.Bar(regions, { x: r => r.share, y: r => r.region })} />;\n                })),\n        ]);\n        const pages = $.let(new Map<Key, Entry>([\n            [{ project: \"ops\", page: \"overview\" }, variant(\"page\", {\n                draft: {\n                    title: \"Overview\",\n                    cells: [\n                        { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"\" },\n                        { key: \"c-trend\", row: \"r2\", span: 8n, height: none, align: variant(\"top\", null), title: none, component: \"revenue_trend\", fingerprint: \"\" },\n                        { key: \"c-bars\", row: \"r2\", span: 4n, height: none, align: variant(\"top\", null), title: none, component: \"breakdown_bars\", fingerprint: \"\" },\n                    ],\n                },\n                live: some({\n                    version: 1n,\n                    page: {\n                        title: \"Overview\",\n                        cells: [\n                            { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"\" },\n                            { key: \"c-trend\", row: \"r2\", span: 8n, height: none, align: variant(\"top\", null), title: none, component: \"revenue_trend\", fingerprint: \"\" },\n                            { key: \"c-bars\", row: \"r2\", span: 4n, height: none, align: variant(\"top\", null), title: some(\"Revenue by region\"), component: \"breakdown_bars\", fingerprint: \"\" },\n                        ],\n                    },\n                }),\n            })],\n        ]), Studio.Types.Pages);\n        return <Studio.Page pages={pages} components={components} page={{ project: \"ops\", page: \"overview\" }} />;\n    })"
+    },
+    {
+      "id": "e3-ui:page.examples.tsx:studioSite",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/page.examples.tsx",
+      "suite": "",
+      "test": "A project's published site: an app whose rail lists the project's live pages in key order — a page never published, a template and another project's pages are not in it",
+      "keywords": [
+        "Studio",
+        "Studio.Site",
+        "site",
+        "App",
+        "rail",
+        "published",
+        "live pages",
+        "navigation",
+        "project"
+      ],
+      "imports": [
+        "import {",
+        "import { Button, Chart, Format, HStack, Reactive, Stat, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Record, Studio } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A project's published site: an app whose rail lists the project's live pages in key order — a page never published, a template and another project's pages are not in it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const components = $.let([\n            Studio.component(\"kpi_rail\", { name: \"KPI rail\", category: \"Display\", icon: \"gauge-high\", frame: \"none\" },\n                East.function([], UIComponentType, (_$) => (\n                    <HStack gap=\"3\" align=\"stretch\">\n                        <Stat label=\"Revenue\" value={1280000.0} format={Format.Currency({ currency: \"USD\", compact: \"short\" })} />\n                        <Stat label=\"Orders\" value={8412.0} format={Format.Number()} />\n                        <Stat label=\"Fill rate\" value={0.94} format={Format.Percent()} />\n                    </HStack>\n                ))),\n            Studio.component(\"orders_by_week\", { name: \"Orders by week\", category: \"Charts\", icon: \"chart-column\", span: 12n },\n                East.function([], UIComponentType, ($2) => {\n                    const weeks = $2.const([\n                        { week: \"W9\", orders: 96.0 }, { week: \"W10\", orders: 158.0 }, { week: \"W11\", orders: 214.0 },\n                        { week: \"W12\", orders: 271.0 }, { week: \"W13\", orders: 248.0 }, { week: \"W14\", orders: 196.0 },\n                    ], ArrayType(StructType({ week: StringType, orders: FloatType })));\n                    return <Chart height=\"fill\" grid layers={Chart.Column(weeks, { x: r => r.week, y: r => r.orders })} />;\n                })),\n        ]);\n        const pages = $.let(new Map<Key, Entry>([\n            [{ project: \"ops\", page: \"overview\" }, variant(\"page\", {\n                draft: { title: \"Overview\", cells: [] },\n                live: some({\n                    version: 2n,\n                    page: {\n                        title: \"Overview\",\n                        cells: [\n                            { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"\" },\n                            { key: \"c-orders\", row: \"r2\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"orders_by_week\", fingerprint: \"\" },\n                        ],\n                    },\n                }),\n            })],\n            [{ project: \"ops\", page: \"weekly\" }, variant(\"page\", {\n                draft: { title: \"Weekly\", cells: [] },\n                live: some({\n                    version: 1n,\n                    page: {\n                        title: \"Weekly\",\n                        cells: [\n                            { key: \"w-orders\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: some(\"Orders this quarter\"), component: \"orders_by_week\", fingerprint: \"\" },\n                        ],\n                    },\n                }),\n            })],\n            [{ project: \"ops\", page: \"detail\" }, variant(\"page\", {\n                draft: {\n                    title: \"Detail\",\n                    cells: [\n                        { key: \"d-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"\" },\n                    ],\n                },\n                live: none,\n            })],\n            [{ project: \"ops\", page: \"tpl-kpis\" }, variant(\"template\", {\n                title: \"KPIs\",\n                cells: [\n                    { key: \"t-kpi\", row: \"t1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"\" },\n                ],\n            })],\n            [{ project: \"retail\", page: \"home\" }, variant(\"page\", {\n                draft: { title: \"Home\", cells: [] },\n                live: some({ version: 1n, page: { title: \"Home\", cells: [] } }),\n            })],\n        ]), Studio.Types.Pages);\n        return <Studio.Site pages={pages} components={components} project=\"ops\" title=\"Ops console\" id=\"example\" />;\n    })"
+    },
+    {
+      "id": "e3-ui:page.examples.tsx:studioSiteRecord",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/page.examples.tsx",
+      "suite": "",
+      "test": "A site served from the pages record: the Detail page is a draft and not in the rail until Publish commits Studio.publish's patch through the record's one write",
+      "keywords": [
+        "Studio",
+        "Studio.Site",
+        "Studio.publish",
+        "publish",
+        "record",
+        "Record.bind",
+        "patch",
+        "e3.record",
+        "e3.mutation.patch",
+        "site",
+        "live pages"
+      ],
+      "imports": [
+        "import {",
+        "import { Button, Chart, Format, HStack, Reactive, Stat, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Record, Studio } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A site served from the pages record: the Detail page is a draft and not in the rail until Publish commits Studio.publish's patch through the record's one write\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const components = $.let([\n                Studio.component(\"kpi_rail\", { name: \"KPI rail\", category: \"Display\", icon: \"gauge-high\", frame: \"none\" },\n                    East.function([], UIComponentType, (_$2) => (\n                        <HStack gap=\"3\" align=\"stretch\">\n                            <Stat label=\"Revenue\" value={1280000.0} format={Format.Currency({ currency: \"USD\", compact: \"short\" })} />\n                            <Stat label=\"Orders\" value={8412.0} format={Format.Number()} />\n                        </HStack>\n                    ))),\n                Studio.component(\"orders_by_week\", { name: \"Orders by week\", category: \"Charts\", icon: \"chart-column\", span: 12n },\n                    East.function([], UIComponentType, ($2) => {\n                        const weeks = $2.const([\n                            { week: \"W9\", orders: 96.0 }, { week: \"W10\", orders: 158.0 }, { week: \"W11\", orders: 214.0 },\n                            { week: \"W12\", orders: 271.0 },\n                        ], ArrayType(StructType({ week: StringType, orders: FloatType })));\n                        return <Chart height=\"fill\" grid layers={Chart.Column(weeks, { x: r => r.week, y: r => r.orders })} />;\n                    })),\n            ]);\n            const record = $.let(Record.bind(studioSitePages, [studioSitePagesPatch]));\n            const publish = $.const(East.function([], NullType, ($2) => {\n                $2(record.mutate.patch(Studio.publish(record.read(), { project: \"ops\", page: \"detail\" })));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <HStack gap=\"2\">\n                        <Button size=\"xs\" onClick={publish} loading={record.mutate.pending()}>Publish Detail</Button>\n                    </HStack>\n                    <Studio.Site pages={record.read()} components={components} project=\"ops\" title=\"Ops console\" id=\"record\" />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:pages.examples.ts:studioChanges",

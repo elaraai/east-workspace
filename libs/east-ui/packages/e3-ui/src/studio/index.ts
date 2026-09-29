@@ -28,6 +28,7 @@ import {
     StudioPagesType,
     StudioStatusType,
 } from "./pages.js";
+import { StudioPage, StudioSite, StudioVersionType } from "./surfaces.js";
 
 export {
     StudioComponentType,
@@ -48,6 +49,14 @@ export {
     StudioPagesType,
     StudioStatusType,
 } from "./pages.js";
+export {
+    StudioPage,
+    StudioSite,
+    StudioVersionType,
+    type StudioPageOptions,
+    type StudioSiteOptions,
+    type StudioVersionLiteral,
+} from "./surfaces.js";
 
 /** The type of the {@link Studio} namespace. */
 export interface StudioNamespace {
@@ -71,6 +80,10 @@ export interface StudioNamespace {
     usage: typeof StudioPages.usage;
     /** A page's status: live or draft. */
     status: typeof StudioPages.status;
+    /** `<Studio.Page>` — one page with no chrome, its live or draft layout on the SnapGrid. */
+    Page: typeof StudioPage;
+    /** `<Studio.Site>` — a project's published site: an `<App>` over its live pages. */
+    Site: typeof StudioSite;
     /** The Studio's East types. */
     Types: {
         /** A Studio component ({@link StudioComponentType}). */
@@ -97,14 +110,16 @@ export interface StudioNamespace {
         CellChange: typeof StudioCellChangeType;
         /** A page's status ({@link StudioStatusType}). */
         Status: typeof StudioStatusType;
+        /** Which layout of a page to draw ({@link StudioVersionType}). */
+        Version: typeof StudioVersionType;
     };
 }
 
 /**
  * The Studio — components developers publish as code (`Studio.component`),
- * the placements that render them (`Studio.dispatch`), and the pages record
- * operators build: its type (`Studio.Types.Pages`), its writes and the change
- * list.
+ * the placements that render them (`Studio.dispatch`), the pages record
+ * operators build (`Studio.Types.Pages`, its writes and the change list), and
+ * the surfaces that read it: `<Studio.Page>` and `<Studio.Site>`.
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
@@ -117,6 +132,8 @@ export const Studio: StudioNamespace = {
     changes: StudioPages.changes,
     usage: StudioPages.usage,
     status: StudioPages.status,
+    Page: StudioPage,
+    Site: StudioSite,
     Types: {
         Component: StudioComponentType,
         Frame: StudioFrameType,
@@ -130,5 +147,6 @@ export const Studio: StudioNamespace = {
         Change: StudioChangeType,
         CellChange: StudioCellChangeType,
         Status: StudioStatusType,
+        Version: StudioVersionType,
     },
 };

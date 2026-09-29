@@ -80,7 +80,9 @@ export const EastChakraEmptyState = memo(function EastChakraEmptyState({ value, 
                         />
                     </ChakraEmptyState.Title>
                     {description ? (
-                        <ChakraEmptyState.Description fontSize="13.5px" color="fg.subtle">
+                        // A block, not Chakra's paragraph: the description is a
+                        // component, and a Text is a paragraph of its own.
+                        <ChakraEmptyState.Description as="div" fontSize="13.5px" color="fg.subtle">
                             <EastChakraComponent
                                 value={description}
                                 storageKey={`${storageKey ?? ""}.description`}

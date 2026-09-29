@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { App, Configurator, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from "@elaraai/east-ui";
+import { App, Breadcrumb, Configurator, NavList, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from "@elaraai/east-ui";
 
 /**
  * Full application shell from one `Navigation.bind` handle — a collapsible rail
@@ -72,6 +72,49 @@ export const appBasic = example({
                             line: (_$, row) => linePage(row),
                         }}
                     />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * An app whose rail is data: one route keyed by page, which a static config
+ * cannot list row by row, so the rail is a `<NavList>` mapped from the pages
+ * and the breadcrumb names the open one.
+ */
+export const appRail = example({
+    keywords: ["App", "app shell", "rail", "breadcrumb", "NavList", "Breadcrumb", "data", "rows", "payload", "Navigation", "navigateTo"],
+    description: "App shell whose rail is data — one route keyed by page, a rail row per page mapped from an array, and a breadcrumb naming the open page",
+    fn: East.function([], UIComponentType, (_$) => {
+        const routes = Navigation.config({ page: { value: StringType, label: "Page" } });
+        return (
+            <Reactive>{$ => {
+                const pages = $.const([
+                    { key: "overview", title: "Overview" },
+                    { key: "weekly", title: "Weekly" },
+                    { key: "detail", title: "Detail" },
+                ], ArrayType(StructType({ key: StringType, title: StringType })));
+                const nav = $.let(Navigation.bind(routes, "app.rail.route", [routes.Page.page("overview")]));
+                const open = $.let(nav.current().match({ page: (_$2, key) => key }));
+                const select = $.const(East.function([StringType], NullType, ($2, key) => {
+                    $2(nav.navigateTo([variant("page", key)]));
+                }));
+                const sections = $.let([{
+                    label: none,
+                    items: pages.map((_$2, page) => East.value({
+                        key: page.key, label: page.title, icon: none, badge: none, active: some(page.key.equal(open)),
+                    }, NavList.Types.Item)),
+                }], ArrayType(NavList.Types.Section));
+                const crumbs = $.let(pages
+                    .filter((_$2, page) => page.key.equal(open))
+                    .map((_$2, page) => East.value({ label: page.title, current: some(true), onClick: none }, Breadcrumb.Types.Item)));
+                return (
+                    <App nav={nav} config={routes} title="Acme Operations"
+                        rail={<NavList sections={sections} surface="shell" onSelect={select} />}
+                        breadcrumb={<Breadcrumb items={crumbs} leadingSeparator />}
+                        pages={{ page: (_$2, key) => <Text>{East.str`The ${key} page`}</Text> }} />
                 );
             }}</Reactive>
         );

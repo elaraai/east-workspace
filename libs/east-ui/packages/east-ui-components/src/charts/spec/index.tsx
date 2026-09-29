@@ -382,6 +382,21 @@ function walkY(node: Spec, side: "left" | "right", consider: (v: number) => void
     }, undefined);
 }
 
+/**
+ * The height a `fill` chart takes when its parent has none of its own — a tile
+ * sized by its content: the plot and its x-axis labels, as the Studio's tiles
+ * draw a chart (#993).
+ */
+const FILL_NATURAL_HEIGHT = 134;
+
+/** A mono tick glyph's advance, as a fraction of its font size. */
+const MONO_ADVANCE = 0.6;
+
+/** The room a left tick label needs beyond its glyphs: its offset from the
+ *  axis (the tick length and the label's own inset), and an inset from the
+ *  frame's edge. */
+const LEFT_LABEL_ROOM = 15;
+
 /** Hover-tooltip payload: the focused x and each series' value there. */
 interface TooltipDatum { x: string; rows: Array<{ key: string; color: string; value: number }> }
 
@@ -874,8 +889,9 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             // to that axis's OWN margin band below (never the shared gutter), so a
             // title nudge can't shift a gutter-aligned lane.
             let xTitleGap = 0, yTitleGap = 0, y2TitleGap = 0;
+            let leftAxis: Axis | undefined;
             for (const c of f.children) match(c, {
-                axisLeft: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) leftDomain = domainBounds(d); if (getSomeorUndefined(v.label)) yLabel = true; yTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
+                axisLeft: (v: Axis) => { leftAxis = v; const d = getSomeorUndefined(v.domain); if (d) leftDomain = domainBounds(d); if (getSomeorUndefined(v.label)) yLabel = true; yTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
                 axisRight: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) rightDomain = domainBounds(d); if (getSomeorUndefined(v.label)) y2Label = true; y2TitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
                 axisBottom: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; xTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
             }, undefined);
@@ -887,11 +903,22 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             // `margin` with a default, so there's no renderer-visible signal for an
             // author-set margin to defer to — `gutterLeft ?? base.left` is correct.)
             const base = getSomeorUndefined(f.margin) ?? { top: 8, right: 8, bottom: 24, left: 40 };
+            // A horizontal frame's left axis names its categories, which are
+            // data of any length: its margin grows to hold the widest, so a
+            // parent that clips never cuts one.
+            let leftBase = base.left;
+            if (horizontal && leftAxis !== undefined) {
+                const fmt = tickFormatter(getSomeorUndefined(leftAxis.tickFormat), "band", words.locale);
+                const size = /^(\d+(?:\.\d+)?)px$/.exec(String(axisTextCss(style, getSomeorUndefined(leftAxis.tickStyle)).fontSize));
+                let widest = 0;
+                for (const k of xDomain) widest = Math.max(widest, fmt(k).length);
+                leftBase = Math.max(base.left, Math.ceil(widest * (size ? Number(size[1]) : 11) * MONO_ADVANCE + LEFT_LABEL_ROOM));
+            }
             const margin: Margin = {
                 top: base.top,
                 right: gutterRight ?? (Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 + y2TitleGap : 0)),
                 bottom: base.bottom + (xLabel ? 16 + xTitleGap : 0),
-                left: gutterLeft ?? (base.left + (yLabel ? 14 + yTitleGap : 0)),
+                left: gutterLeft ?? (leftBase + (yLabel ? 14 + yTitleGap : 0)),
             };
 
             const legendOn = getSomeorUndefined(f.legend) !== undefined;
@@ -921,7 +948,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 // Axis-title x at the NATURAL margin (just past the tick labels), not
                 // the gutter-widened `margin.left/right` — so a shared plotGutter keeps
                 // the rotated y / y2 titles by their axis instead of the lane edge (#147).
-                const yTitleX = -((base.left + (yLabel ? 14 + yTitleGap : 0)) - 11);
+                const yTitleX = -((leftBase + (yLabel ? 14 + yTitleGap : 0)) - 11);
                 const y2TitleX = innerW + ((Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 + y2TitleGap : 0)) - 11);
 
                 // The measure scale: values → screen y normally; values →
@@ -1107,10 +1134,21 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             // `debounceTime={0}` makes the skeleton→chart swap immediate (visx
             // ParentSize otherwise debounces measurement by ~300ms).
             // height <= 0 is the "fill parent" sentinel (Chart `height: "fill"`):
-            // measure the parent's height as well as its width. Requires a
-            // parent with a definite height (a sized Box, a Story stage, ...).
+            // the chart takes its parent's height, and never less than its
+            // natural height, so a parent with no height of its own shows it at
+            // that height. The plot is measured in a box laid over the space, so
+            // its own height never feeds back into its parent's. The outer box
+            // is the one a flex parent stretches.
             if (f.height <= 0) {
-                return <ParentSize debounceTime={0}>{({ width, height }) => renderFrame(width, height)}</ParentSize>;
+                return (
+                    <Box height="100%">
+                        <Box position="relative" height="100%" minHeight={`${FILL_NATURAL_HEIGHT}px`}>
+                            <Box position="absolute" inset="0">
+                                <ParentSize debounceTime={0}>{({ width, height }) => renderFrame(width, height)}</ParentSize>
+                            </Box>
+                        </Box>
+                    </Box>
+                );
             }
             return explicitW !== undefined ? render(explicitW) : <ParentSize debounceTime={0}>{({ width }) => renderFrame(width)}</ParentSize>;
         },

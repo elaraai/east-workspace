@@ -15,7 +15,9 @@ import type { UIElement } from "../runtime.js";
  * `Navigation.bind` handle. Author it **inside** the enclosing `<Reactive>` that
  * binds `nav`, and pass the same `Navigation.config` as `config` (the handle
  * carries no labels/icons — the config is the single source of truth for the
- * rail and breadcrumb).
+ * rail and breadcrumb). When the rows are data — a route per row of a record,
+ * which a config cannot list — pass `rail` (a `<NavList>` mapped from the rows)
+ * and `breadcrumb` in place of the derived ones.
  *
  * @example
  * ```tsx

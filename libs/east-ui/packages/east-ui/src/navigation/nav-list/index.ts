@@ -5,6 +5,7 @@
 
 import {
     type ExprType,
+    ArrayType,
     East,
     variant,
     some,
@@ -42,7 +43,9 @@ export {
  * bsys Sidebar recipe (mono uppercase rows, brand-tint active with a
  * 3 px brand-d left rule, paper-2 card chrome).
  *
- * @param sections - Array of sections, each with optional label + items
+ * @param sections - The sections, each with an optional label and its items:
+ *   declared as an array, or an East `Array<NavList.Types.Section>` computed
+ *   from data — a rail of the pages a record holds, say
  * @param style - Optional configuration (`onSelect`, `surface`, `background`)
  * @returns An East expression representing the NavList
  *
@@ -77,10 +80,10 @@ export {
  * ```
  */
 function createNavList(
-    sections: NavSectionInput[],
+    sections: NavSectionInput[] | ExprType<ArrayType<typeof NavSectionType>>,
     style?: NavListStyle,
 ): ExprType<UIComponentType> {
-    const sectionsExpr = East.value(
+    const sectionsExpr = !Array.isArray(sections) ? East.value(sections, ArrayType(NavSectionType)) : East.value(
         sections.map(s => East.value({
             label: s.label !== undefined ? some(s.label) : none,
             items: East.value(
