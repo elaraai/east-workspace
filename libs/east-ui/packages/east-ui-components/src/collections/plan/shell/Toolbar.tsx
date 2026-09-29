@@ -18,7 +18,7 @@
  * the summary hides.
  */
 
-import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
@@ -165,9 +165,9 @@ export interface PlanToolbarProps {
     /** The canvas's local failures, as chips (#811) — skipped rows, a source
      *  or search failure, a truncated axis. */
     diagnostics?: PlanDiagnostics | undefined;
-    /** The editing session's history bar (#880) — Undo, Redo, Discard and
+    /** The editing session's history item (#988) — Undo, Redo, Discard and
      *  Apply over the drafts — at the right edge, as on the Sheet. */
-    history?: ReactNode;
+    history?: ToolbarItem | undefined;
 }
 
 /** The 44px toolbar band. */
@@ -286,7 +286,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
             side: "end",
             forms: [<PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen} btn={btn} styles={styles} />],
         },
-        history !== undefined && { key: "history", side: "end", forms: [history] },
+        history,
     ];
 
     return (

@@ -5,8 +5,11 @@
 
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, IntegerType, NullType, variant } from "@elaraai/east";
-import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
+import {
+    ArrayType, AsyncFunctionType, DictType, East, Expr, IntegerType, NullType, StringType, StructType, isTypeEqual, variant,
+    type BlockBuilder, type EastType,
+} from "@elaraai/east";
+import { Editing, Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Data, deriveManifest, ui } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import * as ex from "./record.examples.js";
@@ -25,6 +28,7 @@ describeEast("Record", (test) => {
         recordBindMutate: ex.recordBindMutate,
         recordBindStatus: ex.recordBindStatus,
         recordBindHistory: ex.recordBindHistory,
+        recordSheetApply: ex.recordSheetApply,
     });
 
     test("Record.bind exposes read + a typed mutate closure inside Reactive.Root", $ => {
@@ -69,6 +73,78 @@ describeEast("Record — bind validation", (_test) => {
         const wrong = e3.mutation.reduce("wrong", other,
             East.function([IntegerType], IntegerType, (_$, s) => s));
         assert.throws(() => Record.bind(counter, [wrong]), /writes record "other"/);
+    });
+}, { platformFns: TestImpl });
+
+// `Record.onApply` (#988): the async onApply each collection takes, built from
+// the handle alone. Its behaviour over a record runs in e3-ui-components'
+// record-apply spec, against the runtime.
+describeEast("Record.onApply", (test) => {
+    const Cell = StructType({ key: StringType, span: IntegerType });
+    const Page = StructType({ title: StringType, cells: ArrayType(Cell) });
+    const pages = e3.record("pages", DictType(StringType, Page), new Map());
+    const pagesPatch = e3.mutation.patch(pages);
+
+    /** The type of what `build` returns, from inside a bound handle's block. */
+    function typeOf(build: ($: BlockBuilder<NullType>) => Expr): EastType {
+        let type: EastType | undefined;
+        East.function([], NullType, $ => { type = Expr.type(build($)) as EastType; });
+        return type!;
+    }
+
+    test("over the record's own entries it takes a Sheet's batch, or with keyed a Plan's", _ => {
+        const sheet = typeOf($ => {
+            const record = $.let(Record.bind(ex.jobs, [ex.jobsPatch]));
+            return Record.onApply(record);
+        });
+        assert.ok(isTypeEqual(sheet, AsyncFunctionType([Editing.Types.ChangeSet(ex.JobType)], Editing.Types.ApplyResult)));
+        const plan = typeOf($ => {
+            const record = $.let(Record.bind(ex.jobs, [ex.jobsPatch]));
+            return Record.onApply(record, { keyed: true });
+        });
+        assert.ok(isTypeEqual(plan, AsyncFunctionType([Editing.Types.ChangeSet(ex.JobType, StringType)], Editing.Types.ApplyResult)));
+    });
+
+    test("over a collection inside one entry it takes that collection's batch", _ => {
+        const inside = typeOf($ => {
+            const record = $.let(Record.bind(pages, [pagesPatch]));
+            return Record.onApply(record, {
+                entry: "home",
+                get: East.function([Page], ArrayType(Cell), (_$, page) => page.cells),
+                set: East.function([Page, ArrayType(Cell)], Page, (_$, page, cells) => ({ title: page.title, cells })),
+                idField: "key",
+            });
+        });
+        assert.ok(isTypeEqual(inside, AsyncFunctionType([Editing.Types.ChangeSet(Cell)], Editing.Types.ApplyResult)));
+    });
+
+    test("refuses a record that is not keyed, a handle bound without the patch door, and a get that does not fit", _ => {
+        assert.throws(() => typeOf($ => {
+            const record = $.let(Record.bind(counter, [increment]));
+            return Record.onApply(record as never);
+        }), /the record must be a Dict — this one holds \.Integer/);
+        assert.throws(() => typeOf($ => {
+            const record = $.let(Record.bind(ex.jobs, []));
+            return Record.onApply(record);
+        }), /"patch" is not bound as this record's patch door/);
+        assert.throws(() => typeOf($ => {
+            const record = $.let(Record.bind(ex.jobs, [ex.jobsPatch]));
+            return Record.onApply(record, { mutation: "save" });
+        }), /"save" is not bound as this record's patch door — bind the record with e3.mutation.patch\(record, "save"\)/);
+        assert.throws(() => typeOf($ => {
+            const record = $.let(Record.bind(pages, [pagesPatch]));
+            return Record.onApply(record, {
+                entry: "home",
+                get: East.function([Page], StringType, (_$, page) => page.title) as never,
+                set: East.function([Page, ArrayType(Cell)], Page, (_$, page, cells) => ({ title: page.title, cells })),
+                idField: "key",
+            });
+        }), /`get` must be an East function from the record's entry to an Array of row structs/);
+    });
+
+    test("the Sheet over a record binds the record and pages it — no new platform bind", _ => {
+        const manifest = deriveManifest(ex.recordSheetApply.fn as never);
+        assert.deepEqual(manifest.records, ["jobs"]);
     });
 }, { platformFns: TestImpl });
 

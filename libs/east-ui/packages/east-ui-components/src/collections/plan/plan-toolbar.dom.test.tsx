@@ -16,8 +16,13 @@
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import { IntegerType, StringType, StructType, variant, some, none } from "@elaraai/east";
+import { Editing } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
+import { formatters } from "../../format/index.js";
+import { EditSession } from "../../editing/session.js";
+import { historyToolbarItem } from "../../editing/history-item.js";
+import { editingMessages } from "../../editing/messages.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
 import { sliceConfig } from "../../platform/slice/slice.test-utils.js";
 import { initializeStore } from "../../platform/state-runtime.js";
@@ -149,6 +154,25 @@ describe("the Plan toolbar's ladder (#952)", () => {
         expect(c.querySelector("[data-plan-segmenu='grain']")!.textContent).toContain("GROUP");
         expect(c.querySelector("[data-plan-seg]")).toBeNull();
         expect(c.querySelector("[data-slot='toolbarSummary']")).toBeNull();
+    });
+
+    test("the history item every collection shares sits at the row's end (#988)", () => {
+        row.px = 4000;
+        const Run = StructType({ id: StringType, end: IntegerType });
+        const session = new EditSession<string>({
+            sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
+            apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+        });
+        const noop = () => {};
+        const history = historyToolbarItem({ session, words: { ...formatters("en-US"), m: editingMessages }, editing: false, onAction: noop, onIssue: noop });
+        function WithHistory() {
+            const styles = useSlotRecipe({ key: "plan" })() as unknown as Record<string, Record<string, unknown>>;
+            return <PlanToolbar styles={styles} slice={undefined} affordances={[]} resolution="" resolutions={[]} history={history} />;
+        }
+        const { container } = render(<ChakraProvider value={system}><WithHistory /></ChakraProvider>);
+        const item = container.querySelector('[data-toolbar-item="history"]')!;
+        expect(item.hasAttribute("data-toolbar-end")).toBe(true);
+        expect(item.querySelector('[data-slot="history"]')).not.toBeNull();
     });
 
     test("the shortened summary is its count alone", () => {

@@ -10,6 +10,7 @@
 
 import type { ReactNode, Ref, RefObject } from "react";
 import { Box } from "@chakra-ui/react";
+import type { ToolbarItem } from "../../../toolbar/index.js";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Pick, Slice } from "@elaraai/east-ui/internal";
 import { PlanToolbar } from "../shell/Toolbar.js";
@@ -64,8 +65,8 @@ export interface PlanHeaderProps {
     focusLabel: string | undefined;
     /** Family sizes under a links focus. */
     linkCounts: { upstream: number; downstream: number } | undefined;
-    /** The editing session's history bar (#880), when the canvas declares editing. */
-    history?: ReactNode;
+    /** The editing session's history item (#988), when the canvas declares editing. */
+    history?: ToolbarItem | undefined;
 }
 
 /** The sticky header band. */
