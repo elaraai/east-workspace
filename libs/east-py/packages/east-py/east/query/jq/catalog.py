@@ -51,7 +51,7 @@ from east.query.jq.shapes import (
     node_of,
     nullable_payload,
     or_null,
-    then,
+    piped,
     type_equal,
     typed,
     unify,
@@ -370,7 +370,7 @@ def math2(ctx: CallContext) -> Result:
     b = arg_of(ctx, 1, "a number", is_number)
     if a is None or b is None:
         return _error()
-    return one(FloatType, then(a.result.mult, b.result.mult))
+    return one(FloatType, piped(a.result.mult, b.result.mult))
 
 
 def selector(keep: Callable[[EastType], str]) -> Typing:
@@ -770,8 +770,8 @@ def _t_range(ctx: CallContext) -> Result:
     mult = ONE
     for a in args:
         if a is not None:
-            mult = then(mult, a.result.mult)
-    return Result(typed(FloatType if is_float else IntegerType), then(mult, MANY))
+            mult = piped(mult, a.result.mult)
+    return Result(typed(FloatType if is_float else IntegerType), piped(mult, MANY))
 
 
 def _t_recurse(ctx: CallContext) -> Result:
@@ -1663,7 +1663,7 @@ def _t_call(ctx: CallContext) -> Result:
         if not fits:
             return ctx.fail("type_mismatch", MESSAGES.argument(
                 "call", ordinal(i), describe_type(want), describe_type(got)), arg=i)
-        mult = then(mult, a.mult)
+        mult = piped(mult, a.mult)
     return one(fn.value["output"], mult)
 
 

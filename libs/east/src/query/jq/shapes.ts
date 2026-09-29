@@ -44,9 +44,14 @@ export const SOME: Mult = { lo: 1, hi: 2 };
 /**
  * The multiplicity of `a | b`: each output of `a` feeds `b`.
  *
+ * @remarks
+ * Not `then`: a module that exports a `then` is a thenable, and a promise
+ * resolved with its namespace calls that `then` and waits on it forever — as
+ * vitest's module runner resolves every module it loads.
+ *
  * @internal
  */
-export function then(a: Mult, b: Mult): Mult {
+export function piped(a: Mult, b: Mult): Mult {
   const lo = a.lo === 1 && b.lo === 1 ? 1 : 0;
   const hi = a.hi === 0 || b.hi === 0 ? 0 : (a.hi === 2 || b.hi === 2 ? 2 : 1);
   return { lo, hi };
