@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back)."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -14,7 +14,7 @@ evidence — not a read-only report.
 
 The public surface is **JSX tags + platform helpers**, all from one import
 (`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>` and `<Experiment>`, the `Data` and `Func`
-binding helpers, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
+binding helpers, `Studio` components, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
 `<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Diff.Root(…)`) are an
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
 browser-safe entry for render-only bundles).
@@ -106,6 +106,10 @@ Task → What do you need?
     │
     ├─ Edit a graph / ontology dataset
     │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
+    │
+    ├─ Offer components for operators to arrange on pages (Studio)
+    │   ├─ Declare one — self-contained, like a ui() body → Studio.component(key, meta, fn)
+    │   └─ Render a placement by its component's key      → Studio.dispatch(components, key)
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -372,6 +376,63 @@ invisible author scope.
 Decide↔Trust seam): every staged judgement whose verdict is set, newest first —
 the exact complement of the queue. Options: `heading`, `maxHeight`.
 
+### Studio components — `Studio.component(key, meta, fn)` + `Studio.dispatch`
+
+A Studio component is **self-contained**: an East UI function written exactly
+like a `ui()` body, which binds its own data, sets up its own slices and returns
+its UI. Operators arrange components on pages and never rebind or reconfigure
+them, so different data is a different component, and a component's next
+version is a deploy.
+
+`Studio.component` returns a `Studio.Types.Component` struct, the way
+`Slice.config` returns a slice config. Call it at module scope or inside an
+East function.
+
+```tsx
+export const salesCount = Studio.component("sales_count", {
+    name: "Sales", category: "Display", icon: "receipt", span: 4n,
+    description: "Sales recorded so far",
+}, East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const sales = $.let(Data.bind(salesDaily));
+        return <Stat label="Sales" value={sales.read().size()} />;
+    }}</Reactive>
+)));
+```
+
+| `meta` | Meaning |
+|---|---|
+| `name`, `category`, `icon` | **required** — the palette card's name, the group it sits in, a Font Awesome solid icon |
+| `span` | the span a new placement takes, in columns of 12 (default `12n`) |
+| `description` | what it shows — the inspector's and the catalog's text |
+| `frame` | `"card"` (default) draws a tile frame; `"none"` renders bare |
+| `tags` / `collections` / `owner` | the catalog's facets |
+| `thumbnail` | the catalog card's image (default: the component itself, scaled) |
+| `deprecated` | hidden from the palette and the catalog; placements keep rendering |
+
+Two fields are derived from `fn`, never written:
+- `reads` — the datasets, functions and records its code binds (`deriveManifest`
+  over `fn`); the palette card's meta line and the inspector's data list.
+- `fingerprint` — a SHA-256 of `fn`'s IR in canonical form. The same code
+  fingerprints the same wherever it is written; any change to the code changes
+  it.
+
+A surface lists the components it offers with `$.let([...])`, in palette order,
+and each placement renders through `Studio.dispatch(components, key)`, which
+calls the listed component's function:
+
+```tsx
+const components = $.let([revenueTrend, salesCount]);
+return <VStack gap="3" align="stretch">{Studio.dispatch(components, "sales_count")}</VStack>;
+```
+
+- The surface's `ui()` manifest is the union of its listed components' reads:
+  every dataset they bind is reachable, and nothing else.
+- State and Slice keys inside a component are the component's own, so two
+  placements of it share them.
+- A key the list does not hold renders a placeholder naming it; a key two listed
+  components share renders an error naming it.
+
 ## Key Patterns
 
 ### Staged commit / discard
@@ -431,6 +492,9 @@ Tested examples live in `test/*.examples.tsx`:
 - `decision/journal.examples.tsx` — `<DecisionJournal>` read-back.
 - `decision/loop.examples.tsx` — the full loop: two task outputs unioned by one
   `Decision.bind` handle, queue + journal in lockstep.
+- `studio/component.examples.tsx` — `Studio.component` and `Studio.dispatch`: a
+  self-contained component placed twice, sharing its state, and a placement's
+  three outcomes.
 
 ## Related skills
 
