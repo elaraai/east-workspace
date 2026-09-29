@@ -87,10 +87,17 @@ export {
     type StudioVersionLiteral,
     type StudioPaletteOptions,
     type StudioCanvasOptions,
+    type StudioInspectorOptions,
     builderKeys,
     paletteCards,
     palettePages,
     canvasTiles,
+    inspectorSelection,
+    BuilderCellsType,
+    InspectorLayoutType,
+    InspectorSelectionType,
+    StudioInspectorComponent,
+    StudioInspectorPayloadType,
 } from './studio/index.js';
 export {
     Diff,

@@ -8,9 +8,11 @@
  * draws its palette and inspector. Expanded, the pane has one row: its tab
  * row, the mono caps labels with the open tab underlined in ink, and the
  * collapse control at the row's end. Collapsed, the rail: a bar holding the
- * expand control, then the icon tile, the count and the label, read down the
- * rail. The recipe carries the static chrome; the size along the collapse axis
- * and the animated transition are data-driven and set inline by the renderer.
+ * expand control, then the icon tile, the count, the label and the detail,
+ * read down the rail — the tile and the count in the brand while the pane is
+ * active, as the inspector's are while a tile is selected. The recipe carries
+ * the static chrome; the size along the collapse axis and the animated
+ * transition are data-driven and set inline by the renderer.
  *
  * @packageDocumentation
  */
@@ -33,7 +35,7 @@ const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
 
 export const dockSlotRecipe = defineSlotRecipe({
     className: "elara-dock",
-    slots: ["root", "header", "tabList", "tab", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel"],
+    slots: ["root", "header", "tabList", "tab", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel", "railDetail"],
     base: {
         root: {
             display: "flex",
@@ -169,6 +171,7 @@ export const dockSlotRecipe = defineSlotRecipe({
             background: "bg.subtle",
             color: "fg.muted",
             fontSize: "12px",
+            "[data-active] > &": { background: "bg.brand.subtle", color: "brand.solid" },
         },
         badge: {
             display: "inline-flex",
@@ -185,6 +188,7 @@ export const dockSlotRecipe = defineSlotRecipe({
             lineHeight: "normal",
             fontVariantNumeric: "tabular-nums",
             color: "fg.muted",
+            "[data-active] > &": { borderColor: "brand.solid", background: "bg.brand.subtle", color: "brand.fg" },
         },
         railLabel: {
             ...CAPS,
@@ -192,6 +196,21 @@ export const dockSlotRecipe = defineSlotRecipe({
             color: INK_2,
             whiteSpace: "nowrap",
             "[data-orientation=vertical] &": { writingMode: "horizontal-tb" },
+        },
+        /* What the pane shows now — the inspector's selected tile — muted
+         * until the pane is active. */
+        railDetail: {
+            writingMode: "vertical-rl",
+            maxHeight: "340px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: "12px",
+            fontWeight: "600",
+            lineHeight: "normal",
+            color: "fg.subtle",
+            "[data-active] > &": { color: "fg" },
+            "[data-orientation=vertical] &": { writingMode: "horizontal-tb", maxHeight: "none", maxWidth: "340px" },
         },
     },
 });

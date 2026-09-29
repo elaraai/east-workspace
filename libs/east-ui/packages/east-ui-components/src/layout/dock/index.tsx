@@ -35,7 +35,8 @@ export interface EastChakraDockProps {
  *
  * Expanded, the pane's one row is its tab row — its tabs, or its label as the
  * only tab — with the collapse control at the row's end. Collapsed, the rail
- * holds the expand control, then the icon tile, the badge and the label.
+ * holds the expand control, then the icon tile, the badge, the label and the
+ * detail; while the pane is active the tile and the badge are the brand's.
  *
  * Collapsed state follows the interactive-state pattern: local state seeded
  * from the East value, synced when a `collapsed` prop drives it, else toggled
@@ -57,6 +58,8 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
     const icon = style ? getSomeorUndefined(style.icon) : undefined;
     const label = style ? getSomeorUndefined(style.label) : undefined;
     const badge = style ? getSomeorUndefined(style.badge) : undefined;
+    const active = (style ? getSomeorUndefined(style.active) : undefined) ?? false;
+    const detail = style ? getSomeorUndefined(style.detail) : undefined;
     const keepMounted = (style ? getSomeorUndefined(style.keepMounted) : undefined) ?? true;
     const lazy = (style ? getSomeorUndefined(style.lazy) : undefined) ?? false;
     const animated = (style ? getSomeorUndefined(style.animated) : undefined) ?? false;
@@ -193,14 +196,15 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
         return (
             <ChakraBox css={styles.root} {...rootAttrs} {...sizeProps} {...transition}>
                 <ChakraBox key="railBar" css={styles.railBar}>{toggle}</ChakraBox>
-                <ChakraBox key="rail" css={styles.rail} onClick={handleToggle} title={label}>
+                <ChakraBox key="rail" css={styles.rail} onClick={handleToggle} title={label} data-active={active ? "" : undefined}>
                     {icon !== undefined && (
                         <ChakraBox as="span" css={styles.iconTile}>
                             <FontAwesomeIcon icon={icon as IconName} />
                         </ChakraBox>
                     )}
-                    {badge !== undefined && <ChakraBox as="span" css={styles.badge}>{badge}</ChakraBox>}
+                    {badge !== undefined && badge !== "" && <ChakraBox as="span" css={styles.badge}>{badge}</ChakraBox>}
                     {label !== undefined && <ChakraBox as="span" css={styles.railLabel}>{label}</ChakraBox>}
+                    {detail !== undefined && <ChakraBox as="span" css={styles.railDetail} data-dock-detail="">{detail}</ChakraBox>}
                 </ChakraBox>
                 <Fragment key="panels">{panels}</Fragment>
             </ChakraBox>

@@ -53,13 +53,18 @@ import { StudioCellType, StudioKeyType, StudioPagesType, pageStatus } from "./pa
 
 /**
  * The names a builder's screens share, by the builder's `id`: the State keys
- * of the open page, of the canvas's selection and of its design width and
- * zoom, and the drag-source ids of the palette's two libraries.
+ * of the open page, of the canvas's selection, of its design width and zoom
+ * and of the placements it draws, and the drag-source ids of the palette's
+ * two libraries.
  *
  * @remarks
  * Every builder screen binds the same keys, so screens mounted apart from
  * `<Studio>` with the same `id` open one page and select one placement
- * together, as `Slice.bind` shares a slice by key.
+ * together, as `Slice.bind` shares a slice by key. The drafted placements
+ * (#996) are the open page's cells as the canvas draws them, its unsaved
+ * drafts in place, with the page they are of ({@link BuilderCellsType}) — a
+ * screen reads them only while they are the open page's, and `none` until the
+ * canvas has drawn a page.
  *
  * @param id - The builder's name, when a surface holds more than one; omitted, the one builder
  * @returns The keys and ids
@@ -71,6 +76,8 @@ export function builderKeys(id: string | undefined): {
     ui: string;
     /** The canvas's design width and zoom's State key — a `SnapGrid.Types.ViewState`. */
     view: string;
+    /** The canvas's drafted placements' State key — an `Option` of {@link BuilderCellsType}. */
+    cells: string;
     /** The components library's drag-source id — what the canvas lists in its `sources`. */
     components: string;
     /** The pages library's id. */
@@ -81,6 +88,7 @@ export function builderKeys(id: string | undefined): {
         page: `studio.builder${suffix}.page`,
         ui: `studio.builder${suffix}.ui`,
         view: `studio.builder${suffix}.view`,
+        cells: `studio.builder${suffix}.cells`,
         components: `studio.components${suffix}`,
         pages: `studio.pages${suffix}`,
     };
@@ -89,6 +97,20 @@ export function builderKeys(id: string | undefined): {
 // ============================================================================
 // Types
 // ============================================================================
+
+/**
+ * The placements the canvas draws, and the page they are of (#996) — the open
+ * page's cells with its unsaved drafts in place, which the canvas keeps under
+ * `builderKeys(id).cells` for the builder's other screens: the palette's
+ * counts, the inspector.
+ *
+ * @property page - The page they are of
+ * @property cells - Its placements as the canvas draws them
+ */
+export const BuilderCellsType = StructType({
+    page: StudioKeyType,
+    cells: ArrayType(StudioCellType),
+});
 
 /**
  * A listed component, as its palette card shows it.
@@ -225,7 +247,8 @@ export interface StudioPaletteOptions {
  *   developer. A card drags onto the canvas, which lists the palette's
  *   `components` id ({@link builderKeys}) in its `sources`. The component the
  *   canvas has selected is placed, `ON CANVAS · ×N` — N the open page's
- *   placements of it; a click selects its first placement.
+ *   placements of it as the canvas draws them, unsaved drafts counted; a click
+ *   selects its first placement.
  * - **Pages.** The project's pages in key order, each with its status —
  *   `LIVE · Vn`, `DRAFT · Vn LIVE` or `DRAFT` — and a status dot. The open
  *   page is placed; a click opens a page.
@@ -273,14 +296,20 @@ function createPalette(options: StudioPaletteOptions): ExprType<UIComponentType>
         const open = $.let(State.bind([StudioKeyType], keys.page, first));
         const selection = $.let(State.bind([SnapGrid.Types.UiState], keys.ui, SnapGrid.uiState()));
         const openKey = $.let(open.read());
+        const drafted = $.let(State.bind([OptionType(BuilderCellsType)], keys.cells, none));
 
-        // The open page's placements — its draft's, or a template's.
-        const cells = $.let(pages.tryGet(openKey).match({
+        // The open page's placements as saved — its draft's, or a template's —
+        // and as the canvas draws them, its unsaved drafts in place.
+        const saved = $.let(pages.tryGet(openKey).match({
             some: (_$2, entry) => entry.match({
                 page: (_$3, page) => page.draft.cells,
                 template: (_$3, layout) => layout.cells,
             }),
             none: (_$2) => East.value([], ArrayType(StudioCellType)),
+        }), ArrayType(StudioCellType));
+        const cells = $.let(drafted.read().match({
+            some: (_$2, drawn) => East.equal(drawn.page, openKey).ifElse(() => drawn.cells, () => saved),
+            none: (_$2) => saved,
         }), ArrayType(StudioCellType));
         const cards = $.let(paletteCards(listed, cells, selection.read().selected));
 

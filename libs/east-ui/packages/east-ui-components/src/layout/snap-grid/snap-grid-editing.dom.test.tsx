@@ -11,12 +11,15 @@
  * gesture as one transaction of the shared session — undone, redone,
  * discarded and applied as one checked batch (L16). Then the builder's frame
  * (#995): the one toolbar, the zoom and the design widths over a bound view,
- * the selection bar, the saved time, and the panes.
+ * the selection bar, the saved time, and the panes. Then a pane beside the
+ * canvas (#996): the changes it asks for through the bound selection, each
+ * one gesture by the canvas's own rules, the rows the author hears the canvas
+ * draw, and the history shortcuts from a pane.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent } from "@testing-library/react";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { layOut } from "../../dnd/dnd.test-utils.js";
@@ -186,8 +189,8 @@ describe("L10 — moves", () => {
 
     test("a tile joining a row with room shrinks to the free columns when that leaves it 3 or more", async () => {
         const seed: TileValue[] = [
-            { id: "a", row: "top", span: 8n, height: none, minHeight: none, name: "A" },
-            { id: "b", row: "bottom", span: 6n, height: none, minHeight: none, name: "B" },
+            { id: "a", row: "top", span: 8n, height: none, minHeight: none, name: "A", align: variant("top", null) },
+            { id: "b", row: "bottom", span: 6n, height: none, minHeight: none, name: "B", align: variant("top", null) },
         ];
         const canvas = await mountSnapGrid({ seed });
         const c = canvas.container;
@@ -199,8 +202,8 @@ describe("L10 — moves", () => {
 
     test("a row holds six tiles at most: a seventh is refused where it rests (⊘), and nothing is drafted", async () => {
         const seed: TileValue[] = [
-            ...Array.from({ length: 6 }, (_u, i): TileValue => ({ id: `t${i}`, row: "full", span: 2n, height: none, minHeight: none, name: `T${i}` })),
-            { id: "extra", row: "other", span: 12n, height: none, minHeight: none, name: "Extra" },
+            ...Array.from({ length: 6 }, (_u, i): TileValue => ({ id: `t${i}`, row: "full", span: 2n, height: none, minHeight: none, name: `T${i}`, align: variant("top", null) })),
+            { id: "extra", row: "other", span: 12n, height: none, minHeight: none, name: "Extra", align: variant("top", null) },
         ];
         const canvas = await mountSnapGrid({ seed });
         const c = canvas.container;
@@ -261,7 +264,7 @@ describe("L12 — a dropped card", () => {
     }, 30_000);
 
     test("a card joining a row is fitted to it — here, to the 4 columns the row has free", async () => {
-        const seed: TileValue[] = [{ id: "a", row: "top", span: 8n, height: none, minHeight: none, name: "A" }];
+        const seed: TileValue[] = [{ id: "a", row: "top", span: 8n, height: none, minHeight: none, name: "A", align: variant("top", null) }];
         const canvas = await mountSnapGrid({ seed });
         const c = canvas.container;
         layOut(layRows(c));
@@ -522,5 +525,129 @@ describe("the builder's frame (#995)", () => {
         expect(body!.querySelector('[data-snap-grid-pane="end"]')!.textContent).toBe("Inspector");
         // The selection bar sits over the canvas only, not the panes.
         expect(body!.querySelector("[data-snap-grid-main] > [data-snap-grid-selection]")).not.toBeNull();
+    }, 30_000);
+});
+
+describe("a pane beside the canvas (#996)", () => {
+    test("a span request is one resize, held to the row's room — and the request is written back none", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        await canvas.hostAsks({ key: "trend", change: variant("span", 6n) });
+        expect(spanOf(c, "trend")).toBe(6);
+        expect(canvas.boundRequest()).toBeNull();
+        // The breakdown's 4 leave the trend 8 at most.
+        await canvas.hostAsks({ key: "trend", change: variant("span", 12n) });
+        expect(spanOf(c, "trend")).toBe(8);
+        expect(labels(canvas)).toEqual(["Resize Revenue trend", "Resize Revenue trend"]);
+        expect(origins(canvas)).toEqual(["resize", "resize"]);
+        // Each an undoable gesture of the session.
+        await history(canvas, "Undo");
+        expect(spanOf(c, "trend")).toBe(6);
+        expect(canvas.writes()).toBe(0);
+    }, 30_000);
+
+    test("a row request moves the tile into that row, fitted to it; past the last row it takes a new row at the end", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        await canvas.hostAsks({ key: "board", change: variant("row", 1n) });
+        expect(rowsDrawn(c)).toEqual([["kpi", "board"], ["trend", "region"]]);
+        expect([spanOf(c, "kpi"), spanOf(c, "board")]).toEqual([6, 6]);
+        await canvas.hostAsks({ key: "trend", change: variant("row", 9n) });
+        expect(rowsDrawn(c)).toEqual([["kpi", "board"], ["region"], ["trend"]]);
+        // Its own row asks nothing.
+        await canvas.hostAsks({ key: "region", change: variant("row", 2n) });
+        expect(labels(canvas)).toEqual(["Move Assignment board", "Move Revenue trend"]);
+        expect(origins(canvas)).toEqual(["move", "move"]);
+    }, 30_000);
+
+    test("a row request into a row already holding six tiles lands in a new row after it", async () => {
+        const seed: TileValue[] = [
+            { id: "extra", row: "top", span: 12n, height: none, minHeight: none, name: "Extra", align: variant("top", null) },
+            ...Array.from({ length: 6 }, (_u, i): TileValue => ({ id: `t${i}`, row: "full", span: 2n, height: none, minHeight: none, name: `T${i}`, align: variant("top", null) })),
+            { id: "last", row: "bottom", span: 12n, height: none, minHeight: none, name: "Last", align: variant("top", null) },
+        ];
+        const canvas = await mountSnapGrid({ seed });
+        const c = canvas.container;
+        await canvas.hostAsks({ key: "extra", change: variant("row", 2n) });
+        expect(rowsDrawn(c)).toEqual([["t0", "t1", "t2", "t3", "t4", "t5"], ["extra"], ["last"]]);
+        expect(labels(canvas)).toEqual(["Move Extra"]);
+    }, 30_000);
+
+    test("a height request sets a height, returns it to auto, and is held to the tile's least height and the most", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        await canvas.hostAsks({ key: "region", change: variant("height", some(240n)) });
+        expect(heightOf(c, "region")).toBe(240);
+        await canvas.hostAsks({ key: "region", change: variant("height", none) });
+        expect(heightOf(c, "region")).toBeNull();
+        // The trend's least height is 120.
+        await canvas.hostAsks({ key: "trend", change: variant("height", some(80n)) });
+        expect(heightOf(c, "trend")).toBe(120);
+        await canvas.hostAsks({ key: "board", change: variant("height", some(4000n)) });
+        expect(heightOf(c, "board")).toBe(960);
+        expect(origins(canvas)).toEqual(["resize", "resize", "resize", "resize"]);
+    }, 30_000);
+
+    test("an align request writes the field edit.align names, as one typed gesture; without edit.align it is refused, and written back none", async () => {
+        const canvas = await mountSnapGrid({ aligns: true });
+        const c = canvas.container;
+        await canvas.hostAsks({ key: "trend", change: variant("align", variant("center", null)) });
+        expect(tileEl(c, "trend").getAttribute("data-align")).toBe("center");
+        expect(labels(canvas)).toEqual(["Align Revenue trend"]);
+        expect(origins(canvas)).toEqual(["typed"]);
+        await history(canvas, "Apply changes");
+        expect(canvas.stored().find((t) => t.id === "trend")!.align.type).toBe("center");
+        cleanup();
+        initializeStore(new UIStore());
+        const plain = await mountSnapGrid();
+        await plain.hostAsks({ key: "trend", change: variant("align", variant("stretch", null)) });
+        expect(plain.patches).toHaveLength(0);
+        expect(tileEl(plain.container, "trend").getAttribute("data-align")).toBe("top");
+        expect(plain.boundRequest()).toBeNull();
+    }, 30_000);
+
+    test("a request for a tile the canvas does not hold changes nothing, and keeps the selection", async () => {
+        const canvas = await mountSnapGrid();
+        await canvas.hostSelects("trend");
+        await canvas.hostAsks({ key: "nowhere", change: variant("span", 4n) });
+        expect(canvas.patches).toHaveLength(0);
+        expect(canvas.boundRequest()).toBeNull();
+        expect(canvas.boundSelection()).toBe("trend");
+    }, 30_000);
+
+    test("the author hears the rows the canvas draws — as it mounts, after a gesture, an undo, a move and a discard — and the same rows once", async () => {
+        const canvas = await mountSnapGrid({ drafted: true });
+        const c = canvas.container;
+        const spans = (rows: readonly TileValue[]) => rows.map((t) => `${t.id}:${t.span}`);
+        expect(canvas.drafts.map(spans)).toEqual([["kpi:12", "trend:8", "region:4", "board:12"]]);
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        expect(canvas.drafts).toHaveLength(2);
+        expect(spans(canvas.drafts[1]!)).toEqual(["kpi:12", "trend:7", "region:4", "board:12"]);
+        // What the author keeps is what the canvas draws.
+        expect(spans(canvas.heard()!)).toEqual(["kpi:12", "trend:7", "region:4", "board:12"]);
+        await history(canvas, "Undo");
+        expect(spans(canvas.drafts[2]!)).toEqual(["kpi:12", "trend:8", "region:4", "board:12"]);
+        await drop(tileEl(c, "board"), gapEl(c, 0));
+        expect(canvas.drafts.at(-1)!.map((t) => t.id)).toEqual(["board", "kpi", "trend", "region"]);
+        await history(canvas, "Discard");
+        expect(canvas.drafts.at(-1)!.map((t) => t.id)).toEqual(["kpi", "trend", "region", "board"]);
+        expect(canvas.drafts).toHaveLength(5);
+        // A selection changes no row: nothing new is heard.
+        await clickTile(c, "region");
+        expect(canvas.drafts).toHaveLength(5);
+    }, 30_000);
+
+    test("the history shortcuts work from a pane — a gesture undone and redone with the focus beside the canvas", async () => {
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        expect(spanOf(c, "trend")).toBe(7);
+        const pane = c.querySelector<HTMLElement>('[data-snap-grid-pane="end"]')!;
+        await act(async () => { fireEvent.keyDown(pane, { key: "z", ctrlKey: true }); });
+        expect(spanOf(c, "trend")).toBe(8);
+        await act(async () => { fireEvent.keyDown(pane, { key: "y", ctrlKey: true }); });
+        expect(spanOf(c, "trend")).toBe(7);
     }, 30_000);
 });

@@ -17,6 +17,7 @@ import './ontology/index.js';             // → implementUIComponent(Ontology.C
 import './experiment/index.js';           // → implementUIComponent(Experiment.Component, EastChakraExperiment)
 import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
 import './decision/journal.js';           // → implementUIComponent(DecisionJournal.Component, EastChakraDecisionJournal)
+import './studio/inspector.js';           // → implementUIComponent(StudioInspectorComponent, EastChakraStudioInspector)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -39,6 +40,17 @@ export { EastChakraExperiment, type EastChakraExperimentProps } from './experime
 export { EastChakraDecisionQueue, type EastChakraDecisionQueueProps } from './decision/queue.js';
 export { EastChakraDecisionJournal, type EastChakraDecisionJournalProps } from './decision/journal.js';
 export { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleValue } from './decision/handle-runtime.js';
+
+// Studio inspector renderer — registers itself against the StudioInspector extension on import —
+// and the Studio's words.
+export { EastChakraStudioInspector, type EastChakraStudioInspectorProps } from './studio/inspector.js';
+export {
+    studioMessages,
+    useStudioMessages,
+    StudioMessagesProvider,
+    type StudioMessages,
+    type StudioMessagesProviderProps,
+} from './studio/messages.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

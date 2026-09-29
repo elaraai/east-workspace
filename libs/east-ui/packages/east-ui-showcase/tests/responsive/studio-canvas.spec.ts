@@ -7,7 +7,8 @@
  * The Studio's canvas, measured in a real browser (#995): one 44px toolbar
  * across the builder's frame, over the palette's 264px pane and the canvas
  * column, whose selection bar is 44px; the palette collapses to a 44px rail
- * and the canvas column takes the room (B13). The toolbar folds by one
+ * and the canvas column takes the room (B13), and so does the inspector's
+ * 300px pane after it (B15, #996). The toolbar folds by one
  * ladder — the grid chip first, then the width readout, then the widths to
  * their icons, the history item last — so whatever a narrower frame folds is
  * the ladder's first steps (B8). Every measurement is polled until it holds,
@@ -55,6 +56,16 @@ test.describe("Studio canvas (#995)", () => {
         await editor.getByRole("button", { name: "Collapse Components" }).click();
         await expect.poll(async () => (await box(editor, "[data-snap-grid-pane='start']")).w).toBe(44);
         await expect.poll(async () => (await box(editor, "[data-snap-grid-main]")).w).toBe(before + 220);
+    });
+
+    test("B15 (#996): the inspector's pane is 300px after the canvas column; collapsed, it is a 44px rail and the column takes the room", async ({ page }) => {
+        const editor = await openCanvas(page);
+        await expect.poll(async () => (await box(editor, "[data-snap-grid-pane='end']")).w).toBe(300);
+        const before = (await box(editor, "[data-snap-grid-main]")).w;
+
+        await editor.getByRole("button", { name: "Collapse Inspector" }).click();
+        await expect.poll(async () => (await box(editor, "[data-snap-grid-pane='end']")).w).toBe(44);
+        await expect.poll(async () => (await box(editor, "[data-snap-grid-main]")).w).toBe(before + 256);
     });
 
     test("B8: the toolbar folds by one ladder — the grid chip, the width readout, the widths, the history item — and a narrower frame folds its first steps", async ({ page }) => {

@@ -207,6 +207,44 @@ export const dockTabs = example({
     inputs: [],
 });
 
+/**
+ * An inspector's pane on the end edge, collapsed to its rail. While it is
+ * `active` — a tile is selected — its icon tile and badge are brand, the badge
+ * the tile's span, and the `detail` down the rail names the tile; with nothing
+ * selected the detail reads muted.
+ */
+export const dockActive = example({
+    keywords: ["Dock", "rail", "active", "detail", "badge", "inspector", "selection", "side", "end", "collapsed", "defaultCollapsed", "shell"],
+    description: "Two collapsed inspector panes on the end edge — one active, its icon tile and span badge in brand and the selected tile's name down the rail; one with nothing selected, its detail muted",
+    fn: East.function([], UIComponentType, (_$) => (
+        <HStack gap="4" align="stretch">
+            <Box height="360px" width="320px" borderWidth="1px" borderColor="border.strong" borderRadius="md" overflow="hidden">
+                <HStack gap="0" width="100%" height="100%">
+                    <Box flex="1" minWidth="0" height="100%" padding="4" background="bg.subtle">
+                        <Text>The canvas beside the pane</Text>
+                    </Box>
+                    <Dock icon="sliders" label="Inspector" side="end" expandedSize="300px" surface="shell" defaultCollapsed
+                          active badge="8/12" detail="Revenue trend">
+                        <Box padding="4"><Text>Revenue trend</Text></Box>
+                    </Dock>
+                </HStack>
+            </Box>
+            <Box height="360px" width="320px" borderWidth="1px" borderColor="border.strong" borderRadius="md" overflow="hidden">
+                <HStack gap="0" width="100%" height="100%">
+                    <Box flex="1" minWidth="0" height="100%" padding="4" background="bg.subtle">
+                        <Text>The canvas beside the pane</Text>
+                    </Box>
+                    <Dock icon="sliders" label="Inspector" side="end" expandedSize="300px" surface="shell" defaultCollapsed
+                          detail="Nothing selected">
+                        <Box padding="4"><Text>Nothing selected</Text></Box>
+                    </Dock>
+                </HStack>
+            </Box>
+        </HStack>
+    )),
+    inputs: [],
+});
+
 /** Vertical dock — a bottom KPI tray; the main board grows into the freed height. */
 export const dockVertical = example({
     keywords: ["Dock", "orientation", "vertical", "side", "end", "tray", "badge", "collapsed", "Reactive", "State"],

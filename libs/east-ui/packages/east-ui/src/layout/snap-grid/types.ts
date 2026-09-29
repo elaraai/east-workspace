@@ -4,8 +4,8 @@
  */
 
 /**
- * SnapGrid types — the 12-column snap grid of tiles (#989, #990), and the
- * editing canvas's chrome (#995).
+ * SnapGrid types — the 12-column snap grid of tiles (#989, #990), the editing
+ * canvas's chrome (#995), and the changes a host asks of it (#996).
  *
  * A cell carries its content — and the editing canvas its toolbar items and
  * panes — and the inline `SnapGrid` arm of `UIComponentType` spells those with
@@ -70,16 +70,44 @@ export type SnapGridVariantType = typeof SnapGridVariantType;
 export type SnapGridVariantLiteral = "tiles" | "wireframe";
 
 /**
+ * A change a host asks the editing canvas to make to one tile (#996) — an
+ * inspector's edit. The canvas takes it as ONE gesture of its session, by the
+ * rules its own handles and drags keep, and writes the `ui` state's `request`
+ * back to `none`.
+ *
+ * @property key - The tile's key
+ * @property change - What to change: its `span`, held to what its row has room
+ *   for; its `row`, counting from 1 — a row past the last, or one already
+ *   holding its most tiles, is a new row after it; its `height`, `none` for its
+ *   content's own; or its `align`, written to the field `edit.align` names
+ */
+export const SnapGridRequestType = StructType({
+    key: StringType,
+    change: VariantType({
+        span: IntegerType,
+        row: IntegerType,
+        height: OptionType(IntegerType),
+        align: SnapGridAlignType,
+    }),
+});
+
+/** Type representing a change asked of the editing canvas. */
+export type SnapGridRequestType = typeof SnapGridRequestType;
+
+/**
  * The SnapGrid's interaction state, as a host holds it — the value behind a
  * bound `ui` ({@link SnapGridUiBindType}, #990). Bound, the SnapGrid draws the
  * selection it holds and writes the user's back, so a host selects a tile
  * from outside (an inspector, a list beside the canvas) and reads the one the
- * user chose.
+ * user chose. A `request` asks the editing canvas for a change (#996), as the
+ * Plan's `focus` asks it for a row.
  *
  * @property selected - The selected tile's key (`none` ⇒ nothing selected)
+ * @property request - A change asked of the editing canvas ({@link SnapGridRequestType}), taken as one gesture and written back `none`
  */
 export const SnapGridUiStateType = StructType({
     selected: OptionType(StringType),
+    request: OptionType(SnapGridRequestType),
 });
 
 /** Type representing a SnapGrid's interaction state. */
@@ -205,12 +233,14 @@ export type SnapGridPlaceType = typeof SnapGridPlaceType;
  * @property row - The String field holding the row key
  * @property span - The Integer field holding the span
  * @property height - The `Option<Integer>` field holding the height, when a height is edited
+ * @property align - The `SnapGrid.Types.Align` field an align request writes, when one is taken (#996)
  */
 export const SnapGridEditFieldsType = StructType({
     key:    StringType,
     row:    StringType,
     span:   StringType,
     height: OptionType(StringType),
+    align:  OptionType(StringType),
 });
 
 /**
@@ -313,6 +343,7 @@ export function SnapGridPanesOf<const C>(content: C) {
  * @property derive - The cells of a whole drafted collection, encoded — what the canvas draws a draft as, exactly as Apply leaves it
  * @property create - A dropped card's new entry, encoded — the author's `edit.create`; `none` takes no card
  * @property ready - The author's readiness check over drafted entries, one result each, in order
+ * @property onDrafted - The author's `editing.onDrafted`, over the drafted rows' bytes — hears the rows the canvas draws (#996)
  */
 export function SnapGridEditingOf<const C>(content: C) {
     return StructType({
@@ -321,6 +352,7 @@ export function SnapGridEditingOf<const C>(content: C) {
         derive: FunctionType([BlobType], ArrayType(SnapGridCellOf(content))),
         create: OptionType(FunctionType([LibraryRefType, SnapGridPlaceType], BlobType)),
         ready:  OptionType(FunctionType([ArrayType(SnapGridReadyEntryType)], ArrayType(EditingReadinessType))),
+        onDrafted: OptionType(FunctionType([BlobType], NullType)),
     });
 }
 

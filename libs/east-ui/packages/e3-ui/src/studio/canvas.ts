@@ -14,7 +14,9 @@
  * of the page's editing session, and Apply is one patch commit on the page.
  * The builder's screens share the open page, the selection, and the design
  * width and zoom through State keys named by the builder's `id`
- * ({@link builderKeys}).
+ * ({@link builderKeys}) — and the page's cells as the canvas draws them
+ * (#996), so the palette counts and the inspector reads what it shows, and
+ * the inspector's edits reach the canvas as requests on the shared selection.
  *
  * @packageDocumentation
  */
@@ -24,6 +26,7 @@ import {
     BooleanType,
     DictType,
     East,
+    NullType,
     OptionType,
     StringType,
     StructType,
@@ -32,7 +35,6 @@ import {
     variant,
     type ExprType,
     type FunctionType,
-    type NullType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
@@ -50,7 +52,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { StudioComponentType, dispatchComponent } from "./component.js";
 import { StudioCellType, StudioKeyType, StudioPages, StudioPagesType, pageChanges } from "./pages.js";
-import { builderKeys } from "./palette.js";
+import { BuilderCellsType, builderKeys } from "./palette.js";
 
 // ============================================================================
 // What a placement's tile shows
@@ -160,12 +162,15 @@ export interface StudioCanvasOptions {
  *   the zoom, the history item, Desktop · Tablet, Preview and Publish.
  * - **The selection bar** names the selected placement: its component's icon
  *   and name, its key and what it reads.
- * - **The panes** sit beside the canvas under the toolbar; a Dock pane
- *   collapses to its rail and the grid takes the room.
+ * - **The panes** sit beside the canvas under the toolbar — the palette
+ *   before it, the inspector after it; a Dock pane collapses to its rail and
+ *   the grid takes the room.
  *
  * The open page, the selection, and the design width and zoom are State the
- * builder's screens share by `id`; the open page begins as the project's
- * first page. A page the record does not hold is a placeholder that says so.
+ * builder's screens share by `id`, and so are the page's cells as the canvas
+ * draws them, its unsaved drafts in place; the open page begins as the
+ * project's first page. A page the record does not hold is a placeholder
+ * that says so.
  *
  * @param options - The bound record, the listed components, the project, the panes and the preview callbacks ({@link StudioCanvasOptions})
  * @returns An East expression of type `UIComponentType`
@@ -207,6 +212,12 @@ function createCanvas(options: StudioCanvasOptions): ExprType<UIComponentType> {
         const openKey = $.let(open.read());
         const selection = $.let(State.bind([SnapGrid.Types.UiState], keys.ui, SnapGrid.uiState()));
         const view = $.let(State.bind([SnapGrid.Types.ViewState], keys.view, SnapGrid.viewState()));
+        // The page's cells as the canvas draws them — its drafts in place —
+        // with the page they are of, for the palette's counts and the inspector.
+        const drafted = $.let(State.bind([OptionType(BuilderCellsType)], keys.cells, none));
+        const onDrafted = $.const(East.function([ArrayType(StudioCellType)], NullType, ($2, drawn) => {
+            $2(drafted.write(some({ page: openKey, cells: drawn })));
+        }));
 
         $.if(pages.has(openKey).not(), ($2) => {
             $2.return(EmptyState.Root({
@@ -266,7 +277,7 @@ function createCanvas(options: StudioCanvasOptions): ExprType<UIComponentType> {
                 content: dispatchComponent(components, cell.component),
             }),
             edit: {
-                key: "key", row: "row", span: "span", height: "height",
+                key: "key", row: "row", span: "span", height: "height", align: "align",
                 // A component dropped from the palette: a placement at its
                 // span, storing its fingerprint; the canvas fits the span.
                 create: ($2, card, at) => {
@@ -283,7 +294,7 @@ function createCanvas(options: StudioCanvasOptions): ExprType<UIComponentType> {
                     };
                 },
             },
-            editing: { onApply: StudioPages.save(record, openKey) },
+            editing: { onApply: StudioPages.save(record, openKey), onDrafted },
             ui: selection,
             view,
             sources: [keys.components],

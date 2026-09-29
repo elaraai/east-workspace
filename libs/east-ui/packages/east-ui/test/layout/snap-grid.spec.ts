@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, isTypeEqual, none, some,
+    ArrayType, BooleanType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, isTypeEqual, none, some, variant,
     type ExprType,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
@@ -127,6 +127,9 @@ describeEast("SnapGrid", (test) => {
         $(Assert.equal(editing.fields.row, "row"));
         $(Assert.equal(editing.fields.span, "span"));
         $(Assert.equal(editing.fields.height, some("height")));
+        // No align request is taken, and no one hears the drawn rows.
+        $(Assert.equal(editing.fields.align, none));
+        $(Assert.equal(editing.onDrafted.hasTag("none"), true));
         $(Assert.equal(editing.keyType.hasTag("none"), true));
         $(Assert.equal(editing.snapshot.unwrap("some").decodeBeast(Rows, "v2"), rows));
         $(Assert.equal(editing.mode.getTag(), "batch"));
@@ -177,9 +180,43 @@ describeEast("SnapGrid", (test) => {
         $(Assert.equal(editing.readEntry("z", 0n).hasTag("none"), true));
     });
 
-    test("SnapGrid.uiState seeds a bound selection", $ => {
-        $(Assert.equal(SnapGrid.uiState(), { selected: none }));
-        $(Assert.equal(SnapGrid.uiState({ selected: "a" }), { selected: some("a") }));
+    test("SnapGrid.uiState seeds a bound selection, and carries a change asked of the editing canvas (#996)", $ => {
+        $(Assert.equal(SnapGrid.uiState(), { selected: none, request: none }));
+        $(Assert.equal(SnapGrid.uiState({ selected: "a" }), { selected: some("a"), request: none }));
+        $(Assert.equal(
+            SnapGrid.uiState({ selected: "a", request: { key: "a", change: variant("span", 8n) } }),
+            { selected: some("a"), request: some({ key: "a", change: variant("span", 8n) }) },
+        ));
+    });
+
+    test("an editing canvas takes the field an align request writes, and hears the rows it draws through onDrafted (#996)", $ => {
+        const Aligned = StructType({ id: StringType, row: StringType, span: IntegerType, align: SnapGrid.Types.Align, name: StringType });
+        const rows = $.const([
+            { id: "a", row: "top", span: 6n, align: variant("top", null), name: "A" },
+            { id: "b", row: "top", span: 6n, align: variant("stretch", null), name: "B" },
+        ], ArrayType(Aligned));
+        const handle = $.const({
+            read: East.function([], ArrayType(Aligned), (_$) => rows),
+            write: East.function([ArrayType(Aligned)], NullType, (_$) => null),
+        }, StructType({ read: FunctionType([], ArrayType(Aligned)), write: FunctionType([ArrayType(Aligned)], NullType) }));
+        // The author hears the rows whole and in the canvas's order.
+        const heard = $.const(East.function([ArrayType(Aligned)], NullType, ($2, drawn) => {
+            $2(Assert.equal(drawn.map((_$3, r) => r.id), ["b", "a"]));
+            $2(Assert.equal(drawn.get(1n).align.getTag(), "center"));
+        }));
+        const grid = $.let(SnapGrid.Root(handle, {
+            cell: r => SnapGrid.cell({ key: r.id, row: r.row, span: r.span, align: r.align, content: Text.Root(r.name) }),
+            edit: { key: "id", row: "row", span: "span", align: "align" },
+            editing: { onUpdate: handle.write, onDrafted: heard },
+        }));
+        const editing = $.let(grid.unwrap().unwrap("SnapGrid").editing.unwrap("some"));
+        $(Assert.equal(editing.fields.align, some("align")));
+        $(Assert.equal(editing.fields.height, none));
+        const drawn = $.const([
+            { id: "b", row: "top", span: 6n, align: variant("stretch", null), name: "B" },
+            { id: "a", row: "row-2", span: 12n, align: variant("center", null), name: "A" },
+        ], ArrayType(Aligned));
+        $(editing.onDrafted.unwrap("some")(East.Blob.encodeBeast(drawn, "v2")));
     });
 
     test("SnapGrid.viewState seeds a bound design width and zoom (#995)", $ => {
@@ -257,6 +294,21 @@ describeEast("SnapGrid", (test) => {
                 edit: { key: "span", row: "row", span: "span" } as never, editing: { onUpdate: handle.write },
             });
         }), /edit\.key names "span", which must be a String field of the rows/);
+        assert.throws(() => East.function([], UIComponentType, $ => {
+            const handle = $.const({ read: East.function([], Rows, (_$) => []), write: East.function([Rows], NullType, (_$) => null) }, Handle);
+            return SnapGrid.Root(handle, {
+                cell: r => SnapGrid.cell({ key: r.id, row: r.row, span: r.span, content: Text.Root(r.name) }),
+                edit: { key: "id", row: "row", span: "span", align: "name" } as never, editing: { onUpdate: handle.write },
+            });
+        }), /edit\.align names "name", which must be a SnapGrid\.Types\.Align field of the rows/);
+        assert.throws(() => East.function([], UIComponentType, $ => {
+            const handle = $.const({ read: East.function([], Rows, (_$) => []), write: East.function([Rows], NullType, (_$) => null) }, Handle);
+            const one = $.const(East.function([Row], NullType, (_$) => null));
+            return SnapGrid.Root(handle, {
+                cell: r => SnapGrid.cell({ key: r.id, row: r.row, span: r.span, content: Text.Root(r.name) }),
+                edit: { key: "id", row: "row", span: "span" }, editing: { onUpdate: handle.write, onDrafted: one },
+            });
+        }), /editing\.onDrafted must be an East function over the whole Array<R> the canvas draws, returning Null/);
         assert.throws(() => East.function([], UIComponentType, $ => {
             const handle = $.const({ read: East.function([], Rows, (_$) => []), write: East.function([Rows], NullType, (_$) => null) }, Handle);
             return SnapGrid.Root(handle, {

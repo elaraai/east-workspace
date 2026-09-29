@@ -120,7 +120,7 @@ export function landingOf(rows: readonly SnapGridRowModel[], drop: SnapGridDrop,
     return { kind: "place", drop };
 }
 
-/** What one entry's fields become — its row, its span, its height (`null` is its content's height). */
+/** What one entry's fields become — its row, its span, its height (`null` is its content's height), its alignment. */
 export interface SnapGridWrite {
     /** Its row key. */
     row?: string;
@@ -128,6 +128,28 @@ export interface SnapGridWrite {
     span?: number;
     /** Its height; `null` is its content's height. */
     height?: number | null;
+    /** Where it sits in a taller row — `SnapGrid.Types.Align`'s case. */
+    align?: "top" | "center" | "stretch";
+}
+
+/**
+ * Where a request to put a tile in row `row`, counting from 1, lands (#996):
+ * at the end of that row; in a new row after it when the row already holds
+ * {@link MAX_TILES}; in a new row after the last when `row` is past it.
+ *
+ * @param rows - The canvas's rows
+ * @param key - The tile's key
+ * @param row - The row asked for, counting from 1
+ * @returns The drop, or `undefined` when the tile already sits in that row
+ */
+export function rowDrop(rows: readonly SnapGridRowModel[], key: string, row: number): SnapGridDrop | undefined {
+    const current = rows.findIndex((r) => r.tiles.some((t) => t.key === key));
+    const target = Math.max(1, Math.floor(row)) - 1;
+    if (target === current) return undefined;
+    if (target >= rows.length) return { kind: "gap", at: rows.length };
+    const into = rows[target]!;
+    if (into.tiles.length >= MAX_TILES) return { kind: "gap", at: target + 1 };
+    return { kind: "join", row: target, pos: into.tiles.length };
 }
 
 /** What a gesture does to the tiles. */
