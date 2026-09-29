@@ -43,7 +43,9 @@ body receives, python's ``$``) and the builtin table's
   _bN(b, …)`` helpers when they hold statements — every body takes the
   block first) or the raw ``East.builtin(name, [T...], [args], out)``; an
   unresolved cross-language import (the ``east.importFunction`` Platform
-  node, #628) through ``East.import_function(pkg, name, T)``.
+  node, #628) through ``East.import_function(pkg, name, T)``; a Block
+  ``East.jq`` built — its marker's query re-translates to it exactly (#927)
+  — through ``East.jq(input, '<jq>', result_type=T)``.
 
 Variables keep their IR names when they are python identifiers — the
 authoring names both builders carry (#639) and TypeScript's ``_N`` for a
@@ -284,6 +286,101 @@ def _has_statements(body: Any) -> bool:
     return body.type == "Block" or body.type in _STATEMENT_KINDS or body.type == "Error" or (
         body.type in ("IfElse", "Match", "TryCatch") and body.value["type"].type in ("Null", "Never")
     )
+
+
+def _jq_parts(node: Any) -> tuple[str, list[str], list[Any]] | None:
+    """The parts of what ``East.jq`` builds, or ``None`` for any other node: a
+    Block whose first statement is the marker — a Struct literal of the
+    query's canonical text and its named inputs — then one Let per input (one
+    for an unnamed input), then the translation."""
+    from east.expression.query import MARKER_TYPE
+
+    if node.type != "Block":
+        return None
+    statements = list(node.value["statements"])
+    marker = statements[0] if statements else None
+    if marker is None or marker.type != "Struct" or type_key(marker.value["type"]) != type_key(MARKER_TYPE):
+        return None
+    fields = {f["name"]: f["value"] for f in marker.value["fields"]}
+    text, inputs = fields.get("east_jq"), fields.get("inputs")
+    if text is None or inputs is None or text.type != "Value" or inputs.type != "NewArray":
+        return None
+    names: list[str] = []
+    for name in inputs.value["values"]:
+        if name.type != "Value":
+            return None
+        names.append(name.value["value"].value)
+    count = max(len(names), 1)
+    lets = statements[1:1 + count]
+    if len(lets) != count or any(let.type != "Let" for let in lets) or len(statements) == 1 + count:
+        return None
+    return text.value["value"].value, names, lets
+
+
+#: What ``East.jq`` built from a query over inputs of some types, by the query, the names and the types.
+_JQ_TRANSLATIONS: dict[tuple, tuple[EastType, Any] | None] = {}
+
+
+def _jq_translation(program: str, names: list[str], types: list[EastType]) -> tuple[EastType, Any] | None:
+    """What ``East.jq`` builds from a marker's query over inputs of the given
+    types: the query's result type, and a function of those inputs whose body
+    is the block; ``None`` when the query does not check over them."""
+    key = (program, tuple(names), tuple(type_key(t) for t in types))
+    if key in _JQ_TRANSLATIONS:
+        return _JQ_TRANSLATIONS[key]
+    out: tuple[EastType, Any] | None = None
+    try:
+        from east import East
+        from east.query.jq.check import check_jq
+        from east.query.jq.translate import translate_jq
+        from east.types.types import StructType
+
+        named = bool(names)
+        checked = check_jq(program, StructType(list(zip(names, types, strict=True))) if named else types[0],
+                           root=named)
+        if checked.query is not None:
+            result_type = translate_jq(checked).result_type
+
+            def body(_b: Any, *inputs: Any) -> Any:
+                return East.jq(dict(zip(names, inputs, strict=True)) if named else inputs[0], program, result_type)
+
+            out = (result_type, East.function(list(types), result_type, body, cse=False)._east_ir)
+    except Exception:
+        out = None
+    _JQ_TRANSLATIONS[key] = out
+    return out
+
+
+def _jq_rebuilds(node: Any, lets: list[Any], built: Any) -> bool:
+    """Whether a block is what ``East.jq`` built (``built``: a function of the
+    query's inputs, whose body is the block): the block, each input Let's
+    value read from a parameter of such a function, equal to it under east-c's
+    normaliser."""
+    from east.expression.nodes import _fresh_name
+    from east.ir.builders import ir_block, ir_function, ir_let, ir_variable
+    from east.runtime._compiler_eastc import diff_ir
+
+    params = [ir_variable(let.value["variable"].value["type"], _fresh_name()) for let in lets]
+    statements = list(node.value["statements"])
+    for i, let in enumerate(lets):
+        statements[1 + i] = ir_let(let.value["type"], let.value["variable"], params[i], let.value["loc_id"])
+    block = ir_block(node.value["type"], statements, node.value["loc_id"])
+    return diff_ir(ir_function(built.value["type"], [], params, block), built) is None
+
+
+def _jq_query(node: Any) -> tuple[str, list[str], list[Any], EastType] | None:
+    """A Block ``East.jq`` built — one that re-translating its marker's query
+    over its inputs' types gives back exactly (#927): the query, its inputs'
+    names, their Lets and the result type; ``None`` for any other node, a
+    look-alike included."""
+    parts = _jq_parts(node)
+    if parts is None:
+        return None
+    program, names, lets = parts
+    translation = _jq_translation(program, names, [let.value["variable"].value["type"] for let in lets])
+    if translation is None or not _jq_rebuilds(node, lets, translation[1]):
+        return None
+    return program, names, lets, translation[0]
 
 
 def _def(name: str, names: list[str], lines: list[Doc], decorator: Doc | None = None) -> Doc:
@@ -587,8 +684,13 @@ class _Printer:
             if let.type != "Let":
                 raise Unprintable(f"{let.type} before the root function")
             body.extend(self.statement_lines(let, inner, last=False))
-        # the declared output types what the body returns: a construction prints bare
-        body.extend(self.body_lines(p["body"], inner, mode="function", typed=True))
+        # a body that is one ``East.jq`` returns the call; otherwise the declared
+        # output types what the body returns: a construction prints bare
+        call = self.jq_call(p["body"], inner, body, 0) if not consts else None
+        if call is not None:
+            body.append(["return ", call])
+        else:
+            body.extend(self.body_lines(p["body"], inner, mode="function", typed=True))
         ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
         inputs = bracket("[", [self.type_ref(t) for t in fn_t.value["inputs"]], "]")
         out = self.type_ref(fn_t.value["output"])
@@ -601,11 +703,13 @@ class _Printer:
         callback prints); otherwise its decorated ``def _fN`` goes to
         ``pre`` and the expression is its name."""
         p = node.value
-        if not _has_statements(p["body"]):
+        query = _jq_query(p["body"])
+        if not _has_statements(p["body"]) or query is not None:
             inner = _Scope(scope)
             params = [self.bind(inner, v) for v in p["parameters"]]
             sub: list[Doc] = []
-            text = self.value_doc(p["body"], inner, sub, 0, typed=True)
+            text = self.jq_doc(query, inner, sub, 0) if query is not None \
+                else self.value_doc(p["body"], inner, sub, 0, typed=True)
             if not sub:
                 fn_t = p["type"]
                 ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
@@ -925,7 +1029,8 @@ class _Printer:
                 args.append(self.expr_callback(fin, [], scope, pre))
             return ["East.try_catch", call_args(args)]
         if kind == "Block":
-            return self.block_expr(node, scope, pre)
+            call = self.jq_call(node, scope, pre, d)
+            return call if call is not None else self.block_expr(node, scope, pre)
         if kind in _STATEMENT_KINDS:
             raise Unprintable(f"{kind} node in expression position")
         raise Unprintable(f"unknown node kind {kind}")
@@ -1062,10 +1167,29 @@ class _Printer:
         return self.expr(node, scope, pre, depth)
 
     def arm_expr(self, body: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
-        """An if_else arm: an expression, or a Block as ``East.block(...)``."""
+        """An if_else arm: an expression, or a Block as ``East.block(...)``
+        (or the ``East.jq`` it is)."""
         if body.type == "Block":
-            return self.block_expr(body, scope, pre)
+            call = self.jq_call(body, scope, pre, depth)
+            return call if call is not None else self.block_expr(body, scope, pre)
         return self.expr(body, scope, pre, depth)
+
+    def jq_call(self, node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc | None:
+        """``East.jq(<input>, '<jq>', result_type=<R>)`` for a Block
+        ``East.jq`` built (``_jq_query``); ``None`` for any other node, which
+        prints as it stands."""
+        found = _jq_query(node)
+        return None if found is None else self.jq_doc(found, scope, pre, depth)
+
+    def jq_doc(self, query: tuple[str, list[str], list[Any], EastType], scope: _Scope, pre: list[Doc],
+               depth: int) -> Doc:
+        """The ``East.jq(...)`` call of a query ``_jq_query`` found: its input
+        the one Let's value, or a dict of the named inputs' values."""
+        program, names, lets, result_type = query
+        values = [self.traced_expr(let.value["value"], scope, pre, depth + 1) for let in lets]
+        source: Doc = values[0] if not names else hug(bracket(
+            "{", [[repr(name), ": ", value] for name, value in zip(names, values, strict=True)], "}"))
+        return ["East.jq", call_args([source, repr(program), ["result_type=", self.type_ref(result_type)]])]
 
     def block_expr(self, body: Any, scope: _Scope, pre: list[Doc]) -> Doc:
         """A Block in expression position: ``East.block(lambda b: …)`` /
@@ -1096,10 +1220,12 @@ class _Printer:
         on every collection (the TypeScript ``(value, key)`` Dict order)."""
         inner = _Scope(scope)
         names = [_BLOCK, *(self.bind(inner, v) for v in params)]
-        if not _has_statements(body):
+        query = _jq_query(body)
+        if not _has_statements(body) or query is not None:
             sub: list[Doc] = []
             # the builder infers the callback's type from what it returns: bare only when it types itself
-            text = self.value_doc(body, inner, sub, 0, typed=False)
+            text = self.jq_doc(query, inner, sub, 0) if query is not None \
+                else self.value_doc(body, inner, sub, 0, typed=False)
             if not sub:
                 return [f"lambda {', '.join(names)}: ", text]
             # the expression needed helpers: a def carries them

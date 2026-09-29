@@ -32,6 +32,7 @@ import {
   IRType, EastTypeType, fromJSONFor, equalFor, isVariant, isPlatformDeclaration, toSource, RAW_ONLY,
   type ToSourceOptions,
 } from "../index.js";
+import { canonicalIR as canonical, canonicalDifference as firstDifference } from "./canonical.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
 
@@ -50,174 +51,6 @@ async function rebuild(source: string): Promise<any> {
   writeFileSync(path, source, "utf-8");
   const mod = await import(pathToFileURL(path).href);
   return mod.main;
-}
-
-/**
- * The normalized shape of an IR value: loc_ids zeroed, variables and labels
- * renamed in first-occurrence order, recursive type ids renumbered, bigints
- * as strings — what `east-c ir normalize` erases, erased here in TypeScript.
- *
- * Variables are renamed per BINDING, resolved lexically — a parameter, a
- * Let, a loop or match or catch variable each mint a canonical name for the
- * body they scope — not per name: since #639 sibling bodies reuse a name
- * (three callbacks each naming their element `x`), and two programs that
- * bind the same variable under different names (a printed module drops an
- * empty `.catch`, whose default variables the rebuild names afresh) are the
- * same program.
- */
-function canonical(node: any): unknown {
-  const labels = new Map<string, string>();
-  const recursive = new Map<string, string>();
-  let variables = 0;
-  type Scope = Map<string, string>;
-  const rename = (table: Map<string, string>, name: string, prefix: string): string => {
-    let hit = table.get(name);
-    if (hit === undefined) {
-      hit = `${prefix}${table.size}`;
-      table.set(name, hit);
-    }
-    return hit;
-  };
-  /** Binds `variable` (a Variable node) in `scope`: its canonical name, minted in binding order. */
-  const bind = (variable: any, scope: Scope): unknown => {
-    const name = `v${variables}`;
-    variables += 1;
-    scope.set(variable.value.name, name);
-    return variableNode(variable, name);
-  };
-  const variableNode = (v: any, name: string): unknown =>
-    ["Variable", { type: walk(v.value.type, "type", new Map()), name, mutable: v.value.mutable, captured: v.value.captured }];
-  const lookup = (scopes: Scope[], name: string): string => {
-    for (let i = scopes.length - 1; i >= 0; i--) {
-      const hit = scopes[i]!.get(name);
-      if (hit !== undefined) return hit;
-    }
-    return `free:${name}`;
-  };
-  // the scope chain is threaded through the walk: a body opens a scope, a Let extends the current one
-  let chain: Scope[] = [new Map()];
-  const inScope = <T>(f: () => T): T => {
-    chain = [...chain, new Map()];
-    try {
-      return f();
-    } finally {
-      chain = chain.slice(0, -1);
-    }
-  };
-  const walk = (v: any, context: string | null, _scope?: Scope): unknown => {
-    if (v === null || v === undefined) return null;
-    if (typeof v === "bigint") return v.toString();
-    if (v instanceof Date) return v.toISOString();
-    if (v instanceof Uint8Array) return Array.from(v);
-    if (Array.isArray(v)) return v.map(x => walk(x, context));
-    if (isVariant(v)) {
-      const tag = v.type as string;
-      const p = v.value;
-      if (context === "type") {
-        if (tag === "Recursive") {
-          const payload = v.value;
-          if (payload.type === "ref") return ["Recursive", ["ref", rename(recursive, String(payload.value), "r")]];
-          return ["Recursive", ["wrapper", { id: rename(recursive, String(payload.value.id), "r"), inner: walk(payload.value.inner, "type") }]];
-        }
-        return [tag, walk(v.value, context)];
-      }
-      switch (tag) {
-        case "Variable":
-          return variableNode(v, lookup(chain, p.name));
-        case "Function":
-        case "AsyncFunction":
-          return inScope(() => [tag, {
-            type: walk(p.type, "type"),
-            parameters: (p.parameters as any[]).map(q => bind(q, chain[chain.length - 1]!)),
-            body: walk(p.body, context),
-            captures: walk(p.captures, context),
-          }]);
-        case "Let": {
-          const value = walk(p.value, context);
-          return [tag, { type: walk(p.type, "type"), value, variable: bind(p.variable, chain[chain.length - 1]!) }];
-        }
-        case "ForArray":
-        case "ForDict":
-        case "ForSet": {
-          const source = tag === "ForArray" ? "array" : tag === "ForDict" ? "dict" : "set";
-          const coll = walk(p[source], context);
-          return inScope(() => {
-            const scope = chain[chain.length - 1]!;
-            const out: Record<string, unknown> = { type: walk(p.type, "type"), [source]: coll, label: { name: rename(labels, p.label.name, "L") } };
-            if (tag !== "ForSet") out["value"] = bind(p.value, scope);
-            out["key"] = bind(p.key, scope);
-            out["body"] = walk(p.body, context);
-            return [tag, out];
-          });
-        }
-        case "Match": {
-          const variant = walk(p.variant, context);
-          const cases = (p.cases as any[]).map(c => inScope(() => ({
-            case: c.case, variable: bind(c.variable, chain[chain.length - 1]!), body: walk(c.body, context),
-          })));
-          return [tag, { type: walk(p.type, "type"), variant, cases }];
-        }
-        case "TryCatch": {
-          const tryBody = inScope(() => walk(p.try_body, context));
-          const caught = inScope(() => {
-            const scope = chain[chain.length - 1]!;
-            const message = bind(p.message, scope);
-            const stack = bind(p.stack, scope);
-            return { message, stack, catch_body: walk(p.catch_body, context) };
-          });
-          const finallyBody = inScope(() => walk(p.finally_body, context));
-          return [tag, { type: walk(p.type, "type"), try_body: tryBody, ...caught, finally_body: finallyBody }];
-        }
-        case "Block":
-          return inScope(() => [tag, { type: walk(p.type, "type"), statements: walk(p.statements, context) }]);
-        case "While":
-          return [tag, { type: walk(p.type, "type"), predicate: walk(p.predicate, context), label: { name: rename(labels, p.label.name, "L") }, body: inScope(() => walk(p.body, context)) }];
-        case "IfElse":
-          return [tag, {
-            type: walk(p.type, "type"),
-            ifs: (p.ifs as any[]).map(branch => ({ predicate: walk(branch.predicate, context), body: inScope(() => walk(branch.body, context)) })),
-            else_body: inScope(() => walk(p.else_body, context)),
-          }];
-        default:
-          return [tag, walk(v.value, context)];
-      }
-    }
-    if (typeof v === "object") {
-      const out: Record<string, unknown> = {};
-      for (const key of Object.keys(v).sort()) {
-        if (key === "loc_id") { out[key] = "0"; continue; }
-        if (key === "label" && typeof v[key] === "object" && "name" in v[key]) {
-          out[key] = { name: rename(labels, v[key].name, "L") };
-          continue;
-        }
-        out[key] = walk(v[key], key === "type" || key === "type_parameters" ? "type" : context);
-      }
-      return out;
-    }
-    return v;
-  };
-  return walk(node, null);
-}
-
-/** The first path at which two canonical forms differ, or `null`. */
-function firstDifference(a: any, b: any, path = "ir"): string | null {
-  if (Object.is(a, b)) return null;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return `${path}.length: ${a.length} vs ${b.length}`;
-    for (let i = 0; i < a.length; i++) {
-      const d = firstDifference(a[i], b[i], `${path}[${i}]`);
-      if (d !== null) return d;
-    }
-    return null;
-  }
-  if (a !== null && b !== null && typeof a === "object" && typeof b === "object") {
-    for (const k of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
-      const d = firstDifference(a[k], b[k], `${path}.${k}`);
-      if (d !== null) return d;
-    }
-    return null;
-  }
-  return `${path}: ${String(a)} vs ${String(b)}`;
 }
 
 /** A host value for a message: bigints, Maps and Sets made printable. */
@@ -669,6 +502,26 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL }), toSource(ir, { importFrom: INDEX_URL }), "… at the default width too");
   });
 
+  test("a variable named as a name the module imports prints renamed, and rebuilds", async () => {
+    const fn = East.function([OptionType(IntegerType)], IntegerType, ($, o) => {
+      const fallback = $.const(East.value(none, OptionType(IntegerType)));
+      const n = $.const(o.match({ none: ($) => 0n, some: ($, x) => x }));
+      return n.add(fallback.match({ none: ($) => 1n, some: ($, x) => x }));
+    });
+    // the bindings named as the module's own imports (a translated query names a variable `none`)
+    const imported = (v: any): any => Array.isArray(v) ? v.map(imported)
+      : isVariant(v) ? variant(v.type, imported(v.value))
+        : v !== null && typeof v === "object" && !(v instanceof Date) && !(v instanceof Uint8Array)
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) =>
+            [k, k === "name" && typeof x === "string" ? (x === "fallback" ? "none" : x === "n" ? "IntegerType" : x) : imported(x)]))
+          : v;
+    const ir = imported(fn.toIR().ir);
+    const source = toSource(ir, { importFrom: INDEX_URL, width: Infinity });
+    assert.doesNotMatch(source, /const none = |const IntegerType = /, source);
+    const main = await roundTrip(ir, "import-named variables");
+    assert.equal(main.toIR().compile([])(some(4n)), 5n);
+  });
+
   test("layout: a wide literal, its type and an argument list break one entry per line, as prettier lays them out", async () => {
     const Ops = StructType({ add: FunctionType([IntegerType, IntegerType], IntegerType), multiply: FunctionType([IntegerType, IntegerType], IntegerType) });
     const fn = East.function([], IntegerType, ($) => {
@@ -749,6 +602,49 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])([1n, 2n, 3n], "n"), fn.toIR().compile([])([1n, 2n, 3n], "n"));
   });
 
+  test("a query prints as the East.jq it was, with named inputs as an object, and rebuilds (#927)", async () => {
+    const Order = StructType({ id: IntegerType, total: FloatType });
+    const fn = East.function([ArrayType(Order)], ArrayType(IntegerType), ($, orders) =>
+      East.jq(orders, "[.[] | select(.total > 1000) | .id]", ArrayType(IntegerType)));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /\(\$, orders\) => East\.jq\(orders, "\[\.\[\] \| select\(\.total > 1000\) \| \.id\]", ArrayType\(IntegerType\)\)/, source);
+    assert.doesNotMatch(source, /east_jq/, source);
+    const main = await roundTrip(fn, "jq one input");
+    assert.deepEqual(main.toIR().compile([])([{ id: 1n, total: 250.0 }, { id: 2n, total: 1200.0 }]), [2n]);
+
+    const named = East.function([ArrayType(Order), IntegerType], FloatType, ($, orders, min) => {
+      const total = $.const(East.jq({ orders, min }, ".min as $m | [.orders[] | select(.id >= $m) | .total] | add", FloatType));
+      return total.add(1.0);
+    });
+    const printed = toSource(named, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(printed, /const total = \$\.const\(East\.jq\(\{ orders: orders, min: min \}, "[^"]*", FloatType\)\);/, printed);
+    await roundTrip(named, "jq named inputs");
+  });
+
+  test("a query inside a callback prints as East.jq there (#927)", async () => {
+    const fn = East.function([ArrayType(ArrayType(IntegerType))], ArrayType(IntegerType), ($, rows) =>
+      rows.map(($, row) => East.jq(row, "map(. * 2) | add", IntegerType)));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /rows\.map\(\(\$, row, _\d+\) => East\.jq\(row, "map\(\. \* 2\) \| add", IntegerType\)\)/, source);
+    const main = await roundTrip(fn, "jq in a callback");
+    assert.deepEqual(main.toIR().compile([])([[1n, 2n], [3n]]), [6n, 6n]);
+  });
+
+  test("a block that looks like a query but is not what East.jq builds prints as it stands (#927)", async () => {
+    const Marker = StructType({ east_jq: StringType, inputs: ArrayType(StringType) });
+    // The marker, a Let of the input, then not the translation of "." over an Integer.
+    const fn = East.function([IntegerType], IntegerType, ($, x) => Expr.block($ => {
+      $(East.value({ east_jq: ".", inputs: [] }, Marker));
+      const input = $.const(x);
+      return input.add(1n);
+    }));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.doesNotMatch(source, /East\.jq\(/, source);
+    assert.match(source, /east_jq: "\."/, source);
+    const main = await roundTrip(fn, "jq look-alike");
+    assert.equal(main.toIR().compile([])(41n), 42n);
+  });
+
   test("a raw builtin prints through East.builtin and rebuilds", async () => {
     const fn = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, xs) => {
       return xs.getKeys([0n, 1n]);
@@ -810,7 +706,17 @@ describe("codegen: every exported example round trips and runs", () => {
 describe("codegen: every compliance-corpus program round trips", () => {
   const present = existsSync(CORPUS_DIR);
   if (REQUIRED && !present) throw new Error(`EAST_CONFORMANCE_REQUIRED=1 but no exported IR corpus in ${CORPUS_DIR}`);
-  const files = present ? readdirSync(CORPUS_DIR).filter(f => f.endsWith(".json")).sort() : [];
+  // the top level, and every `query-*` suite directory beside it (#924, #987), as every runner reads them:
+  // their queries print as the East.jq that built them (#927)
+  const suites = present
+    ? readdirSync(CORPUS_DIR, { withFileTypes: true }).filter(d => d.isDirectory() && d.name.startsWith("query-")).map(d => d.name).sort()
+    : [];
+  const files = present
+    ? [
+      ...readdirSync(CORPUS_DIR).filter(f => f.endsWith(".json")).sort(),
+      ...suites.flatMap(dir => readdirSync(join(CORPUS_DIR, dir)).filter(f => f.endsWith(".json")).sort().map(f => join(dir, f))),
+    ]
+    : [];
 
   test(`round trip (${files.length} programs)`, { skip: !present && `no exported IR corpus in ${CORPUS_DIR}` }, async () => {
     const labelOf = (file: string): string => `corpus/${file.slice(0, -5)}`;
