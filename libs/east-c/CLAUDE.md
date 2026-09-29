@@ -52,6 +52,11 @@ REBUILD=1 make leak-check-all
   every frame it makes through `frame_release` (`src/compiler.c`), which
   unbinds a frame only its own closures still hold — a frame released any
   other way leaks with the closure bound in it (#1002).
+- A Set or Dict of up to `EAST_SMALL_COLLECTION_MAX` elements keeps them in
+  its sorted arrays alone (`items`, `keys`/`values`), with no B-tree; one more
+  moves them into a tree, whose lazily synced cache the arrays become (#1005).
+  Only `src/values.c` touches either store — everything else reads through
+  `east_set_at` / `east_dict_key_at` / `east_dict_val_at`.
 - `int64_t` for integers (no bigint).
 - Async preserved in IR but executed synchronously.
 

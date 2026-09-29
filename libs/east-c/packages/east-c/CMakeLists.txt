@@ -282,6 +282,16 @@ add_executable(test_value_layout tests/test_value_layout.c)
 target_link_libraries(test_value_layout east-c)
 add_test(NAME value_layout COMMAND test_value_layout)
 
+# Small collections gate (issue #1005): a Set or Dict of up to
+# EAST_SMALL_COLLECTION_MAX elements keeps them in its sorted arrays, not a
+# B-tree whose first leaf is allocated whole. Pins the representation, every
+# operation against a reference model across the move into a tree and back
+# after a clear, and the references each element holds. Run under ASan/LSan
+# (run_leak_check.sh's build-asan config): the small store owns its references.
+add_executable(test_small_collections tests/test_small_collections.c)
+target_link_libraries(test_small_collections east-c)
+add_test(NAME small_collections COMMAND test_small_collections)
+
 # GC pacing + pure-data untracking gate (issue #437): full collections must be
 # paced on old-generation growth (a fixed interval is quadratic while building
 # a large live structure — CPython bpo-4074), and containers whose type cannot
