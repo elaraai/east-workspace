@@ -45,6 +45,8 @@ import {
     LibraryItemType,
     LibraryCardFaceType,
     LibraryStatusType,
+    LibraryGlyphType,
+    LibraryNounType,
     LibraryDimValueType,
     LibraryGroupMetaType,
     LibraryDimMetaType,
@@ -58,6 +60,8 @@ export {
     LibraryItemType,
     LibraryCardFaceType,
     LibraryStatusType,
+    LibraryGlyphType,
+    LibraryNounType,
     LibraryDimValueType,
     LibraryGroupMetaType,
     LibraryDimMetaType,
@@ -83,8 +87,10 @@ export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property sublabel - Optional muted second line (role / class)
  * @property icon - Optional Font Awesome solid icon name
  * @property status - Optional status pill (`some(Library.status(...))` or a conditional option expression)
+ * @property trailing - Optional glyph at the card's right edge (`some(Library.glyph(...))` or a conditional option expression)
  * @property draggable - Whether the card can start a drag (default `true`)
  * @property filtered - Whether the card renders de-emphasised (default `false`) — map `Slice.partition`'s `matched.not()` here to keep filtered-out cards as dimmed context
+ * @property placed - Whether the card shows its placed state — the brand border and tint (default `false`)
  */
 export interface LibraryCardFields {
     /** Item identity; carried by `LibraryRef` when dragged */
@@ -97,10 +103,14 @@ export interface LibraryCardFields {
     icon?: IconName | ExprType<StringType>;
     /** Optional status pill (`some(Library.status(...))` or a conditional option expression) */
     status?: SubtypeExprOrValue<OptionType<LibraryStatusType>>;
+    /** Optional glyph at the card's right edge (`some(Library.glyph(...))` or a conditional option expression) */
+    trailing?: SubtypeExprOrValue<OptionType<LibraryGlyphType>>;
     /** Whether the card can start a drag (default `true`) */
     draggable?: SubtypeExprOrValue<BooleanType>;
     /** Whether the card renders de-emphasised — dimmed, drag disabled (default `false`) */
     filtered?: SubtypeExprOrValue<BooleanType>;
+    /** Whether the card shows its placed state — the brand border and tint, as the item on the target (default `false`) */
+    placed?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -132,8 +142,10 @@ function createCard(input: LibraryCardFields): ExprType<LibraryCardFaceType> {
         sublabel: input.sublabel !== undefined ? some(input.sublabel) : none,
         icon: input.icon !== undefined ? some(input.icon) : none,
         status: input.status !== undefined ? input.status : none,
+        trailing: input.trailing !== undefined ? input.trailing : none,
         draggable: input.draggable !== undefined ? input.draggable : true,
         filtered: input.filtered !== undefined ? input.filtered : false,
+        placed: input.placed !== undefined ? input.placed : false,
     }, LibraryCardFaceType);
 }
 
@@ -159,6 +171,36 @@ function createStatus(
         label,
         tone: typeof tone === "string" ? variant(tone, null) : tone,
     }, LibraryStatusType);
+}
+
+/**
+ * Creates a trailing glyph for a card face — a lock on something fixed, a dot
+ * for a status.
+ *
+ * @param icon - Font Awesome solid icon name
+ * @param label - What the glyph says, for assistive technology and the tooltip
+ * @param tone - Optional status tone that colours the glyph; without one it
+ *   takes the card's quiet ink, or the brand ink while the card is placed
+ * @returns An East expression of the glyph
+ *
+ * @example
+ * ```ts
+ * import { Library } from "@elaraai/east-ui";
+ *
+ * // trailing: some(Library.glyph("lock", "Logic fixed by the developer"))
+ * // trailing: some(Library.glyph("circle", "Live", "success"))
+ * ```
+ */
+function createGlyph(
+    icon: IconName | ExprType<StringType>,
+    label: SubtypeExprOrValue<StringType>,
+    tone?: SubtypeExprOrValue<StatusTokenType> | StatusTokenLiteral,
+): ExprType<LibraryGlyphType> {
+    return East.value({
+        icon,
+        label,
+        tone: tone === undefined ? none : some(typeof tone === "string" ? variant(tone, null) : tone),
+    }, LibraryGlyphType);
 }
 
 // ============================================================================
@@ -237,6 +279,25 @@ export type LibraryDimensionDef<R extends StructType> =
     | LibraryTextDimDef<R>;
 
 /**
+ * A facet of the Filter menu: the values each row holds, from which the menu
+ * lists the distinct ones.
+ *
+ * @typeParam R - The struct type of each data row
+ * @property key - Facet identity
+ * @property label - The facet's heading in the Filter menu
+ * @property values - The values a row holds — one for a single-valued facet
+ *   (a category), several for a multi-valued one (its tags)
+ */
+export interface LibraryFilterDef<R extends StructType> {
+    /** Facet identity */
+    key: string;
+    /** The facet's heading in the Filter menu */
+    label: string;
+    /** The values a row holds — one for a single-valued facet, several for a multi-valued one */
+    values: (row: ExprType<R>) => SubtypeExprOrValue<ArrayType<StringType>>;
+}
+
+/**
  * A group-by option: toolbar segment + per-row group value + optional
  * group-head summary computed over the group's members.
  *
@@ -291,9 +352,12 @@ function dimValue<R extends StructType>(
  * @property dimensions - Secondary dimensions (toolbar-toggleable card facts)
  * @property defaultDimensions - Initially-visible dimension keys (default: the first two)
  * @property groupBy - GROUP BY options; omit for a flat list
+ * @property filters - The Filter menu's facets; unmatched cards hide, as the search's do
  * @property search - Filter-text accessor; unmatched cards hide (the footer shows the hidden count + Show all)
+ * @property noun - What the items are called — the search box counts them ("Search 47 components…")
  * @property addLabel - Optional footer action label
  * @property onAdd - Optional footer action callback
+ * @property onCardClick - Optional callback fired with a card's key when it is clicked
  * @property slice - Optional slice chrome: the bound handle; the Library renders the rail + count footer, never narrows data itself
  * @property affordances - Rail affordances when `slice` is set (default `["filter", "search"]`)
  * @property style - Optional layout style (height / maxHeight / virtualization)
@@ -311,12 +375,26 @@ export interface LibraryConfig<R extends StructType> {
     defaultDimensions?: string[];
     /** GROUP BY options; omit for a flat list */
     groupBy?: LibraryGroupDef<R>[];
+    /**
+     * The Filter menu's facets. The menu lists each facet's distinct values;
+     * checking values keeps the cards that hold one of them, in every facet
+     * with a value checked. Unmatched cards hide, as the search's do, and the
+     * group counts follow.
+     */
+    filters?: LibraryFilterDef<R>[];
     /** Filter-text accessor; unmatched cards hide (the footer shows the hidden count + Show all) */
     search?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
+    /** What the items are called — the search box counts them ("Search 47 components…"); default item / items */
+    noun?: { singular: SubtypeExprOrValue<StringType>; plural: SubtypeExprOrValue<StringType> };
     /** Optional footer action label */
     addLabel?: SubtypeExprOrValue<StringType>;
     /** Optional footer action callback */
     onAdd?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /**
+     * Fired with a card's key when it is clicked. A drag never clicks, and a
+     * card that cannot be dragged is a button, so the keyboard clicks it too.
+     */
+    onCardClick?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
     /**
      * Slice chrome — pass the bound handle and the Library renders the frame
      * chassis itself: a rail mounting the `affordances` (default
@@ -350,6 +428,7 @@ function buildRoot(
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const dimensions = config.dimensions ?? [];
     const groupDefs = config.groupBy ?? [];
+    const filterDefs = config.filters ?? [];
 
     const items = mapRowsBlock(data_expr, LibraryItemType, ($, row) => {
         const dims = $.let(new Map(), DictType(StringType, LibraryDimValueType));
@@ -360,6 +439,10 @@ function buildRoot(
         for (const group of groupDefs) {
             $(groups.insert(group.key, East.value(group.value(row), StringType)));
         }
+        const facets = $.let(new Map(), DictType(StringType, ArrayType(StringType)));
+        for (const filter of filterDefs) {
+            $(facets.insert(filter.key, East.value(filter.values(row), ArrayType(StringType))));
+        }
         const raw: LibraryCardFields | ExprType<LibraryCardFaceType> = config.item(row);
         const face = $.let(raw instanceof Expr ? raw : createCard(raw), LibraryCardFaceType);
         return East.value({
@@ -368,10 +451,13 @@ function buildRoot(
             sublabel: face.sublabel,
             icon: face.icon,
             status: face.status,
+            trailing: face.trailing,
             draggable: face.draggable,
             filtered: face.filtered,
+            placed: face.placed,
             search: config.search !== undefined ? some(config.search(row)) : none,
             groups,
+            facets,
             dims,
         }, LibraryItemType);
     });
@@ -431,9 +517,16 @@ function buildRoot(
         defaultDimensions: East.value(
             config.defaultDimensions ?? dimensions.slice(0, 2).map(d => d.key),
             ArrayType(StringType)),
+        filterOptions: East.value(
+            filterDefs.map(f => ({ key: f.key, label: f.label })),
+            ArrayType(LibraryGroupMetaType)),
         searchable: config.search !== undefined,
+        noun: config.noun !== undefined
+            ? some(East.value({ singular: config.noun.singular, plural: config.noun.plural }, LibraryNounType))
+            : none,
         addLabel: config.addLabel !== undefined ? some(config.addLabel) : none,
         onAdd: config.onAdd !== undefined ? some(config.onAdd) : none,
+        onCardClick: config.onCardClick !== undefined ? some(config.onCardClick) : none,
         slice: sliceChromeValue !== undefined ? some(sliceChromeValue) : none,
         style: styleValue !== undefined ? some(styleValue) : none,
     }), UIComponentType);
@@ -534,6 +627,23 @@ export const Library = {
      * ```
      */
     status: createStatus,
+    /**
+     * Creates a trailing glyph for a card face — a lock on something fixed, a
+     * dot for a status.
+     *
+     * @param icon - Font Awesome solid icon name
+     * @param label - What the glyph says, for assistive technology and the tooltip
+     * @param tone - Optional status tone that colours the glyph
+     * @returns An East expression of the glyph
+     *
+     * @example
+     * ```ts
+     * import { Library } from "@elaraai/east-ui";
+     *
+     * // trailing: some(Library.glyph("lock", "Logic fixed by the developer"))
+     * ```
+     */
+    glyph: createGlyph,
     Types: {
         /**
          * East StructType for the Library component.
@@ -549,9 +659,12 @@ export const Library = {
          * @property groupSummaries - Group-head summary text per option key, per group value
          * @property dimOptions - SECONDARY dimension toggles
          * @property defaultDimensions - Initially-visible dimension keys
+         * @property filterOptions - The Filter menu's facets
          * @property searchable - Whether the search input renders
+         * @property noun - Optional name for the items
          * @property addLabel - Optional footer action label
          * @property onAdd - Optional footer action callback
+         * @property onCardClick - Optional callback fired with a clicked card's key
          * @property slice - Optional slice chrome (bound handle + rail affordances)
          * @property style - Optional layout style (height / maxHeight / virtualization)
          */
@@ -564,10 +677,13 @@ export const Library = {
          * @property sublabel - Optional muted second line
          * @property icon - Optional Font Awesome solid icon name
          * @property status - Optional status pill
+         * @property trailing - Optional glyph at the card's right edge
          * @property draggable - Whether the card can start a drag
          * @property filtered - Whether the card renders de-emphasised
+         * @property placed - Whether the card shows its placed state
          * @property search - Optional filter text
          * @property groups - Group value per group-by option key
+         * @property facets - The values the card holds per filter key
          * @property dims - Secondary dimension value per dimension key
          */
         Item: LibraryItemType,
@@ -579,8 +695,10 @@ export const Library = {
          * @property sublabel - Optional muted second line
          * @property icon - Optional Font Awesome solid icon name
          * @property status - Optional status pill
+         * @property trailing - Optional glyph at the card's right edge
          * @property draggable - Whether the card can start a drag
          * @property filtered - Whether the card renders de-emphasised
+         * @property placed - Whether the card shows its placed state
          */
         CardFace: LibraryCardFaceType,
         /**
@@ -590,6 +708,21 @@ export const Library = {
          * @property tone - Standard status tone
          */
         Status: LibraryStatusType,
+        /**
+         * A glyph at a card's right edge.
+         *
+         * @property icon - Font Awesome solid icon name
+         * @property label - What the glyph says
+         * @property tone - Optional status tone that colours the glyph
+         */
+        Glyph: LibraryGlyphType,
+        /**
+         * What the Library calls its items.
+         *
+         * @property singular - One item
+         * @property plural - Any other count
+         */
+        Noun: LibraryNounType,
         /**
          * A secondary dimension's value on one card.
          *

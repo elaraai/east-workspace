@@ -108,3 +108,90 @@ describe("Dock — toggle, rail, keep-mounted, Esc", () => {
         expect(getByRole("button", { name: "Expand Library" }).getAttribute("aria-expanded")).toBe("false");
     });
 });
+
+describe("Dock — the pane's tab row and its rail", () => {
+    test("the row holds the tabs and the collapse control; a tab opens its body, and every body stays mounted", async () => {
+        initializeStore(new UIStore());
+        const { getAllByRole, getByRole, getByText } = mount(compileUI(East.function([], UIComponentType, (_$) => Dock.Root([], {
+            label: "Components", icon: "shapes", badge: "47", surface: "shell",
+            tabs: [
+                { key: "components", label: "Components", body: [Text.Root("CARDS")] },
+                { key: "pages", label: "Pages", body: [Text.Root("PAGES")] },
+            ],
+        }))));
+        const tabs = getAllByRole("tab");
+        expect(tabs.map(tab => tab.textContent)).toEqual(["Components", "Pages"]);
+        expect(tabs[0]!.getAttribute("aria-selected")).toBe("true");
+        expect(getByRole("button", { name: "Collapse Components" }).getAttribute("aria-expanded")).toBe("true");
+
+        const pages = getByText("PAGES");
+        expect(pages.closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(true);
+        await act(async () => { fireEvent.click(tabs[1]!); });
+        expect(getAllByRole("tab")[1]!.getAttribute("aria-selected")).toBe("true");
+        // The same node, shown; the other tab's body hidden but mounted.
+        expect(getByText("PAGES")).toBe(pages);
+        expect(pages.closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(false);
+        expect(getByText("CARDS").closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(true);
+    });
+
+    test("the arrow keys, Home and End move between the tabs", async () => {
+        initializeStore(new UIStore());
+        const { getAllByRole } = mount(compileUI(East.function([], UIComponentType, (_$) => Dock.Root([], {
+            label: "Components", icon: "shapes", badge: "47", surface: "shell",
+            tabs: [
+                { key: "components", label: "Components", body: [Text.Root("CARDS")] },
+                { key: "pages", label: "Pages", body: [Text.Root("PAGES")] },
+            ],
+        }))));
+        const selected = () => getAllByRole("tab").findIndex(tab => tab.getAttribute("aria-selected") === "true");
+        await act(async () => { fireEvent.keyDown(getAllByRole("tab")[0]!, { key: "ArrowRight" }); });
+        expect(selected()).toBe(1);
+        await act(async () => { fireEvent.keyDown(getAllByRole("tab")[1]!, { key: "ArrowRight" }); });
+        expect(selected()).toBe(0);
+        await act(async () => { fireEvent.keyDown(getAllByRole("tab")[0]!, { key: "End" }); });
+        expect(selected()).toBe(1);
+        await act(async () => { fireEvent.keyDown(getAllByRole("tab")[1]!, { key: "Home" }); });
+        expect(selected()).toBe(0);
+    });
+
+    test("collapsed, the rail holds the expand control, the icon tile, the count and the label; the rail expands", async () => {
+        initializeStore(new UIStore());
+        const { getByRole, getByText, queryAllByRole, container } = mount(compileUI(East.function([], UIComponentType, (_$) => Dock.Root([], {
+            label: "Components", icon: "shapes", badge: "47", surface: "shell",
+            tabs: [
+                { key: "components", label: "Components", body: [Text.Root("CARDS")] },
+                { key: "pages", label: "Pages", body: [Text.Root("PAGES")] },
+            ],
+        }))));
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Collapse Components" })); });
+        expect(getByRole("button", { name: "Expand Components" }).getAttribute("aria-expanded")).toBe("false");
+        expect(queryAllByRole("tab")).toHaveLength(0);
+        expect(container.querySelector("svg[data-icon=shapes]")).not.toBeNull();
+        expect(getByText("47")).toBeTruthy();
+        await act(async () => { fireEvent.click(getByText("47")); });
+        expect(getByRole("button", { name: "Collapse Components" })).toBeTruthy();
+    });
+
+    test("without tabs, the label is the pane's only tab, over the children", () => {
+        initializeStore(new UIStore());
+        const { getByText, queryAllByRole } = mount(buildUncontrolled());
+        expect(queryAllByRole("tab")).toHaveLength(0);
+        expect(getByText("Library").hasAttribute("data-selected")).toBe(true);
+        expect(getByText("BODY")).toBeTruthy();
+    });
+
+    test("a shell pane marks its root, and a card pane keeps its own panel", () => {
+        initializeStore(new UIStore());
+        const shell = mount(compileUI(East.function([], UIComponentType, (_$) => Dock.Root([], {
+            label: "Components", icon: "shapes", badge: "47", surface: "shell",
+            tabs: [
+                { key: "components", label: "Components", body: [Text.Root("CARDS")] },
+                { key: "pages", label: "Pages", body: [Text.Root("PAGES")] },
+            ],
+        }))));
+        expect(shell.container.querySelector("[data-surface=shell]")).not.toBeNull();
+        cleanup();
+        const card = mount(buildUncontrolled());
+        expect(card.container.querySelector("[data-surface=card]")).not.toBeNull();
+    });
+});

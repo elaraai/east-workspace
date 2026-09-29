@@ -191,13 +191,15 @@ Task → Which tag?
 │   │       ├─ label (optional) — accessible toggle name ("Expand ‹label›")
 │   │       ├─ zIndex (optional) — stacking level of the expanded surface (default 900, below Chakra floating tiers)
 │   │       └─ background (optional) — expanded-surface background (default bg.canvas)
-│   └─ <Dock> — inline panel that collapses along an axis to an icon rail, staying in flow (siblings reflow; never overlays) — a source panel beside a drop target (Library beside a Plan); Esc does NOT collapse
+│   └─ <Dock> — inline pane that collapses along an axis to an icon rail, staying in flow (siblings reflow; never overlays) — a source panel beside a drop target (Library beside a Plan); Esc does NOT collapse. Expanded, it has no header strip: its one row is a tab row with the collapse control at its end. Collapsed, it is a rail: the expand control, then the icon in its tile, the badge and the label running down it
 │       └─ Props:
-│           ├─ children (required) — the docked panel body
+│           ├─ children (required unless `tabs`) — the pane's body, under the `label` as its only tab; not shown when `tabs` are given
+│           ├─ tabs (optional) — [{ key, label, body }] the tab row, each tab with its own body: the first open to begin with, the one opened kept under the storage key, every body kept mounted so each keeps its state; ← / → / Home / End move along the row
 │           ├─ orientation (optional) — collapse axis: horizontal (default) | vertical
 │           ├─ side (optional) — edge the rail pins to: start (default) | end
 │           ├─ expandedSize / railSize (optional) — size along the axis expanded (px or %) / collapsed (default 44px)
-│           ├─ icon / label / badge (optional) — rail + header icon (FA name), title, count chip
+│           ├─ icon / label / badge (optional) — the rail's icon tile (FA name) / the pane's name: its only tab without `tabs`, the rail's label, and the controls' accessible names ("Collapse ‹label›" / "Expand ‹label›") / the rail's count chip
+│           ├─ surface (optional) — "card" (default; its own bordered panel) | "shell" (only the rule along its inner edge — a pane inside a host's frame, beside what it serves)
 │           ├─ collapsed (optional) — controlled collapsed state
 │           ├─ defaultCollapsed (optional) — uncontrolled initial state (default false)
 │           ├─ onCollapsedChange (optional) — fn(Boolean) => Null on user toggle
@@ -671,16 +673,20 @@ Task → Which tag?
 │   │   ├─ Props:
 │   │   │   ├─ id (required) — DnD source identity
 │   │   │   ├─ data (required) — item rows
-│   │   │   ├─ item (required) — row mapper to { key, label, sublabel?, icon?, status?, draggable?, filtered? }
+│   │   │   ├─ item (required) — row mapper to { key, label, sublabel?, icon?, status?, trailing?, draggable?, filtered?, placed? } — `trailing` a glyph at the card's right edge (`some(Library.glyph(…))`: a lock on something fixed, a dot for a status); `placed` draws the card in its placed state, the brand border and tint (the item already on the target — say how often in its sublabel)
 │   │   │   ├─ hint (optional) — header-right caption (absent ⇒ no header band)
 │   │   │   ├─ dimensions + defaultDimensions (optional) — toolbar-toggleable card facts ({ kind: "meter" | "chips" | "text", … }); initially-visible keys (default first two)
 │   │   │   ├─ groupBy (optional) — [{ key, label, value, summary? }] GROUP BY options (omit for flat)
+│   │   │   ├─ filters (optional) — [{ key, label, values: r => Array<String> }] the toolbar's Filter menu: each facet's distinct values, in the order the cards first hold them (one value for a single-valued facet like a category, several for its tags); checked values keep the cards holding one of them (OR within a facet, AND across facets), the rest hide as the search's do and the group counts follow; the trigger counts the checked values ("Filter · 2"), and the footer's Show all clears them with the search
 │   │   │   ├─ search (optional) — filter-text accessor; unmatched cards hide (footer shows hidden count + Show all)
+│   │   │   ├─ noun (optional) — { singular, plural } what the items are called — the search box counts them ("Search 47 components…"; default item / items)
+│   │   │   ├─ onCardClick (optional) — fn(key) => Null when a card is clicked (a drag never clicks); a card that cannot be dragged is then a button, so Enter / Space click it too
 │   │   │   ├─ addLabel + onAdd (optional) — footer action
 │   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["filter","search"])
 │   │   │   └─ style (optional) — { height, maxHeight, virtualization }
 │   │   └─ Factories:
-│   │       └─ Library.status(label, tone) — a card status chip (tone = a status token; see the Statuses branch)
+│   │       ├─ Library.status(label, tone) — a card status chip (tone = a status token; see the Statuses branch)
+│   │       └─ Library.glyph(icon, label, tone?) — a card's trailing glyph: an FA icon, the words it says (its accessible name and tooltip), and an optional status tone (else the card's quiet ink, the brand ink while placed)
 │   ├─ <Deck data={rows} statuses={Deck.statuses({…})} card={r => ({ key, title, status, metrics, fill })} /> — grouped mini-card board (display, NOT a drag source — that's Library); every card carries an EXPLICIT status colour from the deck's STATUS REGISTRY (solid tag + dot, faint face wash, fill-bar colour); two card states: the LIST face + a VIEW state in an anchored POPOVER CARD whose head is inherited from the face
 │   │   ├─ Props:
 │   │   │   ├─ data (required) — array of rows to project into cards
@@ -1147,7 +1153,7 @@ Task → Which tag?
 │   ├─ Registries (define states ONCE, reference by key):
 │   │   └─ Deck.statuses({ key: { label, color, pulse?, hint? } }) — color is a standard token OR any custom CSS colour; one entry drives the card tag + dot/pulse, face wash, fill bar, group-head swatch + hint, and legend
 │   ├─ Where a bare token / status value plugs in:
-│   │   ├─ Library.status(label, tone) — palette card status chip
+│   │   ├─ Library.status(label, tone) — palette card status chip · Library.glyph(icon, label, tone?) — its trailing glyph
 │   │   ├─ Table rowStatus — fn(rowIndex) => StatusToken row tint
 │   │   ├─ Schematic item { status } (Option token dot) and { tone } (brand|ink|muted|success|warning|danger stroke override)
 │   │   ├─ Plan.run { status } (stuck ring) · Plan.marker { status } (cell rings, default danger) · Plan.event { tone } — tile tints, all ORTHOGONAL to `state`

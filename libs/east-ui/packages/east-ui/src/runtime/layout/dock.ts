@@ -20,11 +20,13 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  * a filter rail beside a board — so the board grows while the panel is stowed
  * and the drop-target is never covered.
  *
- * Collapsed, it shrinks to `railSize` and shows the `icon`, a chevron toggle
- * (pointing away from `side`), and any `badge`; `label` becomes the rail's
- * accessible name. Expanded, it is `expandedSize` along the axis with a header
- * (`icon` + `label` + `badge` + collapse chevron) above the children. Drive it
- * from state with `collapsed` + `onCollapsedChange`, or omit both for
+ * Expanded, it is `expandedSize` along the axis and has no header strip: its
+ * one row is a tab row — its `tabs`, each with its own body, or the `label` as
+ * the only tab over the children — with the collapse control at its end.
+ * Collapsed, it shrinks to `railSize`: the expand control, then the `icon` in
+ * its tile, any `badge`, and the `label`. `surface="shell"` drops its own
+ * panel for the rule along its inner edge, for a pane inside a host's frame.
+ * Drive it from state with `collapsed` + `onCollapsedChange`, or omit both for
  * uncontrolled toggling — optionally `persist`ed across reloads. It is an
  * ordinary flex child: place it in a `<Flex>` / `<HStack>` (horizontal) or
  * `<VStack>` (vertical) whose sibling is `flex="1" minWidth="0"`. Arbitrarily
@@ -38,9 +40,10 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  *
  * const board = East.function([], UIComponentType, _$ => (
  *     <HStack gap="4" width="100%">
- *         <Dock icon="book" label="Bookings" expandedSize="25%">
- *             <Box padding="3" background="bg.surface"><Text>Drag source…</Text></Box>
- *         </Dock>
+ *         <Dock icon="book" label="Bookings" badge="3" expandedSize="25%" tabs={[
+ *             { key: "open", label: "Open", body: [<Box padding="3"><Text>Drag source…</Text></Box>] },
+ *             { key: "done", label: "Done", body: [<Box padding="3"><Text>Booked</Text></Box>] },
+ *         ]} />
  *         <Box flex="1" minWidth="0"><Text>Board / drop target…</Text></Box>
  *     </HStack>
  * ));

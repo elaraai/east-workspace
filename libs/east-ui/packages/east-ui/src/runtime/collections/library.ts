@@ -20,9 +20,12 @@ import { UIComponentType } from "../../component.js";
  * configurable secondary dimensions that are filterable, groupable, and
  * visible on the card. Declares the drag & drop **source** role under `id`;
  * targets connect by listing that id in their `sources`. The quick search
- * hides unmatched cards (the footer shows the hidden count + Show all);
- * the `filtered` card-face field dims a card instead — the host's
- * deliberate de-emphasis (e.g. `Slice.partition`'s unmatched rows).
+ * and the Filter menu (`filters`) hide unmatched cards (the footer shows the
+ * hidden count + Show all); the `filtered` card-face field dims a card
+ * instead — the host's deliberate de-emphasis (e.g. `Slice.partition`'s
+ * unmatched rows). A card may carry a trailing glyph (`Library.glyph` — a lock,
+ * a status dot) and a `placed` state, the brand border and tint of the item
+ * already on the target; `onCardClick` hears a click on a card.
  *
  * @example
  * ```tsx
@@ -49,9 +52,9 @@ import { UIComponentType } from "../../component.js";
  * ```
  *
  * @remarks
- * Carries the `Library.status` value constructor and `Library.Types`.
- * Secondary dimensions and group-by options are plain discriminated config
- * literals.
+ * Carries the `Library.status` and `Library.glyph` value constructors and
+ * `Library.Types`. Secondary dimensions, group-by options and filter facets
+ * are plain config literals.
  * Desugars to `Library.Root(data, config)`.
  */
 function LibraryTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
@@ -63,8 +66,10 @@ function LibraryTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
 export const Library: typeof LibraryTag & {
     status: typeof LibraryFactory.status;
+    glyph: typeof LibraryFactory.glyph;
     Types: typeof LibraryFactory.Types;
 } = Object.assign(LibraryTag, {
     status: LibraryFactory.status,
+    glyph: LibraryFactory.glyph,
     Types: LibraryFactory.Types,
 });

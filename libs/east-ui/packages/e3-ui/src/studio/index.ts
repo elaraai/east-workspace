@@ -29,6 +29,7 @@ import {
     StudioStatusType,
 } from "./pages.js";
 import { StudioPage, StudioSite, StudioVersionType } from "./surfaces.js";
+import { StudioPalette } from "./palette.js";
 
 export {
     StudioComponentType,
@@ -57,6 +58,15 @@ export {
     type StudioSiteOptions,
     type StudioVersionLiteral,
 } from "./surfaces.js";
+export {
+    StudioPalette,
+    builderKeys,
+    paletteCards,
+    palettePages,
+    PaletteCardType,
+    PalettePageType,
+    type StudioPaletteOptions,
+} from "./palette.js";
 
 /** The type of the {@link Studio} namespace. */
 export interface StudioNamespace {
@@ -84,6 +94,8 @@ export interface StudioNamespace {
     Page: typeof StudioPage;
     /** `<Studio.Site>` — a project's published site: an `<App>` over its live pages. */
     Site: typeof StudioSite;
+    /** `<Studio.Palette>` — the builder's palette: the listed components by category, and the project's pages. */
+    Palette: typeof StudioPalette;
     /** The Studio's East types. */
     Types: {
         /** A Studio component ({@link StudioComponentType}). */
@@ -118,8 +130,9 @@ export interface StudioNamespace {
 /**
  * The Studio — components developers publish as code (`Studio.component`),
  * the placements that render them (`Studio.dispatch`), the pages record
- * operators build (`Studio.Types.Pages`, its writes and the change list), and
- * the surfaces that read it: `<Studio.Page>` and `<Studio.Site>`.
+ * operators build (`Studio.Types.Pages`, its writes and the change list), the
+ * surfaces that read it (`<Studio.Page>` and `<Studio.Site>`), and the
+ * builder's screens (`<Studio.Palette>`).
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
@@ -134,6 +147,7 @@ export const Studio: StudioNamespace = {
     status: StudioPages.status,
     Page: StudioPage,
     Site: StudioSite,
+    Palette: StudioPalette,
     Types: {
         Component: StudioComponentType,
         Frame: StudioFrameType,

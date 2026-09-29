@@ -69,6 +69,58 @@ export const libraryPeople = example({
 });
 
 /**
+ * A component palette — the cards a builder drags onto its canvas. Each card
+ * carries a trailing lock (what it shows is fixed by its developer); the card
+ * already on the canvas is placed, in the brand; the Filter menu narrows by
+ * category and tags; and a click reports the card, here into State.
+ */
+export const libraryPalette = example({
+    keywords: ["Library", "palette", "component", "placed", "trailing", "glyph", "lock", "Library.glyph", "filters", "Filter", "facet", "tags", "noun", "onCardClick", "click", "Reactive", "State"],
+    description: "Component palette — a trailing lock on each card, the placed card in the brand, a Filter menu over category and tags, and a click reported into State",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const components = $.const([
+                { key: "kpi_rail", name: "KPI rail", icon: "gauge-high", category: "Display", tags: ["kpi", "sales"], reads: "sales_daily" },
+                { key: "revenue_trend", name: "Revenue trend", icon: "chart-area", category: "Charts", tags: ["sales"], reads: "sales_daily" },
+                { key: "orders_by_week", name: "Orders by week", icon: "chart-column", category: "Charts", tags: ["orders"], reads: "sales_weekly" },
+                { key: "shift_roster", name: "Shift roster", icon: "calendar-week", category: "Operations", tags: ["people"], reads: "rota_week · people" },
+            ], ArrayType(StructType({
+                key: StringType, name: StringType, icon: StringType, category: StringType, tags: ArrayType(StringType), reads: StringType,
+            })));
+            const picked = $.let(State.bind([StringType], "library_palette_picked", "revenue_trend"));
+            const current = $.let(picked.read());
+            const onCardClick = $.const(East.function([StringType], NullType, ($2, key) => { $2(picked.write(key)); }));
+            return (
+                <Box width="264px" height="420px">
+                    <Library
+                        id="palette"
+                        data={components}
+                        item={c => ({
+                            key: c.key,
+                            label: c.name,
+                            sublabel: c.key.equal(current).ifElse(() => "ON CANVAS · ×1", () => c.reads),
+                            icon: c.icon,
+                            trailing: some(Library.glyph("lock", "Logic fixed by the developer")),
+                            placed: c.key.equal(current),
+                        })}
+                        groupBy={[{ key: "category", label: "Category", value: c => c.category }]}
+                        filters={[
+                            { key: "category", label: "Category", values: c => [c.category] },
+                            { key: "tags", label: "Tags", values: c => c.tags },
+                        ]}
+                        search={c => East.str`${c.name} ${c.category}`}
+                        noun={{ singular: "component", plural: "components" }}
+                        onCardClick={onCardClick}
+                        style={{ height: "fill" }}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
  * THE large-library configurator (pass 5) — ONE live crew palette: slice
  * chrome (search / filter rail / count footer) composes on permanently, the
  * two-level grouping stays, and the size axis feeds the height expression

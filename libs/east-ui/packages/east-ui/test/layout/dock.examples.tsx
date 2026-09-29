@@ -167,6 +167,46 @@ export const dockNested = example({
     inputs: [],
 });
 
+/**
+ * A pane with tabs, inside a host's frame: two tabs, each with its own body,
+ * and the collapse control at the end of the tab row. `surface="shell"` drops
+ * the Dock's own panel for the rule beside the board it serves; collapsed, the
+ * rail shows the icon tile, the count and the label.
+ */
+export const dockTabs = example({
+    keywords: ["Dock", "tabs", "tab row", "pane", "surface", "shell", "frame", "rail", "badge", "count", "headerless", "palette", "sidebar"],
+    description: "A pane with tabs inside a host frame — two tabs over their own bodies, the collapse control at the row's end, and a rail with the icon, the count and the label",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Box height="320px" width="640px" borderWidth="1px" borderColor="border.strong" borderRadius="md" overflow="hidden">
+            <HStack gap="0" width="100%" height="100%">
+                <Dock icon="shapes" label="Components" badge="3" expandedSize="264px" surface="shell" tabs={[
+                    {
+                        key: "components", label: "Components", body: [
+                            <Stack gap="2" padding="3">
+                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>KPI rail</Text></Box>
+                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Revenue trend</Text></Box>
+                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Breakdown bars</Text></Box>
+                            </Stack>,
+                        ],
+                    },
+                    {
+                        key: "pages", label: "Pages", body: [
+                            <Stack gap="2" padding="3">
+                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Overview</Text></Box>
+                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Weekly</Text></Box>
+                            </Stack>,
+                        ],
+                    },
+                ]} />
+                <Box flex="1" minWidth="0" height="100%" padding="4" background="bg.subtle">
+                    <Text>The board beside the pane</Text>
+                </Box>
+            </HStack>
+        </Box>
+    )),
+    inputs: [],
+});
+
 /** Vertical dock — a bottom KPI tray; the main board grows into the freed height. */
 export const dockVertical = example({
     keywords: ["Dock", "orientation", "vertical", "side", "end", "tray", "badge", "collapsed", "Reactive", "State"],

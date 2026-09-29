@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faGripVertical, faMagnifyingGlass, faSliders, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faFilter, faGripVertical, faMagnifyingGlass, faSliders, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type IconName } from "@fortawesome/fontawesome-svg-core";
 import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -39,6 +39,8 @@ type SlotStyles = Record<string, SystemStyleObject>;
 interface LibraryToolbarState {
     groupKey: string | null;
     activeDims: string[];
+    /** The Filter menu's checked values, per facet key. */
+    filters?: Record<string, string[]>;
     /** Top visible virtual-entry index — a clamped index survives data changes (#143 convention). */
     scrollIndex?: number;
 }
@@ -120,10 +122,13 @@ interface LibraryCardProps {
     activeDims: string[];
     filtered: boolean;
     styles: SlotStyles;
+    onCardClick: ((key: string) => void) | undefined;
 }
 
-function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }: LibraryCardProps) {
+function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick }: LibraryCardProps) {
     const status = getSomeorUndefined(item.status);
+    const glyph = getSomeorUndefined(item.trailing);
+    const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
     const sublabel = getSomeorUndefined(item.sublabel);
     const icon = getSomeorUndefined(item.icon);
     const draggable = item.draggable && !filtered;
@@ -137,13 +142,31 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
     // The card is its own drag handle — by pointer, or focused and picked up
     // with Space / Enter.
     const drag = useDragSourceItem(from, ghost, !draggable);
+    // A click reports the card; a drag never clicks (the sensor swallows the
+    // click it ends with). A card that cannot be dragged is a button, so the
+    // keyboard clicks it too.
+    const click = onCardClick === undefined ? {} : {
+        onClick: () => onCardClick(item.key),
+        ...(drag === undefined ? {
+            role: "button",
+            tabIndex: 0,
+            onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                onCardClick(item.key);
+            },
+        } : {}),
+    };
 
     return (
         <Box
             css={styles.card}
             {...drag}
+            {...click}
             {...(filtered ? { "data-filtered": "" } : {})}
+            {...(item.placed ? { "data-placed": "" } : {})}
             {...(draggable && drag ? { "data-draggable": "" } : {})}
+            {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
             {...(tall ? { "data-tall": "" } : {})}
         >
             {draggable && drag && (
@@ -196,11 +219,25 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
                     });
                 })}
             </Box>
-            {!tall && status && (
+            {((!tall && status) || glyph) && (
                 <Box css={styles.trailing}>
-                    <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>
-                        {status.label}
-                    </Box>
+                    {!tall && status && (
+                        <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>
+                            {status.label}
+                        </Box>
+                    )}
+                    {glyph && (
+                        <Box
+                            as="span"
+                            css={styles.glyph}
+                            role="img"
+                            aria-label={glyph.label}
+                            title={glyph.label}
+                            {...(glyphTone !== undefined ? { "data-tone": glyphTone.type } : {})}
+                        >
+                            <FontAwesomeIcon icon={["fas", glyph.icon as IconName]} />
+                        </Box>
+                    )}
                 </Box>
             )}
         </Box>
@@ -300,6 +337,69 @@ function LibraryDimMenu({ options, active, onToggle, styles }: {
     );
 }
 
+/** The Filter menu's value for clearing every checked value — a facet value's item is a JSON pair, so none can be it. */
+const CLEAR_FILTERS = "\u0000clear";
+
+/**
+ * `Filter`, opening a menu of each facet's values: checking values keeps the
+ * cards that hold one of them, in every facet with a value checked. It stays
+ * open while values are checked.
+ */
+function LibraryFilterMenu({ options, values, active, onToggle, onClear, styles }: {
+    options: readonly LibraryOption[];
+    values: ReadonlyMap<string, readonly string[]>;
+    active: Readonly<Record<string, readonly string[]>>;
+    onToggle: (facet: string, value: string) => void;
+    onClear: () => void;
+    styles: SlotStyles;
+}) {
+    const words = useFormatters();
+    const checked = options.reduce((n, o) => n + (active[o.key]?.length ?? 0), 0);
+    return (
+        <ChakraMenu.Root positioning={{ placement: "bottom-end" }} closeOnSelect={false}
+            onSelect={(d) => {
+                if (d.value === CLEAR_FILTERS) { onClear(); return; }
+                const [facet, value] = JSON.parse(d.value) as [string, string];
+                onToggle(facet, value);
+            }}>
+            <ChakraMenu.Trigger asChild>
+                <chakra.button type="button" css={styles.dimTrigger}>
+                    <FontAwesomeIcon icon={faFilter} />
+                    Filter{checked > 0 ? ` · ${words.number(checked)}` : ""}
+                </chakra.button>
+            </ChakraMenu.Trigger>
+            <Portal>
+                <ChakraMenu.Positioner>
+                    <ChakraMenu.Content>
+                        {options.map(o => (
+                            <ChakraMenu.ItemGroup key={o.key}>
+                                <ChakraMenu.ItemGroupLabel>{o.label}</ChakraMenu.ItemGroupLabel>
+                                {(values.get(o.key) ?? []).map(value => {
+                                    const on = active[o.key]?.includes(value) ?? false;
+                                    return (
+                                        <ChakraMenu.Item key={value} value={JSON.stringify([o.key, value])} aria-checked={on}>
+                                            <Box as="span" css={styles.menuCheck}>
+                                                {on && <FontAwesomeIcon icon={faCheck} />}
+                                            </Box>
+                                            {value}
+                                        </ChakraMenu.Item>
+                                    );
+                                })}
+                            </ChakraMenu.ItemGroup>
+                        ))}
+                        {checked > 0 && (
+                            <ChakraMenu.Item value={CLEAR_FILTERS}>
+                                <Box as="span" css={styles.menuCheck} />
+                                Clear filters
+                            </ChakraMenu.Item>
+                        )}
+                    </ChakraMenu.Content>
+                </ChakraMenu.Positioner>
+            </Portal>
+        </ChakraMenu.Root>
+    );
+}
+
 // ============================================================================
 // Library core
 // ============================================================================
@@ -323,8 +423,16 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     const { state: toolbar, setState: setToolbar } = usePersistedState<LibraryToolbarState>(`${storageKey}.toolbar`, {
         groupKey: groupOptions[0]?.key ?? null,
         activeDims: [...value.defaultDimensions],
+        filters: {},
     });
     const [query, setQuery] = useState("");
+    const filterOptions = value.filterOptions;
+    const activeFilters = useMemo(() => toolbar.filters ?? {}, [toolbar.filters]);
+
+    const onCardClickFn = useMemo(() => getSomeorUndefined(value.onCardClick), [value.onCardClick]);
+    const handleCardClick = useCallback((key: string) => {
+        if (onCardClickFn) queueMicrotask(() => onCardClickFn(key));
+    }, [onCardClickFn]);
 
     const frameSink = useDropSink("library", value.id);
 
@@ -340,23 +448,54 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
         }));
     }, [setToolbar]);
 
+    const toggleFilter = useCallback((facet: string, checked: string) => {
+        setToolbar(prev => {
+            const current = prev.filters?.[facet] ?? [];
+            const next = current.includes(checked) ? current.filter(v => v !== checked) : [...current, checked];
+            return { ...prev, filters: { ...prev.filters, [facet]: next } };
+        });
+    }, [setToolbar]);
+    const clearFilters = useCallback(() => {
+        setToolbar(prev => ({ ...prev, filters: {} }));
+    }, [setToolbar]);
+
+    // Each facet's values, in the order the cards first hold them.
+    const facetValues = useMemo(() => {
+        const out = new Map<string, string[]>();
+        for (const option of filterOptions) {
+            const seen = new Set<string>();
+            for (const item of value.items) for (const v of item.facets.get(option.key) ?? []) seen.add(v);
+            out.set(option.key, [...seen]);
+        }
+        return out;
+    }, [filterOptions, value.items]);
+
     const lowerQuery = query.trim().toLowerCase();
-    const queryHides = useCallback(
-        (item: LibraryItemValue) => lowerQuery !== "" && !itemSearchText(item).includes(lowerQuery),
-        [lowerQuery],
-    );
+    // A card hides when the search does not match it, or when a facet with
+    // values checked holds none of them.
+    const hides = useCallback((item: LibraryItemValue) => {
+        if (lowerQuery !== "" && !itemSearchText(item).includes(lowerQuery)) return true;
+        for (const option of filterOptions) {
+            const checked = activeFilters[option.key] ?? [];
+            if (checked.length === 0) continue;
+            const held = item.facets.get(option.key) ?? [];
+            if (!held.some(v => checked.includes(v))) return true;
+        }
+        return false;
+    }, [lowerQuery, filterOptions, activeFilters]);
+    const showAll = useCallback(() => { setQuery(""); clearFilters(); }, [clearFilters]);
 
     // Group items preserving first-appearance order; null group key = flat.
-    // The quick search HIDES unmatched cards (the footer carries the hidden
-    // count + Show all); only the explicit `filtered` face field dims — the
-    // host's deliberate Slice.partition de-emphasis. Group-head summaries
-    // come from the root-level `groupSummaries` dict.
+    // The quick search and the Filter menu HIDE unmatched cards (the footer
+    // carries the hidden count + Show all); only the explicit `filtered` face
+    // field dims — the host's deliberate Slice.partition de-emphasis.
+    // Group-head summaries come from the root-level `groupSummaries` dict.
     const groups = useMemo<LibraryGroup[]>(() => {
         const groupKey = toolbar.groupKey;
         const summaries = groupKey !== null ? value.groupSummaries.get(groupKey) : undefined;
         const out = new Map<string, LibraryGroup>();
         for (const item of value.items) {
-            if (queryHides(item)) continue;
+            if (hides(item)) continue;
             const label = (groupKey !== null ? item.groups.get(groupKey) : undefined) ?? "";
             let entry = out.get(label);
             if (entry === undefined) {
@@ -366,12 +505,13 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             entry.items.push(item);
         }
         return [...out.values()];
-    }, [value.items, value.groupSummaries, toolbar.groupKey, queryHides]);
+    }, [value.items, value.groupSummaries, toolbar.groupKey, hides]);
 
     const hiddenCount = useMemo(
-        () => value.items.filter(queryHides).length,
-        [value.items, queryHides],
+        () => value.items.filter(hides).length,
+        [value.items, hides],
     );
+    const noun = getSomeorUndefined(value.noun);
 
     const hint = getSomeorUndefined(value.hint);
     const addLabel = getSomeorUndefined(value.addLabel);
@@ -499,6 +639,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                                         activeDims={toolbar.activeDims}
                                         filtered={item.filtered}
                                         styles={styles}
+                                        onCardClick={onCardClickFn ? handleCardClick : undefined}
                                     />
                                 ))}
                             </Box>
@@ -523,6 +664,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                             activeDims={toolbar.activeDims}
                             filtered={item.filtered}
                             styles={styles}
+                            onCardClick={onCardClickFn ? handleCardClick : undefined}
                         />
                     ))}
                 </Box>
@@ -545,7 +687,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                     <Box as="span" css={styles.hint}>{hint}</Box>
                 </Box>
             )}
-            {(searchable || groupOptions.length > 0 || dimOptions.length > 0) && (
+            {(searchable || groupOptions.length > 0 || dimOptions.length > 0 || filterOptions.length > 0) && (
                 <Box css={styles.toolbar}>
                     {searchable && (
                         <Box css={styles.searchBox}>
@@ -555,7 +697,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                             <chakra.input
                                 ref={searchRef}
                                 css={styles.searchInput}
-                                placeholder={`Search ${words.number(value.items.length)} ${value.items.length === 1 ? "item" : "items"}…`}
+                                placeholder={`Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
                                 aria-label="Search library"
                                 aria-keyshortcuts="Meta+/ Control+/"
                                 value={query}
@@ -576,13 +718,21 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                             )}
                         </Box>
                     )}
-                    {(groupOptions.length > 0 || dimOptions.length > 0) && (
+                    {(groupOptions.length > 0 || dimOptions.length > 0 || filterOptions.length > 0) && (
                         <Box css={styles.controls}>
                             {groupOptions.length > 0 && (
                                 <LibraryGroupMenu options={groupOptions} active={toolbar.groupKey} onPick={setGroup} styles={styles} />
                             )}
-                            {dimOptions.length > 0 && (
-                                <LibraryDimMenu options={dimOptions} active={toolbar.activeDims} onToggle={toggleDim} styles={styles} />
+                            {(dimOptions.length > 0 || filterOptions.length > 0) && (
+                                <Box css={styles.controlsEnd}>
+                                    {dimOptions.length > 0 && (
+                                        <LibraryDimMenu options={dimOptions} active={toolbar.activeDims} onToggle={toggleDim} styles={styles} />
+                                    )}
+                                    {filterOptions.length > 0 && (
+                                        <LibraryFilterMenu options={filterOptions} values={facetValues} active={activeFilters}
+                                            onToggle={toggleFilter} onClear={clearFilters} styles={styles} />
+                                    )}
+                                </Box>
                             )}
                         </Box>
                     )}
@@ -602,7 +752,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                     {hiddenCount > 0 && (
                         <Box as="span" css={styles.hiddenNote}>
                             {words.number(hiddenCount)} hidden by filter ·{" "}
-                            <Box as="button" css={styles.showAll} onClick={() => setQuery("")}>Show all</Box>
+                            <Box as="button" css={styles.showAll} onClick={showAll}>Show all</Box>
                         </Box>
                     )}
                     {addLabel !== undefined && (

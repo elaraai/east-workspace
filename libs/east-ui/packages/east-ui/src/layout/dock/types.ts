@@ -4,6 +4,7 @@
  */
 
 import {
+    type ArrayType,
     type SubtypeExprOrValue,
     BooleanType,
     FunctionType,
@@ -13,6 +14,8 @@ import {
     StructType,
     VariantType,
 } from "@elaraai/east";
+
+import type { UIComponentType } from "../../component.js";
 
 /**
  * The axis a {@link DockStyleType} collapses along.
@@ -55,21 +58,35 @@ export const DockPersistType = VariantType({
 export type DockPersistType = typeof DockPersistType;
 
 /**
+ * The chrome a Dock draws around itself.
+ *
+ * @property card  - Its own bordered, rounded panel (the default)
+ * @property shell - No panel of its own, only the rule along its inner edge:
+ *   a pane inside a host's frame, beside the content it serves
+ */
+export const DockSurfaceType = VariantType({
+    card: NullType,
+    shell: NullType,
+});
+export type DockSurfaceType = typeof DockSurfaceType;
+
+/**
  * Presentation + behaviour configuration for a Dock. Every field optional;
  * the renderer falls back to a horizontal sidebar that pins to the `start`
  * edge, `44px` rail, keep-mounted body.
  *
  * @property orientation - Axis it collapses along (default `horizontal`)
- * @property side        - Edge the rail pins to → chevron direction (default `start`)
+ * @property side        - Edge the rail pins to → the collapse control's direction (default `start`)
  * @property expandedSize - Size ALONG the axis when expanded (px or %, e.g. `"25%"`)
  * @property railSize    - Size when collapsed — the icon rail (default `44px`)
- * @property icon        - Font Awesome icon name shown on the rail + header
- * @property label       - Header title (expanded) + rail tooltip / accessible name (collapsed)
- * @property badge       - Optional count/label shown on the rail + header
+ * @property icon        - Font Awesome icon name in the collapsed rail's tile
+ * @property label       - The pane's name: its one tab when it has no tabs, the rail's label, and the controls' accessible name
+ * @property badge       - Optional count or short label in the collapsed rail
  * @property persist     - Where the uncontrolled collapsed state is persisted (default `none`)
  * @property keepMounted - Keep the body mounted while collapsed to preserve its scroll / drag / search state (default `true`)
  * @property lazy        - Mount the body only on first expand (default `false`)
  * @property animated    - Smoothly transition the size between rail and expanded (default `false`)
+ * @property surface     - `card` (default) draws its own panel; `shell` only the rule along its inner edge
  */
 export const DockStyleType = StructType({
     orientation: OptionType(DockOrientationType),
@@ -83,6 +100,7 @@ export const DockStyleType = StructType({
     keepMounted: OptionType(BooleanType),
     lazy: OptionType(BooleanType),
     animated: OptionType(BooleanType),
+    surface: OptionType(DockSurfaceType),
 });
 export type DockStyleType = typeof DockStyleType;
 
@@ -92,6 +110,8 @@ export type DockOrientationLiteral = "horizontal" | "vertical";
 export type DockSideLiteral = "start" | "end";
 /** String shorthand for {@link DockPersistType}. */
 export type DockPersistLiteral = "none" | "local" | "session";
+/** String shorthand for {@link DockSurfaceType}. */
+export type DockSurfaceLiteral = "card" | "shell";
 
 /**
  * TypeScript style interface for {@link DockStyleType} — the flat config bag.
@@ -99,17 +119,17 @@ export type DockPersistLiteral = "none" | "local" | "session";
 export interface DockStyle {
     /** Axis it collapses along (default `horizontal`). */
     orientation?: SubtypeExprOrValue<DockOrientationType> | DockOrientationLiteral;
-    /** Edge the rail pins to → chevron direction (default `start`). */
+    /** Edge the rail pins to → the collapse control's direction (default `start`). */
     side?: SubtypeExprOrValue<DockSideType> | DockSideLiteral;
     /** Size along the axis when expanded (px or %, e.g. `"25%"`). */
     expandedSize?: SubtypeExprOrValue<StringType>;
     /** Size when collapsed — the icon rail (default `44px`). */
     railSize?: SubtypeExprOrValue<StringType>;
-    /** Font Awesome icon name shown on the rail + header. */
+    /** Font Awesome icon name in the collapsed rail's tile. */
     icon?: SubtypeExprOrValue<StringType>;
-    /** Header title (expanded) + rail tooltip / accessible name (collapsed). */
+    /** The pane's name: its one tab when it has no `tabs`, the rail's label, and the controls' accessible name. */
     label?: SubtypeExprOrValue<StringType>;
-    /** Optional count/label shown on the rail + header. */
+    /** Optional count or short label in the collapsed rail. */
     badge?: SubtypeExprOrValue<StringType>;
     /** Where the uncontrolled collapsed state is persisted (default `none`). */
     persist?: SubtypeExprOrValue<DockPersistType> | DockPersistLiteral;
@@ -119,13 +139,38 @@ export interface DockStyle {
     lazy?: SubtypeExprOrValue<BooleanType>;
     /** Smoothly transition the size between rail and expanded (default `false`). */
     animated?: SubtypeExprOrValue<BooleanType>;
+    /** `card` (default) draws its own panel; `shell` only the rule along its inner edge, for a pane inside a host's frame. */
+    surface?: SubtypeExprOrValue<DockSurfaceType> | DockSurfaceLiteral;
+}
+
+/**
+ * One tab of a Dock's tab row.
+ *
+ * @property key - The tab's identity
+ * @property label - Its name in the tab row
+ * @property body - What the pane shows while the tab is open
+ */
+export interface DockTabInput {
+    /** The tab's identity. */
+    key: SubtypeExprOrValue<StringType>;
+    /** Its name in the tab row. */
+    label: SubtypeExprOrValue<StringType>;
+    /** What the pane shows while the tab is open. */
+    body: SubtypeExprOrValue<ArrayType<UIComponentType>>;
 }
 
 /**
  * Dock options — passed to `Dock.Root(children, opts)`. Extends
- * {@link DockStyle} with the collapsed-state behaviour fields.
+ * {@link DockStyle} with the collapsed-state behaviour fields and the tabs.
  */
 export interface DockOptions extends DockStyle {
+    /**
+     * The pane's tabs, each with its own body, in the tab row's order. The
+     * first is open to begin with, and the pane keeps every tab's body
+     * mounted, so each keeps its state. Given, the Dock's children are not
+     * shown; omitted, the tab row holds the `label` alone over the children.
+     */
+    tabs?: DockTabInput[];
     /**
      * Collapsed state. Synced on change (forms convention), so a
      * `State.bind`-driven value controls the dock reactively; omit for

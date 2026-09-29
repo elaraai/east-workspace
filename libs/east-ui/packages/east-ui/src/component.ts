@@ -503,6 +503,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
      */
     Dock: StructType({
         body: ArrayType(node),
+        tabs: ArrayType(StructType({ key: StringType, label: StringType, body: ArrayType(node) })),
         collapsed: OptionType(BooleanType),
         defaultCollapsed: OptionType(BooleanType),
         onCollapsedChange: OptionType(FunctionType([BooleanType], NullType)),

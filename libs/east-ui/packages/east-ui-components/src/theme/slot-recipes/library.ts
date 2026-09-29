@@ -6,11 +6,13 @@
 /**
  * Library slot recipe — the draggable palette, drawn as the Studio mock's
  * component library: a sunken toolbar band holding the search box (its ⌘ /
- * key cap at the right) and the grouping and secondary-fact controls under
- * it; group heads that name the group and count it; and compact cards — the
- * grip, the icon tile, the name over its mono meta line, and any status at
- * the right. Narrow, the cards stack in one column, the mock's palette; wide,
- * the same cards pack a grid. Filtered cards dim rather than unmount.
+ * key cap at the right) and the grouping, secondary-fact and filter controls
+ * under it; group heads that name the group and count it; and compact cards —
+ * the grip, the icon tile, the name over its mono meta line, and any status
+ * and glyph at the right. A placed card — the one already on the target — is
+ * drawn in the brand: its border, a tint, and the brand ink through it.
+ * Narrow, the cards stack in one column, the mock's palette; wide, the same
+ * cards pack a grid. Filtered cards dim rather than unmount.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -34,11 +36,11 @@ export const librarySlotRecipe = defineSlotRecipe({
     slots: [
         "root", "header", "hint",
         "toolbar", "searchBox", "searchIcon", "searchInput", "searchClear", "searchKbd",
-        "controls", "groupTrigger", "dimTrigger", "menuCheck",
+        "controls", "controlsEnd", "groupTrigger", "dimTrigger", "menuCheck",
         "group", "groupHead", "groupLabel", "groupSummary", "grid",
         "body", "canvas", "row", "rowGrid",
         "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel",
-        "cardSublabel", "trailing", "statusPill",
+        "cardSublabel", "trailing", "statusPill", "glyph",
         "meter", "meterTrack", "meterFill", "meterText",
         "chips", "chip", "dimText",
         "footer", "hiddenNote", "showAll", "addAction", "ghost",
@@ -180,6 +182,13 @@ export const librarySlotRecipe = defineSlotRecipe({
             justifyContent: "space-between",
             gap: "{spacing.3}",
         },
+        /* The controls at the right: the secondary facts, then the filter. */
+        controlsEnd: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.3}",
+            marginLeft: "auto",
+        },
         groupTrigger: {
             ...CAPS,
             display: "inline-flex",
@@ -198,7 +207,6 @@ export const librarySlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "6px",
-            marginLeft: "auto",
             padding: "0",
             background: "transparent",
             border: "none",
@@ -260,11 +268,21 @@ export const librarySlotRecipe = defineSlotRecipe({
             transitionDuration: "fast",
             transitionTimingFunction: "out",
             _hover: { borderColor: "fg.muted" },
+            "&[data-clickable]": { cursor: "pointer" },
             "&[data-draggable]": { cursor: "grab" },
             "&[data-filtered]": { opacity: "0.45" },
             "&[data-dragging]": { opacity: "0.4" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
             /* Secondary facts under the meta: the grip and tile top-align. */
             "&[data-tall]": { alignItems: "flex-start" },
+            /* Placed — the item already on the target: the brand border and
+             * tint, and the brand ink through the grip, the tile, the name,
+             * the meta and the glyph. */
+            "&[data-placed]": {
+                borderColor: "brand.solid",
+                background: "bg.brand.subtle",
+                _hover: { borderColor: "brand.solid" },
+            },
         },
         grip: {
             flexShrink: "0",
@@ -276,6 +294,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             touchAction: "none",
             ...coarseHitArea({ position: true, size: 32 }),
             "[data-tall] > &": { alignSelf: "center" },
+            "[data-placed] > &": { color: "brand.solid" },
         },
         iconTile: {
             display: "inline-flex",
@@ -288,6 +307,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             background: "bg.subtle",
             color: "fg.muted",
             fontSize: "12px",
+            "[data-placed] > &": { background: "bg.surface", color: "brand.solid" },
         },
         cardBody: {
             flex: "1",
@@ -312,6 +332,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            "[data-placed] &": { color: "brand.fg" },
         },
         cardSublabel: {
             fontFamily: "mono",
@@ -321,13 +342,29 @@ export const librarySlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            "[data-placed] &": { color: "brand.solid" },
         },
-        /* The card's right edge — its status. */
+        /* The card's right edge — its status, then its glyph. */
         trailing: {
             flexShrink: "0",
             display: "inline-flex",
             alignItems: "center",
+            gap: "{spacing.2}",
             "[data-tall] > &": { alignSelf: "center" },
+        },
+        /* A lock, a status dot: the quiet ink, the brand's while placed,
+         * or the tone it carries. */
+        glyph: {
+            display: "inline-flex",
+            flexShrink: "0",
+            fontSize: "9.5px",
+            color: INK_5,
+            "[data-placed] &": { color: "brand.solid" },
+            "&[data-tone=success]": { color: "fg.success" },
+            "&[data-tone=warning]": { color: "fg.warning" },
+            "&[data-tone=danger]": { color: "fg.danger" },
+            "&[data-tone=info]": { color: "brand.solid" },
+            "&[data-tone=neutral]": { color: "fg.subtle" },
         },
         statusPill: {
             fontFamily: "mono",
