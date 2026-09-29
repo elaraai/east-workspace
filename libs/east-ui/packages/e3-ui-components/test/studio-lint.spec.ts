@@ -16,9 +16,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as ts from "typescript";
-import { Linter } from "eslint";
+import { Linter, type ESLint } from "eslint";
 import * as tsParser from "@typescript-eslint/parser";
-import east from "@elaraai/eslint-plugin-east";
+
+// The plugin is built in the job that runs this spec, but not in every job that
+// typechecks this package (the showcase shards, the release), so its name is
+// not a literal the typecheck resolves.
+const plugin: string = "@elaraai/eslint-plugin-east";
+const east = ((await import(plugin)) as { default: ESLint.Plugin }).default;
 
 const fixtures = join(import.meta.dirname, "fixtures");
 const clean = join(fixtures, "studio-component.ts");
