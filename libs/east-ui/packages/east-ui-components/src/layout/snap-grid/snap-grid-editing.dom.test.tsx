@@ -9,7 +9,9 @@
  * the row that fits a joining tile (L10), the drop stages (L11), a dropped
  * card built by `create` and the veto (L12), the keyboard (L15), and every
  * gesture as one transaction of the shared session — undone, redone,
- * discarded and applied as one checked batch (L16).
+ * discarded and applied as one checked batch (L16). Then the builder's frame
+ * (#995): the one toolbar, the zoom and the design widths over a bound view,
+ * the selection bar, the saved time, and the panes.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -418,5 +420,107 @@ describe("L16 — every gesture is one transaction", () => {
         await history(canvas, "Undo");
         expect(marks(c)).toEqual({ region: "pending" });
         expect(historyButton(canvas, "Apply changes").disabled).toBe(false);
+    }, 30_000);
+});
+
+describe("the builder's frame (#995)", () => {
+    /** The toolbar's items, by key, in their order along the row. */
+    const toolbarItems = (c: HTMLElement) =>
+        [...c.querySelectorAll("[data-snap-grid-toolbar-row] [data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
+    /** A button by its accessible name. */
+    const button = (canvas: EditingSnapGrid, name: string) => canvas.getByRole("button", { name }) as HTMLButtonElement;
+    /** The canvas's design width — the most it lays out at — and its zoom, as it draws them. */
+    const drawn = (c: HTMLElement) => {
+        const style = c.querySelector<HTMLElement>("[data-snap-grid-canvas]")!.style;
+        return { width: style.maxWidth, zoom: style.getPropertyValue("zoom") };
+    };
+
+    test("one toolbar: the host's start items and the grid chip; the width readout, the zoom, the history item, the widths and the host's end items", async () => {
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        expect(toolbarItems(c)).toEqual(["start-0", "grid", "readout", "zoom", "rule", "history", "widths", "end-0"]);
+        const item = (key: string) => c.querySelector(`[data-toolbar-item="${key}"]`)!.textContent;
+        expect([item("start-0"), item("grid"), item("readout"), item("zoom"), item("end-0")])
+            .toEqual(["Draft", "12 col · snap on", "1440 px", "100%", "Publish"]);
+        expect([button(canvas, "Desktop"), button(canvas, "Tablet")].map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+        // The frame is the canvas's own: a card, the toolbar across it.
+        expect(c.querySelector("[data-snap-grid-editor]")!.getAttribute("data-surface")).toBe("card");
+    }, 30_000);
+
+    test("the zoom steps by 10% within 50%–150%, writing the bound view; the canvas draws at it", async () => {
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        await act(async () => { fireEvent.click(button(canvas, "Zoom in")); });
+        expect(canvas.boundView()).toEqual({ width: null, zoom: 1.1 });
+        expect(c.querySelector("[data-snap-grid-zoom] output")!.textContent).toBe("110%");
+        expect(drawn(c)).toEqual({ width: "1440px", zoom: "1.1" });
+        for (let i = 0; i < 8; i++) await act(async () => { fireEvent.click(button(canvas, "Zoom out")); });
+        expect(canvas.boundView().zoom).toBe(0.5);
+        expect(button(canvas, "Zoom out").disabled).toBe(true);
+        expect(button(canvas, "Zoom in").disabled).toBe(false);
+        // Nothing the view holds is a gesture.
+        expect(canvas.patches).toHaveLength(0);
+    }, 30_000);
+
+    test("a design width presses its button and writes the bound view; the canvas and the readout follow", async () => {
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        await act(async () => { fireEvent.click(button(canvas, "Tablet")); });
+        expect(canvas.boundView()).toEqual({ width: "1024px", zoom: null });
+        expect(drawn(c).width).toBe("1024px");
+        expect(c.querySelector('[data-toolbar-item="readout"]')!.textContent).toBe("1024 px");
+        expect([button(canvas, "Desktop"), button(canvas, "Tablet")].map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
+    }, 30_000);
+
+    test("without a bound view the canvas keeps its own zoom", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        await act(async () => { fireEvent.click(button(canvas, "Zoom in")); });
+        expect(drawn(c).zoom).toBe("1.1");
+        expect(canvas.boundView()).toEqual({ width: null, zoom: null });
+        // No design width, so no readout; no widths, so no presets.
+        expect(toolbarItems(c)).toEqual(["grid", "zoom", "rule", "history"]);
+    }, 30_000);
+
+    test("the selection bar names the selected tile — its icon, name and meta — and, with nothing selected, says what to do", async () => {
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        const bar = () => c.querySelector<HTMLElement>("[data-snap-grid-selection]")!;
+        expect([...bar().children].map((el) => el.textContent)).toEqual(["No selection", "Click a component on the grid to arrange it"]);
+        await clickTile(c, "trend");
+        expect(bar().querySelector("svg")!.getAttribute("data-icon")).toBe("gauge-high");
+        expect([...bar().children].map((el) => el.textContent)).toEqual(["", "Revenue trend", "trend · sales_daily"]);
+        await canvas.hostSelects("board");
+        expect([...bar().children].map((el) => el.textContent)).toEqual(["", "Assignment board", "board · sales_daily"]);
+    }, 30_000);
+
+    test("once the source confirms an Apply the toolbar says when it saved; a Discard clears it", async () => {
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        const saved = () => c.querySelector("[data-snap-grid-saved]")?.textContent;
+        expect(saved()).toBeUndefined();
+        await drop(tileEl(c, "board"), gapEl(c, 0));
+        await history(canvas, "Apply changes");
+        await canvas.confirm();
+        expect(saved()).toMatch(/^Saved · \d\d:\d\d$/);
+        expect(toolbarItems(c).slice(0, 3)).toEqual(["start-0", "grid", "saved"]);
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        await history(canvas, "Discard");
+        expect(saved()).toBeUndefined();
+    }, 30_000);
+
+    test("the panes sit beside the canvas column, under the toolbar", async () => {
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        const editor = c.querySelector<HTMLElement>("[data-snap-grid-editor]")!;
+        const [row, body] = [...editor.children] as HTMLElement[];
+        expect(row!.hasAttribute("data-snap-grid-toolbar-row")).toBe(true);
+        expect([...body!.children].map((el) => el.getAttribute("data-snap-grid-pane") ?? (el.hasAttribute("data-snap-grid-main") ? "main" : "?")))
+            .toEqual(["start", "main", "end"]);
+        expect(body!.querySelector('[data-snap-grid-pane="start"]')!.textContent).toBe("Palette");
+        expect(body!.querySelector('[data-snap-grid-pane="end"]')!.textContent).toBe("Inspector");
+        // The selection bar sits over the canvas only, not the panes.
+        expect(body!.querySelector("[data-snap-grid-main] > [data-snap-grid-selection]")).not.toBeNull();
     }, 30_000);
 });

@@ -75,6 +75,19 @@ export const statusSlotRecipe = defineSlotRecipe({
             true:  { indicator: { animation: "spec-pulse-run 1.6s ease-in-out infinite" } },
             false: {},
         },
+        // An open dot — a state not reached yet (a draft never published):
+        // the dot's size, its colour a ring in the quiet ink.
+        ring: {
+            true: {
+                indicator: {
+                    background: "transparent",
+                    borderWidth: "1.5px",
+                    borderStyle: "solid",
+                    borderColor: "fg.subtle",
+                },
+            },
+            false: {},
+        },
         // Rotation for a glyph that stands in for the dot while work is in
         // flight. `pulsing` fades a dot's opacity, which a 6px circle barely
         // carries; rotation reads at any size.
@@ -96,6 +109,7 @@ export const statusSlotRecipe = defineSlotRecipe({
         status: "neutral",
         size: "md",
         pulsing: false,
+        ring: false,
         spinning: false,
         live: false,
     },

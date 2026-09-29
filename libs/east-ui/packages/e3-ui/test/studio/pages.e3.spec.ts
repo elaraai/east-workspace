@@ -10,6 +10,8 @@
  * (R3), a new page and a saved template (R8). A save drafted on a stale page
  * is a conflict naming the page, and nothing is overwritten (R2). A redeploy
  * that adds a component keeps the record as it is: no migration runs (R7).
+ * The canvas's own Apply, `Studio.save`, commits and conflicts the same way
+ * (B12, #995).
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -17,7 +19,7 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 
 import {
-    East, PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, none, some, variant,
+    East, OptionType, PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -27,9 +29,10 @@ import {
     type TaskRunner,
 } from "@elaraai/e3-core";
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from "@elaraai/e3-core/test";
-import { Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Editing, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
 import { Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { RecordBindHandleType } from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -39,6 +42,8 @@ const keys = compareFor(StudioKeyType);
 const diffPages = diffFor(StudioPagesType);
 const encodePatch = encodeBeast2For(PatchType(StudioPagesType));
 const pagesPath = [variant("field", "records"), variant("field", "pages")];
+/** The pages record, bound with its patch door — what the builder's canvas commits through. */
+const HandleType = RecordBindHandleType(StudioPagesType, { patch: [PatchType(StudioPagesType)] });
 
 const publish = East.compile(Studio.publish, []);
 const revert = East.compile(Studio.revert, []);
@@ -167,6 +172,67 @@ describe("the pages record in e3 (#992)", () => {
 
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual(history.map((entry) => entry.commit.actor), ["ben", "ben", "ana", "ana", history.at(-1)!.commit.actor], "one commit each");
+    });
+
+    it("B12 (#995): the canvas's Apply — Studio.save — is one patch commit on the page, and one drafted before another landed is a conflict that leaves the first standing", async () => {
+        const Cell = Studio.Types.Cell;
+        const entryPatch = diffFor(OptionType(Cell));
+        const save = East.compileAsync(East.asyncFunction([HandleType, Editing.Types.ChangeSet(Cell)], Editing.Types.ApplyResult, ($, record, batch) => {
+            const apply = $.const(Studio.save(record, OVERVIEW_KEY));
+            return apply(batch);
+        }), []) as unknown as (handle: unknown, batch: unknown) => Promise<ValueTypeOf<typeof Editing.Types.ApplyResult>>;
+        const read = await current();
+        const overview = read.get(OVERVIEW_KEY)!;
+        if (overview.type !== "page") assert.fail("expected a page");
+        const cells = overview.value.draft.cells;
+        // The bound record over the repository: its read is what the canvas
+        // read, and its patch door commits through e3, as the ui task's would.
+        const handle = {
+            read: () => read,
+            status: () => variant("up-to-date", null),
+            history: () => none,
+            mutate: { pending: () => false, status: () => variant("idle", null), error: () => none, cancel: () => null, patch: () => null },
+            commit: {
+                patch: async (_requestId: string, patch: unknown) => {
+                    const outcome = await commit(patch, "ana");
+                    switch (outcome.kind) {
+                        case "committed": return variant("committed", { commitHash: outcome.commitHash, stateHash: outcome.stateHash });
+                        case "conflict": return variant("conflict", { attempts: BigInt(outcome.attempts), detail: outcome.detail === undefined ? none : some(outcome.detail) });
+                        case "invalid": return variant("invalid", { message: outcome.message });
+                        case "failed": return variant("failed", { exitCode: BigInt(outcome.exitCode), stderr: outcome.stderr });
+                        case "timed_out": return variant("timed_out", { ms: BigInt(outcome.ms), stderr: outcome.stderr });
+                    }
+                },
+            },
+            start: () => null,
+            binding: { name: "pages", mutations: ["patch"] },
+        };
+
+        // The trend resized to 6 over the cells the canvas read: one commit.
+        const applied = await save(handle, {
+            requestId: "resize-6", base: variant("snapshot", [...cells]), label: "Resize Revenue trend",
+            changes: [{ id: "c-trend", patch: entryPatch(some(cells[1]!), some({ ...cells[1]!, span: 6n })), place: none }],
+        });
+        assert.equal(applied.type, "applied");
+        const history = await recordHistory(storage, repo, "main", "pages");
+        assert.deepEqual(history.map((entry) => [entry.commit.mutation, entry.commit.actor]).slice(0, 1), [["patch", "ana"]]);
+        const saved = (await current()).get(OVERVIEW_KEY)!;
+        if (saved.type !== "page") assert.fail("expected a page");
+        assert.deepEqual(saved.value.draft.cells.map((c) => [c.key, c.span]), [["c-kpi", 12n], ["c-trend", 6n]]);
+
+        // A canvas still holding the cells it read before that save resizes
+        // the trend to 10: its Apply reaches e3, which refuses it, and the
+        // first save stands.
+        const stale = await save(handle, {
+            requestId: "resize-10", base: variant("snapshot", [...cells]), label: "Resize Revenue trend",
+            changes: [{ id: "c-trend", patch: entryPatch(some(cells[1]!), some({ ...cells[1]!, span: 10n })), place: none }],
+        });
+        assert.equal(stale.type, "conflict");
+        assert.deepEqual((stale.value as { message: string }[]).map((issue) => issue.message), ["The entry changed since this edit began"]);
+        const after = (await current()).get(OVERVIEW_KEY)!;
+        if (after.type !== "page") assert.fail("expected a page");
+        assert.deepEqual(after.value.draft.cells.map((c) => c.span), [12n, 6n]);
+        assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length, "the refused save made no commit");
     });
 
     it("R8: a saved template and a new page from it are one commit each", async () => {

@@ -86,9 +86,11 @@ export {
     type StudioSiteOptions,
     type StudioVersionLiteral,
     type StudioPaletteOptions,
+    type StudioCanvasOptions,
     builderKeys,
     paletteCards,
     palettePages,
+    canvasTiles,
 } from './studio/index.js';
 export {
     Diff,

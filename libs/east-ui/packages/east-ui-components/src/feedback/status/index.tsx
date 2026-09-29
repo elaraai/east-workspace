@@ -47,7 +47,8 @@ const DOT_COLOR: Record<StatusValue["value"]["type"], string> = {
  * `pulsing` enables a CSS pulse animation on the indicator dot unless the
  * user has `prefers-reduced-motion: reduce`. Animation duration matches
  * the spec's `.dot.run` (1.6 s); use `value.style.live` (not modelled here)
- * for the slower 2.4 s ring pulse if needed.
+ * for the slower 2.4 s ring pulse if needed. `ring` draws the dot open — a
+ * state not reached yet, such as a draft never published.
  *
  * The paired icon has already been injected in the IR factory (§0.3); we
  * just render it here between the dot and the label.
@@ -62,6 +63,7 @@ export const EastChakraStatus = memo(function EastChakraStatus({ value, storageK
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const icon = useMemo(() => getSomeorUndefined(value.icon), [value.icon]);
     const pulsing = getSomeorUndefined(value.pulsing) ?? false;
+    const ring = getSomeorUndefined(value.ring) ?? false;
 
     const [reducedMotion, setReducedMotion] = useState<boolean>(false);
     useEffect(() => {
@@ -84,6 +86,7 @@ export const EastChakraStatus = memo(function EastChakraStatus({ value, storageK
         status: statusTag,
         size: sizeTag ?? "md",
         pulsing: shouldPulse,
+        ring,
     });
 
     return (
@@ -94,7 +97,7 @@ export const EastChakraStatus = memo(function EastChakraStatus({ value, storageK
             <ChakraBox
                 as="span"
                 css={styles.indicator}
-                {...(dotColorOverride !== undefined ? { bg: dotColorOverride } : {})}
+                {...(dotColorOverride !== undefined ? (ring ? { borderColor: dotColorOverride } : { bg: dotColorOverride }) : {})}
             />
             {icon ? (
                 <ChakraBox as="span" display="inline-flex" alignItems="center" color={dotColorOverride ?? DOT_COLOR[statusTag]}>

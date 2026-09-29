@@ -511,9 +511,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     /**
-     * SnapGrid — tiles in rows on a 12-column grid (#989), and its editing
-     * (#990). Cells are resolved at factory time (the renderer never sees the
-     * host row type); a cell's `content` rides the recursion `node`.
+     * SnapGrid — tiles in rows on a 12-column grid (#989), its editing (#990)
+     * and the editing canvas's chrome (#995). Cells are resolved at factory
+     * time (the renderer never sees the host row type); a cell's `content`,
+     * the canvas's toolbar items and its panes ride the recursion `node`.
      * `SnapGridRootOf` builds this arm and `SnapGrid.Types.Root` alike, over
      * the content's type.
      */
@@ -582,6 +583,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         label: node,
         icon: OptionType(IconType),
         pulsing: OptionType(BooleanType),
+        ring: OptionType(BooleanType),
         showIcon: OptionType(BooleanType),
         style: OptionType(StatusStyleType),
     }),

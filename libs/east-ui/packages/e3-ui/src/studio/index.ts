@@ -30,6 +30,7 @@ import {
 } from "./pages.js";
 import { StudioPage, StudioSite, StudioVersionType } from "./surfaces.js";
 import { StudioPalette } from "./palette.js";
+import { StudioCanvas } from "./canvas.js";
 
 export {
     StudioComponentType,
@@ -67,6 +68,12 @@ export {
     PalettePageType,
     type StudioPaletteOptions,
 } from "./palette.js";
+export {
+    StudioCanvas,
+    canvasTiles,
+    CanvasTileType,
+    type StudioCanvasOptions,
+} from "./canvas.js";
 
 /** The type of the {@link Studio} namespace. */
 export interface StudioNamespace {
@@ -96,6 +103,8 @@ export interface StudioNamespace {
     Site: typeof StudioSite;
     /** `<Studio.Palette>` — the builder's palette: the listed components by category, and the project's pages. */
     Palette: typeof StudioPalette;
+    /** `<Studio.Canvas>` — the builder's canvas: the open page's grid, its history and the controls around it. */
+    Canvas: typeof StudioCanvas;
     /** The Studio's East types. */
     Types: {
         /** A Studio component ({@link StudioComponentType}). */
@@ -132,7 +141,7 @@ export interface StudioNamespace {
  * the placements that render them (`Studio.dispatch`), the pages record
  * operators build (`Studio.Types.Pages`, its writes and the change list), the
  * surfaces that read it (`<Studio.Page>` and `<Studio.Site>`), and the
- * builder's screens (`<Studio.Palette>`).
+ * builder's screens (`<Studio.Palette>`, `<Studio.Canvas>`).
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
@@ -148,6 +157,7 @@ export const Studio: StudioNamespace = {
     Page: StudioPage,
     Site: StudioSite,
     Palette: StudioPalette,
+    Canvas: StudioCanvas,
     Types: {
         Component: StudioComponentType,
         Frame: StudioFrameType,

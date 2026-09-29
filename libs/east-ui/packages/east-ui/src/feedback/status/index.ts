@@ -46,6 +46,7 @@ export {
  * @property label - Rich label node
  * @property icon - Paired or override Font Awesome icon
  * @property pulsing - Animate the indicator dot
+ * @property ring - Draw the indicator as an open ring — a state not reached yet
  * @property showIcon - Whether to render the paired icon (default true)
  * @property style - Optional visual-only style
  */
@@ -54,6 +55,7 @@ export const StatusType: StructType<{
     label: UIComponentType,
     icon: OptionType<IconType>,
     pulsing: OptionType<BooleanType>,
+    ring: OptionType<BooleanType>,
     showIcon: OptionType<BooleanType>,
     style: OptionType<StatusStyleType>,
 }> = StructType({
@@ -61,6 +63,7 @@ export const StatusType: StructType<{
     label: UIComponentType,
     icon: OptionType(IconType),
     pulsing: OptionType(BooleanType),
+    ring: OptionType(BooleanType),
     showIcon: OptionType(BooleanType),
     style: OptionType(StatusStyleType),
 });
@@ -95,6 +98,7 @@ type StatusInput =
  * @property value - Semantic classification — defaults to `"neutral"` if omitted
  * @property icon - Explicit icon override (skips paired-icon default)
  * @property pulsing - Animate the indicator dot
+ * @property ring - Draw the indicator as an open ring — a state not reached yet
  * @property showIcon - Whether to show the paired icon (default true)
  * @property size - Size preset (sm / md / lg)
  * @property color - Default text colour
@@ -111,6 +115,8 @@ export interface StatusOptions extends StatusStyle {
     icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
     /** Animate the indicator dot */
     pulsing?: SubtypeExprOrValue<BooleanType>;
+    /** Draw the indicator as an open ring — a state not reached yet, such as a draft never published */
+    ring?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show the paired icon (default true) */
     showIcon?: SubtypeExprOrValue<BooleanType>;
 }
@@ -119,7 +125,7 @@ export interface StatusOptions extends StatusStyle {
  * Creates a Status chip with a semantic classification and a paired icon.
  *
  * @param options - Required `label`, optional `value` / `icon` / `pulsing` /
- *   `showIcon` / visual style fields
+ *   `ring` / `showIcon` / visual style fields
  * @returns An East expression representing the Status component
  *
  * @remarks
@@ -141,7 +147,7 @@ export interface StatusOptions extends StatusStyle {
 function createStatusRoot(
     options: StatusOptions,
 ): ExprType<UIComponentType> {
-    const { label, value, icon, pulsing, showIcon, ...visual } = options;
+    const { label, value, icon, pulsing, ring, showIcon, ...visual } = options;
 
     const labelExpr: ExprType<UIComponentType> = typeof label === "string"
         ? Text.Root(label)
@@ -196,6 +202,7 @@ function createStatusRoot(
         label: labelExpr,
         icon: iconValue ? some(iconValue) : none,
         pulsing: pulsing !== undefined ? some(pulsing) : none,
+        ring: ring !== undefined ? some(ring) : none,
         showIcon: showIcon !== undefined ? some(showIcon) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
@@ -231,11 +238,12 @@ export const Status = {
      * Creates a Status chip.
      *
      * @param options - Required `label`, optional `value` / `icon` / `pulsing` /
-     *   `showIcon` / visual style fields
+     *   `ring` / `showIcon` / visual style fields
      *
      * @example
      * ```ts
      * Status.Root({ label: "Recomputing", value: "warning", pulsing: true });
+     * Status.Root({ label: "Draft", ring: true, showIcon: false });
      * ```
      */
     Root: createStatusRoot,
@@ -252,6 +260,7 @@ export const Status = {
          * @property label - Optional human-readable status label
          * @property icon - Optional explicit icon (overrides default paired icon)
          * @property pulsing - Whether the indicator pulses to signal real-time updates
+         * @property ring - Whether the indicator is an open ring — a state not reached yet
          * @property showIcon - Whether the default paired icon is rendered
          * @property style - Optional visual style sub-struct (see `Style`)
          */

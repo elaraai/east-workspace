@@ -243,9 +243,11 @@ const frameHeight = (editor: Locator, key: string) =>
     editor.locator(`[data-snap-grid-tile="${key}"] > [data-frame]`).evaluate((el) => (el as HTMLElement).offsetHeight);
 
 test.describe("SnapGrid editing canvas (#990)", () => {
-    // Keyed on the device, not the width: the viewport below is this block's own.
+    // Keyed on the device, not the width: the viewport below is this block's own —
+    // tall enough that the builder's frame (#995) holds the end zone clear of
+    // the window's edge, where a resting drag would scroll the page.
     test.skip(({ isMobile }) => isMobile, "the builder is a desktop surface, measured with a mouse");
-    test.use({ viewport: { width: 1600, height: 1000 } });
+    test.use({ viewport: { width: 1600, height: 1200 } });
 
     test("guides: a 24px ruler of 12 columns over the rows with a 2px top rule, the selected tile's columns in brand at 600, and a band behind each column", async ({ page }) => {
         const editor = await openEditor(page);

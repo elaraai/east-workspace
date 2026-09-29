@@ -34,6 +34,12 @@
  * alone; the shared candidate and active frames give way to them, and the
  * shared ⊘ refusal stays.
  *
+ * The canvas is the builder's frame (#995): its own bordered panel (the `card`
+ * surface), a toolbar row across its width, then its panes beside the canvas
+ * column — the selection bar over the sunken column that holds the grid
+ * panel. The toolbar's own items — the grid chip, the saved time, the width
+ * readout, the zoom and the design widths — are the mock's toolbar markup.
+ *
  * @packageDocumentation
  */
 
@@ -69,11 +75,24 @@ const TILE_BODY = {
     "& > *": { flex: "1 1 auto", minHeight: "0" },
 } as const;
 
+/** The toolbar's mono micro-labels — the grid chip and the saved time. */
+const MICRO_LABEL = {
+    fontFamily: "mono",
+    fontSize: "9.5px",
+    fontWeight: "600",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    whiteSpace: "nowrap",
+} as const;
+
 export const snapGridSlotRecipe = defineSlotRecipe({
     className: "elara-snap-grid",
     slots: [
         "root", "grid", "row", "cell",
-        "editor", "viewport", "canvas", "ruler", "rulerMark", "bands", "band", "rows", "gap", "gapLine",
+        "editor", "toolbarRow", "body", "pane", "main",
+        "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint",
+        "chip", "saved", "readout", "zoom", "zoomButton", "zoomValue", "divider", "widths", "widthsButton",
+        "viewport", "canvas", "ruler", "rulerMark", "bands", "band", "rows", "gap", "gapLine",
         "tile", "frame", "handle", "remove", "insertBefore", "insertAfter", "rule", "badge", "edgeBefore", "edgeAfter", "guide",
         "endZone", "endZoneBox", "endZoneRest", "endZoneDragging", "endZoneTarget", "ghost",
     ],
@@ -108,12 +127,195 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             ...TILE_BODY,
         },
 
-        // ── The builder's canvas (#990) ─────────────────────────────────
+        // ── The builder's canvas (#990) and its frame (#995) ────────────
         editor: {
             display: "flex",
             flexDirection: "column",
             minWidth: 0,
             minHeight: 0,
+            bg: "bg.surface",
+        },
+        // The toolbar across the frame's width, over the panes and the canvas.
+        toolbarRow: {
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            height: "44px",
+            paddingX: "{spacing.4}",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+            bg: "bg.surface",
+        },
+        body: {
+            flex: "1",
+            display: "flex",
+            minWidth: 0,
+            minHeight: 0,
+        },
+        // A pane sizes itself — a Dock takes its width, or its rail's.
+        pane: {
+            flex: "none",
+            display: "flex",
+            minHeight: 0,
+        },
+        main: {
+            flex: "1",
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 0,
+            minHeight: 0,
+            bg: "bg.subtle",
+        },
+        // The selection bar: the selected tile's icon, name and meta.
+        selectionBar: {
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            height: "44px",
+            paddingInlineStart: "{spacing.4}",
+            paddingInlineEnd: "{spacing.2}",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+            bg: "bg.panel",
+        },
+        selectionIcon: {
+            flex: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "{spacing.6}",
+            height: "{spacing.6}",
+            borderRadius: "sm",
+            bg: "bg.brand.subtle",
+            color: "brand.solid",
+            fontSize: "10.5px",
+        },
+        selectionName: {
+            flex: "none",
+            fontSize: "13px",
+            fontWeight: "600",
+            color: "fg",
+            whiteSpace: "nowrap",
+        },
+        selectionMeta: {
+            minWidth: 0,
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+        },
+        selectionEmpty: {
+            ...MICRO_LABEL,
+            flex: "none",
+            letterSpacing: "0.14em",
+            color: "fg.subtle",
+        },
+        selectionHint: {
+            fontSize: "12.5px",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+        },
+        // The toolbar's own items: the grid chip, the saved time, the width
+        // readout, the zoom, the rule before the history, and the widths.
+        chip: {
+            ...MICRO_LABEL,
+            display: "inline-flex",
+            alignItems: "center",
+            height: "20px",
+            paddingX: "7px",
+            borderWidth: "1px",
+            borderStyle: "solid",
+            borderColor: "border.subtle",
+            borderRadius: "sm",
+            color: "fg.muted",
+        },
+        saved: {
+            ...MICRO_LABEL,
+            color: "fg.success",
+        },
+        readout: {
+            fontFamily: "mono",
+            fontSize: "11px",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+        },
+        zoom: {
+            display: "inline-flex",
+            alignItems: "stretch",
+            height: "26px",
+            borderWidth: "1px",
+            borderStyle: "solid",
+            borderColor: "border.strong",
+            borderRadius: "md",
+            overflow: "hidden",
+            fontFamily: "mono",
+            fontSize: "11px",
+        },
+        zoomButton: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "26px",
+            padding: "0",
+            border: "0",
+            bg: "transparent",
+            color: "fg.muted",
+            fontSize: "9px",
+            cursor: "pointer",
+            _hover: { color: "fg" },
+            _disabled: { color: "fg.subtle", cursor: "not-allowed" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
+        },
+        zoomValue: {
+            display: "inline-flex",
+            alignItems: "center",
+            paddingX: "{spacing.2}",
+            borderInlineWidth: "1px",
+            borderInlineStyle: "solid",
+            borderInlineColor: "border.subtle",
+            fontWeight: "600",
+            color: "fg",
+            fontVariantNumeric: "tabular-nums",
+        },
+        divider: {
+            flex: "none",
+            width: "1px",
+            height: "18px",
+            bg: "border.strong",
+        },
+        widths: {
+            display: "inline-flex",
+            borderWidth: "1px",
+            borderStyle: "solid",
+            borderColor: "border.strong",
+            borderRadius: "md",
+            overflow: "hidden",
+        },
+        widthsButton: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            height: "26px",
+            paddingX: "10px",
+            border: "0",
+            bg: "bg.surface",
+            color: "fg.muted",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+            cursor: "pointer",
+            "& svg": { fontSize: "10px" },
+            "& + &": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.strong" },
+            "&[aria-pressed=true]": { bg: "bg.brand.subtle", color: "brand.fg" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
         },
         viewport: {
             flex: "1",
@@ -435,6 +637,20 @@ export const snapGridSlotRecipe = defineSlotRecipe({
                 },
             },
         },
+        // The editing canvas's frame (#995): its own bordered panel, or none
+        // inside a host's.
+        surface: {
+            card: {
+                editor: {
+                    borderWidth: "1px",
+                    borderStyle: "solid",
+                    borderColor: "border.strong",
+                    borderRadius: "10px",
+                    overflow: "hidden",
+                },
+            },
+            shell: {},
+        },
     },
-    defaultVariants: { variant: "tiles" },
+    defaultVariants: { variant: "tiles", surface: "card" },
 });

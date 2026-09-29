@@ -16,6 +16,14 @@
  * handling, snapping live: a resize lands nowhere. The selection is the
  * host's bound `ui` state, or the canvas's own.
  *
+ * The canvas is the builder's frame (#995): one toolbar across its width —
+ * the host's start items, the grid chip and the time the source last
+ * confirmed an Apply; then the width readout, the zoom, the history item, the
+ * design widths and the host's end items — and under it the host's panes
+ * beside the canvas column, where the selection bar names the selected tile
+ * over the grid panel. The design width and the zoom are the host's bound
+ * `view`, or the canvas's own.
+ *
  * @packageDocumentation
  */
 
@@ -26,14 +34,17 @@ import {
 } from "react";
 import { Box, chakra, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
-import { none, some } from "@elaraai/east";
+import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
+import { fas, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { none, some, type ValueTypeOf } from "@elaraai/east";
+import type { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
+import type { HistoryAction } from "../../editing/HistoryBar.js";
 import { historyShortcut } from "../../editing/shortcuts.js";
 import type { EditIssue } from "../../editing/session.js";
 import {
@@ -49,10 +60,38 @@ import {
 } from "./model.js";
 import type { SnapGridCellValue, SnapGridValue } from "./index.js";
 
+// A tile's and a design width's icons are Font Awesome names from the data;
+// register the free-solid set so they resolve by name (idempotent).
+library.add(fas);
+
 type Styles = Record<string, SystemStyleObject>;
+
+/** The design width and zoom a host holds — the bound `view`'s value. */
+type ViewState = ValueTypeOf<typeof SnapGrid.Types.ViewState>;
 
 /** Which edge a resize handle drags. */
 type ResizeKind = "span" | "height" | "both";
+
+/** The zoom's range and step. */
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 1.5;
+const ZOOM_STEP = 0.1;
+
+/**
+ * The fold order of the canvas's own toolbar items (#995), lowest first: the
+ * grid chip, then the width readout, then the saved time, then the widths to
+ * their icons. The history item folds after them all, at its own rank.
+ */
+const RANK_GRID = 10;
+const RANK_READOUT = 20;
+const RANK_SAVED = 30;
+const RANK_WIDTHS = 40;
+
+/** A design width in whole px, when it is one — what the readout prints. */
+function pxOf(width: string | undefined): number | undefined {
+    const px = width === undefined ? undefined : /^(\d+(?:\.\d+)?)px$/.exec(width);
+    return px ? Number(px[1]) : undefined;
+}
 
 /** A resize while the pointer holds its handle — what the tile draws until it lets go. */
 interface ResizePreview {
@@ -349,9 +388,27 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
-    const styles = useMemo(() => recipe({ variant: "tiles" }) as Styles, [recipe]);
+    const surfaceTag = getSomeorUndefined(value.surface)?.type ?? "card";
+    const styles = useMemo(() => recipe({ variant: "tiles", surface: surfaceTag }) as Styles, [recipe, surfaceTag]);
     const editing = useSnapGridEditing(value, storageKey);
-    const { session, available, tiles, cells, marks, creates, heights, move, add, resize, height, remove, action } = editing;
+    const { session, available, tiles, cells, marks, creates, heights, move, add, resize, height, remove, action: sessionAction } = editing;
+
+    // ── When the source last confirmed an Apply ──────────────────────────
+    // An Apply is confirmed when the session leaves `reconciling` for `idle`
+    // — heard from the session itself, since both can pass within one render;
+    // a Discard clears the time, as it clears the drafts.
+    const [savedAt, setSavedAt] = useState<Date | undefined>(undefined);
+    useEffect(() => {
+        let was = session.status;
+        return session.subscribe(() => {
+            if (was === "reconciling" && session.status === "idle") setSavedAt(new Date());
+            was = session.status;
+        });
+    }, [session]);
+    const action = useCallback((a: HistoryAction) => {
+        if (a === "discard") setSavedAt(undefined);
+        sessionAction(a);
+    }, [sessionAction]);
     const rows = useMemo(() => rowsOf(tiles), [tiles]);
     const cellOf = useMemo(() => new Map(cells.map((c) => [c.key, c] as const)), [cells]);
     // What the drag layer's callbacks read — always this render's.
@@ -640,71 +697,188 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         return undefined;
     }, [selected, rows, preview]);
 
-    const width = parseCssSize(getSomeorUndefined(value.width));
-    const zoom = getSomeorUndefined(value.zoom);
-    const canvasStyle: CSSProperties = { ...(width !== undefined ? { width } : {}), ...(zoom !== undefined ? { zoom } : {}) };
+    // ── The design width and the zoom — the host's bound view, or the canvas's own ──
+    const viewBind = value.view.type === "some" ? value.view.value : undefined;
+    const readView = useCallback(() => (viewBind === undefined ? undefined : viewBind.read()), [viewBind]);
+    const { result: viewRead } = useTrackedEvaluation(readView);
+    const [ownView, setOwnView] = useState<ViewState>({ width: none, zoom: none });
+    const view: ViewState = viewBind === undefined ? ownView
+        : viewRead.ok && viewRead.value !== undefined ? viewRead.value : { width: none, zoom: none };
+    const setView = useCallback((next: ViewState) => {
+        if (viewBind === undefined) {
+            setOwnView(next);
+            return;
+        }
+        try {
+            viewBind.write(next);
+        } catch (err) {
+            console.error("[SnapGrid] view state write failed:", err);
+        }
+    }, [viewBind]);
+    const width = parseCssSize(getSomeorUndefined(view.width) ?? getSomeorUndefined(value.width));
+    const zoom = getSomeorUndefined(view.zoom) ?? getSomeorUndefined(value.zoom) ?? 1;
+    const zoomTo = (to: number) => setView({ width: view.width, zoom: some(Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, to)) * 10) / 10) });
+    // The design width is the most the grid lays out at: a narrower column
+    // lays it out at the column's width, a wider one centres it at its own.
+    const canvasStyle: CSSProperties = { ...(width !== undefined ? { maxWidth: width, marginInline: "auto" } : {}), ...(zoom !== 1 ? { zoom } : {}) };
     const tabStop = selected ?? tiles[0]?.key;
+
+    // ── The toolbar: the host's start items, the canvas's own, the history item, the host's end items ──
+    const widthPx = pxOf(width);
+    const zoomControl = (
+        <Box css={styles.zoom} role="group" aria-label={m.zoomLabel()} data-snap-grid-zoom="">
+            <chakra.button type="button" css={styles.zoomButton} aria-label={m.zoomOut()} title={m.zoomOut()}
+                disabled={zoom <= ZOOM_MIN} onClick={() => zoomTo(zoom - ZOOM_STEP)}>
+                <FontAwesomeIcon icon={faMinus} />
+            </chakra.button>
+            <Box as="output" css={styles.zoomValue}>{words.percent(zoom)}</Box>
+            <chakra.button type="button" css={styles.zoomButton} aria-label={m.zoomIn()} title={m.zoomIn()}
+                disabled={zoom >= ZOOM_MAX} onClick={() => zoomTo(zoom + ZOOM_STEP)}>
+                <FontAwesomeIcon icon={faPlus} />
+            </chakra.button>
+        </Box>
+    );
+    const widthsGroup = (iconsOnly: boolean) => (
+        <Box css={styles.widths} role="group" aria-label={m.widthsLabel()} data-snap-grid-widths="">
+            {value.widths.map((preset, i) => {
+                const icon = getSomeorUndefined(preset.icon);
+                return (
+                    <chakra.button key={i} type="button" css={styles.widthsButton}
+                        aria-pressed={parseCssSize(preset.width) === width}
+                        {...(iconsOnly ? { "aria-label": preset.label, title: preset.label } : {})}
+                        onClick={() => setView({ width: some(preset.width), zoom: view.zoom })}>
+                        {icon !== undefined && <FontAwesomeIcon icon={["fas", icon as IconName]} />}
+                        {(!iconsOnly || icon === undefined) && preset.label}
+                    </chakra.button>
+                );
+            })}
+        </Box>
+    );
+    const items: ReadonlyArray<ToolbarItem | false | null | undefined> = [
+        ...value.toolbar.start.map((node, i): ToolbarItem => ({
+            key: `start-${i}`, side: "start",
+            forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.start.${i}`} />],
+        })),
+        { key: "grid", side: "start", forms: [<Box as="span" css={styles.chip} data-snap-grid-chip="">{m.gridChip()}</Box>, null], rank: RANK_GRID },
+        savedAt !== undefined && {
+            key: "saved", side: "start", rank: RANK_SAVED, version: savedAt.getTime(),
+            forms: [<Box as="span" css={styles.saved} data-snap-grid-saved="">{m.saved({ time: words.time(savedAt) })}</Box>, null],
+        },
+        widthPx !== undefined && {
+            key: "readout", side: "end", rank: RANK_READOUT, version: widthPx,
+            forms: [<Box as="span" css={styles.readout} data-snap-grid-readout="">{m.widthReadout({ px: words.bare(widthPx) })}</Box>, null],
+        },
+        { key: "zoom", side: "end", forms: [zoomControl], version: zoom },
+        { key: "rule", side: "end", forms: [<Box as="span" css={styles.divider} aria-hidden />] },
+        ...(toolbarItems ?? []),
+        history,
+        value.widths.length > 0 && { key: "widths", side: "end", forms: [widthsGroup(false), widthsGroup(true)], rank: RANK_WIDTHS, version: width },
+        ...value.toolbar.end.map((node, i): ToolbarItem => ({
+            key: `end-${i}`, side: "end",
+            forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.end.${i}`} />],
+        })),
+    ];
+
+    // ── The selection bar: the selected tile's icon, name and meta ──────
+    const selectedCell = selected !== null ? cellOf.get(selected) : undefined;
+    const selectedIcon = selectedCell !== undefined ? getSomeorUndefined(selectedCell.icon) : undefined;
+    const selectedMeta = selectedCell !== undefined ? getSomeorUndefined(selectedCell.meta) : undefined;
+    const paneStart = getSomeorUndefined(value.panes.start);
+    const paneEnd = getSomeorUndefined(value.panes.end);
 
     return (
         <Box
             css={styles.editor}
             data-snap-grid=""
             data-snap-grid-editor=""
+            data-surface={surfaceTag}
             height={parseCssSize(getSomeorUndefined(value.height))}
             maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
         >
-            <Toolbar items={[...(toolbarItems ?? []), history]} />
-            <Box css={styles.viewport} onKeyDown={onKeyDown} onPointerDown={onPointerDown} onClick={onClick}>
-                <Box css={styles.canvas} style={canvasStyle} role="group" aria-label={m.canvasLabel()} data-snap-grid-canvas="">
-                    {guides && (
-                        <Box css={styles.ruler} aria-hidden data-snap-grid-ruler="">
-                            {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => (
-                                <Box key={i} css={styles.rulerMark} data-on={on !== undefined && i + 1 >= on.first && i + 1 <= on.last ? "" : undefined}>
-                                    {words.number(i + 1)}
-                                </Box>
-                            ))}
-                        </Box>
-                    )}
-                    {guides && (
-                        <Box css={styles.bands} aria-hidden data-snap-grid-bands="">
-                            {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => <Box key={i} css={styles.band} />)}
-                        </Box>
-                    )}
-                    <Box ref={rowsEl} css={styles.rows} data-snap-grid-rows="">
-                        {rows.map((row, i) => (
-                            <Fragment key={row.key}>
-                                <SnapGridGapCell index={i} first={i === 0} end={false} surface={surface} veto={veto} styles={styles} words={words} hover={hover} />
-                                <SnapGridRowCell row={row} index={i} surface={surface} veto={veto} styles={styles} words={words}
-                                    resting={resting} hover={hover} guide={preview?.row === row.key ? preview.guide : undefined}>
-                                    {row.tiles.map((tile) => (
-                                        <SnapGridTileBox
-                                            key={tile.key}
-                                            tile={tile}
-                                            cell={cellOf.get(tile.key)!}
-                                            surface={surface}
-                                            start={startColumn(row.tiles, tile.key)}
-                                            rowNumber={i + 1}
-                                            styles={styles}
-                                            words={words}
-                                            storageKey={storageKey}
-                                            selected={tile.key === selected}
-                                            tabStop={tile.key === tabStop}
-                                            mark={marks.get(tile.key)}
-                                            movable={available}
-                                            heights={heights}
-                                            preview={preview?.key === tile.key ? preview : undefined}
-                                            onSelect={select}
-                                            onResizeStart={onResizeStart}
-                                            onRemove={onRemove}
-                                            register={register}
-                                        />
+            <Box css={styles.toolbarRow} data-snap-grid-toolbar-row="">
+                <Toolbar items={items} />
+            </Box>
+            <Box css={styles.body}>
+                {paneStart !== undefined && (
+                    <Box css={styles.pane} data-snap-grid-pane="start">
+                        <EastChakraComponent value={paneStart} storageKey={`${storageKey}.pane.start`} />
+                    </Box>
+                )}
+                <Box css={styles.main} data-snap-grid-main="">
+                    <Box css={styles.selectionBar} data-snap-grid-selection="">
+                        {selectedCell !== undefined ? (
+                            <>
+                                {selectedIcon !== undefined && (
+                                    <Box as="span" css={styles.selectionIcon}><FontAwesomeIcon icon={["fas", selectedIcon as IconName]} /></Box>
+                                )}
+                                <Box as="span" css={styles.selectionName}>{tiles.find((t) => t.key === selected)?.label ?? selected}</Box>
+                                {selectedMeta !== undefined && <Box as="span" css={styles.selectionMeta}>{selectedMeta}</Box>}
+                            </>
+                        ) : (
+                            <>
+                                <Box as="span" css={styles.selectionEmpty}>{m.noSelection()}</Box>
+                                <Box as="span" css={styles.selectionHint}>{m.noSelectionHint()}</Box>
+                            </>
+                        )}
+                    </Box>
+                    <Box css={styles.viewport} onKeyDown={onKeyDown} onPointerDown={onPointerDown} onClick={onClick}>
+                        <Box css={styles.canvas} style={canvasStyle} role="group" aria-label={m.canvasLabel()} data-snap-grid-canvas="">
+                            {guides && (
+                                <Box css={styles.ruler} aria-hidden data-snap-grid-ruler="">
+                                    {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => (
+                                        <Box key={i} css={styles.rulerMark} data-on={on !== undefined && i + 1 >= on.first && i + 1 <= on.last ? "" : undefined}>
+                                            {words.number(i + 1)}
+                                        </Box>
                                     ))}
-                                </SnapGridRowCell>
-                            </Fragment>
-                        ))}
-                        <SnapGridGapCell index={rows.length} first={rows.length === 0} end surface={surface} veto={veto} styles={styles} words={words} hover={hover} />
+                                </Box>
+                            )}
+                            {guides && (
+                                <Box css={styles.bands} aria-hidden data-snap-grid-bands="">
+                                    {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => <Box key={i} css={styles.band} />)}
+                                </Box>
+                            )}
+                            <Box ref={rowsEl} css={styles.rows} data-snap-grid-rows="">
+                                {rows.map((row, i) => (
+                                    <Fragment key={row.key}>
+                                        <SnapGridGapCell index={i} first={i === 0} end={false} surface={surface} veto={veto} styles={styles} words={words} hover={hover} />
+                                        <SnapGridRowCell row={row} index={i} surface={surface} veto={veto} styles={styles} words={words}
+                                            resting={resting} hover={hover} guide={preview?.row === row.key ? preview.guide : undefined}>
+                                            {row.tiles.map((tile) => (
+                                                <SnapGridTileBox
+                                                    key={tile.key}
+                                                    tile={tile}
+                                                    cell={cellOf.get(tile.key)!}
+                                                    surface={surface}
+                                                    start={startColumn(row.tiles, tile.key)}
+                                                    rowNumber={i + 1}
+                                                    styles={styles}
+                                                    words={words}
+                                                    storageKey={storageKey}
+                                                    selected={tile.key === selected}
+                                                    tabStop={tile.key === tabStop}
+                                                    mark={marks.get(tile.key)}
+                                                    movable={available}
+                                                    heights={heights}
+                                                    preview={preview?.key === tile.key ? preview : undefined}
+                                                    onSelect={select}
+                                                    onResizeStart={onResizeStart}
+                                                    onRemove={onRemove}
+                                                    register={register}
+                                                />
+                                            ))}
+                                        </SnapGridRowCell>
+                                    </Fragment>
+                                ))}
+                                <SnapGridGapCell index={rows.length} first={rows.length === 0} end surface={surface} veto={veto} styles={styles} words={words} hover={hover} />
+                            </Box>
+                        </Box>
                     </Box>
                 </Box>
+                {paneEnd !== undefined && (
+                    <Box css={styles.pane} data-snap-grid-pane="end">
+                        <EastChakraComponent value={paneEnd} storageKey={`${storageKey}.pane.end`} />
+                    </Box>
+                )}
             </Box>
             <VisuallyHidden role="status" aria-live="polite" aria-atomic="true" data-snap-grid-announce="">{said}</VisuallyHidden>
         </Box>
