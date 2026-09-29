@@ -130,7 +130,7 @@ describe('planning the pieces of an input', () => {
     const entries = await entriesOf(hash);
     assert.ok(entries.length >= 6, `the input spans several segments, got ${entries.length}`);
 
-    const pieces = await planPieces(storage, repo,
+    const { pieces } = await planPieces(storage, repo,
       [{ path: [variant('field', 'sales')], partition: some({ by: [] }) }], [hash], EVERY_SEGMENT);
     assert.equal(pieces.length, entries.length);
     for (let p = 0; p < pieces.length; p++) {
@@ -142,7 +142,7 @@ describe('planning the pieces of an input', () => {
   it('plans one piece, the inputs themselves, when the input fits in one', async () => {
     const hash = await datasetWrite(storage, repo, table(0, 8000), TableType);
     const rates = await datasetWrite(storage, repo, 7n, IntegerType);
-    const pieces = await planPieces(storage, repo, [
+    const { pieces } = await planPieces(storage, repo, [
       { path: [variant('field', 'rates')], partition: none },
       { path: [variant('field', 'sales')], partition: some({ by: [] }) },
     ], [rates, hash], PIECE_SIZES);
@@ -152,7 +152,7 @@ describe('planning the pieces of an input', () => {
   it('passes an unmarked input to every piece whole', async () => {
     const hash = await datasetWrite(storage, repo, table(0, 8000), TableType);
     const rates = await datasetWrite(storage, repo, 7n, IntegerType);
-    const pieces = await planPieces(storage, repo, [
+    const { pieces } = await planPieces(storage, repo, [
       { path: [variant('field', 'sales')], partition: some({ by: [] }) },
       { path: [variant('field', 'rates')], partition: none },
     ], [hash, rates], EVERY_SEGMENT);
@@ -174,7 +174,7 @@ describe('planning the pieces of an input', () => {
   it('cuts an Array by position', async () => {
     const values = Array.from({ length: 9000 }, (_, i) => BigInt((i * 7919) % 9000));
     const hash = await datasetWrite(storage, repo, values, ArrayType(IntegerType));
-    const pieces = await planPieces(storage, repo,
+    const { pieces } = await planPieces(storage, repo,
       [{ path: [variant('field', 'events')], partition: some({ by: [] }) }], [hash], EVERY_SEGMENT);
     assert.equal(pieces.length, (await entriesOf(hash)).length);
     assert.equal(await storeCollection(storage, repo, ArrayType(IntegerType), pieces.map(([piece]) => ({ stored: piece! }))), hash);
@@ -191,7 +191,7 @@ describe('planning the pieces of an input', () => {
     const hash = await datasetWrite(storage, repo, rows, type);
     const segmentsOfInput = new Set((await entriesOf(hash)).map((entry) => entry.hash));
 
-    const pieces = await planPieces(storage, repo,
+    const { pieces } = await planPieces(storage, repo,
       [{ path: [variant('field', 'sales')], partition: some({ by: ['group'] }) }], [hash], EVERY_SEGMENT);
     assert.ok(pieces.length > 1, 'the input splits');
     const decode = decodeBeast2For(type);
@@ -215,7 +215,7 @@ describe('planning the pieces of an input', () => {
       Array.from({ length: 5000 }, (_, i) => [BigInt(1000 + i), `return-${1000 + i}`] as [bigint, string]), compareFor(IntegerType));
     const secondary = await datasetWrite(storage, repo, secondaryValue, TableType);
 
-    const pieces = await planPieces(storage, repo, [
+    const { pieces } = await planPieces(storage, repo, [
       { path: [variant('field', 'sales')], partition: some({ by: [] }) },
       { path: [variant('field', 'returns')], partition: some({ by: [] }) },
     ], [primary, secondary], EVERY_SEGMENT);
@@ -236,6 +236,25 @@ describe('planning the pieces of an input', () => {
     );
   });
 
+  it('cuts co-partitioned inputs over the one that weighs the most, in whichever order they are listed', async () => {
+    const small = await datasetWrite(storage, repo, table(0, 2000), TableType);
+    const big = await datasetWrite(storage, repo, table(0, 8000), TableType);
+    const sales = { path: [variant('field', 'sales')], partition: some({ by: [] }) };
+    const returns = { path: [variant('field', 'returns')], partition: some({ by: [] }) };
+
+    const smallFirst = await planPieces(storage, repo, [sales, returns], [small, big], EVERY_SEGMENT);
+    const bigFirst = await planPieces(storage, repo, [sales, returns], [big, small], EVERY_SEGMENT);
+    assert.equal(smallFirst.primary, 1, 'listed second, the heavier input is still the one cut');
+    assert.equal(bigFirst.primary, 0);
+    assert.equal(smallFirst.pieces.length, (await entriesOf(big)).length, 'a piece per segment of the heavier input');
+    assert.deepEqual(smallFirst.pieces.map(([s, b]) => [b, s]), bigFirst.pieces, 'the same pieces, whichever is listed first');
+    assert.ok(smallFirst.primaryBytes > (await entriesOf(small)).reduce((sum, entry) => sum + Number(entry.bytes), 0),
+      'what the primary weighs is more than the lighter input\'s segments');
+
+    // Of inputs that weigh the same, the first listed is cut.
+    assert.equal((await planPieces(storage, repo, [sales, returns], [big, big], EVERY_SEGMENT)).primary, 0);
+  });
+
   it('splits co-partitioned inputs by their `by` fields', async () => {
     const WideKeyType = StructType({ sku: StringType, period: IntegerType, line: IntegerType });
     const SharedKeyType = StructType({ sku: StringType, period: IntegerType });
@@ -252,7 +271,7 @@ describe('planning the pieces of an input', () => {
     const primary = await datasetWrite(storage, repo, primaryValue, primaryType);
     const secondary = await datasetWrite(storage, repo, secondaryValue, secondaryType);
 
-    const pieces = await planPieces(storage, repo, [
+    const { pieces } = await planPieces(storage, repo, [
       { path: [variant('field', 'lines')], partition: some({ by: ['sku', 'period'] }) },
       { path: [variant('field', 'plans')], partition: some({ by: ['sku', 'period'] }) },
     ], [primary, secondary], EVERY_SEGMENT);

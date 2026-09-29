@@ -181,7 +181,7 @@ A task whose work is split over its inputs — an `east` body on a stock runner,
 
 ### Pieces
 
-`planPieces` (`execution/pieces.ts`) cuts the pieces. The first input `e3.partition` marks is the primary, and its pieces are runs of the segments its manifest names, which the Writer wrote.
+`planPieces` (`execution/pieces.ts`) cuts the pieces. The primary is the input `e3.partition` marks that weighs the most in the store — its segments and its manifest (`DatasetSegments.bytes`), the first listed of those that weigh the same — so the pieces do not depend on the order the inputs are listed in, and a small input listed first does not carry a large one whole into its few pieces. The primary's pieces are runs of the segments its manifest names, which the Writer wrote.
 
 A piece is a run of whole segments of the primary, closed by a rule over its manifest (`pieceBoundaries`). The segments are walked in order, with `b` the stored bytes of the open piece, the segment in hand included. A segment closes the piece after it when `b` reaches `max`, or when `b` is at least `min` and the first 32 bits of the segment's SHA-256 — the hash the store names it by — fall under `2^32 × s / D`, where `s` is the segment's stored bytes and `D` is `max` until the piece holds `target` and `min` after. The platform's sizes are 16, 64 and 256 MiB (`PIECE_SIZES`), and most pieces hold 64 to 100 MiB; a test sets `E3_TEST_PIECE_BYTES=n` for `n/4`, `n` and `4n` bytes. Whether a segment closes a piece depends on that segment and on `b` alone, so an insertion moves only the pieces around it.
 
@@ -209,8 +209,9 @@ Each group merges through a tree of units of fan-in 32 (`MERGE_TREE_FANIN`): a l
 
 The units run a stage at a time: the pieces, then each level of the merges. Each stage is a `$plan` object (`UnitPlanType`, `e3-types/src/unit-plan.ts`) holding the task's hash, the task's inputs hash, the stage — each piece's inputs, or a merge level: its number, the number of levels, and its groups, each an optional range and its entries in fold order — and the plan of the stage before it (`previous`, `none` for the pieces). It is written as the stage starts and named by the execution's `plan` record, which roots it for GC until the execution ends. A task taken up mid-way still names every stage it ran, through the plans before the one it took up.
 
-While the stages run, the task's own execution, `(taskHash, inputsHash(inputHashes))`, is recorded `running` under the orchestrator, with the orchestrator as its runner and its owner. Its `stdout.txt` gets one line per unit once the unit's result is known (`combine` names a fold's merges):
+While the stages run, the task's own execution, `(taskHash, inputsHash(inputHashes))`, is recorded `running` under the orchestrator, with the orchestrator as its runner and its owner. Its `stdout.txt` names the input the pieces were cut over, once they are planned — its dataset path and what it weighs — and gets one line per unit once the unit's result is known (`combine` names a fold's merges):
 ```
+plan pieces=<n> over=<path> bytes=<bytes>
 piece <i>/<n> <completed|cached|failed|cancelled> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 merge level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 combine level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>

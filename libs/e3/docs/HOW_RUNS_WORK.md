@@ -87,9 +87,11 @@ segment at a time. Nothing reads a collection whole to store it.
 
 6. **`reconcile`, a join.** It is ready once `enrich` and `score` have both
    finished.
-   - Its pieces are cut over its first partitioned input, and the second is
-     cut at the same keys. So each piece gets `enrich`'s rows and `score`'s rows
-     for the same key range.
+   - Its pieces are cut over whichever partitioned input weighs more in the
+     store, whatever the order they are listed in, and the other is cut at the
+     same keys. So each piece gets `enrich`'s rows and `score`'s rows for the
+     same key range, and the task's log names the input the pieces were cut
+     over.
    - An input a task does not partition reaches every piece whole, opened
      lazily when it is large, and a change to it re-runs every piece.
 

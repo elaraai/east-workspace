@@ -59,6 +59,7 @@ import {
   UNIT_PLAN_KIND,
   decodeUnitPlan,
   encodeUnitPlan,
+  pathToString,
   type ExecutionOwner,
   type ExecutionStatus,
   type PartitionProgress,
@@ -74,7 +75,7 @@ import { storeCollection } from '../store-collection.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import type { SplitUnit } from './interfaces.js';
 import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './LocalTaskRunner.js';
-import { planPieces, pieceSizes, type PieceSizes } from './pieces.js';
+import { planPieces, pieceSizes, type PiecePlan, type PieceSizes } from './pieces.js';
 import { mergeComponents, mergeTreeGroups, mergeTreeLevels, planMergeRanges } from './steps.js';
 import type { MergeParts } from './units.js';
 
@@ -308,15 +309,17 @@ export class SplitTask {
       }
     }
     split.tookUp = stage !== null;
+    // The input the pieces are cut over, when they are planned here.
+    let cut: PiecePlan | null = null;
     try {
       split.sizes = pieceSizes();
       if (stage === null) {
-        const pieces = await planPieces(storage, repo, task.inputs, inputHashes, split.sizes);
-        if (pieces.length === 1) {
+        cut = await planPieces(storage, repo, task.inputs, inputHashes, split.sizes);
+        if (cut.pieces.length === 1) {
           split.current = { plan: null, units: [{ inputs: [...inputHashes], merge: null, own: true }], merge: null };
           return split;
         }
-        stage = variant('pieces', pieces);
+        stage = variant('pieces', cut.pieces);
       }
     } catch (err) {
       return split.errorResult(`Failed to plan the task's pieces: ${messageOf(err)}`);
@@ -340,6 +343,11 @@ export class SplitTask {
       unit: false,
     }));
     split.running = true;
+    // The log says which input the pieces were cut over: the partitioned
+    // input that weighs the most, whatever the order it is listed in.
+    if (cut !== null) {
+      split.log(`plan pieces=${cut.pieces.length} over=${pathToString(task.inputs[cut.primary]!.path)} bytes=${cut.primaryBytes}\n`);
+    }
     return split;
   }
 
@@ -372,14 +380,7 @@ export class SplitTask {
       const label = merge === null ? `piece ${index + 1}/${total}` : `${this.phase} level ${merge.level}/${merge.levels} unit ${index + 1}/${total}`;
       const state = result.cancelled ? 'cancelled' : result.cached ? 'cached' : result.state === 'success' ? 'completed' : 'failed';
       const peak = result.peakBytes === undefined ? '' : ` peak=${result.peakBytes}`;
-      const line = `${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}${peak}\n`;
-      this.logWrites = this.logWrites.then(async () => {
-        try {
-          await this.storage.logs.append(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, 'stdout', line);
-        } catch (err) {
-          console.warn(`Failed to append the task's log: ${messageOf(err)}`);
-        }
-      });
+      this.log(`${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}${peak}\n`);
     }
     if (result.state === 'success') {
       this.done++;
@@ -535,6 +536,18 @@ export class SplitTask {
       pid: BigInt(process.pid),
       unit: false,
     }));
+  }
+
+  /** Appends a line to the task's log, after every line before it; a line
+   *  that cannot be written is warned of, and the task goes on. */
+  private log(line: string): void {
+    this.logWrites = this.logWrites.then(async () => {
+      try {
+        await this.storage.logs.append(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, 'stdout', line);
+      } catch (err) {
+        console.warn(`Failed to append the task's log: ${messageOf(err)}`);
+      }
+    });
   }
 
   /** Starts a stage: writes its plan, naming the plan of the stage before it
