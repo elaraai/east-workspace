@@ -478,6 +478,12 @@ await describe("String", (test) => {
         $(assert.equal(East.value("café").upperCase(), "CAFÉ"));
         $(assert.equal(East.value("CAFÉ").lowerCase(), "café"));
         $(assert.equal(East.value("naïve").upperCase(), "NAÏVE"));
+
+        // Past U+FFFF, on every platform: a letter changes case as JavaScript's
+        // does (Deseret U+10400 / U+10428, Adlam U+1E900 / U+1E922), and a
+        // symbol keeps itself (U+1D11E, the G clef)
+        $(assert.equal(East.value("\u{10400}\u{1E900} \u{1D11E}").lowerCase(), "\u{10428}\u{1E922} \u{1D11E}"));
+        $(assert.equal(East.value("\u{10428}\u{1E922} \u{1D11E}").upperCase(), "\u{10400}\u{1E900} \u{1D11E}"));
     });
 
     test("String repeat", $ => {
