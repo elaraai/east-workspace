@@ -12,6 +12,7 @@ import {
     FunctionType,
     NullType,
     OptionType,
+    StringType,
     StructType,
     variant,
     some,
@@ -24,6 +25,7 @@ import {
     DockOrientationType,
     DockSideType,
     DockPersistType,
+    DockSurfaceType,
     type DockStyle,
     type DockOptions,
 } from "./types.js";
@@ -34,8 +36,11 @@ export {
     DockOrientationType,
     DockSideType,
     DockPersistType,
+    DockSurfaceType,
     type DockStyle,
     type DockOptions,
+    type DockTabInput,
+    type DockSurfaceLiteral,
 } from "./types.js";
 
 // ============================================================================
@@ -43,10 +48,30 @@ export {
 // ============================================================================
 
 /**
+ * One tab of a Dock's tab row, resolved.
+ *
+ * @property key - The tab's identity
+ * @property label - Its name in the tab row
+ * @property body - What the pane shows while the tab is open
+ */
+export const DockTabType: StructType<{
+    key: StringType,
+    label: StringType,
+    body: ArrayType<UIComponentType>,
+}> = StructType({
+    key: StringType,
+    label: StringType,
+    body: ArrayType(UIComponentType),
+});
+
+export type DockTabType = typeof DockTabType;
+
+/**
  * Concrete struct mirroring the inline `Dock` variant in `component.ts`.
  * Renderers reference this for `equalFor` / `ValueTypeOf`.
  *
  * @property body - The expanded content (UIComps) — kept mounted across collapse by default
+ * @property tabs - The pane's tabs, each with its own body; empty for a pane of one body
  * @property collapsed - Collapsed state (synced on change; omit for uncontrolled toggling)
  * @property defaultCollapsed - Uncontrolled initial collapsed state
  * @property onCollapsedChange - Callback invoked with the new collapsed state
@@ -54,12 +79,14 @@ export {
  */
 export const DockType: StructType<{
     body: ArrayType<UIComponentType>,
+    tabs: ArrayType<DockTabType>,
     collapsed: OptionType<BooleanType>,
     defaultCollapsed: OptionType<BooleanType>,
     onCollapsedChange: OptionType<FunctionType<[BooleanType], NullType>>,
     style: OptionType<DockStyleType>,
 }> = StructType({
     body: ArrayType(UIComponentType),
+    tabs: ArrayType(DockTabType),
     collapsed: OptionType(BooleanType),
     defaultCollapsed: OptionType(BooleanType),
     onCollapsedChange: OptionType(FunctionType([BooleanType], NullType)),
@@ -84,12 +111,12 @@ function persistValue(v: NonNullable<DockStyle["persist"]>): SubtypeExprOrValue<
 }
 
 /**
- * Creates a Dock — an inline panel that collapses along one axis to a compact
+ * Creates a Dock — an inline pane that collapses along one axis to a compact
  * icon rail and expands back to its full content, without leaving the
  * document flow (siblings reflow; it never overlays).
  *
- * @param children - The expanded content (UIComps)
- * @param options - Optional collapsed-state / behaviour / presentation fields
+ * @param children - The expanded content (UIComps); not shown when `tabs` are given
+ * @param options - Optional tabs / collapsed-state / behaviour / presentation fields
  * @returns An East expression representing the Dock component
  *
  * @remarks
@@ -103,16 +130,24 @@ function persistValue(v: NonNullable<DockStyle["persist"]>): SubtypeExprOrValue<
  * (optionally `persist`ed). Distinct from the disclosure `Collapsible`
  * (trigger + content show/hide) and `Dialog` / `Drawer` (portalled overlays).
  *
+ * Expanded, the pane has no header strip: its one row is a tab row — the
+ * `tabs`, or the `label` as the only tab — with the collapse control at its
+ * end. Collapsed, the rail holds the expand control, then the `icon` in its
+ * tile, the `badge` and the `label`.
+ *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
  * import { Box, Dock, Text, UIComponentType } from "@elaraai/east-ui/internal";
  *
  * const sidebar = East.function([], UIComponentType, _$ =>
- *     Dock.Root(
- *         [Box.Root([Text.Root("Bookings library")], { padding: "3" })],
- *         { icon: "book", label: "Bookings", expandedSize: "25%" },
- *     ),
+ *     Dock.Root([], {
+ *         icon: "book", label: "Bookings", badge: "3", expandedSize: "264px",
+ *         tabs: [
+ *             { key: "open", label: "Open", body: [Box.Root([Text.Root("Grade A — Batch 3")], { padding: "3" })] },
+ *             { key: "done", label: "Done", body: [Box.Root([Text.Root("Grade C — Batch 1")], { padding: "3" })] },
+ *         ],
+ *     }),
  * );
  * ```
  */
@@ -126,6 +161,7 @@ function createDock(
         || options.icon !== undefined || options.label !== undefined || options.badge !== undefined
         || options.persist !== undefined || options.keepMounted !== undefined
         || options.lazy !== undefined || options.animated !== undefined
+        || options.surface !== undefined
     );
     const styleValue = hasStyle
         ? East.value({
@@ -140,11 +176,15 @@ function createDock(
             keepMounted: options.keepMounted !== undefined ? some(options.keepMounted) : none,
             lazy: options.lazy !== undefined ? some(options.lazy) : none,
             animated: options.animated !== undefined ? some(options.animated) : none,
+            surface: options.surface !== undefined
+                ? some(typeof options.surface === "string" ? East.value(variant(options.surface, null), DockSurfaceType) : options.surface)
+                : none,
         }, DockStyleType)
         : undefined;
 
     return East.value(variant("Dock", {
         body: children,
+        tabs: East.value((options?.tabs ?? []).map(tab => ({ key: tab.key, label: tab.label, body: tab.body })), ArrayType(DockTabType)),
         collapsed: options?.collapsed !== undefined ? some(options.collapsed) : none,
         defaultCollapsed: options?.defaultCollapsed !== undefined ? some(options.defaultCollapsed) : none,
         onCollapsedChange: options?.onCollapsedChange ? some(options.onCollapsedChange) : none,
@@ -163,8 +203,8 @@ export const Dock = {
     /**
      * Creates a Dock component.
      *
-     * @param children - The expanded content (UIComps)
-     * @param options - Optional collapsed-state / behaviour / presentation fields
+     * @param children - The expanded content (UIComps); not shown when `tabs` are given
+     * @param options - Optional tabs / collapsed-state / behaviour / presentation fields
      * @returns An East expression representing the Dock component
      *
      * @example
@@ -187,6 +227,8 @@ export const Dock = {
          * in `component.ts`.
          */
         Dock: DockType,
+        /** One tab of the pane's tab row ({@link DockTabType}). */
+        Tab: DockTabType,
         /** Presentation + behaviour config struct for Dock. */
         Style: DockStyleType,
         /** Collapse-axis variant (`horizontal` / `vertical`). */
@@ -195,5 +237,7 @@ export const Dock = {
         Side: DockSideType,
         /** Persistence variant (`none` / `local` / `session`). */
         Persist: DockPersistType,
+        /** The chrome it draws around itself (`card` / `shell`). */
+        Surface: DockSurfaceType,
     },
 } as const;

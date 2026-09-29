@@ -48,6 +48,54 @@ export const LibraryStatusType = StructType({
 export type LibraryStatusType = typeof LibraryStatusType;
 
 // ============================================================================
+// Trailing glyph
+// ============================================================================
+
+/**
+ * A glyph at a Library card's right edge — a lock on something fixed, a dot
+ * for a status.
+ *
+ * @remarks
+ * Drawn in the card's quiet ink, or the brand ink while the card is placed,
+ * unless it carries a tone.
+ *
+ * @property icon - Font Awesome solid icon name
+ * @property label - What the glyph says, for assistive technology and the tooltip
+ * @property tone - Optional status tone that colours the glyph
+ */
+export const LibraryGlyphType = StructType({
+    /** Font Awesome solid icon name */
+    icon: StringType,
+    /** What the glyph says, for assistive technology and the tooltip */
+    label: StringType,
+    /** Optional status tone that colours the glyph */
+    tone: OptionType(StatusTokenType),
+});
+
+/**
+ * Type representing a Library card's trailing glyph.
+ */
+export type LibraryGlyphType = typeof LibraryGlyphType;
+
+/**
+ * What the Library calls its items — "Search 47 components…".
+ *
+ * @property singular - One item ("component")
+ * @property plural - Any other count ("components")
+ */
+export const LibraryNounType = StructType({
+    /** One item ("component") */
+    singular: StringType,
+    /** Any other count ("components") */
+    plural: StringType,
+});
+
+/**
+ * Type representing the Library's noun.
+ */
+export type LibraryNounType = typeof LibraryNounType;
+
+// ============================================================================
 // Secondary dimension values
 // ============================================================================
 
@@ -101,10 +149,13 @@ export type LibraryDimValueType = typeof LibraryDimValueType;
  * @property sublabel - Optional muted second line (role / class)
  * @property icon - Optional Font Awesome solid icon name
  * @property status - Optional status pill
+ * @property trailing - Optional glyph at the card's right edge
  * @property draggable - Whether the card can start a drag
  * @property filtered - Whether the card renders de-emphasised (dimmed, drag disabled) — the `Slice.partition` "keep the excluded" feed
+ * @property placed - Whether the card shows its placed state — the brand border and tint
  * @property search - Optional filter text (card hides when unmatched)
  * @property groups - Group value per group-by option key
+ * @property facets - The values the card holds per filter key
  * @property dims - Secondary dimension value per dimension key
  */
 export const LibraryItemType = StructType({
@@ -118,14 +169,20 @@ export const LibraryItemType = StructType({
     icon: OptionType(StringType),
     /** Optional status pill */
     status: OptionType(LibraryStatusType),
+    /** Optional glyph at the card's right edge */
+    trailing: OptionType(LibraryGlyphType),
     /** Whether the card can start a drag */
     draggable: BooleanType,
     /** Whether the card renders de-emphasised (dimmed, drag disabled) */
     filtered: BooleanType,
+    /** Whether the card shows its placed state — the brand border and tint */
+    placed: BooleanType,
     /** Optional filter text (card hides when unmatched) */
     search: OptionType(StringType),
     /** Group value per group-by option key */
     groups: DictType(StringType, StringType),
+    /** The values the card holds per filter key */
+    facets: DictType(StringType, ArrayType(StringType)),
     /** Secondary dimension value per dimension key */
     dims: DictType(StringType, LibraryDimValueType),
 });
@@ -145,8 +202,10 @@ export type LibraryItemType = typeof LibraryItemType;
  * @property sublabel - Optional muted second line
  * @property icon - Optional Font Awesome solid icon name
  * @property status - Optional status pill
+ * @property trailing - Optional glyph at the card's right edge
  * @property draggable - Whether the card can start a drag
  * @property filtered - Whether the card renders de-emphasised (dimmed, drag disabled)
+ * @property placed - Whether the card shows its placed state
  */
 export const LibraryCardFaceType = StructType({
     /** Item identity; carried by `LibraryRef` when dragged */
@@ -159,10 +218,14 @@ export const LibraryCardFaceType = StructType({
     icon: OptionType(StringType),
     /** Optional status pill */
     status: OptionType(LibraryStatusType),
+    /** Optional glyph at the card's right edge */
+    trailing: OptionType(LibraryGlyphType),
     /** Whether the card can start a drag */
     draggable: BooleanType,
     /** Whether the card renders de-emphasised (dimmed, drag disabled) */
     filtered: BooleanType,
+    /** Whether the card shows its placed state */
+    placed: BooleanType,
 });
 
 /**
@@ -275,9 +338,12 @@ export interface LibraryStyle {
  * @property groupSummaries - Right-aligned group-head summary text per group-by option key, per group value
  * @property dimOptions - SECONDARY dimension toggles (empty = no toggle toolbar)
  * @property defaultDimensions - Initially-visible dimension keys
+ * @property filterOptions - The Filter menu's facets (empty = no Filter menu)
  * @property searchable - Whether the search input renders
+ * @property noun - Optional name for the items ("Search 47 components…")
  * @property addLabel - Optional footer action label
  * @property onAdd - Optional footer action callback
+ * @property onCardClick - Optional callback fired with a card's key when it is clicked
  * @property slice - Optional slice chrome (bound handle + rail affordances)
  * @property style - Optional layout style (height / maxHeight / virtualization)
  */
@@ -296,12 +362,18 @@ export const LibraryRootType = StructType({
     dimOptions: ArrayType(LibraryDimMetaType),
     /** Initially-visible dimension keys */
     defaultDimensions: ArrayType(StringType),
+    /** The Filter menu's facets (empty = no Filter menu) */
+    filterOptions: ArrayType(LibraryGroupMetaType),
     /** Whether the search input renders */
     searchable: BooleanType,
+    /** Optional name for the items ("Search 47 components…") */
+    noun: OptionType(LibraryNounType),
     /** Optional footer action label */
     addLabel: OptionType(StringType),
     /** Optional footer action callback */
     onAdd: OptionType(FunctionType([], NullType)),
+    /** Optional callback fired with a card's key when it is clicked */
+    onCardClick: OptionType(FunctionType([StringType], NullType)),
     /** Optional slice chrome (bound handle + rail affordances) */
     slice: OptionType(SliceChromeType),
     /** Optional layout style (height / maxHeight / virtualization) */

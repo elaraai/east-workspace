@@ -16,6 +16,7 @@ describeEast("Dock", (test) => {
         dockVariants: ex.dockVariants,
         dockBesidePlan: ex.dockBesidePlan,
         dockNested: ex.dockNested,
+        dockTabs: ex.dockTabs,
         dockVertical: ex.dockVertical,
     });
 
@@ -53,6 +54,30 @@ describeEast("Dock", (test) => {
         $(Assert.equal(style.railSize.unwrap("some"), "44px"));
         $(Assert.equal(style.persist.unwrap("some").hasTag("local"), true));
         $(Assert.equal(style.keepMounted.unwrap("some"), true));
+    });
+
+    test("Dock.Root lowers its tabs and its surface onto the variant", $ => {
+        const dock = $.let(Dock.Root([], {
+            label: "Components", surface: "shell",
+            tabs: [
+                { key: "components", label: "Components", body: [Text.Root("cards")] },
+                { key: "pages", label: "Pages", body: [Text.Root("pages"), Text.Root("templates")] },
+            ],
+        }));
+        const d = $.const(dock.unwrap().unwrap("Dock"));
+        $(Assert.equal(d.body.size(), 0n));
+        $(Assert.equal(d.tabs.size(), 2n));
+        $(Assert.equal(d.tabs.get(1n).key, "pages"));
+        $(Assert.equal(d.tabs.get(1n).label, "Pages"));
+        $(Assert.equal(d.tabs.get(1n).body.size(), 2n));
+        $(Assert.equal(d.style.unwrap("some").surface.unwrap("some").hasTag("shell"), true));
+    });
+
+    test("Dock.Root without tabs lowers none, and no surface", $ => {
+        const dock = $.let(Dock.Root([Text.Root("x")], { label: "Bookings" }));
+        const d = $.const(dock.unwrap().unwrap("Dock"));
+        $(Assert.equal(d.tabs.size(), 0n));
+        $(Assert.equal(d.style.unwrap("some").surface.hasTag("none"), true));
     });
 
     test("Dock vertical + controlled collapsed lowers onto the variant", $ => {

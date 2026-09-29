@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1226,
-    "totalFiles": 202,
+    "totalEntries": 1229,
+    "totalFiles": 203,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 376,
-      "e3-ui": 52,
+      "east-ui": 378,
+      "e3-ui": 53,
       "e3": 15,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -30944,6 +30944,42 @@
       "source": "// People palette — grouped by role with hours meter, skill chips, statuses, and search\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const people = $.const([\n            { id: \"patel\", name: \"Patel, R.\", seniority: \"Senior\", hours: 38.0, skills: [\"React\", \"Node\", \"Py\"], onRoster: false, atCap: false, site: \"SE-1\" },\n            { id: \"cho\", name: \"Cho, J.\", seniority: \"Senior\", hours: 26.0, skills: [\"Go\", \"SQL\"], onRoster: false, atCap: false, site: \"SE-1\" },\n            { id: \"rivera\", name: \"Rivera, M.\", seniority: \"Senior\", hours: 32.0, skills: [\"React\", \"Py\"], onRoster: true, atCap: false, site: \"SE-2\" },\n            { id: \"okafor\", name: \"Okafor, S.\", seniority: \"Senior\", hours: 40.0, skills: [\"Go\"], onRoster: false, atCap: true, site: \"SE-2\" },\n            { id: \"nguyen\", name: \"Nguyen, T.\", seniority: \"Mid\", hours: 20.0, skills: [\"React\", \"CSS\"], onRoster: false, atCap: false, site: \"SE-1\" },\n            { id: \"kim\", name: \"Kim, A.\", seniority: \"Mid\", hours: 22.0, skills: [\"Go\", \"k8s\"], onRoster: false, atCap: false, site: \"SE-3\" },\n        ]);\n        return (\n            <Library\n                id=\"people\"\n                data={people}\n                item={p => ({\n                    key: p.id,\n                    label: p.name,\n                    sublabel: East.str`${p.seniority} SE`,\n                    icon: \"user\",\n                    status: p.onRoster.ifElse(\n                        () => some(Library.status(\"On roster\", \"info\")),\n                        () => p.atCap.ifElse(() => some(Library.status(\"At cap\", \"neutral\")), () => none)),\n                    draggable: p.atCap.not(),\n                })}\n                dimensions={[\n                    { kind: \"meter\", key: \"hours\", label: \"Hours\", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` },\n                    { kind: \"chips\", key: \"skills\", label: \"Skills\", values: p => p.skills },\n                    { kind: \"text\", key: \"location\", label: \"Location\", value: p => p.site },\n                ]}\n                groupBy={[\n                    { key: \"role\", label: \"Role\", value: p => p.seniority, summary: members => East.str`${members.size()} people` },\n                    { key: \"site\", label: \"Site\", value: p => p.site },\n                ]}\n                search={p => East.str`${p.name} ${p.seniority}`}\n                addLabel=\"Add person\"\n            />\n        );\n    })"
     },
     {
+      "id": "east-ui:library.examples.tsx:libraryPalette",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/library.examples.tsx",
+      "suite": "",
+      "test": "Component palette — a trailing lock on each card, the placed card in the brand, a Filter menu over category and tags, and a click reported into State",
+      "keywords": [
+        "Library",
+        "palette",
+        "component",
+        "placed",
+        "trailing",
+        "glyph",
+        "lock",
+        "Library.glyph",
+        "filters",
+        "Filter",
+        "facet",
+        "tags",
+        "noun",
+        "onCardClick",
+        "click",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text} from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Component palette — a trailing lock on each card, the placed card in the brand, a Filter menu over category and tags, and a click reported into State\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const components = $.const([\n                { key: \"kpi_rail\", name: \"KPI rail\", icon: \"gauge-high\", category: \"Display\", tags: [\"kpi\", \"sales\"], reads: \"sales_daily\" },\n                { key: \"revenue_trend\", name: \"Revenue trend\", icon: \"chart-area\", category: \"Charts\", tags: [\"sales\"], reads: \"sales_daily\" },\n                { key: \"orders_by_week\", name: \"Orders by week\", icon: \"chart-column\", category: \"Charts\", tags: [\"orders\"], reads: \"sales_weekly\" },\n                { key: \"shift_roster\", name: \"Shift roster\", icon: \"calendar-week\", category: \"Operations\", tags: [\"people\"], reads: \"rota_week · people\" },\n            ], ArrayType(StructType({\n                key: StringType, name: StringType, icon: StringType, category: StringType, tags: ArrayType(StringType), reads: StringType,\n            })));\n            const picked = $.let(State.bind([StringType], \"library_palette_picked\", \"revenue_trend\"));\n            const current = $.let(picked.read());\n            const onCardClick = $.const(East.function([StringType], NullType, ($2, key) => { $2(picked.write(key)); }));\n            return (\n                <Box width=\"264px\" height=\"420px\">\n                    <Library\n                        id=\"palette\"\n                        data={components}\n                        item={c => ({\n                            key: c.key,\n                            label: c.name,\n                            sublabel: c.key.equal(current).ifElse(() => \"ON CANVAS · ×1\", () => c.reads),\n                            icon: c.icon,\n                            trailing: some(Library.glyph(\"lock\", \"Logic fixed by the developer\")),\n                            placed: c.key.equal(current),\n                        })}\n                        groupBy={[{ key: \"category\", label: \"Category\", value: c => c.category }]}\n                        filters={[\n                            { key: \"category\", label: \"Category\", values: c => [c.category] },\n                            { key: \"tags\", label: \"Tags\", values: c => c.tags },\n                        ]}\n                        search={c => East.str`${c.name} ${c.category}`}\n                        noun={{ singular: \"component\", plural: \"components\" }}\n                        onCardClick={onCardClick}\n                        style={{ height: \"fill\" }}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
       "id": "east-ui:library.examples.tsx:libraryLarge",
       "skill": "east-ui",
       "package": "east-ui",
@@ -38426,6 +38462,38 @@
       "source": "// Nested Docks — a Dock inside a Dock, each with independent collapsed state\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"260px\" width=\"360px\">\n            <Dock icon=\"layer-group\" label=\"Outer\" expandedSize=\"100%\">\n                <Stack gap=\"2\" padding=\"3\" width=\"100%\">\n                    <Text>Outer content</Text>\n                    <Box height=\"140px\" width=\"100%\">\n                        <HStack gap=\"3\" width=\"100%\" height=\"100%\">\n                            <Dock icon=\"filter\" label=\"Filters\" defaultCollapsed>\n                                <Box padding=\"3\"><Text>Inner panel</Text></Box>\n                            </Dock>\n                            <Box flex=\"1\" minWidth=\"0\" padding=\"3\" background=\"bg.subtle\" borderRadius=\"md\">\n                                <Text>Inner board</Text>\n                            </Box>\n                        </HStack>\n                    </Box>\n                </Stack>\n            </Dock>\n        </Box>\n    ))"
     },
     {
+      "id": "east-ui:dock.examples.tsx:dockTabs",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/dock.examples.tsx",
+      "suite": "",
+      "test": "A pane with tabs inside a host frame — two tabs over their own bodies, the collapse control at the row's end, and a rail with the icon, the count and the label",
+      "keywords": [
+        "Dock",
+        "tabs",
+        "tab row",
+        "pane",
+        "surface",
+        "shell",
+        "frame",
+        "rail",
+        "badge",
+        "count",
+        "headerless",
+        "palette",
+        "sidebar"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, DateTimeType, DictType, IntegerType, NullType, StringType, StructType, some, variant, example} from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Dock, HStack, Plan, Reactive, Stack, Switch, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A pane with tabs inside a host frame — two tabs over their own bodies, the collapse control at the row's end, and a rail with the icon, the count and the label\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"320px\" width=\"640px\" borderWidth=\"1px\" borderColor=\"border.strong\" borderRadius=\"md\" overflow=\"hidden\">\n            <HStack gap=\"0\" width=\"100%\" height=\"100%\">\n                <Dock icon=\"shapes\" label=\"Components\" badge=\"3\" expandedSize=\"264px\" surface=\"shell\" tabs={[\n                    {\n                        key: \"components\", label: \"Components\", body: [\n                            <Stack gap=\"2\" padding=\"3\">\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>KPI rail</Text></Box>\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Revenue trend</Text></Box>\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Breakdown bars</Text></Box>\n                            </Stack>,\n                        ],\n                    },\n                    {\n                        key: \"pages\", label: \"Pages\", body: [\n                            <Stack gap=\"2\" padding=\"3\">\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Overview</Text></Box>\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Weekly</Text></Box>\n                            </Stack>,\n                        ],\n                    },\n                ]} />\n                <Box flex=\"1\" minWidth=\"0\" height=\"100%\" padding=\"4\" background=\"bg.subtle\">\n                    <Text>The board beside the pane</Text>\n                </Box>\n            </HStack>\n        </Box>\n    ))"
+    },
+    {
       "id": "east-ui:dock.examples.tsx:dockVertical",
       "skill": "east-ui",
       "package": "east-ui",
@@ -43054,6 +43122,40 @@
         "typescript"
       ],
       "source": "// A page is live when its draft is its published layout, and a draft when it has changes the site does not show\n// inputs: []  returns: \"Draft\"\nEast.function([], StringType, ($) => {\n        const page = $.const({\n            draft: {\n                title: \"Overview\",\n                cells: [\n                    { key: \"c-kpi\", row: \"r1\", span: 8n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                ],\n            },\n            live: some({\n                version: 1n,\n                page: {\n                    title: \"Overview\",\n                    cells: [\n                        { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"fp-kpi\" },\n                    ],\n                },\n            }),\n        }, Studio.Types.PageEntry);\n        return Studio.status(page).match({ live: (_$) => East.value(\"Live\"), draft: (_$) => East.value(\"Draft\") });\n    })"
+    },
+    {
+      "id": "e3-ui:palette.examples.tsx:studioPalette",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/palette.examples.tsx",
+      "suite": "",
+      "test": "The builder's palette: the listed components grouped by category, each card naming what it reads under a lock — the deprecated one is not offered — and the project's pages with their status",
+      "keywords": [
+        "Studio",
+        "Studio.Palette",
+        "palette",
+        "builder",
+        "components",
+        "category",
+        "Filter",
+        "search",
+        "pages",
+        "status",
+        "Dock",
+        "Library",
+        "collapse",
+        "rail"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Chart, Format, HStack, Reactive, Stat, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Studio } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The builder's palette: the listed components grouped by category, each card naming what it reads under a lock — the deprecated one is not offered — and the project's pages with their status\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const components = $.let([\n                Studio.component(\"kpi_rail\", { name: \"KPI rail\", category: \"Display\", icon: \"gauge-high\", frame: \"none\", tags: [\"kpi\", \"sales\"] },\n                    East.function([], UIComponentType, (_$2) => (\n                        <Reactive>{$2 => {\n                            const sales = $2.let(Data.bind(paletteSalesDaily));\n                            return <Stat label=\"Orders\" value={sales.read().size()} format={Format.Number()} />;\n                        }}</Reactive>\n                    ))),\n                Studio.component(\"revenue_trend\", { name: \"Revenue trend\", category: \"Charts\", icon: \"chart-area\", span: 8n, tags: [\"sales\"] },\n                    East.function([], UIComponentType, (_$2) => (\n                        <Reactive>{$2 => {\n                            const sales = $2.let(Data.bind(paletteSalesDaily));\n                            return <Chart height=\"fill\" grid layers={Chart.Area(sales.read(), { x: r => r.day, y: r => r.revenue })} />;\n                        }}</Reactive>\n                    ))),\n                Studio.component(\"orders_by_week\", { name: \"Orders by week\", category: \"Charts\", icon: \"chart-column\", tags: [\"orders\"] },\n                    East.function([], UIComponentType, (_$2) => (\n                        <Reactive>{$2 => {\n                            const weeks = $2.let(Data.bind(paletteSalesWeekly));\n                            return <Chart height=\"fill\" grid layers={Chart.Column(weeks.read(), { x: r => r.day, y: r => r.orders })} />;\n                        }}</Reactive>\n                    ))),\n                Studio.component(\"visits_sparkline\", { name: \"Visits\", category: \"Charts\", icon: \"chart-line\", span: 4n, tags: [\"traffic\"] },\n                    East.function([], UIComponentType, (_$2) => (\n                        <Reactive>{$2 => {\n                            const visits = $2.let(Data.bind(paletteVisitsDaily));\n                            return <Chart height=\"fill\" layers={Chart.Line(visits.read(), { x: r => r.day, y: r => r.visits })} />;\n                        }}</Reactive>\n                    ))),\n                Studio.component(\"shift_roster\", { name: \"Shift roster\", category: \"Operations\", icon: \"calendar-week\", collections: [\"People\"] },\n                    East.function([], UIComponentType, (_$2) => (\n                        <Reactive>{$2 => {\n                            const rota = $2.let(Data.bind(paletteRotaWeek));\n                            return <Stat label=\"Shifts\" value={rota.read().size()} />;\n                        }}</Reactive>\n                    ))),\n                Studio.component(\"orders_table_v1\", { name: \"Orders table\", category: \"Operations\", icon: \"table\", deprecated: true },\n                    East.function([], UIComponentType, (_$2) => (\n                        <Reactive>{$2 => {\n                            const sales = $2.let(Data.bind(paletteSalesDaily));\n                            return <Stat label=\"Rows\" value={sales.read().size()} />;\n                        }}</Reactive>\n                    ))),\n            ]);\n            const pages = $.let(new Map<Key, Entry>([\n                [{ project: \"ops\", page: \"overview\" }, variant(\"page\", {\n                    draft: {\n                        title: \"Overview\",\n                        cells: [\n                            { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"\" },\n                            { key: \"c-trend\", row: \"r2\", span: 8n, height: none, align: variant(\"top\", null), title: none, component: \"revenue_trend\", fingerprint: \"\" },\n                            { key: \"c-visits\", row: \"r2\", span: 4n, height: none, align: variant(\"top\", null), title: none, component: \"visits_sparkline\", fingerprint: \"\" },\n                        ],\n                    },\n                    live: some({\n                        version: 2n,\n                        page: {\n                            title: \"Overview\",\n                            cells: [\n                                { key: \"c-kpi\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"kpi_rail\", fingerprint: \"\" },\n                                { key: \"c-trend\", row: \"r2\", span: 8n, height: none, align: variant(\"top\", null), title: none, component: \"revenue_trend\", fingerprint: \"\" },\n                                { key: \"c-visits\", row: \"r2\", span: 4n, height: none, align: variant(\"top\", null), title: none, component: \"visits_sparkline\", fingerprint: \"\" },\n                            ],\n                        },\n                    }),\n                })],\n                [{ project: \"ops\", page: \"weekly\" }, variant(\"page\", {\n                    draft: {\n                        title: \"Weekly\",\n                        cells: [\n                            { key: \"w-orders\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"orders_by_week\", fingerprint: \"\" },\n                        ],\n                    },\n                    live: some({ version: 1n, page: { title: \"Weekly\", cells: [] } }),\n                })],\n                [{ project: \"ops\", page: \"roster\" }, variant(\"page\", {\n                    draft: {\n                        title: \"Roster\",\n                        cells: [\n                            { key: \"r-roster\", row: \"r1\", span: 12n, height: none, align: variant(\"top\", null), title: none, component: \"shift_roster\", fingerprint: \"\" },\n                        ],\n                    },\n                    live: none,\n                })],\n                [{ project: \"ops\", page: \"starter\" }, variant(\"template\", { title: \"Starter\", cells: [] })],\n                [{ project: \"retail\", page: \"home\" }, variant(\"page\", {\n                    draft: { title: \"Home\", cells: [] },\n                    live: some({ version: 1n, page: { title: \"Home\", cells: [] } }),\n                })],\n            ]), Studio.Types.Pages);\n            return (\n                <Box height=\"560px\" width=\"100%\" borderWidth=\"1px\" borderColor=\"border.strong\" borderRadius=\"md\" overflow=\"hidden\">\n                    <HStack gap=\"0\" height=\"100%\">\n                        <Studio.Palette pages={pages} components={components} project=\"ops\" id=\"example\" />\n                    </HStack>\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3:static:input-basic",

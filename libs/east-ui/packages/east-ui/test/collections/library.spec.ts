@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, some, none, ArrayType, IntegerType, StringType, StructType, type ExprType } from "@elaraai/east";
+import { East, some, none, ArrayType, IntegerType, NullType, StringType, StructType, type ExprType } from "@elaraai/east";
 import { Library } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./library.examples.js";
@@ -12,7 +12,62 @@ import * as ex from "./library.examples.js";
 describeEast("Library", (test) => {
     Assert.examples(test, {
         libraryPeople: ex.libraryPeople,
+        libraryPalette: ex.libraryPalette,
         libraryLarge: ex.libraryLarge,
+    });
+
+    test("a trailing glyph, the placed state and the facets carry through the card", $ => {
+        const lib = $.let(Library.Root(
+            [
+                { id: "kpi", name: "KPI rail", category: "Display", tags: ["kpi", "sales"] },
+                { id: "trend", name: "Revenue trend", category: "Charts", tags: ["sales"] },
+            ],
+            {
+                id: "components",
+                item: r => ({
+                    key: r.id,
+                    label: r.name,
+                    trailing: some(Library.glyph("lock", "Logic fixed by the developer")),
+                    placed: r.id.equal("trend"),
+                }),
+                filters: [
+                    { key: "category", label: "Category", values: r => [r.category] },
+                    { key: "tags", label: "Tags", values: r => r.tags },
+                ],
+                noun: { singular: "component", plural: "components" },
+            },
+        ));
+        const root = $.let(lib.unwrap().unwrap("Library"));
+
+        $(Assert.equal(root.items.get(0n).trailing.unwrap("some").icon, "lock"));
+        $(Assert.equal(root.items.get(0n).trailing.unwrap("some").label, "Logic fixed by the developer"));
+        $(Assert.equal(root.items.get(0n).trailing.unwrap("some").tone.hasTag("none"), true));
+        $(Assert.equal(root.items.get(0n).placed, false));
+        $(Assert.equal(root.items.get(1n).placed, true));
+        $(Assert.equal(root.items.get(0n).facets.get("tags").size(), 2n));
+        $(Assert.equal(root.items.get(1n).facets.get("category").get(0n), "Charts"));
+        $(Assert.equal(root.filterOptions.size(), 2n));
+        $(Assert.equal(root.filterOptions.get(1n).label, "Tags"));
+        $(Assert.equal(root.noun.unwrap("some").plural, "components"));
+        $(Assert.equal(root.onCardClick.hasTag("none"), true));
+    });
+
+    test("a glyph's tone and a card click lower onto the value; the defaults are none and false", $ => {
+        const onCardClick = $.const(East.function([StringType], NullType, (_$, _key) => { /* noop */ }));
+        const lib = $.let(Library.Root(
+            [{ id: "home", name: "Home" }],
+            {
+                id: "pages",
+                item: r => ({ key: r.id, label: r.name, trailing: some(Library.glyph("circle", "Live", "success")) }),
+                onCardClick,
+            },
+        ));
+        const root = $.let(lib.unwrap().unwrap("Library"));
+        $(Assert.equal(root.items.get(0n).trailing.unwrap("some").tone.unwrap("some").hasTag("success"), true));
+        $(Assert.equal(root.onCardClick.hasTag("some"), true));
+        $(Assert.equal(root.filterOptions.size(), 0n));
+        $(Assert.equal(root.noun.hasTag("none"), true));
+        $(Assert.equal(root.items.get(0n).facets.size(), 0n));
     });
 
     // =========================================================================
