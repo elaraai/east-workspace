@@ -30916,70 +30916,6 @@
       "source": "// Hover glances + click-to-drill on one canvas — stateHover/linkHover/triggerHover cards plus onSelectState/onSelectLink opening a programmatic Drawer\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const StateRow = StructType({ code: StringType, name: StringType, phase: StringType, util: FloatType });\n        const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, vol: FloatType, n: IntegerType, decision: OptionType(StringType) });\n        const states = $.const([\n            { code: \"MIX\", name: \"Mixing\", phase: \"prep\", util: 72.0 },\n            { code: \"FIL\", name: \"Filling\", phase: \"line\", util: 91.0 },\n            { code: \"CAP\", name: \"Capping\", phase: \"line\", util: 64.0 },\n            { code: \"PAL\", name: \"Palletised\", phase: \"out\", util: 38.0 },\n        ], ArrayType(StateRow));\n        const links = $.const([\n            { id: \"m-f\", src: \"MIX\", dst: \"FIL\", vol: 182.4, n: 9210n, decision: some(\"release\") },\n            { id: \"f-c\", src: \"FIL\", dst: \"CAP\", vol: 180.9, n: 9184n, decision: none },\n            { id: \"c-p\", src: \"CAP\", dst: \"PAL\", vol: 179.7, n: 9102n, decision: none },\n        ], ArrayType(LinkRow));\n        // --- hover glances: dev-defined cards in the standard 400ms shell ---\n        const stateHover = $.const(East.function([StringType], UIComponentType, ($, key) => {\n            const row = $.let(states.filter(($, s) => East.equal(s.code, key)).get(0n));\n            return (\n                <VStack gap=\"2\" align=\"stretch\" minWidth=\"180px\">\n                    <Text fontFamily=\"mono\" fontWeight=\"bold\" textStyle=\"body-sm\">{East.str`${row.code} · ${row.name}`}</Text>\n                    <Meter value={row.util} tone=\"success\" label={<Text textStyle=\"caption\" color=\"fg.muted\">util</Text>} />\n                </VStack>\n            );\n        }));\n        const linkHover = $.const(East.function([StringType], UIComponentType, ($, key) => {\n            const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));\n            return (\n                <VStack gap=\"1\" align=\"stretch\">\n                    <Text fontFamily=\"mono\" fontWeight=\"bold\" textStyle=\"body-sm\">{East.str`${row.src} → ${row.dst}`}</Text>\n                    <Text textStyle=\"caption\" color=\"fg.muted\">{East.str`${row.vol} kt · ${row.n} transfers`}</Text>\n                </VStack>\n            );\n        }));\n        const triggerHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (\n            <VStack gap=\"1\" align=\"stretch\">\n                <Text fontFamily=\"mono\" fontWeight=\"bold\" textStyle=\"body-sm\">{East.str`decision · ${key}`}</Text>\n                <Text textStyle=\"caption\" color=\"fg.muted\">owner · line-scheduler</Text>\n            </VStack>\n        )));\n        // --- click-to-drill: the same entities open a host-owned Drawer ---\n        const onSelectLink = $.const(East.function([StringType], NullType, ($, key) => {\n            const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));\n            $(Drawer.open(East.value({\n                body: [\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text textStyle=\"body-sm\">{East.str`Volume ${row.vol} kt across ${row.n} transfers.`}</Text>\n                        <Meter value={row.vol} max={200.0} tone=\"success\" label={<Text textStyle=\"caption\" color=\"fg.muted\">share of line cap</Text>} />\n                    </VStack>,\n                ],\n                eyebrow: some(\"Transition\"),\n                title: some(East.str`${row.src} → ${row.dst}`),\n                description: some(\"Selected from the flowchart\"),\n                style: none,\n            }, Drawer.Types.OpenInput)));\n        }));\n        const onSelectState = $.const(East.function([StringType], NullType, ($, key) => {\n            const row = $.let(states.filter(($, s) => East.equal(s.code, key)).get(0n));\n            $(Drawer.open(East.value({\n                body: [\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text textStyle=\"body-sm\">{East.str`${row.name} sits in the ${row.phase} phase.`}</Text>\n                        <Text textStyle=\"caption\" color=\"fg.muted\">Open upstream / downstream analyses from here.</Text>\n                    </VStack>,\n                ],\n                eyebrow: some(\"State\"),\n                title: some(East.str`${row.code} · ${row.name}`),\n                description: some(\"Selected from the flowchart\"),\n                style: none,\n            }, Drawer.Types.OpenInput)));\n        }));\n        return (\n            <Flowchart\n                states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}\n                links={links}\n                link={l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,\n                    evidence: { volume: some(l.vol), count: some(l.n), unit: \"kt\" } })}\n                lanes={[{ key: \"prep\", label: \"Prep\" }, { key: \"line\", label: \"Line\" }, { key: \"out\", label: \"Outbound\" }]}\n                triggers={[{ id: \"release\", name: \"release\", who: \"line-scheduler\" }]}\n                trigger={t => ({ key: t.id, label: t.name, owner: t.who })}\n                stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}\n                onSelectLink={onSelectLink} onSelectState={onSelectState}\n            />\n        );\n    })"
     },
     {
-      "id": "east-ui:layout.examples.tsx:layoutPage",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/layout.examples.tsx",
-      "suite": "",
-      "test": "A page of tiles on the 12-column grid — a KPI rail across the top, a revenue trend beside a breakdown, and an assignment board below; each tile is a cell mapped from a row, and its content is chosen by the row's kind",
-      "keywords": [
-        "Layout",
-        "tiles",
-        "tile",
-        "grid",
-        "12-column",
-        "columns",
-        "span",
-        "row",
-        "rows",
-        "cell",
-        "page",
-        "canvas",
-        "frame",
-        "height",
-        "align",
-        "responsive",
-        "width",
-        "Studio"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Chart, HStack, Layout, Stat, Table, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A page of tiles on the 12-column grid — a KPI rail across the top, a revenue trend beside a breakdown, and an assignment board below; each tile is a cell mapped from a row, and its content is chosen by the row's kind\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Kind = VariantType({ kpis: NullType, trend: NullType, breakdown: NullType, board: NullType });\n        const Tile = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType), kind: Kind });\n        const tiles = $.const([\n            { id: \"kpi-rail\", row: \"top\", span: 12n, height: none, kind: variant(\"kpis\", null) },\n            { id: \"revenue-trend\", row: \"middle\", span: 8n, height: some(280n), kind: variant(\"trend\", null) },\n            { id: \"breakdown-bars\", row: \"middle\", span: 4n, height: some(280n), kind: variant(\"breakdown\", null) },\n            { id: \"assignment-board\", row: \"bottom\", span: 12n, height: none, kind: variant(\"board\", null) },\n        ], ArrayType(Tile));\n        const Day = StructType({ day: StringType, revenue: FloatType });\n        const days = $.const([\n            { day: \"Mon\", revenue: 4.2 }, { day: \"Tue\", revenue: 5.1 }, { day: \"Wed\", revenue: 4.8 },\n            { day: \"Thu\", revenue: 6.3 }, { day: \"Fri\", revenue: 7.0 }, { day: \"Sat\", revenue: 5.6 },\n        ], ArrayType(Day));\n        const Region = StructType({ region: StringType, revenue: FloatType });\n        const regions = $.const([\n            { region: \"North\", revenue: 12.4 }, { region: \"South\", revenue: 9.1 },\n            { region: \"East\", revenue: 7.6 }, { region: \"West\", revenue: 5.2 },\n        ], ArrayType(Region));\n        const Assignment = StructType({ crew: StringType, site: StringType, shift: StringType });\n        const assignments = $.const([\n            { crew: \"Crew 1\", site: \"Depot A\", shift: \"Early\" },\n            { crew: \"Crew 2\", site: \"Depot B\", shift: \"Late\" },\n            { crew: \"Crew 3\", site: \"Depot A\", shift: \"Night\" },\n        ], ArrayType(Assignment));\n        return (\n            <Layout\n                data={tiles}\n                width=\"1440px\"\n                cell={t => Layout.cell({\n                    key: t.id, row: t.row, span: t.span, height: t.height,\n                    content: t.kind.match({\n                        kpis: () => (\n                            <HStack gap=\"8\" padding=\"4\">\n                                <Stat label=\"Orders\" value={128n} />\n                                <Stat label=\"Revenue\" value={32.4} />\n                                <Stat label=\"Late\" value={9n} />\n                                <Stat label=\"Returns\" value={4n} />\n                            </HStack>\n                        ),\n                        trend: () => <Chart height=\"fill\" grid layers={Chart.Area(days, { x: r => r.day, y: r => r.revenue })} />,\n                        breakdown: () => <Chart height=\"fill\" grid={false} layers={Chart.Bar(regions, { x: r => r.revenue, y: r => r.region })} />,\n                        board: () => (\n                            <Table data={assignments} columns={{\n                                crew: { header: \"Crew\" },\n                                site: { header: \"Site\" },\n                                shift: { header: \"Shift\" },\n                            }} />\n                        ),\n                    }),\n                })}\n            />\n        );\n    })"
-    },
-    {
-      "id": "east-ui:layout.examples.tsx:layoutWireframe",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/layout.examples.tsx",
-      "suite": "",
-      "test": "A page's wireframe — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnail",
-      "keywords": [
-        "Layout",
-        "wireframe",
-        "thumbnail",
-        "outline",
-        "template",
-        "preview",
-        "page library",
-        "variant",
-        "tiles",
-        "grid"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Chart, HStack, Layout, Stat, Table, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A page's wireframe — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnail\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Tile = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n        const tiles = $.const([\n            { id: \"kpi-1\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"kpi-2\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"kpi-3\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"kpi-4\", row: \"top\", span: 3n, height: some(48n) },\n            { id: \"trend\", row: \"middle\", span: 8n, height: some(120n) },\n            { id: \"bars\", row: \"middle\", span: 4n, height: some(120n) },\n            { id: \"board\", row: \"bottom\", span: 12n, height: none },\n        ], ArrayType(Tile));\n        return (\n            <Layout\n                data={tiles}\n                variant=\"wireframe\"\n                width=\"480px\"\n                cell={t => Layout.cell({ key: t.id, row: t.row, span: t.span, height: t.height, content: <Stat label=\"Tile\" value={0n} /> })}\n            />\n        );\n    })"
-    },
-    {
       "id": "east-ui:library.examples.tsx:libraryPeople",
       "skill": "east-ui",
       "package": "east-ui",
@@ -38885,6 +38821,82 @@
         "tsx"
       ],
       "source": "// Vertical divider between inline siblings in a 40px row\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <HStack gap=\"4\" align=\"center\">\n            <Text>Left</Text>\n            <Box height=\"40px\">\n                <Separator orientation=\"vertical\" variant=\"subtle\" />\n            </Box>\n            <Text>Right</Text>\n        </HStack>\n    ))"
+    },
+    {
+      "id": "east-ui:snap-grid.examples.tsx:snapGridPage",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/snap-grid.examples.tsx",
+      "suite": "",
+      "test": "A page of tiles on the 12-column grid — four KPI tiles, the revenue trend beside the regional breakdown, and the accounts table below; each tile is a cell mapped from a placement, and its content is chosen by the placement's kind",
+      "keywords": [
+        "SnapGrid",
+        "tiles",
+        "tile",
+        "grid",
+        "12-column",
+        "columns",
+        "span",
+        "row",
+        "rows",
+        "cell",
+        "page",
+        "canvas",
+        "frame",
+        "height",
+        "align",
+        "stretch",
+        "responsive",
+        "Studio",
+        "KPI",
+        "Stat",
+        "MetricChip",
+        "Chart",
+        "Area",
+        "BarStrip",
+        "Table",
+        "Status",
+        "placement",
+        "kind",
+        "match"
+      ],
+      "imports": [
+        "import { ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { BarStrip, Box, Chart, Format, HStack, MetricChip, SnapGrid, Stat, Status, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A page of tiles on the 12-column grid — four KPI tiles, the revenue trend beside the regional breakdown, and the accounts table below; each tile is a cell mapped from a placement, and its content is chosen by the placement's kind\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Kpi = StructType({ label: StringType, value: FloatType, format: Format.Types.Tick, change: StringType, tone: MetricChip.Types.Tone });\n        const Kind = VariantType({ kpi: Kpi, trend: NullType, breakdown: NullType, accounts: NullType });\n        const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType), align: SnapGrid.Types.Align, kind: Kind });\n        const placements = $.const([\n            { id: \"revenue\", row: \"kpis\", span: 3n, height: none, align: variant(\"top\", null), kind: variant(\"kpi\", {\n                label: \"Revenue\", value: 1284000.0, format: Format.Currency({ currency: \"USD\", compact: \"short\", maximumFractionDigits: 2n }),\n                change: \"▲ 6.4% vs Q2\", tone: variant(\"positive\", null),\n            }) },\n            { id: \"orders\", row: \"kpis\", span: 3n, height: none, align: variant(\"top\", null), kind: variant(\"kpi\", {\n                label: \"Orders\", value: 8412.0, format: Format.Number(), change: \"▲ 2.1%\", tone: variant(\"positive\", null),\n            }) },\n            { id: \"avg-ticket\", row: \"kpis\", span: 3n, height: none, align: variant(\"top\", null), kind: variant(\"kpi\", {\n                label: \"Avg ticket\", value: 152.0, format: Format.Currency({ currency: \"USD\", maximumFractionDigits: 0n }),\n                change: \"▼ 1.3%\", tone: variant(\"negative\", null),\n            }) },\n            { id: \"fill-rate\", row: \"kpis\", span: 3n, height: none, align: variant(\"top\", null), kind: variant(\"kpi\", {\n                label: \"Fill rate\", value: 0.94, format: Format.Percent({ maximumFractionDigits: 0n }), change: \"— on target\", tone: variant(\"neutral\", null),\n            }) },\n            { id: \"revenue-trend\", row: \"charts\", span: 8n, height: some(220n), align: variant(\"top\", null), kind: variant(\"trend\", null) },\n            { id: \"breakdown\", row: \"charts\", span: 4n, height: none, align: variant(\"stretch\", null), kind: variant(\"breakdown\", null) },\n            { id: \"accounts\", row: \"accounts\", span: 12n, height: none, align: variant(\"top\", null), kind: variant(\"accounts\", null) },\n        ], ArrayType(Placement));\n        const Day = StructType({ day: DateTimeType, revenue: FloatType });\n        const revenue = $.const([\n            { day: new Date(\"2026-02-12T00:00:00Z\"), revenue: 2640000.0 },\n            { day: new Date(\"2026-02-15T00:00:00Z\"), revenue: 2750000.0 },\n            { day: new Date(\"2026-02-18T00:00:00Z\"), revenue: 2700000.0 },\n            { day: new Date(\"2026-02-21T00:00:00Z\"), revenue: 2900000.0 },\n            { day: new Date(\"2026-02-24T00:00:00Z\"), revenue: 2830000.0 },\n            { day: new Date(\"2026-02-27T00:00:00Z\"), revenue: 3010000.0 },\n            { day: new Date(\"2026-03-02T00:00:00Z\"), revenue: 2960000.0 },\n            { day: new Date(\"2026-03-05T00:00:00Z\"), revenue: 3180000.0 },\n            { day: new Date(\"2026-03-08T00:00:00Z\"), revenue: 3090000.0 },\n            { day: new Date(\"2026-03-11T00:00:00Z\"), revenue: 3300000.0 },\n            { day: new Date(\"2026-03-14T00:00:00Z\"), revenue: 3220000.0 },\n            { day: new Date(\"2026-03-18T00:00:00Z\"), revenue: 3430000.0 },\n            { day: new Date(\"2026-03-22T00:00:00Z\"), revenue: 3380000.0 },\n        ], ArrayType(Day));\n        const Account = StructType({ account: StringType, owner: StringType, revenue: FloatType, status: StringType, tone: Status.Types.Value });\n        const accounts = $.const([\n            { account: \"Aster Retail\", owner: \"M. Lee\", revenue: 6810.0, status: \"Active\", tone: variant(\"success\", null) },\n            { account: \"Meridian Foods\", owner: \"A. Fox\", revenue: 4200.0, status: \"Active\", tone: variant(\"success\", null) },\n            { account: \"Cedar Logistics\", owner: \"R. Yu\", revenue: 2850.0, status: \"At risk\", tone: variant(\"warning\", null) },\n        ], ArrayType(Account));\n        const statusCell = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {\n            const account = $.let(accounts.get(ctx.rowIndex));\n            return <Status value={account.tone} label={<Text>{account.status}</Text>} />;\n        }));\n        return (\n            <SnapGrid\n                data={placements}\n                cell={p => SnapGrid.cell({\n                    key: p.id, row: p.row, span: p.span, height: p.height, align: p.align,\n                    content: p.kind.match({\n                        kpi: (_$, k) => (\n                            <Box padding={{ top: some(\"3.5\"), right: some(\"4\"), bottom: some(\"3.5\"), left: some(\"4\") }}>\n                                <Stat label={k.label} value={k.value} format={k.format}\n                                    baseline={<MetricChip tone={k.tone} background=\"bg.subtle\" borderColor=\"transparent\"><Text>{k.change}</Text></MetricChip>} />\n                            </Box>\n                        ),\n                        trend: () => (\n                            <Box padding=\"4\" height=\"100%\">\n                                <Chart height=\"fill\" grid\n                                    layers={Chart.Area(revenue, { x: r => r.day, y: r => r.revenue }, { color: \"brand.solid\", fillOpacity: 0.08, curve: \"linear\" })}\n                                    x={{\n                                        format: Chart.format.date(\"MMM D\"),\n                                        tickValues: [\n                                            new Date(\"2026-02-12T00:00:00Z\"), new Date(\"2026-02-26T00:00:00Z\"),\n                                            new Date(\"2026-03-11T00:00:00Z\"), new Date(\"2026-03-22T00:00:00Z\"),\n                                        ],\n                                    }}\n                                    y={{ format: Chart.format.compact(), domain: [2400000, 3600000], tickValues: [2400000, 2800000, 3200000, 3600000] }}\n                                />\n                            </Box>\n                        ),\n                        breakdown: () => (\n                            <Box padding={{ top: some(\"5\"), right: some(\"4.5\"), bottom: some(\"5\"), left: some(\"4.5\") }}>\n                                <BarStrip showValues={false} items={[\n                                    { label: <Text textStyle=\"body-sm\">North</Text>, value: 42.0, color: \"brand.solid\", trailing: <Text textStyle=\"code-sm\" fontWeight=\"semibold\">42%</Text> },\n                                    { label: <Text textStyle=\"body-sm\">South</Text>, value: 31.0, color: \"brand.solid\", trailing: <Text textStyle=\"code-sm\" fontWeight=\"semibold\">31%</Text> },\n                                    { label: <Text textStyle=\"body-sm\">West</Text>, value: 27.0, color: \"brand.solid\", trailing: <Text textStyle=\"code-sm\" fontWeight=\"semibold\">27%</Text> },\n                                ]} />\n                            </Box>\n                        ),\n                        accounts: () => (\n                            <Table data={accounts} columns={{\n                                account: { header: \"Account\" },\n                                owner: { header: \"Owner\" },\n                                revenue: { header: \"Revenue\", format: Format.Currency({ currency: \"USD\", maximumFractionDigits: 0n }) },\n                                status: { header: \"Status\", render: statusCell },\n                            }} />\n                        ),\n                    }),\n                })}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:snap-grid.examples.tsx:snapGridWireframe",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/snap-grid.examples.tsx",
+      "suite": "",
+      "test": "Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages",
+      "keywords": [
+        "SnapGrid",
+        "wireframe",
+        "thumbnail",
+        "outline",
+        "template",
+        "preview",
+        "page library",
+        "variant",
+        "tiles",
+        "grid",
+        "miniature"
+      ],
+      "imports": [
+        "import { ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { BarStrip, Box, Chart, Format, HStack, MetricChip, SnapGrid, Stat, Status, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n        const overview = $.const([\n            { id: \"revenue\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"orders\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"avg-ticket\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"fill-rate\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"revenue-trend\", row: \"charts\", span: 8n, height: some(64n) },\n            { id: \"breakdown\", row: \"charts\", span: 4n, height: some(64n) },\n            { id: \"accounts\", row: \"accounts\", span: 12n, height: some(20n) },\n        ], ArrayType(Placement));\n        const accountDetail = $.const([\n            { id: \"header\", row: \"header\", span: 12n, height: some(10n) },\n            { id: \"owner\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"revenue\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"status\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"orders\", row: \"orders\", span: 12n, height: some(68n) },\n        ], ArrayType(Placement));\n        const regionalRollup = $.const([\n            { id: \"trend\", row: \"trend\", span: 12n, height: some(84n) },\n            { id: \"north\", row: \"regions\", span: 6n, height: some(16n) },\n            { id: \"south\", row: \"regions\", span: 6n, height: some(16n) },\n        ], ArrayType(Placement));\n        return (\n            <HStack gap=\"4\" align=\"flex-start\">\n                <SnapGrid data={overview} variant=\"wireframe\" width=\"160px\"\n                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                <SnapGrid data={accountDetail} variant=\"wireframe\" width=\"160px\"\n                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                <SnapGrid data={regionalRollup} variant=\"wireframe\" width=\"160px\"\n                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n            </HStack>\n        );\n    })"
     },
     {
       "id": "east-ui:splitter.examples.tsx:splitterBasic",

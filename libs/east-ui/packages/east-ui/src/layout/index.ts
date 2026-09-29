@@ -14,3 +14,18 @@ export { Sticky } from "./sticky/index.js";
 export { ScrollArea } from "./scroll-area/index.js";
 export { Expandable } from "./expandable/index.js";
 export { Dock } from "./dock/index.js";
+export {
+    SnapGrid,
+    SnapGridCellType,
+    SnapGridRootType,
+    SnapGridAlignType,
+    SnapGridVariantType,
+    type SnapGridNamespace,
+    type SnapGridConfig,
+    type SnapGridCellFields,
+    type SnapGridData,
+    type SnapGridRowOf,
+    type SnapGridBindHandle,
+    type SnapGridAlignLiteral,
+    type SnapGridVariantLiteral,
+} from "./snap-grid/index.js";

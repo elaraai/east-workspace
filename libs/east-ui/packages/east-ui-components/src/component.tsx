@@ -37,6 +37,7 @@ import { EastChakraSticky } from "./layout/sticky";
 import { EastChakraScrollArea } from "./layout/scroll-area";
 import { EastChakraExpandable } from "./layout/expandable";
 import { EastChakraDock } from "./layout/dock";
+import { EastChakraSnapGrid } from "./layout/snap-grid";
 import { EastChakraChipRail } from "./display/chip-rail";
 import { EastChakraAccordion } from "./disclosure/accordion";
 import { EastChakraCarousel } from "./disclosure/carousel";
@@ -79,7 +80,6 @@ import { EastChakraBarStrip } from "./display/bar-strip";
 import { EastChakraTrace } from "./display/trace";
 import { EastChakraLibrary } from "./collections/library";
 import { EastChakraDeck, EastChakraDeckReadout, EastChakraDeckRows, EastChakraDeckNote } from "./collections/deck";
-import { EastChakraLayout } from "./collections/layout";
 import { EastChakraValueTree } from "./collections/value-tree";
 import { EastChakraRoster } from "./collections/roster";
 import { EastChakraBoard } from "./collections/board";
@@ -184,6 +184,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             ScrollArea: (v) => <EastChakraScrollArea value={v} storageKey={childKey(storageKey, "ScrollArea")} />,
             Expandable: (v) => <EastChakraExpandable value={v} storageKey={childKey(storageKey, "Expandable")} />,
             Dock: (v) => <EastChakraDock value={v} storageKey={childKey(storageKey, "Dock")} />,
+            SnapGrid: (v) => <EastChakraSnapGrid value={v} storageKey={childKey(storageKey, "SnapGrid")} />,
             ChipRail: (v) => <EastChakraChipRail value={v} storageKey={childKey(storageKey, "ChipRail")} />,
 
             // Forms
@@ -268,7 +269,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             DeckReadout: (v) => <EastChakraDeckReadout value={v} />,
             DeckRows: (v) => <EastChakraDeckRows value={v} />,
             DeckNote: (v) => <EastChakraDeckNote value={v} />,
-            Layout: (v) => <EastChakraLayout value={v} storageKey={childKey(storageKey, "Layout")} />,
             ValueTree: (v) => <EastChakraValueTree value={v} storageKey={childKey(storageKey, "ValueTree")} />,
             Roster: (v) => <EastChakraRoster value={v} storageKey={childKey(storageKey, "Roster")} />,
             Board: (v) => <EastChakraBoard value={v} storageKey={childKey(storageKey, "Board")} />,

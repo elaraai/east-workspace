@@ -48,6 +48,7 @@ import { ConfiguratorStyleType, ConfiguratorSpecType } from "./layout/configurat
 import { StickyBoundaryType, StickyStyleType } from "./layout/sticky/types.js";
 import { ExpandableStyleType } from "./layout/expandable/types.js";
 import { DockStyleType } from "./layout/dock/types.js";
+import { SnapGridAlignType, SnapGridVariantType } from "./layout/snap-grid/types.js";
 import {
     ScrollbarStyleType,
     ScrollAreaStyleType,
@@ -126,7 +127,6 @@ import {
     DeckStyleType,
 } from "./collections/deck/types.js";
 import { ValueTreeRootType } from "./collections/value-tree/types.js";
-import { LayoutAlignType, LayoutVariantType } from "./collections/layout/types.js";
 import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
 import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
 import { CellRefType, DragEventType } from "./contracts/drag.js";
@@ -510,6 +510,28 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     /**
+     * SnapGrid — tiles in rows on a 12-column grid (#989). Cells are resolved
+     * at factory time (the renderer never sees the host row type); a cell's
+     * `content` rides the recursion `node`, hence the inline struct. Mirror
+     * `SnapGridRootType` in `layout/snap-grid/index.ts`.
+     */
+    SnapGrid: StructType({
+        cells: ArrayType(StructType({
+            key: StringType,
+            row: StringType,
+            span: IntegerType,
+            height: OptionType(IntegerType),
+            align: SnapGridAlignType,
+            frame: BooleanType,
+            content: node,
+        })),
+        variant: OptionType(SnapGridVariantType),
+        width: OptionType(StringType),
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
+    }),
+
+    /**
      * ChipRail — horizontal chip row with density + separator + overflow
      * control. Shared primitive under `MetricRail`, `AssumptionsBar`,
      * `FilterBar`, `LegendRail`. See `display/chip-rail/`.
@@ -752,26 +774,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     DeckReadout: DeckReadoutType,
     DeckRows: DeckRowsType,
     DeckNote: DeckNoteType,
-
-    // Layout — the 12-column snap grid of tiles (#989). Cells are resolved at
-    // factory time (the renderer never sees the host row type); a cell's
-    // `content` rides the recursion `node`, hence the inline struct. Mirror
-    // `LayoutRootType` in `collections/layout/index.ts`.
-    Layout: StructType({
-        cells: ArrayType(StructType({
-            key: StringType,
-            row: StringType,
-            span: IntegerType,
-            height: OptionType(IntegerType),
-            align: LayoutAlignType,
-            frame: BooleanType,
-            content: node,
-        })),
-        variant: OptionType(LayoutVariantType),
-        width: OptionType(StringType),
-        height: OptionType(StringType),
-        maxHeight: OptionType(StringType),
-    }),
 
     // ValueTree — editable value-driven tree (#360). Any East value is
     // materialized into the fixed recursive node IR at factory time; edits
