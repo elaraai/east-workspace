@@ -21,10 +21,10 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BlobType, DictType, East, EastTypeType,
+    ArrayType, AsyncFunctionType, BlobType, DictType, East, EastTypeType, Expr,
     FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType,
     StructType, VariantType, isTypeEqual, none, some, variant,
-    type EastType, type ExprType, type PatchTypeOf,
+    type EastType, type ExprType, type PatchTypeOf, type SubtypeExprOrValue,
 } from "@elaraai/east";
 
 // ============================================================================
@@ -731,6 +731,45 @@ export const EditingSessionFields = {
  * @internal
  */
 export const EditingType = StructType(EditingSessionFields);
+
+/**
+ * An author's editing callback, held to its exact East signature: a function
+ * of `inputs` returning `output` — sync, or async where allowed. A collection
+ * checks each callback of its `editing` declaration with it at build, so a
+ * callback over another entry type fails there, naming itself, rather than
+ * when a batch first reaches it.
+ *
+ * @internal
+ * @param label - The collection, for the message (`"Plan"`, `"Layout"`)
+ * @param value - The author's function
+ * @param inputs - Its parameter types
+ * @param output - Its result type
+ * @param name - The `editing` field, for the message
+ * @param allowAsync - Whether an async function is accepted
+ * @param expected - The signature in words, for the message
+ * @returns The function
+ * @throws {Error} Naming the field and the signature it must have
+ */
+export function checkedEditingCallback(
+    label: string,
+    value: ExprType<EastType>,
+    inputs: readonly EastType[],
+    output: EastType,
+    name: string,
+    allowAsync: boolean,
+    expected: string,
+): ExprType<EastType> {
+    const fn = East.value(value as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    const type = Expr.type(fn as unknown as Expr) as { type: string; inputs?: EastType[]; output?: EastType };
+    const callable = type.type === "Function" || (allowAsync && type.type === "AsyncFunction");
+    const matches = callable && type.inputs !== undefined && type.inputs.length === inputs.length
+        && type.inputs.every((t, i) => isTypeEqual(t, inputs[i]!))
+        && type.output !== undefined && isTypeEqual(type.output, output);
+    if (!matches) {
+        throw new Error(`${label}: editing.${name} must be an East ${allowAsync ? "sync or async " : ""}function ${expected}`);
+    }
+    return fn;
+}
 
 // ============================================================================
 // The inline adapter — idempotent writes through a live handle

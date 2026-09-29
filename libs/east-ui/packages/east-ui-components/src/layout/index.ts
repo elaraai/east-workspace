@@ -47,3 +47,17 @@ export {
     type SplitterValue,
     type EastChakraSplitterProps,
 } from "./splitter/index.js";
+
+export {
+    EastChakraSnapGrid,
+    type SnapGridValue,
+    type SnapGridCellValue,
+    type EastChakraSnapGridProps,
+} from "./snap-grid/index.js";
+export { SnapGridEditor, type SnapGridEditorProps } from "./snap-grid/editor.js";
+export {
+    SnapGridMessagesProvider,
+    snapGridMessages,
+    type SnapGridMessages,
+    type SnapGridMessagesProviderProps,
+} from "./snap-grid/messages.js";

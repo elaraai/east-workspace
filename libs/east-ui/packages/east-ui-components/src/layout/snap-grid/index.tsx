@@ -10,7 +10,8 @@
  * row is a 12-column grid of its cells, in their order. The `snapGrid` slot
  * recipe owns every design value — the gaps, the tile frame, the wireframe's
  * outline, and the container widths the spans answer to; the renderer sets
- * each cell's spans and height, and nothing else.
+ * each cell's spans and height, and nothing else. A SnapGrid that declares
+ * `editing` is the builder's canvas instead ({@link SnapGridEditor}, #990).
  *
  * @packageDocumentation
  */
@@ -22,6 +23,7 @@ import { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
+import { SnapGridEditor } from "./editor.js";
 
 const snapGridEqual = equivalentFor(SnapGrid.Types.Root);
 const compareSpan = compareFor(IntegerType);
@@ -73,9 +75,17 @@ export interface EastChakraSnapGridProps {
 
 /**
  * Renders a SnapGrid: its rows of tiles on the 12-column grid, or — the
- * `wireframe` variant — each cell as an outline at its tile's size.
+ * `wireframe` variant — each cell as an outline at its tile's size; the
+ * builder's canvas when it declares `editing`.
  */
 export const EastChakraSnapGrid = memo(function EastChakraSnapGrid({ value, storageKey }: EastChakraSnapGridProps) {
+    return value.editing.type === "some"
+        ? <SnapGridEditor value={value} storageKey={storageKey} />
+        : <SnapGridView value={value} storageKey={storageKey} />;
+}, (prev, next) => snapGridEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+/** The SnapGrid as a page: its tiles, or its wireframe. */
+function SnapGridView({ value, storageKey }: EastChakraSnapGridProps) {
     const wireframe = getSomeorUndefined(value.variant)?.type === "wireframe";
     const styles = useSlotRecipe({ key: "snapGrid" })({ variant: wireframe ? "wireframe" : "tiles" }) as Record<string, SystemStyleObject>;
     const rows = useMemo(() => snapGridRows(value.cells), [value.cells]);
@@ -123,4 +133,4 @@ export const EastChakraSnapGrid = memo(function EastChakraSnapGrid({ value, stor
             </Box>
         </Box>
     );
-}, (prev, next) => snapGridEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}

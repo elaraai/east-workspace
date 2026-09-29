@@ -48,7 +48,7 @@ import { ConfiguratorStyleType, ConfiguratorSpecType } from "./layout/configurat
 import { StickyBoundaryType, StickyStyleType } from "./layout/sticky/types.js";
 import { ExpandableStyleType } from "./layout/expandable/types.js";
 import { DockStyleType } from "./layout/dock/types.js";
-import { SnapGridAlignType, SnapGridVariantType } from "./layout/snap-grid/types.js";
+import { SnapGridRootOf } from "./layout/snap-grid/types.js";
 import {
     ScrollbarStyleType,
     ScrollAreaStyleType,
@@ -510,26 +510,13 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     /**
-     * SnapGrid — tiles in rows on a 12-column grid (#989). Cells are resolved
-     * at factory time (the renderer never sees the host row type); a cell's
-     * `content` rides the recursion `node`, hence the inline struct. Mirror
-     * `SnapGridRootType` in `layout/snap-grid/index.ts`.
+     * SnapGrid — tiles in rows on a 12-column grid (#989), and its editing
+     * (#990). Cells are resolved at factory time (the renderer never sees the
+     * host row type); a cell's `content` rides the recursion `node`.
+     * `SnapGridRootOf` builds this arm and `SnapGrid.Types.Root` alike, over
+     * the content's type.
      */
-    SnapGrid: StructType({
-        cells: ArrayType(StructType({
-            key: StringType,
-            row: StringType,
-            span: IntegerType,
-            height: OptionType(IntegerType),
-            align: SnapGridAlignType,
-            frame: BooleanType,
-            content: node,
-        })),
-        variant: OptionType(SnapGridVariantType),
-        width: OptionType(StringType),
-        height: OptionType(StringType),
-        maxHeight: OptionType(StringType),
-    }),
+    SnapGrid: SnapGridRootOf(node),
 
     /**
      * ChipRail — horizontal chip row with density + separator + overflow

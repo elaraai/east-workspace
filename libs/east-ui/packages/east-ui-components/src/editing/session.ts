@@ -135,6 +135,46 @@ function randomId(): string {
     return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** The entry an ordered placement is anchored on — `before` / `after` it — if any. */
+function anchorOf(change: Change): string | undefined {
+    if (change.place.type !== "some" || change.place.value.type !== "ordered") return undefined;
+    const position = change.place.value.value;
+    return position.type === "before" || position.type === "after" ? position.value : undefined;
+}
+
+/**
+ * Changes in an order `Editing.apply` places them faithfully (#990): an entry
+ * anchored on another change's entry comes after that change, so the anchor
+ * already stands where the batch leaves it when the entry is placed beside it.
+ * Placements stated against the drafted order then leave exactly that order,
+ * whichever entry was touched first. Otherwise the order is kept.
+ *
+ * @param changes - The changes, in the order the session met their entries
+ * @returns The same changes, anchors first
+ */
+function inPlacementOrder(changes: Change[]): Change[] {
+    // Only a change that places its entry moves it: an anchor without one stays put.
+    const placed = new Map<string, Change>();
+    for (const change of changes) if (change.place.type === "some") placed.set(change.id, change);
+    if (placed.size < 2) return changes;
+    const out: Change[] = [];
+    const done = new Set<string>();
+    const visiting = new Set<string>();
+    const visit = (change: Change): void => {
+        // A cycle cannot be honoured whole — it keeps the order it came in.
+        if (done.has(change.id) || visiting.has(change.id)) return;
+        visiting.add(change.id);
+        const anchor = anchorOf(change);
+        const first = anchor !== undefined ? placed.get(anchor) : undefined;
+        if (first !== undefined) visit(first);
+        visiting.delete(change.id);
+        done.add(change.id);
+        out.push(change);
+    };
+    for (const change of changes) visit(change);
+    return out;
+}
+
 /**
  * One source-bound editing session. The collection supplies fully decoded
  * draft versions at gesture boundaries; East diff composes the public
@@ -297,6 +337,26 @@ export class EditSession<W> {
     get originals(): ReadonlyMap<string, EntryVersion<W>> { return this.baseline; }
 
     /**
+     * The inline source with every draft applied — the collection Apply would
+     * leave, by the same `Editing.apply` it runs (#990), so a collection that
+     * draws its drafts from this draws exactly what Apply leaves, placements
+     * included.
+     *
+     * @returns The drafted collection; `undefined` where the base is not an
+     *   inline snapshot, a draft is not complete, or the batch would not apply
+     */
+    applied(): unknown {
+        if (this.base?.type !== "snapshot" || this.transform === undefined) return undefined;
+        for (const [id, entry] of this.current) {
+            if (entry.draft !== undefined && this.domain(id, entry) === undefined) return undefined;
+        }
+        const changes = this.changes(this.baseline, this.current, false);
+        if (changes.length === 0) return this.base.value;
+        const result = this.transform(this.base.value, { requestId: "", base: this.base, label: "", changes }, none);
+        return result.type === "applied" ? result.value : undefined;
+    }
+
+    /**
      * Capture the exact base on the first gesture; never silently rebase drafts.
      *
      * @param base - The base the source is at now
@@ -337,7 +397,7 @@ export class EditSession<W> {
             if (equal(av, bv) && place.type === "none") continue;
             changes.push({ id, patch: diff(av, bv), place });
         }
-        return changes;
+        return inPlacementOrder(changes);
     }
     private emit(before: Map<string, EntryVersion<W>>, after: Map<string, EntryVersion<W>>, origin: Origin, label: string): void {
         const draftChanges = this.changes(before, after, true);

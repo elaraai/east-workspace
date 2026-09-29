@@ -121,7 +121,10 @@ export {
     Box, Flex, Stack, VStack, HStack, Separator, Grid, Splitter,
     Sticky, ScrollArea, Expandable, Dock, Configurator, SnapGrid,
 } from "./runtime/layout/index.js";
-export type { SnapGridConfig, SnapGridCellFields, SnapGridData, SnapGridRowOf, SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral } from "./layout/index.js";
+export type {
+    SnapGridConfig, SnapGridCellFields, SnapGridEditConfig, SnapGridEditingConfig, SnapGridFieldOf, SnapGridData, SnapGridRowOf,
+    SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral,
+} from "./layout/index.js";
 
 // Buttons
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./runtime/buttons/index.js";

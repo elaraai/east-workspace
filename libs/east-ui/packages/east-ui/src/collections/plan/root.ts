@@ -47,6 +47,7 @@ import {
     EditingReadinessType,
     EditingWireApplyType,
     buildKeyedInlineApply,
+    checkedEditingCallback,
 } from "../../contracts/editing.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
@@ -528,39 +529,6 @@ export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiter
 // ============================================================================
 
 /**
- * An author callback, held to its exact East signature: a function of
- * `inputs` returning `output` — sync, or async where allowed.
- *
- * @param value - The author's function
- * @param inputs - Its parameter types
- * @param output - Its result type
- * @param name - The `editing` field, for the message
- * @param allowAsync - Whether an async function is accepted
- * @param expected - The signature in words, for the message
- * @returns The function
- * @throws {Error} Naming the field and the signature it must have
- */
-function checkedCallback(
-    value: ExprType<EastType>,
-    inputs: readonly EastType[],
-    output: EastType,
-    name: string,
-    allowAsync: boolean,
-    expected: string,
-): ExprType<EastType> {
-    const fn = East.value(value as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-    const type = Expr.type(fn as unknown as Expr) as { type: string; inputs?: EastType[]; output?: EastType };
-    const callable = type.type === "Function" || (allowAsync && type.type === "AsyncFunction");
-    const matches = callable && type.inputs !== undefined && type.inputs.length === inputs.length
-        && type.inputs.every((t, i) => isTypeEqual(t, inputs[i]!))
-        && type.output !== undefined && isTypeEqual(type.output, output);
-    if (!matches) {
-        throw new Error(`Plan: editing.${name} must be an East ${allowAsync ? "sync or async " : ""}function ${expected}`);
-    }
-    return fn;
-}
-
-/**
  * The canvas's editing declaration (#880) — the shared session's fields over
  * the source's top-level entries, and the canvas's own: its blocks with the
  * drafted entries in place, one entry's blocks, the gestures written into
@@ -735,7 +703,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
 
     // The author's readiness check, one result per drafted entry, in order. A
     // check that throws refuses its own entry alone.
-    const authorReady = input.ready === undefined ? undefined : checkedCallback(input.ready, [entryType, keyType], EditingReadinessType,
+    const authorReady = input.ready === undefined ? undefined : checkedEditingCallback("Plan", input.ready, [entryType, keyType], EditingReadinessType,
         "ready", false, "over this canvas's entry and key (R, K), returning Editing.Types.Readiness");
     const ready = authorReady === undefined ? undefined : East.function([ArrayType(PlanReadyEntryType)], ArrayType(EditingReadinessType), ($, batch) => {
         const check = $.const(authorReady as unknown as ExprType<FunctionType<[EastType, EastType], typeof EditingReadinessType>>);
@@ -757,7 +725,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
     const reader = live !== undefined
         ? (live as unknown as ExprType<StructType<{ read: FunctionType<[], DictType<EastType, EastType>> }>>).read
         : undefined;
-    const authorApply = input.onApply === undefined ? undefined : checkedCallback(input.onApply, [batchType], EditingApplyResultType,
+    const authorApply = input.onApply === undefined ? undefined : checkedEditingCallback("Plan", input.onApply, [batchType], EditingApplyResultType,
         "onApply", true, "over Editing.Types.ChangeSet(R, K) — this canvas's entry and key types — returning Editing.Types.ApplyResult");
     const sourceFields = resolved.kind === "paged" ? (Expr.type(resolved.source as unknown as Expr) as StructType).fields : {};
     const sourceId: ExprType<StringType> = resolved.kind === "paged"
@@ -769,7 +737,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
                 : East.value("readonly-inline", StringType);
     let onApply: ExprType<typeof EditingWireApplyType> | undefined;
     if (input.onUpdate !== undefined && reader !== undefined) {
-        const writer = checkedCallback(input.onUpdate, [sourceType], NullType, "onUpdate", false,
+        const writer = checkedEditingCallback("Plan", input.onUpdate, [sourceType], NullType, "onUpdate", false,
             "over the whole Dict<K, R> the batch leaves, returning Null");
         onApply = East.value(variant("sync", buildKeyedInlineApply(sourceType, sourceId, reader as unknown as ExprType<FunctionType>,
             writer as unknown as ExprType<FunctionType>)), EditingWireApplyType);
@@ -789,7 +757,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             })), EditingWireApplyType);
         }
     }
-    const authorPatch = input.onPatch === undefined ? undefined : checkedCallback(input.onPatch, [eventType], NullType,
+    const authorPatch = input.onPatch === undefined ? undefined : checkedEditingCallback("Plan", input.onPatch, [eventType], NullType,
         "onPatch", false, "over Plan.Types.PatchEvent(R), returning Null");
     const onPatch = authorPatch === undefined ? undefined : East.function([BlobType], NullType, ($, blob) => {
         const observe = $.const(authorPatch as unknown as ExprType<FunctionType<[EastType], NullType>>);

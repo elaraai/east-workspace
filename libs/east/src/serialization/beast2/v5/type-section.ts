@@ -66,14 +66,26 @@ interface WellKnownEntry {
   hash?: bigint;
 }
 
-/** The well-known schemas — a constant of the wire format, mirrored verbatim
- *  in east-c (`v5/container.c`) and reachable from east-py through it. Ids
- *  are pinned in v5/SPEC.md; never renumber, and never add one without
- *  shipping all three runtimes together. */
-const WELL_KNOWN: readonly WellKnownEntry[] = [
-  { id: 1, name: "IRType", type: irTypeValue },
-  { id: 2, name: "EastTypeValueType", type: EastTypeValueType },
-];
+let wellKnownEntries: readonly WellKnownEntry[] | null = null;
+
+/**
+ * The well-known schemas — a constant of the wire format, mirrored verbatim
+ * in east-c (`v5/container.c`) and reachable from east-py through it. Ids are
+ * pinned in v5/SPEC.md; never renumber, and never add one without shipping all
+ * three runtimes together.
+ *
+ * Built on first use, never at module load: the IR type's value comes from
+ * `../shared.js`, which imports this module back through the compiler, so a
+ * load that begins there — the order esbuild's code splitting gives a browser
+ * bundle — evaluates this module first.
+ */
+function wellKnown(): readonly WellKnownEntry[] {
+  wellKnownEntries ??= [
+    { id: 1, name: "IRType", type: irTypeValue },
+    { id: 2, name: "EastTypeValueType", type: EastTypeValueType },
+  ];
+  return wellKnownEntries;
+}
 
 /** Encode-side index: structural-bytes hash → entry (O(1) recognition).
  *  Built lazily on first use so module init stays cheap. */
@@ -81,18 +93,20 @@ let wellKnownByHash: Map<string, WellKnownEntry> | null = null;
 
 function byHash(): Map<string, WellKnownEntry> {
   if (!wellKnownByHash) {
-    wellKnownByHash = new Map();
-    for (const entry of WELL_KNOWN) {
+    // Kept only once whole: an entry that fails leaves no partial index behind.
+    const index = new Map<string, WellKnownEntry>();
+    for (const entry of wellKnown()) {
       entryBytes(entry);
-      wellKnownByHash.set(entry.hash!.toString(16), entry);
+      index.set(entry.hash!.toString(16), entry);
     }
+    wellKnownByHash = index;
   }
   return wellKnownByHash;
 }
 
 /** Looks up a well-known entry by id. */
 function wellKnownById(id: number): WellKnownEntry | undefined {
-  return WELL_KNOWN.find(e => e.id === id);
+  return wellKnown().find(e => e.id === id);
 }
 
 /** Structural section bytes keyed on the type object — the v5 flavour of the

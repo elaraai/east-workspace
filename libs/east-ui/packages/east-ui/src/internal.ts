@@ -69,9 +69,13 @@ export {
     Box, Flex, Stack, Separator, Grid, Splitter,
     Configurator,
     Sticky, ScrollArea, Expandable, Dock,
-    SnapGrid, SnapGridCellType, SnapGridRootType, SnapGridAlignType, SnapGridVariantType,
+    SnapGrid, SnapGridCellType, SnapGridRootType, SnapGridEditingType, SnapGridAlignType, SnapGridVariantType,
+    SnapGridUiStateType, SnapGridUiBindType, SnapGridPlaceType, SnapGridPatchEventTypeFor,
 } from "./layout/index.js";
-export type { SnapGridConfig, SnapGridCellFields, SnapGridData, SnapGridRowOf, SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral } from "./layout/index.js";
+export type {
+    SnapGridConfig, SnapGridCellFields, SnapGridEditConfig, SnapGridEditingConfig, SnapGridFieldOf, SnapGridData, SnapGridRowOf,
+    SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral,
+} from "./layout/index.js";
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
 export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";
 export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
