@@ -17,7 +17,7 @@
  */
 
 /** The release of e3 this build is. */
-export const E3_RELEASE = '1.0.81';
+export const E3_RELEASE = '1.0.82';
 
 /** A semantic version: its core, a pre-release, and build metadata. */
 const RELEASE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
