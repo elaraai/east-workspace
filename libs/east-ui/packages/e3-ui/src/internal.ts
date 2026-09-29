@@ -60,6 +60,17 @@ export {
 } from './bind/record.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest } from './utils/derive.js';
+
+// The Studio (#787): components as code, and the placements that render them.
+export {
+    Studio,
+    StudioComponentType,
+    StudioFrameType,
+    fingerprintOf,
+    type StudioNamespace,
+    type StudioComponentMeta,
+    type StudioFrameLiteral,
+} from './studio/index.js';
 export {
     Diff,
     DiffComponent,

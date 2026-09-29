@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1214,
-    "totalFiles": 199,
+    "totalEntries": 1216,
+    "totalFiles": 200,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 374,
-      "e3-ui": 42,
+      "e3-ui": 44,
       "e3": 15,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -42708,6 +42708,65 @@
         "tsx"
       ],
       "source": "// Ontology editor + Diff panel — pending node/link patch surfaces in Diff card\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const view = $.let(Data.bind(supplyChainOntologyInput));\n                return (\n                    <Card>\n                        <VStack gap=\"4\" align=\"stretch\">\n                            <Text textStyle=\"heading-md\">Fulfilment ontology</Text>\n                            <Text>Edit nodes and links above; review the pending patch below before applying.</Text>\n                            <Ontology value={view} />\n                            <Diff bindings={[view.binding]} hideUnchanged={some(true)} />\n                        </VStack>\n                    </Card>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:component.examples.tsx:studioComponent",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/component.examples.tsx",
+      "suite": "",
+      "test": "A self-contained component — an East UI function written like a ui() body, declared once with what the palette shows — and two placements of it, which share its own state",
+      "keywords": [
+        "Studio",
+        "component",
+        "Studio.component",
+        "Studio.dispatch",
+        "palette",
+        "placement",
+        "self-contained",
+        "ui() body",
+        "state",
+        "shared state",
+        "meta",
+        "span",
+        "category",
+        "icon"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Studio } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A self-contained component — an East UI function written like a ui() body, declared once with what the palette shows — and two placements of it, which share its own state\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const counter = $.let(Studio.component(\"counter\", {\n            name: \"Counter\", category: \"Display\", icon: \"gauge-high\", span: 4n, description: \"Clicks so far\",\n        }, East.function([], UIComponentType, _$ => (\n            <Reactive>{$2 => {\n                const clicks = $2.let(State.bind([IntegerType], \"studio-component.clicks\", 0n));\n                const add = $2.const(East.function([], NullType, $3 => { $3(clicks.write(clicks.read().add(1n))); }));\n                return (\n                    <HStack gap=\"3\" align=\"center\">\n                        <Text>{East.str`${East.print(clicks.read())} clicks`}</Text>\n                        <Button size=\"xs\" onClick={add}>Add</Button>\n                    </HStack>\n                );\n            }}</Reactive>\n        ))));\n        const components = $.let([counter]);\n        return (\n            <VStack gap=\"3\" align=\"stretch\">\n                {Studio.dispatch(components, \"counter\")}\n                {Studio.dispatch(components, \"counter\")}\n            </VStack>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:component.examples.tsx:studioDispatch",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/component.examples.tsx",
+      "suite": "",
+      "test": "How a placement renders: the component its surface lists under the key; a key the surface does not list is a placeholder naming it; a key two listed components share is an error naming it",
+      "keywords": [
+        "Studio",
+        "Studio.dispatch",
+        "placement",
+        "placeholder",
+        "unknown component",
+        "duplicate key",
+        "error"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Studio } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// How a placement renders: the component its surface lists under the key; a key the surface does not list is a placeholder naming it; a key two listed components share is an error naming it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const hello = $.let(Studio.component(\"hello\", {\n            name: \"Hello\", category: \"Display\", icon: \"hand\",\n        }, East.function([], UIComponentType, _$ => <Text>Hello from a component</Text>)));\n        const components = $.let([hello]);\n        const twice = $.let([hello, hello]);\n        return (\n            <VStack gap=\"4\" align=\"stretch\">\n                {Studio.dispatch(components, \"hello\")}\n                {Studio.dispatch(components, \"retired\")}\n                {Studio.dispatch(twice, \"hello\")}\n            </VStack>\n        );\n    })"
     },
     {
       "id": "e3:static:input-basic",
