@@ -4,7 +4,7 @@
  */
 
 /**
- * Layout types — the 12-column snap grid of tiles (#989).
+ * SnapGrid types — the 12-column snap grid of tiles (#989).
  *
  * The cell and root structs carry a `UIComponentType` content, so they live in
  * `index.ts` beside the factory (their inline twin in `component.ts` spells the
@@ -20,32 +20,32 @@ import { NullType, VariantType } from "@elaraai/east";
  * @property center - Centred in the row
  * @property stretch - As tall as the row
  */
-export const LayoutAlignType = VariantType({
+export const SnapGridAlignType = VariantType({
     top: NullType,
     center: NullType,
     stretch: NullType,
 });
 
-/** Type representing a Layout cell's alignment. */
-export type LayoutAlignType = typeof LayoutAlignType;
+/** Type representing a SnapGrid cell's alignment. */
+export type SnapGridAlignType = typeof SnapGridAlignType;
 
-/** Literal shorthand for {@link LayoutAlignType}. */
-export type LayoutAlignLiteral = "top" | "center" | "stretch";
+/** Literal shorthand for {@link SnapGridAlignType}. */
+export type SnapGridAlignLiteral = "top" | "center" | "stretch";
 
 /**
- * How a Layout draws its cells.
+ * How a SnapGrid draws its cells.
  *
  * @property tiles - Each cell's content, in its tile
  * @property wireframe - Each cell an outline at its tile's size, its content
  *   not drawn — the page library's thumbnails
  */
-export const LayoutVariantType = VariantType({
+export const SnapGridVariantType = VariantType({
     tiles: NullType,
     wireframe: NullType,
 });
 
-/** Type representing a Layout's variant. */
-export type LayoutVariantType = typeof LayoutVariantType;
+/** Type representing a SnapGrid's variant. */
+export type SnapGridVariantType = typeof SnapGridVariantType;
 
-/** Literal shorthand for {@link LayoutVariantType}. */
-export type LayoutVariantLiteral = "tiles" | "wireframe";
+/** Literal shorthand for {@link SnapGridVariantType}. */
+export type SnapGridVariantLiteral = "tiles" | "wireframe";

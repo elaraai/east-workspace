@@ -12,7 +12,6 @@ export { Table } from "./table.js";
 export { Matrix } from "./matrix.js";
 export { Plan } from "./plan.js";
 export { Deck } from "./deck.js";
-export { Layout } from "./layout.js";
 export { ValueTree } from "./value-tree.js";
 export { Library } from "./library.js";
 export { Roster } from "./roster.js";

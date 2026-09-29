@@ -59,7 +59,6 @@ import { tooltipSlotRecipe } from "./slot-recipes/tooltip.js";
 import { menuSlotRecipe } from "./slot-recipes/menu.js";
 import { librarySlotRecipe } from "./slot-recipes/library.js";
 import { deckSlotRecipe } from "./slot-recipes/deck.js";
-import { layoutSlotRecipe } from "./slot-recipes/layout.js";
 import { valueTreeSlotRecipe } from "./slot-recipes/valueTree.js";
 import { rosterSlotRecipe } from "./slot-recipes/roster.js";
 import { boardSlotRecipe } from "./slot-recipes/board.js";
@@ -100,6 +99,7 @@ import { carouselSlotRecipe } from "./slot-recipes/carousel.js";
 import { collapsibleSlotRecipe } from "./slot-recipes/collapsible.js";
 import { expandableSlotRecipe } from "./slot-recipes/expandable.js";
 import { dockSlotRecipe } from "./slot-recipes/dock.js";
+import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
 import { drawerStackRailSlotRecipe } from "./slot-recipes/drawerStack.js";
 import { optionListSlotRecipe } from "./slot-recipes/optionList.js";
 import { codeBlockSlotRecipe } from "./slot-recipes/codeBlock.js";
@@ -180,7 +180,6 @@ const config = defineConfig({
             menu:            menuSlotRecipe,
             library:         librarySlotRecipe,
             deck:            deckSlotRecipe,
-            layout:          layoutSlotRecipe,
             valueTree:       valueTreeSlotRecipe,
             roster:          rosterSlotRecipe,
             board:           boardSlotRecipe,
@@ -221,6 +220,7 @@ const config = defineConfig({
             collapsible:     collapsibleSlotRecipe,
             expandable:      expandableSlotRecipe,
             dock:            dockSlotRecipe,
+            snapGrid:        snapGridSlotRecipe,
             drawerStackRail: drawerStackRailSlotRecipe,
             optionList:      optionListSlotRecipe,
             codeBlock:       codeBlockSlotRecipe,

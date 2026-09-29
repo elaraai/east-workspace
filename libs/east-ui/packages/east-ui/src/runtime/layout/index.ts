@@ -16,3 +16,4 @@ export { Separator } from "./separator.js";
 export { Grid } from "./grid.js";
 export { Splitter } from "./splitter.js";
 export { Configurator } from "./configurator.js";
+export { SnapGrid } from "./snap-grid.js";

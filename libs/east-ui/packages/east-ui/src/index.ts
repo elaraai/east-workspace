@@ -119,8 +119,9 @@ export {
 // Layout
 export {
     Box, Flex, Stack, VStack, HStack, Separator, Grid, Splitter,
-    Sticky, ScrollArea, Expandable, Dock, Configurator,
+    Sticky, ScrollArea, Expandable, Dock, Configurator, SnapGrid,
 } from "./runtime/layout/index.js";
+export type { SnapGridConfig, SnapGridCellFields, SnapGridData, SnapGridRowOf, SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral } from "./layout/index.js";
 
 // Buttons
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./runtime/buttons/index.js";
@@ -158,8 +159,7 @@ export type { IconPayload } from "./buttons/button/types.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, Layout, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
-export type { LayoutConfig, LayoutCellFields, LayoutData, LayoutRowOf, LayoutBindHandle, LayoutAlignLiteral, LayoutVariantLiteral } from "./collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

@@ -69,7 +69,9 @@ export {
     Box, Flex, Stack, Separator, Grid, Splitter,
     Configurator,
     Sticky, ScrollArea, Expandable, Dock,
+    SnapGrid, SnapGridCellType, SnapGridRootType, SnapGridAlignType, SnapGridVariantType,
 } from "./layout/index.js";
+export type { SnapGridConfig, SnapGridCellFields, SnapGridData, SnapGridRowOf, SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral } from "./layout/index.js";
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
 export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";
 export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
@@ -83,9 +85,7 @@ export type {
 } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, Layout, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
-export { LayoutCellType, LayoutRootType, LayoutAlignType, LayoutVariantType } from "./collections/index.js";
-export type { LayoutConfig, LayoutCellFields, LayoutData, LayoutRowOf, LayoutBindHandle, LayoutAlignLiteral, LayoutVariantLiteral } from "./collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
 export type {
     PlanConfig, PlanRowBaseInput, PlanSpanInput, PlanBucketsInput, PlanChartInput,
     PlanHeatInput, PlanTableInput, PlanCardsInput, PlanEventsInput, PlanGroupInput,
