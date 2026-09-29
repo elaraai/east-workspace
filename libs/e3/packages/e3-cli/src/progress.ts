@@ -81,15 +81,12 @@ export function createProgress(options?: { quiet?: boolean; stream?: ProgressStr
 
   const phase = (text: string): void => {
     if (quiet) return;
-    const hadActive = active !== undefined;
-    const activeText = active?.text;
-    stopActive();
+    // A phase can complete while a step is still spinning (a captured member,
+    // a file taken in): its line goes above the step's, which carries on — the
+    // same step, so its handle still updates and completes it.
+    clearLine();
     stream.write(`✔ ${text}\n`);
-    // Resume the interrupted step's line (a capture phase can complete while
-    // a surrounding step is still spinning).
-    if (hadActive && activeText !== undefined) {
-      startStepInternal(activeText);
-    }
+    if (tty) renderSpinner();
   };
 
   const startStepInternal = (text: string): void => {
@@ -136,7 +133,7 @@ export function createProgress(options?: { quiet?: boolean; stream?: ProgressStr
 }
 
 /**
- * Format a byte count for progress lines (`812 kB`, `1.2 MB`).
+ * Format a byte count for progress lines (`812 kB`, `1.2 MB`, `7.5 GB`).
  *
  * @param bytes - The byte count
  * @returns Human-readable size
@@ -144,5 +141,6 @@ export function createProgress(options?: { quiet?: boolean; stream?: ProgressStr
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

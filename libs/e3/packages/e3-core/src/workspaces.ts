@@ -22,11 +22,15 @@ import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { E3_RELEASE, PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
-import type {
-  PackageObject, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, TreePath,
+import {
+  E3_RELEASE, PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject, isCollectionRoot,
 } from '@elaraai/e3-types';
-import { objectAdoptFile } from './dataset-adopt.js';
+import type {
+  DeployProgress, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState, RecordDeployStep, RecordIndexPlan,
+  RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, TreePath,
+} from '@elaraai/e3-types';
+import { objectAdoptFile, type DatasetTaken } from './dataset-adopt.js';
+import { eachAtMost } from './concurrency.js';
 import { ZIP_RELEASE_ENTRY, packageResolve, packageRead, walkPackageObjects } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import { workspaceSetDatasetByHash } from './trees.js';
@@ -240,6 +244,62 @@ export async function workspaceGetPackage(
 }
 
 /**
+ * What holds a workspace exclusively, and how far that operation says it has
+ * got.
+ *
+ * @remarks
+ * A workspace deployed for the first time is not deployed until its deploy
+ * ends, so it has no status to read meanwhile; its lock says a deploy holds it,
+ * and how far the deploy has got with its file sources and its records.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @returns The lock's state and what its holder last reported, or null when
+ *   nothing holds the workspace exclusively
+ */
+export async function workspaceLockStatus(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+): Promise<LockStatus | null> {
+  const state = await storage.locks.getState(repo, name);
+  if (state === null) return null;
+  const progress = await storage.locks.getProgress(repo, name);
+  return { state, progress: progress === null ? none : some(progress) };
+}
+
+/**
+ * How far a deploy has got with one of its `file` sources.
+ */
+export interface DeploySourceProgress {
+  /** The input's path in the workspace, as `inputs/<name>`. */
+  readonly path: string;
+  /** The delivery's file. */
+  readonly file: string;
+  /** `hash` while the file is read for its SHA-256, which says whether the
+   *  store already knows it; `take-in` while intake units take it in; `done`
+   *  once it is in. */
+  readonly phase: 'hash' | 'take-in' | 'done';
+  /** Bytes of the file the phase has covered: read for its hash, or covered by
+   *  the pieces taken in; the file's size once `done`. */
+  readonly bytes: number;
+  /** The file's size. */
+  readonly total: number;
+  /** In `take-in`: the delivery's pieces, and how many have been taken in. */
+  readonly pieces?: { readonly done: number; readonly total: number };
+  /** Once `done`: how the file was taken in. */
+  readonly taken?: DatasetTaken;
+  /** Once `done`, when `taken`: the runners that took it in. */
+  readonly runners?: readonly string[];
+  /** Once `done`: why a runner fell back to another, when one did. */
+  readonly fallback?: string;
+  /** Every `file` source the deploy takes in: how many, and their bytes
+   *  together. */
+  readonly sources: { readonly count: number; readonly bytes: number };
+}
+
+/**
  * Options for workspace deployment.
  */
 export interface WorkspaceDeployOptions {
@@ -312,7 +372,8 @@ export interface WorkspaceDeployOptions {
    */
   resolveFileSources?: boolean;
   /**
-   * Task runner for the migrations and index builds a deploy owes.
+   * Task runner for the migrations and index builds a deploy owes, and the
+   * intake units that take its collection file sources in.
    *
    * @remarks
    * A record that declares an index needs that index built before anything can
@@ -320,11 +381,12 @@ export interface WorkspaceDeployOptions {
    * runner its author chose. Deploy is where that debt falls due: a record
    * minted here has no index yet, and a record whose declaration changed has
    * one built under the wrong declaration. A migration runs on its author's
-   * runner too.
+   * runner too. A collection delivery is taken in by intake units, in pieces,
+   * on the runner.
    *
-   * Omit it only where no package can declare an index or a migration: a
-   * deploy that owes either without a runner is refused before it writes
-   * anything.
+   * Omit it only where no package can declare an index, a migration or a
+   * collection file source: a deploy that owes any of them without a runner is
+   * refused before it writes anything.
    */
   runner?: TaskRunner;
   /**
@@ -339,6 +401,34 @@ export interface WorkspaceDeployOptions {
    * that is a broken package, not a missing file.
    */
   sourceWarning?: (message: string) => void;
+  /**
+   * How many `file` sources the deploy takes in at once.
+   *
+   * @remarks
+   * Each delivery is hashed and taken in on its own, so a deploy of many takes
+   * them in side by side, their pieces sharing the runner's room. A local
+   * deploy takes as many as its budget has cores.
+   *
+   * @defaultValue 1
+   */
+  sourceConcurrency?: number;
+  /**
+   * Called as the deploy takes in each `file` source: as its file is hashed
+   * and read, and once it is in.
+   */
+  onSourceProgress?: (progress: DeploySourceProgress) => void;
+  /**
+   * Called with how far the deploy has got — each file source's step and each
+   * record's — as it reports it through its lock for a watcher to read: a
+   * deploy job's status carries it for the client polling the job.
+   *
+   * @remarks
+   * Called as the deploy starts, as each file source is in and each record's
+   * step moves, and in between at most every half second. A call is awaited
+   * before the next is made, and none is made once the deploy has returned; a
+   * call that fails is dropped.
+   */
+  onDeployProgress?: (progress: DeployProgress) => void | Promise<void>;
 }
 
 /**
@@ -432,10 +522,18 @@ export async function workspaceDeploy(
     const sourceFiles = validateDatasetSources(
       pkg, options.sourceWarning, options.resolveFileSources ?? true,
     );
+    if (options.runner === undefined) {
+      for (const [refPath, { declared }] of sourceFiles) {
+        if (isCollectionRoot(declared.type)) {
+          throw new Error(`input '${refPath.split('/').pop() ?? refPath}': a collection delivery is taken in by intake units, and the deploy was given no runner to run them`);
+        }
+      }
+    }
 
     // The tasks lock is held from the first object this deploy writes — an
     // adopted delivery's segments, an index build's output — to the last ref
     // that names one, since until then nothing roots them against a sweep.
+    const deployLock = lock;
     await withRunningWork(storage, repo, async () => {
       // Adopt every validated delivery into the object store, still before
       // the wipe. Objects are repo-wide and content-addressed, so this is safe
@@ -444,59 +542,103 @@ export async function workspaceDeploy(
       // the hash, a cross-device copy, ENOSPC, a delivery replaced since it
       // was validated — ahead of the first destructive write. Only the ref
       // writes come after.
-      const adoptedSources = new Map<string, string>();
-      for (const [refPath, { file, declared }] of sourceFiles) {
-        const { hash } = await objectAdoptFile(storage, repo, file, { declared });
-        adoptedSources.set(refPath, hash);
-      }
-
-      // A migration and an index build both run user East, so they are the
-      // steps likeliest to fail, and both run before the wipe below: a deploy
-      // that fails leaves the workspace as it was. What they write is named
-      // by nothing until the commits after the new refs. A record migrated
-      // here has no index, and one minted here none either, so their indexes
-      // are built over the state the record will hold, as a changed
-      // declaration's are.
-      const migrated = await runRecordMigrations(storage, repo, deployments, options.runner);
-      const indexBuilds = await buildDeployIndexes(
-        storage, repo, pkg, stateOf(migrated), options.runner, options.onRecordIndex,
-      );
-
-      // Remove any existing dataset refs
-      await storage.datasets.removeAll(repo, name);
-
-      // Initialize per-dataset ref files from the package
-      await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
-
-      // Commit what was decided for each record: a minted one's `$init`, a
-      // kept one's history with a `$deploy` commit when the package changed,
-      // a migrated one's `$migrate` commit per step, a reset one's `$reset`.
-      // A record is never unassigned, never silently reset, and its history
-      // says what each deploy did to it.
-      await commitDeployRecords(storage, repo, name, recordDeployCommits(deployments, migrated));
-      await commitDeployIndexes(storage, repo, name, indexBuilds);
-
-      await writeState(storage, repo, name, {
-        packageName: pkgName,
-        packageVersion: pkgVersion,
-        packageHash,
-        deployedAt: new Date(),
-        currentRunId: none,
+      // They are taken in `sourceConcurrency` at a time. The first failure
+      // stops the rest: none not yet started starts, and those in flight are
+      // aborted — each waiting piece withdrawn, each running one stopped — so
+      // a refusal is reported without waiting on the other files' intakes.
+      const deliveries = [...sourceFiles];
+      const stop = new AbortController();
+      const hashes: string[] = new Array(deliveries.length);
+      const sizes = await Promise.all(deliveries.map(async ([, { file }]) => (await fs.stat(file)).size));
+      const sources = { count: deliveries.length, bytes: sizes.reduce((sum, size) => sum + size, 0) };
+      // How far the deploy has got goes through its lock to whoever watches
+      // the workspace, and to the caller.
+      const reports = deployReports(async (progress) => {
+        await Promise.all([deployLock.report(variant('deployment', progress)), options.onDeployProgress?.(progress)]);
+      }, {
+        package: { name: pkgName, version: pkgVersion },
+        files: deliveries.map(([refPath], i) => ({ path: refPath, total: sizes[i]! })),
+        records: deployments.map(({ plan, indexes }) => ({ plan, indexes })),
       });
+      try {
+        await eachAtMost(deliveries.map((_, i) => i), Math.max(1, options.sourceConcurrency ?? 1), async (i) => {
+          const [refPath, { file, declared }] = deliveries[i]!;
+          const hear = (progress: DeploySourceProgress): void => {
+            options.onSourceProgress?.(progress);
+            reports.file(progress);
+          };
+          const { hash, size, taken, runners, fallback } = await objectAdoptFile(storage, repo, file, {
+            declared,
+            runner: options.runner,
+            signal: stop.signal,
+            onProgress: (progress) => hear({ path: refPath, file, sources, ...progress }),
+          }).catch((err: unknown) => {
+            stop.abort();
+            throw err;
+          });
+          hashes[i] = hash;
+          hear({
+            path: refPath, file, sources, phase: 'done', bytes: size, total: size, taken,
+            ...(runners !== undefined && { runners }), ...(fallback !== undefined && { fallback }),
+          });
+        });
+        const adoptedSources = new Map(deliveries.map(([refPath], i) => [refPath, hashes[i]!]));
 
-      // Point each path-initialised input at the value adopted above — a ref
-      // write per input. The self entry in the version vector names the
-      // value's hash, which is what makes change detection exact for the
-      // input's consumers.
-      //
-      // The file IS the value, so a new delivery under the same path is a new
-      // hash: its consumers re-run, and a task that splits its work over it
-      // keeps the pieces that did not move.
-      for (const [refPath, hash] of adoptedSources) {
-        await workspaceSetDatasetByHash(
-          storage, repo, name, treePathOfRefPath(refPath), hash,
-          new Map([[refPathToKeypath(refPath), hash]]),
+        // A migration and an index build both run user East, so they are the
+        // steps likeliest to fail, and both run before the wipe below: a deploy
+        // that fails leaves the workspace as it was. What they write is named
+        // by nothing until the commits after the new refs. A record migrated
+        // here has no index, and one minted here none either, so their indexes
+        // are built over the state the record will hold, as a changed
+        // declaration's are.
+        const migrated = await runRecordMigrations(storage, repo, deployments, options.runner, (path, step) =>
+          reports.record(path, variant('migrating', { name: step.name, step: BigInt(step.step), steps: BigInt(step.steps) })));
+        const indexBuilds = await buildDeployIndexes(
+          storage, repo, pkg, stateOf(migrated), options.runner, options.onRecordIndex, false, (path, build) =>
+            reports.record(path, variant('indexing', { index: build.index, build: BigInt(build.build), builds: BigInt(build.builds) })),
         );
+        reports.recordsDone();
+
+        // Remove any existing dataset refs
+        await storage.datasets.removeAll(repo, name);
+
+        // Initialize per-dataset ref files from the package
+        await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+
+        // Commit what was decided for each record: a minted one's `$init`, a
+        // kept one's history with a `$deploy` commit when the package changed,
+        // a migrated one's `$migrate` commit per step, a reset one's `$reset`.
+        // A record is never unassigned, never silently reset, and its history
+        // says what each deploy did to it.
+        await commitDeployRecords(storage, repo, name, recordDeployCommits(deployments, migrated));
+        await commitDeployIndexes(storage, repo, name, indexBuilds);
+
+        await writeState(storage, repo, name, {
+          packageName: pkgName,
+          packageVersion: pkgVersion,
+          packageHash,
+          deployedAt: new Date(),
+          currentRunId: none,
+        });
+
+        // Point each path-initialised input at the value adopted above — a ref
+        // write per input. The self entry in the version vector names the
+        // value's hash, which is what makes change detection exact for the
+        // input's consumers.
+        //
+        // The file IS the value, so a new delivery under the same path is a new
+        // hash: its consumers re-run, and a task that splits its work over it
+        // keeps the pieces that did not move.
+        for (const [refPath, hash] of adoptedSources) {
+          await workspaceSetDatasetByHash(
+            storage, repo, name, treePathOfRefPath(refPath), hash,
+            new Map([[refPathToKeypath(refPath), hash]]),
+          );
+        }
+      } finally {
+        // Nothing is reported once the deploy has returned: a job's status is
+        // its own from then on.
+        await reports.settle();
       }
     });
   } finally {
@@ -510,6 +652,108 @@ export async function workspaceDeploy(
 /** `inputs/table` back to the tree path the dataset APIs take. */
 function treePathOfRefPath(refPath: string): TreePath {
   return refPath.split('/').map(segment => variant('field', segment));
+}
+
+/** How often, at most, a deploy reports how far it has got, between the
+ *  reports a file's end or a record's next step makes. */
+const REPORT_MS = 500;
+
+/**
+ * Reports how far a deploy has got, for another process to read while it
+ * runs: through the lock it holds, for a TUI watching the workspace, and to
+ * its caller, for a deploy job's status.
+ *
+ * @remarks
+ * Every file source and every record starts `waiting`. A record's step moves
+ * as its migrations and index builds start, and a record whose work is over is
+ * `done`. A report goes as the deploy starts, as each file is in and each
+ * record's step moves, and in between at most every {@link REPORT_MS}. They go
+ * one at a time, the latest replacing any not yet sent, so a slow store never
+ * queues them. A report only shows the deploy, so one that fails is dropped
+ * and the deploy carries on; once settled, nothing more is reported.
+ *
+ * @param report - Where each report goes
+ * @param start - The package, each file source with its size, and each record
+ *   with what the deploy decided for it and the indexes it declares
+ * @returns What hears each file's progress and each record's step, marks the
+ *   records done, and waits for the report in flight, and any held back, to
+ *   land
+ */
+function deployReports(
+  report: (progress: DeployProgress) => Promise<void>,
+  start: {
+    package: DeployProgress['package'];
+    files: ReadonlyArray<{ path: string; total: number }>;
+    records: ReadonlyArray<{ plan: RecordPlan; indexes: string[] }>;
+  },
+): {
+  file(progress: DeploySourceProgress): void;
+  record(path: string, step: RecordDeployStep): void;
+  recordsDone(): void;
+  settle(): Promise<void>;
+} {
+  const startedAt = new Date();
+  const files = new Map<string, IntakeFile>(start.files.map(({ path, total }) =>
+    [path, { path, step: variant('waiting', null), bytes: 0n, total: BigInt(total) }]));
+  const records = new Map<string, RecordDeployState>(start.records.map(({ plan, indexes }) =>
+    [plan.record, { plan, indexes, step: variant('waiting', null) }]));
+  let active: string | null = null;
+  let reportedAt = 0;
+  let sending: Promise<void> | null = null;
+  let heldBack = false;
+  let settled = false;
+
+  const send = (): void => {
+    if (settled) return;
+    if (sending !== null) {
+      heldBack = true;
+      return;
+    }
+    reportedAt = Date.now();
+    sending = report({ package: start.package, startedAt, files: [...files.values()], records: [...records.values()] })
+      .catch(() => {})
+      .then(() => {
+        sending = null;
+        if (heldBack) {
+          heldBack = false;
+          send();
+        }
+      });
+  };
+  const moveTo = (path: string, step: RecordDeployStep): void => {
+    const record = records.get(path);
+    if (record !== undefined) records.set(path, { ...record, step });
+  };
+
+  send();
+  return {
+    file(progress) {
+      const step: IntakeStep = progress.phase === 'hash' ? variant('hashing', null)
+        : progress.phase === 'take-in' ? variant('taking_in', { pieces: BigInt(progress.pieces?.total ?? 0), done: BigInt(progress.pieces?.done ?? 0) })
+        : progress.taken === 'known' ? variant('done', variant('known', null))
+        : progress.taken === 'taken' ? variant('done', variant('taken', [...progress.runners ?? []]))
+        : variant('done', variant('carried', null));
+      files.set(progress.path, { path: progress.path, step, bytes: BigInt(progress.bytes), total: BigInt(progress.total) });
+      if (progress.phase === 'done' || Date.now() - reportedAt >= REPORT_MS) send();
+    },
+    record(path, step) {
+      // Migrations and index builds run a record at a time: the one before
+      // has finished what it owed.
+      if (active !== null && active !== path) moveTo(active, variant('done', null));
+      active = path;
+      moveTo(path, step);
+      send();
+    },
+    recordsDone() {
+      for (const path of records.keys()) moveTo(path, variant('done', null));
+      active = null;
+      send();
+    },
+    async settle() {
+      while (sending !== null) await sending;
+      settled = true;
+    },
+  };
 }
 
 /**

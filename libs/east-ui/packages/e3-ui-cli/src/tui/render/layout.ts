@@ -129,7 +129,8 @@ export interface ColumnSpec {
 }
 
 /** The tables with a per-breakpoint column plan. */
-export type TableKind = 'tasks' | 'inputs' | 'records' | 'workspaces' | 'repos' | 'runs' | 'history' | 'completion' | 'jump';
+export type TableKind =
+    | 'tasks' | 'inputs' | 'records' | 'deployInputs' | 'deployRecords' | 'workspaces' | 'repos' | 'runs' | 'history' | 'completion' | 'jump';
 
 /**
  * The column plan of a table at a width class. Widths are the design's
@@ -182,6 +183,20 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
                 { key: 'size', title: 'SIZE', width: 10 },
                 ...(narrow ? [] : [{ key: 'indexes', title: 'INDEXES', width: medium ? 20 : 26 }]),
                 { key: 'lastCommit', title: 'LAST COMMIT', width: 0 },
+            ];
+        case 'deployInputs':
+            // While a deploy takes its file sources in: each one's step, with a bar while it moves.
+            return [
+                { key: 'name', title: 'NAME', width: 14, grow: 24 },
+                { key: 'status', title: 'STATUS', width: narrow ? 26 : 34 },
+                { key: 'size', title: 'SIZE', width: 0 },
+            ];
+        case 'deployRecords':
+            // While a deploy deploys its records: each one's step, and the indexes it declares.
+            return [
+                { key: 'name', title: 'NAME', width: 14, grow: 24 },
+                { key: 'status', title: 'STATUS', width: narrow ? 26 : 34 },
+                { key: 'indexes', title: 'INDEXES', width: 0 },
             ];
         case 'workspaces':
             return [

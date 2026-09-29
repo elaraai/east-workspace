@@ -4,8 +4,10 @@
  */
 
 /**
- * The workspace dashboard — the title line, then one scrolling column:
- * the TASKS / DATASETS counts with the accounted bar, the execution panel
+ * The workspace dashboard — the title line, then one scrolling column. While
+ * a deploy holds the workspace, the column is the deploy: its header, and the
+ * INPUTS and RECORDS tables with the step it is at with each file source and
+ * record. Otherwise, the TASKS / DATASETS counts with the accounted bar, the execution panel
  * (the last run's failures; while it runs, the budget in use and the live
  * feed: each task's latest event, the units requeued and what waits for
  * room), the tasks table, the inputs table and, when the workspace holds
@@ -26,7 +28,7 @@
  * @packageDocumentation
  */
 
-import type { DataflowEvent, RecordCommitInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
+import type { DataflowEvent, DeployProgress, LockStatus, RecordCommitInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
 import type { WorkspaceState } from '@elaraai/e3-types';
 import type { Glyphs } from '../../render/glyphs.js';
 import { breakpoint, columnPlan, scrollIntoView, type Breakpoint, type ColumnSpec } from '../../render/layout.js';
@@ -36,7 +38,8 @@ import type { DataState, ExecutionData, NavOp, TuiState } from '../../state/acti
 import { layoutOf, registerListModel } from '../../model/index.js';
 import { datasetEntries } from '../../model/catalogue.js';
 import {
-    datasetStatusCell, eventCell, executionDuration, executionStatusCell, splitPlace, statusText, taskStatusCell, unitPlace, waitCell, type StatusCell,
+    datasetStatusCell, eventCell, executionDuration, executionStatusCell, intakeCell, recordDeployCell, splitPlace, statusText, taskStatusCell, unitPlace,
+    waitCell, type StatusCell,
 } from '../../model/status.js';
 import { registerViewHooks, type Controller } from '../../controller.js';
 import { isRunLive, lockHolderText } from '../../data/dataflow.js';
@@ -92,22 +95,36 @@ function lowerFirst(text: string): string {
     return text.length === 0 ? text : text[0]!.toLowerCase() + text.slice(1);
 }
 
-/** The dashboard title line: ` main   ● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none`. */
+/**
+ * The dashboard title line: ` main   ● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none`;
+ * while a deploy holds the workspace, the package it deploys, who deploys it
+ * and since when, in place of the lock (`◔ DEPLOYING · demand@1.5.0 · pid 4242 · started 9s ago`).
+ */
 export function dashboardTitle(state: TuiState, ws: string, ctx: RenderCtx): Line {
     const g = ctx.g;
     const info = (state.data.workspaces ?? []).find(w => w.name === ws);
     const wsState = state.data.workspaceState[ws];
     const status = state.data.status[ws]?.result;
+    const deploying = deployOf(state.data.lock[ws]);
     const right: Line = [];
     if (info === undefined || !info.deployed) {
-        right.push(b(`${g.empty} EMPTY`, 'muted'));
+        if (deploying === null) right.push(b(`${g.empty} EMPTY`, 'muted'));
     } else {
         const pkg = info.packageName.type === 'some' ? `${info.packageName.value}${info.packageVersion.type === 'some' ? `@${info.packageVersion.value}` : ''}` : '';
         right.push(b(`${g.dot} DEPLOYED`, 'pos'), d(` ${g.sep} ${pkg}`));
         if (wsState !== undefined && wsState !== null) right.push(d(` ${g.sep} deployed ${timeAgo(wsState.deployedAt, ctx.now)}`));
     }
     const lock = status?.lock;
-    if (lock !== undefined) {
+    if (deploying !== null) {
+        if (right.length > 0) right.push(t(` ${g.sep} `));
+        right.push(b(`${g.quarter} DEPLOYING`, 'info'));
+        const progress = deployProgressOf(deploying);
+        const holder = deploying.state.holder;
+        // The process's pid, not its command: the command is the whole argv, paths and all.
+        const who = holder.type === 'process' ? `pid ${holder.value.pid}` : holder.value.functionName;
+        const pkg = progress !== null ? ` ${g.sep} ${progress.package.name}@${progress.package.version}` : '';
+        right.push(d(`${pkg} ${g.sep} ${who} ${g.sep} started ${timeAgo(deploying.state.acquiredAt, ctx.now)}`));
+    } else if (lock !== undefined) {
         if (lock.type === 'some') {
             right.push(t(` ${g.sep} `), b(`lock: ${lockHolderText(lock.value, ctx.now, g)}`, 'warn'));
         } else {
@@ -116,6 +133,86 @@ export function dashboardTitle(state: TuiState, ws: string, ctx: RenderCtx): Lin
     }
     right.push(t(' '));
     return lrLine([t(' '), b(ws)], right, ctx.layout.columns);
+}
+
+// ---------------------------------------------------------------------------
+// A deploy in progress
+// ---------------------------------------------------------------------------
+
+/** The lock, when a deploy holds the workspace; null otherwise. */
+function deployOf(lock: LockStatus | null | undefined): LockStatus | null {
+    return lock !== undefined && lock !== null && lock.state.operation.type === 'deployment' ? lock : null;
+}
+
+/** How far a deploy says it has got, once it has reported. */
+function deployProgressOf(lock: LockStatus): DeployProgress | null {
+    return lock.progress.type === 'some' && lock.progress.value.type === 'deployment' ? lock.progress.value.value : null;
+}
+
+/**
+ * The DEPLOY header's right side — what the deploy is doing and how far it has
+ * got: `◔ TAKING IN · 2 of 6 files · 134.9 of 202.4 MB · 14.3 MB/s · ~5.2s left`
+ * while its files come in, then `◔ MIGRATING` or `◔ BUILDING INDEXES` while a
+ * record's step runs, and `◔ FINISHING` once its files and records are done.
+ *
+ * @param progress - What the deploy last reported
+ * @param dctx - The dashboard context
+ * @returns The spans
+ */
+function deployPhase(progress: DeployProgress, dctx: DashboardCtx): Line {
+    const { sep, quarter } = dctx.g;
+    const files = progress.files;
+    const done = files.filter(file => file.step.type === 'done').length;
+    const total = files.reduce((sum, file) => sum + Number(file.total), 0);
+    const plural = `${files.length} file${files.length === 1 ? '' : 's'}`;
+    if (done < files.length) {
+        // The bytes past their hash: a file taking in, and every file in.
+        const moved = files.reduce((sum, file) => sum + (file.step.type === 'done' ? Number(file.total) : file.step.type === 'taking_in' ? Number(file.bytes) : 0), 0);
+        // `134.9 of 202.4 MB`: the unit once when both share it.
+        const whole = formatSize(total);
+        const part = formatSize(moved);
+        const unit = whole.slice(whole.indexOf(' '));
+        const seconds = (dctx.now - progress.startedAt.getTime()) / 1000;
+        const rate = seconds > 0 ? moved / seconds : 0;
+        const pace = rate > 0 ? ` ${sep} ${formatSize(rate)}/s ${sep} ~${formatDuration(((total - moved) / rate) * 1000)} left` : '';
+        return [b(`${quarter} TAKING IN`, 'info'), d(` ${sep} ${done} of ${plural} ${sep} ${part.endsWith(unit) ? part.slice(0, -unit.length) : part} of ${whole}${pace}`)];
+    }
+    const running = progress.records.find(record => record.step.type === 'migrating' || record.step.type === 'indexing')?.step.type;
+    const head = running === 'migrating' ? 'MIGRATING' : running === 'indexing' ? 'BUILDING INDEXES' : 'FINISHING';
+    return [b(`${quarter} ${head}`, 'info'), ...(files.length > 0 ? [d(` ${sep} took in ${plural} ${sep} ${formatSize(total)}`)] : [])];
+}
+
+/**
+ * The column while a deploy holds the workspace: the DEPLOY header, then the
+ * normal screen's tables by type — INPUTS, a row per file source the deploy
+ * takes in, and RECORDS, a row per record it deploys — each row with the step
+ * the deploy is at with it.
+ *
+ * @param lock - The deploy's lock
+ * @param dctx - The dashboard context
+ * @returns The lines
+ */
+function deployLines(lock: LockStatus, dctx: DashboardCtx): Line[] {
+    const g = dctx.g;
+    const width = dctx.columns - 1;
+    const progress = deployProgressOf(lock);
+    if (progress === null) return [lrLine([t(' '), b('DEPLOY')], [b(`${g.quarter} STARTING`, 'info'), t(' ')], width)];
+    const lines: Line[] = [lrLine([t(' '), b('DEPLOY')], [...deployPhase(progress, dctx), t(' ')], width)];
+    const table = (title: string, kind: 'deployInputs' | 'deployRecords', rows: TableRow[]): void => {
+        if (rows.length === 0) return;
+        const plan = tablePlan(columnPlan(kind, dctx.bp), rows, width);
+        lines.push(blank(width), sectionLine(title, '', width), tableLine(plan, null, false, width, g), ...rows.map(row => tableLine(plan, row, false, width, g)));
+    };
+    table('INPUTS', 'deployInputs', progress.files.map(file => {
+        const cell = intakeCell(file, g);
+        return { cells: { name: file.path.split('/').pop() ?? file.path, status: { text: statusText(cell, ' '), tone: cell.tone }, size: formatSize(Number(file.total)) } };
+    }));
+    table('RECORDS', 'deployRecords', progress.records.map(record => {
+        const cell = recordDeployCell(record, g);
+        const path = record.plan.record;
+        return { cells: { name: path.split('/').pop() ?? path, status: { text: statusText(cell), tone: cell.tone }, indexes: record.indexes.length > 0 ? record.indexes.join(', ') : '—' } };
+    }));
+    return lines;
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +492,8 @@ interface DashboardKey {
     status: WorkspaceStatusResult | undefined;
     statusError: string | undefined;
     workspaceState: WorkspaceState | null | undefined;
+    /** What holds the workspace: while a deploy does, the column is the deploy. */
+    lock: LockStatus | null | undefined;
     execution: ExecutionData | undefined;
     datasets: DataState['datasets'][string] | undefined;
     taskList: DataState['taskList'][string] | undefined;
@@ -408,7 +507,7 @@ let cached: { key: DashboardKey; model: DashboardModel } | null = null;
 
 function sameKey(a: DashboardKey, b: DashboardKey): boolean {
     return a.ws === b.ws && a.status === b.status && a.statusError === b.statusError && a.workspaceState === b.workspaceState
-        && a.execution === b.execution && a.datasets === b.datasets && a.taskList === b.taskList && a.records === b.records
+        && a.lock === b.lock && a.execution === b.execution && a.datasets === b.datasets && a.taskList === b.taskList && a.records === b.records
         && a.columns === b.columns && a.bp === b.bp && a.g === b.g;
 }
 
@@ -431,6 +530,7 @@ export function dashboardModel(state: TuiState, ws: string, dctx: DashboardCtx):
         status: state.data.status[ws]?.result,
         statusError: state.data.statusError[ws],
         workspaceState: state.data.workspaceState[ws],
+        lock: state.data.lock[ws],
         execution: state.data.execution[ws],
         datasets: state.data.datasets[ws],
         taskList: state.data.taskList[ws],
@@ -456,6 +556,13 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
         taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], recordPlan: [], records: [], recordNames: [],
         rows: [], total: 0, panelAt: 0, tasksAt: 0, inputsAt: 0, recordsAt: -1,
     };
+    // While a deploy holds the workspace, the column is the deploy: what the
+    // workspace held before is going, and a first deploy has nothing else.
+    const deploying = deployOf(key.lock);
+    if (deploying !== null) {
+        const placeholder = deployLines(deploying, dctx);
+        return { ...empty, status: undefined, placeholder, total: placeholder.length };
+    }
     if (status === undefined) {
         const placeholder: Line[] = [];
         if (key.workspaceState === null) {

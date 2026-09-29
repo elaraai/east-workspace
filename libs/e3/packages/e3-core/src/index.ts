@@ -113,11 +113,13 @@ export {
   workspaceRemove,
   workspaceGetState,
   workspaceGetPackage,
+  workspaceLockStatus,
   workspaceDeploy,
   workspaceExport,
   type WorkspaceExportResult,
   type WorkspaceRemoveOptions,
   type WorkspaceDeployOptions,
+  type DeploySourceProgress,
 } from './workspaces.js';
 
 // What a deploy decides for each record and index, and its schema policy: the
@@ -193,8 +195,19 @@ export {
   deliveryKnown,
   objectAdoptFile,
   type DatasetAdoptOptions,
+  type DatasetAdoptProgress,
   type DatasetAdoptResult,
+  type DatasetTaken,
+  type ObjectAdoptResult,
 } from './dataset-adopt.js';
+
+// A delivered collection taken in by intake units on the runners, in pieces
+export {
+  intakeDelivery,
+  type DeliveryIntake,
+  type DeliveryIntakeOptions,
+  type DeliveryIntakeProgress,
+} from './delivery-intake.js';
 
 // Tree and dataset operations (high-level, by path)
 export {
@@ -412,6 +425,7 @@ export {
   DatasetNotFoundError,
   DatasetRefConflictError,
   DatasetTypeMismatchError,
+  DeliveryRefusedError,
   // Task
   TaskNotFoundError,
   // Object

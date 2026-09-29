@@ -24,6 +24,7 @@ import type {
     DatasetStatusDetail,
     ExecutionListItem,
     ListEntry,
+    LockStatus,
     RecordCommitInfo,
     RecordSignature,
     RepositoryStatus,
@@ -343,6 +344,8 @@ export interface DataState {
     status: Record<string, { result: WorkspaceStatusResult; at: number }>;
     /** Per workspace: the last status error. */
     statusError: Record<string, string>;
+    /** Per workspace: what holds it exclusively and how far it has got (a deploy), null when nothing does. */
+    lock: Record<string, LockStatus | null>;
     /** Per workspace: the latest execution. */
     execution: Record<string, ExecutionData>;
     /** Per workspace: the budget a run gets (the server's), or null when its runners hold none. */
@@ -372,6 +375,7 @@ export const emptyData = (): DataState => ({
     workspaceState: {},
     status: {},
     statusError: {},
+    lock: {},
     execution: {},
     budget: {},
     datasets: {},
@@ -513,6 +517,7 @@ export type Action =
     | { type: 'data/workspaceState'; ws: string; state: WorkspaceState | null }
     | { type: 'data/status'; ws: string; result: WorkspaceStatusResult; at: number }
     | { type: 'data/statusError'; ws: string; error: string }
+    | { type: 'data/lock'; ws: string; lock: LockStatus | null }
     | { type: 'data/execution'; ws: string; state: DataflowExecutionState | null; events: DataflowEvent[]; startedAt: string | null }
     | { type: 'data/executionFlag'; ws: string; settling?: boolean; stopping?: boolean }
     | { type: 'data/budget'; ws: string; budget: DataflowBudget | null }

@@ -17,6 +17,7 @@ import type {
   LockService,
   LockHandle,
   LockOperation,
+  LockProgress,
   LockState,
   LogStore,
   LogChunk,
@@ -352,6 +353,17 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return this.adoptions.get(`${repo}/${sourceHash}`) ?? null;
   }
 
+  async adoptionList(repo: string): Promise<Array<{ sourceHash: string; manifestHash: string | null }>> {
+    const prefix = `${repo}/`;
+    return [...this.adoptions]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, manifestHash]) => ({ sourceHash: key.slice(prefix.length), manifestHash }));
+  }
+
+  async adoptionDelete(repo: string, sourceHash: string): Promise<void> {
+    this.adoptions.delete(`${repo}/${sourceHash}`);
+  }
+
   // Dataflow run operations
   async dataflowRunGet(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
     return this.getDataflowRuns(repo).get(this.makeDataflowRunKey(workspace, runId)) ?? null;
@@ -427,6 +439,8 @@ class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
   private exclusiveLocks = new Map<string, LockState>();
   // Track shared lock count per resource
   private sharedLockCounts = new Map<string, number>();
+  // What each exclusive holder last reported of its progress
+  private progress = new Map<string, LockProgress>();
 
   private makeLockKey(repo: string, resource: string): string {
     return `${repo}:${resource}`;
@@ -464,6 +478,8 @@ class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
       let released = false;
       return {
         resource,
+        // A shared holder's report is not kept: progress is the exclusive holder's.
+        report: async () => {},
         release: async () => {
           if (released) return;
           released = true;
@@ -496,9 +512,13 @@ class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
       let released = false;
       return {
         resource,
+        report: async (progress: LockProgress) => {
+          if (!released) this.progress.set(key, progress);
+        },
         release: async () => {
           if (released) return;
           released = true;
+          this.progress.delete(key);
           this.exclusiveLocks.delete(key);
         },
       };
@@ -509,13 +529,18 @@ class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
     return this.exclusiveLocks.get(this.makeLockKey(repo, resource)) ?? null;
   }
 
+  async getProgress(repo: string, resource: string): Promise<LockProgress | null> {
+    const key = this.makeLockKey(repo, resource);
+    return this.exclusiveLocks.has(key) ? this.progress.get(key) ?? null : null;
+  }
+
   async isHolderAlive(_holder: LockHolderVariant): Promise<boolean> {
     return true;
   }
 
   drop(repo: string): number {
     let dropped = 0;
-    for (const locks of [this.exclusiveLocks, this.sharedLockCounts]) {
+    for (const locks of [this.exclusiveLocks, this.sharedLockCounts, this.progress]) {
       for (const key of [...locks.keys()]) {
         if (key.startsWith(`${repo}:`)) {
           locks.delete(key);
@@ -529,6 +554,7 @@ class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
   clear(): void {
     this.exclusiveLocks.clear();
     this.sharedLockCounts.clear();
+    this.progress.clear();
   }
 }
 

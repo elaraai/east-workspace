@@ -7,6 +7,8 @@
 
 #include "internal.h"
 
+#include <math.h>
+
 /* Map EastTypeKind → tag byte */
 const uint8_t BEAST2_TAG_FOR_KIND[] = {
     [EAST_TYPE_NEVER] = BEAST2_TAG_NEVER,
@@ -68,6 +70,14 @@ bool b2_type_is_zero_width(const EastType *type)
 
 void b2_write_float64_le(ByteBuffer *buf, double val)
 {
+    /* A NaN is written as the one NaN every runtime writes,
+     * 0x7FF8000000000000: the bits a NaN happens to carry — x86's default NaN
+     * has its sign set — are not part of the value. */
+    static const uint8_t canonical_nan[8] = {0, 0, 0, 0, 0, 0, 0xf8, 0x7f};
+    if (isnan(val)) {
+        byte_buffer_write_bytes(buf, canonical_nan, 8);
+        return;
+    }
     uint8_t bytes[8];
     memcpy(bytes, &val, 8);
     /* On big-endian systems this would need byte-swapping.

@@ -102,6 +102,12 @@ export {
   type Beast2RecutStats,
 } from "./v5/recut.js";
 export {
+  intakeBeast2For,
+  Beast2IntakeError,
+  type Beast2IntakeOptions,
+  type Beast2IntakeStats,
+} from "./v5/intake.js";
+export {
   COLLECTION_MANIFEST_KIND,
   CollectionManifestType,
   CollectionManifestEntryType,

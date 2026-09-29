@@ -6,7 +6,9 @@
 /**
  * The feeds — which pollers run is derived from the store (the session and
  * the current view), so a feed runs only while a view that needs it is
- * mounted: `workspaceStatus` 1 s and the execution state 1 s (5 s idle) for
+ * mounted: `workspaceStatus` 1 s — and what holds the workspace, while its
+ * status names a lock or it has nothing deployed yet, as while a first deploy
+ * runs — and the execution state 1 s (5 s idle) for
  * the open workspace, `workspaceList` 5 s once a repository is bound,
  * `repoList` 5 s on a bare origin, dataset types 5 s — each record's
  * signature, rows and newest commit read after them when its state moved —
@@ -193,12 +195,34 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 key: `status:${ws}`,
                 intervalMs: 1_000,
                 run: async () => {
+                    // Nothing deployed when last looked, and no status since: a status
+                    // now is a deploy that ended, perhaps between two looks.
+                    const seen = store.getState().data;
+                    const wasEmpty = seen.workspaceState[ws] === null && seen.status[ws] === undefined;
+                    let locked = true;
+                    let deployed = false;
                     try {
                         const result = await api.workspaceStatus(ws);
                         store.dispatch({ type: 'data/status', ws, result, at: (deps.clock?.now ?? Date.now)() });
+                        locked = result.lock.type === 'some';
+                        deployed = true;
                     } catch (err) {
-                        store.dispatch({ type: 'data/statusError', ws, error: describeError(err) });
-                        throw err;
+                        // Nothing deployed has no status: not an error, and a first
+                        // deploy shows through the lock it holds.
+                        if (!isApiCode(err, 'workspace_not_deployed')) {
+                            store.dispatch({ type: 'data/statusError', ws, error: describeError(err) });
+                            throw err;
+                        }
+                        store.dispatch({ type: 'data/workspaceState', ws, state: null });
+                    }
+                    // What holds the workspace, and how far it has got, read only while something may.
+                    const lock = locked ? await api.workspaceLock(ws) : null;
+                    const deployEnded = (store.getState().data.lock[ws]?.state.operation.type === 'deployment' && lock === null) || (wasEmpty && deployed);
+                    store.dispatch({ type: 'data/lock', ws, lock });
+                    // A deploy that has let go has changed what the title, the tasks and the inputs
+                    // show: read them now, not on their next turns.
+                    if (deployEnded) {
+                        for (const key of ['workspaces', `workspaceState:${ws}`, `taskList:${ws}`, `datasets:${ws}`]) running.get(key)?.fireNow();
                     }
                 },
             });
@@ -233,12 +257,19 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     store.dispatch({ type: 'data/execution', ws, state: result, events, startedAt: result.startedAt });
                 },
             });
+            // A workspace nothing is deployed to has no datasets or tasks to list: not a failure
+            // for the connection pill to count, as it is not while a first deploy runs.
             out.push({
                 key: `datasets:${ws}`,
                 intervalMs: 5_000,
                 run: async () => {
-                    const entries = await api.datasetList(ws);
-                    store.dispatch({ type: 'data/datasets', ws, entries });
+                    try {
+                        const entries = await api.datasetList(ws);
+                        store.dispatch({ type: 'data/datasets', ws, entries });
+                    } catch (err) {
+                        if (isApiCode(err, 'workspace_not_deployed')) return;
+                        throw err;
+                    }
                     await records.tick(ws);
                 },
             });
@@ -246,8 +277,12 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 key: `taskList:${ws}`,
                 intervalMs: 30_000,
                 run: async () => {
-                    const tasks = await api.taskList(ws);
-                    store.dispatch({ type: 'data/taskList', ws, tasks });
+                    try {
+                        const tasks = await api.taskList(ws);
+                        store.dispatch({ type: 'data/taskList', ws, tasks });
+                    } catch (err) {
+                        if (!isApiCode(err, 'workspace_not_deployed')) throw err;
+                    }
                 },
             });
             out.push({

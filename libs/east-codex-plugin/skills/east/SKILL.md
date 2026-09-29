@@ -352,8 +352,9 @@ east-py   run prog.beast2 -p east-py-std -i a.beast2 -o out.beast2              
   else it is printed. IR and values may be `.beast2`, `.beast`, `.east` or
   `.json`.
 - `exec <unit>` is the runner protocol e3 speaks: it runs one unit file — a
-  program over its inputs, or a merge of an output's parts — writes the output by
-  its kind and records a result; exit 0 when it succeeded, 1 when it failed.
+  program over its inputs, a merge of an output's parts, or the intake of a
+  delivered collection — writes the output by its kind and records a result;
+  exit 0 when it succeeded, 1 when it failed.
 - `version [-p <package>…]` prints the runner's version and each package's.
 - east-c also has `convert <file> [-o <file>] [--type <east-type>]`, a value
   from one format to another, and the IR toolbox: `ir normalize` (the canonical
@@ -518,6 +519,7 @@ reads any container version its type was written in.
 | `new Beast2RunSorter(T, openRun, { merge } \| { union })` | Elements in ANY order in, sorted canonical runs out (a key added twice folds with `merge(key, acc, value)`, or `union` for a Set; without one it throws); then `mergeBeast2For(T, { merge } \| { union })(runs, sink)` writes the value. Memory is one run, then one segment per run. A run closes at `RUN_MAX_COUNT` elements or `RUN_MAX_BYTES`, platform constants, so every runtime writes the same runs |
 | `mergeBeast2For(T, opts?)(sources, sink)` | Sorted collections — blobs, range readers or manifests — into their union's blob or manifest, segment by segment; a key several hold folds in input order; `opts.from` / `opts.to` merge a key range |
 | `recutBeast2For(T)(pieces, sink)` | A collection in pieces, some already written, into its canonical segments: a segment the whole shares with its piece is carried unread (`sink.carried`), the rest re-cut (`sink.written`) |
+| `intakeBeast2For(T)(delivery, sink, opts?)` | A collection from outside — a `Beast2SyncRangeReader` over a v4 or v5 blob whose header names exactly `T` — through the Writer into a `Beast2ManifestSink`, a segment at a time: each row is walked by its type, the Writer's own bytes go on as they stand, and any other row is decoded and written again. `opts.segments` takes in the index's segments `[from, to)`, a piece of a large delivery. Refuses another type, a malformed segment or one over `RUN_MAX_BYTES`, a row that does not decode, and keys that do not ascend, with `Beast2IntakeError` in the words every runner uses. What e3's intake units run, on every runner |
 | `new Beast2Writer(T, sink)` · `encodeBeast2SegmentsFor(T)(batches)` | Segments of your own choosing: one per non-empty batch, Set/Dict batches in ascending order |
 | `iterBeast2SegmentsFor(T)(blob)` | One decoded segment at a time |
 | `openBeast2PagesFor(T)(source)` | Random access: `.elementCount` and `.segmentCount` in O(1); `.segment(i)`, `.element(row)`, `.slice(offset, limit)` and `.get(key)` decode only the segments they touch |

@@ -22,7 +22,8 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  GcRequestType, GcStatusResultType, PackageImportProgressType, PackageExportProgressType, SchemaPolicyType, WorkspaceDeployStatusType,
+  GcRequestType, GcStatusResultType, IntakeFileType, PackageImportProgressType, PackageExportProgressType, SchemaPolicyType,
+  WorkspaceDeployStatusType,
 } from '@elaraai/e3-types';
 export { PackageImportProgressType, PackageExportProgressType };
 
@@ -42,14 +43,14 @@ export type DatasetUpload = ValueTypeOf<typeof DatasetUploadType>;
 
 /**
  * How a dataset upload's commit stands, as a store keeps it for a poll:
- * `processing` while the staged bytes are verified and taken in; `completed`
- * once the dataset names them; `failed`, naming why, when they are not the
- * upload's bytes or cannot be taken in; and `type_mismatch` when they are not
- * of the type the dataset declares, which the API answers as its
- * `dataset_type_mismatch` error.
+ * `processing` while the staged bytes are verified and taken in, with how far
+ * it has got once the store has said; `completed` once the dataset names them;
+ * `failed`, naming why, when they are not the upload's bytes or cannot be
+ * taken in; and `type_mismatch` when they are not of the type the dataset
+ * declares, which the API answers as its `dataset_type_mismatch` error.
  */
 export const DatasetCommitStatusType = VariantType({
-  processing: NullType,
+  processing: OptionType(IntakeFileType),
   completed: NullType,
   failed: StructType({ message: StringType }),
   type_mismatch: StructType({ path: StringType, message: StringType }),

@@ -23,7 +23,7 @@ shares the rest: the logic, the routes and the tests.
 | Seam | Declared in | What it gives | e3's implementations |
 |---|---|---|---|
 | `StorageBackend` | e3-core `storage/interfaces.ts` | objects; refs, the repository record among them; locks; logs; the repository lifecycle and gc's primitives; dataset refs; the backend's own upgrade steps | `LocalStorage`, `InMemoryStorage` |
-| `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests |
+| `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; takes a delivered collection in, or a run of its segments, through an intake unit; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests |
 | `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state and its events | `FileStateStore`, `InMemoryStateStore` |
 | `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run | `LocalOrchestrator`, over the storage, state store and runner it is given |
 | `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, and the jobs that outlast a request: import, export, deploy, gc | `InMemoryTransferBackend`, the local server's |
@@ -35,7 +35,8 @@ shared code. Whether an execution can still finish is
 `LockService.isHolderAlive`; what gc sweeps beside objects and records,
 `RepoStore.gcSweepBackend`; a change to one backend's layout, a step in
 `StorageBackend.upgrades`; how an upload's bytes are taken in,
-`DatasetUploadStore.commit`.
+`DatasetUploadStore.commit`; where a delivery's rows are walked and written
+again, `TaskRunner.intake`.
 
 **What a poll reads lives in a store, never in a process.** A request may
 reach any instance of a server, so a job's status is its `TransferBackend`

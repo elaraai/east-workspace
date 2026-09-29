@@ -397,6 +397,35 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
 
 While a run is live, the execution panel shows the scheduler: its header what the server's budget holds (`cores 4 of 8 · memory 12.6 of 14 GB`), and its feed each task's latest event (a finished task's with its peak memory), a split task's start naming how far its stage has got (`forecast · 3 of 8 pieces`), each unit the guard stopped and requeued (`⟲ requeued`, why and the most it reached), and each task or unit waiting for room (`◐ waiting`, what it needs and what the budget has free), whose wait stands in place of the start of a task that waits whole. The tasks table's PEAK is the peak memory of the execution each task's status comes from.
 
+While a deploy holds the workspace, the column is the deploy. That includes a first deploy, which has no status until it ends. The status feed reads the workspace's lock (`workspaceLockStatus`) whenever the status names one or nothing is deployed yet. A deploy reports through its lock as each file is in and each record's step moves, and at most every half second in between. The title reads `◔ DEPLOYING · <package> · pid <n> · started 9s ago` in place of the lock. A DEPLOY header names the phase: `TAKING IN` with the files in, the bytes past their hash, the rate and the time left, then `MIGRATING`, `BUILDING INDEXES` or `FINISHING`. Under it are the normal screen's tables by type. INPUTS shows each file source's step: `○ waiting`, then `◔ hashing` and `◔ taking in` with a bar (a collection's moves as each piece of it is taken in), then `● unchanged`, `● carried` or `● taken in by east-c`, naming the runners that took it in. RECORDS shows each record's step with the indexes it declares: `○ migrate · 2 steps · waiting`, `◔ migrating · add_owner · 1 of 2`, `◔ building by_owner · 1 of 1`, then what the deploy did (`● migrated`, `● minted`, …). When the lock lets go, the dashboard reads the workspaces, the workspace's state, its tasks and its datasets at once. A workspace with nothing deployed is not a failure for the connection pill. The frame below is as built: a first deploy over six files, at 120×24.
+
+```text
+ e3-ui  e2e-repo › ws                                                                                      ● CONNECTED
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ws                                                     ◔ DEPLOYING · intake_bench@1.0.0 · pid 3675129 · started 9s ago
+ DEPLOY                                        ◔ TAKING IN · 2 of 6 files · 134.9 of 202.4 MB · 14.4 MB/s · ~4.7s left
+
+ INPUTS
+  NAME          STATUS                            SIZE
+  wide_a        ● taken in by east-c              67.4 MB
+  wide_b        ● taken in by east-c              67.4 MB
+  wide_c        ◔ hashing ████░░░░░░ 35%          16.9 MB
+  wide_d        ○ waiting                         16.9 MB
+  wide_e        ○ waiting                         16.9 MB
+  wide_f        ○ waiting                         16.9 MB
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands
+```
+
 ```text
  e3-ui  demo-repo › main                                                                                   ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1217,6 +1246,7 @@ Where the implementation differs from the mocks above (each was a deliberate cal
 - **Runs** — every attempt is a row (the executions endpoint gained `?all=true`; its default stays the latest attempt per inputs hash, which hid retries and forced re-runs — a user report while testing, 2026-09-09); no per-run note text beyond `← current` (the newest run of an up-to-date task); durations are the API's milliseconds.
 - **The scheduler** (e3's budget, 2026-09-27) — as the approved mock, with these calls: the running header keeps `started 12s ago` and, short of room, drops it for the budget, then the budget for it; the memory in use names its unit once when both share it (`12.6 of 14 GB`); a split task's start reads `forecast · 3 of 8 pieces` (the mock: `piece 3 of 8`); a unit's requeue and wait are rows of their own, the latest requeue per unit, and a task waiting whole shows its wait in place of its start; `/run`'s confirmation reads `· 8 cores, 14 GB` (no `budget`, so `--force` keeps 120 columns). PEAK is the wide tasks table's last column, dropped below 100 columns, and a task in progress shows `—` there (its execution has no peak until it ends; the mock showed the last run's); the Runs tab's PEAK follows DURATION. To fit PEAK at 120 columns the tasks table starts NAME at 10 cells (it grows to the longest name), STATUS at 18, DEPENDS ON 19, INPUTS 16, OUTPUT 24 (a `Dict<String, Integer>` whole) and SIZE · LAST RUN 18, so a waiting reason ends sooner.
 - **Records** (2026-09-27) — drawn as built (S05's RECORDS table, S19, S19b). The records table starts NAME at 10 cells (it grows to the longest name) with ROWS 12, SIZE 10 and INDEXES 26, and at 80–99 columns ROWS 10 and INDEXES 20, so the newest commit's mutation, actor and age still fit; below 80 INDEXES is dropped. An index entry's summary is the row's key (the joined row is a branch, which a summary leaves out). `G` on the History tab goes to the oldest commit read, and the page it reads goes further. A record's view is remembered as `record:<name>`, and its trees by `${ws}:.records.<name>` or `${ws}:.records.<name>#<index>`.
+- **A deploy in progress** (2026-09-28) — not in the mocks; drawn as the as-built frame in §7.3. The first cut centred the deploy in the column as a panel of its own; it became the normal screen's tables by type, INPUTS and RECORDS, each row at its step (a user request while testing). The tables' column plans are `deployInputs` (NAME · STATUS · SIZE) and `deployRecords` (NAME · STATUS · INDEXES); a moving step's bar is ten cells of the scrollbar thumb's `█` and the placeholder rows' `░`. The holder is named by its pid: the command is its whole argv, paths and all.
 - **Inputs** — `⏎` with nothing pending toggles a branch or edits a leaf; `esc` with pending edits confirms a discard; commands that leave the view confirm through `/discard --then "<command>"`; the conflict banner's `esc` keeps editing on the old base (an apply then overwrites).
 - **Layout** — the medium (80–99) and narrow (60–79) column plans are tighter than the 120-column design, and `fitPlan` narrows the widest fixed columns until the last column keeps 12 cells (untouched at 120); a table's NAME column grows to its longest name (up to 24 cells) so real task names such as `forecast_count` are never clipped, and a fixed cell that still overflows ends in `…` with one cell of gap before the next column. The completion list follows the same rules — its name column grows to the longest name shown (up to 30 cells), and a row's last cell, a command's effect or a flag's hint, takes the rest of the line — so `--filter <glob>` never runs into its hint.
 - **Durations** — event, summary and run durations are the API's milliseconds; an execution summary without a duration (the server only times the runs it launched itself) shows `completedAt − startedAt`.

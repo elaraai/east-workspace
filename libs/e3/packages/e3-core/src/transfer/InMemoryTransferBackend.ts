@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, stat, unlink } from 'node:fs/promises';
 import { none, some, variant } from '@elaraai/east';
-import { urlPathToTreePath } from '@elaraai/e3-types';
+import { urlPathToTreePath, type IntakeFile } from '@elaraai/e3-types';
 
 import type { StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
@@ -66,6 +66,7 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
     private readonly partBytes: bigint,
     private readonly storage?: StorageBackend,
     private readonly getRepoPath?: (repo: string) => string,
+    private readonly getRunner?: (repoPath: string) => TaskRunner,
   ) {}
 
   async create(id: string, record: DatasetUpload): Promise<void> {
@@ -105,15 +106,18 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
   async commit(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
     let commit = this.commits.get(id);
     if (commit === undefined) {
-      const settled = this.verifyAndAdopt(id, record).then((status) => {
+      const started: UploadCommit = { status: variant('processing', none), settled: Promise.resolve(variant('processing', none)) };
+      this.commits.set(id, started);
+      // Until it has finished, a poll reads how far it has got.
+      started.settled = this.verifyAndAdopt(id, record, (progress) => {
+        if (started.status.type === 'processing') started.status = variant('processing', some(progress));
+      }).then((status) => {
         started.status = status;
         // The answer stays readable for a while — a client whose response was
         // lost asks again — and then goes, with the upload.
         setTimeout(() => { void this.delete(id); }, COMMIT_RESULT_TTL_MS).unref();
         return status;
       });
-      const started: UploadCommit = { status: variant('processing', null), settled };
-      this.commits.set(id, started);
       commit = started;
     }
     return commit.settled;
@@ -127,10 +131,11 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
    * Verifies the staged file and points the upload's dataset at it; never
    * rejects. The file is never held whole: its size comes from `stat`, its
    * digest from a streamed hash and its declared type from a read of its head.
-   * A collection is then split into segment objects a segment at a time, and
-   * any other value becomes an object by link or rename.
+   * A collection is then taken in by intake units on the repository's runner,
+   * and any other value becomes an object by link or rename. How far it has
+   * got goes to `onProgress` as it goes.
    */
-  private async verifyAndAdopt(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
+  private async verifyAndAdopt(id: string, record: DatasetUpload, onProgress: (progress: IntakeFile) => void): Promise<DatasetCommitStatus> {
     if (this.storage === undefined || this.getRepoPath === undefined) {
       return variant('failed', { message: 'this store takes in no upload: it was given no storage' });
     }
@@ -144,6 +149,15 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
       }
       await datasetAdoptFile(this.storage, repoPath, record.workspace, urlPathToTreePath(record.path), stagingPath, {
         expectHash: record.hash,
+        runner: this.getRunner?.(repoPath),
+        onProgress: (progress) => onProgress({
+          path: record.path,
+          step: progress.phase === 'hash'
+            ? variant('hashing', null)
+            : variant('taking_in', { pieces: BigInt(progress.pieces?.total ?? 0), done: BigInt(progress.pieces?.done ?? 0) }),
+          bytes: BigInt(progress.bytes),
+          total: BigInt(progress.total),
+        }),
       });
       return variant('completed', null);
     } catch (err) {
@@ -476,9 +490,10 @@ export interface InMemoryTransferBackendOptions {
   storage?: StorageBackend;
   getRepoPath?: (repo: string) => string;
   /**
-   * The runner a deploy job runs its migrations and index builds on, for a
-   * repository's path. Without one, a deploy that owes either is refused
-   * before it writes anything.
+   * The runner, for a repository's path, that a deploy job runs its
+   * migrations and index builds on, and an upload's commit its intake units.
+   * Without one, a deploy that owes either is refused before it writes
+   * anything, and a commit of a collection the store does not know fails.
    */
   getRunner?: (repoPath: string) => TaskRunner;
   /**
@@ -502,7 +517,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     if (!Number.isSafeInteger(partBytes) || partBytes < 1) {
       throw new Error(`partBytes must be a positive integer, got ${partBytes}`);
     }
-    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl, BigInt(partBytes), options.storage, options.getRepoPath);
+    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl, BigInt(partBytes), options.storage, options.getRepoPath, options.getRunner);
     this.datasetDownload = new InMemoryDatasetDownloadStore(baseUrl);
     this.packageImport = new InMemoryPackageImportStore(baseUrl, options.storage, options.getRepoPath);
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);

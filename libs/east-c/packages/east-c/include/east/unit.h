@@ -7,9 +7,9 @@
  * east-py read units and write results through this, and write a running
  * program's output through its sink, so the two write the same bytes.
  *
- * A unit runs a program on its inputs, or merges the parts of one output that
- * earlier units wrote, and names where its output and its result go. The
- * output is written by its kind:
+ * A unit runs a program on its inputs, merges the parts of one output that
+ * earlier units wrote, or takes a delivered collection in, and names where its
+ * output and its result go. A program's output is written by its kind:
  *
  *   value  the program's result: a collection as a manifest directory at the
  *          path, anything else as one blob;
@@ -27,10 +27,14 @@
  * Every kind but a value is emitted through the program's trailing parameter,
  * whose type the kind fixes: (T) -> Null, or (K, V) -> Null for a dict.
  *
+ * A delivery taken in is read a segment at a time and written through the
+ * Writer as the manifest directory the unit names (east_beast2_intake).
+ *
  * Errors are posted through east_builtin_error.
  */
 
 #include "compiler.h"
+#include "serialization.h"
 #include "types.h"
 #include "values.h"
 
@@ -61,13 +65,19 @@ typedef struct {
 } EastUnitOutput;
 
 typedef struct {
-    bool merge;    /* false: run `program` on `inputs`; true: merge `inputs` as parts */
+    bool merge;    /* merge `inputs` as parts */
+    bool intake;   /* take `inputs[0]` in, as `type` declares it; else run `program` */
     char *program; /* run: the program's IR file */
-    char **inputs; /* run: one file per parameter; merge: the parts, in order */
+    char **inputs; /* run: one file per parameter; merge: the parts, in order; intake:
+                      the delivery */
     size_t num_inputs;
-    char *range; /* merge: the key-range file, or NULL */
-    EastUnitOutput output;
-    char **platforms; /* the platform packages, as the runner names them */
+    char *range;       /* merge: the key-range file, or NULL */
+    char *type;        /* intake: the file holding the declared type */
+    bool has_segments; /* intake: a piece, the delivery's segments [from, to) */
+    int64_t segments_from;
+    int64_t segments_to;
+    EastUnitOutput output; /* intake: a value output, the manifest directory's path */
+    char **platforms;      /* the platform packages, as the runner names them */
     size_t num_platforms;
     int64_t threads; /* the threads the runner may use, its own pools included */
     char *result;    /* where the result goes */
@@ -137,5 +147,11 @@ void east_unit_sink_free(EastUnitSink *sink);
  * refuses it), in part order, over the unit's key range when it has one. The
  * output directory must hold nothing yet. False with the message posted. */
 bool east_unit_merge_runs(const EastUnit *unit, EastCompiledFn *merge_fn);
+
+/* An intake unit's delivery taken in as its type file declares it, into the
+ * manifest directory its output names, framed on a pool the unit's grant
+ * sizes. False with the refusal posted, in the words every runner uses.
+ * `stats`, when given, says what it came to. */
+bool east_unit_intake(const EastUnit *unit, EastBeast2IntakeStats *stats);
 
 #endif

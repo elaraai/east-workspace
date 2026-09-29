@@ -777,10 +777,15 @@ cdef extern from "east/unit.h":
 
     ctypedef struct EastUnit:
         bint merge
+        bint intake
         char *program
         char **inputs
         size_t num_inputs
         char *range
+        char *type
+        bint has_segments
+        int64_t segments_from
+        int64_t segments_to
         EastUnitOutput output
         char **platforms
         size_t num_platforms
@@ -820,6 +825,14 @@ cdef extern from "east/unit.h":
     void east_unit_sink_free(EastUnitSink *sink)
 
     bint east_unit_merge_runs(const EastUnit *unit, EastCompiledFn *merge_fn)
+
+    # What an intake came to (serialization.h, which unit.h includes).
+    ctypedef struct EastBeast2IntakeStats:
+        size_t rows
+        size_t segments
+        size_t rewritten
+
+    bint east_unit_intake(const EastUnit *unit, EastBeast2IntakeStats *stats)
 
 
 # ─── compat.h ────────────────────────────────────────────────────────────

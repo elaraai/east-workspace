@@ -294,6 +294,24 @@ describe('LocalRefStore records and names', () => {
     assert.strictEqual(await store.adoptionRead(repo, source), 'f'.repeat(64));
   });
 
+  it('lists the adoption memo without its staging files, an entry that does not read naming no manifest', async () => {
+    const store = new LocalRefStore();
+    await store.adoptionWrite(repo, 'e'.repeat(64), 'f'.repeat(64));
+    await fs.writeFile(join(repo, 'adoptions', 'ee', `${'e'.repeat(62)}.beast2.abc12345.partial`), encodeBeast2For(StringType)('a'.repeat(64)));
+    await fs.mkdir(join(repo, 'adoptions', 'dd'), { recursive: true });
+    await fs.writeFile(join(repo, 'adoptions', 'dd', `${'d'.repeat(62)}.beast2`), 'not beast2');
+
+    const listed = (await store.adoptionList(repo)).sort((a, b) => a.sourceHash.localeCompare(b.sourceHash));
+    assert.deepStrictEqual(listed, [
+      { sourceHash: 'd'.repeat(64), manifestHash: null },
+      { sourceHash: 'e'.repeat(64), manifestHash: 'f'.repeat(64) },
+    ]);
+    // A name that is no SHA-256 names no entry, here or outside.
+    await store.adoptionDelete(repo, '../delivery');
+    await store.adoptionDelete(repo, 'd'.repeat(64));
+    assert.deepStrictEqual((await store.adoptionList(repo)).map((entry) => entry.sourceHash), ['e'.repeat(64)]);
+  });
+
   it('refuses a package, a version or a workspace whose name is no one path segment', async () => {
     const store = new LocalRefStore();
     await assert.rejects(store.packageWrite(repo, '../pkg', '1.0.0', 'a'.repeat(64)), InvalidNameError);

@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ArrayType, NullType, encodeBeast2For, decodeBeast2For, some, none, variant } from '@elaraai/east';
+import { ArrayType, NullType, OptionType, encodeBeast2For, decodeBeast2For, some, none, variant } from '@elaraai/east';
 import {
   WorkspaceStateType,
   type WorkspaceState,
@@ -11,7 +11,7 @@ import {
   type PackageExportProgress,
 } from '@elaraai/e3-types';
 import type {
-  SchemaPolicy, WorkspaceDeployProgress, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult,
+  LockStatus, SchemaPolicy, WorkspaceDeployProgress, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult,
 } from './types.js';
 import {
   WorkspaceInfoType,
@@ -20,6 +20,7 @@ import {
   WorkspaceDeployStatusType,
   WorkspaceStatusResultType,
   WorkspaceExportRequestType,
+  LockStatusType,
   ResponseType,
 } from './types.js';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
@@ -102,6 +103,35 @@ export async function workspaceStatus(url: string, repo: string, name: string, o
     WorkspaceStatusResultType,
     options
   );
+}
+
+/**
+ * What holds a workspace exclusively, and how far that operation says it has
+ * got.
+ *
+ * @remarks
+ * A workspace deployed for the first time has no status until its deploy
+ * ends: {@link workspaceStatus} answers `workspace_not_deployed` meanwhile. Its
+ * lock says a deploy holds it, and how far the deploy has got with its file
+ * sources and its records.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param name - Workspace name
+ * @param options - Request options including auth token
+ * @returns The lock's state and what its holder last reported, or null when
+ *   nothing holds the workspace exclusively
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceLockStatus(url: string, repo: string, name: string, options: RequestOptions): Promise<LockStatus | null> {
+  const status = await get(
+    url,
+    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/lock`,
+    OptionType(LockStatusType),
+    options
+  );
+  return status.type === 'some' ? status.value : null;
 }
 
 /**

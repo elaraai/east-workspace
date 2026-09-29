@@ -60,6 +60,9 @@ export interface RecordDeployment {
   chain: string[];
   /** The steps to run, in order, for a record to migrate. */
   steps: Array<{ name: string; object: MigrationObject }>;
+  /** The indexes the package declares for the record, by name; none for one
+   *  it drops. */
+  indexes: string[];
 }
 
 /** A type as a refusal names it: its head, and its members by name. */
@@ -120,7 +123,7 @@ export async function planRecordDeployments(
     const type = recordLeafType(pkg.data.structure, path);
     if (initial?.type !== 'value' || type === undefined) continue; // a record always has an initial value
     const chain = recordObject.migrations.map((step) => step.name);
-    const deployment = { path, initial: initial.value.hash, chain, steps: [] };
+    const deployment = { path, initial: initial.value.hash, chain, steps: [], indexes: [...recordObject.indexes.keys()] };
 
     const held = prior?.records.get(path);
     if (held === undefined) {
@@ -208,6 +211,7 @@ export async function planRecordDeployments(
       prior: held.ref,
       chain: [],
       steps: [],
+      indexes: [],
       plan: {
         record: path,
         action: allowDropRecords
@@ -253,6 +257,8 @@ function stepOutput(step: MigrationObject): TaskOutputKind {
  * @param repo - Repository identifier
  * @param deployments - What the deploy decided for each record
  * @param runner - Task runner for the steps
+ * @param onStep - Told of each step as it starts: the record's ref path, the
+ *   step's name, and its place among the steps the record owes, from 1
  * @returns Record ref path -> each step's name and the state it left, in order
  * @throws {Error} When a step is owed and no runner was given, or a step fails.
  */
@@ -261,6 +267,7 @@ export async function runRecordMigrations(
   repo: string,
   deployments: readonly RecordDeployment[],
   runner?: TaskRunner,
+  onStep?: (path: string, step: { name: string; step: number; steps: number }) => void,
 ): Promise<Map<string, Array<{ name: string; state: string }>>> {
   const migrated = new Map<string, Array<{ name: string; state: string }>>();
   for (const deployment of deployments) {
@@ -274,7 +281,8 @@ export async function runRecordMigrations(
     }
     let state = (await readRecordState(storage, repo, deployment.prior!.hash)).primary;
     const states: Array<{ name: string; state: string }> = [];
-    for (const { name, object } of deployment.steps) {
+    for (const [i, { name, object }] of deployment.steps.entries()) {
+      onStep?.(deployment.path, { name, step: i + 1, steps: deployment.steps.length });
       const taskHash = await storage.objects.write(repo, encodeTaskObject({
         kind: TASK_OBJECT_KIND,
         body: variant('east', { program: object.form.type === 'value' ? object.bodyIr : object.programIr }),

@@ -1238,6 +1238,17 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
     return r;
 }
 
+/* An intake unit: a delivered collection taken in as the Writer writes it, a
+ * segment at a time, into the manifest directory the unit names. */
+static EvalResult exec_intake(const EastUnit *unit, ExecClock *clock)
+{
+    exec_lap(clock, &clock->load);
+    EastBeast2IntakeStats stats;
+    bool ok = east_unit_intake(unit, &stats);
+    exec_lap(clock, &clock->execute);
+    return ok ? eval_ok(east_null()) : exec_error("exec: the delivery cannot be taken in");
+}
+
 /* `exec <unit>`: the unit's work done, its output written and its result
  * recorded where it says. Exits 0 for an ok outcome and 1 for a failure, whose
  * message and locations also go to stderr; a unit that cannot be read, or a
@@ -1258,7 +1269,9 @@ static int cmd_exec(const char *unit_path, bool verbose)
     ExecClock clock;
     memset(&clock, 0, sizeof(clock));
     clock_gettime(CLOCK_MONOTONIC, &clock.mark);
-    EvalResult outcome = unit->merge ? exec_merge(unit, &clock) : exec_run(unit, &clock);
+    EvalResult outcome = unit->intake  ? exec_intake(unit, &clock)
+                         : unit->merge ? exec_merge(unit, &clock)
+                                       : exec_run(unit, &clock);
 
     bool ok = outcome.status != EVAL_ERROR;
     size_t num_locations = ok ? 0 : outcome.num_locations;
@@ -1638,10 +1651,11 @@ static void print_usage(const char *prog)
             "\n"
             "Commands:\n"
             "  run      Run an East IR program\n"
-            "  exec     Execute a unit, the runner protocol: run a program, or merge the\n"
-            "           parts of an output, as the unit file says, write the output by its\n"
-            "           kind and record the result; exit 0 when it is ok and 1 when it\n"
-            "           failed. Relative paths in the unit are relative to its directory.\n"
+            "  exec     Execute a unit, the runner protocol: run a program, merge the parts\n"
+            "           of an output, or take a delivered collection in, as the unit file\n"
+            "           says, write the output and record the result; exit 0 when it is\n"
+            "           ok and 1 when it failed. Relative paths in the unit are relative\n"
+            "           to its directory.\n"
             "  convert  Decode a value file and re-encode in another format.\n"
             "           Output format is determined by -o's extension; omit -o to\n"
             "           print east-text to stdout. Auto-extracts the type from\n"

@@ -54,6 +54,7 @@ set(EAST_C_SOURCES
     src/serialization/beast2/v5/stream.c
     src/serialization/beast2/v5/runs.c
     src/serialization/beast2/v5/manifest.c
+    src/serialization/beast2/v5/intake.c
     src/serialization/beast2/v5/project.c
     src/serialization/csv.c
     src/serialization/east_parser.c

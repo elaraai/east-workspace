@@ -18,15 +18,19 @@
  * Four properties hold at once, and each one is why a step is shaped the way it
  * is:
  *
- * - **A collection delivery is split into segment objects.** It is read a
- *   segment at a time and taken in through the store's door, never held whole,
- *   so a new delivery that differs from the last in a few rows shares every
- *   other segment with it, and a task split over it re-runs only the pieces
- *   around those rows. Any other value is taken in as the object the file is, by a
- *   link, a reflink or one kernel copy.
- * - **An unchanged delivery is not read twice.** The store remembers each
- *   delivery's SHA-256 and the manifest it became, so adopting the same bytes
- *   again costs their hash — and a transfer of them, a round trip.
+ * - **A collection delivery is split into segment objects, on the runners.**
+ *   Intake units take it in, in pieces of its segments, as many at once as the
+ *   runner admits (`delivery-intake.ts`), and it is stored as the manifest the
+ *   Writer writes for its rows. So a new delivery that differs from the last in
+ *   a few rows shares every other segment with it, and a task split over it
+ *   re-runs only the pieces around those rows. Nothing but its hash is read
+ *   here. Any other value is taken in as the object the file is, by a link, a
+ *   reflink or one kernel copy.
+ * - **An unchanged delivery is not taken in twice.** The store remembers each
+ *   delivery's SHA-256 and the manifest it became, and the hash is taken
+ *   first, so adopting the same bytes again costs their hash — and a transfer
+ *   of them, a round trip, the client asking before it sends anything. An
+ *   intake stopped part way is taken up again from the pieces it finished.
  * - **The declared type is checked at the door**, by the same
  *   `checkDatasetType` every other door uses, *before* any object is written.
  * - **The delivered file is never modified** — not its bytes, its mode or its
@@ -36,17 +40,41 @@
  */
 
 import { stat } from 'node:fs/promises';
-import { checkDatasetType, isCollectionRoot, manifestByteSize, manifestElementCount, type CollectionManifest, type TreePath } from '@elaraai/e3-types';
+import { checkDatasetType, isCollectionRoot, manifestByteSize, manifestElementCount, type TreePath } from '@elaraai/e3-types';
 import {
   readBeast2Type,
   type EastTypeValue,
 } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader, readDatasetFileType, sha256File } from '@elaraai/e3';
-import { DatasetTypeMismatchError, ObjectNotFoundError } from './errors.js';
+import { DatasetTypeMismatchError, DeliveryRefusedError } from './errors.js';
 import { readManifest } from './dataset-open.js';
-import { storeCollection } from './store-collection.js';
+import { intakeDelivery, rememberDelivery, rememberedManifest, type DeliveryIntake, type DeliveryIntakeOptions } from './delivery-intake.js';
 import { withDatasetWriteLock, workspaceSetDatasetByHash } from './trees.js';
+import type { IntakeSource, TaskRunner } from './execution/interfaces.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
+
+/** How an adopt took its file in. */
+export type DatasetTaken =
+  /** The store already knew the delivery by its hash: nothing was taken in. */
+  | 'known'
+  /** A value that is not a collection, stored as the object the file is. */
+  | 'carried'
+  /** A collection, taken in by intake units on the runners. */
+  | 'taken';
+
+/** How far an adopt has got with its file. */
+export interface DatasetAdoptProgress {
+  /** `hash` while the file is read for its SHA-256, which says whether the
+   *  store already knows it; `take-in` while intake units take it in. */
+  readonly phase: 'hash' | 'take-in';
+  /** Bytes of the file the phase has covered: read for the hash, or covered by
+   *  the pieces taken in. */
+  readonly bytes: number;
+  /** The file's size. */
+  readonly total: number;
+  /** In `take-in`: the delivery's pieces, and how many have been taken in. */
+  readonly pieces?: { readonly done: number; readonly total: number };
+}
 
 /** What an adopt reports back about the file it took. */
 export interface DatasetAdoptResult {
@@ -60,6 +88,14 @@ export interface DatasetAdoptResult {
   segments: number | null;
   /** Element count (pairs for a Dict), for a collection root; `null` otherwise. */
   rows: number | null;
+  /** How the file was taken in. */
+  taken: DatasetTaken;
+  /** When `taken`: the runners that took it in, as their commands are named,
+   *  in the order each first did — empty when every piece was taken in before,
+   *  by an intake that stopped part way. */
+  runners?: readonly string[];
+  /** When a runner fell back to another: why. */
+  fallback?: string;
 }
 
 /** Options accepted by {@link datasetAdoptFile}. */
@@ -78,38 +114,28 @@ export interface DatasetAdoptOptions {
    * is touched, so a corrupted upload leaves nothing behind.
    */
   expectHash?: string;
+  /** The runner that takes a collection in: needed unless the store already
+   *  knows the delivery, or it holds another value. */
+  runner?: TaskRunner;
+  /** Hears how far the adopt has got with the file, as it goes. */
+  onProgress?: (progress: DatasetAdoptProgress) => void;
+  /** Aborting it stops the intake. */
+  signal?: AbortSignal;
 }
 
-/**
- * The manifest the delivery with this SHA-256 was stored as, while the store
- * still holds every object it names; `null` otherwise.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param sourceHash - SHA-256 of the delivered bytes
- * @returns The manifest and its hash, or `null`
- */
-async function adoptedManifest(
-  storage: StorageBackend,
-  repo: string,
-  sourceHash: string
-): Promise<{ hash: string; manifest: CollectionManifest } | null> {
-  const hash = await storage.refs.adoptionRead(repo, sourceHash);
-  if (hash === null) return null;
-  let manifest: CollectionManifest | null;
-  try {
-    manifest = await readManifest(storage, repo, hash);
-  } catch (err) {
-    if (err instanceof ObjectNotFoundError) return null;
-    throw err;
-  }
-  // The memo is not a root: a collection gc took is a miss, whichever of its
-  // objects went first.
-  if (manifest === null) return null;
-  for (const object of [manifest.header, ...manifest.entries.map((entry) => entry.hash)]) {
-    if (!await storage.objects.exists(repo, object)) return null;
-  }
-  return { hash, manifest };
+/** What {@link objectAdoptFile} reports back. */
+export interface ObjectAdoptResult {
+  /** The object the value is: the manifest, for a collection. */
+  hash: string;
+  /** The file's size. */
+  size: number;
+  /** How the file was taken in. */
+  taken: DatasetTaken;
+  /** When `taken`: the runners that took it in (see
+   *  {@link DatasetAdoptResult.runners}). */
+  runners?: readonly string[];
+  /** When a runner fell back to another: why. */
+  fallback?: string;
 }
 
 /**
@@ -127,7 +153,7 @@ async function adoptedManifest(
  * @returns Whether {@link datasetAdoptObject} can adopt it without its bytes
  */
 export async function deliveryKnown(storage: StorageBackend, repo: string, sourceHash: string): Promise<boolean> {
-  return (await adoptedManifest(storage, repo, sourceHash)) !== null || await storage.objects.exists(repo, sourceHash);
+  return (await rememberedManifest(storage, repo, sourceHash)) !== null || await storage.objects.exists(repo, sourceHash);
 }
 
 /**
@@ -138,12 +164,12 @@ export async function deliveryKnown(storage: StorageBackend, repo: string, sourc
  * the tasks lock, since nothing names the segments this stores until the
  * caller's ref does.
  *
- * A collection is split into segment objects through the store's door, and the
- * delivery's SHA-256 is remembered with the manifest it became, so the same
- * bytes adopted again cost their hash and nothing else. Any other value is
- * stored by `ObjectStore.adoptFile` as the object the file is. Objects are
- * content-addressed and immutable, and an adopted object no ref names is gc's
- * to collect.
+ * A collection is taken in by intake units on `options.runner`, in pieces of
+ * its segments, and the delivery's SHA-256 is remembered with the manifest it
+ * became, so the same bytes adopted again cost their hash and nothing else.
+ * Any other value is stored by `ObjectStore.adoptFile` as the object the file
+ * is. Objects are content-addressed and immutable, and an adopted object no
+ * ref names is gc's to collect.
  *
  * The path is opened more than once — to hash the file, to read its type, to
  * store it — and a delivery replaced in between would pair one file's hash
@@ -156,23 +182,34 @@ export async function deliveryKnown(storage: StorageBackend, repo: string, sourc
  * @param repo - Repository identifier
  * @param file - Path to the file to adopt
  * @param options - The digest the caller was promised, checked before anything
- *   is written, and the type the destination declares
- * @returns The dataset object's hash — the manifest, for a collection — and the
- *   file's size
+ *   is written, the type the destination declares, the runner that takes a
+ *   collection in, a listener for how far the adopt has got, and a signal
+ * @returns The dataset object's hash — the manifest, for a collection — the
+ *   file's size, and how it was taken in
  * @throws {DatasetFileTypeMismatchError} When the file's type is not the
  *   declared one
+ * @throws {DeliveryRefusedError} When a runner refuses the collection the file
+ *   holds
  * @throws If the file is missing or unreadable, its digest is not
- *   `options.expectHash`, it changed while it was adopted, or the door refuses
- *   the collection it holds
+ *   `options.expectHash`, it changed while it was adopted, or it holds a
+ *   collection the store does not know and no runner was given
  */
 export async function objectAdoptFile(
   storage: StorageBackend,
   repo: string,
   file: string,
-  options: { expectHash?: string; declared?: { subject: string; type: EastTypeValue } } = {}
-): Promise<{ hash: string; size: number }> {
+  options: {
+    expectHash?: string;
+    declared?: { subject: string; type: EastTypeValue };
+    runner?: TaskRunner;
+    onProgress?: (progress: DatasetAdoptProgress) => void;
+    signal?: AbortSignal;
+  } = {}
+): Promise<ObjectAdoptResult> {
   const delivered = await stat(file, { bigint: true });
-  const sourceHash = await sha256File(file);
+  const size = Number(delivered.size);
+  const onProgress = options.onProgress;
+  const sourceHash = await sha256File(file, onProgress === undefined ? undefined : (bytes) => onProgress({ phase: 'hash', bytes, total: size }));
   if (options.expectHash !== undefined && options.expectHash !== sourceHash) {
     throw new Error(`hash mismatch: expected ${options.expectHash}, got ${sourceHash}`);
   }
@@ -185,18 +222,53 @@ export async function objectAdoptFile(
       throw new Error(`${file} changed while it was adopted, and nothing was recorded — adopt it again once it is complete`);
     }
   };
-  const size = Number(delivered.size);
 
   if (!isCollectionRoot(type)) {
     await storage.objects.adoptFile(repo, file, sourceHash);
     await unchanged();
-    return { hash: sourceHash, size };
+    return { hash: sourceHash, size, taken: 'carried' };
   }
-  const known = await adoptedManifest(storage, repo, sourceHash);
-  const hash = known?.hash ?? await storeCollection(storage, repo, type, [{ file }]);
+  const known = await rememberedManifest(storage, repo, sourceHash);
+  if (known !== null) {
+    await unchanged();
+    return { hash: known.hash, size, taken: 'known' };
+  }
+  const taken = await takeIn(storage, repo, options.runner, { file }, type, sourceHash, size, file, {
+    ...(onProgress !== undefined && { onProgress: (progress) => onProgress({ phase: 'take-in', total: size, ...progress }) }),
+    ...(options.signal !== undefined && { signal: options.signal }),
+    verify: unchanged,
+  });
   await unchanged();
-  if (known === null) await storage.refs.adoptionWrite(repo, sourceHash, hash);
-  return { hash, size };
+  await rememberDelivery(storage, repo, sourceHash, taken);
+  return { hash: taken.hash, size, taken: 'taken', runners: taken.runners, ...(taken.fallback !== undefined && { fallback: taken.fallback }) };
+}
+
+/**
+ * Takes a delivery in through intake units on `runner`, naming the delivery in
+ * a runner's refusal.
+ *
+ * @throws {Error} When there is no runner to take it in.
+ */
+async function takeIn(
+  storage: StorageBackend,
+  repo: string,
+  runner: TaskRunner | undefined,
+  source: IntakeSource,
+  type: EastTypeValue,
+  sourceHash: string,
+  size: number,
+  delivery: string,
+  options: DeliveryIntakeOptions,
+): Promise<DeliveryIntake> {
+  if (runner === undefined) {
+    throw new Error(`${delivery} holds a collection, which intake units take in, and no runner was given to run them`);
+  }
+  try {
+    return await intakeDelivery(storage, repo, runner, source, type, sourceHash, size, options);
+  } catch (err) {
+    if (err instanceof DeliveryRefusedError) throw new DeliveryRefusedError(err.runner, err.refusal, err.stderr, delivery);
+    throw err;
+  }
 }
 
 /**
@@ -213,14 +285,19 @@ export async function objectAdoptFile(
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
  * @param file - Path to the file to adopt
- * @param options - A lock the caller already holds
- * @returns The dataset's new hash, the file's size and the stored geometry
+ * @param options - A lock the caller already holds, the digest it was
+ *   promised, the runner that takes a collection in, a listener for how far
+ *   the adopt has got, and a signal
+ * @returns The dataset's new hash, the file's size, the stored geometry and how
+ *   it was taken in
  * @throws {DatasetTypeMismatchError} When the file's wire type is not the
  *   type the dataset declares
+ * @throws {DeliveryRefusedError} When a runner refuses the collection the file
+ *   holds
  * @throws {WorkspaceLockError} When the workspace is locked by another process
  * @throws If the dataset is not writable, the file is missing or unreadable,
- *   the door refuses the collection it holds, or a garbage collection is
- *   running
+ *   it holds a collection the store does not know and no runner was given, or
+ *   a garbage collection is running
  */
 export async function datasetAdoptFile(
   storage: StorageBackend,
@@ -235,17 +312,23 @@ export async function datasetAdoptFile(
     // again on the file the adoption stores; a mismatch is re-raised once the
     // workspace and address are known.
     const declared = { subject: `dataset '${leaf.address}'`, type: leaf.type };
-    let adopted: { hash: string; size: number };
+    let adopted: ObjectAdoptResult;
     try {
       readDatasetFileHeader(file, declared.subject, declared.type);
-      adopted = await objectAdoptFile(storage, repo, file, { expectHash: options.expectHash, declared });
+      adopted = await objectAdoptFile(storage, repo, file, {
+        expectHash: options.expectHash,
+        declared,
+        runner: options.runner,
+        onProgress: options.onProgress,
+        signal: options.signal,
+      });
     } catch (err) {
       if (err instanceof DatasetFileTypeMismatchError) {
         throw new DatasetTypeMismatchError(ws, leaf.address, err.mismatch);
       }
       throw err;
     }
-    const { hash, size } = adopted;
+    const { hash } = adopted;
 
     // The self entry is what makes change detection exact: the ref's version
     // vector names the value's hash, so a new delivery invalidates precisely
@@ -253,7 +336,7 @@ export async function datasetAdoptFile(
     const selfKeypath = treePath.map(s => `.${s.value}`).join('');
     await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
 
-    return { hash, size, ...await geometry(storage, repo, hash, leaf.type) };
+    return { ...adopted, ...await geometry(storage, repo, hash, leaf.type) };
   });
 }
 
@@ -266,22 +349,26 @@ export async function datasetAdoptFile(
  * entirely: the bytes were split before, and the memo names the manifest they
  * became; or they are an object in the store. Either may have been stored for
  * a different dataset with a different type, so this is the only place that
- * pairing is ever checked. An object that is a collection goes through the
- * store's door first, and is remembered as the manifest it became.
+ * pairing is ever checked. An object that is a collection is taken in by
+ * intake units on `runner`, and remembered as the manifest it became.
  *
  * It holds the locks {@link datasetAdoptFile} does: a collection the store
- * holds whole is re-cut here, which for a large one takes minutes, and neither
- * a deploy nor a removal may finish inside it, nor a sweep delete its segments
- * before the ref names them.
+ * holds whole is split into segments here, which for a large one takes a
+ * while, and neither a deploy nor a removal may finish inside it, nor a sweep
+ * delete its segments before the ref names them.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
  * @param sourceHash - SHA-256 of the delivered bytes
- * @returns The dataset's new hash, the delivery's size and the stored geometry
+ * @param runner - The runner that takes in a collection the store holds whole
+ * @returns The dataset's new hash, the delivery's size, the stored geometry and
+ *   how the delivery was taken in
  * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
  *   type the dataset declares
+ * @throws {DeliveryRefusedError} When a runner refuses the collection the
+ *   store holds whole
  * @throws {WorkspaceLockError} When the workspace is locked by another process
  * @throws If the dataset is not writable, the store does not know the
  *   delivery, or a garbage collection is running
@@ -291,32 +378,32 @@ export async function datasetAdoptObject(
   repo: string,
   ws: string,
   treePath: TreePath,
-  sourceHash: string
+  sourceHash: string,
+  runner: TaskRunner,
 ): Promise<DatasetAdoptResult> {
   return withDatasetWriteLock(storage, repo, ws, treePath, undefined, async (leaf) => {
     const subject = `dataset '${leaf.address}'`;
-    const known = await adoptedManifest(storage, repo, sourceHash);
-    let hash: string;
-    let size: number;
+    const known = await rememberedManifest(storage, repo, sourceHash);
+    let adopted: ObjectAdoptResult;
     if (known !== null) {
       const mismatch = checkDatasetType(subject, `delivery ${sourceHash.slice(0, 8)}...`, leaf.type, known.manifest.type);
       if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
-      hash = known.hash;
-      size = manifestByteSize(known.manifest);
+      adopted = { hash: known.hash, size: manifestByteSize(known.manifest), taken: 'known' };
     } else {
-      ({ size } = await storage.objects.stat(repo, sourceHash));
+      const { size } = await storage.objects.stat(repo, sourceHash);
       const mismatch = checkDatasetType(subject, `object ${sourceHash.slice(0, 8)}...`, leaf.type, await objectType(storage, repo, sourceHash, size));
       if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
       if (isCollectionRoot(leaf.type)) {
-        hash = await storeCollection(storage, repo, leaf.type, [{ stored: sourceHash }]);
-        await storage.refs.adoptionWrite(repo, sourceHash, hash);
+        const taken = await takeIn(storage, repo, runner, { object: sourceHash }, leaf.type, sourceHash, size, `object ${sourceHash.slice(0, 8)}...`, {});
+        await rememberDelivery(storage, repo, sourceHash, taken);
+        adopted = { hash: taken.hash, size, taken: 'taken', runners: taken.runners, ...(taken.fallback !== undefined && { fallback: taken.fallback }) };
       } else {
-        hash = sourceHash;
+        adopted = { hash: sourceHash, size, taken: 'carried' };
       }
     }
     const selfKeypath = treePath.map(s => `.${s.value}`).join('');
-    await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
-    return { hash, size, ...await geometry(storage, repo, hash, leaf.type) };
+    await workspaceSetDatasetByHash(storage, repo, ws, treePath, adopted.hash, new Map([[selfKeypath, adopted.hash]]));
+    return { ...adopted, ...await geometry(storage, repo, adopted.hash, leaf.type) };
   });
 }
 

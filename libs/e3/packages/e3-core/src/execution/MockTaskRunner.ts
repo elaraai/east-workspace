@@ -5,7 +5,9 @@
 
 import type { StorageBackend } from '../storage/interfaces.js';
 import { uuidv7 } from '../uuid.js';
-import type { RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
+import type {
+  IntakeOptions, IntakeResult, IntakeSpec, RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult,
+} from './interfaces.js';
 import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
 
 /**
@@ -171,5 +173,31 @@ export class MockTaskRunner implements TaskRunner {
   runDetached(spec: DetachedSpec, _options?: DetachedRunOptions): Promise<DetachedResult> {
     this.detachedCalls.push(spec);
     return Promise.resolve(this.detachedResult);
+  }
+
+  private intakeResult: ((storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions) => IntakeResult | Promise<IntakeResult>) | null = null;
+  private intakeCalls: IntakeSpec[] = [];
+
+  /**
+   * Set how an intake answers: what it stored, or the error it throws. Until
+   * it is set, an intake throws, since the mock runs no runner to take a
+   * delivery in.
+   *
+   * @param result - Computes an intake's result from the storage, the spec and
+   *   the options it was given — its abort signal among them
+   */
+  setIntakeResult(result: (storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions) => IntakeResult | Promise<IntakeResult>): void {
+    this.intakeResult = result;
+  }
+
+  /** Get all recorded intake calls. */
+  getIntakeCalls(): readonly IntakeSpec[] {
+    return this.intakeCalls;
+  }
+
+  async intake(storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions): Promise<IntakeResult> {
+    this.intakeCalls.push(spec);
+    if (this.intakeResult === null) throw new Error('MockTaskRunner: no intake result is set (setIntakeResult)');
+    return this.intakeResult(storage, spec, options);
   }
 }

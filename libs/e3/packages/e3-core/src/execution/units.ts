@@ -30,6 +30,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+  EastTypeValueType,
   UnitResultType,
   UnitType,
   decodeBeast2For,
@@ -273,6 +274,64 @@ export async function stageCallUnit(
   return { file, result: path.join(dir, RESULT_FILE) };
 }
 
+/** An `intake` unit staged in its directory: where the runner writes the
+ *  delivery it takes in. */
+export interface IntakeUnit extends StagedUnit {
+  /** The manifest directory's manifest: `output.beast2`, its segments in
+   *  `output.beast2.segments/`. */
+  readonly output: string;
+}
+
+/**
+ * Stages an `intake` unit in `dir`: a delivered collection, or a run of its
+ * segments, taken in as the manifest directory `output.beast2`, with the type
+ * the delivery must hold written beside it.
+ *
+ * @remarks
+ * The delivery is named by its absolute path, where it lies: a runner only
+ * reads it.
+ *
+ * @param dir - The intake's scratch directory
+ * @param input - The delivered file
+ * @param type - The collection type its header must name
+ * @param segments - The run of its segments to take in, or `null` for all of it
+ * @param threads - The threads the runner may use (`unitThreads`)
+ * @returns The staged unit
+ */
+export async function stageIntakeUnit(
+  dir: string,
+  input: string,
+  type: EastTypeValue,
+  segments: { readonly from: number; readonly to: number } | null,
+  threads: number,
+): Promise<IntakeUnit> {
+  await fs.writeFile(path.join(dir, 'type.beast2'), encodeBeast2For(EastTypeValueType)(type));
+  const unit: Unit = {
+    work: variant('intake', {
+      input: path.resolve(input),
+      type: 'type.beast2',
+      segments: segments === null ? none : some({ from: BigInt(segments.from), to: BigInt(segments.to) }),
+      output: 'output.beast2',
+    }),
+    platforms: [],
+    threads: BigInt(threads),
+    result: RESULT_FILE,
+  };
+  const file = path.join(dir, 'unit.beast2');
+  await fs.writeFile(file, encodeBeast2For(UnitType)(unit));
+  return { file, result: path.join(dir, RESULT_FILE), output: path.join(dir, 'output.beast2') };
+}
+
+/**
+ * The command a stock runner is run by: `east-node`, `east-py` or `east-c`.
+ *
+ * @param runner - The stock runner
+ * @returns Its command
+ */
+export function runnerCommand(runner: StockRunner): string {
+  return RUNNER_BINARIES[runner.type];
+}
+
 /**
  * The argv that runs a staged unit: `<runner> exec <unit>`, with the stdin
  * lifeline, and `-v` when the runner should print where the time went.
@@ -280,10 +339,11 @@ export async function stageCallUnit(
  * @param runner - The stock runner
  * @param unit - The staged unit
  * @param verbose - Whether the runner prints its timings and peak memory
+ * @param command - The command it is run by, when not its own
  * @returns The argv
  */
-export function unitArgv(runner: StockRunner, unit: StagedUnit, verbose?: boolean): string[] {
-  return withRunnerLifeline(runner, [RUNNER_BINARIES[runner.type], 'exec', unit.file, ...(verbose ? ['-v'] : [])]);
+export function unitArgv(runner: StockRunner, unit: StagedUnit, verbose?: boolean, command = runnerCommand(runner)): string[] {
+  return withRunnerLifeline(runner, [command, 'exec', unit.file, ...(verbose ? ['-v'] : [])]);
 }
 
 /**
@@ -352,11 +412,17 @@ export async function stageOutputMerge(unit: TaskUnit): Promise<StagedUnit | nul
  * @param unit - The unit, staged
  */
 export async function clearUnitOutput(unit: TaskUnit): Promise<void> {
-  const output = unit.unit.work.value.output;
-  const written = output.type === 'value' ? output.value
-    : output.type === 'fold' ? output.value.path
-      : output.type === 'dict' ? output.value.dir
-        : output.value;
+  const work = unit.unit.work;
+  let written: string;
+  if (work.type === 'intake') {
+    written = work.value.output;
+  } else {
+    const output = work.value.output;
+    written = output.type === 'value' ? output.value
+      : output.type === 'fold' ? output.value.path
+        : output.type === 'dict' ? output.value.dir
+          : output.value;
+  }
   for (const name of [written, `${written}.segments`, RESULT_FILE, OUTPUT_MERGE_FILE, OUTPUT_MERGE_RESULT, OUTPUT_MERGE_DIR]) {
     await fs.rm(path.join(unit.dir, name), { recursive: true, force: true });
   }
@@ -372,7 +438,8 @@ export async function clearUnitOutput(unit: TaskUnit): Promise<void> {
  * stands. A set or a dict is its one run, or the merge unit's run when it
  * closed several, or the empty collection when nothing was emitted: the
  * program's `emit` parameter says its type. A `merge` unit of a split task
- * wrote one run, or the value its partials folded to.
+ * wrote one run, or the value its partials folded to. An `intake` unit wrote
+ * the delivery it took in as a manifest directory, as the Writer cut it.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -393,6 +460,8 @@ export async function storeUnitOutput(storage: StorageBackend, repo: string, uni
       default: throw new Error(`a merge unit writes a set, a dict or a fold, not ${merged.type}`);
     }
   }
+  // An intake unit writes the delivery as the manifest directory it names.
+  if (work.type === 'intake') return storeDatasetFile(storage, repo, at(work.value.output), { canonical: true });
   const output = work.value.output;
   switch (output.type) {
     case 'value':

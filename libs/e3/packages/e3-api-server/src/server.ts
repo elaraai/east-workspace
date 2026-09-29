@@ -178,10 +178,11 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     app.route('/', oidcProvider.routes);
   }
 
-  // Per-repo task runner for every route that runs user East: dataflows,
-  // function and one-shot calls, record mutations, and a deploy job's
-  // migrations and index builds, all on the server's one budget (cached — the
-  // runner is stateless apart from its repo anchor and the budget)
+  // Per-repo task runner for every route that runs user East, and every
+  // delivery a server takes in: dataflows, function and one-shot calls, record
+  // mutations, a deploy job's migrations and index builds, and an upload's
+  // intake units, all on the server's one budget (cached — the runner holds its
+  // repo anchor, the budget, and which runner it found cannot run an intake)
   const runners = new Map<string, TaskRunner>();
   const getRunner = (repoPath: string): TaskRunner => {
     let runner = runners.get(repoPath);
@@ -206,7 +207,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Must be mounted BEFORE auth middleware so they bypass JWT validation.
   // In cloud deployments these URLs are S3 presigned URLs that reject auth headers.
   const pkgTransfer = createPackageTransferRoutes(storage, getRepoPath, transferBackend);
-  const dsTransfer = createTransferRoutes(storage, getRepoPath, transferBackend, {
+  const dsTransfer = createTransferRoutes(storage, getRepoPath, transferBackend, getRunner, {
     ...(transferCommitWaitMs !== undefined && { commitWaitMs: transferCommitWaitMs }),
   });
   const dataEndpoints = createDataEndpoints(transferBackend, storage, getRepoPath);

@@ -25,7 +25,7 @@ program
   .option('--auth-key <path>', 'JWT public key path (external auth)')
   .option('--auth-issuer <iss>', 'Expected JWT issuer (external auth)')
   .option('--auth-audience <aud>', 'Expected JWT audience (external auth)')
-  .option('-j, --jobs <n>', 'Cores: runner processes to keep in flight across every run and call the server serves (default: $E3_JOBS, else the CPUs available)')
+  .option('-j, --jobs <n>', 'Cores: runner processes to keep in flight across every run and call the server serves and every upload it takes in (default: $E3_JOBS, else the CPUs available)')
   .option('--memory <size>', 'Memory those runner processes may reserve between them, as 8G or 512M (default: $E3_MEMORY, else the memory available, less a reserve for e3 and the OS)')
   .action(async (options: {
     repos?: string;

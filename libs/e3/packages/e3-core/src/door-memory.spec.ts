@@ -68,7 +68,8 @@ switch (door) {
     await core.storeDatasetFile(storage, repo, input.foreign);
     break;
   case 'delivery':
-    await core.objectAdoptFile(storage, repo, input.foreign);
+    // Taken in on a runner: what this process holds is its own share.
+    await core.objectAdoptFile(storage, repo, input.foreign, { runner: new core.LocalTaskRunner(repo) });
     break;
   case 'upload':
     await core.storeCollection(storage, repo, readDatasetFileType(input.foreign), [{ chunks: createReadStream(input.foreign) }]);

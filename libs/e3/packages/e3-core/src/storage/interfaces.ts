@@ -21,11 +21,11 @@
  * caller, and the fallbacks were whole-object reads.
  */
 
-import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, DataflowRun, DatasetRef, RepoMetadata, RepoStatus, RepositoryRecord } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, LockProgress, DataflowRun, DatasetRef, RepoMetadata, RepoStatus, RepositoryRecord } from '@elaraai/e3-types';
 import type { LockHolderInfo } from '../errors.js';
 
 // Re-export lock types for consumers of this module
-export type { LockState, LockOperation, LockHolderInfo };
+export type { LockState, LockOperation, LockProgress, LockHolderInfo };
 
 // =============================================================================
 // Repository Lifecycle Types
@@ -491,14 +491,17 @@ export interface RefStore {
 
   /**
    * Record the collection a delivered file was stored as: the file's SHA-256
-   * and the manifest the store's door split it into.
+   * and the manifest it was taken in as — or, while an intake of a large
+   * delivery is under way, a piece of it, under a key of its own.
    *
-   * A delivery is read and split into segment objects when it is adopted, so
-   * its own hash names no object. This is what lets an adoption, or a transfer
-   * init, of the same bytes find the manifest without reading them again.
+   * A delivery is taken in as segment objects, so its own hash names no
+   * object. This is what lets an adoption, or a transfer init, of the same
+   * bytes find the manifest without reading them again, and an intake stopped
+   * part way take up the pieces it finished.
    *
    * @param repo - Repository identifier
-   * @param sourceHash - SHA-256 of the delivered bytes
+   * @param sourceHash - SHA-256 of the delivered bytes, or a piece's key, a
+   *   SHA-256 too
    * @param manifestHash - Hash of the manifest they were stored as
    */
   adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void>;
@@ -514,6 +517,26 @@ export interface RefStore {
    * @returns The manifest's hash, or null when none is recorded
    */
   adoptionRead(repo: string, sourceHash: string): Promise<string | null>;
+
+  /**
+   * List every entry of the adoption memo: what gc reads to drop the entries
+   * whose manifest it has collected.
+   *
+   * @param repo - Repository identifier
+   * @returns Each entry's key and the manifest it names — null for an entry
+   *   that does not read — in no particular order
+   */
+  adoptionList(repo: string): Promise<Array<{ sourceHash: string; manifestHash: string | null }>>;
+
+  /**
+   * Forget an entry of the adoption memo: a delivery's pieces, once the
+   * delivery itself is remembered, or an entry whose manifest gc collected.
+   * Forgetting one that is not there does nothing.
+   *
+   * @param repo - Repository identifier
+   * @param sourceHash - The entry's key
+   */
+  adoptionDelete(repo: string, sourceHash: string): Promise<void>;
 
   // -------------------------------------------------------------------------
   // Dataflow Run History
@@ -573,6 +596,18 @@ export interface LockHandle {
   readonly resource: string;
   /** Release the lock. Safe to call multiple times. */
   release(): Promise<void>;
+  /**
+   * Record how far the operation holding the lock has got, for another process
+   * to read through {@link LockService.getProgress} while the lock is held.
+   *
+   * @remarks
+   * Each report replaces the last, and the release takes it away, so what a
+   * reader sees is always the live holder's. Only an exclusive holder's report
+   * is kept: a shared holder's is ignored.
+   *
+   * @param progress - How far the operation has got
+   */
+  report(progress: LockProgress): Promise<void>;
 }
 
 /**
@@ -621,6 +656,17 @@ export interface LockService {
    * @returns Lock state, or null if not locked
    */
   getState(repo: string, resource: string): Promise<LockState | null>;
+
+  /**
+   * How far the operation holding a resource exclusively says it has got.
+   *
+   * @param repo - Repository identifier
+   * @param resource - Resource identifier
+   * @returns What its holder last reported through {@link LockHandle.report},
+   *   or null when the resource is not held exclusively, or its holder has
+   *   reported nothing
+   */
+  getProgress(repo: string, resource: string): Promise<LockProgress | null>;
 
   /**
    * Check if a lock holder is still alive.

@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { NullType, some, none, variant } from '@elaraai/east';
+import { NullType, OptionType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
 import {
   PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type WorkspaceDeployRequest,
@@ -14,15 +14,18 @@ import {
   workspaceCreate,
   workspaceRemove,
   workspaceGetState,
+  workspaceLockStatus,
   workspaceStatus,
   packageGetLatestVersion,
   packageResolve,
   PackageNotFoundError,
+  WorkspaceNotDeployedError,
+  WorkspaceNotFoundError,
 } from '@elaraai/e3-core';
 import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
-import { WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
+import { LockStatusType, WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
 
 /**
  * List all workspaces in the repository.
@@ -82,6 +85,13 @@ export async function createWorkspace(
 
 /**
  * Get workspace state.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param name - Workspace name
+ * @returns The response: the deployed state; `workspace_not_deployed` for a
+ *   workspace nothing is deployed to yet, as while its first deploy runs; or
+ *   `workspace_not_found`
  */
 export async function getWorkspace(
   storage: StorageBackend,
@@ -91,11 +101,36 @@ export async function getWorkspace(
   try {
     const state = await workspaceGetState(storage, repoPath, name);
     if (!state) {
-      return sendError(WorkspaceStateType, errorToVariant(new Error(`Workspace '${name}' is not deployed`)));
+      const exists = (await workspaceList(storage, repoPath)).includes(name);
+      throw exists ? new WorkspaceNotDeployedError(name) : new WorkspaceNotFoundError(name);
     }
     return sendSuccess(WorkspaceStateType, state);
   } catch (err) {
     return sendError(WorkspaceStateType, errorToVariant(err));
+  }
+}
+
+/**
+ * What holds a workspace exclusively, and how far that operation says it has
+ * got: a deploy taking its file sources in and deploying its records, while a
+ * workspace deployed for the first time has no status to show.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param name - Workspace name
+ * @returns The response: the lock's status, `none` when nothing holds the
+ *   workspace exclusively, or the error
+ */
+export async function getWorkspaceLockStatus(
+  storage: StorageBackend,
+  repoPath: string,
+  name: string
+): Promise<Response> {
+  try {
+    const status = await workspaceLockStatus(storage, repoPath, name);
+    return sendSuccess(OptionType(LockStatusType), status === null ? none : some(status));
+  } catch (err) {
+    return sendError(OptionType(LockStatusType), errorToVariant(err));
   }
 }
 

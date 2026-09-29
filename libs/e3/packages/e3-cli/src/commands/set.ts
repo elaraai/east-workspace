@@ -22,16 +22,16 @@
  * reads, so a drifted file is refused before it is read whole; `--from-file`
  * ADOPTS a `.beast2` file without ever holding it — hashing it by streaming,
  * checking its header against the declared type, and taking it into the
- * object store: a collection split into segment objects a segment at a time,
- * any other value by link or one kernel copy. That is the form for a delivery
- * too big to decode at once, and the file is never modified.
+ * object store: a collection by intake units on the runners, a piece of its
+ * segments each, any other value by link or one kernel copy. That is the form
+ * for a delivery too big to decode at once, and the file is never modified.
  */
 
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import { stat } from 'node:fs/promises';
-import { datasetAdoptFile, workspaceResolveDataset, workspaceSetDataset, LocalStorage } from '@elaraai/e3-core';
-import { readDatasetFileHeader, readDatasetFileType, sha256File } from '@elaraai/e3';
+import { datasetAdoptFile, workspaceResolveDataset, workspaceSetDataset, LocalStorage, LocalTaskRunner, type DatasetAdoptResult } from '@elaraai/e3-core';
+import { readDatasetFileHeader, readDatasetFileType } from '@elaraai/e3';
 import {
   datasetGetStatus as datasetGetStatusRemote,
   datasetSet as datasetSetRemote,
@@ -53,6 +53,9 @@ import { parseRepoLocation, formatError, exitError, type RepoLocation } from '..
 import { resolveDatasetPath } from '../path-resolver.js';
 import { formatSize } from '../format.js';
 import { fileTransferSource } from '../file-transfer-source.js';
+import { createProgress } from '../progress.js';
+import { commitText, hashDelivery, intakeReporter } from '../intake.js';
+import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 /**
  * Parse a type specification in .east format.
@@ -92,7 +95,7 @@ export async function setCommand(
   repoArg: string,
   pathSpec: string,
   filePath: string | undefined,
-  options: { type?: string; typeFile?: string; fromFile?: string } = {}
+  options: BudgetFlags & { type?: string; typeFile?: string; fromFile?: string } = {}
 ): Promise<void> {
   try {
     if (options.type && options.typeFile) {
@@ -106,8 +109,10 @@ export async function setCommand(
         exitError('--from-file adopts the file under the type its header declares — --type / --type-file would re-type it');
       }
       // Awaited, so a refusal lands in the catch below and prints as one line.
-      return await setFromFile(repoArg, pathSpec, options.fromFile);
+      return await setFromFile(repoArg, pathSpec, options.fromFile, options);
     }
+    if (options.jobs !== undefined) exitError('-j sets the cores --from-file takes a file in on');
+    if (options.memory !== undefined) exitError('--memory sets the memory --from-file takes a file in with');
     if (!filePath) {
       exitError('Provide a file to read the value from, or --from-file to take in a .beast2 file without holding it');
     }
@@ -237,17 +242,37 @@ export async function setCommand(
 /**
  * Point a dataset at an existing `.beast2` file, adopted without holding it.
  *
- * Locally the file is adopted straight into the object store; against a remote
- * repository it is streamed through the transfer protocol, whose commit runs
- * the same validation server-side.
+ * Locally the file is adopted straight into the object store, saying how far it
+ * has got: a collection is taken in by intake units on the runners, as many at
+ * once as the command's budget has cores (`-j`). Against a remote repository it
+ * is streamed through the transfer protocol, whose commit runs the same
+ * validation server-side, its line saying how far the hash has got, then what
+ * the server's commit is doing with the file.
  */
-async function setFromFile(repoArg: string, pathSpec: string, file: string): Promise<void> {
+async function setFromFile(repoArg: string, pathSpec: string, file: string, flags: BudgetFlags): Promise<void> {
   const location = await parseRepoLocation(repoArg);
+  if (location.type === 'remote') refuseRemoteBudget(flags);
   const { ws, path } = await resolveDatasetPath(location, pathSpec);
 
   if (location.type === 'local') {
     const storage = new LocalStorage();
-    const result = await datasetAdoptFile(storage, location.path, ws, path, file);
+    const intake = intakeReporter(createProgress());
+    const sources = { count: 1, bytes: (await stat(file)).size };
+    let result: DatasetAdoptResult;
+    try {
+      result = await datasetAdoptFile(storage, location.path, ws, path, file, {
+        runner: new LocalTaskRunner(location.path, commandBudget(flags)),
+        onProgress: (progress) => intake.report({ path: pathSpec, file, sources, ...progress }),
+      });
+    } catch (err) {
+      intake.fail();
+      throw err;
+    }
+    intake.report({
+      path: pathSpec, file, sources, phase: 'done', bytes: result.size, total: result.size, taken: result.taken,
+      ...(result.runners !== undefined && { runners: result.runners }),
+      ...(result.fallback !== undefined && { fallback: result.fallback }),
+    });
     console.log(`Set ${pathSpec} from ${file}`);
     console.log(`Hash:   ${result.hash}`);
     console.log(`Size:   ${formatSize(result.size)}`);
@@ -263,15 +288,25 @@ async function setFromFile(repoArg: string, pathSpec: string, file: string): Pro
   const declared = await declaredDataset(location, ws, path);
   const { size } = await stat(file);
   readDatasetFileHeader(file, `dataset '${declared.address}'`, declared.type);
-  const hash = await sha256File(file);
-  await datasetSetStream(
-    location.baseUrl,
-    location.repo,
-    ws,
-    path,
-    fileTransferSource(file, size, hash),
-    { token: location.token }
-  );
+  const step = createProgress().step(`uploading ${pathSpec} from ${file}`);
+  let hash: string;
+  try {
+    hash = await hashDelivery(file, size, pathSpec, step);
+    step.update(`uploading ${pathSpec} from ${file}`);
+    await datasetSetStream(
+      location.baseUrl,
+      location.repo,
+      ws,
+      path,
+      fileTransferSource(file, size, hash),
+      { token: location.token },
+      { onCommitProgress: (progress) => step.update(`uploaded ${pathSpec}, and ${commitText(progress)}`) },
+    );
+  } catch (err) {
+    step.fail();
+    throw err;
+  }
+  step.done(`uploaded ${pathSpec}`);
   console.log(`Set ${pathSpec} from ${file}`);
   console.log(`Hash:   ${hash}`);
   console.log(`Size:   ${formatSize(size)}`);

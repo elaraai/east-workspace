@@ -737,7 +737,8 @@ async function patchAsDelta(
  * @param repo - Repository identifier
  * @param indexes - Index name -> RecordIndexObject hash, from the record object
  * @param primary - CollectionManifest hash of the primary to build over
- * @param opts - Cancellation and verbosity
+ * @param opts - Cancellation and verbosity, and what is told of each build as
+ *   it starts: the index, and its place among the builds, from 1
  * @returns The built indexes, or the first build's failure
  */
 async function buildRecordIndexes(
@@ -746,10 +747,11 @@ async function buildRecordIndexes(
   repo: string,
   indexes: Map<string, string>,
   primary: string,
-  opts: { signal?: AbortSignal; verbose?: boolean },
+  opts: { signal?: AbortSignal; verbose?: boolean; onBuild?: (index: string, build: number, builds: number) => void },
 ): Promise<{ built: Map<string, { manifest: string; index: string }> } | { failure: MutationOutcome }> {
   const built = new Map<string, { manifest: string; index: string }>();
   for (const [name, indexHash] of indexes) {
+    opts.onBuild?.(name, built.size + 1, indexes.size);
     const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, indexHash));
     const taskHash = await storage.objects.write(repo, encodeTaskObject({
       kind: TASK_OBJECT_KIND,
@@ -918,6 +920,8 @@ export interface DeployIndexBuild {
  * @param runner - Task runner for the build programs
  * @param onPlan - told what the deploy decided for each index
  * @param planOnly - decide and tell, and build nothing: a deploy's `--plan`
+ * @param onBuild - told of each build as it starts: the record's ref path, the
+ *   index, and its place among the builds the record owes, from 1
  * @returns one build per record whose indexes change; none when `planOnly`
  * @throws {Error} When a build is owed and no runner was given, or a build
  *   program fails.
@@ -930,6 +934,7 @@ export async function buildDeployIndexes(
   runner?: TaskRunner,
   onPlan?: (plan: RecordIndexPlan) => void,
   planOnly = false,
+  onBuild?: (path: string, build: { index: string; build: number; builds: number }) => void,
 ): Promise<DeployIndexBuild[]> {
   const builds: DeployIndexBuild[] = [];
   for (const recHash of pkg.records.values()) {
@@ -959,7 +964,9 @@ export async function buildDeployIndexes(
     }
     const outcome = build.size === 0
       ? { built: new Map<string, { manifest: string; index: string }>() }
-      : await buildRecordIndexes(storage, runner!, repo, build, state.primary, {});
+      : await buildRecordIndexes(storage, runner!, repo, build, state.primary, {
+        ...(onBuild !== undefined && { onBuild: (index: string, n: number, of: number) => onBuild(recObj.path, { index, build: n, builds: of }) }),
+      });
     if ('failure' in outcome) {
       const failure = outcome.failure;
       const detail = failure.kind === 'failed' ? failure.stderr : failure.kind === 'invalid' ? failure.message : failure.kind;

@@ -22,6 +22,8 @@ const HASH_READ_BYTES = 1024 * 1024;
  * too little garbage to prompt one.
  *
  * @param path - Absolute or relative path to the file
+ * @param onBytes - Hears, after each read, how many of the file's bytes have been
+ *   hashed
  * @returns The SHA256 hash as a 64-character lowercase hex string
  *
  * @throws {Error} When the file does not exist or cannot be read
@@ -38,7 +40,7 @@ const HASH_READ_BYTES = 1024 * 1024;
  * // hash: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
  * ```
  */
-export async function sha256File(path: string): Promise<string> {
+export async function sha256File(path: string, onBytes?: (bytes: number) => void): Promise<string> {
   // Check file exists first for a clearer error message
   try {
     const stats = await stat(path);
@@ -56,10 +58,13 @@ export async function sha256File(path: string): Promise<string> {
   try {
     const hash = createHash('sha256');
     const buffer = Buffer.allocUnsafe(HASH_READ_BYTES);
+    let hashed = 0;
     for (;;) {
       const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) return hash.digest('hex');
       hash.update(buffer.subarray(0, bytesRead));
+      hashed += bytesRead;
+      onBytes?.(hashed);
     }
   } finally {
     await file.close();

@@ -11,6 +11,7 @@
  * task — locally by spawning a runner, or remotely.
  */
 
+import type { EastTypeValue } from '@elaraai/east';
 import type { ExecutionStatus, PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
@@ -121,6 +122,57 @@ export interface SplitUnit {
 }
 
 /**
+ * A delivery an intake reads: a file the runner opens, or an object in the
+ * store, the delivery stored whole.
+ */
+export type IntakeSource =
+  /** A file on a filesystem the runner reads: a local runner's own. */
+  | { readonly file: string }
+  /** An object in the store, by its hash. */
+  | { readonly object: string };
+
+/**
+ * One intake: a delivered collection, or a run of its segments, taken in as
+ * its declared type (see {@link TaskRunner.intake}).
+ */
+export interface IntakeSpec {
+  /** The delivery. */
+  readonly source: IntakeSource;
+  /** The collection type the delivery's header must name: an Array, Set or
+   *  Dict. */
+  readonly type: EastTypeValue;
+  /** The delivery's segments `[from, to)`, by its index: a piece of a large
+   *  delivery. Absent, the whole delivery. */
+  readonly segments?: { readonly from: number; readonly to: number };
+}
+
+/**
+ * Options for {@link TaskRunner.intake}.
+ */
+export interface IntakeOptions {
+  /** Aborting it stops the intake, and a runner waiting for room never
+   *  starts. */
+  signal?: AbortSignal;
+}
+
+/**
+ * What an intake stored.
+ */
+export interface IntakeResult {
+  /** The manifest the delivery's rows were stored as, through the store's
+   *  door. */
+  readonly hash: string;
+  /** The runner that took it in, as its command is named: `east-c` or
+   *  `east-node` for a local runner. */
+  readonly runner: string;
+  /** Why the runner is not the one the backend prefers, when it is not: a
+   *  local runner's east-c could not run the unit. */
+  readonly fallback?: string;
+  /** The runner's peak resident memory, in bytes, when it reported one. */
+  readonly peakBytes?: number;
+}
+
+/**
  * Task execution abstraction.
  *
  * Implementations:
@@ -198,4 +250,32 @@ export interface TaskRunner {
    * @param options - Cancellation + runner search anchor
    */
   runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult>;
+
+  /**
+   * Take a delivered collection in, or a run of its segments, through an
+   * `intake` unit, and store what it wrote through the store's door.
+   *
+   * @remarks
+   * The runner walks each row of the delivery by its type and hands the
+   * Writer's own bytes on as they stand, writing any other row again, so what
+   * it stores is the manifest the Writer writes for those rows. Writes the
+   * segments and the manifest, and nothing else: no execution record, no log,
+   * no ref. Nothing names what it stored until its caller does, so the caller
+   * holds off a sweep until then.
+   *
+   * A run of segments checks only its own rows: a caller that assembles a
+   * delivery's pieces checks that a Set's or a Dict's keys ascend where they
+   * meet.
+   *
+   * @param storage - Storage backend
+   * @param spec - The delivery, its declared type, and the run of its segments
+   * @param options - Cancellation
+   * @returns The stored manifest, and the runner that took it in
+   * @throws {DeliveryRefusedError} When the runner refuses the delivery: not a
+   *   beast2 collection of the declared type, a malformed or oversized segment,
+   *   a row that does not decode, or keys that do not ascend.
+   * @throws {Error} When no runner can run the unit, or the runner fails
+   *   without saying why the delivery is refused.
+   */
+  intake(storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions): Promise<IntakeResult>;
 }

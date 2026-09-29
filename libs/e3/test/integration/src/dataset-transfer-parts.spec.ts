@@ -27,6 +27,7 @@ import { StringType, decodeBeast2For, encodeBeast2For, some, variant, type EastT
 import {
   BEAST2_CONTENT_TYPE,
   ResponseType,
+  TRANSFER_PROTOCOL_VERSION,
   TransferDoneResponseType,
   TransferPartResponseType,
   TransferUploadRequestType,
@@ -75,7 +76,7 @@ async function call<T extends EastType>(url: string, method: 'GET' | 'POST', typ
 async function startUpload(ctx: TestContext, data: Uint8Array) {
   const uploadUrl = `${baseUrl}/api/repos/${ctx.repoName}/workspaces/ws/datasets/inputs/config/upload`;
   const request = encodeBeast2For(TransferUploadRequestType)({ hash: sha256(data), size: BigInt(data.byteLength) });
-  const init = await call(`${uploadUrl}?protocol=2`, 'POST', TransferUploadResponseType, request);
+  const init = await call(`${uploadUrl}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferUploadResponseType, request);
   assert.ok(init.type === 'success' && init.value.type === 'upload_parts', 'an upload is planned as parts');
   const { id, partBytes } = init.value.value;
   const count = transferPartCount(data.byteLength, partBytes);
@@ -88,7 +89,7 @@ async function startUpload(ctx: TestContext, data: Uint8Array) {
   const put = async (part: number, body: Uint8Array) =>
     fetch(await partUrl(part), { method: 'PUT', body });
   const commit = async () => {
-    let done = await call(`${uploadUrl}/${id}?protocol=2`, 'POST', TransferDoneResponseType);
+    let done = await call(`${uploadUrl}/${id}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferDoneResponseType);
     for (let polls = 0; done.type === 'success' && done.value.type === 'processing' && polls < 600; polls++) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       done = await call(`${uploadUrl}/${id}`, 'GET', TransferDoneResponseType);
@@ -164,7 +165,7 @@ describe('dataset transfer parts on the local server', { concurrency: false }, (
     const url = await upload.partUrl(1);
 
     // The server answers a commit `processing` at once (its commit wait is 0).
-    const asked = await call(`${upload.uploadUrl}/${upload.id}?protocol=2`, 'POST', TransferDoneResponseType);
+    const asked = await call(`${upload.uploadUrl}/${upload.id}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferDoneResponseType);
     assert.equal(asked.type, 'success');
     const first = transferPartRange(data.byteLength, upload.partBytes, 1)!;
     const late = await fetch(url, { method: 'PUT', body: data.subarray(first.start, first.end) });

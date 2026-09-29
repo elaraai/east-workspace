@@ -101,14 +101,21 @@ A `file` source:
 - is checked against the declared type at `e3.export` (drift is a build error
   naming the input and the first differing field) and again at deploy, before
   the workspace is touched;
-- may be any beast2 layout, but no segment of it may exceed 64 MiB: a large
-  value encoded whole is one such segment, refused — write it segmented, the
-  Writer's default;
-- is taken in without being read whole or modified: a collection a segment at a
-  time, as the store's own segments (a new delivery stores only the segments
-  that changed, and bytes seen before are not read again), any other value by
-  reflink, hard link or one copy — so replace a delivery with a new file, never
-  edit it in place;
+- is hashed first, so a delivery the store already holds costs that one read;
+- is taken in without being read whole or modified — so replace a delivery with
+  a new file, never edit it in place. A collection is taken in on the runners —
+  east-c, or east-node where there is no east-c — in pieces of its segments, as
+  many at once as the budget allows: each row is walked, the bytes the Writer
+  writes for it kept as they stand and any other row written again, so the
+  delivery is stored as the Writer's value whichever writer wrote it, and a new
+  delivery stores only the segments that changed. A deploy or an upload
+  stopped part way takes up again from the pieces it finished. Any other value
+  is taken in by reflink, hard link or one copy;
+- may hold no segment of more than 64 MiB, the most a collection is read in at
+  once. A value encoded whole is one such segment, and so can be a segment of
+  wide rows from an older Writer, which bounded a segment by its element count
+  alone; either is refused, naming the fix: write it again with a current
+  Writer, whose segments stay under 8 MiB;
 - is read on the machine that runs `e3 workspace deploy`, local repository or
   not: against a server the CLI checks every delivery first, then streams each
   after the deploy. A deploy made through the API leaves it unset;
@@ -491,25 +498,25 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 workspace create [repo] <ws>` · `list [repo]` · `status [repo] <ws>` · `remove [repo] <ws>` | `status` shows tasks, datasets and locks. |
 | `e3 workspace deploy [repo] <ws> <pkg[@ver]>` | Deploy an imported package. |
 | `… --from-zip <zip>` · `… --from-source <src.ts> [--functions <manifest…>]` | Import the zip (or bundle the source) and deploy, creating the workspace. |
-| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, `file` sources and the budget. |
+| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on; `--memory`: what those may reserve (local). |
 | `e3 workspace export [repo] <ws> <zip> [--name <n>] [--version <v>]` | The workspace's state as a package. |
 | **Datasets** | |
 | `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
 | `e3 dataset set [repo] <ws.name> <file> [--type <spec> \| --type-file <path>]` | Write from `.east`, `.beast2`, `.json` or `.csv` (JSON and CSV need the type). |
-| `e3 dataset set [repo] <ws.name> --from-file <path.beast2>` | Take a beast2 file in as the value, a segment at a time. |
+| `e3 dataset set [repo] <ws.name> --from-file <path.beast2> [-j <n>] [--memory <size>]` | Take a beast2 file in as the value, as a deploy takes a `file` source in, saying how far it has got; `-j`, `--memory`: the budget its intake units run under (local). |
 | `e3 dataset list [repo] <ws> [-l]` · `status [repo] <ws.name>` · `find [repo] <ws> <pattern>` | Paths (`-l`: kind, type, status, size) · one dataset · by substring or glob. |
 | **Running** | |
 | `e3 dataflow run [repo] <ws> [--filter <p>] [--force] [-j <n>] [--memory <size>] [-v]` | Run what is stale, then print the outputs' paths. |
 | `e3 task list [repo] <ws>` | Tasks with their execution status. |
 | `e3 task logs [repo] <ws.task> [-n <lines>] [--all] [--follow] [--execution <task>/<inputs>/<id>]` | The last 200 lines by default; `--execution`: one unit's log, as a split task's log names it (local). |
-| `e3 run <repo> <pkg[@ver].task> [inputs.beast2…] -o <out> [--force] [-v] [-j] [--memory]` | Run one task ad hoc. |
-| `e3 call <repo> <pkg[@ver].fn> [args…] [-o <out.beast2>] [-v]` · `e3 call <repo> -w <ws> <fn> [args…]` | Call a function; each argument is an `.east` literal or a `.beast2`/`.json`/`.east` file. |
+| `e3 run <repo> <pkg[@ver].task> [inputs.beast2…] -o <out> [--force] [-v] [-j <n>] [--memory <size>]` | Run one task ad hoc. |
+| `e3 call <repo> <pkg[@ver].fn> [args…] [-o <out.beast2>] [-j <n>] [--memory <size>] [-v]` · `e3 call <repo> -w <ws> <fn> [args…]` | Call a function; each argument is an `.east` literal or a `.beast2`/`.json`/`.east` file. |
 | **Records** (`-w <ws>` required) | |
-| `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-v]` | Apply a mutation. |
+| `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-j <n>] [--memory <size>] [-v]` | Apply a mutation. |
 | `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target; local). |
-| `e3 reindex <repo> <record> -w <ws> [--index <name>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes · collapse the history to a `$compact` root, the state kept. |
+| `e3 reindex <repo> <record> -w <ws> [--index <name>] [-j <n>] [--memory <size>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes (local) · collapse the history to a `$compact` root, the state kept. |
 | **Development** | |
-| `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--abort-on-change] [--functions <manifest…>] [-j] [--memory]` | Redeploy on each change (and run, with `--start`). |
+| `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--abort-on-change] [--functions <manifest…>] [-j <n>] [--memory <size>]` | Redeploy on each change (and run, with `--start`). |
 | `e3 convert [input] [--from <f>] [--to <f>] [--type <spec>] [-o <out>]` | Convert between `.east`, `.json` and `.beast2`. |
 | `e3 completion install [--shell <s>]` · `uninstall` · `bash` \| `zsh` \| `fish` | Shell completion. |
 | **Servers** | |
@@ -522,9 +529,26 @@ its CPU affinity capped by a cgroup quota, and the cgroup's `memory.max` or
 physical memory, less a reserve. A unit of a split task reserves the largest
 peak a unit of its stage has reached in the run, so a stage runs its first unit
 alone and then fans out; on Linux and macOS a guard stops the newest unit when
-the runners together pass the budget, and runs it again once it fits. The flags
-apply to a local repository; a server refuses them, since it runs work under its
-own (`e3-api-server -j`, `--memory`).
+the runners together pass the budget, and runs it again once it fits. A deploy
+takes its `file` sources in `-j` at a time, their pieces' intake units running
+under the same budget. The commands that run East — `workspace deploy`,
+`dataset set --from-file`, `dataflow run`, `run`, `call`, `mutate`, `reindex`
+and `watch` — take the flags for a local repository; against a server the CLI
+refuses them, since the server runs the work under its own budget
+(`e3-api-server -j`, `--memory`).
+
+**A deploy says how far it has got**, on stderr. Each `file` source prints a
+line once it is in: its size, time and rate, and how it was taken in
+(`unchanged, already in the store`, `taken in by east-c`, or `carried` for a
+value that is not a collection), with why the first time a runner fell back to
+another. A terminal also keeps a live line for the files in flight, with their
+pieces, the rate and the time left across them. Against a server, the deploy line
+says what the job is doing, such as migrating a record or building an index;
+the deliveries then upload a few at a time, each printing a line once it is in,
+and the live line says what the server's commit is doing with each in flight.
+While a deploy runs, its lock carries the same progress for `e3-ui` or any
+client to read (`workspaceLockStatus`). A workspace deployed for the first time
+has no status until its deploy ends, so the lock is the only place to see it.
 
 **`-v`** passes `-v` to the runners, which print a timing and peak-memory block,
 identical on every runtime, to the task's logs. It never changes hashes or
@@ -542,7 +566,9 @@ staging files older than `--min-age` (60 s). `--dry-run` reports what would go.
 
 A package zip names the release of e3 that exported it, and an import refuses a
 zip a newer release exported, naming that release: import it with an e3 at least
-as new as the SDK that exported it.
+as new as the SDK that exported it. A dataset upload names the transfer protocol
+its e3 speaks, and a server refuses one that speaks another, naming both
+releases and which of them to upgrade.
 
 ## Driving e3 from code
 
@@ -555,8 +581,8 @@ input definition's `.path`, for one.
 |---|---|
 | Repositories | `repoList(url, opts)`, `repoCreate(url, name, opts)`, `repoRemove(url, name, opts)`, `repoStatus(url, repo, opts)`, `repoRecord` (its release and upgrades), `repoGc(url, repo, gcRequest, opts)` — a job it polls; `repoGcStart` and `repoGcStatus` apart |
 | Packages | `packageList(url, repo, opts)`, `packageGet(url, repo, name, version, opts)`, `packageImport(url, repo, zipBytes, opts)`, `packageExport(url, repo, name, version, opts)` → zip bytes, `packageRemove` |
-| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan? })` — a job it polls, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
-| Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream`, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
+| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
+| Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream(url, repo, ws, path, { size, hash, slice }, opts, { onCommitProgress? })` — a file of any size, the server's commit saying how far it has taken it in, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
 | Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`), `dataflowCancel`, `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList`, `taskLogs(url, repo, ws, task, { stream?, offset?, limit? }, opts)` |
 | Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)`; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)`; `oneShotExecute` |
 | Records | `workspaceRecordDescribe`, `workspaceRecordMutate(url, repo, ws, record, mutation, { args, actor, limits }, opts, idempotencyKey?)`, `workspaceRecordHistory(url, repo, ws, record, limit, opts, from?)`, `workspaceRecordCompact` |
@@ -570,8 +596,8 @@ takes a runner, `new LocalTaskRunner(repo)`.
 |---|---|
 | Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays? })` |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
-| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)`, `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceRemove` |
-| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file)` |
+| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
+| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named) |
 | Runs | `dataflowExecute(storage, repo, ws, options?)`; `LocalOrchestrator` to start, poll and cancel a run |
 | Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex` |
 
@@ -581,7 +607,7 @@ over itself.
 **`e3-api-server`** serves repositories: `--repos <dir>` (each subdirectory a
 repository) or `--repo <path>` (one, served as `default`), `-p`/`--port` (3000),
 `-H`/`--host` (localhost), `--cors`, `-j`/`--memory` (the server's budget, for
-every run and call it serves), and auth — `--oidc`, a built-in provider for `e3
+every run and call it serves and every upload it takes in), and auth — `--oidc`, a built-in provider for `e3
 auth login` (`--token-expiry`, `--refresh-token-expiry`), or an external JWT
 issuer (`--auth-key`, `--auth-issuer`, `--auth-audience`). In code,
 `createServer({ reposDir | singleRepoPath, port, host, … })` starts one, and its
@@ -598,8 +624,8 @@ repo/
 ├── workspaces/        # each workspace's state, dataset refs and run state
 ├── dataflows/         # run records
 ├── executions/        # execution attempts: status, owner, logs
-├── adoptions/         # the manifest each delivered file became
-├── locks/             # locks and their holders
+├── adoptions/         # the manifest each delivered file, or piece of one, became
+├── locks/             # locks, their holders, and how far each says it has got
 ├── envs/              # built execution environments
 └── tmp/               # scratch and staged uploads
 ```

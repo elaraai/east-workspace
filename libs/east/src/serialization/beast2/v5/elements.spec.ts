@@ -161,7 +161,7 @@ describe("decodeBeast2ElementsFor", () => {
     varint(RUN_MAX_BYTES + 1);
     await assert.rejects(
       readAll(decodeBeast2ElementsFor(type)([header, frameHeader.subarray(0, at)])),
-      /holds 67108865 bytes, more than the 67108864 a collection is read in at once — write the value segmented/,
+      /holds 67108865 bytes, more than the 67108864 a collection is read in at once — write it again with a current Writer, whose segments stay under 8388608 bytes/,
     );
   });
 

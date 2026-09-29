@@ -15,6 +15,9 @@
  * beast2 {@link LockState}:
  * - Exclusive: `exclusive.beast2`, created atomically with its content;
  * - Shared: one `shared.<pid>.<token>.beast2` per holder;
+ * - Progress: `progress.beast2`, what the exclusive holder last reported,
+ *   stamped with its holder and acquisition, written whole by a rename — a
+ *   file of its own, so a report never rewrites the lock;
  * - Stale detection: the holder's process is gone (pid, start time and boot);
  * - Release: unlink the file, and the directory once it is empty.
  */
@@ -22,8 +25,11 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { encodeBeast2For, decodeBeast2For, variant, none } from '@elaraai/east';
-import { LockStateType, type LockHolderVariant, type LockState, type LockOperation } from '@elaraai/e3-types';
+import { DateTimeType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, variant } from '@elaraai/east';
+import {
+  LockHolderVariantType, LockProgressType, LockStateType,
+  type LockHolderVariant, type LockOperation, type LockProgress, type LockState,
+} from '@elaraai/e3-types';
 import { InvalidNameError, WorkspaceLockError, checkName, lockStateToHolderInfo, type LockHolderInfo } from '../../errors.js';
 import { getBootId, getPidStartTime, isProcessAlive } from '../../execution/processHelpers.js';
 import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
@@ -46,8 +52,27 @@ const DIRECTORY_GONE_ATTEMPTS = 5;
 /** The exclusive lock's file in its resource's directory. */
 const EXCLUSIVE = 'exclusive.beast2';
 
+/** What the exclusive holder last reported of its progress, in its resource's
+ *  directory. */
+const PROGRESS = 'progress.beast2';
+
 const encodeLockState = encodeBeast2For(LockStateType);
 const decodeLockState = decodeBeast2For(LockStateType);
+
+/** The holder a progress report is stamped with: the one that made it, and
+ *  when it acquired the lock — a report a later holder finds is a crashed
+ *  holder's, left behind. */
+const HolderStampType = StructType({ holder: LockHolderVariantType, acquiredAt: DateTimeType });
+const sameHolder = equalFor(HolderStampType);
+
+/**
+ * A progress report as a resource's `progress.beast2` holds it: what the
+ * exclusive holder last reported, stamped with that holder and when it
+ * acquired the lock.
+ */
+export const LockProgressRecordType = StructType({ holder: LockHolderVariantType, acquiredAt: DateTimeType, progress: LockProgressType });
+const encodeProgressRecord = encodeBeast2For(LockProgressRecordType);
+const decodeProgressRecord = decodeBeast2For(LockProgressRecordType);
 
 /**
  * Unlink a lock file, retrying transient Windows sharing violations.
@@ -114,6 +139,9 @@ export interface WorkspaceLockHandle {
   readonly workspace: string;
   readonly lockPath: string;
   release(): Promise<void>;
+  /** Record how far the holder's operation has got; a shared holder's report
+   *  is not kept. */
+  report(progress: LockProgress): Promise<void>;
 }
 
 /**
@@ -271,6 +299,14 @@ export async function removeStaleLocks(repoPath: string, owns: (resource: string
       continue; // Released meanwhile
     }
     await Promise.all(files.filter((file) => file === EXCLUSIVE || isSharedLock(file)).map((file) => cleanIfStale(path.join(dir, file))));
+    // A report outlives its holder only when the holder did not release.
+    if (files.includes(PROGRESS)) {
+      try {
+        await fs.access(path.join(dir, EXCLUSIVE));
+      } catch {
+        await unlinkWithRetry(path.join(dir, PROGRESS));
+      }
+    }
     await removeIfEmpty(dir);
   }
 }
@@ -353,8 +389,15 @@ async function atomicCreateLockFile(lockPath: string, data: Uint8Array): Promise
   }
 }
 
-/** Try once to acquire an exclusive lock. Returns lock path or null. */
-async function tryExclusiveOnce(repoPath: string, resource: string, operation: LockOperation): Promise<string | null> {
+/** A lock taken: its file, and the state it holds — `null` for a shared one,
+ *  whose reports are not kept. */
+interface Held {
+  lockPath: string;
+  state: LockState | null;
+}
+
+/** Try once to acquire an exclusive lock. Returns what was taken, or null. */
+async function tryExclusiveOnce(repoPath: string, resource: string, operation: LockOperation): Promise<Held | null> {
   const lockPath = workspaceLockPath(repoPath, resource);
 
   // Clean stale exclusive lock
@@ -364,7 +407,8 @@ async function tryExclusiveOnce(repoPath: string, resource: string, operation: L
   if ((await liveSharedLocks(repoPath, resource)).length > 0) return null;
 
   // Atomic create-with-content — false (not us) if another holder beat us to it.
-  if (!(await atomicCreateLockFile(lockPath, encodeLockState(await buildLockState(operation))))) return null;
+  const state = await buildLockState(operation);
+  if (!(await atomicCreateLockFile(lockPath, encodeLockState(state)))) return null;
 
   // A shared acquirer may have written its file after the check above and
   // looked for ours before it existed, and so holds the lock. Each side
@@ -374,11 +418,11 @@ async function tryExclusiveOnce(repoPath: string, resource: string, operation: L
     await unlinkWithRetry(lockPath);
     return null;
   }
-  return lockPath;
+  return { lockPath, state };
 }
 
-/** Try once to acquire a shared lock. Returns lock path or null. */
-async function trySharedOnce(repoPath: string, resource: string, operation: LockOperation): Promise<string | null> {
+/** Try once to acquire a shared lock. Returns what was taken, or null. */
+async function trySharedOnce(repoPath: string, resource: string, operation: LockOperation): Promise<Held | null> {
   const exclusivePath = workspaceLockPath(repoPath, resource);
 
   // Clean stale exclusive lock
@@ -402,7 +446,7 @@ async function trySharedOnce(repoPath: string, resource: string, operation: Lock
     return null;
   }
 
-  return sharedPath;
+  return { lockPath: sharedPath, state: null };
 }
 
 const POLL_INTERVAL_MS = 100;
@@ -430,30 +474,41 @@ export async function acquireWorkspaceLock(
     ? () => trySharedOnce(repoPath, resource, operation)
     : () => tryExclusiveOnce(repoPath, resource, operation);
 
-  let lockPath = await tryOnce();
+  let taken = await tryOnce();
 
-  while (lockPath === null && Date.now() < deadline) {
+  while (taken === null && Date.now() < deadline) {
     // Jitter the poll so a herd of losers released together don't re-stampede
     // the create in lock-step (which on Windows maximises sharing-violation churn).
     await sleep(POLL_INTERVAL_MS * (0.5 + Math.random()));
-    lockPath = await tryOnce();
+    taken = await tryOnce();
   }
 
-  if (lockPath === null) {
+  if (taken === null) {
     const existingState = await readLockState(workspaceLockPath(repoPath, resource));
     const holderInfo = existingState ? lockStateToHolderInfo(existingState) : undefined;
     throw new WorkspaceLockError(resource, holderInfo);
   }
 
-  const held = lockPath;
+  const { lockPath: held, state } = taken;
+  const progressPath = path.join(path.dirname(held), PROGRESS);
   let released = false;
+  // Reports land in order, one at a time, and the release waits for the last.
+  let reporting: Promise<void> = Promise.resolve();
   return {
     resource,
     workspace: resource,
     lockPath: held,
+    report(progress: LockProgress): Promise<void> {
+      if (released || state === null) return Promise.resolve();
+      const record = encodeProgressRecord({ holder: state.holder, acquiredAt: state.acquiredAt, progress });
+      reporting = reporting.catch(() => {}).then(() => atomicWriteFile(progressPath, record));
+      return reporting;
+    },
     async release() {
       if (released) return;
       released = true;
+      await reporting.catch(() => {});
+      if (state !== null) await unlinkWithRetry(progressPath);
       await unlinkWithRetry(held);
       await removeIfEmpty(path.dirname(held));
     },
@@ -508,7 +563,7 @@ export class LocalLockService implements LockService {
         timeout: options?.timeout,
         mode: options?.mode ?? 'exclusive',
       });
-      return { resource, release: () => handle.release() };
+      return { resource, release: () => handle.release(), report: (progress) => handle.report(progress) };
     } catch (err) {
       // A name no path can hold is the caller's error, never a held lock.
       if (err instanceof InvalidNameError) throw err;
@@ -518,6 +573,20 @@ export class LocalLockService implements LockService {
 
   getState(repo: string, resource: string): Promise<LockState | null> {
     return getWorkspaceLockState(repo, resource);
+  }
+
+  async getProgress(repo: string, resource: string): Promise<LockProgress | null> {
+    const state = await getWorkspaceLockState(repo, resource);
+    if (state === null) return null;
+    let record: ReturnType<typeof decodeProgressRecord>;
+    try {
+      record = decodeProgressRecord(await fs.readFile(path.join(lockDir(repo, resource), PROGRESS)));
+    } catch {
+      return null;
+    }
+    return sameHolder({ holder: record.holder, acquiredAt: record.acquiredAt }, { holder: state.holder, acquiredAt: state.acquiredAt })
+      ? record.progress
+      : null;
   }
 
   isHolderAlive(holder: LockHolderVariant): Promise<boolean> {

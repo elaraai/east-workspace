@@ -10,7 +10,7 @@
  * rule and written under the canonical header for its type — the bytes the
  * Writer writes for the value, whichever way the value arrived. Every writer of
  * one hands its collection here as sources in order: a task's output, a split
- * task's assembly, a record's commit, a delivered file, an upload.
+ * task's assembly, a record's commit, a delivery's intake, an API `PUT` body.
  * The door writes the segment objects and the manifest, and returns the
  * manifest's hash, the dataset's content address.
  *
@@ -25,11 +25,12 @@
  *   conformance corpus pins in every runtime, so its segments are stored as
  *   they stand, never decoded: a manifest directory's segment files are linked
  *   in under the hashes that name them, and a blob's segments are carved out of
- *   the file.
- * - Everything else is foreign: a delivered file, an upload, a custom task's
- *   output. Its elements are read a segment of the source at a time and
- *   written again through the Writer, so nothing about the source's layout
- *   survives into the store.
+ *   the file. A delivered file reaches the door so: intake units take it in on
+ *   the runners (`delivery-intake.ts`), and each writes a manifest directory.
+ * - Everything else is foreign: an API `PUT` body, a custom task's output, a
+ *   collection stored whole. Its elements are read a segment of the source at
+ *   a time and written again through the Writer, so nothing about the source's
+ *   layout survives into the store.
  * - Elements in memory are written through the Writer.
  *
  * No source is decoded whole: a foreign source is read front to back, and a
@@ -85,7 +86,7 @@ const READ_CHUNK_BYTES = 1024 * 1024;
  */
 export type CollectionSource =
   /** A collection in the store — a manifest, or a record state naming one —
-   *  or its segments `[from, to)`; or a delivery, whole, stored as the object
+   *  or its segments `[from, to)`; or a collection stored whole, as the object
    *  it arrived as. */
   | { readonly stored: string; readonly from?: number; readonly to?: number }
   /** A beast2 blob in a file. `canonical` when the Writer wrote it — a stock
@@ -175,7 +176,7 @@ export async function storeCollection(
     return refs;
   };
 
-  /** A delivery stored whole, read front to back. */
+  /** A collection stored whole, read front to back. */
   async function* objectChunks(hash: string): AsyncGenerator<Uint8Array> {
     const { size } = await storage.objects.stat(repo, hash);
     for (let at = 0; at < size; at += READ_CHUNK_BYTES) {

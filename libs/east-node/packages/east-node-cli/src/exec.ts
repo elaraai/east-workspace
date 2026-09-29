@@ -6,13 +6,17 @@
 /**
  * `east-node exec <unit.beast2>`: the runner protocol.
  *
- * A unit (`UnitType` in `@elaraai/east`) runs a program on its inputs, or
- * merges the parts of one output that earlier units wrote, and names where its
- * output and its result go. The output is written by its kind:
+ * A unit (`UnitType` in `@elaraai/east`) runs a program on its inputs, merges
+ * the parts of one output that earlier units wrote, or takes a delivered
+ * collection in, and names where its output and its result go. A program's
+ * output is written by its kind:
  * - a value as one blob, or as a manifest directory when it is a collection;
  * - an array through the Writer;
  * - a set or a dict through the RunSorter, as sorted runs;
  * - a fold by folding every emitted value into an accumulator.
+ *
+ * A delivery taken in is read a segment at a time from its file, and written
+ * through the Writer as a manifest directory (`intakeBeast2For`).
  *
  * Collections are written as manifest directories, which a store takes in by
  * linking their files. The result (`UnitResultType`) records the outcome — `ok`,
@@ -22,13 +26,14 @@
  * bytes and outcomes.
  */
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import {
     Beast2ManifestWriter,
     Beast2RunSorter,
     EastError,
     EastIR,
+    EastTypeValueType,
     SortedMap,
     SortedSet,
     UnitType,
@@ -36,9 +41,11 @@ import {
     configureFramePool,
     decodeBeast2For,
     encodeBeast2For,
+    intakeBeast2For,
     isTypeValueEqual,
     variant,
     type Beast2ManifestSink,
+    type Beast2SyncRangeReader,
     type EastTypeValue,
     type Unit,
     type UnitOutcome,
@@ -57,6 +64,9 @@ type RunWork = Extract<Unit['work'], { type: 'run' }>['value'];
 
 /** A unit's `merge` work. */
 type MergeWork = Extract<Unit['work'], { type: 'merge' }>['value'];
+
+/** A unit's `intake` work. */
+type IntakeWork = Extract<Unit['work'], { type: 'intake' }>['value'];
 
 /** Resolves a path a unit names. */
 type Resolve = (path: string) => string;
@@ -110,8 +120,10 @@ export async function executeUnit({ unit, at }: ReadUnit): Promise<UnitResult> {
         const platformFns = await loadPlatforms(unit.platforms);
         if (unit.work.type === 'run') {
             await runWork(unit.work.value, platformFns, at, lap);
-        } else {
+        } else if (unit.work.type === 'merge') {
             mergeWork(unit.work.value, platformFns, at, lap);
+        } else {
+            intakeWork(unit.work.value, at, lap);
         }
         outcome = variant('ok', null);
     } catch (err) {
@@ -260,6 +272,49 @@ function mergeWork(work: MergeWork, platformFns: PlatformFunction[], at: Resolve
             throw new Error("exec: an array's parts are concatenated, never merged: a merge unit takes set, dict or fold parts");
         case 'value':
             throw new Error('exec: a value has no parts: a merge unit takes set, dict or fold parts');
+    }
+}
+
+/**
+ * Takes a delivered collection in: the file read a segment at a time, through
+ * positioned reads, and written through the Writer as the manifest directory
+ * the unit names.
+ *
+ * @throws {Error} When the type file does not hold a type, the delivery cannot
+ *   be read, or the intake refuses it — every refusal in the words each runner
+ *   uses.
+ */
+function intakeWork(work: IntakeWork, at: Resolve, lap: Lap): void {
+    let type: EastTypeValue;
+    try {
+        type = decodeBeast2For(EastTypeValueType)(readFileSync(at(work.type))) as EastTypeValue;
+    } catch {
+        throw new Error('exec: intake: its type file does not hold a type');
+    }
+    const intake = intakeBeast2For(type);
+    const fd = openSync(at(work.input), 'r');
+    try {
+        const delivery: Beast2SyncRangeReader = {
+            size: fstatSync(fd).size,
+            read: (offset, length) => {
+                const out = new Uint8Array(length);
+                let done = 0;
+                while (done < length) {
+                    const got = readSync(fd, out, done, length - done, offset + done);
+                    if (got === 0) break;
+                    done += got;
+                }
+                return done === length ? out : out.subarray(0, done);
+            },
+        };
+        lap('load');
+        const segments = work.segments.type === 'some'
+            ? { segments: { from: Number(work.segments.value.from), to: Number(work.segments.value.to) } }
+            : {};
+        intake(delivery, manifestDirectory(at(work.output)), { ...segments, parallel: true });
+        lap('execute');
+    } finally {
+        closeSync(fd);
     }
 }
 

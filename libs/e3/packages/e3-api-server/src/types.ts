@@ -49,6 +49,7 @@ export {
   WorkspaceInfoType,
   WorkspaceDeployRequestType,
   WorkspaceExportRequestType,
+  LockStatusType,
   // Workspace Status
   DatasetStatusType,
   TaskStatusUpToDateType,
@@ -130,6 +131,7 @@ export type {
   WorkspaceInfo,
   WorkspaceCreateRequest,
   WorkspaceDeployRequest,
+  LockStatus,
   DatasetStatus,
   ApiTaskStatus as TaskStatus,
   DatasetStatusInfo,
@@ -211,6 +213,7 @@ import {
   WorkspaceInfoType,
   WorkspaceDeployRequestType,
   WorkspaceExportRequestType,
+  LockStatusType,
   DatasetStatusType,
   TaskStatusType,
   TaskStatusUpToDateType,
@@ -305,6 +308,7 @@ export const ApiTypes = {
   WorkspaceInfoType,
   WorkspaceDeployRequestType,
   WorkspaceExportRequestType,
+  LockStatusType,
 
   // Workspace Status
   DatasetStatusType,

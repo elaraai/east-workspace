@@ -50,7 +50,7 @@ e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
 | `--oidc` | Enable built-in OIDC authentication provider |
 | `--token-expiry <duration>` | Access token expiry, e.g., "5s", "15m", "1h" (default: 1h) |
 | `--refresh-token-expiry <duration>` | Refresh token expiry, e.g., "7d", "90d" (default: 90d) |
-| `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves (default: `E3_JOBS`, else the CPUs available) |
+| `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves and every upload it takes in (default: `E3_JOBS`, else the CPUs available) |
 | `--memory <size>` | Memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available, less a reserve for e3 and the OS) |
 
 ## Programmatic Usage
@@ -150,7 +150,10 @@ repository gate, mounted ahead of every repository's routes, checks that the
 repository exists and is not being removed, and opens it. The dataflow routes
 take the runner, the orchestrator that runs a repository's dataflows, and the
 state store it writes: a poll and a cancel read the latest run from that
-store, whichever instance answers them.
+store, whichever instance answers them. The dataset transfer routes
+(`createTransferRoutes`) take each repository's runner too: an upload whose
+bytes the store already holds as one object, and which is a collection, is
+taken in by intake units on it (`TaskRunner.intake`).
 
 ```typescript
 import { Hono } from 'hono';
@@ -205,7 +208,8 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
 | GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary) |
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
-| GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing`, what the deploy did for each record and index, or why it failed |
+| GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing` with how far it has got, what the deploy did for each record and index, or why it failed |
+| GET | `/api/repos/:repo/workspaces/:ws/lock` | What holds the workspace exclusively, and how far it says it has got; none when nothing does |
 | DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace |
 | POST | `/api/repos/:repo/workspaces/:ws/export` | Start exporting the workspace as a package zip, as a job polled at `/api/repos/:repo/export/:id` |
 
@@ -215,6 +219,13 @@ record operation on. Its request names the package, what the deploy does with a
 record it cannot keep as it is (`schema`: `migrate`, `fail` or `reset`),
 whether it may drop a record the package no longer declares
 (`allowDropRecords`), and whether it only says what it would do (`plan`).
+
+While it runs, the job's `processing` says how far it has got: each file
+source's step, and each record's (waiting, migrating step n of m, building
+index n of m, done). The deploy reports the same through the workspace's lock,
+which `/lock` answers. A workspace deployed for the first time has no status
+until its deploy ends, so `/lock` is where another client, such as e3-ui's TUI,
+follows that deploy.
 
 ### Datasets
 
@@ -241,7 +252,7 @@ through the objects route and splices them itself, as e3-api-client's
 ### Dataset transfer
 
 Values too large to `PUT` inline are staged in parts and committed. The init
-and the commit name the protocol version with `?protocol=2`, and the client's
+and the commit name the protocol version with `?protocol=3`, and the client's
 release with `&release=`, which decides nothing. A request of another version,
 or none, is refused, naming the server's release, the request's, and the fix.
 The full protocol is in
@@ -251,10 +262,15 @@ The full protocol is in
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload` | Start an upload: `completed` (already stored) or `upload_parts` |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id/parts/:n` | URL and headers for part `n` |
-| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Commit: `completed`, `error`, or `processing` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Commit: `completed`, `error`, or `processing`, with how far it has taken the file in once the store has said |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path/upload/:id` | Poll a commit |
 | PUT | `/api/uploads/:id` | A package zip being imported (no `Authorization`) |
 | PUT | `/api/uploads/:id/parts/:n` | Part `n` of a dataset upload (no `Authorization`) |
+
+A commit takes a collection in by intake units on the repository's runner — a
+piece of its segments each, as many at once as the server's budget allows — and
+its `processing` says how many pieces are in. An upload stopped part way and
+sent again takes up from the pieces it finished.
 
 ### Tasks
 

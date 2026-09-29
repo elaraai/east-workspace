@@ -12,7 +12,22 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { variant } from '@elaraai/east';
+import type { LockProgress } from '@elaraai/e3-types';
 import type { BackendSetup } from './setup.js';
+
+/** A deploy's progress: `done` of its three file sources taken in, the next
+ *  one under way, and its one record waiting. */
+const deploying = (done: number): LockProgress => variant('deployment', {
+  package: { name: 'pkg', version: '1.0.0' },
+  startedAt: new Date('2026-09-28T00:00:00.000Z'),
+  files: [0, 1, 2].map((i) => ({
+    path: `inputs/s${i}`,
+    step: i < done ? variant('done', variant('taken', ['east-c'])) : i === done ? variant('taking_in', { pieces: 5n, done: 2n }) : variant('waiting', null),
+    bytes: i < done ? 100n : i === done ? 40n : 0n,
+    total: 100n,
+  })),
+  records: [{ plan: { record: 'records/r', action: variant('mint', null) }, indexes: ['by_key'], step: variant('waiting', null) }],
+});
 
 /**
  * Registers the lock service's contract suite over a backend.
@@ -59,6 +74,35 @@ export function lockServiceTests(setup: BackendSetup): void {
       const exclusive = await storage.locks.acquire(repo, 'resource', variant('deployment', null));
       assert.ok(exclusive !== null);
       await exclusive.release();
+    });
+
+    it("reads back what the exclusive holder reports of its progress while it holds the resource, and nothing once it releases", async (t) => {
+      const { storage, repo } = await setup(t);
+      const held = await storage.locks.acquire(repo, 'resource', variant('deployment', null));
+      assert.ok(held !== null);
+      assert.equal(await storage.locks.getProgress(repo, 'resource'), null, 'nothing reported yet');
+
+      await held.report(deploying(0));
+      assert.deepEqual(await storage.locks.getProgress(repo, 'resource'), deploying(0));
+      await held.report(deploying(2));
+      assert.deepEqual(await storage.locks.getProgress(repo, 'resource'), deploying(2), 'each report replaces the last');
+      assert.equal(await storage.locks.getProgress(repo, 'other'), null, 'another resource has its own');
+
+      await held.release();
+      assert.equal(await storage.locks.getProgress(repo, 'resource'), null, 'the progress goes with the lock');
+      const again = await storage.locks.acquire(repo, 'resource', variant('deployment', null));
+      assert.ok(again !== null);
+      assert.equal(await storage.locks.getProgress(repo, 'resource'), null, 'a new holder has reported nothing');
+      await again.release();
+    });
+
+    it("keeps nothing a shared holder reports: progress is the exclusive holder's", async (t) => {
+      const { storage, repo } = await setup(t);
+      const shared = await storage.locks.acquire(repo, 'resource', variant('dataflow', null), { mode: 'shared' });
+      assert.ok(shared !== null);
+      await shared.report(deploying(1));
+      assert.equal(await storage.locks.getProgress(repo, 'resource'), null);
+      await shared.release();
     });
 
     it('waits, when asked, for a resource its holder releases, and gives up once its time is up', async (t) => {

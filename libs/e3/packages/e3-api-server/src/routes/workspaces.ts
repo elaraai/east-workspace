@@ -14,6 +14,7 @@ import {
   createWorkspace,
   getWorkspace,
   getWorkspaceStatus,
+  getWorkspaceLockStatus,
   deleteWorkspace,
   startWorkspaceDeploy,
   getWorkspaceDeployStatus,
@@ -71,6 +72,14 @@ export function createWorkspaceRoutes(
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     return getWorkspaceStatus(storage, getRunner(repoPath), repoPath, ws);
+  });
+
+  // GET /api/repos/:repo/workspaces/:ws/lock - What holds the workspace, and how far it has got
+  app.get('/:ws/lock', (c) => {
+    const repo = c.req.param('repo')!;
+    const repoPath = getRepoPath(repo);
+    const ws = c.req.param('ws')!;
+    return getWorkspaceLockStatus(storage, repoPath, ws);
   });
 
   // DELETE /api/repos/:repo/workspaces/:ws - Remove a workspace

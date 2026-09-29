@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { randomUUID } from 'node:crypto';
-import { variant } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import { E3_RELEASE, TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
 import {
   datasetAdoptObject,
@@ -18,6 +18,7 @@ import {
 } from '@elaraai/e3-core';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
+import type { GetRunner } from './functions.js';
 import {
   TransferUploadRequestType,
   TransferUploadResponseType,
@@ -78,7 +79,7 @@ async function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 function sendCommitStatus(transfer: DatasetUpload, status: DatasetCommitStatus): Response {
   switch (status.type) {
     case 'processing':
-      return sendSuccess(TransferDoneResponseType, variant('processing', null));
+      return sendSuccess(TransferDoneResponseType, variant('processing', status.value));
     case 'completed':
       return sendSuccess(TransferDoneResponseType, variant('completed', null));
     case 'failed':
@@ -110,11 +111,21 @@ function sendCommitStatus(transfer: DatasetUpload, status: DatasetCommitStatus):
  * otherwise answers `processing`, which the client polls from the store,
  * whichever instance answers — so verifying a delivery of many gigabytes never
  * holds one request open for as long as its SHA-256 takes.
+ *
+ * The init's dedup takes a delivery the store holds whole in on the
+ * repository's runner, as intake units, when it is a collection.
+ *
+ * @param storage - Storage backend
+ * @param getRepoPath - The repository a request names, as a path
+ * @param transferBackend - The uploads, and where their commits run
+ * @param getRunner - The runner a repository's intake units run on
+ * @param options - How long a commit is waited for before it answers
  */
 export function createTransferRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
+  getRunner: GetRunner,
   options: TransferRouteOptions = {},
 ) {
   const api = new Hono();
@@ -218,7 +229,7 @@ export function createTransferRoutes(
     // is the only door that skips the commit.
     if (await deliveryKnown(storage, repoPath, hash)) {
       const treePath = urlPathToTreePath(pathStr);
-      await datasetAdoptObject(storage, repoPath, ws, treePath, hash);
+      await datasetAdoptObject(storage, repoPath, ws, treePath, hash, getRunner(repoPath));
       return sendSuccess(TransferUploadResponseType, variant('completed', null));
     }
 
@@ -275,10 +286,12 @@ export function createTransferRoutes(
       if (status === null || status.type === 'processing') {
         status = await within(uploads.commit(id, transfer), commitWaitMs);
       }
+      // Still running once the wait is up: how far it has got, as the store says.
+      status ??= await uploads.getCommitStatus(id);
     } catch (err) {
       return sendError(TransferDoneResponseType, errorToVariant(err));
     }
-    return sendCommitStatus(transfer, status ?? variant('processing', null));
+    return sendCommitStatus(transfer, status ?? variant('processing', none));
   }
 
   async function handlePoll(c: Context, id: string, suffix: string) {

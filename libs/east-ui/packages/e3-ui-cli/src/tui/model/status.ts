@@ -5,7 +5,8 @@
 
 /**
  * Status words — the dot + word (+ inline detail) every table shows for
- * a task, a dataset, a workspace, an execution or a connection: the cloud
+ * a task, a dataset, a file or a record a deploy is deploying, a workspace,
+ * an execution or a connection: the cloud
  * UI's `formatStatusDetail` cases made inline, and the same words
  * `formatTaskStatus` (`e3 workspace status`) prints.
  *
@@ -13,7 +14,8 @@
  */
 
 import type {
-    DataflowBudget, DataflowExecutionState, ExecutionHistoryStatus, ExecutionStatus, TaskStatus, DataflowEvent, SplitProgress, StageUnit, UnitWait,
+    DataflowBudget, DataflowExecutionState, ExecutionHistoryStatus, ExecutionStatus, IntakeFile, RecordDeployState, TaskStatus, DataflowEvent,
+    SplitProgress, StageUnit, UnitWait,
 } from '@elaraai/e3-api-client';
 import type { Glyphs } from '../render/glyphs.js';
 import type { Tone } from '../render/theme.js';
@@ -71,6 +73,72 @@ export function datasetStatusCell(status: 'unset' | 'stale' | 'up-to-date', g: G
         case 'up-to-date': return { glyph: g.dot, tone: 'pos', word: 'up-to-date', detail: '' };
         case 'stale': return { glyph: g.half, tone: 'warn', word: 'stale', detail: '' };
         default: return { glyph: g.empty, tone: 'muted', word: 'unset', detail: '' };
+    }
+}
+
+/** Cells of the bar a file's status carries while it moves. */
+const BAR_CELLS = 10;
+
+/**
+ * A file source's status cell while a deploy takes it in: `○ waiting`, then
+ * `◔ hashing` and `◔ taking in`, each with a bar of how far it has got — a
+ * collection's moves as each piece of it is taken in — then `● taken in by`
+ * the runner that took it in, `● unchanged` or `● carried` once it is in.
+ *
+ * @param file - The file, as the deploy reports it
+ * @param g - The glyph set
+ * @returns The cell (its detail is the bar: join it with a space, not the separator)
+ */
+export function intakeCell(file: IntakeFile, g: Glyphs): StatusCell {
+    const total = Number(file.total);
+    const fraction = total > 0 ? Math.min(1, Number(file.bytes) / total) : 0;
+    const filled = Math.round(fraction * BAR_CELLS);
+    const bar = `${g.thumb.repeat(filled)}${g.placeholder.repeat(BAR_CELLS - filled)} ${Math.floor(fraction * 100)}%`;
+    switch (file.step.type) {
+        case 'waiting': return { glyph: g.empty, tone: 'muted', word: 'waiting', detail: '' };
+        case 'hashing': return { glyph: g.quarter, tone: 'info', word: 'hashing', detail: bar };
+        case 'taking_in': return { glyph: g.quarter, tone: 'info', word: 'taking in', detail: bar };
+        case 'done': {
+            const taken = file.step.value;
+            if (taken.type === 'taken') {
+                return taken.value.length === 0
+                    ? { glyph: g.dot, tone: 'pos', word: 'taken in', detail: '' }
+                    : { glyph: g.dot, tone: 'pos', word: 'taken in by', detail: taken.value.join(' and ') };
+            }
+            return { glyph: g.dot, tone: 'pos', word: taken.type === 'known' ? 'unchanged' : 'carried', detail: '' };
+        }
+    }
+}
+
+/**
+ * A record's status cell while a deploy deploys it: what the deploy decided
+ * for it while it waits (`○ migrate · 2 steps · waiting`), the step it is at
+ * (`◔ migrating · add_owner · 1 of 2`, `◔ building by_owner · 1 of 1`), and
+ * what it did once it is done (`● migrated`).
+ *
+ * @param record - The record, as the deploy reports it
+ * @param g - The glyph set
+ * @returns The cell
+ */
+export function recordDeployCell(record: RecordDeployState, g: Glyphs): StatusCell {
+    const action = record.plan.action;
+    switch (record.step.type) {
+        case 'waiting': {
+            const steps = action.type === 'migrate' ? action.value.steps.length : 0;
+            return { glyph: g.empty, tone: 'muted', word: action.type, detail: steps > 0 ? `${steps} step${steps === 1 ? '' : 's'} ${g.sep} waiting` : 'waiting' };
+        }
+        case 'migrating': {
+            const { name, step, steps } = record.step.value;
+            return { glyph: g.quarter, tone: 'info', word: 'migrating', detail: `${name} ${g.sep} ${step} of ${steps}` };
+        }
+        case 'indexing': {
+            const { index, build, builds } = record.step.value;
+            return { glyph: g.quarter, tone: 'info', word: `building ${index}`, detail: `${build} of ${builds}` };
+        }
+        case 'done': {
+            const done: Record<typeof action.type, string> = { mint: 'minted', keep: 'kept', migrate: 'migrated', reset: 'reset', drop: 'dropped', refused: 'refused' };
+            return { glyph: g.dot, tone: 'pos', word: done[action.type], detail: '' };
+        }
     }
 }
 
