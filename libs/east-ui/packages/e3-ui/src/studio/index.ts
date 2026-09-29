@@ -31,6 +31,7 @@ import {
 import { StudioPage, StudioSite, StudioVersionType } from "./surfaces.js";
 import { StudioPalette } from "./palette.js";
 import { StudioCanvas } from "./canvas.js";
+import { StudioInspector } from "./inspector.js";
 
 export {
     StudioComponentType,
@@ -64,6 +65,7 @@ export {
     builderKeys,
     paletteCards,
     palettePages,
+    BuilderCellsType,
     PaletteCardType,
     PalettePageType,
     type StudioPaletteOptions,
@@ -74,6 +76,15 @@ export {
     CanvasTileType,
     type StudioCanvasOptions,
 } from "./canvas.js";
+export {
+    StudioInspector,
+    StudioInspectorComponent,
+    inspectorSelection,
+    InspectorLayoutType,
+    InspectorSelectionType,
+    StudioInspectorPayloadType,
+    type StudioInspectorOptions,
+} from "./inspector.js";
 
 /** The type of the {@link Studio} namespace. */
 export interface StudioNamespace {
@@ -105,6 +116,8 @@ export interface StudioNamespace {
     Palette: typeof StudioPalette;
     /** `<Studio.Canvas>` — the builder's canvas: the open page's grid, its history and the controls around it. */
     Canvas: typeof StudioCanvas;
+    /** `<Studio.Inspector>` — the builder's inspector: the selected placement's component, what it reads, its description and its layout. */
+    Inspector: typeof StudioInspector;
     /** The Studio's East types. */
     Types: {
         /** A Studio component ({@link StudioComponentType}). */
@@ -141,7 +154,7 @@ export interface StudioNamespace {
  * the placements that render them (`Studio.dispatch`), the pages record
  * operators build (`Studio.Types.Pages`, its writes and the change list), the
  * surfaces that read it (`<Studio.Page>` and `<Studio.Site>`), and the
- * builder's screens (`<Studio.Palette>`, `<Studio.Canvas>`).
+ * builder's screens (`<Studio.Palette>`, `<Studio.Canvas>`, `<Studio.Inspector>`).
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
@@ -158,6 +171,7 @@ export const Studio: StudioNamespace = {
     Site: StudioSite,
     Palette: StudioPalette,
     Canvas: StudioCanvas,
+    Inspector: StudioInspector,
     Types: {
         Component: StudioComponentType,
         Frame: StudioFrameType,

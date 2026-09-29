@@ -172,6 +172,28 @@ describe("Dock — the pane's tab row and its rail", () => {
         expect(getByRole("button", { name: "Collapse Components" })).toBeTruthy();
     });
 
+    test("an active rail draws its tile and count in the brand, with the detail after the label; an inactive one reads its detail muted", async () => {
+        initializeStore(new UIStore());
+        const active = mount(compileUI(East.function([], UIComponentType, (_$) => Dock.Root([Text.Root("REVENUE")], {
+            label: "Inspector", icon: "sliders", side: "end", defaultCollapsed: true,
+            active: true, badge: "8/12", detail: "Revenue trend",
+        }))));
+        const rail = active.getByText("8/12").parentElement!;
+        expect(rail.hasAttribute("data-active")).toBe(true);
+        expect([...rail.children].map((el) => el.textContent)).toEqual(["", "8/12", "Inspector", "Revenue trend"]);
+        expect(active.container.querySelector("svg[data-icon=sliders]")).not.toBeNull();
+        cleanup();
+        const idle = mount(compileUI(East.function([], UIComponentType, (_$) => Dock.Root([Text.Root("NOTHING")], {
+            label: "Inspector", icon: "sliders", side: "end", defaultCollapsed: true, detail: "Nothing selected",
+        }))));
+        const detail = idle.container.querySelector("[data-dock-detail]")!;
+        expect(detail.textContent).toBe("Nothing selected");
+        expect(detail.parentElement!.hasAttribute("data-active")).toBe(false);
+        // Expanded, the detail is the rail's alone.
+        await act(async () => { fireEvent.click(idle.getByRole("button", { name: "Expand Inspector" })); });
+        expect(idle.container.querySelector("[data-dock-detail]")).toBeNull();
+    });
+
     test("without tabs, the label is the pane's only tab, over the children", () => {
         initializeStore(new UIStore());
         const { getByText, queryAllByRole } = mount(buildUncontrolled());

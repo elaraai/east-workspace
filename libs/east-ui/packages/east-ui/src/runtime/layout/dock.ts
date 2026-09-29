@@ -24,7 +24,9 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  * one row is a tab row — its `tabs`, each with its own body, or the `label` as
  * the only tab over the children — with the collapse control at its end.
  * Collapsed, it shrinks to `railSize`: the expand control, then the `icon` in
- * its tile, any `badge`, and the `label`. `surface="shell"` drops its own
+ * its tile, any `badge`, the `label` and any `detail` — what the pane shows
+ * now, such as an inspector's selected tile; while the pane is `active` the
+ * tile and the badge are brand, else the detail reads muted. `surface="shell"` drops its own
  * panel for the rule along its inner edge, for a pane inside a host's frame.
  * Drive it from state with `collapsed` + `onCollapsedChange`, or omit both for
  * uncontrolled toggling — optionally `persist`ed across reloads. It is an

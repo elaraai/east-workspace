@@ -10,7 +10,9 @@
  * its latest value, as a `Reactive` would ({@link EditingSnapGrid.confirm}).
  * With `chrome`, the canvas is the builder's frame (#995): a bound view, the
  * design widths, the host's toolbar items and panes, and each tile's icon and
- * meta.
+ * meta. A pane's requests reach it through the bound selection
+ * ({@link EditingSnapGrid.hostAsks}, #996), and with `drafted` its author
+ * hears the rows it draws.
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded and
  * kept, every apply request's bytes kept, and the real callback answers.
@@ -20,7 +22,7 @@ import type { ReactNode } from "react";
 import { act, fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, BooleanType, East, IntegerType, OptionType, StringType, StructType,
+    ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, StructType,
     decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { DragEventType, Editing, SnapGrid, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
@@ -33,7 +35,7 @@ import { EastChakraSnapGrid, type SnapGridValue } from "./index.js";
 
 // ── The page's data ─────────────────────────────────────────────────────────
 
-/** A tile of the page — where it sits, its name, and how far a height drag shrinks it. */
+/** A tile of the page — where it sits, its name, how far a height drag shrinks it, and where it sits in a taller row. */
 export const Tile = StructType({
     id: StringType,
     row: StringType,
@@ -41,6 +43,7 @@ export const Tile = StructType({
     height: OptionType(IntegerType),
     minHeight: OptionType(IntegerType),
     name: StringType,
+    align: SnapGrid.Types.Align,
 });
 /** One tile, decoded. */
 export type TileValue = ValueTypeOf<typeof Tile>;
@@ -49,10 +52,10 @@ export const Tiles = ArrayType(Tile);
 
 /** The page: the KPI rail, the trend beside the breakdown, and the board. */
 export const SEED: readonly TileValue[] = [
-    { id: "kpi", row: "kpis", span: 12n, height: none, minHeight: none, name: "KPI rail" },
-    { id: "trend", row: "charts", span: 8n, height: none, minHeight: some(120n), name: "Revenue trend" },
-    { id: "region", row: "charts", span: 4n, height: none, minHeight: none, name: "Breakdown bars" },
-    { id: "board", row: "board", span: 12n, height: none, minHeight: none, name: "Assignment board" },
+    { id: "kpi", row: "kpis", span: 12n, height: none, minHeight: none, name: "KPI rail", align: variant("top", null) },
+    { id: "trend", row: "charts", span: 8n, height: none, minHeight: some(120n), name: "Revenue trend", align: variant("top", null) },
+    { id: "region", row: "charts", span: 4n, height: none, minHeight: none, name: "Breakdown bars", align: variant("top", null) },
+    { id: "board", row: "board", span: 12n, height: none, minHeight: none, name: "Assignment board", align: variant("top", null) },
 ];
 
 /** The library its cards come from. */
@@ -65,6 +68,8 @@ const TILES_KEY = "snap-grid-990.tiles";
 export const UI_KEY = "snap-grid-990.selection";
 /** Where the bound design width and zoom are held (#995). */
 export const VIEW_KEY = "snap-grid-995.view";
+/** Where the author keeps the rows the canvas draws, heard through `editing.onDrafted` (#996). */
+export const DRAFTED_KEY = "snap-grid-996.drafted";
 
 /** A card that no destination takes — the veto's. */
 export const BLOCKED = "blocked";
@@ -104,6 +109,10 @@ export interface CanvasOptions {
      * panes ("Palette" and "Inspector"), and each tile's icon and meta.
      */
     chrome?: boolean;
+    /** Whether an align request writes the tile's `align` — `edit.align` (default `false`, #996). */
+    aligns?: boolean;
+    /** Whether the author hears the rows the canvas draws — `editing.onDrafted`, kept at {@link DRAFTED_KEY} (default `false`, #996). */
+    drafted?: boolean;
 }
 
 type Resolved = Required<CanvasOptions>;
@@ -115,9 +124,11 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
         const tiles = $.const(State.bind([Tiles], TILES_KEY, seed));
         const ui = $.const(State.bind([SnapGrid.Types.UiState], UI_KEY, SnapGrid.uiState()));
         const view = $.const(State.bind([SnapGrid.Types.ViewState], VIEW_KEY, SnapGrid.viewState()));
+        const drafted = $.const(State.bind([OptionType(Tiles)], DRAFTED_KEY, none));
+        const heard = $.const(East.function([Tiles], NullType, ($2, rows) => { $2(drafted.write(some(rows))); }));
         return SnapGrid.Root(tiles, {
             cell: (t) => SnapGrid.cell({
-                key: t.id, row: t.row, span: t.span, height: t.height, minHeight: t.minHeight, label: some(t.name),
+                key: t.id, row: t.row, span: t.span, height: t.height, minHeight: t.minHeight, label: some(t.name), align: t.align,
                 ...(o.chrome ? { icon: some("gauge-high"), meta: some(East.str`${t.id} · sales_daily`) } : {}),
                 content: Text.Root(t.name),
             }),
@@ -138,11 +149,12 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
             ...(o.veto ? { canDrop: NO_BLOCKED } : {}),
             edit: {
                 key: "id", row: "row", span: "span", height: "height",
+                ...(o.aligns ? { align: "align" as const } : {}),
                 ...(o.creates ? {
-                    create: (_$, card, at) => ({ id: at.key, row: at.row, span: 6n, height: none, minHeight: none, name: card.key }),
+                    create: (_$, card, at) => ({ id: at.key, row: at.row, span: 6n, height: none, minHeight: none, name: card.key, align: variant("top", null) }),
                 } : {}),
             },
-            editing: { onUpdate: tiles.write, ...(o.ready ? { ready: READY } : {}) },
+            editing: { onUpdate: tiles.write, ...(o.ready ? { ready: READY } : {}), ...(o.drafted ? { onDrafted: heard } : {}) },
         });
     });
     return East.compile(program, getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
@@ -157,11 +169,16 @@ const decodeTiles = decodeBeast2For(Tiles);
 const encodeUi = encodeBeast2For(SnapGrid.Types.UiState);
 const decodeUi = decodeBeast2For(SnapGrid.Types.UiState);
 const decodeView = decodeBeast2For(SnapGrid.Types.ViewState);
+const decodeDrafted = decodeBeast2For(OptionType(Tiles));
+
+/** A change a pane asks of the canvas (#996), as the host writes it. */
+export type SnapGridRequest = ValueTypeOf<typeof SnapGrid.Types.Request>;
 
 /** What a canvas's editing wire is probed with. */
 interface Probe {
     patches: SnapGridPatch[];
     applies: Uint8Array[];
+    drafts: TileValue[][];
 }
 
 /** The value with its editing wire probed — every patch kept, every apply request kept, the real callback answering. */
@@ -170,6 +187,7 @@ function probed(value: SnapGridValue, probe: Probe): SnapGridValue {
     const wire = value.editing.value;
     const apply = wire.onApply.type === "some" ? wire.onApply.value : undefined;
     const observe = wire.onPatch.type === "some" ? wire.onPatch.value : undefined;
+    const hear = wire.onDrafted.type === "some" ? wire.onDrafted.value : undefined;
     return {
         ...value,
         editing: some({
@@ -178,6 +196,10 @@ function probed(value: SnapGridValue, probe: Probe): SnapGridValue {
                 probe.patches.push(decodePatch(bytes));
                 observe?.(bytes);
                 return null;
+            }),
+            onDrafted: hear === undefined ? none : some((bytes: Uint8Array) => {
+                probe.drafts.push(decodeTiles(bytes));
+                return hear(bytes);
             }),
             onApply: apply === undefined ? none : some(variant("async", async (bytes: Uint8Array) => {
                 probe.applies.push(bytes.slice());
@@ -199,6 +221,10 @@ export interface EditingSnapGrid extends RenderResult {
     patches: SnapGridPatch[];
     /** Every apply request's bytes, in order. */
     applies: Uint8Array[];
+    /** Every time the author heard the rows the canvas draws, those rows (#996). */
+    drafts: TileValue[][];
+    /** The rows the author keeps from `onDrafted` — `null` before it heard any (#996). */
+    heard: () => TileValue[] | null;
     /** What the source holds now. */
     stored: () => TileValue[];
     /** How many writes the source took. */
@@ -209,6 +235,10 @@ export interface EditingSnapGrid extends RenderResult {
     hostSelects: (key: string | null) => Promise<void>;
     /** The tile the bound selection holds. */
     boundSelection: () => string | null;
+    /** A pane asks the canvas for a change — a request written to the bound selection, which keeps its tile (#996) — and renders. */
+    hostAsks: (request: SnapGridRequest) => Promise<void>;
+    /** The request the bound selection holds — `null` once the canvas took it. */
+    boundRequest: () => SnapGridRequest | null;
     /** The design width and zoom the bound view holds (#995) — `null` each while it holds none. */
     boundView: () => { width: string | null; zoom: number | null };
 }
@@ -227,8 +257,8 @@ export async function settle(): Promise<void> {
  * @returns The mounted canvas
  */
 export async function mountSnapGrid(options: CanvasOptions = {}): Promise<EditingSnapGrid> {
-    const o: Resolved = { seed: SEED, bound: true, veto: false, ready: false, creates: true, chrome: false, ...options };
-    const probe: Probe = { patches: [], applies: [] };
+    const o: Resolved = { seed: SEED, bound: true, veto: false, ready: false, creates: true, chrome: false, aligns: false, drafted: false, ...options };
+    const probe: Probe = { patches: [], applies: [], drafts: [] };
     const program = compileCanvas(o);
     const view = (): SnapGridValue => {
         const ui = program();
@@ -255,6 +285,12 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
         ...utils,
         patches: probe.patches,
         applies: probe.applies,
+        drafts: probe.drafts,
+        heard: () => {
+            const bytes = getStore().read(DRAFTED_KEY);
+            const kept = bytes === undefined ? undefined : decodeDrafted(bytes);
+            return kept === undefined || kept.type === "none" ? null : kept.value;
+        },
         stored: () => {
             const bytes = getStore().read(TILES_KEY);
             return bytes === undefined ? o.seed.map((t) => ({ ...t })) : decodeTiles(bytes);
@@ -265,8 +301,20 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
             await settle();
         },
         hostSelects: async (key) => {
-            act(() => { getStore().write(UI_KEY, encodeUi({ selected: key === null ? none : some(key) })); });
+            act(() => { getStore().write(UI_KEY, encodeUi({ selected: key === null ? none : some(key), request: none })); });
             await settle();
+        },
+        hostAsks: async (request) => {
+            const bytes = getStore().read(UI_KEY);
+            const selected = bytes === undefined ? none : decodeUi(bytes).selected;
+            act(() => { getStore().write(UI_KEY, encodeUi({ selected, request: some(request) })); });
+            await settle();
+        },
+        boundRequest: () => {
+            const bytes = getStore().read(UI_KEY);
+            if (bytes === undefined) return null;
+            const state = decodeUi(bytes);
+            return state.request.type === "some" ? state.request.value : null;
         },
         boundSelection: () => {
             const bytes = getStore().read(UI_KEY);

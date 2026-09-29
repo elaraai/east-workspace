@@ -17,6 +17,7 @@ describeEast("Dock", (test) => {
         dockBesidePlan: ex.dockBesidePlan,
         dockNested: ex.dockNested,
         dockTabs: ex.dockTabs,
+        dockActive: ex.dockActive,
         dockVertical: ex.dockVertical,
     });
 
@@ -77,7 +78,21 @@ describeEast("Dock", (test) => {
         const dock = $.let(Dock.Root([Text.Root("x")], { label: "Bookings" }));
         const d = $.const(dock.unwrap().unwrap("Dock"));
         $(Assert.equal(d.tabs.size(), 0n));
-        $(Assert.equal(d.style.unwrap("some").surface.hasTag("none"), true));
+        const style = $.const(d.style.unwrap("some"));
+        $(Assert.equal(style.surface.hasTag("none"), true));
+        $(Assert.equal(style.active.hasTag("none"), true));
+        $(Assert.equal(style.detail.hasTag("none"), true));
+    });
+
+    test("Dock.Root lowers its rail's active state and detail onto the style", $ => {
+        const dock = $.let(Dock.Root([Text.Root("Revenue trend")], {
+            icon: "sliders", label: "Inspector", side: "end",
+            active: true, badge: "8/12", detail: "Revenue trend",
+        }));
+        const style = $.const(dock.unwrap().unwrap("Dock").style.unwrap("some"));
+        $(Assert.equal(style.active.unwrap("some"), true));
+        $(Assert.equal(style.badge.unwrap("some"), "8/12"));
+        $(Assert.equal(style.detail.unwrap("some"), "Revenue trend"));
     });
 
     test("Dock vertical + controlled collapsed lowers onto the variant", $ => {

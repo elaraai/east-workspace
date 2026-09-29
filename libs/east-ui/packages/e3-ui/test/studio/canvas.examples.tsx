@@ -6,7 +6,8 @@
 
 /**
  * `<Studio.Canvas>` (#995) — the builder's canvas over the pages record: the
- * open page's grid in the builder's frame, with the palette beside it.
+ * open page's grid in the builder's frame, with the palette before it and the
+ * inspector after it (#996).
  */
 
 import {
@@ -59,12 +60,16 @@ export const studioCanvas = example({
     keywords: [
         "Studio", "Studio.Canvas", "builder", "canvas", "SnapGrid", "edit", "toolbar", "history", "Undo", "Apply", "Studio.save",
         "Record.bind", "patch", "e3.record", "status", "Draft", "zoom", "Desktop", "Tablet", "selection bar", "palette", "panes",
+        "Studio.Inspector", "inspector", "span", "row", "height", "align", "layout", "description",
     ],
-    description: "The builder's canvas over the pages record: the open page's grid in the builder's frame — its status, the grid chip, the zoom, the history item, Desktop · Tablet, Preview and Publish in one toolbar, the palette beside the grid, and the selection bar naming the selected placement; a component dragged from the palette lands on the grid, and Apply saves the page as one patch commit",
+    description: "The builder over the pages record: the open page's grid in the builder's frame — its status, the grid chip, the zoom, the history item, Desktop · Tablet, Preview and Publish in one toolbar — with the palette before it and the inspector after it, and the selection bar naming the selected placement; a component dragged from the palette lands on the grid, the inspector sets the selected placement's span, row, height and alignment, every edit is a draft the history item undoes, and Apply saves the page as one patch commit",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([
-                Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" },
+                Studio.component("kpi_rail", {
+                    name: "KPI rail", category: "Display", icon: "gauge-high",
+                    description: "Revenue, orders, average ticket and fill rate, each with its change since last week.",
+                },
                     East.function([], UIComponentType, ($2) => {
                         const Kpi = StructType({ label: StringType, value: FloatType, format: Format.Types.Tick, change: StringType, tone: MetricChip.Types.Tone });
                         const kpis = $2.const([
@@ -86,7 +91,10 @@ export const studioCanvas = example({
                             </HStack>
                         );
                     })),
-                Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n },
+                Studio.component("revenue_trend", {
+                    name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n,
+                    description: "Weekly revenue over the last six weeks, as an area.",
+                },
                     East.function([], UIComponentType, ($2) => {
                         const days = $2.const([
                             { day: new Date("2026-02-12T00:00:00Z"), revenue: 2640000.0 },
@@ -105,7 +113,10 @@ export const studioCanvas = example({
                             </Box>
                         );
                     })),
-                Studio.component("breakdown_bars", { name: "Breakdown bars", category: "Display", icon: "chart-bar", span: 4n },
+                Studio.component("breakdown_bars", {
+                    name: "Breakdown bars", category: "Display", icon: "chart-bar", span: 4n,
+                    description: "Each region's share of revenue.",
+                },
                     East.function([], UIComponentType, (_$2) => (
                         <Box padding="4">
                             <BarStrip showValues={false} items={[
@@ -115,7 +126,10 @@ export const studioCanvas = example({
                             ]} />
                         </Box>
                     ))),
-                Studio.component("orders_by_week", { name: "Orders by week", category: "Charts", icon: "chart-column", span: 6n },
+                Studio.component("orders_by_week", {
+                    name: "Orders by week", category: "Charts", icon: "chart-column", span: 6n,
+                    description: "Orders placed each week.",
+                },
                     East.function([], UIComponentType, ($2) => {
                         const weeks = $2.const([
                             { week: "W9", orders: 96.0 }, { week: "W10", orders: 158.0 }, { week: "W11", orders: 214.0 },
@@ -131,8 +145,10 @@ export const studioCanvas = example({
             const record = $.let(Record.bind(studioCanvasPages, [studioCanvasPagesPatch]));
             return (
                 <Box height="720px">
-                    <Studio.Canvas pages={record} components={components} project="ops" id="example"
-                        panes={{ start: <Studio.Palette pages={record.read()} components={components} project="ops" id="example" /> }} />
+                    <Studio.Canvas pages={record} components={components} project="ops" id="example" panes={{
+                        start: <Studio.Palette pages={record.read()} components={components} project="ops" id="example" />,
+                        end: <Studio.Inspector pages={record.read()} components={components} project="ops" id="example" />,
+                    }} />
                 </Box>
             );
         }}</Reactive>

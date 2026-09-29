@@ -81,7 +81,9 @@ export type DockSurfaceType = typeof DockSurfaceType;
  * @property railSize    - Size when collapsed — the icon rail (default `44px`)
  * @property icon        - Font Awesome icon name in the collapsed rail's tile
  * @property label       - The pane's name: its one tab when it has no tabs, the rail's label, and the controls' accessible name
- * @property badge       - Optional count or short label in the collapsed rail
+ * @property badge       - Optional count or short label in the collapsed rail; an empty one draws no chip
+ * @property active     - The rail's icon tile and badge drawn in brand — the pane is showing something, such as an inspector's selection (default `false`)
+ * @property detail      - A second line down the rail after the label — what the pane shows now, such as the selected tile's name; muted unless `active`
  * @property persist     - Where the uncontrolled collapsed state is persisted (default `none`)
  * @property keepMounted - Keep the body mounted while collapsed to preserve its scroll / drag / search state (default `true`)
  * @property lazy        - Mount the body only on first expand (default `false`)
@@ -96,6 +98,8 @@ export const DockStyleType = StructType({
     icon: OptionType(StringType),
     label: OptionType(StringType),
     badge: OptionType(StringType),
+    active: OptionType(BooleanType),
+    detail: OptionType(StringType),
     persist: OptionType(DockPersistType),
     keepMounted: OptionType(BooleanType),
     lazy: OptionType(BooleanType),
@@ -129,8 +133,12 @@ export interface DockStyle {
     icon?: SubtypeExprOrValue<StringType>;
     /** The pane's name: its one tab when it has no `tabs`, the rail's label, and the controls' accessible name. */
     label?: SubtypeExprOrValue<StringType>;
-    /** Optional count or short label in the collapsed rail. */
+    /** Optional count or short label in the collapsed rail; an empty one draws no chip, so a computed badge can come and go. */
     badge?: SubtypeExprOrValue<StringType>;
+    /** The rail's icon tile and badge drawn in brand — the pane is showing something, such as an inspector's selection (default `false`). */
+    active?: SubtypeExprOrValue<BooleanType>;
+    /** A second line down the rail after the label — what the pane shows now, such as the selected tile's name; muted unless `active`. */
+    detail?: SubtypeExprOrValue<StringType>;
     /** Where the uncontrolled collapsed state is persisted (default `none`). */
     persist?: SubtypeExprOrValue<DockPersistType> | DockPersistLiteral;
     /** Keep the body mounted while collapsed to preserve its state (default `true`). */

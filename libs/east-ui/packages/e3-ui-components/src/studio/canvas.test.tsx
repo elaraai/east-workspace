@@ -4,12 +4,16 @@
  *
  * @vitest-environment jsdom
  *
- * `<Studio.Canvas>` rendered (#995) over a pages record in memory, whose patch
- * door applies each patch with East's own checks: the one toolbar and the
- * page's status (B8); the selection bar (B9); the grid panel (B10); a dropped
- * component's cell (B11); Apply as one patch commit on the page, and a
- * conflict in the history item's words (B12); the panes (B13); Preview,
- * Publish, Desktop and Tablet (B14).
+ * The builder rendered over a pages record in memory, whose patch door
+ * applies each patch with East's own checks. `<Studio.Canvas>` (#995): the one
+ * toolbar and the page's status (B8); the selection bar (B9); the grid panel
+ * (B10); a dropped component's cell (B11); Apply as one patch commit on the
+ * page, and a conflict in the history item's words (B12); the panes (B13);
+ * Preview, Publish, Desktop and Tablet (B14). `<Studio.Inspector>` (#996): its
+ * pane and its rail (B15); the selected placement, its code's change since
+ * the page went live, what it reads and its description (B16–B18); its
+ * layout edits, each a draft of the page's session (B20, B12); what it says
+ * with nothing selected (B21); and the palette counting unsaved drafts.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -30,6 +34,8 @@ import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
 } from "../platform/index.js";
+// The inspector's body is an extension: its renderer registers as it loads.
+import "./inspector.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -41,6 +47,8 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
     matches: false, media: query, onchange: null,
     addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
 });
+// The height select scrolls its open listbox to the chosen option; jsdom does not scroll.
+Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 (globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
 (globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
 
@@ -55,18 +63,22 @@ const HandleType = RecordBindHandleType(StudioPagesType, { patch: [PatchType(Stu
 /** The component the palette offers but no page places — what a drop makes a cell of. */
 const ordersFn = East.function([], UIComponentType, (_$) => Text.Root("Orders"));
 
-/** The listed components. */
+/** The listed components — the trend's code reads the pages record, so it has a read to show. */
 const components = [
     Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" },
         East.function([], UIComponentType, (_$) => Text.Root("KPIs"))),
-    Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n },
-        East.function([], UIComponentType, (_$) => Text.Root("Trend"))),
+    Studio.component("revenue_trend", {
+        name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n, description: "Weekly revenue, as an area.",
+    }, East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const pages = $.let(recordBindPlatformFn([HandleType], RECORD));
+        return Text.Root(East.str`${East.print(pages.read().size())} pages`);
+    })))),
     Studio.component("orders_by_week", { name: "Orders by week", category: "Charts", icon: "chart-column", span: 6n }, ordersFn),
 ];
 
 const OVERVIEW: Key = { project: "ops", page: "a-overview" };
 
-/** The Overview (never published), the Weekly (live, its draft its live layout) and the Monthly (live, its draft since changed). */
+/** The Overview (never published), the Weekly (live, its draft its live layout), the Monthly (live, its draft since changed) and the Double (two trends). */
 const PAGES: Pages = new SortedMap<Key, Entry>([
     [OVERVIEW, variant("page", {
         draft: {
@@ -85,6 +97,16 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
     [{ project: "ops", page: "c-monthly" }, variant("page", {
         draft: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "orders_by_week", fingerprint: "" }] },
         live: some({ version: 3n, page: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week", fingerprint: "" }] } }),
+    })],
+    [{ project: "ops", page: "d-double" }, variant("page", {
+        draft: {
+            title: "Double",
+            cells: [
+                { key: "d-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+                { key: "d-trend-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "" },
+            ],
+        },
+        live: none,
     })],
 ], keys);
 
@@ -121,7 +143,7 @@ afterEach(() => {
     localStorage.clear();
 });
 
-/** The builder: the canvas over the record with the palette beside it, and a line saying which of Preview and Publish was pressed. */
+/** The builder: the canvas over the record with the palette before it and the inspector after it, and a line saying which of Preview and Publish was pressed. */
 function surfaceProgram() {
     return East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
@@ -133,7 +155,10 @@ function surfaceProgram() {
             Text.Root(East.str`pressed ${said.read()}`),
             Studio.Canvas({
                 pages: record as never, components: listed, project: "ops", onPreview, onPublish,
-                panes: { start: Studio.Palette({ pages: record.read() as never, components: listed, project: "ops" }) },
+                panes: {
+                    start: Studio.Palette({ pages: record.read() as never, components: listed, project: "ops" }),
+                    end: Studio.Inspector({ pages: record.read() as never, components: listed, project: "ops" }),
+                },
             }),
         ]);
     }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
@@ -225,7 +250,7 @@ describe("<Studio.Canvas> (#995)", () => {
         expect(bar().textContent).toBe("No selectionClick a component on the grid to arrange it");
         await act(async () => { fireEvent.click(tile(container, "c-trend")); });
         expect(bar().querySelector("svg")!.getAttribute("data-icon")).toBe("chart-area");
-        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", "revenue_trend"]);
+        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", "revenue_trend · canvas_pages"]);
     }, 30_000);
 
     test("B10: the grid panel holds the page's cells on the editing canvas, with its guides and its end zone", async () => {
@@ -301,11 +326,11 @@ describe("<Studio.Canvas> (#995)", () => {
         expect(overview.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi"]);
     }, 30_000);
 
-    test("B13: the palette sits beside the canvas under the toolbar, and collapses to its rail", async () => {
+    test("B13: the palette and the inspector sit either side of the canvas under the toolbar, and the palette collapses to its rail", async () => {
         const { container } = await mountCanvas();
         const body = container.querySelector("[data-snap-grid-toolbar-row]")!.nextElementSibling!;
         expect([...body.children].map((el) => el.getAttribute("data-snap-grid-pane") ?? (el.hasAttribute("data-snap-grid-main") ? "main" : "?")))
-            .toEqual(["start", "main"]);
+            .toEqual(["start", "main", "end"]);
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Components" })); });
         expect(body.querySelector('[data-snap-grid-pane="start"] [data-collapsed]')).not.toBeNull();
         expect(screen.getByRole("button", { name: "Expand Components" })).toBeTruthy();
@@ -328,6 +353,159 @@ describe("<Studio.Canvas> (#995)", () => {
         expect(container.querySelector('[data-toolbar-item="readout"]')!.textContent).toBe("1024 px");
         const view = decodeBeast2For(SnapGrid.Types.ViewState)(StateRuntime.getStore().read(builderKeys(undefined).view)!);
         expect(view.width).toEqual(some("1024px"));
+    }, 30_000);
+});
+
+describe("<Studio.Inspector> (#996)", () => {
+    /** The inspector's pane — the canvas's end pane. */
+    const pane = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-snap-grid-pane="end"]')!;
+    /** The inspector's body, under its tab row. */
+    const body = (c: HTMLElement) => pane(c).querySelector<HTMLElement>("[data-studio-inspector]")!;
+    /** A tile's span, as the canvas draws it. */
+    const spanOf = (c: HTMLElement, key: string) => tile(c, key).style.getPropertyValue("--snap-grid-span");
+    /** The rows as the canvas draws them: each row's tiles, by key. */
+    const rowsDrawn = (c: HTMLElement) => [...c.querySelectorAll("[data-snap-grid-row]")]
+        .map((row) => [...row.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile")));
+
+    /** Select a placement on the canvas. */
+    async function select(c: HTMLElement, key: string) {
+        await act(async () => { fireEvent.click(tile(c, key)); });
+        await settle();
+    }
+
+    /** Press a button by its name, and let the canvas take what it asks. */
+    async function click(name: string) {
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name })); });
+        await settle();
+    }
+
+    test("B15, B21: a headerless pane — its one row the Inspector tab and its collapse control; with nothing selected it says what to do", async () => {
+        const { container } = await mountCanvas();
+        expect(within(pane(container)).getByText("Inspector").hasAttribute("data-selected")).toBe(true);
+        expect(screen.getByRole("button", { name: "Collapse Inspector" }).getAttribute("aria-expanded")).toBe("true");
+        expect(body(container).querySelector('[data-inspector="empty"]')!.textContent)
+            .toBe("Nothing selectedClick a component on the grid to see what it reads and its layout.");
+    }, 30_000);
+
+    test("B15: collapsed, the rail — the sliders tile and the span badge in the brand while a placement is selected, and its name; else Nothing selected", async () => {
+        const { container } = await mountCanvas();
+        await click("Collapse Inspector");
+        const detail = () => pane(container).querySelector<HTMLElement>("[data-dock-detail]")!;
+        expect(detail().textContent).toBe("Nothing selected");
+        expect(detail().parentElement!.hasAttribute("data-active")).toBe(false);
+        await select(container, "c-trend");
+        const rail = detail().parentElement!;
+        expect(rail.hasAttribute("data-active")).toBe(true);
+        expect([...rail.children].map((el) => el.textContent)).toEqual(["", "8/12", "Inspector", "Revenue trend"]);
+        expect(rail.querySelector("svg[data-icon=sliders]")).not.toBeNull();
+    }, 30_000);
+
+    test("B16–B18, B21: the selected placement's name and its component's key, what its code reads, its description fixed by its developer, and the footer", async () => {
+        const { container } = await mountCanvas();
+        await select(container, "c-trend");
+        const b = body(container);
+        expect(b.querySelector("[data-inspector-name]")!.textContent).toBe("Revenue trend");
+        expect(b.querySelector("[data-inspector-meta]")!.textContent).toBe("revenue_trend");
+        expect(b.querySelector("[data-inspector-changed]")).toBeNull();
+        // Each path its code reads, as e3 prints a keypath.
+        expect([...b.querySelectorAll('[data-inspector="data"] li')].map((li) => li.textContent)).toEqual([".records.canvas_pages"]);
+        expect(b.querySelector('[data-inspector="config"]')!.textContent).toBe("Configurationfixed by developerWeekly revenue, as an area.");
+        expect(b.querySelector('[data-inspector="footer"]')!.textContent).toBe("Published component · logic immutable");
+        await select(container, "c-kpi");
+        expect(body(container).querySelector('[data-inspector="data"]')!.textContent).toBe("Datareads no data");
+        expect(body(container).querySelector('[data-inspector="config"] p')!.textContent).toBe("No description");
+    }, 30_000);
+
+    test("B16: a placement whose component's code changed since the page went live says so", async () => {
+        const { container } = await mountCanvas();
+        await openPage("c-monthly");
+        await select(container, "m-orders");
+        expect(body(container).querySelector("[data-inspector-changed]")!.textContent).toBe("logic changed since this page went live");
+    }, 30_000);
+
+    test("B20: the span stepper asks the canvas — each step a draft, held to the row's room — and Undo takes one back", async () => {
+        const { container } = await mountCanvas();
+        await select(container, "c-trend");
+        const span = () => body(container).querySelector("[data-inspector-span]")!.textContent;
+        expect(span()).toBe("8 / 12");
+        await click("Increase span");
+        expect(spanOf(container, "c-trend")).toBe("9");
+        expect(span()).toBe("9 / 12");
+        // A row of its own leaves it all 12, and no more.
+        for (let i = 0; i < 3; i++) await click("Increase span");
+        expect(spanOf(container, "c-trend")).toBe("12");
+        expect((screen.getByRole("button", { name: "Increase span" }) as HTMLButtonElement).disabled).toBe(true);
+        await press("Undo");
+        expect(spanOf(container, "c-trend")).toBe("11");
+        expect(span()).toBe("11 / 12");
+    }, 30_000);
+
+    test("B20: the row field moves the placement — into row 1, beside the KPI rail and fitted to it", async () => {
+        const { container } = await mountCanvas();
+        await select(container, "c-trend");
+        const row = body(container).querySelector<HTMLInputElement>("[data-inspector-row]")!;
+        expect(row.value).toBe("2");
+        await act(async () => {
+            fireEvent.change(row, { target: { value: "1" } });
+            fireEvent.keyDown(row, { key: "Enter" });
+        });
+        await settle();
+        expect(rowsDrawn(container)).toEqual([["c-kpi", "c-trend"]]);
+        expect([spanOf(container, "c-kpi"), spanOf(container, "c-trend")]).toEqual(["6", "6"]);
+        expect(body(container).querySelector<HTMLInputElement>("[data-inspector-row]")!.value).toBe("1");
+    }, 30_000);
+
+    test("B20: the height select sets the placement's height, and Auto returns it to its content's", async () => {
+        const { container } = await mountCanvas();
+        await select(container, "c-trend");
+        const frame = () => tile(container, "c-trend").firstElementChild as HTMLElement;
+        const pick = async (name: string) => {
+            await act(async () => { fireEvent.click(body(container).querySelector("[data-inspector-height]")!); });
+            await act(async () => { fireEvent.click(screen.getByRole("option", { name })); });
+            await settle();
+        };
+        await pick("240 px");
+        expect(frame().style.height).toBe("240px");
+        await pick("Auto");
+        expect(frame().style.height).toBe("");
+    }, 30_000);
+
+    test("B20: the alignment segments set where the placement sits in a taller row", async () => {
+        const { container } = await mountCanvas();
+        await select(container, "c-trend");
+        expect(screen.getByRole("button", { name: "Top" }).getAttribute("aria-pressed")).toBe("true");
+        await click("Center");
+        expect(tile(container, "c-trend").getAttribute("data-align")).toBe("center");
+        expect(screen.getByRole("button", { name: "Center" }).getAttribute("aria-pressed")).toBe("true");
+    }, 30_000);
+
+    test("B12: the inspector's edits are drafts of the page's session — Apply commits them in the page's one patch", async () => {
+        const { container } = await mountCanvas();
+        await select(container, "c-trend");
+        await click("Increase span");
+        await click("Stretch");
+        await press("Apply changes");
+        const { commits } = await memory.history(WORKSPACE, RECORD, undefined);
+        expect(commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+        const overview = (await readRecord()).get(OVERVIEW)!;
+        if (overview.type !== "page") throw new Error("expected a page");
+        const trend = overview.value.draft.cells.find((c) => c.key === "c-trend")!;
+        expect([trend.span, trend.align.type]).toEqual([9n, "stretch"]);
+    }, 30_000);
+
+    test("the palette counts the canvas's unsaved drafts: a placement removed and not yet saved leaves ON CANVAS · ×1", async () => {
+        const { container } = await mountCanvas();
+        await openPage("d-double");
+        const palette = () => container.querySelector<HTMLElement>('[data-snap-grid-pane="start"]')!;
+        await select(container, "d-trend-2");
+        expect(within(palette()).getByText("ON CANVAS · ×2")).toBeTruthy();
+        await keyOn(container, "d-trend-1", { key: "Delete" });
+        await select(container, "d-trend-2");
+        expect(within(palette()).getByText("ON CANVAS · ×1")).toBeTruthy();
+        // Nothing saved yet: the record still places it twice.
+        const double = (await readRecord()).get({ project: "ops", page: "d-double" })!;
+        if (double.type !== "page") throw new Error("expected a page");
+        expect(double.value.draft.cells).toHaveLength(2);
     }, 30_000);
 });
 

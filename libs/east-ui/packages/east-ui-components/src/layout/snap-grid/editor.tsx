@@ -24,6 +24,11 @@
  * over the grid panel. The design width and the zoom are the host's bound
  * `view`, or the canvas's own.
  *
+ * A pane beside the canvas asks it for a change through the bound `ui`
+ * (#996): a request for a tile's span, row, height or alignment is taken as
+ * one gesture, by the rules the handles and drags keep, and written back
+ * `none`. The history shortcuts work anywhere in the frame, the panes too.
+ *
  * @packageDocumentation
  */
 
@@ -55,7 +60,7 @@ import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useSnapGridEditing, type SnapGridDraftMark } from "./use-snap-grid-editing.js";
 import { useSnapGridWords, type SnapGridWords } from "./messages.js";
 import {
-    MAX_TILES, SNAP_GRID_COLUMNS, dropAt, heightAt, heldSpan, joinStops, landingOf, neighbourOf, rowsOf, spanAt, startColumn,
+    MAX_HEIGHT, MAX_TILES, SNAP_GRID_COLUMNS, dropAt, heightAt, heldSpan, joinStops, landingOf, neighbourOf, rowsOf, spanAt, startColumn,
     type SnapGridBox, type SnapGridDrop, type SnapGridRowModel, type SnapGridTile,
 } from "./model.js";
 import type { SnapGridCellValue, SnapGridValue } from "./index.js";
@@ -390,8 +395,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const recipe = useSlotRecipe({ key: "snapGrid" });
     const surfaceTag = getSomeorUndefined(value.surface)?.type ?? "card";
     const styles = useMemo(() => recipe({ variant: "tiles", surface: surfaceTag }) as Styles, [recipe, surfaceTag]);
+    // The toolbar's zoom and design widths are the shared stepper and seg strip.
+    const stepperRecipe = useSlotRecipe({ key: "stepper" });
+    const stepper = useMemo(() => stepperRecipe({ tone: "neutral", size: "sm" }) as Styles, [stepperRecipe]);
+    const segRecipe = useSlotRecipe({ key: "seg" });
+    const seg = useMemo(() => segRecipe() as Styles, [segRecipe]);
     const editing = useSnapGridEditing(value, storageKey);
-    const { session, available, tiles, cells, marks, creates, heights, move, add, resize, height, remove, action: sessionAction } = editing;
+    const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, action: sessionAction } = editing;
 
     // ── When the source last confirmed an Apply ──────────────────────────
     // An Apply is confirmed when the session leaves `reconciling` for `idle`
@@ -419,19 +429,22 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
 
     // ── The selection — the host's bound state, or the canvas's own ─────
     const bound = value.ui.type === "some" ? value.ui.value : undefined;
-    const readSelected = useCallback(() => (bound === undefined ? undefined : bound.read().selected), [bound]);
-    const { result: boundRead } = useTrackedEvaluation(readSelected);
+    const readUi = useCallback(() => (bound === undefined ? undefined : bound.read()), [bound]);
+    const { result: boundRead } = useTrackedEvaluation(readUi);
     const [ownSelected, setOwnSelected] = useState<string | null>(null);
+    const boundUi = boundRead.ok ? boundRead.value : undefined;
     const held = bound === undefined ? ownSelected
-        : boundRead.ok && boundRead.value !== undefined && boundRead.value.type === "some" ? boundRead.value.value : null;
+        : boundUi !== undefined && boundUi.selected.type === "some" ? boundUi.selected.value : null;
     const selected = held !== null && cellOf.has(held) ? held : null;
+    // A change a pane asks for (#996) — taken below, once the tiles are known.
+    const request = boundUi !== undefined && boundUi.request.type === "some" ? boundUi.request.value : undefined;
     const select = useCallback((key: string | null) => {
         if (bound === undefined) {
             setOwnSelected(key);
             return;
         }
         try {
-            bound.write({ selected: key === null ? none : some(key) });
+            bound.write({ selected: key === null ? none : some(key), request: none });
         } catch (err) {
             console.error("[SnapGrid] ui state write failed:", err);
         }
@@ -606,6 +619,47 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         handle.addEventListener("pointercancel", onCancel);
     }, [resize, height]);
 
+    // Each auto tile's content height, kept fresh — what a height a pane asks
+    // for is held to, as a height drag is.
+    useEffect(() => {
+        for (const tile of tiles) {
+            if (tile.height !== undefined) continue;
+            const frame = tileEls.current.get(tile.key)?.firstElementChild;
+            if (frame instanceof HTMLElement && frame.offsetHeight > 0) naturals.current.set(tile.key, frame.offsetHeight);
+        }
+    });
+
+    // ── A change a pane asks for (#996) — one gesture, then written back ─
+    useEffect(() => {
+        if (request === undefined || bound === undefined) return;
+        const tile = tilesRef.current.find((t) => t.key === request.key);
+        const change = request.change;
+        if (tile !== undefined) {
+            if (change.type === "span") {
+                resize(tile.key, Number(change.value));
+            } else if (change.type === "row") {
+                rowTo(tile.key, Number(change.value));
+            } else if (change.type === "height") {
+                // As a height drag: a least height floors it, else its content's
+                // height, where it returns to auto; never past the most.
+                const asked = change.value.type === "some" ? Number(change.value.value) : null;
+                const natural = naturals.current.get(tile.key);
+                const kept = asked === null ? null
+                    : tile.minHeight !== undefined ? Math.max(tile.minHeight, Math.min(MAX_HEIGHT, asked))
+                        : natural !== undefined && asked <= natural ? null
+                            : Math.min(MAX_HEIGHT, asked);
+                height(tile.key, kept);
+            } else {
+                align(tile.key, change.value.type);
+            }
+        }
+        try {
+            bound.write({ selected: bound.read().selected, request: none });
+        } catch (err) {
+            console.error("[SnapGrid] ui state write failed:", err);
+        }
+    }, [request, bound, resize, rowTo, height, align]);
+
     const onRemove = useCallback((key: string) => {
         const label = tilesRef.current.find((t) => t.key === key)?.label ?? key;
         if (!remove(key)) return;
@@ -614,17 +668,22 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     }, [remove, announce, m, select]);
 
     // ── The keyboard ─────────────────────────────────────────────────────
+    // The history shortcuts, anywhere in the frame — a pane's controls too;
+    // a key typed into a field, or one a pane took, stays its own.
+    const onFrameKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (e.defaultPrevented || dragging) return;
+        const t = e.target as HTMLElement;
+        if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+        const historyKey = historyShortcut(e);
+        if (historyKey === undefined) return;
+        e.preventDefault();
+        action(historyKey);
+    };
     const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
         // A drag carried by the keyboard takes the keys while it lasts.
         if (e.defaultPrevented || dragging) return;
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
-        const historyKey = historyShortcut(e);
-        if (historyKey !== undefined) {
-            e.preventDefault();
-            action(historyKey);
-            return;
-        }
         const tileEl = t.closest<HTMLElement>("[data-snap-grid-tile]");
         // A key pressed in a tile's content is the content's.
         if (tileEl !== null && tileEl !== t) return;
@@ -726,29 +785,29 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     // ── The toolbar: the host's start items, the canvas's own, the history item, the host's end items ──
     const widthPx = pxOf(width);
     const zoomControl = (
-        <Box css={styles.zoom} role="group" aria-label={m.zoomLabel()} data-snap-grid-zoom="">
-            <chakra.button type="button" css={styles.zoomButton} aria-label={m.zoomOut()} title={m.zoomOut()}
+        <Box css={stepper.root} role="group" aria-label={m.zoomLabel()} data-snap-grid-zoom="">
+            <chakra.button type="button" css={stepper.button} aria-label={m.zoomOut()} title={m.zoomOut()}
                 disabled={zoom <= ZOOM_MIN} onClick={() => zoomTo(zoom - ZOOM_STEP)}>
                 <FontAwesomeIcon icon={faMinus} />
             </chakra.button>
-            <Box as="output" css={styles.zoomValue}>{words.percent(zoom)}</Box>
-            <chakra.button type="button" css={styles.zoomButton} aria-label={m.zoomIn()} title={m.zoomIn()}
+            <Box as="output" css={stepper.value}>{words.percent(zoom)}</Box>
+            <chakra.button type="button" css={stepper.button} aria-label={m.zoomIn()} title={m.zoomIn()}
                 disabled={zoom >= ZOOM_MAX} onClick={() => zoomTo(zoom + ZOOM_STEP)}>
                 <FontAwesomeIcon icon={faPlus} />
             </chakra.button>
         </Box>
     );
     const widthsGroup = (iconsOnly: boolean) => (
-        <Box css={styles.widths} role="group" aria-label={m.widthsLabel()} data-snap-grid-widths="">
+        <Box css={seg.root} role="group" aria-label={m.widthsLabel()} data-snap-grid-widths="">
             {value.widths.map((preset, i) => {
                 const icon = getSomeorUndefined(preset.icon);
+                const pressed = parseCssSize(preset.width) === width;
                 return (
-                    <chakra.button key={i} type="button" css={styles.widthsButton}
-                        aria-pressed={parseCssSize(preset.width) === width}
+                    <chakra.button key={i} type="button" css={seg.item} data-state={pressed ? "on" : "off"} aria-pressed={pressed}
                         {...(iconsOnly ? { "aria-label": preset.label, title: preset.label } : {})}
                         onClick={() => setView({ width: some(preset.width), zoom: view.zoom })}>
-                        {icon !== undefined && <FontAwesomeIcon icon={["fas", icon as IconName]} />}
-                        {(!iconsOnly || icon === undefined) && preset.label}
+                        {icon !== undefined && <Box as="span" css={styles.widthIcon}><FontAwesomeIcon icon={["fas", icon as IconName]} /></Box>}
+                        {(!iconsOnly || icon === undefined) && <span>{preset.label}</span>}
                     </chakra.button>
                 );
             })}
@@ -794,6 +853,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             data-surface={surfaceTag}
             height={parseCssSize(getSomeorUndefined(value.height))}
             maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
+            onKeyDown={onFrameKeyDown}
         >
             <Box css={styles.toolbarRow} data-snap-grid-toolbar-row="">
                 <Toolbar items={items} />

@@ -67,6 +67,7 @@ import {
     SnapGridEditingOf,
     SnapGridPlaceType,
     SnapGridReadyEntryType,
+    SnapGridRequestType,
     SnapGridRootOf,
     SnapGridSurfaceType,
     SnapGridUiBindType,
@@ -83,6 +84,7 @@ import {
 export {
     SnapGridAlignType,
     SnapGridPlaceType,
+    SnapGridRequestType,
     SnapGridSurfaceType,
     SnapGridUiBindType,
     SnapGridUiStateType,
@@ -284,6 +286,8 @@ export interface SnapGridEditConfig<R extends EastType> {
     span: SnapGridFieldOf<R, IntegerType>;
     /** The `Option<Integer>` field holding a tile's height; omitted, a tile's height is not edited. */
     height?: SnapGridFieldOf<R, OptionType<IntegerType>>;
+    /** The `SnapGrid.Types.Align` field an align request writes (#996); omitted, a request to align a tile is refused. */
+    align?: SnapGridFieldOf<R, SnapGridAlignType>;
     /**
      * A dropped card's new row, built in the block `$` — bind a lookup once with
      * `$.let`, as in any East function body: `card` is the drag grammar's
@@ -310,12 +314,18 @@ export interface SnapGridEditConfig<R extends EastType> {
  *   handle's latest rows and writes them whole — idempotent across retries.
  *   Exclusive with `onApply`.
  * - `onPatch(SnapGrid.Types.PatchEvent(R))` observes every gesture.
+ * - `onDrafted(Array<R>)` hears the rows the canvas draws (#996) — the source
+ *   with the session's drafts, exactly as Apply would leave them — once as it
+ *   mounts and whenever they change: a gesture, an undo or a redo, a Discard,
+ *   a source that moved. A pane beside the canvas reads what it shows from
+ *   them — an inspector, a palette's counts.
  * - `ready(R) → Editing.Types.Readiness` is the author's check over one
  *   drafted row; a refusal holds Apply and names the row.
  *
  * @property onApply - Commit one checked batch (sync or async)
  * @property onUpdate - The inline adapter's writer (requires `data={liveHandle}`)
  * @property onPatch - Observe every gesture
+ * @property onDrafted - Hear the rows the canvas draws, whenever they change
  * @property mode - `"batch"` (Apply sends) or `"auto"` (each ready gesture goes at once)
  * @property ready - The author's readiness check over a drafted row
  */
@@ -326,6 +336,8 @@ export interface SnapGridEditingConfig {
     onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(SnapGrid.Types.PatchEvent(R)) → Null`. */
     onPatch?: ExprType<EastType>;
+    /** Hear the rows the canvas draws, the drafts in place, as it mounts and whenever they change — `Fn(Array<R>) → Null` (#996). */
+    onDrafted?: ExprType<EastType>;
     /** When a ready batch goes: on Apply (`"batch"`, the default), or at once (`"auto"`). */
     mode?: "batch" | "auto";
     /** The author's check over one drafted row — `Fn(R) → Editing.Types.Readiness`. */
@@ -464,24 +476,41 @@ function createCell(fields: SnapGridCellFields): ExprType<SnapGridCellType> {
 }
 
 /**
- * Builds a {@link SnapGridUiStateType} value — the seed of a bound `ui`.
+ * Builds a {@link SnapGridUiStateType} value — the seed of a bound `ui`, or
+ * what a host writes to it: a selection, and a change it asks of the editing
+ * canvas (#996).
  *
- * @param state - The selected tile's key; omitted, nothing selected
+ * @param state - The selected tile's key, and a request; omitted, nothing selected and nothing asked
  * @returns The state
  *
  * @example
  * ```ts
- * import { East, IntegerType, NullType } from "@elaraai/east";
+ * import { East, NullType, variant } from "@elaraai/east";
  * import { SnapGrid, State } from "@elaraai/east-ui";
  *
  * const select = East.function([], NullType, ($) => {
  *     const ui = $.const(State.bind([SnapGrid.Types.UiState], "builder.selection", SnapGrid.uiState()));
  *     $(ui.write(SnapGrid.uiState({ selected: "revenue-trend" })));
  * });
+ *
+ * // An inspector's edit: the canvas widens the tile to 8 columns, as one undoable gesture.
+ * const widen = East.function([], NullType, ($) => {
+ *     const ui = $.const(State.bind([SnapGrid.Types.UiState], "builder.selection", SnapGrid.uiState()));
+ *     $(ui.write(SnapGrid.uiState({
+ *         selected: "revenue-trend",
+ *         request: { key: "revenue-trend", change: variant("span", 8n) },
+ *     })));
+ * });
  * ```
  */
-function createUiState(state?: { selected?: SubtypeExprOrValue<StringType> }): ExprType<SnapGridUiStateType> {
-    return East.value({ selected: state?.selected === undefined ? none : some(state.selected) }, SnapGridUiStateType);
+function createUiState(state?: {
+    selected?: SubtypeExprOrValue<StringType>;
+    request?: SubtypeExprOrValue<SnapGridRequestType>;
+}): ExprType<SnapGridUiStateType> {
+    return East.value({
+        selected: state?.selected === undefined ? none : some(state.selected),
+        request: state?.request === undefined ? none : some(state.request),
+    }, SnapGridUiStateType);
 }
 
 /**
@@ -541,6 +570,11 @@ function createViewState(state?: {
  * it closes with the width readout, the zoom, the history item, the design
  * `widths` and the host's `toolbar.end` items. The selection bar names the
  * selected tile with its `icon`, `label` and `meta`.
+ *
+ * A pane beside the canvas works with it through the host's state (#996): it
+ * reads the rows the canvas draws, which `editing.onDrafted` hears, and asks
+ * for a change by writing a `request` to the bound `ui` — a span, a row, a
+ * height or an alignment, taken as one gesture of the session.
  *
  * @typeParam T - The `data` passed
  * @param data - The rows: an `Array` or a `Dict`, inline or through a bound handle
@@ -686,6 +720,7 @@ function buildSnapGridEditing(
     field(edit.row, StringType, "row", "a String");
     field(edit.span, IntegerType, "span", "an Integer");
     field(edit.height, OptionType(IntegerType), "height", "an Option<Integer>");
+    field(edit.align, SnapGridAlignType, "align", "a SnapGrid.Types.Align");
     if (input.onApply !== undefined && input.onUpdate !== undefined) {
         throw new Error("SnapGrid: editing takes onApply or the inline onUpdate adapter, not both");
     }
@@ -786,6 +821,13 @@ function buildSnapGridEditing(
         const observe = $.const(authorPatch as unknown as ExprType<FunctionType<[EastType], NullType>>);
         $(observe(blob.decodeBeast(eventType, "v2")));
     });
+    // The rows the canvas draws, heard whole — a pane beside it reads them (#996).
+    const authorDrafted = input.onDrafted === undefined ? undefined : checkedEditingCallback("SnapGrid", input.onDrafted, [rowsType],
+        NullType, "onDrafted", false, "over the whole Array<R> the canvas draws, returning Null");
+    const onDrafted = authorDrafted === undefined ? undefined : East.function([BlobType], NullType, ($, blob) => {
+        const hear = $.const(authorDrafted as unknown as ExprType<FunctionType<[EastType], NullType>>);
+        $(hear(blob.decodeBeast(rowsType, "v2")));
+    });
 
     return East.value({
         sourceId,
@@ -799,10 +841,15 @@ function buildSnapGridEditing(
         onPatch: onPatch !== undefined ? some(onPatch) : none,
         onApply: onApply !== undefined ? some(onApply) : none,
         mode: variant(input.mode ?? "batch", null),
-        fields: { key: keyField, row: edit.row, span: edit.span, height: edit.height !== undefined ? some(edit.height) : none },
+        fields: {
+            key: keyField, row: edit.row, span: edit.span,
+            height: edit.height !== undefined ? some(edit.height) : none,
+            align: edit.align !== undefined ? some(edit.align) : none,
+        },
         derive,
         create: create !== undefined ? some(create) : none,
         ready: ready !== undefined ? some(ready) : none,
+        onDrafted: onDrafted !== undefined ? some(onDrafted) : none,
     } as never, SnapGridEditingType);
 }
 
@@ -835,6 +882,8 @@ export interface SnapGridNamespace {
         Variant: typeof SnapGridVariantType;
         /** The bound selection's value ({@link SnapGridUiStateType}). */
         UiState: typeof SnapGridUiStateType;
+        /** A change a host asks of the editing canvas ({@link SnapGridRequestType}). */
+        Request: typeof SnapGridRequestType;
         /** The bound design width and zoom's value ({@link SnapGridViewStateType}). */
         ViewState: typeof SnapGridViewStateType;
         /** One design width the editing canvas offers ({@link SnapGridWidthType}). */
@@ -865,6 +914,7 @@ export const SnapGrid: SnapGridNamespace = {
         Align: SnapGridAlignType,
         Variant: SnapGridVariantType,
         UiState: SnapGridUiStateType,
+        Request: SnapGridRequestType,
         ViewState: SnapGridViewStateType,
         Width: SnapGridWidthType,
         Surface: SnapGridSurfaceType,

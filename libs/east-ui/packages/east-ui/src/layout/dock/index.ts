@@ -133,7 +133,8 @@ function persistValue(v: NonNullable<DockStyle["persist"]>): SubtypeExprOrValue<
  * Expanded, the pane has no header strip: its one row is a tab row — the
  * `tabs`, or the `label` as the only tab — with the collapse control at its
  * end. Collapsed, the rail holds the expand control, then the `icon` in its
- * tile, the `badge` and the `label`.
+ * tile, the `badge`, the `label` and the `detail` — the tile and the badge in
+ * brand while the pane is `active`.
  *
  * @example
  * ```ts
@@ -159,6 +160,7 @@ function createDock(
         options.orientation !== undefined || options.side !== undefined
         || options.expandedSize !== undefined || options.railSize !== undefined
         || options.icon !== undefined || options.label !== undefined || options.badge !== undefined
+        || options.active !== undefined || options.detail !== undefined
         || options.persist !== undefined || options.keepMounted !== undefined
         || options.lazy !== undefined || options.animated !== undefined
         || options.surface !== undefined
@@ -172,6 +174,8 @@ function createDock(
             icon: options.icon !== undefined ? some(options.icon) : none,
             label: options.label !== undefined ? some(options.label) : none,
             badge: options.badge !== undefined ? some(options.badge) : none,
+            active: options.active !== undefined ? some(options.active) : none,
+            detail: options.detail !== undefined ? some(options.detail) : none,
             persist: options.persist !== undefined ? some(persistValue(options.persist)) : none,
             keepMounted: options.keepMounted !== undefined ? some(options.keepMounted) : none,
             lazy: options.lazy !== undefined ? some(options.lazy) : none,

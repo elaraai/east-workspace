@@ -13,12 +13,14 @@
  * each gesture while it stays placed, and the session applies placements
  * anchors first, so Apply leaves exactly the order the canvas shows. The
  * canvas draws the drafted rows through the same `Editing.apply` Apply runs
- * (`EditSession.applied`), so a draft looks exactly as Apply will leave it.
+ * (`EditSession.applied`), so a draft looks exactly as Apply will leave it —
+ * and hands them to the author's `editing.onDrafted` whenever they change
+ * (#996), so a pane beside the canvas reads what it shows.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
     ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant,
 } from "@elaraai/east";
@@ -28,7 +30,7 @@ import type { EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin
 import { kindOfIssue, wholeEntryReadiness } from "../../editing/draft.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import {
-    heldSpan, landingOf, newRowKey, freshKey, placeTile, rowsOf,
+    heldSpan, landingOf, newRowKey, freshKey, placeTile, rowDrop, rowsOf,
     type SnapGridDrop, type SnapGridEdit, type SnapGridTile, type SnapGridWrite,
 } from "./model.js";
 import type { SnapGridCellValue, SnapGridValue } from "./index.js";
@@ -61,10 +63,16 @@ export interface SnapGridEditing {
     creates: boolean;
     /** Whether a tile's height is edited — `edit.height` names a field. */
     heights: boolean;
+    /** Whether a tile's alignment is edited — `edit.align` names a field. */
+    aligns: boolean;
     /** Each drafted tile's mark, by its key. */
     marks: ReadonlyMap<string, SnapGridDraftMark>;
     /** Move a tile to a drop. Stable. @returns Whether it was drafted */
     move(key: string, drop: SnapGridDrop): boolean;
+    /** Move a tile into row `row`, counting from 1 — a full row's, or a row past the last, is a new row after it. Stable. @returns Whether it was drafted */
+    rowTo(key: string, row: number): boolean;
+    /** Set where a tile sits in a taller row. Stable. @returns Whether it was drafted */
+    align(key: string, align: "top" | "center" | "stretch"): boolean;
     /** Add a card's new row at a drop. Stable. @returns Whether it was drafted */
     add(card: { library: string; key: string }, drop: SnapGridDrop): boolean;
     /** Set a tile's span, held to its row's room. Stable. @returns Whether it was drafted */
@@ -215,6 +223,7 @@ export function useSnapGridEditing(value: SnapGridValue, storageKey: string): Sn
             if (w?.height !== undefined && fields.height.type === "some") {
                 next[fields.height.value] = w.height === null ? none : some(BigInt(w.height));
             }
+            if (w?.align !== undefined && fields.align.type === "some") next[fields.align.value] = variant(w.align, null);
             // A placed row stands after the row before it in the order the gesture leaves.
             const at = edit.order.indexOf(id);
             const place: Placement = !placed.has(id) ? before.place
@@ -231,6 +240,18 @@ export function useSnapGridEditing(value: SnapGridValue, storageKey: string): Sn
             const landing = landingOf(rowsOf(tiles), drop, key);
             if (landing.kind !== "place") return false;
             return record(placeTile(tiles, tile, landing.drop), "move", `Move ${tile.label}`);
+        },
+        rowTo(key: string, row: number): boolean {
+            const drop = rowDrop(rowsOf(tiles), key, row);
+            return drop !== undefined && gestures.move(key, drop);
+        },
+        align(key: string, align: "top" | "center" | "stretch"): boolean {
+            const tile = tiles.find((t) => t.key === key);
+            if (tile === undefined || fields.align.type !== "some") return false;
+            const now = drafted.find((row) => idOf(row) === tile.id)?.[fields.align.value] as { type: string } | undefined;
+            if (now?.type === align) return false;
+            return record({ order: tiles.map((t) => t.id), writes: new Map([[tile.id, { align }]]), placed: [] },
+                "typed", `Align ${tile.label}`);
         },
         add(card: { library: string; key: string }, drop: SnapGridDrop): boolean {
             if (editing.create.type !== "some") return false;
@@ -304,16 +325,39 @@ export function useSnapGridEditing(value: SnapGridValue, storageKey: string): Sn
     const current = useRef(gestures);
     current.current = gestures;
     const move = useCallback((key: string, drop: SnapGridDrop) => current.current.move(key, drop), []);
+    const rowTo = useCallback((key: string, row: number) => current.current.rowTo(key, row), []);
+    const align = useCallback((key: string, a: "top" | "center" | "stretch") => current.current.align(key, a), []);
     const add = useCallback((card: { library: string; key: string }, drop: SnapGridDrop) => current.current.add(card, drop), []);
     const resize = useCallback((key: string, span: number) => current.current.resize(key, span), []);
     const height = useCallback((key: string, h: number | null, span?: number) => current.current.height(key, h, span), []);
     const remove = useCallback((key: string) => current.current.remove(key), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
 
+    // ── The rows the canvas draws, heard by the author (#996) ──────────
+    // As it mounts and whenever they change — a gesture, an undo or a redo,
+    // a Discard, a source that moved; the same rows twice are heard once.
+    const heard = useRef<Uint8Array | undefined>(undefined);
+    useEffect(() => {
+        const hear = editing.onDrafted.type === "some" ? editing.onDrafted.value : undefined;
+        if (hear === undefined) return;
+        let bytes: Uint8Array;
+        try { bytes = codec.encodeRows(drafted); }
+        catch (err) {
+            console.error("[SnapGrid] the drafted rows could not be encoded:", err);
+            return;
+        }
+        const last = heard.current;
+        if (last !== undefined && last.length === bytes.length && last.every((b, i) => b === bytes[i])) return;
+        heard.current = bytes;
+        try { hear(bytes); }
+        catch (err) { console.error("[SnapGrid] editing.onDrafted failed:", err); }
+    }, [drafted, editing.onDrafted, codec]);
+
     return {
         session, available, version, cells, tiles, marks,
         creates: editing.create.type === "some",
         heights: fields.height.type === "some",
-        move, add, resize, height, remove, action,
+        aligns: fields.align.type === "some",
+        move, rowTo, align, add, resize, height, remove, action,
     };
 }

@@ -37,8 +37,9 @@
  * The canvas is the builder's frame (#995): its own bordered panel (the `card`
  * surface), a toolbar row across its width, then its panes beside the canvas
  * column — the selection bar over the sunken column that holds the grid
- * panel. The toolbar's own items — the grid chip, the saved time, the width
- * readout, the zoom and the design widths — are the mock's toolbar markup.
+ * panel. The toolbar's own items — the grid chip, the saved time and the width
+ * readout — are the mock's toolbar markup; its zoom is the shared `stepper`
+ * and its design widths the shared `seg` strip (#996).
  *
  * @packageDocumentation
  */
@@ -91,7 +92,7 @@ export const snapGridSlotRecipe = defineSlotRecipe({
         "root", "grid", "row", "cell",
         "editor", "toolbarRow", "body", "pane", "main",
         "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint",
-        "chip", "saved", "readout", "zoom", "zoomButton", "zoomValue", "divider", "widths", "widthsButton",
+        "chip", "saved", "readout", "divider", "widthIcon",
         "viewport", "canvas", "ruler", "rulerMark", "bands", "band", "rows", "gap", "gapLine",
         "tile", "frame", "handle", "remove", "insertBefore", "insertAfter", "rule", "badge", "edgeBefore", "edgeAfter", "guide",
         "endZone", "endZoneBox", "endZoneRest", "endZoneDragging", "endZoneTarget", "ghost",
@@ -221,7 +222,8 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         // The toolbar's own items: the grid chip, the saved time, the width
-        // readout, the zoom, the rule before the history, and the widths.
+        // readout, the rule before the history, and a design width's icon in
+        // its segment.
         chip: {
             ...MICRO_LABEL,
             display: "inline-flex",
@@ -244,78 +246,16 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },
-        zoom: {
-            display: "inline-flex",
-            alignItems: "stretch",
-            height: "26px",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: "border.strong",
-            borderRadius: "md",
-            overflow: "hidden",
-            fontFamily: "mono",
-            fontSize: "11px",
-        },
-        zoomButton: {
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: "26px",
-            padding: "0",
-            border: "0",
-            bg: "transparent",
-            color: "fg.muted",
-            fontSize: "9px",
-            cursor: "pointer",
-            _hover: { color: "fg" },
-            _disabled: { color: "fg.subtle", cursor: "not-allowed" },
-            _focusVisible: { outline: "none", boxShadow: "focus" },
-        },
-        zoomValue: {
-            display: "inline-flex",
-            alignItems: "center",
-            paddingX: "{spacing.2}",
-            borderInlineWidth: "1px",
-            borderInlineStyle: "solid",
-            borderInlineColor: "border.subtle",
-            fontWeight: "600",
-            color: "fg",
-            fontVariantNumeric: "tabular-nums",
-        },
         divider: {
             flex: "none",
             width: "1px",
             height: "18px",
             bg: "border.strong",
         },
-        widths: {
+        widthIcon: {
             display: "inline-flex",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: "border.strong",
-            borderRadius: "md",
-            overflow: "hidden",
-        },
-        widthsButton: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            height: "26px",
-            paddingX: "10px",
-            border: "0",
-            bg: "bg.surface",
-            color: "fg.muted",
-            fontFamily: "mono",
-            fontSize: "10.5px",
-            fontWeight: "600",
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            whiteSpace: "nowrap",
-            cursor: "pointer",
-            "& svg": { fontSize: "10px" },
-            "& + &": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.strong" },
-            "&[aria-pressed=true]": { bg: "bg.brand.subtle", color: "brand.fg" },
-            _focusVisible: { outline: "none", boxShadow: "focus" },
+            marginInlineEnd: "6px",
+            "&:last-child": { marginInlineEnd: "0" },
         },
         viewport: {
             flex: "1",
