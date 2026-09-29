@@ -26,6 +26,23 @@ import { AstSymbol, Expr } from "./expr.js";
 import type { ExprType } from "./types.js";
 
 /**
+ * The type of `East.jq`'s marker statement: the query's canonical text and
+ * its inputs' names. The one definition the marker is built from and the
+ * printers recognise it by.
+ *
+ * A function, not a module constant: a type built as the module loads takes
+ * a type id, and every recursive type built after it — in every program that
+ * imports East — would carry a different id in its IR.
+ *
+ * @returns the marker's struct type; types are interned, so every call gives
+ *   the same one
+ * @internal
+ */
+export function jqMarkerType(): StructType<{ east_jq: StringType, inputs: ArrayType<StringType> }> {
+  return StructType({ east_jq: StringType, inputs: ArrayType(StringType) });
+}
+
+/**
  * A jq query over East values, as East code: the query is parsed, checked
  * against its inputs' types and translated to ordinary East IR when the
  * program is built, so it runs wherever East runs.
@@ -90,7 +107,7 @@ export function jq<T extends EastType>(input: Expr | { readonly [name: string]: 
   const loc = get_location_id();
   const canonical = parsed.program.type === "some" ? printJq(parsed.program.value).text : program;
   // The marker: the query as printers show it again.
-  const marker = valueOrExprToAstTyped({ east_jq: canonical, inputs: names }, StructType({ east_jq: StringType, inputs: ArrayType(StringType) }), undefined, loc);
+  const marker = valueOrExprToAstTyped({ east_jq: canonical, inputs: names }, jqMarkerType(), undefined, loc);
   const statements: AST[] = [marker];
   const bound = new Map<string, Expr>();
   values.forEach((value, i) => {

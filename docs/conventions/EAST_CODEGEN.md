@@ -140,6 +140,7 @@ python), so the mapping is one table.
 | expression `Match` | `v.match({ case: ($, x) => e })`; the match `unwrap` lowers to — one arm returns its variable, every other errors `Variant does not have case <it>` — prints `v.unwrap()` / `v.unwrap("case")` | `v.match({…})`; the `unwrap` match `v.unwrap()` / `v.unwrap('case')` |
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |
 | expression `Block` | `Expr.block($ => { …; return e; })` | `East.block(…)` |
+| a `Block` `East.jq` built (#927): its marker — a discarded `Struct{east_jq: String, inputs: Array<String>}` literal of the query's canonical text and its named inputs — then one `Let` per input (one for an unnamed input), then the translation | `East.jq(input, "<jq>", T)`, named inputs as `{ name: value, … }` — only when re-translating the marker's query over the `Let`s' types gives the block back exactly (under the canonical form; a look-alike prints as it stands) | `East.jq(input, '<jq>', result_type=T)`, named inputs as a dict — the same check, under `diff_ir` |
 | `As` / `WrapRecursive` / `UnwrapRecursive` | `East.as(v, T)` / `East.wrapRecursive(v, T)` / `v.unwrap()` | `East.as_(v, T)` / `East.wrap_recursive(v, T)` / `v.unwrap()` |
 | `Platform` | the library's export when its module is given — `Compression.Tar.create(args)`, imported (`libraries`); else `const <name> = East.platform(name, [T…], O)`; `<name>(args)`; generic: `East.genericPlatform(…)` called `<name>([T…], args)` | the implementing package's export when its package is given — `gzip_compress(args)`, imported (`providers`), generic called `<name>(T…, args)` with the type arguments spread; else `<name> = East.platform(…)`; `<name>(args)` — the declaration's name is the platform function's (`tar_create`), generic called `<name>([T…], args)` |
 | `Builtin` with a spelling row | the row (`{0}.add({1})`, `East.print({0})`, …) | the row (`{0}.add({1})`, `East.print({0})`, …) |
@@ -196,9 +197,16 @@ Three suites, one contract:
 
 | Suite | Direction | Corpus |
 |---|---|---|
-| `libs/east/src/codegen/codegen.spec.ts` | IR → TypeScript → IR (+ executes on east-node) | hand-written coverage of every node kind; every exported example (`/tmp/east-examples-ir`); every compliance program (`/tmp/east-test-ir`) |
-| `tests/conformance/test_ts_py_roundtrip.py` | IR → python → IR (+ executes on east-c; every corpus program's compliance run compared with the original's) | the same, and the query suites beside the corpus (`query-conformance/`, `query-types/`, `query-corpus/`: `test_compliance.py`'s `SUITE_SUBDIRECTORIES`, #987) |
+| `libs/east/src/codegen/codegen.spec.ts` | IR → TypeScript → IR (+ executes on east-node) | hand-written coverage of every node kind; every exported example (`/tmp/east-examples-ir`); every compliance program (`/tmp/east-test-ir`), and the query suites beside it (every `query-*` directory: `query-conformance/`, `query-types/`, `query-corpus/`, #987) |
+| `tests/conformance/test_ts_py_roundtrip.py` | IR → python → IR (+ executes on east-c; every corpus program's compliance run compared with the original's) | the same (the query suites as `test_compliance.py`'s `SUITE_SUBDIRECTORIES`) |
 | `tests/conformance/test_three_way_sweep.py` | IR₁ → python → IR₂ → TypeScript (`east-node transpile --rebuild`) → IR₃, `IR₁ ≡ IR₂ ≡ IR₃` (+ IR₃ executes on east-c) | the same as the python round trip |
+
+A query built with `East.jq` prints as `East.jq(…)` in both languages
+(#927), and rebuilding it re-translates the query: the translation is
+deterministic (#923) and python's is TypeScript's (#926), so the rebuilt IR
+equals the original under the normaliser. The jq conformance suites
+(`query-conformance/`) hold raw translations, with no marker, and print as
+the translated code.
 
 The corpora are exported once from TypeScript (`make test-export`, `npm run
 export:examples` in `libs/east`) and read by every suite from
