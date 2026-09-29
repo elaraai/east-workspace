@@ -70,11 +70,12 @@ export {
     Configurator,
     Sticky, ScrollArea, Expandable, Dock,
     SnapGrid, SnapGridCellType, SnapGridRootType, SnapGridEditingType, SnapGridAlignType, SnapGridVariantType,
-    SnapGridUiStateType, SnapGridUiBindType, SnapGridPlaceType, SnapGridPatchEventTypeFor,
+    SnapGridUiStateType, SnapGridUiBindType, SnapGridViewStateType, SnapGridViewBindType, SnapGridWidthType, SnapGridSurfaceType,
+    SnapGridPlaceType, SnapGridPatchEventTypeFor,
 } from "./layout/index.js";
 export type {
     SnapGridConfig, SnapGridCellFields, SnapGridEditConfig, SnapGridEditingConfig, SnapGridFieldOf, SnapGridData, SnapGridRowOf,
-    SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral,
+    SnapGridBindHandle, SnapGridAlignLiteral, SnapGridVariantLiteral, SnapGridSurfaceLiteral, SnapGridWidthInput,
 } from "./layout/index.js";
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
 export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";

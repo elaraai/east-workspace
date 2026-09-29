@@ -12,6 +12,7 @@ import * as ex from "./status.examples.js";
 describeEast("Status", (test) => {
     Assert.examples(test, {
         statusBasic: ex.statusBasic,
+        statusRing: ex.statusRing,
         statusVariants: ex.statusVariants,
     });
 
@@ -94,6 +95,13 @@ describeEast("Status", (test) => {
     test("creates status with pulsing flag", $ => {
         const s = $.let(Status.Root({ label: "Busy", value: "danger", pulsing: true }));
         $(Assert.equal(s.unwrap().unwrap("Status").pulsing.unwrap("some"), true));
+    });
+
+    test("ring draws the dot open — a state not reached yet; omitted, the dot is solid", $ => {
+        const draft = $.let(Status.Root({ label: "Draft", ring: true, showIcon: false }));
+        $(Assert.equal(draft.unwrap().unwrap("Status").ring.unwrap("some"), true));
+        const live = $.let(Status.Root({ label: "Live", value: "success" }));
+        $(Assert.equal(live.unwrap().unwrap("Status").ring.hasTag("none"), true));
     });
 
     test("creates status with colour slots", $ => {

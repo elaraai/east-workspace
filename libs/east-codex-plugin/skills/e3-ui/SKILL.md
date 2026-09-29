@@ -5,7 +5,7 @@ description: "e3 + UI bridge — build interactive, reactive decision surfaces a
 
 ## Detailed skill scope
 
-e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft; <Studio.Page> draws one page's live or draft layout on the SnapGrid with no chrome, and <Studio.Site> is a project's published app, its rail the project's live pages; the builder's screens share the open page and the canvas's selection by an id, and <Studio.Palette> is its palette — the listed components by category, each naming what it reads, and the project's pages.
+e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft; <Studio.Page> draws one page's live or draft layout on the SnapGrid with no chrome, and <Studio.Site> is a project's published app, its rail the project's live pages; the builder's screens share the open page, the canvas's selection and its design width and zoom by an id; <Studio.Palette> is its palette — the listed components by category, each naming what it reads, and the project's pages — and <Studio.Canvas> its canvas — the open page's grid under the builder's toolbar (the page's status, the history, the design widths, Preview and Publish) with the palette and the inspector as panes beside it, every gesture a draft and Apply one patch on the page.
 
 # e3-ui — e3 + UI Bridge
 
@@ -120,7 +120,8 @@ Task → What do you need?
     │   ├─ The change list, "used in N", live or draft    → Studio.changes / .usage / .status
     │   ├─ Show one page, live or draft, with no chrome   → <Studio.Page pages components page version? />
     │   ├─ A project's published site                     → <Studio.Site pages components project title? />
-    │   └─ The builder's palette: components, then pages  → <Studio.Palette pages components project id? />
+    │   ├─ The builder's palette: components, then pages  → <Studio.Palette pages components project id? />
+    │   └─ The builder's canvas: the open page's grid     → <Studio.Canvas pages components project panes? onPreview? onPublish? id? />
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -550,14 +551,15 @@ export const opsConsole = ui("ops_console", [], East.function([], UIComponentTyp
 | `title` | the app bar's title; the project when omitted |
 | `id` | names the site's navigation state — needed only when one surface holds two sites |
 
-### The builder's screens — `<Studio.Palette>`
+### The builder's screens — `<Studio.Palette>` and `<Studio.Canvas>`
 
 The builder is screens, each a headerless pane of its own, and they share what
 is open and what is selected by the builder's `id`: the open page (a
-`Studio.Types.Key`) and the canvas's selection (a `SnapGrid.Types.UiState`) are
-State every screen binds under the same keys, so screens mounted apart with the
-same `id` work together, as `Slice.bind` shares a slice by key. The open page
-begins as the project's first.
+`Studio.Types.Key`), the canvas's selection (a `SnapGrid.Types.UiState`) and its
+design width and zoom (a `SnapGrid.Types.ViewState`) are State every screen
+binds under the same keys, so screens mounted apart with the same `id` work
+together, as `Slice.bind` shares a slice by key. The open page begins as the
+project's first.
 
 `<Studio.Palette>` is a `<Dock>` of two tabs, each a `<Library>`, and reads the
 record's value:
@@ -588,6 +590,51 @@ record's value:
 | `components` | **required** — the components the surface lists, in palette order |
 | `project` | **required** — the project whose pages it lists and opens |
 | `id` | names the builder whose open page and selection it shares — needed only when one surface holds two builders |
+
+`<Studio.Canvas>` is the open page's grid in the builder's frame: one toolbar
+across its width, then the panes beside the canvas column, where the selection
+bar names the selected placement over the grid. Its Apply writes, so it takes
+the record bound with its patch:
+
+```tsx
+<Reactive>{$ => {
+    const components = $.let([kpiRail, revenueTrend, breakdownBars]);
+    const record     = $.let(Record.bind(pages, [pagesPatch]));
+    return <Studio.Canvas pages={record} components={components} project="ops"
+        panes={{ start: <Studio.Palette pages={record.read()} components={components} project="ops" /> }} />;
+}}</Reactive>
+```
+
+- **The grid.** The open page's draft cells on the SnapGrid's editing canvas —
+  a template's cells when a template is open — each placement its component's
+  own UI, framed or bare, named by its title or its component's name. A card
+  dropped from the palette becomes a placement at its component's span, fitted
+  to the row, storing its component's fingerprint.
+- **The session.** Every move, resize, drop and removal is a draft; the history
+  item undoes, redoes, discards and applies. Apply is one patch commit on the
+  page (`Studio.save`); a save another write beat is refused, and the history
+  item says the source changed.
+- **The toolbar.** The page's status — `Draft` with an open ring until its
+  first publish, `Live` while its draft is its live layout, `Live · edited`
+  once they differ (`Studio.changes`) — then the grid chip and the time of the
+  last save; the width readout, the zoom, the history item, Desktop · Tablet,
+  and Preview and Publish, which call `onPreview` / `onPublish` and are
+  disabled without them.
+- **The selection bar** names the selected placement: its component's icon and
+  name, its key and what its code reads.
+- **The panes** sit beside the canvas under the toolbar — the palette before
+  it, the inspector after it; a Dock pane collapses to its rail and the grid
+  takes the room.
+- A page the record does not hold draws a placeholder that says so.
+
+| Prop | Meaning |
+|---|---|
+| `pages` | **required** — the record bound with its patch: `Record.bind(pages, [pagesPatch])` |
+| `components` | **required** — the components the surface lists, in palette order |
+| `project` | **required** — the project whose pages it opens |
+| `panes` | `{ start?, end? }` — the panes beside the canvas: `<Studio.Palette>` before it, the inspector after it |
+| `onPreview` / `onPublish` | open the preview / the preview with its publish panel; omitted, the button is disabled |
+| `id` | names the builder whose open page, selection and view it shares — needed only when one surface holds two builders |
 
 ## Key Patterns
 
@@ -658,6 +705,8 @@ Tested examples live in `test/*.examples.tsx`:
   record that a Publish button changes.
 - `studio/palette.examples.tsx` — `<Studio.Palette>`: the listed components by
   category, each naming the datasets it reads, and the project's pages.
+- `studio/canvas.examples.tsx` — `<Studio.Canvas>`: a draft page on the
+  builder's canvas, with the palette as its pane.
 
 ## Related skills
 

@@ -40,7 +40,7 @@ import type { UIElement } from "../runtime.js";
  * ```
  *
  * @remarks
- * Carries `SnapGrid.cell`, `SnapGrid.uiState` and `SnapGrid.Types`. Desugars to `SnapGrid.Root(data, config)`.
+ * Carries `SnapGrid.cell`, `SnapGrid.uiState`, `SnapGrid.viewState` and `SnapGrid.Types`. Desugars to `SnapGrid.Root(data, config)`.
  */
 function SnapGridTag<T extends SnapGridData>(props: { data: T } & SnapGridConfig<SnapGridRowOf<T>>): UIElement {
     const { data, ...config } = props;
@@ -50,5 +50,5 @@ function SnapGridTag<T extends SnapGridData>(props: { data: T } & SnapGridConfig
 // The tag IS the root, so `Root` is the one factory member it does not carry.
 const { Root: _root, ...authoring } = SnapGridFactory;
 
-/** The callable `<SnapGrid>` tag, carrying `SnapGrid.cell`, `SnapGrid.uiState` and `SnapGrid.Types`. */
+/** The callable `<SnapGrid>` tag, carrying `SnapGrid.cell`, `SnapGrid.uiState`, `SnapGrid.viewState` and `SnapGrid.Types`. */
 export const SnapGrid = Object.assign(SnapGridTag, authoring);

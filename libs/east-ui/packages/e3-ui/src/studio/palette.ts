@@ -53,8 +53,8 @@ import { StudioCellType, StudioKeyType, StudioPagesType, pageStatus } from "./pa
 
 /**
  * The names a builder's screens share, by the builder's `id`: the State keys
- * of the open page and of the canvas's selection, and the drag-source ids of
- * the palette's two libraries.
+ * of the open page, of the canvas's selection and of its design width and
+ * zoom, and the drag-source ids of the palette's two libraries.
  *
  * @remarks
  * Every builder screen binds the same keys, so screens mounted apart from
@@ -69,6 +69,8 @@ export function builderKeys(id: string | undefined): {
     page: string;
     /** The canvas's selection's State key — a `SnapGrid.Types.UiState`. */
     ui: string;
+    /** The canvas's design width and zoom's State key — a `SnapGrid.Types.ViewState`. */
+    view: string;
     /** The components library's drag-source id — what the canvas lists in its `sources`. */
     components: string;
     /** The pages library's id. */
@@ -78,6 +80,7 @@ export function builderKeys(id: string | undefined): {
     return {
         page: `studio.builder${suffix}.page`,
         ui: `studio.builder${suffix}.ui`,
+        view: `studio.builder${suffix}.view`,
         components: `studio.components${suffix}`,
         pages: `studio.pages${suffix}`,
     };

@@ -92,6 +92,7 @@ export {
     type StudioSiteOptions,
     type StudioVersionLiteral,
     type StudioPaletteOptions,
+    type StudioCanvasOptions,
 } from './studio/index.js';
 
 // e3 `<Diff>` tag + its types

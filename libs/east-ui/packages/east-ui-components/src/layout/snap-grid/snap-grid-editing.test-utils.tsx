@@ -8,6 +8,9 @@
  * the east-ui factory and COMPILED over a `State.bind` source the test holds,
  * written through the inline `onUpdate` adapter: the host renders again with
  * its latest value, as a `Reactive` would ({@link EditingSnapGrid.confirm}).
+ * With `chrome`, the canvas is the builder's frame (#995): a bound view, the
+ * design widths, the host's toolbar items and panes, and each tile's icon and
+ * meta.
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded and
  * kept, every apply request's bytes kept, and the real callback answers.
@@ -60,6 +63,8 @@ export const SURFACE = "page-canvas";
 const TILES_KEY = "snap-grid-990.tiles";
 /** Where the bound selection is held. */
 export const UI_KEY = "snap-grid-990.selection";
+/** Where the bound design width and zoom are held (#995). */
+export const VIEW_KEY = "snap-grid-995.view";
 
 /** A card that no destination takes — the veto's. */
 export const BLOCKED = "blocked";
@@ -92,6 +97,13 @@ export interface CanvasOptions {
     ready?: boolean;
     /** Whether a dropped card makes a tile — `edit.create` (default `true`). */
     creates?: boolean;
+    /**
+     * The builder's frame (#995), default `false`: the view bound at
+     * {@link VIEW_KEY}, a 1440px design width with Desktop and Tablet, the
+     * host's toolbar items ("Draft" at the start, "Publish" at the end), its
+     * panes ("Palette" and "Inspector"), and each tile's icon and meta.
+     */
+    chrome?: boolean;
 }
 
 type Resolved = Required<CanvasOptions>;
@@ -102,15 +114,27 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
     const program = East.function([], UIComponentType, ($) => {
         const tiles = $.const(State.bind([Tiles], TILES_KEY, seed));
         const ui = $.const(State.bind([SnapGrid.Types.UiState], UI_KEY, SnapGrid.uiState()));
+        const view = $.const(State.bind([SnapGrid.Types.ViewState], VIEW_KEY, SnapGrid.viewState()));
         return SnapGrid.Root(tiles, {
             cell: (t) => SnapGrid.cell({
                 key: t.id, row: t.row, span: t.span, height: t.height, minHeight: t.minHeight, label: some(t.name),
+                ...(o.chrome ? { icon: some("gauge-high"), meta: some(East.str`${t.id} · sales_daily`) } : {}),
                 content: Text.Root(t.name),
             }),
             guides: true,
             id: SURFACE,
             sources: [PALETTE],
             ...(o.bound ? { ui } : {}),
+            ...(o.chrome ? {
+                view,
+                width: "1440px",
+                widths: [
+                    { label: "Desktop", icon: "desktop", width: "1440px" },
+                    { label: "Tablet", icon: "tablet-screen-button", width: "1024px" },
+                ],
+                toolbar: { start: [Text.Root("Draft")], end: [Text.Root("Publish")] },
+                panes: { start: Text.Root("Palette"), end: Text.Root("Inspector") },
+            } : {}),
             ...(o.veto ? { canDrop: NO_BLOCKED } : {}),
             edit: {
                 key: "id", row: "row", span: "span", height: "height",
@@ -132,6 +156,7 @@ const encodeTiles = encodeBeast2For(Tiles);
 const decodeTiles = decodeBeast2For(Tiles);
 const encodeUi = encodeBeast2For(SnapGrid.Types.UiState);
 const decodeUi = decodeBeast2For(SnapGrid.Types.UiState);
+const decodeView = decodeBeast2For(SnapGrid.Types.ViewState);
 
 /** What a canvas's editing wire is probed with. */
 interface Probe {
@@ -184,6 +209,8 @@ export interface EditingSnapGrid extends RenderResult {
     hostSelects: (key: string | null) => Promise<void>;
     /** The tile the bound selection holds. */
     boundSelection: () => string | null;
+    /** The design width and zoom the bound view holds (#995) — `null` each while it holds none. */
+    boundView: () => { width: string | null; zoom: number | null };
 }
 
 /** Let everything in flight land — microtasks, and timers queued behind them. */
@@ -200,7 +227,7 @@ export async function settle(): Promise<void> {
  * @returns The mounted canvas
  */
 export async function mountSnapGrid(options: CanvasOptions = {}): Promise<EditingSnapGrid> {
-    const o: Resolved = { seed: SEED, bound: true, veto: false, ready: false, creates: true, ...options };
+    const o: Resolved = { seed: SEED, bound: true, veto: false, ready: false, creates: true, chrome: false, ...options };
     const probe: Probe = { patches: [], applies: [] };
     const program = compileCanvas(o);
     const view = (): SnapGridValue => {
@@ -246,6 +273,15 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
             if (bytes === undefined) return null;
             const state = decodeUi(bytes);
             return state.selected.type === "some" ? state.selected.value : null;
+        },
+        boundView: () => {
+            const bytes = getStore().read(VIEW_KEY);
+            if (bytes === undefined) return { width: null, zoom: null };
+            const state = decodeView(bytes);
+            return {
+                width: state.width.type === "some" ? state.width.value : null,
+                zoom: state.zoom.type === "some" ? state.zoom.value : null,
+            };
         },
     };
 }

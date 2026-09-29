@@ -4,7 +4,8 @@
  */
 
 /**
- * SnapGrid — the 12-column snap grid of tiles (#989), and its editing (#990).
+ * SnapGrid — the 12-column snap grid of tiles (#989), its editing (#990),
+ * and the editing canvas's chrome (#995).
  *
  * `SnapGrid.Root(data, config)` lays the host's rows out as tiles in rows on a
  * 12-column grid: the canvas under the Studio's builder, a published page, and
@@ -67,20 +68,30 @@ import {
     SnapGridPlaceType,
     SnapGridReadyEntryType,
     SnapGridRootOf,
+    SnapGridSurfaceType,
     SnapGridUiBindType,
     SnapGridUiStateType,
     SnapGridVariantType,
+    SnapGridViewBindType,
+    SnapGridViewStateType,
+    SnapGridWidthType,
     type SnapGridAlignLiteral,
+    type SnapGridSurfaceLiteral,
     type SnapGridVariantLiteral,
 } from "./types.js";
 
 export {
     SnapGridAlignType,
     SnapGridPlaceType,
+    SnapGridSurfaceType,
     SnapGridUiBindType,
     SnapGridUiStateType,
     SnapGridVariantType,
+    SnapGridViewBindType,
+    SnapGridViewStateType,
+    SnapGridWidthType,
     type SnapGridAlignLiteral,
+    type SnapGridSurfaceLiteral,
     type SnapGridVariantLiteral,
 } from "./types.js";
 
@@ -103,6 +114,8 @@ export {
  * @property align - Where it sits in a taller row
  * @property frame - Drawn in a tile frame, or bare
  * @property label - Its name — the drag ghost's, the announcements' and the history's; `none` names it by its key
+ * @property icon - A Font Awesome solid icon name, which the editing canvas's selection bar shows beside its name
+ * @property meta - A line the selection bar shows after its name
  * @property content - What it shows
  */
 export const SnapGridCellType = SnapGridCellOf(UIComponentType);
@@ -137,9 +150,14 @@ export type SnapGridEditingType = typeof SnapGridEditingType;
  * @property guides - Draw the column ruler and the column bands
  * @property editing - The editing session (#990); `none` takes no gesture
  * @property ui - The bound selection; `none` keeps it in the canvas
+ * @property view - The bound design width and zoom (#995); `none` keeps them in the canvas
  * @property id - The drag surface's name in a drop's cell refs; `none` names one of its own
  * @property sources - The library ids whose cards land on the canvas
  * @property canDrop - The veto over a drop where the drag rests (the shared grammar)
+ * @property widths - The design widths the editing canvas's toolbar offers (#995)
+ * @property toolbar - The host's items in the editing canvas's toolbar: `start` leads the row, `end` closes it (#995)
+ * @property panes - The panes beside the editing canvas, under its toolbar (#995)
+ * @property surface - The editing canvas's frame (`card`, the default) or none (`shell`) (#995)
  */
 export const SnapGridRootType = SnapGridRootOf(UIComponentType);
 
@@ -222,6 +240,8 @@ export type SnapGridFieldOf<R, T> = R extends StructType<infer F>
  * @property align - Where it sits in a taller row; `top` when omitted
  * @property frame - Drawn in a tile frame (the default), or bare
  * @property label - Its name, for the drag ghost, the announcements and the history; omitted, its key
+ * @property icon - A Font Awesome solid icon name, beside its name in the editing canvas's selection bar
+ * @property meta - A line after its name in the selection bar — what it is, what it reads
  * @property content - What it shows
  */
 export interface SnapGridCellFields {
@@ -241,6 +261,10 @@ export interface SnapGridCellFields {
     frame?: SubtypeExprOrValue<BooleanType>;
     /** Its name, for the drag ghost, the announcements and the history; omitted, its key. */
     label?: SubtypeExprOrValue<OptionType<StringType>>;
+    /** A Font Awesome solid icon name, beside its name in the editing canvas's selection bar; omitted, none. */
+    icon?: SubtypeExprOrValue<OptionType<StringType>>;
+    /** A line after its name in the selection bar — what it is, what it reads; omitted, none. */
+    meta?: SubtypeExprOrValue<OptionType<StringType>>;
     /** What it shows. */
     content: SubtypeExprOrValue<UIComponentType>;
 }
@@ -318,7 +342,12 @@ export interface SnapGridConfig<R extends EastType> {
     cell: (row: ExprType<R>) => SubtypeExprOrValue<SnapGridCellType>;
     /** `tiles` (the default), or `wireframe`: each cell an outline at its tile's size, its content not drawn. */
     variant?: SnapGridVariantLiteral | SubtypeExprOrValue<SnapGridVariantType>;
-    /** The design width, a CSS length (`"1440px"`). */
+    /**
+     * The design width, a CSS length (`"1440px"`): a page's grid is that wide.
+     * On the editing canvas it is the most the grid lays out at — a narrower
+     * column lays it out at the column's width, a wider one centres it — and
+     * the toolbar reads it out.
+     */
     width?: SubtypeExprOrValue<StringType>;
     /** A pinned height, a CSS length; the grid scrolls within. */
     height?: SubtypeExprOrValue<StringType>;
@@ -334,12 +363,65 @@ export interface SnapGridConfig<R extends EastType> {
     editing?: SnapGridEditingConfig;
     /** The bound selection — `State.bind([SnapGrid.Types.UiState], key, SnapGrid.uiState())`; omitted, the canvas keeps it. */
     ui?: SubtypeExprOrValue<SnapGridUiBindType>;
+    /**
+     * The bound design width and zoom (#995) — `State.bind([SnapGrid.Types.ViewState],
+     * key, SnapGrid.viewState())`: the editing canvas draws at them and writes
+     * the width preset and the zoom step the user picks. Omitted, the canvas
+     * keeps them, starting from `width` and `zoom`.
+     */
+    view?: SubtypeExprOrValue<SnapGridViewBindType>;
     /** The drag surface's name in a drop's cell refs; omitted, the canvas names one of its own. */
     id?: string;
     /** The library ids whose cards land on the canvas (`edit.create` builds the row). */
     sources?: string[];
     /** The veto over a drop where the drag rests — a card's `add`, a tile's `move` (the ⊘ stage); a throwing predicate fails open. */
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
+    /**
+     * The design widths the editing canvas's toolbar offers (#995) — a device
+     * each, such as Desktop and Tablet. The one the canvas draws at is
+     * pressed, and pressing another draws it at that width.
+     */
+    widths?: SnapGridWidthInput[];
+    /**
+     * The host's items in the editing canvas's toolbar (#995): the `start`
+     * items lead the row, before the canvas's own; the `end` items close it,
+     * after the history item and the widths. They never fold.
+     */
+    toolbar?: {
+        /** Before the canvas's own items, at the row's start. */
+        start?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
+        /** After the canvas's own items, at the row's end. */
+        end?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
+    };
+    /**
+     * The panes beside the editing canvas, under its toolbar (#995) — a
+     * palette, an inspector. A `<Dock>` pane collapses to its rail and the
+     * canvas takes the room.
+     */
+    panes?: {
+        /** The pane before the canvas. */
+        start?: SubtypeExprOrValue<UIComponentType>;
+        /** The pane after it. */
+        end?: SubtypeExprOrValue<UIComponentType>;
+    };
+    /** `card` (the default) draws the editing canvas's frame; `shell` draws none, inside a host's frame (#995). */
+    surface?: SnapGridSurfaceLiteral | SubtypeExprOrValue<SnapGridSurfaceType>;
+}
+
+/**
+ * One design width, as `widths` takes it (#995).
+ *
+ * @property label - Its name in the toolbar
+ * @property icon - A Font Awesome solid icon name beside the name
+ * @property width - The design width, a CSS length
+ */
+export interface SnapGridWidthInput {
+    /** Its name in the toolbar — `"Desktop"`. */
+    label: SubtypeExprOrValue<StringType>;
+    /** A Font Awesome solid icon name beside the name — `"desktop"`. */
+    icon?: SubtypeExprOrValue<StringType>;
+    /** The design width, a CSS length — `"1440px"`. */
+    width: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -375,6 +457,8 @@ function createCell(fields: SnapGridCellFields): ExprType<SnapGridCellType> {
         align: typeof fields.align === "string" ? variant(fields.align, null) : (fields.align ?? variant("top", null)),
         frame: fields.frame ?? true,
         label: fields.label ?? none,
+        icon: fields.icon ?? none,
+        meta: fields.meta ?? none,
         content: fields.content,
     }, SnapGridCellType);
 }
@@ -401,6 +485,34 @@ function createUiState(state?: { selected?: SubtypeExprOrValue<StringType> }): E
 }
 
 /**
+ * Builds a {@link SnapGridViewStateType} value — the seed of a bound `view`
+ * (#995).
+ *
+ * @param state - The design width and the zoom; omitted, the SnapGrid's own `width` and `zoom`
+ * @returns The state
+ *
+ * @example
+ * ```ts
+ * import { East, NullType } from "@elaraai/east";
+ * import { SnapGrid, State } from "@elaraai/east-ui";
+ *
+ * const tablet = East.function([], NullType, ($) => {
+ *     const view = $.const(State.bind([SnapGrid.Types.ViewState], "builder.view", SnapGrid.viewState()));
+ *     $(view.write(SnapGrid.viewState({ width: "1024px", zoom: 0.8 })));
+ * });
+ * ```
+ */
+function createViewState(state?: {
+    width?: SubtypeExprOrValue<StringType>;
+    zoom?: number | SubtypeExprOrValue<FloatType>;
+}): ExprType<SnapGridViewStateType> {
+    return East.value({
+        width: state?.width === undefined ? none : some(state.width),
+        zoom: state?.zoom === undefined ? none : some(state.zoom),
+    }, SnapGridViewStateType);
+}
+
+/**
  * Creates a SnapGrid — the host's rows as tiles, in rows on a 12-column grid.
  *
  * @remarks
@@ -422,12 +534,22 @@ function createUiState(state?: { selected?: SubtypeExprOrValue<StringType> }): E
  * library and removed, each gesture one draft of the shared editing session,
  * and the history item in its toolbar undoes, redoes, discards and applies.
  *
+ * The editing canvas is the builder's frame (#995): a toolbar across its
+ * width, then its `panes` beside a column holding the selection bar and the
+ * grid panel. The toolbar leads with the host's `toolbar.start` items, the
+ * grid chip and — once the source confirms an Apply — the time it was saved;
+ * it closes with the width readout, the zoom, the history item, the design
+ * `widths` and the host's `toolbar.end` items. The selection bar names the
+ * selected tile with its `icon`, `label` and `meta`.
+ *
  * @typeParam T - The `data` passed
  * @param data - The rows: an `Array` or a `Dict`, inline or through a bound handle
  * @param config - How a row becomes a cell, and how the SnapGrid is drawn and edited ({@link SnapGridConfig})
  * @returns An East expression of type `UIComponentType`
- * @throws {Error} When `data` is a paged source, or not an `Array` or a `Dict`; or when the editing
- *   declaration is inconsistent — see {@link SnapGridEditConfig} and {@link SnapGridEditingConfig}
+ * @throws {Error} When `data` is a paged source, or not an `Array` or a `Dict`; when the editing
+ *   declaration is inconsistent — see {@link SnapGridEditConfig} and {@link SnapGridEditingConfig};
+ *   or when the editing canvas's chrome — `view`, `widths`, `toolbar`, `panes`, `surface` — is given
+ *   without `editing`
  *
  * @example
  * ```tsx
@@ -461,6 +583,14 @@ function createSnapGrid<T extends SnapGridData>(data: T, config: SnapGridConfig<
             "SnapGrid: `edit` names what a gesture writes into the rows and `editing` where the drafts go — " +
             `give both, or neither (got only \`${config.edit !== undefined ? "edit" : "editing"}\`)`);
     }
+    if (config.editing === undefined) {
+        const chrome = (["view", "widths", "toolbar", "panes", "surface"] as const).filter((name) => config[name] !== undefined);
+        if (chrome.length > 0) {
+            throw new Error(
+                `SnapGrid: ${chrome.map((name) => `\`${name}\``).join(", ")} dress the editing canvas — give ` +
+                "them with `edit` and `editing`, or leave them out of a page");
+        }
+    }
     // Reified once (`shared/reify.ts`'s rule), then called for every row.
     const toCell = East.function([resolved.elementType], SnapGridCellType,
         (_$, row) => (config.cell as (row: ExprType<EastType>) => SubtypeExprOrValue<SnapGridCellType>)(row));
@@ -484,9 +614,25 @@ function createSnapGrid<T extends SnapGridData>(data: T, config: SnapGridConfig<
         guides: config.guides ?? false,
         editing: editing === undefined ? none : some(editing),
         ui: config.ui === undefined ? none : some(East.value(config.ui, SnapGridUiBindType)),
+        view: config.view === undefined ? none : some(East.value(config.view, SnapGridViewBindType)),
         id: config.id === undefined ? none : some(config.id),
         sources: East.value(config.sources ?? [], ArrayType(StringType)),
         canDrop: config.canDrop === undefined ? none : some(config.canDrop),
+        widths: East.value((config.widths ?? []).map((w) => ({
+            label: w.label,
+            icon: w.icon === undefined ? none : some(w.icon),
+            width: w.width,
+        })), ArrayType(SnapGridWidthType)),
+        toolbar: {
+            start: East.value(config.toolbar?.start ?? [], ArrayType(UIComponentType)),
+            end: East.value(config.toolbar?.end ?? [], ArrayType(UIComponentType)),
+        },
+        panes: {
+            start: config.panes?.start === undefined ? none : some(config.panes.start),
+            end: config.panes?.end === undefined ? none : some(config.panes.end),
+        },
+        surface: config.surface === undefined ? none
+            : some(typeof config.surface === "string" ? variant(config.surface, null) : config.surface),
     }) as never, UIComponentType);
 }
 
@@ -675,6 +821,8 @@ export interface SnapGridNamespace {
     cell: typeof createCell;
     /** Builds the seed of a bound selection ({@link createUiState}). */
     uiState: typeof createUiState;
+    /** Builds the seed of a bound design width and zoom ({@link createViewState}). */
+    viewState: typeof createViewState;
     /** The SnapGrid's East types. */
     Types: {
         /** A SnapGrid's value ({@link SnapGridRootType}). */
@@ -687,6 +835,12 @@ export interface SnapGridNamespace {
         Variant: typeof SnapGridVariantType;
         /** The bound selection's value ({@link SnapGridUiStateType}). */
         UiState: typeof SnapGridUiStateType;
+        /** The bound design width and zoom's value ({@link SnapGridViewStateType}). */
+        ViewState: typeof SnapGridViewStateType;
+        /** One design width the editing canvas offers ({@link SnapGridWidthType}). */
+        Width: typeof SnapGridWidthType;
+        /** The editing canvas's frame, or none ({@link SnapGridSurfaceType}). */
+        Surface: typeof SnapGridSurfaceType;
         /** Where a dropped card lands — `edit.create`'s second argument ({@link SnapGridPlaceType}). */
         Place: typeof SnapGridPlaceType;
         /** `PatchEvent(R)` — what `editing.onPatch` receives ({@link SnapGridPatchEventTypeFor}). */
@@ -704,12 +858,16 @@ export const SnapGrid: SnapGridNamespace = {
     Root: createSnapGrid,
     cell: createCell,
     uiState: createUiState,
+    viewState: createViewState,
     Types: {
         Root: SnapGridRootType,
         Cell: SnapGridCellType,
         Align: SnapGridAlignType,
         Variant: SnapGridVariantType,
         UiState: SnapGridUiStateType,
+        ViewState: SnapGridViewStateType,
+        Width: SnapGridWidthType,
+        Surface: SnapGridSurfaceType,
         Place: SnapGridPlaceType,
         PatchEvent: SnapGridPatchEventTypeFor,
         Editing: SnapGridEditingType,

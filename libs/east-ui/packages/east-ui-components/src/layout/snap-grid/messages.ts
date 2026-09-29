@@ -4,12 +4,13 @@
  */
 
 /**
- * Every word the SnapGrid's editing canvas says itself (#990) — ONE typed
- * message table: the end zone, the handles and the remove button, the names a
- * screen reader hears for a tile and for where a drag rests, what its live
- * region says, and the editing session's own words, so a host translates the
- * canvas's history item where it translates the canvas. What the AUTHOR wrote
- * — a tile's label — is data, and never passes through it.
+ * Every word the SnapGrid's editing canvas says itself (#990, #995) — ONE
+ * typed message table: the end zone, the handles and the remove button, the
+ * toolbar's own items and the selection bar, the names a screen reader hears
+ * for a tile and for where a drag rests, what its live region says, and the
+ * editing session's own words, so a host translates the canvas's history item
+ * where it translates the canvas. What the AUTHOR wrote — a tile's label, its
+ * meta, a design width's name — is data, and never passes through it.
  *
  * English is the default. A host overrides any subset for a subtree with
  * {@link SnapGridMessagesProvider}; numbers format in the locale react-aria's
@@ -63,6 +64,24 @@ export interface SnapGridMessages extends EditingMessages {
     announceRemoved: (p: { label: string }) => string;
     /** The selection cleared. */
     announceCleared: () => string;
+    /** The toolbar's grid chip — `12 col · snap on`. */
+    gridChip: () => string;
+    /** When the source last confirmed an Apply — `Saved · 14:32`; `time` is formatted for the locale. */
+    saved: (p: { time: string }) => string;
+    /** The design width readout — `1440 px`; `px` is formatted for the locale. */
+    widthReadout: (p: { px: string }) => string;
+    /** The zoom control's accessible name. */
+    zoomLabel: () => string;
+    /** The zoom-out button. */
+    zoomOut: () => string;
+    /** The zoom-in button. */
+    zoomIn: () => string;
+    /** The design widths' accessible name. */
+    widthsLabel: () => string;
+    /** The selection bar with nothing selected. */
+    noSelection: () => string;
+    /** Beside it, what to do. */
+    noSelectionHint: () => string;
 }
 
 /** The SnapGrid's English messages — the default table. */
@@ -84,6 +103,15 @@ export const snapGridMessages: SnapGridMessages = {
     announceSpan: ({ label, span }) => `${label}, span ${span}`,
     announceRemoved: ({ label }) => `Removed ${label}`,
     announceCleared: () => "Selection cleared",
+    gridChip: () => "12 col · snap on",
+    saved: ({ time }) => `Saved · ${time}`,
+    widthReadout: ({ px }) => `${px} px`,
+    zoomLabel: () => "Zoom",
+    zoomOut: () => "Zoom out",
+    zoomIn: () => "Zoom in",
+    widthsLabel: () => "Design width",
+    noSelection: () => "No selection",
+    noSelectionHint: () => "Click a component on the grid to arrange it",
 };
 
 const SnapGridMessagesContext = createContext<SnapGridMessages>(snapGridMessages);

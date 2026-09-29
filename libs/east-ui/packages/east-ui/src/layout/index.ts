@@ -23,6 +23,10 @@ export {
     SnapGridEditingType,
     SnapGridUiStateType,
     SnapGridUiBindType,
+    SnapGridViewStateType,
+    SnapGridViewBindType,
+    SnapGridWidthType,
+    SnapGridSurfaceType,
     SnapGridPlaceType,
     SnapGridPatchEventTypeFor,
     type SnapGridNamespace,
@@ -36,4 +40,6 @@ export {
     type SnapGridBindHandle,
     type SnapGridAlignLiteral,
     type SnapGridVariantLiteral,
+    type SnapGridSurfaceLiteral,
+    type SnapGridWidthInput,
 } from "./snap-grid/index.js";

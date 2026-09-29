@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, isTypeEqual, none, some,
+    ArrayType, BooleanType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, isTypeEqual, none, some,
     type ExprType,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
@@ -51,6 +51,8 @@ describeEast("SnapGrid", (test) => {
         $(Assert.equal(value.cells.get(1n).frame, true));
         $(Assert.equal(value.cells.get(1n).label, none));
         $(Assert.equal(value.cells.get(1n).minHeight, none));
+        $(Assert.equal(value.cells.get(1n).icon, none));
+        $(Assert.equal(value.cells.get(1n).meta, none));
         $(Assert.equal(value.variant, none));
         $(Assert.equal(value.width, some("1440px")));
         // A view: no guides, no zoom, no editing, and no card lands.
@@ -58,6 +60,14 @@ describeEast("SnapGrid", (test) => {
         $(Assert.equal(value.zoom, none));
         $(Assert.equal(value.editing.hasTag("none"), true));
         $(Assert.equal(value.sources.size(), 0n));
+        // Nor any of the editing canvas's chrome.
+        $(Assert.equal(value.view, none));
+        $(Assert.equal(value.widths.size(), 0n));
+        $(Assert.equal(value.toolbar.start.size(), 0n));
+        $(Assert.equal(value.toolbar.end.size(), 0n));
+        $(Assert.equal(value.panes.start.hasTag("none"), true));
+        $(Assert.equal(value.panes.end.hasTag("none"), true));
+        $(Assert.equal(value.surface, none));
     });
 
     test("a Dict's rows come in key order, and align, frame and the variant are taken as given", $ => {
@@ -170,6 +180,65 @@ describeEast("SnapGrid", (test) => {
     test("SnapGrid.uiState seeds a bound selection", $ => {
         $(Assert.equal(SnapGrid.uiState(), { selected: none }));
         $(Assert.equal(SnapGrid.uiState({ selected: "a" }), { selected: some("a") }));
+    });
+
+    test("SnapGrid.viewState seeds a bound design width and zoom (#995)", $ => {
+        $(Assert.equal(SnapGrid.viewState(), { width: none, zoom: none }));
+        $(Assert.equal(SnapGrid.viewState({ width: "1024px", zoom: 0.8 }), { width: some("1024px"), zoom: some(0.8) }));
+    });
+
+    test("the editing canvas's chrome (#995): the design widths, the bound view, the host's toolbar items and panes, the surface, and each cell's icon and meta", $ => {
+        const rows = $.const([{ id: "a", row: "top", span: 12n, height: none, name: "A" }], Rows);
+        const handle = $.const({
+            read: East.function([], Rows, (_$) => rows),
+            write: East.function([Rows], NullType, (_$) => null),
+        }, Handle);
+        const view = $.const({
+            read: East.function([], SnapGrid.Types.ViewState, (_$) => SnapGrid.viewState()),
+            write: East.function([SnapGrid.Types.ViewState], NullType, (_$) => null),
+            has: East.function([], BooleanType, (_$) => false),
+        }, StructType({
+            read: FunctionType([], SnapGrid.Types.ViewState),
+            write: FunctionType([SnapGrid.Types.ViewState], NullType),
+            has: FunctionType([], BooleanType),
+        }));
+        const grid = $.let(SnapGrid.Root(handle, {
+            cell: r => SnapGrid.cell({
+                key: r.id, row: r.row, span: r.span, label: some(r.name),
+                icon: some("chart-area"), meta: some(East.str`${r.id} · sales_daily`), content: Text.Root(r.name),
+            }),
+            edit: { key: "id", row: "row", span: "span" },
+            editing: { onUpdate: handle.write },
+            view,
+            widths: [{ label: "Desktop", icon: "desktop", width: "1440px" }, { label: "Tablet", width: "1024px" }],
+            toolbar: { start: [Text.Root("Draft")], end: [Text.Root("Preview"), Text.Root("Publish")] },
+            panes: { start: Text.Root("Palette") },
+            surface: "shell",
+        }));
+        const value = $.let(grid.unwrap().unwrap("SnapGrid"));
+        $(Assert.equal(value.cells.get(0n).icon, some("chart-area")));
+        $(Assert.equal(value.cells.get(0n).meta, some("a · sales_daily")));
+        $(Assert.equal(value.view.hasTag("some"), true));
+        $(Assert.equal(value.widths, [
+            { label: "Desktop", icon: some("desktop"), width: "1440px" },
+            { label: "Tablet", icon: none, width: "1024px" },
+        ]));
+        $(Assert.equal(value.toolbar.start.size(), 1n));
+        $(Assert.equal(value.toolbar.end.size(), 2n));
+        $(Assert.equal(value.panes.start.hasTag("some"), true));
+        $(Assert.equal(value.panes.end.hasTag("none"), true));
+        $(Assert.equal(value.surface.unwrap("some").getTag(), "shell"));
+    });
+
+    test("refuses the editing canvas's chrome on a page — it dresses the editing canvas", _ => {
+        assert.throws(() => East.function([], UIComponentType, $ => {
+            const tiles = $.const([{ id: "a", row: "top", span: 12n, height: none }], ArrayType(Tile));
+            return SnapGrid.Root(tiles, {
+                cell: t => SnapGrid.cell({ key: t.id, row: t.row, span: t.span, content: Text.Root(t.id) }),
+                widths: [{ label: "Desktop", width: "1440px" }],
+                panes: { start: Text.Root("Palette") },
+            });
+        }), /SnapGrid: `widths`, `panes` dress the editing canvas/);
     });
 
     test("refuses an editing declaration it cannot honour — a Dict, a field at another type, one half without the other, onUpdate without a handle", _ => {

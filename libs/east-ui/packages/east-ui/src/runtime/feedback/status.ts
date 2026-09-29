@@ -14,8 +14,9 @@ import { optionsTag, type JsxTag } from "../combinators.js";
  * Compact classification chip — a `label` paired with a semantic `value` that
  * sets the dot colour and an auto-injected icon. Use it for freshness
  * indicators, per-row health, and recompute markers, with `pulsing` to signal
- * an in-flight update. Provide an explicit `icon` to override the paired
- * default, or a rich `label` node to add a secondary detail such as a
+ * an in-flight update and `ring` for an open dot — a state not reached yet,
+ * such as a draft never published. Provide an explicit `icon` to override the
+ * paired default, or a rich `label` node to add a secondary detail such as a
  * timestamp. Every option is a flat prop ({@link StatusOptions}).
  *
  * @example
@@ -29,6 +30,7 @@ import { optionsTag, type JsxTag } from "../combinators.js";
  *         <Status label="Up to date" value="success" />
  *         <Status label="Stale" value="warning" />
  *         <Status label="Recomputing" value="danger" pulsing />
+ *         <Status label="Draft" ring showIcon={false} />
  *     </HStack>
  * ));
  * ```

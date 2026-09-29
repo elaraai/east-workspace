@@ -25,6 +25,21 @@ export const statusBasic = example({
     inputs: [],
 });
 
+export const statusRing = example({
+    keywords: ["Status", "ring", "open dot", "draft", "live", "published", "unpublished", "page status", "showIcon"],
+    description: "A page's states as statuses — an open ring for a draft never published, a dot for live, and a warning dot once its draft differs from what is live",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <HStack gap="4">
+                <Status label="Draft" ring showIcon={false} />
+                <Status label="Live" value="success" showIcon={false} />
+                <Status label="Live · edited" value="warning" showIcon={false} />
+            </HStack>
+        );
+    }),
+    inputs: [],
+});
+
 export const statusVariants = example({
     keywords: ["Status", "Root", "value", "success", "warning", "danger", "info", "neutral", "pulsing", "rich label", "custom icon", "Reactive", "State", "Select", "Switch", "Configurator", "getTag", "configurator"],
     description: "Status configurator — a value axis plus pulsing, rich-label and custom-icon switches on one live status",
