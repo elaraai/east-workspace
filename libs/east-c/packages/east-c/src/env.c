@@ -42,17 +42,19 @@ void env_bind_slot(Environment *env, size_t slot, EastValue *value)
 void env_reset(Environment *env)
 {
     if (!env) return;
+    /* Emptied before released: a released closure can free the frames it
+     * holds, and nothing that reaches must find a binding being dropped. */
     if (env->scope) {
         for (size_t i = 0; i < env->scope->count; i++) {
-            if (env->slots[i]) {
-                east_value_release(env->slots[i]);
-                env->slots[i] = NULL;
-            }
+            EastValue *value = env->slots[i];
+            env->slots[i] = NULL;
+            if (value) east_value_release(value);
         }
     }
     if (env->overflow) {
-        hashmap_free(env->overflow, release_value_cb);
+        Hashmap *overflow = env->overflow;
         env->overflow = NULL;
+        hashmap_free(overflow, release_value_cb);
     }
 }
 

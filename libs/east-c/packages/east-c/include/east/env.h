@@ -27,10 +27,12 @@ Environment *env_new(Environment *parent);
 Environment *env_new_scoped(Environment *parent, IRScope *scope);
 /* Bind cell `slot` of a scoped frame (retains value, releases the old). */
 void env_bind_slot(Environment *env, size_t slot, EastValue *value);
-/* Unbind everything in a frame nothing else holds (ref_count == 1), so a
- * loop can reuse its iteration frame instead of allocating one per pass:
- * a frame only escapes an iteration through a closure that captured it,
- * and that closure holds a reference. */
+/* Unbind everything in a frame. A loop resets the iteration frame nothing
+ * else holds (ref_count == 1) to reuse it instead of allocating one per pass
+ * — a frame only escapes an iteration through a closure that captured it,
+ * and that closure holds a reference — and the evaluator resets a frame only
+ * closures bound in it still hold, so they go with it (compiler.c,
+ * frame_collect). Each cell is emptied before its value is released. */
 void env_reset(Environment *env);
 
 /* By-name binding and lookup: a name in the frame's scope binds its cell,

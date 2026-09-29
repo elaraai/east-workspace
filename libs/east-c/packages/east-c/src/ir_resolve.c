@@ -10,7 +10,8 @@
  * IfElse and While bind nothing; the For loops, a Match case and a catch
  * body open a frame with their binders; a Function body's frame holds its
  * params and sits on the definition-site chain, which is what a closure
- * captures.
+ * captures. A function no read inside passes — its body reads nothing it
+ * does not bind — is closed: its closures capture no frame at all.
  *
  * A name not found in the chain — a capture of a decoded closure, a value
  * bound from outside by name — stays unresolved and reads by name at run
@@ -26,19 +27,25 @@
 typedef struct RChain {
     IRScope *scope;
     struct RChain *parent;
+    IRNode *fn; /* the Function whose call frame `scope` is, else NULL */
 } RChain;
 
 static void resolve(IRNode *node, RChain *chain);
 
 /* Where `name` is bound in the chain, if anywhere: (hops, slot) into
- * `scope`, which the annotation retains. */
+ * `scope`, which the annotation retains. A function whose call frame the
+ * search passes reads the name from outside itself, so is not closed — and
+ * a name found nowhere passes every one. */
 static void lookup(const char *name, RChain *chain, IRScope **scope_out, uint32_t *hops_out,
                    uint32_t *slot_out)
 {
     uint32_t hops = 0;
     for (RChain *c = chain; c; c = c->parent, hops++) {
         size_t i = ir_scope_find(c->scope, name);
-        if (i == SIZE_MAX) continue;
+        if (i == SIZE_MAX) {
+            if (c->fn) c->fn->data.function.closed = false;
+            continue;
+        }
         ir_scope_retain(c->scope);
         *scope_out = c->scope;
         *hops_out = hops;
@@ -104,7 +111,7 @@ static void resolve(IRNode *node, RChain *chain)
         IRScope *scope = ir_scope_new();
         if (!scope) return;
         node->data.block.scope = scope;
-        RChain inner = {scope, chain};
+        RChain inner = {scope, chain, NULL};
         resolve_all(node->data.block.stmts, node->data.block.num_stmts, &inner);
         return;
     }
@@ -123,7 +130,7 @@ static void resolve(IRNode *node, RChain *chain)
             if (!scope) return;
             if (mc->bind.name) ir_scope_push(scope, mc->bind.name);
             mc->scope = scope;
-            RChain inner = {scope, chain};
+            RChain inner = {scope, chain, NULL};
             resolve(mc->body, &inner);
         }
         return;
@@ -141,7 +148,7 @@ static void resolve(IRNode *node, RChain *chain)
         if (node->data.for_array.index_var.name)
             ir_scope_push(scope, node->data.for_array.index_var.name);
         node->data.for_array.scope = scope;
-        RChain inner = {scope, chain};
+        RChain inner = {scope, chain, NULL};
         resolve(node->data.for_array.body, &inner);
         return;
     }
@@ -152,7 +159,7 @@ static void resolve(IRNode *node, RChain *chain)
         if (!scope) return;
         ir_scope_push(scope, node->data.for_set.var.name);
         node->data.for_set.scope = scope;
-        RChain inner = {scope, chain};
+        RChain inner = {scope, chain, NULL};
         resolve(node->data.for_set.body, &inner);
         return;
     }
@@ -164,7 +171,7 @@ static void resolve(IRNode *node, RChain *chain)
         ir_scope_push(scope, node->data.for_dict.key.name);
         ir_scope_push(scope, node->data.for_dict.val.name);
         node->data.for_dict.scope = scope;
-        RChain inner = {scope, chain};
+        RChain inner = {scope, chain, NULL};
         resolve(node->data.for_dict.body, &inner);
         return;
     }
@@ -176,7 +183,11 @@ static void resolve(IRNode *node, RChain *chain)
         for (size_t i = 0; i < node->data.function.num_params; i++)
             ir_scope_push(scope, node->data.function.params[i].name);
         node->data.function.scope = scope;
-        RChain inner = {scope, chain};
+        /* Closed until a read inside passes its call frame (lookup). A
+         * capture the IR declares keeps it open whatever the body reads: the
+         * beast2 encoder writes a closure's declared captures from its frame. */
+        node->data.function.closed = node->data.function.num_captures == 0;
+        RChain inner = {scope, chain, node};
         resolve(node->data.function.body, &inner);
         return;
     }
@@ -214,7 +225,7 @@ static void resolve(IRNode *node, RChain *chain)
         node->data.try_catch.stack_slot =
             stack && stack[0] ? (uint32_t)ir_scope_push(scope, stack) : UINT32_MAX;
         node->data.try_catch.scope = scope;
-        RChain inner = {scope, chain};
+        RChain inner = {scope, chain, NULL};
         resolve(node->data.try_catch.catch_body, &inner);
         resolve(node->data.try_catch.finally_body, chain);
         return;

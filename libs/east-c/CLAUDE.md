@@ -47,6 +47,11 @@ REBUILD=1 make leak-check-all
   is verified against the live frame and falls back to the by-name walk, and
   `EAST_C_NO_SLOT_RESOLVE=1` skips the resolver so every read takes that walk
   — the oracle the resolved path is checked against.
+- A closure holds the frame it was made in, unless the resolver marked its
+  function `closed` (it reads nothing it does not bind). The evaluator drops
+  every frame it makes through `frame_release` (`src/compiler.c`), which
+  unbinds a frame only its own closures still hold — a frame released any
+  other way leaks with the closure bound in it (#1002).
 - `int64_t` for integers (no bigint).
 - Async preserved in IR but executed synchronously.
 

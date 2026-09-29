@@ -82,7 +82,9 @@ void ir_scope_release(IRScope *s);
 /* Annotate every scope-opening node of `root` with its IRScope and every
  * Variable / Let / Assign with the (hops, slot) of its binding, mirroring the
  * analyzer's scoping rules. Nodes whose name is not bound in the static chain
- * stay unresolved and take the by-name path at run time. */
+ * stay unresolved and take the by-name path at run time. A Function whose
+ * body reads nothing it does not bind, and which declares no capture, is
+ * marked `closed`. */
 void ir_resolve_scopes(IRNode *root);
 
 /* A Variable sub-node as it appears in the IR wire format:
@@ -219,6 +221,8 @@ struct IRNode {
             EastValue *source_ir; // original IR variant value for serialization
             IRScope *scope;       /* the call frame: params at 0..num_params-1 */
             char *name;           /* the Let this function is bound to, if any */
+            bool closed;          /* reads nothing its body does not bind and declares no
+                                     capture (resolver): its closures hold no frame */
         } function;
 
         // IR_CALL, IR_CALL_ASYNC

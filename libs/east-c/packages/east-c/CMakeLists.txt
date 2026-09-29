@@ -449,6 +449,18 @@ add_executable(test_scope_resolution tests/test_scope_resolution.c)
 target_link_libraries(test_scope_resolution east-c)
 add_test(NAME scope_resolution COMMAND test_scope_resolution)
 
+# Closure-frame gate (#1002): a closure bound in the frame it was made in —
+# `$.const(East.function(...))`, the Let linkImports embeds an import under —
+# must not keep that frame alive once the body is done. A closed function
+# holds no frame, and a frame only its own closures hold goes when the
+# evaluator lets go of it. Each shape runs its body many times with
+# resolution on and off and must leave no tracked value behind; the closures
+# that escape their block must still read it. Run under ASan/LSan: unbinding
+# a frame a live closure reads is a use-after-free there.
+add_executable(test_closure_frames tests/test_closure_frames.c)
+target_link_libraries(test_closure_frames east-c)
+add_test(NAME closure_frames COMMAND test_closure_frames)
+
 # Field-read inline cache gate: a GetField node remembers the struct type it
 # last read and the field's index, so a value that borrows its names from
 # that type is read by index. A coerced struct carrying its own field order
