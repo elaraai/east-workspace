@@ -508,7 +508,8 @@ test.describe("Visual invariants — the Table", () => {
                 for (const r of rows) if (r.toggle !== undefined) carets.set(r.depth, [...(carets.get(r.depth) ?? []), r.toggle.left]);
                 for (const [depth, xs] of carets) if (Math.max(...xs) - Math.min(...xs) > 0.5) out.push(`depth ${depth}: carets at ${xs.map((x) => x.toFixed(1)).join(", ")}`);
                 // A subtotal sits in its column exactly as the cells above it do:
-                // the same cell box, its content starting at the same x.
+                // the same cell box, its content on the same edge — the right one
+                // in a number column, whose figures sit right-aligned.
                 const subtotals = [...root.querySelectorAll<HTMLElement>("tbody td[data-subtotal]")];
                 for (const td of subtotals) {
                     const tr = td.closest("tr")!;
@@ -522,7 +523,9 @@ test.describe("Visual invariants — the Table", () => {
                     if (Math.abs(a.left - b.left) > 0.5 || Math.abs(a.width - b.width) > 0.5) out.push(`${what}: cell ${a.left.toFixed(1)}+${a.width.toFixed(1)}, the leaf's ${b.left.toFixed(1)}+${b.width.toFixed(1)}`);
                     const ca = td.firstElementChild?.getBoundingClientRect();
                     const cb = leaf.firstElementChild?.getBoundingClientRect();
-                    if (ca !== undefined && cb !== undefined && Math.abs(ca.left - cb.left) > 0.5) out.push(`${what}: content at ${ca.left.toFixed(1)}, the leaf's at ${cb.left.toFixed(1)}`);
+                    const right = getComputedStyle(td).justifyContent === "flex-end";
+                    const edge = (r: DOMRect) => (right ? r.right : r.left);
+                    if (ca !== undefined && cb !== undefined && Math.abs(edge(ca) - edge(cb)) > 0.5) out.push(`${what}: content ${right ? "ends" : "starts"} at ${edge(ca).toFixed(1)}, the leaf's at ${edge(cb).toFixed(1)}`);
                     // The text it shows reads semibold — an accounting subtotal.
                     const texts = [...td.querySelectorAll("*")].filter((el) => [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== ""));
                     for (const el of texts) if (Number(getComputedStyle(el).fontWeight) < 600) out.push(`${what}: "${(el.textContent ?? "").trim()}" at weight ${getComputedStyle(el).fontWeight}, want semibold`);
