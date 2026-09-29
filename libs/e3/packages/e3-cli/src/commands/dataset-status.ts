@@ -54,7 +54,10 @@ export async function datasetStatusCommand(
       } else {
         console.log('Status: set');
         console.log(`Hash:   ${result.hash}`);
-        console.log(`Size:   ${formatSize(result.size!)}`);
+        // What the value weighs in the store, as a server's status and the run
+        // summary report it: a collection's segments and its manifest, where
+        // the dataset object alone is the manifest, a few dozen bytes a segment.
+        console.log(`Size:   ${formatSize(result.storedBytes ?? result.size!)}`);
         // From the blob's trailing index, two ranged reads — so a re-pointed
         // input can be inspected without decoding a gigabyte of it.
         if (result.segments != null) console.log(`Segments: ${result.segments}`);
