@@ -11,7 +11,7 @@ import { expect, test } from "vitest";
 import { IntegerType, StringType, StructType, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
-import { EditSession, type EditSessionBinding, type EntryVersion, type Origin } from "./session.js";
+import { EditSession, type EditSessionBinding, type EntryVersion, type Origin, type Placement } from "./session.js";
 
 const Run = StructType({ id: StringType, start: IntegerType, end: IntegerType });
 const Draft = Editing.Types.Draft(Run);
@@ -58,6 +58,30 @@ test("the collections' own gestures — a resize, a drop, a verdict — are repo
     await Promise.resolve();
     expect(events.map((e) => e.origin.type)).toEqual(["resize", "drop", "verdict"]);
     expect(events.every((e) => e.domainChanges.type === "some")).toBe(true);
+});
+
+test("an Array batch places anchors first, so Apply leaves the drafted order whichever entry was touched first", async () => {
+    const Tile = StructType({ id: StringType });
+    const TileDraft = Editing.Types.Draft(Tile);
+    const TileBatch = Editing.Types.ChangeSet(Tile);
+    const at = (id: string, place: Placement): EntryVersion<Bar> => ({ draft: liftDraft(TileDraft, { id }), wire: { key: id, caption: id }, place });
+    const batches: ValueTypeOf<typeof TileBatch>[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "tiles", entryType: Tile, draftType: TileDraft, idField: "id", auto: false, patch: undefined, refresh: undefined,
+        apply: (bytes) => { batches.push(decodeBeast2For(TileBatch)(bytes)); return variant("applied", { revision: none }); },
+    });
+    session.observeBase(variant("snapshot", [{ id: "p" }, { id: "a" }, { id: "b" }, { id: "q" }]));
+    // q moves beside a: p a q b.
+    session.record([{ id: "q", before: at("q", some(variant("ordered", variant("after", "b")))), after: at("q", some(variant("ordered", variant("after", "a")))) }], "move", "Move q");
+    // p moves beside a too: a p q b — q now stands after p, and says so.
+    session.record([
+        { id: "p", before: at("p", some(variant("ordered", variant("before", "a")))), after: at("p", some(variant("ordered", variant("after", "a")))) },
+        { id: "q", before: at("q", some(variant("ordered", variant("after", "a")))), after: at("q", some(variant("ordered", variant("after", "p")))) },
+    ], "move", "Move p");
+    expect(session.applied()).toEqual([{ id: "a" }, { id: "p" }, { id: "q" }, { id: "b" }]);
+    await session.apply();
+    // q was touched first, but it is anchored on p: p is placed before it.
+    expect(batches[0]!.changes.map((c) => c.id)).toEqual(["p", "q"]);
 });
 
 test("Apply sends the domain change alone — never the projection — and the source's snapshot acknowledges it", async () => {

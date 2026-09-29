@@ -80,6 +80,17 @@ export {
     EastChakraSplitter,
     type SplitterValue,
     type EastChakraSplitterProps,
+    EastChakraSnapGrid,
+    type SnapGridValue,
+    type SnapGridCellValue,
+    type EastChakraSnapGridProps,
+    // The SnapGrid's editing canvas and its words (#990)
+    SnapGridEditor,
+    type SnapGridEditorProps,
+    SnapGridMessagesProvider,
+    snapGridMessages,
+    type SnapGridMessages,
+    type SnapGridMessagesProviderProps,
 } from "./layout/index.js";
 
 // Charts

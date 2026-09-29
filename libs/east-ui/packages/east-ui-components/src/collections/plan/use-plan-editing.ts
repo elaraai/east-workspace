@@ -34,10 +34,10 @@ import {
     NullType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, none, some, toEastTypeValue, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { EditingReadinessType, Plan } from "@elaraai/east-ui/internal";
+import { Plan } from "@elaraai/east-ui/internal";
 import { useEditSession, type EditSource, type EditingValue } from "../../editing/use-edit-session.js";
-import type { EditIssue, EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin } from "../../editing/session.js";
-import { kindOfIssue, raiseIssue, type BatchReadiness } from "../../editing/draft.js";
+import type { EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin } from "../../editing/session.js";
+import { kindOfIssue, wholeEntryReadiness } from "../../editing/draft.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import type { DragEventValue } from "../../dnd/drag-layer";
 import { fromPlanSlot } from "./slot.js";
@@ -51,8 +51,6 @@ import type { RowKey } from "./plan-state.js";
 export type PlanEditingValue = ValueTypeOf<typeof Plan.Types.Editing>;
 /** A gesture — what a draft is made by. */
 type PlanGesture = ValueTypeOf<typeof Plan.Types.Gesture>;
-/** One entry's readiness, as the author's check answers it. */
-type Readiness = ValueTypeOf<typeof EditingReadinessType>;
 
 /** One entry as the session holds it — its id. What it draws is derived when a mark needs it. */
 export interface PlanEntryRef {
@@ -137,14 +135,6 @@ const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.pa
 const rowEqual = equalFor(Plan.Types.Row);
 const NO_MARKS: ReadonlyMap<RowKey, PlanDraftMark> = new Map();
 const NO_DRAFTS: ReadonlyMap<string, Uint8Array> = new Map();
-const READY: BatchReadiness = variant("ready", null);
-
-/** What an author's check that refused without a word says — canonical English, carried to the host. */
-const AUTHOR_TEXT = {
-    incomplete: "This entry is not ready yet",
-    invalid: "This entry is invalid",
-    failed: (message: string) => `Readiness check failed: ${message}`,
-} as const;
 
 /** The entry a row came from — the first segment of its id's path; none for a top-level section's header. */
 export function entryOf(id: PlanRowId): string | undefined {
@@ -225,39 +215,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     const ready = useMemo<EditSessionBinding<PlanEntryRef>["ready"]>(() => {
         const check = editing?.ready.type === "some" ? editing.ready.value : undefined;
         if (check === undefined || codec === undefined) return undefined;
-        return (entries) => {
-            const originals = sessionRef.current?.originals;
-            const batch: { id: string; entry: Uint8Array }[] = [];
-            for (const [id, entry] of entries) {
-                const now = entryValueOf(entry);
-                if (now === undefined) continue;
-                // An entry a draft left as the source holds it is the source's to check.
-                const was = entryValueOf(originals?.get(id));
-                if (was !== undefined && codec.equal(was.value, now.value)) continue;
-                batch.push({ id, entry: codec.encode(now.value) });
-            }
-            if (batch.length === 0) return READY;
-            let results: readonly Readiness[];
-            try { results = check(batch); }
-            catch (err) {
-                const failed: Readiness = variant("invalid", [{ field: "", message: AUTHOR_TEXT.failed(err instanceof Error ? err.message : String(err)) }]);
-                results = batch.map(() => failed);
-            }
-            const issues: EditIssue[] = [];
-            let invalid = false;
-            // Each issue raised with its entry's own kind: the batch holds them
-            // all under one, and an entry is marked for its own.
-            results.forEach((result, i) => {
-                if (result.type === "ready") return;
-                invalid ||= result.type === "invalid";
-                const entry = batch[i]!.id;
-                if (result.value.length === 0) issues.push(raiseIssue(result.type, { entry, row: none, field: none, message: AUTHOR_TEXT[result.type] }));
-                for (const issue of result.value) {
-                    issues.push(raiseIssue(result.type, { entry, row: none, field: issue.field === "" ? none : some(issue.field), message: issue.message }));
-                }
-            });
-            return issues.length > 0 ? variant(invalid ? "invalid" : "incomplete", issues) : READY;
-        };
+        return wholeEntryReadiness(check, () => sessionRef.current?.originals, codec);
     }, [editing, codec]);
 
     // ── The paged source a reconcile reads ───────────────────────────────

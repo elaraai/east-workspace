@@ -12,6 +12,12 @@
  * 1440, 960, 600 and 390px. Every measurement is polled until it holds, on a
  * page at rest; no screenshot is read.
  *
+ * The editing canvas (#990), on the builder example: the column ruler and
+ * the bands, the end zone and the stage a drag resting on it draws, a height
+ * drag snapping to a neighbour's edge (the guide) and to 40px steps, and a
+ * span drag under a design width and a zoom — pointer gestures a real
+ * browser lays out, where the DOM tests fake the layout.
+ *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test snap-grid-geometry --project desktop`.
  */
@@ -209,5 +215,146 @@ test.describe("SnapGrid geometry (#989)", () => {
         // With no content drawn to size it, an auto-height cell keeps the wireframe's row height.
         await setCell(grid, "accounts", { style: { height: "" }, attr: ["data-auto-height", ""] });
         await expect.poll(async () => (await boxes(grid))["accounts"]!.h, "auto").toBe(24);
+    });
+});
+
+/** Open the builder example and return its canvas's editor, at rest. */
+async function openEditor(page: Page): Promise<Locator> {
+    await page.goto("/?theme=light#layout/snap-grid/snapGridEditor");
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator('a[href="#layout/snap-grid/snapGridEditor"]') });
+    await entry.scrollIntoViewIfNeeded();
+    const editor = entry.locator("[data-snap-grid-editor]").first();
+    await expect(editor).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return editor;
+}
+
+/** An element's box, in client px. */
+function boxOf(el: Locator): Promise<{ x: number; y: number; w: number; h: number }> {
+    return el.evaluate((node) => {
+        const b = node.getBoundingClientRect();
+        return { x: b.left, y: b.top, w: b.width, h: b.height };
+    });
+}
+
+/** A tile's frame height, in layout px. */
+const frameHeight = (editor: Locator, key: string) =>
+    editor.locator(`[data-snap-grid-tile="${key}"] > [data-frame]`).evaluate((el) => (el as HTMLElement).offsetHeight);
+
+test.describe("SnapGrid editing canvas (#990)", () => {
+    // Keyed on the device, not the width: the viewport below is this block's own.
+    test.skip(({ isMobile }) => isMobile, "the builder is a desktop surface, measured with a mouse");
+    test.use({ viewport: { width: 1600, height: 1000 } });
+
+    test("guides: a 24px ruler of 12 columns over the rows with a 2px top rule, the selected tile's columns in brand at 600, and a band behind each column", async ({ page }) => {
+        const editor = await openEditor(page);
+        await expect.poll(() => editor.evaluate((root) => {
+            const marks = [...root.querySelector("[data-snap-grid-ruler]")!.children] as HTMLElement[];
+            const bands = [...root.querySelector("[data-snap-grid-bands]")!.children] as HTMLElement[];
+            const round = (n: number) => Math.round(n * 10) / 10;
+            return {
+                n: marks.length,
+                heights: [...new Set(marks.map((m) => round(m.getBoundingClientRect().height)))],
+                rules: [...new Set(marks.map((m) => getComputedStyle(m).borderTopWidth))],
+                on: marks.map((m) => m.hasAttribute("data-on")),
+                onWeight: [...new Set(marks.filter((m) => m.hasAttribute("data-on")).map((m) => getComputedStyle(m).fontWeight))],
+                bandsUnder: bands.length === 12 && bands.every((b, i) => {
+                    const bb = b.getBoundingClientRect(), mb = marks[i]!.getBoundingClientRect();
+                    return Math.abs(bb.left - mb.left) < 0.5 && Math.abs(bb.width - mb.width) < 0.5 && bb.top >= mb.bottom;
+                }),
+            };
+        })).toEqual({
+            n: 12, heights: [24], rules: ["2px"],
+            // The trend, selected, spans columns 1–8.
+            on: [true, true, true, true, true, true, true, true, false, false, false, false],
+            onWeight: ["600"], bandsUnder: true,
+        });
+    });
+
+    test("the end zone: 64px, dashed, a 10px radius, 12px under the last row; resting a tile on it makes it the target, and the tile takes a row of its own", async ({ page }) => {
+        const editor = await openEditor(page);
+        const zone = editor.locator("[data-snap-grid-end]");
+        const box = zone.locator(":scope > *").first();
+        const words = () => zone.evaluate((z) => [...z.querySelectorAll("span")].filter((s) => getComputedStyle(s).display !== "none").map((s) => s.textContent));
+        await expect.poll(() => box.evaluate((el) => {
+            const s = getComputedStyle(el);
+            return { h: el.getBoundingClientRect().height, border: `${s.borderTopWidth} ${s.borderTopStyle}`, radius: s.borderTopLeftRadius };
+        })).toEqual({ h: 64, border: "1px dashed", radius: "10px" });
+        await expect.poll(async () => {
+            const last = await boxOf(editor.locator("[data-snap-grid-row]").last());
+            const b = await boxOf(box);
+            return tenth(b.y - (last.y + last.h));
+        }).toBe(12);
+        await expect.poll(words).toEqual(["Drag from the library · new 12-col row"]);
+        const rest = await box.evaluate((el) => getComputedStyle(el).backgroundColor);
+        // Pick the breakdown up by its body and rest it on the end zone.
+        const tile = await boxOf(editor.locator('[data-snap-grid-tile="region"]'));
+        const target = await boxOf(box);
+        await page.mouse.move(tile.x + tile.w / 2, tile.y + tile.h / 2);
+        await page.mouse.down();
+        await page.mouse.move(tile.x + tile.w / 2 + 20, tile.y + tile.h / 2 + 20, { steps: 4 });
+        await page.mouse.move(target.x + target.w / 2, target.y + target.h / 2, { steps: 8 });
+        await expect.poll(words).toEqual(["▾ Drop component here · snaps to a new 12-col row"]);
+        expect(await box.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(rest);
+        await page.mouse.up();
+        await expect.poll(() => editor.evaluate((root) =>
+            [...root.querySelectorAll("[data-snap-grid-row]")].map((r) => [...r.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"))),
+        )).toEqual([["kpi"], ["trend"], ["board"], ["region"]]);
+        await expect.poll(words).toEqual(["Drag from the library · new 12-col row"]);
+    });
+
+    test("a height drag snaps to a neighbour's bottom edge within 16px, drawing the dashed guide while it holds, and to 40px steps past it", async ({ page }) => {
+        const editor = await openEditor(page);
+        await editor.locator('[data-snap-grid-tile="region"]').click();
+        const handle = editor.locator('[data-snap-grid-tile="region"] [data-handle="height"]');
+        await expect(handle).toBeVisible();
+        const trendH = await frameHeight(editor, "trend");
+        const regionH = await frameHeight(editor, "region");
+        expect(trendH).not.toBe(regionH);
+        const h = await boxOf(handle);
+        const x = h.x + h.w / 2, y = h.y + h.h / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        // 6px past the trend's bottom edge: it snaps to it, and the guide runs across the row there.
+        await page.mouse.move(x, y + (trendH - regionH) + 6, { steps: 4 });
+        await expect.poll(() => frameHeight(editor, "region")).toBe(trendH);
+        await expect.poll(() => editor.evaluate((root) => {
+            const guide = root.querySelector<HTMLElement>("[data-snap-grid-guide]");
+            return guide === null ? null : { top: Number.parseFloat(guide.style.top), style: getComputedStyle(guide).borderTopStyle };
+        })).toEqual({ top: trendH, style: "dashed" });
+        // Well past it: a 40px step, and no guide.
+        await page.mouse.move(x, y + (trendH - regionH) + 70, { steps: 4 });
+        const stepped = Math.round((trendH + 70) / 40) * 40;
+        await expect.poll(() => frameHeight(editor, "region")).toBe(stepped);
+        await expect.poll(() => editor.locator("[data-snap-grid-guide]").count()).toBe(0);
+        await page.mouse.up();
+        // Released, it stays — a draft the history can undo.
+        await expect.poll(() => frameHeight(editor, "region")).toBe(stepped);
+        await expect(editor.getByRole("button", { name: "Undo" })).toBeEnabled();
+    });
+
+    test("under a design width and a zoom the canvas draws at the width times the zoom, scrolls in its host, and a span drag snaps per zoomed column", async ({ page }) => {
+        const editor = await openEditor(page);
+        const canvas = editor.locator("[data-snap-grid-canvas]");
+        await canvas.evaluate((el) => { (el as HTMLElement).style.width = "1440px"; (el as HTMLElement).style.setProperty("zoom", "0.5"); });
+        await expect.poll(async () => tenth((await boxOf(canvas)).w)).toBe(720);
+        await expect.poll(() => editor.evaluate((root) => {
+            const viewport = root.querySelector("[data-snap-grid-canvas]")!.parentElement!;
+            return viewport.scrollWidth > viewport.clientWidth;
+        })).toBe(true);
+        const handle = editor.locator('[data-snap-grid-tile="trend"] [data-handle="span"]');
+        await handle.scrollIntoViewIfNeeded();
+        const row = await boxOf(editor.locator('[data-snap-grid-row="charts"]'));
+        const tile = await boxOf(editor.locator('[data-snap-grid-tile="trend"]'));
+        const h = await boxOf(handle);
+        // The zoomed row's columns: its width less 11 gaps of 12 × 0.5, over 12.
+        const gap = 6, column = (row.w - 11 * gap) / 12;
+        const at6 = tile.x + 6 * (column + gap) - gap;
+        await page.mouse.move(h.x + h.w / 2, h.y + h.h / 2);
+        await page.mouse.down();
+        await page.mouse.move(at6, h.y + h.h / 2, { steps: 6 });
+        await page.mouse.up();
+        await expect.poll(() => editor.locator('[data-snap-grid-tile="trend"]').evaluate((el) => (el as HTMLElement).style.getPropertyValue("--snap-grid-span"))).toBe("6");
     });
 });

@@ -11,7 +11,7 @@
  * @packageDocumentation
  */
 import { OptionType, equalFor, none, some, variant, type EastType, type VariantType, type ValueTypeOf } from "@elaraai/east";
-import { EditingBatchReadinessType, EditingIssueType } from "@elaraai/east-ui/internal";
+import { EditingBatchReadinessType, EditingIssueType, EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DRAFT_ISSUE_TEXT } from "./messages.js";
 
 type Issue = ValueTypeOf<typeof EditingIssueType>;
@@ -116,6 +116,71 @@ export function normalizeDraft(type: EastType, draft: unknown, entry: string): {
     const domain = visit(type, draft);
     const readiness: BatchReadiness = invalid.length ? variant("invalid", [...invalid, ...missing]) : missing.length ? variant("incomplete", missing) : variant("ready", null);
     return { domain: readiness.type === "ready" ? domain : undefined, readiness };
+}
+
+/** One entry's readiness, as an author's check answers it. */
+type Readiness = ValueTypeOf<typeof EditingReadinessType>;
+
+/** What an author's check that refused without a word says — canonical English, carried to the host. */
+const AUTHOR_TEXT = {
+    incomplete: "This entry is not ready yet",
+    invalid: "This entry is invalid",
+    failed: (message: string) => `Readiness check failed: ${message}`,
+} as const;
+
+/**
+ * The author's readiness check over drafted WHOLE entries — the session's
+ * `ready` for a collection whose drafts are whole entries
+ * (`Editing.Types.DraftField(E)`: the Plan, the Layout). Every entry a draft
+ * changed is encoded and checked in one call; an entry a draft left as the
+ * source holds it is the source's to check. Each refusal becomes issues
+ * raised with its own kind, and a check that throws refuses every entry it
+ * was asked about.
+ *
+ * @param check - The wire's check — one readiness per `{ id, entry }`, in order
+ * @param originals - The entries as the source holds them (the session's `originals`)
+ * @param codec - The entry type's encoder and equality
+ * @returns The session's `ready`
+ */
+export function wholeEntryReadiness(
+    check: (batch: { id: string; entry: Uint8Array }[]) => readonly Readiness[],
+    originals: () => ReadonlyMap<string, { draft: unknown }> | undefined,
+    codec: { encode: (value: unknown) => Uint8Array; equal: (a: unknown, b: unknown) => boolean },
+): (entries: ReadonlyMap<string, { draft: unknown }>) => BatchReadiness {
+    const valueOf = (entry: { draft: unknown } | undefined): { value: unknown } | undefined => {
+        const draft = entry?.draft as { type: string; value: unknown } | undefined;
+        return draft?.type === "value" ? { value: draft.value } : undefined;
+    };
+    return (entries) => {
+        const was = originals();
+        const batch: { id: string; entry: Uint8Array }[] = [];
+        for (const [id, entry] of entries) {
+            const now = valueOf(entry);
+            if (now === undefined) continue;
+            const before = valueOf(was?.get(id));
+            if (before !== undefined && codec.equal(before.value, now.value)) continue;
+            batch.push({ id, entry: codec.encode(now.value) });
+        }
+        if (batch.length === 0) return variant("ready", null);
+        let results: readonly Readiness[];
+        try { results = check(batch); }
+        catch (err) {
+            const failed: Readiness = variant("invalid", [{ field: "", message: AUTHOR_TEXT.failed(err instanceof Error ? err.message : String(err)) }]);
+            results = batch.map(() => failed);
+        }
+        const issues: Issue[] = [];
+        let invalid = false;
+        results.forEach((result, i) => {
+            if (result.type === "ready") return;
+            invalid ||= result.type === "invalid";
+            const entry = batch[i]!.id;
+            if (result.value.length === 0) issues.push(raiseIssue(result.type, { entry, row: none, field: none, message: AUTHOR_TEXT[result.type] }));
+            for (const issue of result.value) {
+                issues.push(raiseIssue(result.type, { entry, row: none, field: issue.field === "" ? none : some(issue.field), message: issue.message }));
+            }
+        });
+        return issues.length > 0 ? variant(invalid ? "invalid" : "incomplete", issues) : variant("ready", null);
+    };
 }
 
 /** How a draft shows: whether it differs, and what stands in its way. */
