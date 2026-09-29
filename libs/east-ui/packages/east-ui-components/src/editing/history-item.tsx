@@ -6,7 +6,7 @@
 /**
  * The history item (#988) — the editing session's history bar as one item of
  * the shared toolbar (#952), the same in every editable collection: the Sheet,
- * the Plan and the Layout take it from here rather than each building its own
+ * the Plan and the SnapGrid take it from here rather than each building its own
  * mount.
  *
  * @packageDocumentation

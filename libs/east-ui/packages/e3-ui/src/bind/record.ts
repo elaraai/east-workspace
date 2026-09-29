@@ -512,7 +512,7 @@ const settleWrite = East.function(
 
 /**
  * Commit an editable collection's batches to an `e3.record` — the `onApply` a
- * Sheet, a Plan or a Layout takes, each Apply one commit through the record's
+ * Sheet, a Plan or a SnapGrid takes, each Apply one commit through the record's
  * patch door (`e3.mutation.patch`).
  *
  * @remarks
@@ -796,7 +796,7 @@ function applyToRecord(
  * shared dataset cache), and `mutate.<name>` applies a typed mutation
  * fire-and-forget under compare-and-swap, refreshing `read()` on commit;
  * `commit.<name>` is the same write awaited. `Record.onApply` commits a
- * Sheet's, a Plan's or a Layout's batches to the record, each Apply one commit
+ * Sheet's, a Plan's or a SnapGrid's batches to the record, each Apply one commit
  * through its patch door.
  *
  * Use inside `Reactive.Root` for reactive re-rendering as the record and the

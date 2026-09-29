@@ -721,6 +721,9 @@ importers:
       '@elaraai/e3':
         specifier: workspace:*
         version: link:../../../e3/packages/e3
+      '@elaraai/e3-core':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-core
       '@elaraai/east-node-std':
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std

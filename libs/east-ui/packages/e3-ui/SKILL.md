@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -109,7 +109,11 @@ Task → What do you need?
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body → Studio.component(key, meta, fn)
-    │   └─ Render a placement by its component's key      → Studio.dispatch(components, key)
+    │   ├─ Render a placement by its component's key      → Studio.dispatch(components, key)
+    │   ├─ Store the pages operators build                → e3.record("pages", Studio.Types.Pages, new Map()) + e3.mutation.patch(pages)
+    │   ├─ Save the open page (the canvas's Apply)         → Studio.save(record, key)
+    │   ├─ Publish / revert / start a page / a template   → Studio.publish / .revert / .newPage / .saveTemplate → one patch
+    │   └─ The change list, "used in N", live or draft    → Studio.changes / .usage / .status
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -433,6 +437,58 @@ return <VStack gap="3" align="stretch">{Studio.dispatch(components, "sales_count
 - A key the list does not hold renders a placeholder naming it; a key two listed
   components share renders an error naming it.
 
+### Studio pages — `Studio.Types.Pages`, its writes and the change list
+
+The Studio exports the pages record's type; a solution declares its storage like
+any record, with one write, a patch:
+
+```ts
+export const pages      = e3.record("pages", Studio.Types.Pages, new Map());
+export const pagesPatch = e3.mutation.patch(pages);
+```
+
+The builder binds it with `Record.bind(pages, [pagesPatch])`, and the site reads
+it with `Data.bind(pages)`. The type never depends on the components, so a deploy
+that adds, changes or removes one runs no migration.
+
+- `Studio.Types.Pages` is `Dict<Key, Entry>`. A `Key` is `{ project, page }`. An
+  `Entry` is a `page` — `{ draft, live }`, `live` being `none` until the first
+  publish, else `{ version, page }` — or a `template`, a layout new pages start from.
+- A `Page` is `{ title, cells }`, and a `Cell` is `{ key, row, span, height,
+  align, title, component, fingerprint }`: a component's key, where it sits on the
+  SnapGrid (rows in the order their keys first appear), and its code's
+  fingerprint when the page was saved.
+
+Every operator action is one patch commit, computed in East as the diff of the
+one entry it writes:
+
+| Write | How |
+|---|---|
+| Save | `Studio.save(record, key)` — the canvas's `editing.onApply`; commits the batch to the page's draft cells |
+| Publish | `Studio.publish(pages, key)` — the live version becomes the draft, numbered one up (1 the first time) |
+| Revert | `Studio.revert(pages, key)` — the draft becomes the live version's layout |
+| New page | `Studio.newPage(pages, key, title, template)` — a template's cells, or none for the blank grid |
+| Save as template | `Studio.saveTemplate(pages, from, key, title)` — a template of a page's draft |
+
+```tsx
+const record  = $.let(Record.bind(pages, [pagesPatch]));
+const publish = $.const(East.function([], NullType, $ => {
+    $(record.mutate.patch(Studio.publish(record.read(), open)));
+}));
+```
+
+A patch carries what it changes as it was, so a write drafted on a stale page is
+a `conflict` naming the page, and nothing is overwritten.
+
+Reads, in East over the record's value:
+- `Studio.changes(before, after)` — the changes between two layouts: `added`,
+  `removed`, `moved`, `resized`, `height`, `aligned` and `retitled`, each with its
+  cell, its component and a detail such as `row 2 · span 4` or `span 12 → 8`.
+  `Studio.changes(live.page, draft)` is "N changes since vN".
+- `Studio.usage(pages)` — how many pages place each component, "Used in N".
+- `Studio.status(page)` — `live` when the draft is the published layout, else
+  `draft`.
+
 ## Key Patterns
 
 ### Staged commit / discard
@@ -495,6 +551,8 @@ Tested examples live in `test/*.examples.tsx`:
 - `studio/component.examples.tsx` — `Studio.component` and `Studio.dispatch`: a
   self-contained component placed twice, sharing its state, and a placement's
   three outcomes.
+- `studio/pages.examples.ts` — the pages record: a publish, a new page from a
+  template, the change list, "used in N" and a page's status.
 
 ## Related skills
 

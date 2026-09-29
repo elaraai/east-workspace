@@ -61,11 +61,22 @@ export {
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest } from './utils/derive.js';
 
-// The Studio (#787): components as code, and the placements that render them.
+// The Studio (#787): components as code, the placements that render them, and
+// the pages record operators build.
 export {
     Studio,
     StudioComponentType,
     StudioFrameType,
+    StudioCellChangeType,
+    StudioCellType,
+    StudioChangeType,
+    StudioEntryType,
+    StudioKeyType,
+    StudioLiveType,
+    StudioPageEntryType,
+    StudioPageType,
+    StudioPagesType,
+    StudioStatusType,
     fingerprintOf,
     type StudioNamespace,
     type StudioComponentMeta,

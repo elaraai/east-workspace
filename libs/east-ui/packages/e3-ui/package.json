@@ -70,6 +70,7 @@
   },
   "devDependencies": {
     "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-core": "workspace:*",
     "@elaraai/east-node-std": "workspace:*",
     "@elaraai/east-py-datascience": "workspace:*",
     "@types/node": "^22",

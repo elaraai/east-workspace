@@ -5,10 +5,16 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import * as ex from "./component.examples.js";
+import * as pages from "./pages.examples.js";
 
-describeEast("Studio examples (#991)", (test) => {
+describeEast("Studio examples (#991, #992)", (test) => {
     Assert.examples(test, {
         studioComponent: ex.studioComponent,
         studioDispatch: ex.studioDispatch,
+        studioChanges: pages.studioChanges,
+        studioPublish: pages.studioPublish,
+        studioNewPage: pages.studioNewPage,
+        studioUsage: pages.studioUsage,
+        studioStatus: pages.studioStatus,
     });
 }, { platformFns: TestImpl });
