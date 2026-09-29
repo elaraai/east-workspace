@@ -40,10 +40,6 @@ static _Thread_local EastValue gc_old_sentinel = {
 static _Thread_local size_t gc_young_count = 0;
 static _Thread_local size_t gc_old_count = 0;
 
-/* Visit-once stamp for gc_traverse (environment chain dedup).
- * Incremented before each Phase 2 and Phase 3. */
-static _Thread_local unsigned gc_generation = 0;
-
 /* Scheduling counters.
  * gc_young_net_allocs is signed: can go negative when young objects are
  * freed by refcounting before a collection triggers (east_gc_untrack
@@ -163,90 +159,319 @@ bool east_gc_should_collect(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Traverse: visit all EastValue* references held by a value          */
+/*  Traverse: visit every reference a value or a frame holds           */
 /* ------------------------------------------------------------------ */
 
-typedef void (*gc_visit_fn)(EastValue *child, void *ctx);
+/* A closure holds the frame it was made in, and a frame holds its parent and
+ * whatever its cells bind — a closure among them, or a struct, array or dict
+ * holding one. So a frame and a closure over it can hold each other however
+ * the closure is held, and reference counting frees neither (#1010). The
+ * collector counts references to frames as it counts them to values: a
+ * closure's child is its frame, and a frame's children are its parent and
+ * the values it binds.
+ *
+ * Frames are not tracked. Nothing holds a frame but the frames below it, the
+ * closures made in it or below it, and the evaluator or a host, so a frame is
+ * in a cycle only through a closure. A collection gathers the frames of the
+ * closures it walks — each closure's frame and the parents above it, each
+ * frame once (gc_gather_frames) — and settles their counts before a frame
+ * subtracts what it binds: the only references to a frame are a closure's and
+ * a child frame's (gc_subtract). A frame held from outside what the
+ * collection walks — by the evaluator, a host, or an old closure in a young
+ * collection — is live, and so is every frame above it and everything they
+ * bind; their bindings are neither counted nor walked, so the frames a
+ * running program sits in cost a collection nothing. Only the other frames —
+ * those a garbage cycle may hold — take part in the trial deletion. */
 
+/* A frame a collection has gathered, the collection's count of its
+ * references, and whether it is held: live because something outside the
+ * collection holds it or a frame below it. */
 typedef struct {
-    gc_visit_fn visit;
-    void *ctx;
-} EnvVisitCtx;
+    Environment *frame;
+    int refs;
+    bool held;
+} GCFrame;
 
-static void env_visit_cb(const char *key, void *value, void *ctx)
+/* The frames a collection has gathered. Each frame keeps its index here in
+ * gc_index, so the collection finds the frame's entry without a search; an
+ * index is taken only when the entry there names the frame, so one a frame
+ * keeps from an earlier collection is never mistaken for this one's. */
+typedef struct {
+    GCFrame *items;
+    size_t len, cap;
+} GCFrames;
+
+/* A growable stack of pointers: the values and frames a rescue has reached
+ * but not yet walked. */
+typedef struct {
+    void **items;
+    size_t len, cap;
+} GCStack;
+
+/* False when out of memory, with the stack as it was. */
+static bool gc_push(GCStack *stack, void *item)
 {
-    (void)key;
-    EnvVisitCtx *ectx = (EnvVisitCtx *)ctx;
-    if (value) ectx->visit((EastValue *)value, ectx->ctx);
+    if (stack->len == stack->cap) {
+        size_t cap = stack->cap ? stack->cap * 2 : 64;
+        void **grown = realloc(stack->items, cap * sizeof(void *));
+        if (!grown) return false;
+        stack->items = grown;
+        stack->cap = cap;
+    }
+    stack->items[stack->len++] = item;
+    return true;
 }
 
-/* gc_traverse visits v's children and calls the callback on each.
- *
- * `include_closures` controls whether EAST_VAL_FUNCTION walks its captured
- * environment chain. The env chain represents *reachability* (through the
- * closure) but NOT ref-counted ownership — a function holds a raw
- * `Environment*`, not per-value refs to each env local. So:
- *
- *   - Phase 2 (subtract): MUST NOT include closures, or `gc_refs` of
- *     env-owned values would be double-counted once per traversing function
- *     and wrongly reach zero.
- *   - Phase 3 (rescue): MUST include closures, or live values reachable only
- *     through a surviving function's closure would not be rescued.
- *
- * The generation stamp is used to avoid re-traversing shared env chains. */
-static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx, bool include_closures)
+typedef struct GCVisitor GCVisitor;
+
+/* What a phase does with a child value, and with a child frame. A value
+ * visitor gets the GCVisitor as its context — east_set_visit and
+ * east_dict_visit hand it through — so a rescue can reach on from the child. */
+typedef void (*gc_value_fn)(EastValue *child, void *visitor);
+typedef void (*gc_frame_fn)(Environment *child, GCVisitor *visitor);
+
+/* A phase's visitors and the frames it counts. */
+struct GCVisitor {
+    gc_value_fn value;
+    GCFrames *gathered; /* the collection's */
+    /* A rescue's: the values and frames it has reached and not yet walked.
+     * It walks on from these rather than on the C stack, so a chain as long
+     * as a list of a million closures — each binding the one before in the
+     * frame the next one holds — needs no deeper a stack than one link. When
+     * a stack cannot grow the rescue is `lost`: it has not walked all it
+     * reached, and the collection frees nothing. */
+    GCStack values, frames;
+    bool lost;
+};
+
+/* gc_traverse visits v's children: each value it holds, with `value`, and a
+ * closure's frame, with `frame`. Every reference is visited once — a child
+ * held twice, twice — and the visitor decides what to do with it. The
+ * visitors come as arguments, not through `visitor`, so a phase's loop that
+ * inlines this calls them directly. */
+static inline void gc_traverse(EastValue *v, gc_value_fn value, gc_frame_fn frame,
+                               GCVisitor *visitor)
 {
     switch (v->kind) {
     case EAST_VAL_ARRAY:
         for (size_t i = 0; i < v->data.array.len; i++) {
-            if (v->data.array.items[i]) visit(v->data.array.items[i], ctx);
+            if (v->data.array.items[i]) value(v->data.array.items[i], visitor);
         }
         break;
 
     case EAST_VAL_SET:
-        east_set_visit(v, visit, ctx); /* straight off the tree — `items` may be stale */
+        /* straight off the tree — `items` may be stale */
+        east_set_visit(v, value, visitor);
         break;
 
     case EAST_VAL_DICT:
-        east_dict_visit(v, visit, ctx); /* key+val straight off the tree — caches may be stale */
+        /* key+val straight off the tree — caches may be stale */
+        east_dict_visit(v, value, visitor);
         break;
 
     case EAST_VAL_STRUCT:
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
-            if (v->data.struct_.field_values[i]) visit(v->data.struct_.field_values[i], ctx);
+            if (v->data.struct_.field_values[i]) value(v->data.struct_.field_values[i], visitor);
         }
         break;
 
     case EAST_VAL_VARIANT:
-        if (v->data.variant.value) visit(v->data.variant.value, ctx);
+        if (v->data.variant.value) value(v->data.variant.value, visitor);
         break;
 
     case EAST_VAL_REF:
-        if (v->data.ref.value) visit(v->data.ref.value, ctx);
+        if (v->data.ref.value) value(v->data.ref.value, visitor);
         break;
 
     case EAST_VAL_FUNCTION:
-        if (include_closures && v->data.function.compiled && v->data.function.compiled->captures) {
-            EnvVisitCtx ectx = {.visit = visit, .ctx = ctx};
-            for (Environment *env = v->data.function.compiled->captures; env != NULL;
-                 env = env->parent) {
-                if (env->gc_gen == gc_generation) break;
-                env->gc_gen = gc_generation;
-                env_visit(env, env_visit_cb, &ectx);
-            }
-        }
+        if (v->data.function.compiled && v->data.function.compiled->captures)
+            frame(v->data.function.compiled->captures, visitor);
         break;
 
     case EAST_VAL_PAGED:
-        if (v->data.paged.hydrated) visit(v->data.paged.hydrated, ctx);
+        if (v->data.paged.hydrated) value(v->data.paged.hydrated, visitor);
         /* The owner is a retained edge like any other child (a leaf Blob in
          * practice — visiting a leaf is a no-op for the collector). */
-        if (v->data.paged.owner) visit(v->data.paged.owner, ctx);
+        if (v->data.paged.owner) value(v->data.paged.owner, visitor);
         break;
 
     default:
         break;
     }
+}
+
+/* A frame's binding, visited as a child value. */
+static void frame_binding(const char *name, void *value, void *visitor)
+{
+    (void)name;
+    if (value) ((GCVisitor *)visitor)->value(value, visitor);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Frames: gathered from the closures a collection walks              */
+/* ------------------------------------------------------------------ */
+
+/* The entry of `f` when the collection running now gathered it, else NULL.
+ * Only a gathered frame is counted, walked, and freed if nothing outside the
+ * collection reaches it. */
+static inline GCFrame *gathered(GCFrames *frames, const Environment *f)
+{
+    size_t i = f->gc_index;
+    return i < frames->len && frames->items[i].frame == f ? &frames->items[i] : NULL;
+}
+
+/* Phase 1 for the frames a closure holds: gathers its frame and the parents
+ * above it, up to one gathered already, each with its refcount copied.
+ * Nothing for any other value. False when out of memory. */
+static bool gc_gather_frames(EastValue *v, GCFrames *frames)
+{
+    if (v->kind != EAST_VAL_FUNCTION || !v->data.function.compiled) return true;
+    for (Environment *f = v->data.function.compiled->captures; f && !gathered(frames, f);
+         f = f->parent) {
+        if (frames->len == frames->cap) {
+            if (frames->cap > UINT_MAX / 2) return false; /* gc_index could not hold it */
+            size_t cap = frames->cap ? frames->cap * 2 : 64;
+            GCFrame *grown = realloc(frames->items, cap * sizeof(GCFrame));
+            if (!grown) return false;
+            frames->items = grown;
+            frames->cap = cap;
+        }
+        f->gc_index = (unsigned)frames->len;
+        frames->items[frames->len++] = (GCFrame){.frame = f, .refs = f->ref_count};
+    }
+    return true;
+}
+
+/* Phase 4a for frames: keeps, of the gathered frames, those neither held nor
+ * rescued, each marked as a garbage value is — so no release while the cycle
+ * is torn down can free it. */
+static void gc_garbage_frames(GCFrames *frames)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < frames->len; i++) {
+        if (!frames->items[i].held && frames->items[i].refs == 0) {
+            frames->items[i].frame->ref_count = INT_MAX;
+            frames->items[n++] = frames->items[i];
+        }
+    }
+    frames->len = n;
+}
+
+/* A rescue reaching a value or frame walks it later, from `stack`. When the
+ * stack cannot grow the rescue is lost, and the collection frees nothing. */
+static void gc_reach(GCVisitor *rescue, GCStack *stack, void *node)
+{
+    if (!gc_push(stack, node)) rescue->lost = true;
+}
+
+/* The Phase 2 and 3 visitors for a closure's frame and a frame's parent: only
+ * a frame the collection gathered is counted, and a rescue reaches a frame no
+ * one outside holds, walking its bindings and parent. */
+static void subtract_frame(Environment *child, GCVisitor *visitor)
+{
+    GCFrame *entry = gathered(visitor->gathered, child);
+    if (entry) entry->refs--;
+}
+
+static void rescue_frame(Environment *child, GCVisitor *visitor)
+{
+    GCFrame *entry = gathered(visitor->gathered, child);
+    if (entry && !entry->held && entry->refs == 0) {
+        entry->refs = 1;
+        gc_reach(visitor, &visitor->frames, child);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  The phases both collections share, over a list and its frames      */
+/* ------------------------------------------------------------------ */
+
+/* Phase 1: each value on `list` copies its refcount, and the frames its
+ * closures hold are gathered with theirs. Out of memory while gathering, the
+ * collection forgets every frame and goes on over its values alone, each
+ * frame's references counting as from outside — so a frame, and all it
+ * holds, survives it. */
+static void gc_count(EastValue *list, GCFrames *frames)
+{
+    bool gathering = true;
+    for (EastValue *v = list->gc_next; v != list; v = v->gc_next) {
+        v->gc_refs = v->ref_count;
+        if (gathering && v->kind == EAST_VAL_FUNCTION && !gc_gather_frames(v, frames)) {
+            frames->len = 0;
+            gathering = false;
+        }
+    }
+}
+
+/* The gathered frame `f`'s parent, when that was gathered too. */
+static inline GCFrame *gathered_parent(GCFrames *frames, const Environment *f)
+{
+    return f->parent ? gathered(frames, f->parent) : NULL;
+}
+
+/* Phase 2: trial deletion. Each reference a value on `list` holds is
+ * subtracted from its child — a closure's from its frame, and a value's as
+ * `value` decides — and each gathered frame's from its parent. Those are all
+ * the references to a frame besides the evaluator's, a host's or an uncounted
+ * closure's, so a frame's count is then settled: one with references left is
+ * held, and so is every frame above it. Last, each frame nothing outside holds
+ * subtracts what it binds; a held frame's bindings keep their references, so
+ * what it binds stays a root. */
+static inline void gc_subtract(EastValue *list, GCFrames *frames, gc_value_fn value)
+{
+    GCVisitor subtract = {.value = value, .gathered = frames};
+    for (EastValue *v = list->gc_next; v != list; v = v->gc_next)
+        gc_traverse(v, value, subtract_frame, &subtract);
+    for (size_t i = 0; i < frames->len; i++) {
+        GCFrame *parent = gathered_parent(frames, frames->items[i].frame);
+        if (parent) parent->refs--;
+    }
+    for (size_t i = 0; i < frames->len; i++) {
+        if (frames->items[i].refs <= 0) continue;
+        for (GCFrame *entry = &frames->items[i]; entry && !entry->held;
+             entry = gathered_parent(frames, entry->frame))
+            entry->held = true;
+    }
+    for (size_t i = 0; i < frames->len; i++) {
+        if (!frames->items[i].held) env_visit(frames->items[i].frame, frame_binding, &subtract);
+    }
+}
+
+/* Walks what a rescue has reached, until nothing is left: a value's
+ * children, a frame's parent and bindings. Popping the latest first walks a
+ * chain link by link, its stack never more than a link deep. */
+static inline void gc_rescue_reached(GCVisitor *rescue, gc_value_fn value)
+{
+    for (;;) {
+        if (rescue->values.len > 0) {
+            gc_traverse(rescue->values.items[--rescue->values.len], value, rescue_frame, rescue);
+        } else if (rescue->frames.len > 0) {
+            Environment *f = rescue->frames.items[--rescue->frames.len];
+            if (f->parent) rescue_frame(f->parent, rescue);
+            env_visit(f, frame_binding, rescue);
+        } else {
+            return;
+        }
+    }
+}
+
+/* Phase 3: rescues everything reachable from the values on `list` something
+ * outside them still holds — their counts stayed above zero — `value`
+ * deciding which values the collection may rescue. A held frame needs no
+ * rescue: nothing it binds was subtracted. False when the rescue was lost, and
+ * the collection must free nothing. */
+static inline bool gc_rescue(EastValue *list, GCFrames *frames, gc_value_fn value)
+{
+    GCVisitor rescue = {.value = value, .gathered = frames};
+    for (EastValue *v = list->gc_next; v != list; v = v->gc_next) {
+        if (v->gc_refs > 0) {
+            gc_traverse(v, value, rescue_frame, &rescue);
+            gc_rescue_reached(&rescue, value);
+        }
+    }
+    free(rescue.values.items);
+    free(rescue.frames.items);
+    return !rescue.lost;
 }
 
 /* ------------------------------------------------------------------ */
@@ -342,21 +567,20 @@ static void gc_promote(EastValue *v)
 
 /* Phase 2 visitor: decrement gc_refs of young tracked children only.
  * Old objects are treated as external references. */
-static void subtract_ref_young(EastValue *child, void *ctx)
+static void subtract_ref_young(EastValue *child, void *visitor)
 {
-    (void)ctx;
+    (void)visitor;
     if (east_value_is_tracked(child) && child->gc_gen == 0) {
         child->gc_refs--;
     }
 }
 
 /* Phase 3 visitor: rescue tentatively unreachable young objects */
-static void rescue_visit_young(EastValue *child, void *ctx)
+static void rescue_visit_young(EastValue *child, void *visitor)
 {
-    (void)ctx;
     if (east_value_is_tracked(child) && child->gc_gen == 0 && child->gc_refs == 0) {
         child->gc_refs = 1;
-        gc_traverse(child, rescue_visit_young, NULL, true);
+        gc_reach(visitor, &((GCVisitor *)visitor)->values, child);
     }
 }
 
@@ -364,35 +588,31 @@ static void gc_collect_young_impl(void)
 {
     if (gc_young_count == 0) return;
 
-    /* Phase 1: copy refcounts for young objects */
-    for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
-        v->gc_refs = v->ref_count;
-    }
+    /* Phase 1: copy refcounts for young objects, and gather the frames young
+     * closures hold with theirs. A frame only old closures hold is not
+     * gathered: like an old object, it waits for a full collection. */
+    GCFrames frames = {0};
+    gc_count(&gc_young_sentinel, &frames);
 
-    /* Phase 2: trial deletion — only subtract refs between young objects.
-     * Closures are NOT followed: a function holds a raw Environment*, not
-     * per-value refs to env locals, so walking them here would wrongly
-     * decrement the gc_refs of env-owned values. */
-    gc_generation++;
-    for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
-        gc_traverse(v, subtract_ref_young, NULL, false);
-    }
+    /* Phase 2: trial deletion — only subtract refs between young objects and
+     * the frames gathered with them. */
+    gc_subtract(&gc_young_sentinel, &frames, subtract_ref_young);
 
-    /* Phase 3: rescue young objects reachable from young roots. Closures ARE
-     * followed here so values reachable only through a surviving function's
-     * captured env get rescued. */
-    gc_generation++;
-    for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
-        if (v->gc_refs > 0) {
-            gc_traverse(v, rescue_visit_young, NULL, true);
-        }
+    /* Phase 3: rescue young objects and gathered frames reachable from those
+     * something outside them still holds. */
+    if (!gc_rescue(&gc_young_sentinel, &frames, rescue_visit_young)) { /* OOM — skip collection */
+        free(frames.items);
+        return;
     }
 
     /* Phase 4a: build garbage list, untrack, set ref_count = INT_MAX */
     size_t garbage_cap = gc_young_count > 0 ? gc_young_count : 64;
     size_t garbage_len = 0;
     EastValue **garbage = malloc(garbage_cap * sizeof(EastValue *));
-    if (!garbage) return; /* OOM — skip collection */
+    if (!garbage) { /* OOM — skip collection */
+        free(frames.items);
+        return;
+    }
 
     EastValue *v = gc_young_sentinel.gc_next;
     while (v != &gc_young_sentinel) {
@@ -409,16 +629,22 @@ static void gc_collect_young_impl(void)
         }
         v = next;
     }
+    gc_garbage_frames(&frames);
 
     /* Phase 4b: destroy contents of garbage (breaks cycles) */
     for (size_t i = 0; i < garbage_len; i++)
         gc_destroy_contents(garbage[i]);
+    for (size_t i = 0; i < frames.len; i++)
+        env_release_contents(frames.items[i].frame);
 
     /* Phase 4c: free garbage structs */
     for (size_t i = 0; i < garbage_len; i++)
         east_value_dealloc(garbage[i]);
+    for (size_t i = 0; i < frames.len; i++)
+        env_dealloc(frames.items[i].frame);
 
     free(garbage);
+    free(frames.items);
 
     /* Phase 4d: promote ALL remaining young objects to old */
     v = gc_young_sentinel.gc_next;
@@ -435,21 +661,20 @@ static void gc_collect_young_impl(void)
 /* ------------------------------------------------------------------ */
 
 /* Phase 2 visitor: decrement gc_refs of all tracked children */
-static void subtract_ref(EastValue *child, void *ctx)
+static void subtract_ref(EastValue *child, void *visitor)
 {
-    (void)ctx;
+    (void)visitor;
     if (east_value_is_tracked(child)) {
         child->gc_refs--;
     }
 }
 
 /* Phase 3 visitor: rescue tentatively unreachable objects */
-static void rescue_visit(EastValue *child, void *ctx)
+static void rescue_visit(EastValue *child, void *visitor)
 {
-    (void)ctx;
     if (east_value_is_tracked(child) && child->gc_refs == 0) {
         child->gc_refs = 1;
-        gc_traverse(child, rescue_visit, NULL, true);
+        gc_reach(visitor, &((GCVisitor *)visitor)->values, child);
     }
 }
 
@@ -474,31 +699,32 @@ static void gc_collect_full_impl(void)
 
     if (gc_old_count == 0) return;
 
-    /* Phase 1: copy refcounts */
-    for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
-        v->gc_refs = v->ref_count;
+    /* Phase 1: copy refcounts, and gather the frames every closure holds
+     * with theirs. */
+    GCFrames frames = {0};
+    gc_count(&gc_old_sentinel, &frames);
+
+    /* Phase 2: trial deletion — every reference between tracked objects and
+     * gathered frames. */
+    gc_subtract(&gc_old_sentinel, &frames, subtract_ref);
+
+    /* Phase 3: rescue from roots. */
+    if (!gc_rescue(&gc_old_sentinel, &frames, rescue_visit)) {
+        free(frames.items);
+        return;
     }
 
-    /* Phase 2: trial deletion — direct ref-counted edges only, no closures.
-     * See note on young collection's phase 2. */
-    gc_generation++;
-    for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
-        gc_traverse(v, subtract_ref, NULL, false);
-    }
-
-    /* Phase 3: rescue from roots — follow closures. */
-    gc_generation++;
-    for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
-        if (v->gc_refs > 0) {
-            gc_traverse(v, rescue_visit, NULL, true);
-        }
-    }
-
-    /* Phase 4a: build garbage list */
-    size_t garbage_cap = 64;
+    /* Phase 4a: build garbage list — sized before anything is unlinked, so
+     * running out of memory leaves the collection undone, not half done. */
+    size_t garbage_cap = 0;
+    for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next)
+        garbage_cap += v->gc_refs == 0;
     size_t garbage_len = 0;
-    EastValue **garbage = malloc(garbage_cap * sizeof(EastValue *));
-    if (!garbage) return;
+    EastValue **garbage = malloc((garbage_cap > 0 ? garbage_cap : 1) * sizeof(EastValue *));
+    if (!garbage) {
+        free(frames.items);
+        return;
+    }
 
     EastValue *v = gc_old_sentinel.gc_next;
     while (v != &gc_old_sentinel) {
@@ -511,30 +737,26 @@ static void gc_collect_full_impl(void)
             v->gc_tracked = false;
             gc_old_count--;
             v->ref_count = INT_MAX;
-
-            if (garbage_len >= garbage_cap) {
-                garbage_cap *= 2;
-                EastValue **ng = realloc(garbage, garbage_cap * sizeof(EastValue *));
-                if (!ng) {
-                    free(garbage);
-                    return;
-                }
-                garbage = ng;
-            }
             garbage[garbage_len++] = v;
         }
         v = next;
     }
+    gc_garbage_frames(&frames);
 
     /* Phase 4b: destroy contents */
     for (size_t i = 0; i < garbage_len; i++)
         gc_destroy_contents(garbage[i]);
+    for (size_t i = 0; i < frames.len; i++)
+        env_release_contents(frames.items[i].frame);
 
     /* Phase 4c: free garbage structs */
     for (size_t i = 0; i < garbage_len; i++)
         east_value_dealloc(garbage[i]);
+    for (size_t i = 0; i < frames.len; i++)
+        env_dealloc(frames.items[i].frame);
 
     free(garbage);
+    free(frames.items);
 }
 
 /* ------------------------------------------------------------------ */

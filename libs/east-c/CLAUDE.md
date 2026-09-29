@@ -50,8 +50,13 @@ REBUILD=1 make leak-check-all
 - A closure holds the frame it was made in, unless the resolver marked its
   function `closed` (it reads nothing it does not bind). The evaluator drops
   every frame it makes through `frame_release` (`src/compiler.c`), which
-  unbinds a frame only its own closures still hold — a frame released any
-  other way leaks with the closure bound in it (#1002).
+  unbinds a frame only what it binds still holds — a closure, or a struct,
+  array, dict or ref with one inside, walked within a small bound — at once,
+  without waiting for a collection (#1002, #1010). The cycle collector
+  (`src/gc.c`) counts references to the frames closures hold as it counts them
+  to values, and reclaims the rest — a closure that escaped and was dropped
+  later — at a collection; one it first finds alive is promoted, and waits for
+  a full collection, which a single long call never runs (#1013).
 - A Set or Dict of up to `EAST_SMALL_COLLECTION_MAX` elements keeps them in
   its sorted arrays alone (`items`, `keys`/`values`), with no B-tree; one more
   moves them into a tree, whose lazily synced cache the arrays become (#1005).

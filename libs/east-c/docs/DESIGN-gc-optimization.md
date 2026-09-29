@@ -11,6 +11,28 @@
 > of truth for scheduling; the sections below describe the original design
 > and remain accurate for everything else.
 
+> **Superseded in part (#1010).** A closure's frames are now counted by every
+> collection. `gc_traverse` no longer walks a closure's environment chain to
+> rescue values, and the `gc_generation` stamp that deduplicated that walk is
+> gone: a collection gathers the frames of the closures it walks into a list
+> that holds each frame's count (each frame once, finding its entry by the
+> index it keeps), and a closure's child is its frame, a frame's its parent
+> and the values it binds. Phase 2 settles each frame's count from closures
+> and child frames alone; a frame still held from outside — by the evaluator,
+> say — is live with every frame above it, and its bindings are neither
+> counted nor walked. The rest subtract what they bind, Phase 3 rescues
+> across frames as across values, and a frame of a garbage cycle is freed with
+> the cycle. Frames are not tracked — nothing holds a frame but frames,
+> closures, the evaluator and hosts — so a young collection walks the frames
+> of young closures. Phase 3 walks what it rescues from an explicit stack,
+> not the C stack, so a long live chain — of values, or of closures each
+> bound in the frame the next one holds — cannot overflow it; a stack that
+> cannot grow abandons the collection. The old generation's limit stands for
+> frames as for values: a cycle a young collection finds alive is promoted,
+> and a single long call, which runs no full collection, keeps it once it
+> dies (#1013) — the evaluator's own check (`frame_collect`) frees the common
+> shapes as each frame ends instead.
+
 ## Problem
 
 Beast2 IR decode + execute of a 543KB blob (20 dashboards, 1640 closures) takes 312ms in C vs 140ms in TS. **96% of C execution time is the cycle collector**:

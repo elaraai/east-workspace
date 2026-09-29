@@ -27,7 +27,7 @@ Environment *env_new_scoped(Environment *parent, IRScope *scope)
     env->parent = parent;
     if (parent) env_retain(parent);
     env->ref_count = 1;
-    env->gc_gen = 0;
+    env->gc_index = 0;
     return env;
 }
 
@@ -153,11 +153,11 @@ void env_retain(Environment *env)
     if (env) __atomic_add_fetch(&env->ref_count, 1, __ATOMIC_RELAXED);
 }
 
-void env_release(Environment *env)
+/* Releases what a frame holds — its cells, its overflow map, its scope and its
+ * parent — as it goes. Inline in env_release, the path every call's frame
+ * takes, so sharing it with the collector costs that path nothing. */
+static inline void release_contents(Environment *env)
 {
-    if (!env) return;
-    if (__atomic_sub_fetch(&env->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
-
     if (env->scope) {
         for (size_t i = 0; i < env->scope->count; i++) {
             if (env->slots[i]) east_value_release(env->slots[i]);
@@ -169,6 +169,22 @@ void env_release(Environment *env)
 
     /* Release the parent environment. */
     if (env->parent) env_release(env->parent);
+}
 
+void env_release(Environment *env)
+{
+    if (!env) return;
+    if (__atomic_sub_fetch(&env->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
+    release_contents(env);
+    east_free(env);
+}
+
+void env_release_contents(Environment *env)
+{
+    release_contents(env);
+}
+
+void env_dealloc(Environment *env)
+{
     east_free(env);
 }
