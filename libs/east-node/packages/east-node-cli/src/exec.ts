@@ -57,7 +57,7 @@ import type { PlatformFunction } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
 import { inputBytes, loadEastIR, loadInput, loadInputLazy, loadPlatforms, segmentDirFor } from './loader.js';
 import { mergeBlobs } from './merge.js';
-import { lazyThreshold, loadMergeFunction, peakBytes } from './runner.js';
+import { formatFileSize, lazyThreshold, loadMergeFunction, peakBytes, reportInput, reportInputLazy, reportInputReads } from './runner.js';
 
 /** A unit's `run` work. */
 type RunWork = Extract<Unit['work'], { type: 'run' }>['value'];
@@ -100,13 +100,16 @@ export function readUnit(unitPath: string): ReadUnit {
  * Executes a unit: does its work, writes its output, and reports how it went.
  *
  * @param read - the unit, and how to resolve the paths it names
+ * @param verbose - print, on stderr, the account of each input `run -v`
+ *   prints — its file and what it weighs, whether it opened lazily, and what
+ *   reading it came to — which is what reaches a task's log
  * @returns the result — a failure is its outcome, never a throw
  *
  * @remarks
  * The unit's thread grant caps the frame pool for the rest of the process: a
  * grant of one frames every output inline.
  */
-export async function executeUnit({ unit, at }: ReadUnit): Promise<UnitResult> {
+export async function executeUnit({ unit, at }: ReadUnit, verbose = false): Promise<UnitResult> {
     configureFramePool({ workers: Number(unit.threads) });
     const timings = { load: 0, compile: 0, execute: 0, output: 0 };
     let mark = performance.now();
@@ -119,7 +122,7 @@ export async function executeUnit({ unit, at }: ReadUnit): Promise<UnitResult> {
     try {
         const platformFns = await loadPlatforms(unit.platforms);
         if (unit.work.type === 'run') {
-            await runWork(unit.work.value, platformFns, at, lap);
+            await runWork(unit.work.value, platformFns, at, lap, verbose);
         } else if (unit.work.type === 'merge') {
             mergeWork(unit.work.value, platformFns, at, lap);
         } else {
@@ -134,8 +137,9 @@ export async function executeUnit({ unit, at }: ReadUnit): Promise<UnitResult> {
     return { outcome, peakBytes: peakBytes(), timings };
 }
 
-/** Runs a program on its inputs and writes what it produces. */
-async function runWork(work: RunWork, platformFns: PlatformFunction[], at: Resolve, lap: Lap): Promise<void> {
+/** Runs a program on its inputs and writes what it produces; `verbose` gives
+ *  the account of each input `run -v` gives. */
+async function runWork(work: RunWork, platformFns: PlatformFunction[], at: Resolve, lap: Lap, verbose: boolean): Promise<void> {
     const program = loadEastIR(at(work.program));
     const signature = (program.ir as { value: { type: EastTypeValue } }).value.type.value as { inputs: EastTypeValue[]; output: EastTypeValue };
     // Every kind but a value is emitted, through the trailing parameter.
@@ -151,20 +155,31 @@ async function runWork(work: RunWork, platformFns: PlatformFunction[], at: Resol
     // Inputs are frozen. One at or above the lazy threshold opens as a paged
     // value, weighed by the value it holds: a manifest is a small file naming
     // large ones.
+    const paths = work.inputs.map((input) => at(input));
+    if (verbose) {
+        console.error(`Running: ${at(work.program)}  (${formatFileSize(at(work.program))})`);
+        paths.forEach((path, i) => reportInput(i, path, params[i]!));
+    }
     const threshold = lazyThreshold();
-    const inputs = work.inputs.map((input, i) => {
-        const path = at(input);
+    const inputs = paths.map((path, i) => {
         const lazy = threshold > 0 && inputBytes(path) >= threshold ? loadInputLazy(path) : undefined;
+        if (lazy !== undefined && verbose) reportInputLazy(i);
         return lazy !== undefined ? lazy : loadInput(path, params[i]!);
     });
     lap('load');
     const compiled = (program as EastIR<unknown[], unknown>).compile(platformFns);
     const output = openOutput(work.output, emitted ? signature.inputs.at(-1)! : signature.output, platformFns, at);
     lap('compile');
-    const result = await compiled(...inputs, ...(output.emit !== undefined ? [output.emit] : []));
-    lap('execute');
-    output.finish(result);
-    lap('output');
+    try {
+        const result = await compiled(...inputs, ...(output.emit !== undefined ? [output.emit] : []));
+        lap('execute');
+        output.finish(result);
+        lap('output');
+    } finally {
+        // What reading each lazy input came to, the output's writing included
+        // — or up to the failure.
+        if (verbose) inputs.forEach((input, i) => reportInputReads(i, paths[i]!, input));
+    }
 }
 
 /** Where a running program's output goes. */

@@ -14,20 +14,30 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
     ArrayType,
+    Beast2ManifestWriter,
+    BooleanType,
+    DictType,
+    East,
+    IntegerType,
     StringType,
     UnitOutcomeType,
     UnitResultType,
+    UnitType,
     decodeBeast2,
     decodeBeast2For,
+    encodeBeast2For,
+    encodeEastIR,
     equalFor,
+    variant,
     type UnitOutcome,
 } from '@elaraai/east';
+import { inputBytes } from './loader.js';
 
 const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
 
@@ -95,6 +105,60 @@ describe('exec: the runner protocol corpus', () => {
             }
             for (const path of expected.absent) assert.ok(!existsSync(join(dir, path)), `${name}: ${path} is not written`);
         }
+    });
+});
+
+describe('exec -v: the account of each input', () => {
+    // The protocol e3 runs a task through, and the only form whose stderr
+    // reaches its log: -v gives the account `run -v` gives.
+    let dir: string;
+
+    before(() => {
+        dir = mkdtempSync(join(tmpdir(), 'east-node-exec-verbose-'));
+    });
+
+    after(() => {
+        rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('says what each input weighs, that it opened lazily, and what reading it came to', () => {
+        const DT = DictType(IntegerType, StringType);
+        // The input as e3 stages it: a manifest directory, whose own file is
+        // a few dozen bytes per segment.
+        const input = join(dir, 'table.beast2');
+        const objects = `${input}.segments`;
+        mkdirSync(objects);
+        const writer = new Beast2ManifestWriter(DT, {
+            object: (hash, bytes) => writeFileSync(join(objects, `${hash}.beast2`), bytes),
+            manifest: (bytes) => writeFileSync(input, bytes),
+        });
+        for (let i = 0; i < 20_000; i++) writer.add([BigInt(i), `row-${i}`]);
+        writer.finish();
+        writeFileSync(join(dir, 'program.beast2'), encodeEastIR(East.function([DT], BooleanType, ($, table) => table.has(42n)).toIR()));
+        writeFileSync(join(dir, 'unit.beast2'), encodeBeast2For(UnitType)({
+            work: variant('run', { program: 'program.beast2', inputs: ['table.beast2'], output: variant('value', 'out.beast2') }),
+            platforms: [],
+            threads: 1n,
+            result: 'result.beast2',
+        }));
+
+        const exec = (...flags: string[]): string => {
+            const run = spawnSync(process.execPath, [bin, 'exec', join(dir, 'unit.beast2'), ...flags], {
+                env: { ...process.env, EAST_LAZY_INPUT_BYTES: '1' },
+                encoding: 'utf8',
+            });
+            assert.equal(run.status, 0, run.stderr);
+            return run.stderr;
+        };
+        const verbose = exec('-v');
+        const formatSize = (bytes: number): string => bytes < 1024 ? `${bytes} B`
+            : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        assert.ok(inputBytes(input) > 4 * statSync(input).size, 'the manifest weighs far less than the collection');
+        assert.ok(verbose.includes(`  input 0: ${input}  (${formatSize(inputBytes(input))})`),
+            `the input is weighed by the collection, not its manifest:\n${verbose}`);
+        assert.ok(verbose.includes('input 0: opened lazily'), `the input opened lazily:\n${verbose}`);
+        assert.ok(/input 0: [\d.]+ (B|KB|MB) read of /.test(verbose), `what reading it came to:\n${verbose}`);
+        assert.ok(!exec().includes('input 0:'), 'without -v the inputs are not reported');
     });
 });
 

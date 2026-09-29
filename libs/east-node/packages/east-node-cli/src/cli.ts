@@ -179,7 +179,7 @@ async function cmdExec(unitPath: string, options: { verbose?: boolean; exitWithP
     let result: UnitResult;
     try {
         const read = readUnit(unitPath);
-        result = await executeUnit(read);
+        result = await executeUnit(read, options.verbose ?? false);
         writeFileSync(read.at(read.unit.result), encodeBeast2For(UnitResultType)(result));
     } catch (err) {
         return fail(`Error: exec ${unitPath}: ${(err as Error).message ?? String(err)}`, 2);
@@ -296,7 +296,8 @@ export function main(): void {
         .description('Execute a unit, the runner protocol: run a program, or merge the parts of an output, as the unit file ' +
             'says, write the output by its kind and record the result; exit 0 when it is ok and 1 when it failed')
         .argument('<unit>', 'The unit file (.beast2); relative paths in it are relative to its directory')
-        .option('-v, --verbose', 'Print where the time went and the peak memory')
+        .option('-v, --verbose', 'Print each input — what it weighs, whether it opened lazily and what reading it came to — ' +
+            'where the time went, and the peak memory')
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdExec);
 

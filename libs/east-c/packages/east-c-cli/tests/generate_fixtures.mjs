@@ -147,6 +147,22 @@ const fixtures = {
     threads: 1n,
     result: 'lifeline_result.beast2',
   }),
+
+  // ---- exec -v (#1004) --------------------------------------------------
+
+  // The keyed `has` run as a unit, over one input beside it, which a test
+  // writes as a manifest directory — the form e3 stages a collection input
+  // in. Its paths are relative, like the lifeline unit's.
+  'paged_has_unit.beast2': encodeBeast2For(UnitType)({
+    work: variant('run', {
+      program: 'paged_has.beast2',
+      inputs: ['paged_has_table.beast2'],
+      output: variant('value', 'paged_has_output.beast2'),
+    }),
+    platforms: [],
+    threads: 1n,
+    result: 'paged_has_result.beast2',
+  }),
 };
 
 for (const dir of targets) {

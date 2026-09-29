@@ -130,7 +130,9 @@ def create_parser() -> argparse.ArgumentParser:
         "unit", type=Path,
         help="The unit file (.beast2); relative paths in it are relative to its directory")
     exec_parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Print where the time went and the peak memory")
+        "-v", "--verbose", action="store_true",
+        help="Print each input — what it weighs, whether it opened lazily and what reading it "
+        "came to — where the time went, and the peak memory")
     exec_parser.add_argument(
         "--exit-with-parent", action="store_true", dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
@@ -286,7 +288,7 @@ def cmd_exec(args: argparse.Namespace) -> int:
     written, leaves no result: exit 2."""
     _start_lifeline(args)
     try:
-        result = execute_unit(args.unit)
+        result = execute_unit(args.unit, args.verbose)
     except (ValueError, OSError) as e:
         print(f"Error: exec {args.unit}: {e}", file=sys.stderr)
         return 2

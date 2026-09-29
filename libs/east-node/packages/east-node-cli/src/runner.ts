@@ -34,6 +34,51 @@ export function formatFileSize(path: string): string {
     try { return formatSize(statSync(path).size); } catch { return '?'; }
 }
 
+/** What an input weighs for the verbose account — a manifest the collection it
+ *  names, not its own few kilobytes ({@link inputBytes}) — or `?`. */
+function formatInputSize(path: string): string {
+    try { return formatSize(inputBytes(path)); } catch { return '?'; }
+}
+
+/**
+ * Prints the verbose account of input `i` before it is read: its file, what it
+ * weighs, and the type it is read as. `run -v` and `exec -v` print it alike, so
+ * a task's log carries it.
+ *
+ * @param i - the input's position
+ * @param path - its file
+ * @param type - the type it is read as
+ * @internal
+ */
+export function reportInput(i: number, path: string, type: EastTypeValue): void {
+    console.error(`  input ${i}: ${path}  (${formatInputSize(path)})`);
+    console.error(`    ${printTypeValue(type)}`);
+}
+
+/**
+ * Prints the verbose account of an input that opened lazily.
+ *
+ * @param i - the input's position
+ * @internal
+ */
+export function reportInputLazy(i: number): void {
+    console.error(`  input ${i}: opened lazily — paged from the file`);
+}
+
+/**
+ * Prints what reading a lazily opened input came to, against what it weighs;
+ * nothing for an input read whole.
+ *
+ * @param i - the input's position
+ * @param path - its file
+ * @param value - the input's value
+ * @internal
+ */
+export function reportInputReads(i: number, path: string, value: unknown): void {
+    const read = lazyInputBytesRead(value);
+    if (read !== undefined) console.error(`  input ${i}: ${formatSize(read)} read of ${formatInputSize(path)}`);
+}
+
 /**
  * A refusal of the command line itself — a function the inputs given do not
  * fit.
@@ -110,11 +155,7 @@ export async function runProgram(
         }
 
         console.error(`Function: ${inputTypes.length} inputs, ${isAsync ? 'async' : 'sync'}`);
-        for (let i = 0; i < inputPaths.length; i++) {
-            const t = printTypeValue(inputTypes[i]!);
-            console.error(`  input ${i}: ${inputPaths[i]}  (${formatFileSize(inputPaths[i]!)})`);
-            console.error(`    ${t}`);
-        }
+        for (let i = 0; i < inputPaths.length; i++) reportInput(i, inputPaths[i]!, inputTypes[i]!);
         if (outputType) {
             console.error(`  return:`);
             console.error(`    ${printTypeValue(outputType)}`);
@@ -130,22 +171,15 @@ export async function runProgram(
     // naming large ones.
     const threshold = lazyThreshold();
     const inputs: unknown[] = [];
-    const lazyInputs: number[] = [];
     for (let i = 0; i < inputPaths.length; i++) {
         const lazy = threshold > 0 && inputBytes(inputPaths[i]!) >= threshold ? loadInputLazy(inputPaths[i]!) : undefined;
-        if (lazy !== undefined) {
-            lazyInputs.push(i);
-            if (verbose) console.error(`  input ${i}: opened lazily — paged from the file`);
-        }
+        if (lazy !== undefined && verbose) reportInputLazy(i);
         inputs.push(lazy !== undefined ? lazy : loadInput(inputPaths[i]!, inputTypes[i]!));
     }
     /** The verbose summary's account of each lazy input: what paging came
      *  to, against the size of the value. */
     const reportLazyReads = (): void => {
-        for (const i of lazyInputs) {
-            const read = lazyInputBytesRead(inputs[i]);
-            if (read !== undefined) console.error(`  input ${i}: ${formatSize(read)} read of ${formatSize(inputBytes(inputPaths[i]!))}`);
-        }
+        for (let i = 0; i < inputs.length; i++) reportInputReads(i, inputPaths[i]!, inputs[i]);
     };
 
     const t1 = now();
