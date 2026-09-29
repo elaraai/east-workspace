@@ -9,8 +9,8 @@
  *   - Column header: mono uppercase 10/600/0.16em, `bg.panel`, 1 px
  *     `border.strong` bottom rule.
  *   - Cell: body 13/normal, 1 px `border.subtle` bottom rule, 14/10
- *     padding. Right-aligned / mono numeric cells are a per-cell
- *     concern — author them with a `render` UIComponent.
+ *     padding. A column that prints numbers sets them in mono, aligned
+ *     right, and its header's controls come before its label.
  *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600.
  *   - Header controls (#951): the label, then one row of 24 px pin / sort
  *     buttons, shown while the header is hovered or holds focus, and a
@@ -68,6 +68,8 @@ export const tableSlotRecipe = defineSlotRecipe({
             width: "100%",
             // Clear of the resize grip on the header's right edge.
             "&[data-resizable]": { paddingRight: "4px" },
+            // A number column: the controls lead, the label ends on the right.
+            "&[data-align=end]": { flexDirection: "row-reverse" },
         },
         columnHeaderLabel: {
             flex: "1",
@@ -76,6 +78,7 @@ export const tableSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             // An aligned stack's day column centres its label on the shared axis.
             "&[data-align=center]": { textAlign: "center" },
+            "[data-align=end] > &": { textAlign: "right" },
         },
         // The pin and sort controls: one row beside the label. They show
         // while the header is hovered or holds focus, and stay shown for a
@@ -207,6 +210,7 @@ export const tableSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            "&[data-numeric]": { fontFamily: "mono", fontSize: "12px", textAlign: "right" },
         },
         row: { transitionProperty: "background", transitionDuration: "{durations.fast}" },
         footer: {

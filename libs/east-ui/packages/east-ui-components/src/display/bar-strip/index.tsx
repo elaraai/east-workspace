@@ -34,9 +34,8 @@ export interface EastChakraBarStripProps {
 
 /**
  * Renders an East UI BarStrip from the `barStrip` slot recipe — a ranked
- * horizontal bar list (label · 6px paper-3 track / radius-full brand-d fill ·
- * mono tabular value). The renderer supplies the dynamic fill width + per-item
- * colour/trailing.
+ * horizontal bar list (label · track and fill · mono tabular value). The
+ * renderer supplies the dynamic fill width + per-item colour/trailing.
  */
 export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, storageKey }: EastChakraBarStripProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);

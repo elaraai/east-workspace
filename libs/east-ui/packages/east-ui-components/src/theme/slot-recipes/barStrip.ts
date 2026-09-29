@@ -3,7 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** BarStrip slot recipe — ranked horizontal bar list (label · bar · value). */
+/**
+ * BarStrip slot recipe — ranked horizontal bar list (label · bar · value),
+ * as the Studio mock draws its breakdown: a short label column, the brand
+ * fill on the sunken track, and the value right-aligned in mono.
+ */
+
+/** The mock's second ink — the labels'. */
+const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
@@ -14,18 +21,21 @@ export const barStripSlotRecipe = defineSlotRecipe({
         root: {
             display: "flex",
             flexDirection: "column",
-            gap: "{spacing.2}",
+            gap: "14px",
             width: "100%",
         },
         row: {
             display: "flex",
             alignItems: "center",
-            gap: "{spacing.3}",
+            gap: "10px",
             width: "100%",
         },
         label: {
-            minWidth: "6rem",
+            minWidth: "64px",
             flexShrink: "0",
+            fontSize: "12.5px",
+            color: INK_2,
+            whiteSpace: "nowrap",
         },
         track: {
             position: "relative",
@@ -40,19 +50,30 @@ export const barStripSlotRecipe = defineSlotRecipe({
             top: "0",
             left: "0",
             bottom: "0",
-            background: "{colors.brand.500}",
+            background: "brand.solid",
             borderRadius: "{radii.xs}",
         },
         value: {
-            minWidth: "3rem",
+            minWidth: "32px",
             textAlign: "right",
             flexShrink: "0",
             fontFamily: "mono",
             fontSize: "11px",
+            fontWeight: "600",
             fontVariantNumeric: "tabular-nums",
-            color: "fg.muted",
+            color: "fg",
         },
-        trailing: { flexShrink: "0" },
+        /* A value the author spells — set in the value's voice. */
+        trailing: {
+            minWidth: "32px",
+            textAlign: "right",
+            flexShrink: "0",
+            fontFamily: "mono",
+            fontSize: "11px",
+            fontWeight: "600",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg",
+        },
     },
     variants: {
         thickness: {

@@ -4,10 +4,10 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faGripVertical, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faGripVertical, faMagnifyingGlass, faSliders, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type IconName } from "@fortawesome/fontawesome-svg-core";
 import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -65,10 +65,19 @@ export type LibraryEntry =
 
 /** Card min-width the responsive grid packs against (`minmax(220px, 1fr)`). */
 const CARD_MIN_WIDTH = 220;
-/** Grid gap in px (`{spacing.3}`). */
-const GRID_GAP = 12;
-/** Horizontal grid padding in px (`{spacing.4}` each side). */
-const GRID_PAD_X = 16;
+/** Gap between cards in px. */
+const GRID_GAP = 6;
+/** The body's horizontal padding in px, each side. */
+const GRID_PAD_X = 14;
+/** The virtualized body's padding above the first row, and below the last card row's own gap. */
+const VIRTUAL_PAD_START = 14;
+const VIRTUAL_PAD_END = 8;
+
+/** The grouping menu's value for no grouping — no group-by option key can be it. */
+const NO_GROUP = "\u0000none";
+
+/** The Library whose search box ⌘ / focuses: the one last pointed at or focused, else the first mounted. */
+let searchOwner: symbol | undefined;
 
 /**
  * Computes the card-column count for a container width — the same arithmetic
@@ -119,7 +128,7 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
     const icon = getSomeorUndefined(item.icon);
     const draggable = item.draggable && !filtered;
     const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
-    const compact = sublabel === undefined && visibleDims.length === 0;
+    const tall = visibleDims.length > 0;
 
     const from = useMemo(() => ({ library: libraryId, key: item.key, label: item.label }), [libraryId, item.key, item.label]);
     const ghost = useMemo(() => (
@@ -135,7 +144,7 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
             {...drag}
             {...(filtered ? { "data-filtered": "" } : {})}
             {...(draggable && drag ? { "data-draggable": "" } : {})}
-            {...(compact ? { "data-compact": "" } : {})}
+            {...(tall ? { "data-tall": "" } : {})}
         >
             {draggable && drag && (
                 <Box as="span" css={styles.grip} data-drag-grip="">
@@ -148,15 +157,16 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
                 </Box>
             )}
             <Box css={styles.cardBody}>
-                <Box css={styles.cardHead}>
+                {tall && status ? (
+                    // Secondary facts take the body's full width, so the status rides the name's line.
+                    <Box css={styles.cardHead}>
+                        <Box as="span" css={styles.cardLabel}>{item.label}</Box>
+                        <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
+                    </Box>
+                ) : (
                     <Box as="span" css={styles.cardLabel}>{item.label}</Box>
-                    {status && (
-                        <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>
-                            {status.label}
-                        </Box>
-                    )}
-                </Box>
-                {sublabel && <Box css={styles.cardSublabel}>{sublabel}</Box>}
+                )}
+                {sublabel && <Box as="span" css={styles.cardSublabel}>{sublabel}</Box>}
                 {visibleDims.map(key => {
                     const dim = item.dims.get(key)!;
                     return match(dim, {
@@ -186,6 +196,13 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
                     });
                 })}
             </Box>
+            {!tall && status && (
+                <Box css={styles.trailing}>
+                    <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>
+                        {status.label}
+                    </Box>
+                </Box>
+            )}
         </Box>
     );
 }
@@ -198,11 +215,88 @@ function LibraryGroupHead({ label, count, summary, styles }: { label: string; co
     const words = useFormatters();
     return (
         <Box css={styles.groupHead}>
-            <Box as="span" css={styles.groupLabel}>{label} · {words.number(count)}</Box>
-            {summary !== undefined && (
-                <Box as="span" css={styles.groupSummary}>{summary}</Box>
-            )}
+            <Box as="span" css={styles.groupLabel}>{label}</Box>
+            <Box as="span" css={styles.groupSummary}>{summary ?? words.number(count)}</Box>
         </Box>
+    );
+}
+
+// ============================================================================
+// Toolbar controls — the grouping and the secondary facts, each a menu
+// ============================================================================
+
+interface LibraryOption {
+    key: string;
+    label: string;
+}
+
+/** `GROUP · <the grouping>`, opening a menu of every grouping and none. */
+function LibraryGroupMenu({ options, active, onPick, styles }: {
+    options: readonly LibraryOption[];
+    active: string | null;
+    onPick: (key: string | null) => void;
+    styles: SlotStyles;
+}) {
+    const current = options.find(o => o.key === active);
+    const choices: LibraryOption[] = [...options, { key: NO_GROUP, label: "None" }];
+    const checked = active ?? NO_GROUP;
+    return (
+        <ChakraMenu.Root positioning={{ placement: "bottom-start" }}
+            onSelect={(d) => onPick(d.value === NO_GROUP ? null : d.value)}>
+            <ChakraMenu.Trigger asChild>
+                <chakra.button type="button" css={styles.groupTrigger} aria-label="Group by">
+                    Group · {current?.label ?? "None"}
+                </chakra.button>
+            </ChakraMenu.Trigger>
+            <Portal>
+                <ChakraMenu.Positioner>
+                    <ChakraMenu.Content>
+                        {choices.map(o => (
+                            <ChakraMenu.Item key={o.key} value={o.key} aria-checked={o.key === checked}>
+                                <Box as="span" css={styles.menuCheck}>
+                                    {o.key === checked && <FontAwesomeIcon icon={faCheck} />}
+                                </Box>
+                                {o.label}
+                            </ChakraMenu.Item>
+                        ))}
+                    </ChakraMenu.Content>
+                </ChakraMenu.Positioner>
+            </Portal>
+        </ChakraMenu.Root>
+    );
+}
+
+/** The secondary facts a card shows, toggled in a menu that stays open. */
+function LibraryDimMenu({ options, active, onToggle, styles }: {
+    options: readonly LibraryOption[];
+    active: readonly string[];
+    onToggle: (key: string) => void;
+    styles: SlotStyles;
+}) {
+    return (
+        <ChakraMenu.Root positioning={{ placement: "bottom-end" }} closeOnSelect={false}
+            onSelect={(d) => onToggle(d.value)}>
+            <ChakraMenu.Trigger asChild>
+                <chakra.button type="button" css={styles.dimTrigger}>
+                    <FontAwesomeIcon icon={faSliders} />
+                    Secondary
+                </chakra.button>
+            </ChakraMenu.Trigger>
+            <Portal>
+                <ChakraMenu.Positioner>
+                    <ChakraMenu.Content>
+                        {options.map(o => (
+                            <ChakraMenu.Item key={o.key} value={o.key} aria-checked={active.includes(o.key)}>
+                                <Box as="span" css={styles.menuCheck}>
+                                    {active.includes(o.key) && <FontAwesomeIcon icon={faCheck} />}
+                                </Box>
+                                {o.label}
+                            </ChakraMenu.Item>
+                        ))}
+                    </ChakraMenu.Content>
+                </ChakraMenu.Positioner>
+            </Portal>
+        </ChakraMenu.Root>
     );
 }
 
@@ -218,11 +312,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
 
 function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
-    // Toolbar controls share the slice vocabulary: toggle pills are the
-    // `chip` recipe (brand tone when active — the cohort-pill precedent),
-    // the quick search wears the sliceFrame `searchPill` chrome.
-    const chip = useRecipe({ key: "chip" });
-    const frameStyles = useSlotRecipe({ key: "sliceFrame" })() as SlotStyles;
+    const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
     const words = useFormatters();
 
@@ -322,7 +412,9 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     const virtualizer = useVirtualizer({
         count: entries.length,
         getScrollElement: () => scrollRef.current,
-        estimateSize: (index) => (entries[index]?.kind === "groupHead" ? 33 : 104),
+        estimateSize: (index) => (entries[index]?.kind === "groupHead" ? 36 : 56),
+        paddingStart: VIRTUAL_PAD_START,
+        paddingEnd: VIRTUAL_PAD_END,
         overscan: 4,
         // measureElement corrects the estimate — card rows vary with the
         // toggled dimensions; group heads differ from card rows.
@@ -356,6 +448,30 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
 
     const searchable = value.searchable && suppressSearch !== true;
 
+    // ⌘ / focuses the search box of the Library last pointed at or focused.
+    const searchRef = useRef<HTMLInputElement | null>(null);
+    const [self] = useState(() => Symbol("library"));
+    useEffect(() => {
+        if (!searchable) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== "/") return;
+            searchOwner ??= self;
+            const input = searchRef.current;
+            if (searchOwner !== self || input === null) return;
+            e.preventDefault();
+            input.focus();
+            input.select();
+        };
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("keydown", onKey);
+            if (searchOwner === self) searchOwner = undefined;
+        };
+    }, [searchable, self]);
+    const claimSearch = useCallback(() => {
+        if (searchable) searchOwner = self;
+    }, [searchable, self]);
+
     const bodyContent = virtualEnabled ? (
         <Box css={styles.canvas} style={{ height: `${virtualizer.getTotalSize()}px` }}>
             {virtualizer.getVirtualItems().map(virtualItem => {
@@ -366,6 +482,8 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                         ref={virtualizer.measureElement}
                         data-index={virtualItem.index}
                         css={styles.row}
+                        {...(entry.kind === "groupHead" ? { "data-head": "" } : { "data-cards": "" })}
+                        {...(virtualItem.index === 0 ? { "data-first": "" } : {})}
                         style={{ transform: `translateY(${virtualItem.start}px)` }}
                     >
                         {entry.kind === "groupHead" ? (
@@ -419,6 +537,8 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             data-library={value.id}
             {...(scrollable ? { "data-scrollable": "" } : {})}
             style={scrollable ? { height, maxHeight } : undefined}
+            onPointerEnter={claimSearch}
+            onFocus={claimSearch}
         >
             {hint !== undefined && (
                 <Box css={styles.header}>
@@ -427,72 +547,52 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             )}
             {(searchable || groupOptions.length > 0 || dimOptions.length > 0) && (
                 <Box css={styles.toolbar}>
-                    {/* css ARRAY — both objects are `@layer recipes`-wrapped; an
-                      * object spread would collide on that key and drop the pill. */}
                     {searchable && (
-                        <Box css={[frameStyles.searchPill, styles.search]}>
-                            <FontAwesomeIcon icon={faMagnifyingGlass} style={{ width: 10, height: 10 }} />
-                            <Box
-                                as="input"
-                                // @ts-expect-error chakra polymorphic input props
-                                placeholder="Search…"
+                        <Box css={styles.searchBox}>
+                            <Box as="span" css={styles.searchIcon} aria-hidden>
+                                <FontAwesomeIcon icon={faMagnifyingGlass} />
+                            </Box>
+                            <chakra.input
+                                ref={searchRef}
+                                css={styles.searchInput}
+                                placeholder={`Search ${words.number(value.items.length)} ${value.items.length === 1 ? "item" : "items"}…`}
                                 aria-label="Search library"
+                                aria-keyshortcuts="Meta+/ Control+/"
                                 value={query}
                                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+                                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                                    if (e.key === "Escape" && query !== "") {
+                                        e.preventDefault();
+                                        setQuery("");
+                                    }
+                                }}
                             />
-                            {query !== "" && (
-                                <Box as="button" css={frameStyles.searchClear} aria-label="Clear search" onClick={() => setQuery("")}>
-                                    <FontAwesomeIcon icon={faXmark} style={{ width: 9, height: 9 }} />
-                                </Box>
+                            {query !== "" ? (
+                                <chakra.button type="button" css={styles.searchClear} aria-label="Clear search" onClick={() => setQuery("")}>
+                                    <FontAwesomeIcon icon={faXmark} />
+                                </chakra.button>
+                            ) : (
+                                <chakra.kbd css={[kbd({}), styles.searchKbd]} aria-hidden>⌘ /</chakra.kbd>
                             )}
                         </Box>
                     )}
-                    {groupOptions.length > 0 && (
-                        <Box css={styles.segGroup}>
-                            <Box as="span" css={styles.segLabel}>Group by</Box>
-                            {groupOptions.map(g => (
-                                <Box
-                                    as="button"
-                                    key={g.key}
-                                    css={{ ...chip({ tone: toolbar.groupKey === g.key ? "brand" : "neutral", size: "sm" }), cursor: "pointer" }}
-                                    aria-pressed={toolbar.groupKey === g.key}
-                                    onClick={() => setGroup(g.key)}
-                                >
-                                    {g.label}
-                                </Box>
-                            ))}
-                            <Box
-                                as="button"
-                                css={{ ...chip({ tone: toolbar.groupKey === null ? "brand" : "neutral", size: "sm" }), cursor: "pointer" }}
-                                aria-pressed={toolbar.groupKey === null}
-                                onClick={() => setGroup(null)}
-                            >
-                                None
-                            </Box>
-                        </Box>
-                    )}
-                    {dimOptions.length > 0 && (
-                        <Box css={styles.segGroup} marginLeft="auto">
-                            <Box as="span" css={styles.segLabel}>Secondary</Box>
-                            {dimOptions.map(d => (
-                                <Box
-                                    as="button"
-                                    key={d.key}
-                                    css={{ ...chip({ tone: toolbar.activeDims.includes(d.key) ? "brand" : "neutral", size: "sm" }), cursor: "pointer" }}
-                                    aria-pressed={toolbar.activeDims.includes(d.key)}
-                                    onClick={() => toggleDim(d.key)}
-                                >
-                                    {d.label}
-                                </Box>
-                            ))}
+                    {(groupOptions.length > 0 || dimOptions.length > 0) && (
+                        <Box css={styles.controls}>
+                            {groupOptions.length > 0 && (
+                                <LibraryGroupMenu options={groupOptions} active={toolbar.groupKey} onPick={setGroup} styles={styles} />
+                            )}
+                            {dimOptions.length > 0 && (
+                                <LibraryDimMenu options={dimOptions} active={toolbar.activeDims} onToggle={toggleDim} styles={styles} />
+                            )}
                         </Box>
                     )}
                 </Box>
             )}
             <Box
                 ref={scrollRef}
-                css={scrollable ? { ...styles.body, ...virtualScrollbarCss } : styles.body}
+                css={scrollable ? [styles.body, virtualScrollbarCss] : styles.body}
                 {...(scrollable ? { "data-scrollable": "" } : {})}
+                {...(virtualEnabled ? { "data-virtual": "" } : {})}
                 onScroll={handleScrollPersist}
             >
                 {bodyContent}

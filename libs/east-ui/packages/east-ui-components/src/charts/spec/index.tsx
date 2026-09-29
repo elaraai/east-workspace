@@ -98,7 +98,7 @@ interface ChartStyle {
     labelColor: string;
     /** Axis baseline + tick stroke. */
     axisStroke: string;
-    /** Gridline stroke (the spec's darker `--rule-strong`). */
+    /** Gridline stroke. */
     gridStroke: string;
     /** Default line / area stroke width. */
     lineWidth: number;
@@ -790,11 +790,12 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
         font: system.token("fonts.mono", "monospace"),
         // 11px (was 10px) — the #315 legibility floor for axis/label text.
         labelSize: "11px",
-        labelColor: system.token("colors.fg.muted", "#6b8080"),
+        labelColor: system.token("colors.fg.subtle", "#6b8080"),
         titleFont: system.token("fonts.body", "system-ui, sans-serif"),
         titleColor: system.token("colors.fg.default", "#111b22"),
-        axisStroke: system.token("colors.border.strong", "#cbd5d5"),
-        gridStroke: system.token("colors.border.strong", "#cbd5d5"),
+        // The chrome is drawn on the light rule; colour is the data's.
+        axisStroke: system.token("colors.border.subtle", "#e2e8e8"),
+        gridStroke: system.token("colors.border.subtle", "#e2e8e8"),
         lineWidth: 1.8,
         areaOpacity: 0.16,
         pointFill: system.token("colors.bg.surface", "#ffffff"),

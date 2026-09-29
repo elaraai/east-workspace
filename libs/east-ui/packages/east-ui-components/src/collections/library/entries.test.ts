@@ -24,9 +24,9 @@ describe("libraryColumnsFor — the auto-fill arithmetic", () => {
     });
 
     test("two columns exactly at 2·220 + gap + padding", () => {
-        // inner = width - 32; needs inner + 12 >= 2 * 232 → width >= 484
-        expect(libraryColumnsFor(483)).toBe(1);
-        expect(libraryColumnsFor(484)).toBe(2);
+        // inner = width - 28; needs inner + 6 >= 2 * 226 → width >= 474
+        expect(libraryColumnsFor(473)).toBe(1);
+        expect(libraryColumnsFor(474)).toBe(2);
     });
 
     test("wide container packs more columns", () => {
