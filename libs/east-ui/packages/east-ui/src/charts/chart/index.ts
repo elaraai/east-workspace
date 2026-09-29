@@ -792,7 +792,8 @@ export interface ChartOptions {
     /** Secondary (right) y-axis configuration; presence enables a dual axis.
      *  Not supported with horizontal `Chart.Bar` layers. */
     y2?: AxisOptions;
-    /** Show background gridlines. Default `true`. */
+    /** Show the measure's gridlines — rows, or columns on a horizontal
+     *  `Chart.Bar` chart. Default `true`. */
     grid?: boolean;
     /** Show the colour-matched legend. */
     legend?: boolean;
@@ -881,9 +882,11 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
         return chartSeries(layer.data, layer.mark, seriesOptions(layer.style, opts.stackOffset, layer.radius));
     });
 
+    // Gridlines follow the measure alone — rows on a vertical chart, columns on
+    // a horizontal bar chart; the category axis draws none.
     const grid = opts.grid !== false;
     const children: ChartSpecValue[] = [
-        ...(grid ? [chartGridRows({ dashArray: "2 4" }), chartGridColumns({ dashArray: "2 4" })] : []),
+        ...(grid ? [horizontal ? chartGridColumns({ dashArray: "3 3" }) : chartGridRows({ dashArray: "3 3" })] : []),
         ...markNodes,
         chartAxisBottom(compact({ label: opts.x?.label, numTicks: opts.x?.numTicks, tickValues: opts.x?.tickValues, hideTicks: opts.x?.hideTicks, hideLine: opts.x?.hideLine, domain: domainExpr(opts.x?.domain), tickFormat: opts.x?.format, tickStyle: opts.x?.tickStyle, titleStyle: opts.x?.titleStyle, titleGap: opts.x?.titleGap })),
         chartAxisLeft(compact({ label: opts.y?.label, numTicks: opts.y?.numTicks, tickValues: opts.y?.tickValues, hideTicks: opts.y?.hideTicks, hideLine: opts.y?.hideLine, domain: domainExpr(opts.y?.domain), tickFormat: opts.y?.format, tickStyle: opts.y?.tickStyle, titleStyle: opts.y?.titleStyle, titleGap: opts.y?.titleGap })),

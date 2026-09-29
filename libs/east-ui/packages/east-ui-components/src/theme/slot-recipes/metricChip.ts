@@ -4,9 +4,9 @@
  */
 
 /**
- * MetricChip slot recipe — spec `.delta` / `.deltapill.{up,down,flat}`.
- *
- * Compact mono inline chip carrying a status-coded delta value.
+ * MetricChip slot recipe — the design system's DeltaPill: a compact mono
+ * chip on the sunken paper, its border clear, the tone carried by the text
+ * alone.
  *
  * @packageDocumentation
  */
@@ -24,13 +24,15 @@ export const metricChipSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "11.5px",
             fontWeight: "semibold",
+            letterSpacing: "0.02em",
+            lineHeight: "1.2",
             paddingX: "{spacing.2}",
-            paddingY: "3px",
+            paddingY: "2px",
             borderRadius: "{radii.xs}",
             borderWidth: "1px",
-            borderColor: "border.subtle",
-            background: "bg.surface",
-            color: "fg.subtle",
+            borderColor: "transparent",
+            background: "bg.subtle",
+            color: "fg",
             whiteSpace: "nowrap",
             fontVariantNumeric: "tabular-nums",
         },
@@ -40,10 +42,10 @@ export const metricChipSlotRecipe = defineSlotRecipe({
     },
     variants: {
         sentiment: {
-            up:   { root: { borderColor: "fg.success", color: "fg.success", background: "success.subtle" } },
-            down: { root: { borderColor: "fg.danger",  color: "fg.danger",  background: "danger.subtle" } },
-            flat: { root: { borderColor: "border.strong", color: "fg.subtle", background: "bg.subtle" } },
-            brand:{ root: { borderColor: "{colors.brand.600}", color: "{colors.brand.600}", background: "bg.brand.subtle" } },
+            up:    { root: { color: "fg.success" } },
+            down:  { root: { color: "fg.danger" } },
+            flat:  { root: { color: "fg.subtle" } },
+            brand: { root: { color: "brand.solid" } },
         },
         // Density cascade — root sizing mirrors the chipRail `--cr-*` sets
         // (label tracks `--cr-lbl-fs`) so a metric chip lines up with tags

@@ -220,6 +220,9 @@ declare module '@tanstack/react-table' {
         renderFn?: ColumnRenderFn | undefined;
         /** The column's declared number format (#874). */
         format?: TickFormatOpt;
+        /** The column prints numbers: its cells sit right-aligned, and its
+         *  header's controls come before its label. */
+        numeric?: boolean;
     }
     /* eslint-enable @typescript-eslint/no-unused-vars */
 }
@@ -609,6 +612,7 @@ const TableCore = function TableCore({
             // column's `format` for a number (#874).
             const renderFn = getSomeorUndefined(col.render);
             const format = getSomeorUndefined(col.format);
+            const numeric = col.valueType.type === "Integer" || col.valueType.type === "Float";
 
             return columnHelper.accessor(
                 (row) => subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key),
@@ -638,6 +642,7 @@ const TableCore = function TableCore({
                         maxWidth,
                         renderFn,
                         format,
+                        numeric,
                     },
                 }
             );
@@ -1352,7 +1357,8 @@ const TableCore = function TableCore({
                                         }}
                                         position={isPinned && !gutterActive ? "sticky" : "relative"}
                                     >
-                                        <Box css={tableCustomSlots.columnHeaderContent} data-resizable={enableColumnResizing && !centerInGutter ? "" : undefined}>
+                                        <Box css={tableCustomSlots.columnHeaderContent} data-resizable={enableColumnResizing && !centerInGutter ? "" : undefined}
+                                            data-align={header.column.columnDef.meta?.numeric && !centerInGutter ? "end" : undefined}>
                                             {/* Inherit the columnHeader slot's mono/10px/0.16em/uppercase/
                                                 fg.subtle — a bare span so the recipe governs the type,
                                                 not a competing textStyle. */}
@@ -1685,6 +1691,8 @@ const TableCore = function TableCore({
                                         // sticky-column bg.
                                         background: pinningStyles.backgroundColor ?? "transparent",
                                         ...pinningStyles,
+                                        // Numbers sit right-aligned.
+                                        ...(meta?.numeric ? { justifyContent: "flex-end" } : {}),
                                         // Gutter: centre columns flex-fill the lane (#147).
                                         ...gutterCenterStyle(cell.column),
                                     };
@@ -1757,7 +1765,7 @@ const TableCore = function TableCore({
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
                                             {lead}
-                                            <Text css={tableCustomSlots.cellText}>
+                                            <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined}>
                                                 {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : cellText(cellValue, meta?.format, words)}
                                             </Text>
                                         </ChakraTable.Cell>

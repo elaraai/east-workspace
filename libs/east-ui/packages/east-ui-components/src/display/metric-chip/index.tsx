@@ -19,21 +19,20 @@ const metricChipEqual = equivalentFor(MetricChip.Types.MetricChip);
 export type MetricChipValue = ValueTypeOf<typeof MetricChip.Types.MetricChip>;
 
 /**
- * Default palette derived from tone — uses the muted spec status hues
- * (`fg.success / fg.danger / fg.muted / fg.info`) routed through the
- * `*.subtle` semantic tokens so the visual reads as a soft tinted chip
- * per pattern_spec/spec.css `.delta` / `.deltapill.*`.
+ * The palette each tone gives the outline and solid emphases — the outline
+ * is the design system's outlined DeltaPill: the panel paper and a strong
+ * rule, a rising or falling value on its own hue's wash and edge.
  */
-const TONE_PALETTE: Record<string, { bg: string; fg: string; border: string; solidBg: string; solidFg: string }> = {
-    positive: { bg: "success.subtle", fg: "fg.success", border: "fg.success", solidBg: "fg.success", solidFg: "white" },
-    negative: { bg: "danger.subtle",  fg: "fg.danger",  border: "fg.danger",  solidBg: "fg.danger",  solidFg: "white" },
-    neutral:  { bg: "bg.subtle",      fg: "fg.muted",   border: "border.strong", solidBg: "fg.muted", solidFg: "white" },
-    info:     { bg: "info.subtle",    fg: "fg.info",    border: "fg.info",    solidBg: "fg.info",    solidFg: "white" },
+const TONE_PALETTE: Record<string, { fg: string; outlineBg: string; outlineBorder: string; solidBg: string; solidFg: string }> = {
+    positive: { fg: "fg.success", outlineBg: "success.subtle", outlineBorder: "fg.success",    solidBg: "fg.success", solidFg: "white" },
+    negative: { fg: "fg.danger",  outlineBg: "danger.subtle",  outlineBorder: "fg.danger",     solidBg: "fg.danger",  solidFg: "white" },
+    neutral:  { fg: "fg.subtle",  outlineBg: "bg.panel",       outlineBorder: "border.strong", solidBg: "fg.muted",   solidFg: "white" },
+    info:     { fg: "brand.solid", outlineBg: "bg.panel",      outlineBorder: "border.strong", solidBg: "fg.info",    solidFg: "white" },
 };
 
+/** The sizes around the default — `sm` is the recipe's own, the design system's 20px pill. */
 const SIZE_PADDING: Record<string, { px: string; py: string; fontSize: string }> = {
     xs: { px: "1.5", py: "0", fontSize: "xs" },
-    sm: { px: "2", py: "0.5", fontSize: "sm" },
     md: { px: "2.5", py: "1", fontSize: "sm" },
     lg: { px: "3", py: "1.5", fontSize: "md" },
     xl: { px: "3.5", py: "2", fontSize: "md" },
@@ -71,7 +70,7 @@ export const EastChakraMetricChip = memo(function EastChakraMetricChip({ value, 
 
     const emphasis = style ? getSomeorUndefined(style.emphasis)?.type ?? "subtle" : "subtle";
     const sizeTag = style ? getSomeorUndefined(style.size)?.type ?? "sm" : "sm";
-    const sizeProps = SIZE_PADDING[sizeTag] ?? SIZE_PADDING["sm"]!;
+    const sizeProps = SIZE_PADDING[sizeTag];
 
     const palette = TONE_PALETTE[tone] ?? TONE_PALETTE["neutral"]!;
 
@@ -82,17 +81,15 @@ export const EastChakraMetricChip = memo(function EastChakraMetricChip({ value, 
     const colorOverride = (style && getSomeorUndefined(style.color))
         ?? (emphasis === "solid" ? palette.solidFg : undefined);
     const backgroundOverride = (style && getSomeorUndefined(style.background))
-        ?? (emphasis === "solid" ? palette.solidBg : emphasis === "outline" ? "transparent" : undefined);
+        ?? (emphasis === "solid" ? palette.solidBg : emphasis === "outline" ? palette.outlineBg : undefined);
     const borderColorOverride = (style && getSomeorUndefined(style.borderColor))
-        ?? (emphasis === "outline" ? palette.border : undefined);
+        ?? (emphasis === "outline" ? palette.outlineBorder : undefined);
     const iconColor = (style && getSomeorUndefined(style.iconColor)) ?? colorOverride ?? palette.fg;
 
     return (
         <Box
             css={styles.root}
-            px={sizeProps.px}
-            py={sizeProps.py}
-            fontSize={sizeProps.fontSize}
+            {...(sizeProps !== undefined ? { px: sizeProps.px, py: sizeProps.py, fontSize: sizeProps.fontSize } : {})}
             {...(colorOverride !== undefined ? { color: colorOverride } : {})}
             {...(backgroundOverride !== undefined ? { bg: backgroundOverride } : {})}
             {...(borderColorOverride !== undefined ? { borderColor: borderColorOverride } : {})}
