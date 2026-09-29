@@ -230,7 +230,7 @@ static EastValue *run_sorter_decode_value(Beast2RunSorter *s, const uint8_t *byt
     return value;
 }
 
-/* acc = merge(key, acc, value). Consumes `acc` and `value`; returns the result
+/* merge(key, acc, value). Consumes `acc` and `value`; returns the result
  * (owned), or NULL with the merge function's message posted. */
 static EastValue *run_sorter_fold(Beast2RunSorter *s, EastValue *key, EastValue *acc,
                                   EastValue *value)
@@ -251,24 +251,48 @@ static EastValue *run_sorter_fold(Beast2RunSorter *s, EastValue *key, EastValue 
     return out;
 }
 
-/* Folds the values of the equal keys at entries [i, j) in the order they were
- * added, and adds the key with the folded value. */
+/* Folds the values of the equal keys at entries [i, j) and adds the key with
+ * the folded value. The values fold pairwise in the order they were added
+ * (SPEC.md, "Sorted runs and merges"), `merge(key, older, newer)`: each value
+ * becomes the newest partial fold, and while the newest two partials cover
+ * equally many values they fold into one; the partials left then fold newest
+ * into oldest. Two or three values fold as `acc = merge(key, acc, value)`;
+ * more group as a balanced tree, so a merge that copies its operands —
+ * a.union(b), a.concat(b) — copies each value O(log n) times rather than O(n)
+ * (#1003). */
 static bool run_sorter_add_folded(Beast2RunSorter *s, B2V5RunOut *out, size_t i, size_t j)
 {
     const uint8_t *arena = s->arena->data;
     const B2V5RunEntry *first = &s->entries[i];
-    EastValue *acc = run_sorter_decode_value(s, arena + first->offset + first->key_len,
-                                             first->len - first->key_len);
-    for (size_t k = i + 1; acc && k < j; k++) {
+    /* The partial folds, oldest first, and how many values each covers: a
+     * power of two, halving from one to the next, so 64 hold any count. */
+    struct {
+        EastValue *value;
+        size_t covers;
+    } partials[64];
+    size_t depth = 0;
+    EastValue *acc = NULL;
+    for (size_t k = i; k < j; k++) {
         const B2V5RunEntry *e = &s->entries[k];
-        EastValue *value =
-            run_sorter_decode_value(s, arena + e->offset + e->key_len, e->len - e->key_len);
-        if (!value) {
-            east_value_release(acc);
-            return false;
+        acc = run_sorter_decode_value(s, arena + e->offset + e->key_len, e->len - e->key_len);
+        size_t covers = 1;
+        while (acc && depth > 0 && partials[depth - 1].covers == covers) {
+            acc = run_sorter_fold(s, first->key, partials[--depth].value, acc);
+            covers *= 2;
         }
-        acc = run_sorter_fold(s, first->key, acc, value);
+        if (!acc) break;
+        partials[depth].value = acc;
+        partials[depth].covers = covers;
+        depth++;
     }
+    if (acc) {
+        acc = partials[--depth].value;
+        while (acc && depth > 0)
+            acc = run_sorter_fold(s, first->key, partials[--depth].value, acc);
+    }
+    /* A value that failed to decode or fold leaves partials never folded. */
+    while (depth > 0)
+        east_value_release(partials[--depth].value);
     if (!acc) return false;
     s->folded->len = 0;
     byte_buffer_write_bytes(s->folded, arena + first->offset, first->key_len);

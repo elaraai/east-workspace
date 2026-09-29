@@ -43,6 +43,32 @@ export const RUN_MAX_COUNT = 131_072;
  *  before it closes. */
 export const RUN_MAX_BYTES = 64 * 1024 * 1024;
 
+/**
+ * Folds `count` values pairwise, in order — how a run folds a repeated key's
+ * values (SPEC.md, *Sorted runs and merges*). Each value becomes the newest
+ * partial fold, and while the newest two partials cover equally many values
+ * they fold into one, `merge(older, newer)`; the partials left then fold
+ * newest into oldest. Two or three values fold as `acc = merge(acc, value)`;
+ * more group as a balanced tree, so a merge that copies its operands copies
+ * each value O(log n) times rather than O(n). Every runtime groups them alike,
+ * which for a fold over floats decides the bytes.
+ */
+function foldPairwise<V>(count: number, valueAt: (k: number) => V, merge: (older: V, newer: V) => V): V {
+  const partials: { value: V; covers: number }[] = [];
+  for (let k = 0; k < count; k++) {
+    let value = valueAt(k);
+    let covers = 1;
+    while (partials.length > 0 && partials[partials.length - 1]!.covers === covers) {
+      value = merge(partials.pop()!.value, value);
+      covers *= 2;
+    }
+    partials.push({ value, covers });
+  }
+  let acc = partials.pop()!.value;
+  while (partials.length > 0) acc = merge(partials.pop()!.value, acc);
+  return acc;
+}
+
 /** Where a {@link Beast2RunSorter} writes one run. */
 export interface Beast2RunSink {
   /**
@@ -58,10 +84,12 @@ export interface Beast2RunSink {
 /** Options accepted by {@link Beast2RunSorter}. */
 export type Beast2RunSorterOptions = Omit<Beast2ElementWriterOptions, "headerPrefix"> & {
   /**
-   * Dict roots: how a key added more than once folds, `acc = merge(key, acc,
-   * value)`, in the order its values were added. Without it such a key is
-   * refused. A key's values fold within each run before the runs merge, so the
-   * function must be associative.
+   * Dict roots: how a key added more than once folds — pairwise, in the order
+   * its values were added, `merge(key, older, newer)`: two or three values as
+   * `acc = merge(key, acc, value)`, more as a balanced tree, so a merge that
+   * copies its operands copies each value O(log n) times. Without it such a
+   * key is refused. A key's values fold within each run before the runs merge,
+   * and in groups within a run, so the function must be associative.
    */
   merge?: (key: any, acc: any, value: any) => any;
   /** Set roots: an element added more than once is kept once. Without it such
@@ -264,11 +292,11 @@ export class Beast2RunSorter<T extends EastType = EastType> {
         writer.addEncoded(bytes.subarray(starts[first]!, end(first)), keyLengths[first]!);
       } else {
         const keyLength = keyLengths[first]!;
-        let acc = this.decodeValue!(bytes.subarray(starts[first]! + keyLength, end(first)));
-        for (let k = i + 1; k < j; k++) {
-          const e = order[k]!;
-          acc = this.merge(keys[first], acc, this.decodeValue!(bytes.subarray(starts[e]! + keyLengths[e]!, end(e))));
-        }
+        const merge = this.merge;
+        const acc = foldPairwise(j - i, (k) => {
+          const e = order[i + k]!;
+          return this.decodeValue!(bytes.subarray(starts[e]! + keyLengths[e]!, end(e)));
+        }, (older, newer) => merge(keys[first], older, newer));
         this.folded.writeBytes(bytes.subarray(starts[first]!, starts[first]! + keyLength));
         this.ctx.containerIndex.clear();
         this.ctx.segmentBaseDef = this.ctx.containerCount;
