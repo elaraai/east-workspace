@@ -55,7 +55,14 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
   the other runtimes read; `make query-corpus` rewrites both, and QUERY.md
   §10's and §12's generated tables, and a spec fails while any of them is
   stale. A change to the translator changes the corpus's IR bytes: rewrite
-  it.
+  it. The type matrix (`test/query-types/`, `test/query.types.spec.ts`,
+  QUERY.md §16.5) runs every shape of East type through every jq program
+  its kind admits, judged by jq 1.8.1's recorded runs
+  (`test/fixtures/query-types.json`: `make query-types`, with jq on the
+  PATH) or by QUERY.md; `make query-types-tables` rewrites §16.5's tables.
+  `make test-export` writes the query suites to `query-conformance/`,
+  `query-types/` and `query-corpus/`, which every runtime's compliance leg
+  runs.
 - `test/` — compliance suite (serializes to IR; runs on any backend).
 - `devdocs/` — living design docs (start with `SERIALIZATION.md`).
 - `example/`, `contrib/` — experiments and scratch (per

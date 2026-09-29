@@ -723,14 +723,6 @@
       "reason": "no East builtin makes a Blob from bytes"
     },
     {
-      "name": "@base32d",
-      "status": "unavailable",
-      "arities": [
-        0
-      ],
-      "reason": "no East builtin makes a Blob from bytes"
-    },
-    {
       "name": "@urid",
       "status": "unavailable",
       "arities": [
@@ -877,13 +869,6 @@
     },
     {
       "name": "@base64",
-      "status": "supported",
-      "arities": [
-        0
-      ]
-    },
-    {
-      "name": "@base32",
       "status": "supported",
       "arities": [
         0
@@ -1670,7 +1655,6 @@
     }
   ],
   "translations": [
-    "@base32",
     "@base64",
     "@csv",
     "@html",
@@ -1815,7 +1799,6 @@
     "year"
   ],
   "formats": [
-    "base32",
     "base64",
     "csv",
     "html",

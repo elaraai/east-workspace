@@ -431,6 +431,20 @@ def test_ref_reads_writes_and_updates():
         East.ref(n), lambda _b, r: East.block(r.update(r.get() * 3), r.get())))(4) == 12
 
 
+def test_a_ref_of_functions_stores_the_function_it_is_given():
+    """TypeScript's ``update(value)`` stores a value: in a cell of functions a
+    function is that value, not the deprecated read-modify-write callback, as
+    the eager ``EastRef.update`` reads it too. A translated jq ``def`` holds
+    its function in a cell, which the IR printer writes as ``cell.update(fn)``
+    (#987)."""
+    k = East.function([IntegerType], IntegerType, lambda _b, n: East.let(
+        East.ref(East.function([IntegerType], IntegerType, lambda _b, x: x)),
+        lambda _b, cell: East.block(
+            cell.update(East.function([IntegerType], IntegerType, lambda _b, x: x * 2)),
+            cell.get()(n))))
+    assert k(21) == 42
+
+
 def test_new_collections_are_typed_and_can_start_populated():
     k = East.function([IntegerType], INTS, lambda _b, n: East.new_array(IntegerType, [n, n + 1]))
     assert list(k(5)) == [5, 6]

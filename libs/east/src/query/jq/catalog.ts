@@ -18,12 +18,12 @@ import { encodeBeast2For } from "../../serialization/beast2/index.js";
 import { compareFor } from "../../comparison.js";
 import { printFor } from "../../serialization/east.js";
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, StringType, StructType,
-  isImmutableType, isTypeEqual, type EastType,
+  ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, OptionType, StringType, StructType,
+  VariantType, isImmutableType, isTypeEqual, type EastType,
 } from "../../types.js";
 import { MESSAGES, edit, type QueryFix } from "./messages.js";
 import {
-  ERROR, MANY, MAYBE, ONE, ZERO, describeType, either, isOrdered, membersOf, nullablePayload, orNull, then,
+  ERROR, MANY, MAYBE, ONE, ZERO, describeType, descendTypes, either, isOrdered, membersOf, nullablePayload, orNull, then,
   typed, unify, union, unwrap, type Member, type Mult, type Proof, type Result, type Shape, type TypeShape,
 } from "./shapes.js";
 import type { JqNode, JqRange } from "./spans.js";
@@ -66,6 +66,15 @@ export interface CallContext {
    * @returns the literal's new type, or `undefined` when it is not such a literal
    */
   coerceArg(i: number, wanted: EastType): EastType | undefined;
+  /**
+   * Rewrites argument `i`, an array literal of literals, as an array of
+   * `wanted`: each element as {@link CallContext.coerceArg} rewrites one.
+   *
+   * @returns the array's new type, or `undefined` when it is not such an array
+   */
+  coerceArgElements(i: number, wanted: EastType): EastType | undefined;
+  /** How many problems have been reported so far: a rule's own tells it whether a coercion said why it failed. */
+  problems(): number;
   /** Reports a problem at the call, or at argument `arg`. */
   fail(code: string, message: string, options?: { arg?: number; suggestions?: string[]; fixes?: QueryFix[] }): Result;
   /** Reports a type error jq raises at run time; in a lenient place, no output instead. */
@@ -240,13 +249,30 @@ function argOf(ctx: CallContext, i: number, expected: string, allowed: (t: EastT
   if (type === undefined) return undefined;
   if (!allowed(unwrap(type))) {
     // A literal of another type the argument's type is written as: an ISO-8601 string for a DateTime.
-    const coerced = coerce === undefined ? undefined : ctx.coerceArg(i, coerce);
+    const coerced = coerce === undefined ? undefined : coerceArgument(ctx, i, coerce, "value");
+    if (coerced === null) return undefined;
     if (coerced !== undefined) return { result: one(coerced), type: coerced };
-    if (coerce !== undefined && ctx.literal(i) !== undefined && unwrap(coerce).type === "DateTime") return undefined;
     ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, ordinal(i), expected, describeType(type)), { arg: i });
     return undefined;
   }
   return { result, type };
+}
+
+/**
+ * Argument `i` rewritten as `wanted` is written, when it is a literal of
+ * another type (`as: "value"`), or an array literal of them (`"elements"`,
+ * each element a `wanted`): an ISO-8601 string as a DateTime, an Integer as a
+ * Float.
+ *
+ * @returns the argument's new type; `undefined` when it is no such literal;
+ *   or `null` when it is a string that is not an ISO-8601 date, which the
+ *   rewrite has reported
+ */
+function coerceArgument(ctx: CallContext, i: number, wanted: EastType, as: "value" | "elements"): EastType | null | undefined {
+  const reported = ctx.problems();
+  const coerced = as === "value" ? ctx.coerceArg(i, wanted) : ctx.coerceArgElements(i, wanted);
+  if (coerced !== undefined) return coerced;
+  return ctx.problems() > reported ? null : undefined;
 }
 
 function ordinal(i: number): string {
@@ -727,20 +753,10 @@ supported("range", [1, 2, 3], "ArrayRange, or a Float loop, streamed", ctx => {
 });
 supported("recurse", [0, 1, 2], "a depth-first walk with an explicit stack", ctx => {
   if (ctx.args.length === 0) {
+    // `recurse` is `..`: jq defines both as `recurse(.[]?)`.
     if (ctx.refuseRoot()) return { shape: ERROR, mult: ONE };
-    const seen: EastType[] = [];
-    const members: Member[] = [];
-    const visit = (t: EastType): void => {
-      if (seen.some(s => isTypeEqual(s, t))) return;
-      seen.push(t);
-      members.push({ shape: typed(t), case: undefined });
-      const u = unwrap(t);
-      const inner = elementOf(u) ?? (u.type === "Dict" ? u.value as EastType : undefined);
-      if (inner !== undefined) visit(inner);
-      if (u.type === "Struct") for (const f of Object.values(u.fields as Record<string, EastType>)) visit(f);
-    };
-    for (const t of typesOf(ctx.input)) visit(t);
-    return { shape: union(members), mult: MANY };
+    if (ctx.input.shape.kind === "error") return { shape: ERROR, mult: ONE };
+    return { shape: union(descendTypes(typesOf(ctx.input)).map(t => ({ shape: typed(t), case: undefined }))), mult: MANY };
   }
   const start = ctx.collect(ctx.input);
   if (start === undefined) return { shape: ERROR, mult: ONE };
@@ -794,20 +810,42 @@ supported("walk", [1], "a bottom-up rebuild, applying f to each value", ctx => {
   const start = ctx.collect(ctx.input);
   if (start === undefined) return { shape: ERROR, mult: ONE };
   const memo = new Map<EastType, EastType | undefined>();
+  // A value's parts, each walked: an option's value's, an array's elements, a
+  // dict's values, a struct's fields and a variant's payload (not its case's
+  // name, which is its type).
+  const rebuildParts = (t: EastType): EastType | undefined => {
+    const u = unwrap(t);
+    const payload = nullablePayload(u);
+    if (payload !== undefined) {
+      const p = rebuildType(payload);
+      return p === undefined ? undefined : orNull(p) ?? OptionType(p);
+    }
+    if (u.type === "Array") { const e = walkType(u.value as EastType); return e === undefined ? undefined : ArrayType(e); }
+    if (u.type === "Dict") { const v = walkType(u.value as EastType); return v === undefined ? undefined : DictType(u.key as EastType, v); }
+    if (u.type === "Struct") {
+      const fields: Record<string, EastType> = {};
+      for (const [name, f] of Object.entries(u.fields as Record<string, EastType>)) { const w = walkType(f); if (w === undefined) return undefined; fields[name] = w; }
+      return StructType(fields);
+    }
+    if (u.type === "Variant") {
+      const cases: Record<string, EastType> = {};
+      for (const [name, c] of Object.entries(u.cases as Record<string, EastType>)) { const w = walkType(c); if (w === undefined) return undefined; cases[name] = w; }
+      return VariantType(cases);
+    }
+    return t;
+  };
+  // A recursive value rebuilt as its node keeps its recursive type.
+  const rebuildType = (t: EastType): EastType | undefined => {
+    const rebuilt = rebuildParts(t);
+    return rebuilt !== undefined && t.type === "Recursive" && isTypeEqual(t.node as EastType, rebuilt) ? t : rebuilt;
+  };
   const walkType = (t: EastType): EastType | undefined => {
+    // A Never has no value to walk: an empty collection's elements.
+    if (t.type === "Never") return t;
     if (memo.has(t)) return memo.get(t);
     memo.set(t, t);
-    const u = unwrap(t);
-    let rebuilt: EastType = t;
-    if (t.type !== "Recursive") {
-      if (u.type === "Array") { const e = walkType(u.value as EastType); if (e === undefined) return undefined; rebuilt = ArrayType(e); }
-      else if (u.type === "Dict") { const v = walkType(u.value as EastType); if (v === undefined) return undefined; rebuilt = DictType(u.key as EastType, v); }
-      else if (u.type === "Struct") {
-        const fields: Record<string, EastType> = {};
-        for (const [name, f] of Object.entries(u.fields as Record<string, EastType>)) { const w = walkType(f); if (w === undefined) return undefined; fields[name] = w; }
-        rebuilt = StructType(fields);
-      }
-    }
+    const rebuilt = t.type === "Recursive" ? t : rebuildType(t);
+    if (rebuilt === undefined) return undefined;
     const out = ctx.arg(0, one(rebuilt));
     if (out.shape.kind === "error") return undefined;
     if (out.mult.lo !== 1 || out.mult.hi !== 1) {
@@ -986,8 +1024,13 @@ supported("has", [1], "DictHas, the struct's field names, ArraySize", ctx => {
   if (keyType === undefined) return { shape: ERROR, mult: ONE };
   return onInput(ctx, "a dict, a struct or an array", (t, member) => {
     if (t.type === "Dict") {
-      return isTypeEqual(unwrap(keyType), unwrap(t.key as EastType)) ? one(BooleanType, key.mult)
-        : ctx.fail("type_mismatch", MESSAGES.keyType("has", describeType(t.key as EastType), ctx.source(0), describeType(keyType)), { arg: 0 });
+      const dictKey = unwrap(t.key as EastType);
+      if (isTypeEqual(unwrap(keyType), dictKey)) return one(BooleanType, key.mult);
+      // A literal written as the key type is: an ISO-8601 string for a DateTime, an Integer for a Float.
+      const coerced = coerceArgument(ctx, 0, dictKey, "value");
+      if (coerced === null) return { shape: ERROR, mult: ONE };
+      if (coerced !== undefined) return one(BooleanType, key.mult);
+      return ctx.fail("type_mismatch", MESSAGES.keyType("has", describeType(t.key as EastType), ctx.source(0), describeType(keyType)), { arg: 0 });
     }
     if (t.type === "Struct") {
       if (unwrap(keyType).type !== "String") return ctx.fail("type_mismatch", MESSAGES.keyType("has", "String", ctx.source(0), describeType(keyType)), { arg: 0 });
@@ -1007,7 +1050,17 @@ supported("has", [1], "DictHas, the struct's field names, ArraySize", ctx => {
 supported("in", [1], "has, on the argument", ctx => {
   const container = ctx.arg(0);
   if (container.shape.kind === "error") return { shape: ERROR, mult: ONE };
-  return one(BooleanType, container.mult);
+  const keyType = ctx.collect(ctx.input);
+  if (keyType === undefined) return { shape: ERROR, mult: ONE };
+  const key = unwrap(keyType);
+  // The input is a key of the argument: of a dict's key type, a struct's field name, an array's index.
+  return perMember(ctx, container, member => {
+    const t = unwrap(member.type);
+    const wanted = t.type === "Dict" ? unwrap(t.key as EastType) : t.type === "Struct" ? StringType : elementOf(t) !== undefined ? IntegerType : undefined;
+    if (wanted === undefined) return ctx.fail("type_mismatch", MESSAGES.argument("in", "first", "a dict, a struct or an array", describeType(member.type)), { arg: 0 });
+    if (isTypeEqual(key, wanted) || (wanted.type === "Float" && key.type === "Integer")) return one(BooleanType, container.mult);
+    return ctx.fail("type_mismatch", MESSAGES.keyType("in", describeType(wanted), "its input", describeType(keyType)));
+  });
 });
 supported("map", [1], "ArrayMap / SetToArray / DictToArray of f (f's outputs collected)", ctx => {
   if (ctx.refuseRoot()) return { shape: ERROR, mult: ONE };
@@ -1130,8 +1183,15 @@ function containment(ctx: CallContext): Result {
   const ot = ctx.collect(other, 0);
   if (ot === undefined) return { shape: ERROR, mult: ONE };
   return perMember(ctx, ctx.input, member => {
-    const [outer, inner] = ctx.name === "contains" ? [member.type, ot] : [ot, member.type];
-    if (containable(outer, inner)) return one(BooleanType, other.mult);
+    const holds = (arg: EastType): boolean => ctx.name === "contains" ? containable(member.type, arg) : containable(arg, member.type);
+    if (holds(ot)) return one(BooleanType, other.mult);
+    // Literals written as the input's type is: ISO-8601 strings for DateTimes, alone or in an array.
+    const element = elementOf(unwrap(member.type));
+    const coerced = element !== undefined && unwrap(ot).type === "Array"
+      ? coerceArgument(ctx, 0, element, "elements")
+      : coerceArgument(ctx, 0, unwrap(member.type), "value");
+    if (coerced === null) return { shape: ERROR, mult: ONE };
+    if (coerced !== undefined && holds(coerced)) return one(BooleanType, other.mult);
     // An input that can be null holds only null (§13.16): skip the nulls.
     if (nullablePayload(unwrap(member.type)) !== undefined) return inputMismatch(ctx, "a value", member.type);
     // jq raises for values whose containment it cannot check: in a lenient place, at run time.
@@ -1144,7 +1204,10 @@ function containable(outer: EastType, inner: EastType): boolean {
   const b = unwrap(inner);
   if (b.type === "Never") return true;
   if (a.type === "String" && b.type === "String") return true;
-  if (a.type === "Array" && b.type === "Array") return containable(a.value as EastType, b.value as EastType);
+  // Arrays, sets, vectors and matrices are all arrays to jq.
+  const ea = elementOf(a);
+  const eb = elementOf(b);
+  if (ea !== undefined && eb !== undefined) return containable(ea, eb);
   if (a.type === "Struct" && b.type === "Struct") {
     const fields = a.fields as Record<string, EastType>;
     // A field the outer struct lacks is never held: the answer is false, not an error.
@@ -1164,11 +1227,23 @@ for (const [name, output] of [["index", "first"], ["rindex", "last"], ["indices"
     return onInput(ctx, "a string or an array", t => {
       const u = unwrap(xt);
       if (t.type === "String") return u.type === "String" ? found() : ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, "first", "a string", describeType(xt)), { arg: 0 });
-      if (t.type !== "Array") return undefined;
+      const element = elementOf(t);
+      if (element === undefined) return undefined;
       // An element, or an array: a run of elements.
-      const element = t.value as EastType;
-      const wanted = u.type === "Array" ? u.value as EastType : xt;
-      if (wanted.type === "Never" || unify(element, wanted) !== undefined) return found();
+      const fits = (given: EastType): boolean => {
+        const g = unwrap(given);
+        const wanted = g.type === "Array" ? g.value as EastType : given;
+        return wanted.type === "Never" || unify(element, wanted) !== undefined;
+      };
+      if (fits(xt)) return found();
+      // Literals written as the elements' type is: an ISO-8601 string for a DateTime, alone or in an array.
+      const coerced = coerceArgument(ctx, 0, element, u.type === "Array" ? "elements" : "value");
+      if (coerced === null) return { shape: ERROR, mult: ONE };
+      if (coerced !== undefined && fits(coerced)) return found();
+      // An array that is itself an element: jq reads an array as a run of elements.
+      if (u.type === "Array" && unify(element, u) !== undefined) {
+        return ctx.fail("type_mismatch", MESSAGES.runArgument(ctx.name, describeType(element), describeType(u.value as EastType), `${ctx.name}([${ctx.source(0)}])`), { arg: 0 });
+      }
       return ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, "first", `${describeType(element)}, or an array of it`, describeType(xt)), { arg: 0 });
     });
   });
@@ -1180,7 +1255,12 @@ supported("bsearch", [1], "ArrayFindSortedFirst, with jq's −1 − insertion po
     const e = elementOf(t);
     const xt = ctx.collect(x, 0);
     if (e === undefined || xt === undefined) return undefined;
-    return unify(e, xt) === undefined ? ctx.fail("type_mismatch", MESSAGES.argument("bsearch", "first", describeType(e), describeType(xt)), { arg: 0 }) : one(IntegerType, x.mult);
+    if (unify(e, xt) !== undefined) return one(IntegerType, x.mult);
+    // A literal written as the elements' type is: an ISO-8601 string for a DateTime.
+    const coerced = coerceArgument(ctx, 0, e, "value");
+    if (coerced === null) return { shape: ERROR, mult: ONE };
+    if (coerced !== undefined && unify(e, coerced) !== undefined) return one(IntegerType, x.mult);
+    return ctx.fail("type_mismatch", MESSAGES.argument("bsearch", "first", describeType(e), describeType(xt)), { arg: 0 });
   });
 });
 supported("join", [1], "ArrayStringJoin of the elements as text (null as \"\")", ctx => {
@@ -1236,7 +1316,7 @@ unavailable(each(["implode", "explode"], [0]), "East has no builtin between a st
 unavailable(each(["have_decnum", "have_literal_numbers"], [0]), "it describes jq's build, not the data");
 unavailable({ splits: [1, 2] }, "East regular expressions have no regex split");
 unavailable(each(["match", "capture", "scan"], [1, 2]), "East regular expressions have no capture groups (§13.8)");
-unavailable(each(["@base64d", "@base32d", "@urid"], [0]), "no East builtin makes a Blob from bytes");
+unavailable(each(["@base64d", "@urid"], [0]), "no East builtin makes a Blob from bytes");
 
 // Strings.
 for (const name of ["startswith", "endswith"]) {
@@ -1298,8 +1378,7 @@ supported("@text", [0], "tostring", ctx => onInput(ctx, "a data value", () => on
 supported("@json", [0], "StringPrintJSON", ctx => onInput(ctx, "a data value", () => one(StringType)));
 supported("@html", [0], "tostring, then StringReplace of < > & ' \"", ctx => onInput(ctx, "a data value", () => one(StringType)));
 supported("@uri", [0], "tostring, then each code point kept or percent-encoded from StringEncodeUtf8", ctx => onInput(ctx, "a data value", () => one(StringType)));
-supported("@base64", [0], "tostring, StringEncodeUtf8, then RFC 4648 over BlobGetUint8", ctx => onInput(ctx, "a data value", () => one(StringType)));
-supported("@base32", [0], "tostring, StringEncodeUtf8, then RFC 4648 over BlobGetUint8", ctx => onInput(ctx, "a data value", () => one(StringType)));
+supported("@base64", [0], "a Blob's bytes, or tostring's StringEncodeUtf8, then RFC 4648 over BlobGetUint8", ctx => onInput(ctx, "a data value", () => one(StringType)));
 for (const name of ["@csv", "@tsv"]) {
   supported(name, [0], "ArrayStringJoin of the quoted cells", ctx => onInput(ctx, "an array of scalars", t => {
     const e = elementOf(t);
@@ -1535,7 +1614,6 @@ const RULES: Readonly<Record<string, readonly [rule: string, outputs: string]>> 
   "@html": ["any → String, HTML-escaped", "one"],
   "@uri": ["any → String, percent-encoded", "one"],
   "@base64": ["any → String", "one"],
-  "@base32": ["any → String", "one"],
   "@csv": ["Array of scalars → String", "one"],
   "@tsv": ["Array of scalars → String", "one"],
   "@sh": ["a scalar or an array of scalars → String", "one"],

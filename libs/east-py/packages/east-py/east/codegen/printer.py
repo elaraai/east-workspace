@@ -134,6 +134,10 @@ _BLOCK = "b"
 #: The names a printed module imports or binds at module level besides the declarations — never a declaration's name.
 _MODULE_NAMES = frozenset({"East", "variant", "some", "none", "east_null", "recursive_type", "datetime", "timezone",
                            *TYPE_IMPORTS})
+#: The names a body never binds: the module's, and the builtin a NaN or an infinity prints through. A variable of
+#: one of these names would make the name local to its whole function, and so unreachable where the body uses it
+#: first (``b.let(none, T)`` before ``none = b.const(...)``, #987).
+_UNBINDABLE = frozenset({*_MODULE_NAMES, "float"})
 #: The printer's own spelling for a variable it cannot name as the IR does.
 _V_NAME = re.compile(r"v_(\d+)")
 #: A template slot: an argument or a type parameter.
@@ -559,10 +563,10 @@ class _Printer:
         py = ir_name if _ident(ir_name) and not ir_name.startswith("__") else None
         if py == _BLOCK and f"{py}_" not in scope.used:
             py = f"{py}_"  # the author's `b` is the block's name here
-        if py is None or py in scope.used or py in self.reserved:
-            # The builder's own spelling, or a name this scope already
-            # uses: ``v_N`` from one module-wide counter, so the rebuilt
-            # module names the slot the same way and prints to itself.
+        if py is None or py in scope.used or py in self.reserved or py in _UNBINDABLE:
+            # The builder's own spelling, a name this scope already uses, or
+            # a name the module does: ``v_N`` from one module-wide counter, so
+            # the rebuilt module names the slot the same way and prints to itself.
             py = f"v_{self.var_counter}"
             self.var_counter += 1
         scope.names[ir_name] = py
@@ -1028,12 +1032,15 @@ class _Printer:
                 if node.type != "Variant":
                     return None
                 case = node.value["case"]
-                if option and case == "none":
+                # ``none`` is the option whose payload is the null literal; a
+                # payload computed some other way is spelled as it is.
+                if option and case == "none" and _is_null_value(node.value["value"]):
                     self.used.add("none")
                     return "none"
                 payload = cases.get(case, as_expr)(node.value["value"], scope, pre, depth + 1)
-                self.used.add("some" if option else "variant")
-                return ["some", call_args([payload])] if option else ["variant", call_args([repr(case), payload])]
+                some_ = option and case == "some"
+                self.used.add("some" if some_ else "variant")
+                return ["some", call_args([payload])] if some_ else ["variant", call_args([repr(case), payload])]
             return variant_
 
         # Set, Ref, Vector, Matrix, Function, AsyncFunction, Recursive, Never: no python literal here

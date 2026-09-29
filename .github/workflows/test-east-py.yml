@@ -146,8 +146,10 @@ jobs:
       # skip silently wherever the temp dir did not match their default path,
       # which is every OS but Linux. The exported corpus is staged into the
       # temp dir the compliance-driven suites read (python's gettempdir, so the
-      # path agrees with the MSYS-rewritten one on Windows); the conformance
-      # legs read the downloaded artifacts directly.
+      # path agrees with the MSYS-rewritten one on Windows), the query suites'
+      # directories with it (test_compliance.py's SUITE_SUBDIRECTORIES, #987),
+      # so this run and a local one run the same suites; the conformance legs
+      # read the downloaded artifacts directly.
       - name: Run east-py tests (full pytest sweep)
         working-directory: libs/east-py/packages/east-py
         env:
@@ -156,7 +158,7 @@ jobs:
           EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/ir-examples
           EAST_CONFORMANCE_REQUIRED: "1"
         run: |
-          uv run python -c "import os, shutil, tempfile, pathlib; d = pathlib.Path(tempfile.gettempdir()) / 'east-test-ir'; d.mkdir(parents=True, exist_ok=True); [shutil.copy(p, d) for p in pathlib.Path(os.environ['IR_SRC']).glob('*.json')]"
+          uv run python tests/test_compliance.py --stage "$IR_SRC"
           uv run pytest tests -q --no-cov
 
       # `run`'s lazy inputs and `exec`'s stdin lifeline against the

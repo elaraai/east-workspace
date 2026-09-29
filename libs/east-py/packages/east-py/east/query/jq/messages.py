@@ -249,6 +249,11 @@ class MESSAGES:
         return f"type_mismatch: {name}'s {position} argument must be {expected}, not {given}."
 
     @staticmethod
+    def run_argument(name: str, element: str, given: str, wrapped: str) -> str:
+        return (f"type_mismatch: {name} takes an array as a run of elements, which must be {element}, not {given}. "
+                f"To find one element, wrap it: {wrapped}.")
+
+    @staticmethod
     def literal_argument(name: str, position: str, expected: str) -> str:
         return f"type_mismatch: {name}'s {position} argument must be {expected}, written in the query."
 

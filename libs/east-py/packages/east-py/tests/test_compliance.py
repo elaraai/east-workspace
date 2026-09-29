@@ -8,10 +8,12 @@ Output matches east-c's run_compliance.sh. Usage:
   python tests/test_compliance.py           # parallel, verbose (default)
   python tests/test_compliance.py -q        # parallel, summary only
   python tests/test_compliance.py Array     # single file, verbose
+  python tests/test_compliance.py --stage DIR  # copy DIR's suites to --ir-dir
 """
 
 import io
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -36,20 +38,65 @@ def _resolve_ir_dir(s: str | Path) -> Path:
 
 TEST_IR_DIR = _resolve_ir_dir("/tmp/east-test-ir")
 
-# The suites beside the IR directory's own: jq 1.8's conformance cases,
-# translated (#924), which run through east-c here as east-c's
-# run_compliance.sh runs them (#925).
-SUITE_SUBDIRECTORIES = ("query-conformance",)
+# The suites beside the IR directory's own, each in a directory of its own:
+# jq 1.8's conformance cases, translated (#924), the type matrix and the query
+# corpus (#987). Compliance, the eager replay and the IR round trips
+# (tests/conformance/) run them, as east-c's run_compliance.sh does, and CI
+# stages them (`--stage`), so a local run and CI's run the same suites.
+SUITE_SUBDIRECTORIES = ("query-conformance", "query-types", "query-corpus")
+
+# CI's gate: an exported IR directory without one of those suites is a failure.
+REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
 
 
-def get_test_ir_files(ir_dir: Path | None = None, subdirectories: tuple[str, ...] = ()):
+def get_test_ir_files(ir_dir: Path | None = None, subdirectories: tuple[str, ...] = (),
+                      required: bool = REQUIRED):
+    """An IR directory's suites: its own, then each subdirectory's.
+
+    Args:
+        ir_dir: The directory; ``TEST_IR_DIR`` when omitted.
+        subdirectories: The suites' directories beside the directory's own.
+        required: Whether a subdirectory with no suites, in a directory that
+            has some, is an error rather than nothing to run — CI's gate on the
+            core export (``EAST_CONFORMANCE_REQUIRED=1``).
+
+    Raises:
+        RuntimeError: When ``required`` and a subdirectory holds no suites.
+    """
     d = ir_dir or TEST_IR_DIR
     if not d.exists():
         return []
     files = sorted(d.glob("*.json"))
     for sub in subdirectories:
-        files += sorted((d / sub).glob("*.json"))
+        found = sorted((d / sub).glob("*.json"))
+        if required and files and not found:
+            raise RuntimeError(
+                f"EAST_CONFORMANCE_REQUIRED=1 but {d / sub} holds no suites "
+                "(`make test-export` in libs/east writes them)")
+        files += found
     return files
+
+
+def stage(source: Path, target: Path | None = None) -> list[Path]:
+    """Copies an exported IR directory's suites to where the pytest legs read them.
+
+    Args:
+        source: The exported directory (CI's downloaded artifact).
+        target: Where to copy them; ``TEST_IR_DIR`` when omitted.
+
+    Returns:
+        The copies: the top-level suites, and each of ``SUITE_SUBDIRECTORIES``'s.
+    """
+    d = target or TEST_IR_DIR
+    copies: list[Path] = []
+    for f in get_test_ir_files(source, SUITE_SUBDIRECTORIES):
+        to = d / f.relative_to(source)
+        if to.exists() and to.samefile(f):
+            copies.append(to)
+            continue
+        to.parent.mkdir(parents=True, exist_ok=True)
+        copies.append(Path(shutil.copy(f, to)))
+    return copies
 
 
 def suite_name(ir_file: Path, ir_dir: Path | None = None) -> str:
@@ -244,11 +291,20 @@ def main():
     parser.add_argument("-q", "--quiet", action="store_true", help="Summary only")
     parser.add_argument("--ir-dir", type=_resolve_ir_dir, default=TEST_IR_DIR, help="IR directory")
     parser.add_argument("-p", "--platform", action="append", default=[], help="Platform module(s) to import")
+    parser.add_argument("--stage", type=Path, help="Copy this exported IR directory's suites to --ir-dir, and exit")
     args = parser.parse_args()
 
     quiet = args.quiet or env_quiet
     ir_dir = args.ir_dir
     platform_modules = args.platform
+
+    if args.stage is not None:
+        copies = stage(args.stage, ir_dir)
+        if not copies:
+            print(f"Error: No test IR files in {args.stage}")
+            sys.exit(1)
+        print(f"Staged {len(copies)} suites from {args.stage} in {ir_dir}")
+        sys.exit(0)
 
     # Single file mode
     if args.file:
@@ -264,7 +320,9 @@ def main():
         print(f"\nResults: {p}/{p + fl} passed")
         sys.exit(1 if fl > 0 else 0)
 
-    files = get_test_ir_files(ir_dir, SUITE_SUBDIRECTORIES)
+    # The default directory is the core export, which holds the query suites;
+    # another is whatever export it names (east-py-std's, a test's), which may not.
+    files = get_test_ir_files(ir_dir, SUITE_SUBDIRECTORIES, required=REQUIRED and ir_dir == TEST_IR_DIR)
     if not files:
         print(f"Error: No test IR files in {ir_dir}")
         sys.exit(1)

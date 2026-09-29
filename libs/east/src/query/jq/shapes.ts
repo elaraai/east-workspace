@@ -13,7 +13,7 @@
 import { jsonFlatOptionPayload } from "../../serialization/json.js";
 import { toEastTypeValue } from "../../type_of_type.js";
 import {
-  ArrayType, DictType, FloatType, NeverType, NullType, OptionType, StructType, VariantType,
+  ArrayType, DictType, FloatType, NeverType, NullType, OptionType, StringType, StructType, VariantType,
   isTypeEqual, type EastType,
 } from "../../types.js";
 
@@ -242,6 +242,10 @@ export function orNull(type: EastType): EastType | undefined {
  *
  * @remarks
  * - Equal types unify to themselves, and `Never` (no value) to the other.
+ * - A reference is read through, as jq sees its value: `Ref<T>` and `U`
+ *   unify as `T` and `U` do.
+ * - A recursive type and its node unify to the recursive type; another
+ *   recursive type only with `null`, or an option of it.
  * - Integer and Float unify to Float.
  * - `null` and `T` unify to `Option<T>`; `Option<T>` and `U` to
  *   `Option<T ⊔ U>`.
@@ -257,7 +261,10 @@ export function unify(a: EastType, b: EastType): EastType | undefined {
   if (isTypeEqual(a, b)) return a;
   if (a.type === "Never") return b;
   if (b.type === "Never") return a;
-  if (a.type === "Recursive" || b.type === "Recursive" || a.type === "Ref" || b.type === "Ref") return undefined;
+  if (a.type === "Ref") return unify(a.value as EastType, b);
+  if (b.type === "Ref") return unify(a, b.value as EastType);
+  if (a.type === "Recursive" && isTypeEqual(a.node as EastType, b)) return a;
+  if (b.type === "Recursive" && isTypeEqual(b.node as EastType, a)) return b;
   if ((a.type === "Integer" && b.type === "Float") || (a.type === "Float" && b.type === "Integer")) return FloatType;
 
   // null and T.
@@ -269,6 +276,7 @@ export function unify(a: EastType, b: EastType): EastType | undefined {
     const inner = unify(aPayload ?? a, bPayload ?? b);
     return inner === undefined ? undefined : orNull(inner);
   }
+  if (a.type === "Recursive" || b.type === "Recursive") return undefined;
 
   switch (a.type) {
     case "Array": {
@@ -322,6 +330,41 @@ export function unify(a: EastType, b: EastType): EastType | undefined {
     default:
       return undefined;
   }
+}
+
+/**
+ * The types `..` and `recurse` give on values of some types: each type, then
+ * the types of the values inside it, depth first, each once. Inside a value
+ * are an option's value, the elements of an array, set or vector, a matrix's
+ * rows, a dict's values, a struct's fields, and a variant's case name and
+ * payloads (jq's `{type, value}`).
+ *
+ * @param types - the input's types
+ * @returns the types, in the order the walk first meets them
+ *
+ * @internal
+ */
+export function descendTypes(types: readonly EastType[]): EastType[] {
+  const seen: EastType[] = [];
+  const visit = (type: EastType): void => {
+    if (seen.some(s => isTypeEqual(s, type))) return;
+    seen.push(type);
+    const t = unwrap(type);
+    const payload = nullablePayload(t);
+    if (payload !== undefined) { visit(payload); return; }
+    switch (t.type) {
+      case "Array": visit(t.value as EastType); break;
+      case "Set": visit(t.key as EastType); break;
+      case "Vector": visit(t.element as EastType); break;
+      case "Matrix": visit(ArrayType(t.element as EastType)); break;
+      case "Dict": visit(t.value as EastType); break;
+      case "Struct": for (const f of Object.values(t.fields as Record<string, EastType>)) visit(f); break;
+      case "Variant": visit(StringType); for (const c of Object.values(t.cases as Record<string, EastType>)) visit(c); break;
+      default: break;
+    }
+  };
+  types.forEach(visit);
+  return seen;
 }
 
 /**

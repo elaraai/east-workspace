@@ -400,6 +400,19 @@ await describe("Block", (test) => {
         $(assert.equal(x, 15n));
     });
 
+    test("assign() with an error raises it", $ => {
+        // An error is a value of Never: it stands where the Integer goes, uncast.
+        const fn = East.function([BooleanType], IntegerType, ($, fail) => {
+            const x = $.let(1n);
+            $.if(fail, $ => {
+                $.assign(x, East.error("boom"));
+            });
+            return x;
+        });
+        $(assert.equal(fn(false), 1n));
+        $(assert.throws(fn(true), /boom/));
+    });
+
     assert.examples(test, { blockIf: ex.blockIf, blockIfElse: ex.blockIfElse, blockIfElseIf: ex.blockIfElseIf });
 
     test("if() with true condition", $ => {

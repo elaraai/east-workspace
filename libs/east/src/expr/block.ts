@@ -2342,7 +2342,6 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     }
 
     const cases_out: Record<string, { variable: VariableAST, body: AST }> = {};
-    let out_type = NullType;
 
     for (const [k, t] of Object.entries(Expr.type(variant).cases as Record<string, EastType>)) {
       const f = cases[k];
@@ -2393,6 +2392,9 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     }
 
     // TODO do we care if extra case branches exist? (we don't even call the function passed in!)
+
+    // Every case diverges: so does the statement, as the analyzer requires.
+    const out_type = Object.values(cases_out).every(c => isTypeEqual(c.body.type, NeverType)) ? NeverType : NullType;
 
     const ast = {
       ast_type: "Match" as const,

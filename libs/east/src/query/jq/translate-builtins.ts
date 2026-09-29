@@ -218,49 +218,10 @@ rule("range", (t, c) => {
   });
 });
 
-/** The kinds of value `recurse` finds directly inside a value of a type: what `.[]?` gives, as the checker types it. */
-function recurseKinds(type: EastType): EastType[] {
-  const u = unwrap(type);
-  switch (u.type) {
-    case "Array": return [u.value as EastType];
-    case "Set": return [u.key as EastType];
-    case "Vector": return [u.element as EastType];
-    case "Matrix": return [ArrayType(u.element as EastType)];
-    case "Dict": return [u.value as EastType];
-    case "Struct": return Object.values(u.fields as Record<string, EastType>);
-    default: return [];
-  }
-}
-
 rule("recurse", (t, c) => {
   if (c.args.length === 0) {
-    const x = input(t, c);
-    const kinds: EastType[] = [];
-    let recursive = false;
-    const visit = (type: EastType): void => {
-      // A value typed as a recursive type's node meets the type as a kind already seen: it recurses all the same.
-      if (type.type === "Recursive") recursive = true;
-      if (kinds.some(k => isTypeEqual(k, type))) return;
-      kinds.push(type);
-      recurseKinds(type).forEach(visit);
-    };
-    visit(t.type(x));
-    const children = ($: Block, v: Expr, emit: Emit): void => {
-      const o = t.open(v);
-      const ot = t.type(o);
-      if (ot.type === "Struct") {
-        const s = t.bind($, o, "struct");
-        for (const name of Object.keys(ot.fields as object)) emit($, t.field(s, name));
-      } else if (recurseKinds(ot).length > 0) {
-        t.forEach($, o, ($2, item) => emit($2, item), c.path);
-      }
-    };
-    if (!recursive) {
-      const walk = ($: Block, v: Expr): void => { c.emit($, v); children($, v, walk); };
-      walk(c.$, x);
-      return;
-    }
-    t.walkStack(c.$, x, kinds, c.path, ($, v, push) => { c.emit($, v); children($, v, push); });
+    // `recurse` is `..`: jq defines both as `recurse(.[]?)`.
+    t.descend(c.$, input(t, c), c.path, c.emit);
     return;
   }
   // `recurse(f)`, `recurse(f; cond)`: the value, then f of it, and so on, depth first.
@@ -369,6 +330,12 @@ rule("walk", (t, c) => {
   const rebuild = ($: Block, v: Expr): Expr => {
     const o = t.open(v);
     const ot = t.type(o);
+    // An option's value's parts, where it holds one; f runs once, on the whole.
+    if (nullablePayload(ot) !== undefined) return t.matchAuto(o, { none: () => t.null(c.path), some: ($2, p) => rebuild($2, p) }, c.path);
+    // A variant's payload is walked; its case's name is its type.
+    if (ot.type === "Variant") return t.mapPayloads(o, ($2, _name, payload) => walk($2, payload), c.path);
+    // A collection of Never is empty: nothing to walk.
+    if ((ot.type === "Array" || ot.type === "Dict") && (ot.value as EastType).type === "Never") return o;
     if (ot.type === "Array") {
       let out: Expr | undefined;
       const decl = t.block();
@@ -399,7 +366,9 @@ rule("walk", (t, c) => {
         values[name] = walk($, t.field(s, name));
         types[name] = t.type(values[name]!);
       }
-      const rebuiltType = v !== o && isTypeEqual(StructType(types), ot) ? t.type(v) : StructType(types);
+      // A recursive value keeps its type; a reference's value is read through it.
+      const vt = t.type(v);
+      const rebuiltType = vt.type === "Recursive" && isTypeEqual(StructType(types), ot) ? vt : StructType(types);
       return t.struct(rebuiltType, values);
     }
     return v;
@@ -1056,7 +1025,13 @@ rule(["min_by", "max_by"], (t, c) => {
     t.ifElse($, better, $2 => t.assign($2, best, t.some(pair, OptionType(Pair))), undefined, c.path);
   }, c.path, "pair");
   const option = OptionType(k.element);
-  c.emit(c.$, t.matchValue(best, { none: () => t.none(option), some: (_$, b) => t.some(t.field(b, "value"), option) }, option, c.path));
+  const out = outputType(t, c);
+  if (nullablePayload(option) !== undefined) {
+    c.emit(c.$, t.matchValue(best, { none: () => t.none(option), some: (_$, b) => t.some(t.field(b, "value"), option) }, option, c.path));
+    return;
+  }
+  // An element that can be null already is the answer as it is, and no element is its null.
+  c.emit(c.$, t.matchValue(best, { none: $ => t.widenTo($, t.null(c.path), out, c.path), some: ($, b) => t.widenTo($, t.field(b, "value"), out, c.path) }, out, c.path));
 });
 
 rule("unique", (t, c) => {
@@ -1088,7 +1063,10 @@ rule(["min", "max"], (t, c) => {
     }, BooleanType, c.path);
     t.ifElse($, better, $2 => t.assign($2, best, t.some(item, option)), undefined, c.path);
   }, c.path);
-  c.emit(c.$, t.widenTo(c.$, best, outputType(t, c), c.path));
+  const out = outputType(t, c);
+  if (nullablePayload(option) !== undefined) { c.emit(c.$, t.widenTo(c.$, best, out, c.path)); return; }
+  // An element that can be null already is the answer as it is, and no element is its null.
+  c.emit(c.$, t.matchValue(best, { none: $ => t.widenTo($, t.null(c.path), out, c.path), some: ($, b) => t.widenTo($, b, out, c.path) }, out, c.path));
 });
 
 rule("reverse", (t, c) => {
@@ -1112,8 +1090,10 @@ rule("reverse", (t, c) => {
  * value; any other value an equal one.
  */
 function contains(t: Translator, c: CallSite, $: Block, a: Expr, b: Expr): Expr {
-  const va = t.open(a);
-  const vb = t.open(b);
+  // Sets, vectors and matrices are arrays to jq.
+  const array = (v: Expr): Expr => arrayLike(t.type(v)) && t.type(v).type !== "Array" ? t.asArray($, v, c.path)! : v;
+  const va = array(t.open(a));
+  const vb = array(t.open(b));
   const ta = t.type(va);
   const tb = t.type(vb);
   if (ta.type === "String" && tb.type === "String") return t.b("StringContains", [], [va, vb], BooleanType, c.path);
@@ -1220,7 +1200,7 @@ function indicesIn(t: Translator, c: CallSite, $: Block, array: Expr, x: Expr): 
 
 rule(["index", "rindex", "indices"], (t, c) => values(t, c, [0], c.$, ($, [sub]) => {
   const x = t.open(input(t, c));
-  const all = t.type(x).type === "String" ? indices(t, c, $, x, sub!) : indicesIn(t, c, $, x, sub!);
+  const all = t.type(x).type === "String" ? indices(t, c, $, x, sub!) : indicesIn(t, c, $, t.asArray($, x, c.path)!, sub!);
   if (c.name === "indices") { c.emit($, all); return; }
   const option = OptionType(IntegerType);
   const size = t.bind($, t.size(all, c.path), "count");
@@ -1246,24 +1226,91 @@ rule("bsearch", (t, c) => values(t, c, [0], c.$, ($, [target]) => {
 
 /**
  * A scalar as text for join and the text formats: a string as it is, an
- * Integer in decimal, a Float as JSON writes it (no `.0` on a whole one), a
- * boolean as `true` or `false`, and null as `nullText`.
+ * Integer in decimal, a Float as jq writes a number, a boolean as `true` or
+ * `false`, null as `nullText`, and NaN as `nanText`.
  */
-function cellText(t: Translator, $: Block, v: Expr, path: string, nullText: string): Expr {
+function cellText(t: Translator, $: Block, v: Expr, path: string, nullText: string, nanText: string): Expr {
   const o = t.open(v);
   const ot = t.type(o);
   if (ot.type === "String") return o;
   if (ot.type === "Null") return t.str(nullText, path);
   if (nullablePayload(ot) !== undefined) {
-    return t.matchValue(o, { none: () => t.str(nullText, path), some: ($2, p) => cellText(t, $2, p, path, nullText) }, StringType, path);
+    return t.matchValue(o, { none: () => t.str(nullText, path), some: ($2, p) => cellText(t, $2, p, path, nullText, nanText) }, StringType, path);
   }
-  if (ot.type === "Float") return t.b("StringPrintJSON", [ot], [o], StringType, path);
+  if (ot.type === "Float") return jqNumber(t, $, o, path, nanText);
   return t.b("Print", [ot], [o], StringType, path);
+}
+
+/**
+ * A Float as jq writes a number: −0.0 as `-0`, ±Infinity as
+ * `±1.7976931348623157e+308`, NaN as `nanText`, and any other as
+ * {@link jqDigits} writes it.
+ */
+function jqNumber(t: Translator, $: Block, f: Expr, path: string, nanText: string): Expr {
+  const x = t.bind($, f, "number");
+  const text = (s: string) => (): Expr => t.str(s, path);
+  return t.ifValue(t.isNan(x, path), text(nanText),
+    () => t.ifValue(t.eq(x, t.float(Infinity), path), text("1.7976931348623157e+308"),
+      () => t.ifValue(t.eq(x, t.float(-Infinity), path), text("-1.7976931348623157e+308"),
+        () => t.ifValue(t.eq(x, t.float(0), path), text("0"),
+          () => t.ifValue(t.eq(x, t.float(-0), path), text("-0"),
+            $2 => jqDigits(t, $2, x, path), StringType, path), StringType, path), StringType, path), StringType, path), StringType, path);
+}
+
+/**
+ * A finite, non-zero Float as jq 1.8 writes one it computed (`jvp_dtoa_fmt`):
+ * the shortest digits that read back as it, which East's JSON writes too;
+ * placed fixed-point, or as `d.ddde±XX` (at least two exponent digits) where
+ * the decimal point falls four or more places before the digits, or more
+ * than fifteen past their end. So `0.0001`, `1e-05`, `1e+16`,
+ * `123456789012345680000` and `1.5e+300`.
+ */
+function jqDigits(t: Translator, $: Block, x: Expr, path: string): Expr {
+  const S = StringType;
+  const I = IntegerType;
+  const length = (s: Expr): Expr => t.b("StringLength", [], [s], I, path);
+  const slice = (s: Expr, from: Expr, to: Expr): Expr => t.b("StringSubstring", [], [s, from, to], S, path);
+  const strip = (s: Expr, pattern: string): Expr => t.b("RegexReplace", [], [s, t.str(pattern), t.str(""), t.str("")], S, path);
+  const minus = (a: Expr, b: Expr): Expr => t.b("IntegerSubtract", [], [a, b], I, path);
+  const atMost = (a: Expr, b: Expr): Expr => t.b("LessEqual", [I], [a, b], BooleanType, path);
+  const zeros = (n: Expr): Expr => t.b("StringRepeat", [], [t.str("0"), n], S, path);
+  // East's JSON of the number: an optional -, digits with an optional point, and an optional exponent.
+  const json = t.bind($, t.b("StringPrintJSON", [FloatType], [x], S, path), "json");
+  const negative = t.bind($, t.b("StringStartsWith", [], [json, t.str("-")], BooleanType, path), "negative");
+  const body = t.bind($, t.ifValue(negative, () => slice(json, t.int(1), length(json)), () => json, S, path), "body");
+  const e = t.bind($, t.b("StringIndexOf", [], [body, t.str("e")], I, path), "e");
+  const mantissa = t.bind($, t.ifValue(t.lt(e, t.int(0), path), () => body, () => slice(body, t.int(0), e), S, path), "mantissa");
+  const exponent = t.bind($, t.ifValue(t.lt(e, t.int(0), path), () => t.int(0),
+    () => t.b("Parse", [I], [t.b("StringReplace", [], [slice(body, t.add(e, t.int(1), path), length(body)), t.str("+"), t.str("")], S, path)], I, path), I, path), "exponent");
+  const dot = t.bind($, t.b("StringIndexOf", [], [mantissa, t.str(".")], I, path), "dot");
+  const whole = t.bind($, t.ifValue(t.lt(dot, t.int(0), path), () => mantissa, () => slice(mantissa, t.int(0), dot), S, path), "whole");
+  const fraction = t.bind($, t.ifValue(t.lt(dot, t.int(0), path), () => t.str(""), () => slice(mantissa, t.add(dot, t.int(1), path), length(mantissa)), S, path), "fraction");
+  // The significant digits, and where the decimal point falls among them.
+  const all = t.bind($, t.concat(whole, fraction, path), "all");
+  const lead = t.bind($, strip(all, "^0+"), "lead");
+  const digits = t.bind($, strip(lead, "0+$"), "digits");
+  const count = t.bind($, length(digits), "count");
+  const point = t.bind($, minus(t.add(length(whole), exponent, path), minus(length(all), length(lead))), "point");
+  const exponential = t.b("BooleanOr", [], [atMost(point, t.int(-4)), t.lt(t.add(count, t.int(15), path), point, path)], BooleanType, path);
+  const text = t.bind($, t.ifValue(exponential, $2 => {
+    const power = t.bind($2, t.add(point, t.int(-1), path), "power");
+    const magnitude = t.bind($2, t.b("Print", [I], [t.b("IntegerAbs", [], [power], I, path)], S, path), "magnitude");
+    const first = t.ifValue(t.lt(t.int(1), count, path), () => t.concat(t.concat(slice(digits, t.int(0), t.int(1)), t.str("."), path), slice(digits, t.int(1), count), path), () => digits, S, path);
+    const sign = t.ifValue(t.lt(power, t.int(0), path), () => t.str("e-"), () => t.str("e+"), S, path);
+    const padded = t.ifValue(t.lt(length(magnitude), t.int(2), path), () => t.concat(t.str("0"), magnitude, path), () => magnitude, S, path);
+    return t.concat(t.concat(first, sign, path), padded, path);
+  }, () => t.ifValue(atMost(point, t.int(0)),
+    () => t.concat(t.concat(t.str("0."), zeros(minus(t.int(0), point)), path), digits, path),
+    () => t.ifValue(atMost(count, point),
+      () => t.concat(digits, zeros(minus(point, count)), path),
+      () => t.concat(t.concat(slice(digits, t.int(0), point), t.str("."), path), slice(digits, point, count), path), S, path), S, path), S, path), "text");
+  return t.ifValue(negative, () => t.concat(t.str("-"), text, path), () => text, S, path);
 }
 
 rule("join", (t, c) => values(t, c, [0], c.$, ($, [sep]) => {
   const parts = t.declare($, t.emptyArray(StringType), "parts");
-  t.forEach($, input(t, c), ($2, item) => t.push($2, parts, cellText(t, $2, item, c.path, ""), c.path), c.path);
+  // jq's join writes a number as tojson does: NaN as null.
+  t.forEach($, input(t, c), ($2, item) => t.push($2, parts, cellText(t, $2, item, c.path, "", "null"), c.path), c.path);
   c.emit($, t.b("ArrayStringJoin", [], [parts, sep!], StringType, c.path));
 }));
 
@@ -1433,7 +1480,7 @@ for (const [name, builtin] of [["trim", "StringTrim"], ["ltrim", "StringTrimStar
   rule(name, onString([], (t, c, $, s) => c.emit($, t.b(builtin, [], [s], StringType, c.path))));
 }
 
-rule("split", onString([0], (t, c, $, s, [sep]) => c.emit($, t.b("StringSplit", [], [s, sep!], ArrayType(StringType), c.path))));
+rule("split", onString([0], (t, c, $, s, [sep]) => c.emit($, t.split($, s, sep!, c.path))));
 
 /** A regex's flags, as written in the query: East's `i` when jq's is there. */
 function regexFlags(t: Translator, c: CallSite, i: number | undefined): { flags: string; global: boolean } {
@@ -1527,13 +1574,24 @@ function stringCell(t: Translator, v: Expr, f: (s: Expr) => Expr, path: string, 
   return t.matchValue(o, { none: () => t.str(nullText, path), some: (_$2, s) => f(s) }, StringType, path);
 }
 
-/** RFC 4648's alphabets. */
+/** RFC 4648's alphabet. */
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-/** Base-2ᵏ text of a string's UTF-8 bytes, RFC 4648 with padding: `bits` bits a character, in groups of `group` bytes. */
+/** The bytes `@base64` encodes: a Blob's own (§2), or the UTF-8 of any other value's text. */
+function bytesOf(t: Translator, $: Block, v: Expr, path: string): Expr {
+  const o = t.open(v);
+  const ot = t.type(o);
+  if (ot.type === "Blob") return o;
+  const payload = nullablePayload(ot);
+  if (payload !== undefined && unwrap(payload).type === "Blob") {
+    return t.matchValue(o, { none: () => t.b("StringEncodeUtf8", [], [t.str("null", path)], BlobType, path), some: ($2, p) => bytesOf(t, $2, p, path) }, BlobType, path);
+  }
+  return t.b("StringEncodeUtf8", [], [t.tostring($, o, path)], BlobType, path);
+}
+
+/** Base-2ᵏ text of a value's bytes, RFC 4648 with padding: `bits` bits a character, in groups of `group` bytes. */
 function baseEncode(t: Translator, $: Block, v: Expr, path: string, alphabet: string, bits: number, group: number): Expr {
-  const bytes = t.declare($, t.b("StringEncodeUtf8", [], [t.tostring($, v, path)], BlobType, path), "bytes", false);
+  const bytes = t.declare($, bytesOf(t, $, v, path), "bytes", false);
   const size = t.declare($, t.b("BlobSize", [], [bytes], IntegerType, path), "size", false);
   const letters = t.declare($, t.value([...alphabet], ArrayType(StringType), path), "alphabet", false);
   const out = t.declare($, t.emptyArray(StringType), "letters");
@@ -1592,16 +1650,16 @@ export const FORMATS: Readonly<Record<string, Format>> = {
     return t.b("ArrayStringJoin", [], [out, t.str("")], StringType, path);
   },
   base64: (t, $, v, path) => baseEncode(t, $, v, path, BASE64, 6, 3),
-  base32: (t, $, v, path) => baseEncode(t, $, v, path, BASE32, 5, 5),
+  // jq writes NaN in a CSV or TSV cell as nothing, and elsewhere as null.
   csv: (t, $, v, path) => cells(t, $, v, path, ($2, item) => isStringCell(t, item)
     ? stringCell(t, item, s => t.concat(t.concat(t.str("\""), replaceAll(t, s, [["\"", "\"\""]], path), path), t.str("\""), path), path, "")
-    : cellText(t, $2, item, path, ""), ","),
+    : cellText(t, $2, item, path, "", ""), ","),
   tsv: (t, $, v, path) => cells(t, $, v, path, ($2, item) => isStringCell(t, item)
     ? stringCell(t, item, s => replaceAll(t, s, [["\\", "\\\\"], ["\t", "\\t"], ["\n", "\\n"], ["\r", "\\r"]], path), path, "")
-    : cellText(t, $2, item, path, ""), "\t"),
+    : cellText(t, $2, item, path, "", ""), "\t"),
   sh: (t, $, v, path) => {
     const quote = (s: Expr): Expr => t.concat(t.concat(t.str("'"), replaceAll(t, s, [["'", "'\\''"]], path), path), t.str("'"), path);
-    const cell = ($2: Block, item: Expr): Expr => isStringCell(t, item) ? stringCell(t, item, quote, path, "null") : cellText(t, $2, item, path, "null");
+    const cell = ($2: Block, item: Expr): Expr => isStringCell(t, item) ? stringCell(t, item, quote, path, "null") : cellText(t, $2, item, path, "null", "null");
     const o = t.open(v);
     if (!arrayLike(t.type(o))) return cell($, o);
     return cells(t, $, o, path, cell, " ");

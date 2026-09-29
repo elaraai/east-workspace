@@ -42,6 +42,7 @@ from east.query.jq.shapes import (
     can_be_null,
     cases_of,
     cases_of_type,
+    descend_types,
     describe_type,
     dict_key,
     dict_value,
@@ -421,6 +422,16 @@ class CallContext:
         a = self.args[i]
         return self._checker.coerce_literal(a, self.arg_paths[i], unwrap(wanted)) if a.type == "literal" else None
 
+    def coerce_arg_elements(self, i: int, wanted: EastType) -> EastType | None:
+        """Rewrites argument ``i``, an array literal of literals, as an array of ``wanted``; its new type, or ``None``."""
+        if i >= len(self.args):
+            return None
+        return self._checker.coerce_array_literal(self.args[i], self.arg_paths[i], unwrap(wanted), self._env)
+
+    def problems(self) -> int:
+        """How many problems have been reported so far: a rule's own tells it whether a coercion said why it failed."""
+        return len(self._checker.diagnostics)
+
     def fail(self, code: str, message: str, *, arg: int | None = None, suggestions: list[str] | None = None,
              fixes: list[EastStruct] | None = None) -> Result:
         """Reports a problem at the call, or at argument ``arg``."""
@@ -508,6 +519,14 @@ class _Checker:
         self.diagnostics: list[EastStruct] = []
         self.records: dict[str, Result] = {}
         self.rewrites: dict[str, JqNode] = {}
+        #: The Integer literals rewritten as Floats, by path.
+        self.float_literals: set[str] = set()
+        #: The literals a check kept whole, by path: an operand of Integer
+        #: arithmetic or of an Integer comparison. Where another check (a
+        #: ``def`` called with a Float, a ``walk`` meeting one) made one a
+        #: Float, the checked program keeps it whole, so its text means what
+        #: the query does; each translation widens it where it needs a Float.
+        self.whole_literals: set[str] = set()
         #: The nodes checked, by path.
         self.nodes: dict[str, JqNode] = {}
         #: What is in scope at each node checked, by instance and path.
@@ -781,34 +800,10 @@ class _Checker:
         """``..``: the value and every value nested in it, depth first."""
         if self.refuse_root(input_, path, env):
             return Result(ERROR, ONE)
-        members: list[Member] = []
-        seen: list[EastType] = []
-
-        def visit(t0: EastType) -> None:
-            if any(type_equal(s, t0) for s in seen):
-                return
-            seen.append(t0)
-            members.append(Member(typed(t0), None))
-            t = unwrap(t0)
-            payload = nullable_payload(t)
-            if payload is not None:
-                visit(payload)
-                return
-            if t.type in ("Array", "Set", "Vector"):
-                visit(t.value)
-            elif t.type == "Dict":
-                visit(dict_value(t))
-            elif t.type == "Struct":
-                for f in fields_of(t).values():
-                    visit(f)
-            elif t.type == "Variant":
-                visit(StringType)
-                for c in cases_of_type(t).values():
-                    visit(c)
-
-        for member in members_of(input_.shape):
-            visit(member.shape.type)
-        return Result(ERROR if input_.shape.kind == "error" else union(members), SOME)
+        if input_.shape.kind == "error":
+            return Result(ERROR, SOME)
+        types = descend_types([member.shape.type for member in members_of(input_.shape)])
+        return Result(union([Member(typed(t), None) for t in types]), SOME)
 
     # ─── Paths ─────────────────────────────────────────────────────────────
 
@@ -1035,6 +1030,7 @@ class _Checker:
             return wanted
         if wanted.type == "Float" and literal.type.type == "Integer":
             self.rewrites[path] = _literal_node(_encode_float(float(literal.value)))
+            self.float_literals.add(path)
             return FloatType
         if wanted.type == "DateTime" and literal.type.type == "String":
             date = _parse_iso_date_time(literal.value)
@@ -1044,6 +1040,48 @@ class _Checker:
             self.rewrites[path] = _literal_node(_encode_date_time(date))
             return DateTimeType
         return None
+
+    def coerce_array_literal(self, n: JqNode, path: str, wanted: EastType, env: Env) -> EastType | None:
+        """An array literal of literals (``["2026-01-01", "2026-02-01"]``) used where an array of ``wanted`` is.
+
+        Each element is rewritten as :meth:`coerce_literal` rewrites it, and
+        what checking the array recorded is retyped to match.
+
+        Returns:
+            The array's new type, or ``None`` when it is not such an array, or
+            an element does not fit.
+        """
+        if n.type != "array" or n.value.type != "some":
+            return None
+        literals: list[tuple[JqNode, str]] = []
+        commas: list[str] = []
+
+        def collect(c: JqNode, at: str) -> bool:
+            if c.type == "literal":
+                literals.append((c, at))
+                return True
+            if c.type != "comma":
+                return False
+            commas.append(at)
+            return collect(c.value["left"], child_path(at, "comma.left")) \
+                and collect(c.value["right"], child_path(at, "comma.right"))
+
+        if not collect(n.value.value, child_path(path, "array.some")):
+            return None
+        for literal_node, literal_path in literals:
+            if self.coerce_literal(literal_node, literal_path, wanted) is None:
+                return None
+
+        def retype(at: str, type_: EastType) -> None:
+            key = f"{env.instance}|{at}"
+            r = self.records.get(key)
+            if r is not None:
+                self.records[key] = replace(r, shape=typed(type_))
+
+        for at in [*commas, *(literal_path for _, literal_path in literals)]:
+            retype(at, wanted)
+        retype(path, ArrayType(wanted))
+        return ArrayType(wanted)
 
     def slice_node(self, n: JqNode, path: str, input_: Result, env: Env) -> Result:
         v = n.value
@@ -1340,14 +1378,22 @@ class _Checker:
         return self.mismatch(env, self.range(path), "type_mismatch",
                              MESSAGES.compares(op, describe_type(lt), describe_type(rt)))
 
+    def keep_whole(self, n: JqNode, path: str) -> None:
+        """Notes that a literal operand stays an Integer in this check (see ``whole_literals``)."""
+        if n.type == "literal":
+            self.whole_literals.add(path)
+
     def comparable(self, a: EastType, b: EastType, n: JqNode, path: str) -> bool:
         """Whether two types compare: equal, numbers, a value and its option, or a rewritten literal."""
         ua = unwrap(a)
         ub = unwrap(b)
-        if type_equal(ua, ub):
-            return True
         right = n.value["right"]
         left = n.value["left"]
+        if ua.type == "Integer" and ub.type == "Integer":
+            self.keep_whole(left, child_path(path, "binary.left"))
+            self.keep_whole(right, child_path(path, "binary.right"))
+        if type_equal(ua, ub):
+            return True
         if _is_number(ua) and _is_number(ub):
             # A literal takes its operand's type.
             if ua.type == "Float" and right.type == "literal":
@@ -1421,6 +1467,8 @@ class _Checker:
                 if b.type == "Integer" and operands.right.type == "literal":
                     self.coerce_literal(operands.right, operands.right_path, FloatType)
                 return Result(typed(FloatType), ONE)
+            self.keep_whole(operands.left, operands.left_path)
+            self.keep_whole(operands.right, operands.right_path)
             return Result(typed(IntegerType), ONE)
         if op == "+":
             if a.type == "String" and b.type == "String":
@@ -1429,7 +1477,7 @@ class _Checker:
                 element = unify(a.value, b.value)
                 return fail() if element is None else Result(typed(ArrayType(element)), ONE)
             if a.type == "Struct" and b.type == "Struct":
-                return Result(self.merge_structs(left, right, False), ONE)
+                return Result(self.merge_structs(left, right, False, operands.range), ONE)
             if a.type == "Dict" and b.type == "Dict":
                 merged = unify(a, b)
                 return fail() if merged is None else Result(typed(merged), ONE)
@@ -1443,7 +1491,14 @@ class _Checker:
             return fail()
         if op == "*":
             if a.type == "Struct" and b.type == "Struct":
-                return Result(self.merge_structs(left, right, True), ONE)
+                return Result(self.merge_structs(left, right, True, operands.range), ONE)
+            # Dicts merge deeply, as jq merges objects: a key both hold has their values merged when both are objects.
+            if a.type == "Dict" and b.type == "Dict":
+                merged = unify(a, b)
+                return fail() if merged is None else Result(typed(merged), ONE)
+            if (a.type == "Struct" and len(a.value) == 0 and b.type == "Dict") \
+                    or (b.type == "Struct" and len(b.value) == 0 and a.type == "Dict"):
+                return Result(typed(a if a.type == "Dict" else b), ONE)
             # A string repeated, the count a number on either side: a negative count gives null.
             if (a.type == "String" and _is_number(b)) or (_is_number(a) and b.type == "String"):
                 return Result(typed(or_null(StringType)), ONE)  # type: ignore[arg-type]
@@ -1454,8 +1509,14 @@ class _Checker:
             return fail()
         return fail()
 
-    def merge_structs(self, left: Result, right: Result, deep: bool) -> Shape:
-        """``a + b`` or ``a * b`` on structs: ``a``'s fields, then ``b``'s new ones; ``*`` merges deeply."""
+    def merge_structs(self, left: Result, right: Result, deep: bool, span: JqRange | None) -> Shape:
+        """``a + b`` or ``a * b`` on structs.
+
+        The fields of ``a``, then the new fields of ``b``; ``b``'s value wins,
+        and ``*`` merges fields that are structs, or dicts, in both deeply.
+        """
+        problem = [False]
+
         def merge(a: EastType, b: EastType, a_facts: Facts | None, b_facts: Facts | None) -> tuple[EastType, Facts | None]:
             ua = unwrap(a)
             ub = unwrap(b)
@@ -1479,6 +1540,16 @@ class _Checker:
                         facts[name] = inner_facts
                     else:
                         facts.pop(name, None)
+                elif deep and name in af and unwrap(af[name]).type == "Dict" and unwrap(t).type == "Dict":
+                    # Two dicts merge into one holding both's keys: their types must unify.
+                    merged_dict = unify(unwrap(af[name]), unwrap(t))
+                    if merged_dict is None:
+                        if not problem[0]:
+                            self.fail(span, "type_mismatch",
+                                      MESSAGES.arithmetic("*", describe_type(af[name]), describe_type(t)))
+                        problem[0] = True
+                    fields[name] = t if merged_dict is None else merged_dict
+                    facts.pop(name, None)
                 else:
                     fields[name] = t
                     f = None if b_known is None else b_known.get(name)
@@ -1492,7 +1563,7 @@ class _Checker:
         rshape = right.shape
         assert isinstance(lshape, TypeShape) and isinstance(rshape, TypeShape)
         merged_type, merged_facts = merge(lshape.type, rshape.type, lshape.facts, rshape.facts)
-        return typed(merged_type, merged_facts)
+        return ERROR if problem[0] else typed(merged_type, merged_facts)
 
     # ─── Construction ──────────────────────────────────────────────────────
 
@@ -1611,9 +1682,10 @@ class _Checker:
         builtin = BUILTINS.get(f"@{name}")
         if builtin is None:
             formats = [k for k in BUILTINS if k.startswith("@")]
-            suggestion = closest(f"@{name}", formats)
+            suggestions = closest(f"@{name}", formats)
             return self.fail(self.range(path), "unknown_function",
-                             MESSAGES.unknown_function(f"@{name}", 0, suggestion[0] if suggestion else None))
+                             MESSAGES.unknown_function(f"@{name}", 0, suggestions[0] if suggestions else None),
+                             suggestions=suggestions)
         status = self.availability(builtin, f"@{name}", path)
         if status is not None:
             return status
@@ -2452,9 +2524,9 @@ class _Checker:
     # ─── The checked query ─────────────────────────────────────────────────
 
     def rewrite(self, n: JqNode, path: str) -> JqNode:  # noqa: C901
-        """The program with every recorded rewrite applied."""
+        """The program with every recorded rewrite applied, but a Float's of a literal a check kept whole."""
         replacement = self.rewrites.get(path)
-        if replacement is not None:
+        if replacement is not None and not (path in self.float_literals and path in self.whole_literals):
             return replacement
         if not jq_children(n):
             return n

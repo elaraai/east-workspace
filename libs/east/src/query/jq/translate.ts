@@ -264,7 +264,9 @@ export class Translator {
    */
   as(e: Expr, type: EastType): Expr {
     const from = this.type(e);
-    if (type.type === "Recursive" && from.type !== "Recursive" && from.type !== "Never") {
+    // A value of Never, which never arrives, is one of every type: East casts none.
+    if (from.type === "Never") return e;
+    if (type.type === "Recursive" && from.type !== "Recursive") {
       return this.mk({ ast_type: "WrapRecursive", type, loc_id: UNKNOWN_LOC_ID, value: this.ast(this.as(e, type.node as EastType)) });
     }
     if (from.type === "Recursive" && type.type !== "Recursive") return this.as(this.open(e), type);
@@ -273,8 +275,15 @@ export class Translator {
     return this.mk({ ast_type: "As", type, loc_id: UNKNOWN_LOC_ID, value: this.ast(e) });
   }
 
+  /**
+   * An option holding a value. An option that can only be none
+   * (`Option<Never>`, over an empty collection's elements) is never made
+   * some: the payload, a value that never arrives, stands for it, as East's
+   * builders cannot spell a case of Never.
+   */
   some(payload: Expr, optionType: EastType): Expr {
     const p = parts(optionType).cases["some"]!;
+    if (p.type === "Never") return payload;
     return this.mk({ ast_type: "Variant", type: optionType, loc_id: UNKNOWN_LOC_ID, case: "some", value: this.ast(this.as(payload, p)) });
   }
 
@@ -282,21 +291,30 @@ export class Translator {
     return this.mk({ ast_type: "Variant", type: optionType, loc_id: UNKNOWN_LOC_ID, case: "none", value: { ast_type: "Value", type: NullType, loc_id: UNKNOWN_LOC_ID, value: null } });
   }
 
-  /** A case of a variant type, wrapped when the type is recursive. */
+  /**
+   * A case of a variant type, wrapped when the type is recursive. A case of
+   * Never is never made: the payload, which never arrives, stands for it.
+   */
   variantOf(type: EastType, name: string, payload: Expr): Expr {
     const node = type.type === "Recursive" ? type.node as EastType : type;
     const p = parts(node).cases[name]!;
+    if (p.type === "Never") return payload;
     const built: AST = { ast_type: "Variant", type: node, loc_id: UNKNOWN_LOC_ID, case: name, value: this.ast(this.as(payload, p)) };
     return this.mk(type.type === "Recursive" ? { ast_type: "WrapRecursive", type, loc_id: UNKNOWN_LOC_ID, value: built } : built);
   }
 
-  /** A struct of a type from its fields' values, wrapped when the type is recursive. */
+  /**
+   * A struct of a type from its fields' values, wrapped when the type is
+   * recursive. A struct with a field of Never is never made: that field's
+   * value, which never arrives, stands for it.
+   */
   struct(type: EastType, fields: Readonly<Record<string, Expr>>): Expr {
     const node = type.type === "Recursive" ? type.node as EastType : type;
     const asts: Record<string, AST> = {};
     for (const [name, fieldType] of Object.entries(parts(node).fields)) {
       const v = fields[name];
       if (v === undefined) throw this.gap(`no value for the field ${name}`);
+      if (fieldType.type === "Never") return v;
       asts[name] = this.ast(this.as(v, fieldType));
     }
     const built: AST = { ast_type: "Struct", type: node, loc_id: UNKNOWN_LOC_ID, fields: asts };
@@ -402,11 +420,19 @@ export class Translator {
     return { ast_type: "Block", type: s[s.length - 1]!.type, loc_id: UNKNOWN_LOC_ID, statements: s };
   }
 
+  /**
+   * Statements the last of which diverges, as one body, assembled as the
+   * builders assemble one: a single statement is that statement.
+   */
+  diverging(statements: AST[]): AST {
+    return statements.length === 1 ? statements[0]! : { ast_type: "Block", type: NeverType, loc_id: UNKNOWN_LOC_ID, statements };
+  }
+
   /** A block that gives a value: its statements, then the value. */
   blockValue(build: ($: Block) => Expr, type: EastType): AST {
     const inner = this.block();
     const v = build(inner);
-    if (this.ended(inner)) return { ast_type: "Block", type: NeverType, loc_id: UNKNOWN_LOC_ID, statements: inner.statements };
+    if (this.ended(inner)) return this.diverging(inner.statements);
     const valueAst = this.ast(this.as(v, type));
     if (inner.statements.length === 0) return valueAst;
     return { ast_type: "Block", type, loc_id: UNKNOWN_LOC_ID, statements: [...inner.statements, valueAst] };
@@ -522,6 +548,30 @@ export class Translator {
       out[name] = { variable, body: this.blockValue($ => build($, fromAst(variable) as Expr), type) };
     }
     return this.mk({ ast_type: "Match", type, loc_id: this.loc(path), variant: this.ast(opened), cases: out });
+  }
+
+  /** A variant with each case's payload given by `f` of it, of the variant type the new payloads make. */
+  mapPayloads(v: Expr, f: ($: Block, name: string, payload: Expr) => Expr, path: string): Expr {
+    const opened = this.open(v);
+    const built = Object.entries(this.type(opened).cases).map(([name, type]) => {
+      const variable: VariableAST = { ast_type: "Variable", type, loc_id: UNKNOWN_LOC_ID, mutable: false, name: "payload" };
+      const block = this.block();
+      const value = f(block, name, fromAst(variable) as Expr);
+      return { name, type, variable, block, value };
+    });
+    const cases: Record<string, EastType> = {};
+    for (const b of built) cases[b.name] = this.ended(b.block) ? b.type : this.type(b.value);
+    const V = VariantType(cases);
+    const out: Record<string, { variable: VariableAST; body: AST }> = {};
+    for (const b of built) {
+      if (this.ended(b.block)) {
+        out[b.name] = { variable: b.variable, body: this.diverging(b.block.statements) };
+        continue;
+      }
+      const wrapped = this.ast(this.variantOf(V, b.name, b.value));
+      out[b.name] = { variable: b.variable, body: b.block.statements.length === 0 ? wrapped : { ast_type: "Block", type: V, loc_id: UNKNOWN_LOC_ID, statements: [...b.block.statements, wrapped] } };
+    }
+    return this.mk({ ast_type: "Match", type: V, loc_id: this.loc(path), variant: this.ast(opened), cases: out });
   }
 
   /** A value chosen by a condition. */
@@ -696,6 +746,8 @@ export class Translator {
     const from = this.type(e);
     if (isTypeEqual(from, to)) return this.as(e, to);
     if (from.type === "Never") return this.as(e, to);
+    // A reference is read through, as jq sees its value.
+    if (from.type === "Ref" && to.type !== "Ref") return this.widenTo($, this.open(e), to, path);
     // An option of Never is always none: as Null, it is null.
     if (to.type === "Null" && nullablePayload(from)?.type === "Never") { this.bind($, e, "none"); return this.null(path); }
     const toPayload = nullablePayload(to);
@@ -1294,6 +1346,7 @@ export class Translator {
       case "Array": return [t.value as EastType];
       case "Set": return [t.key as EastType];
       case "Vector": return [t.element as EastType];
+      case "Matrix": return [ArrayType(t.element as EastType)];
       case "Dict": return [t.value as EastType];
       case "Struct": return Object.values(t.fields as Record<string, EastType>);
       case "Variant": return [StringType, ...Object.values(t.cases as Record<string, EastType>)];
@@ -1310,7 +1363,9 @@ export class Translator {
       return;
     }
     switch (t.type) {
-      case "Array": case "Set": case "Dict": case "Vector":
+      case "Array": case "Set": case "Dict": case "Vector": case "Matrix":
+        // A collection of Never is empty: nothing is inside it.
+        if (this.childKinds(t)[0]!.type === "Never") return;
         this.forEach($, e, ($2, value) => emit($2, value), path);
         return;
       case "Struct": {
@@ -1618,19 +1673,13 @@ export class Translator {
       }, path);
       return out;
     }
-    if ((op === "+" || op === "*") && ta.type === "Struct" && tb.type === "Struct") return this.mergeStructs($, va, vb, op === "*");
-    if (op === "+" && ta.type === "Dict" && tb.type === "Dict") {
-      const merged = unify(ta, tb);
-      if (merged === undefined) throw this.gap(`${printType(ta)} + ${printType(tb)}`);
-      const out = this.declare($, this.b("DictCopy", [parts(merged).key, parts(merged).value], [this.widenTo($, va, merged, path)], merged, path), "merged");
-      this.forEach($, this.widenTo($, vb, merged, path), ($2, value, key) => this.put($2, out, key!, value, path), path);
-      return out;
-    }
-    if (op === "+" && (ta.type === "Dict" || tb.type === "Dict") && (ta.type === "Struct" || tb.type === "Struct")) return ta.type === "Dict" ? va : vb;
+    if ((op === "+" || op === "*") && ta.type === "Struct" && tb.type === "Struct") return this.mergeStructs($, va, vb, op === "*", path);
+    if ((op === "+" || op === "*") && ta.type === "Dict" && tb.type === "Dict") return this.mergeDicts($, va, vb, op === "*", path);
+    if ((op === "+" || op === "*") && (ta.type === "Dict" || tb.type === "Dict") && (ta.type === "Struct" || tb.type === "Struct")) return ta.type === "Dict" ? va : vb;
     // A string repeated, the count a number on either side.
     if (op === "*" && ta.type === "String" && number(tb)) return this.repeat($, va, vb, path);
     if (op === "*" && number(ta) && tb.type === "String") return this.repeat($, vb, va, path);
-    if (op === "/" && ta.type === "String" && tb.type === "String") return this.b("StringSplit", [], [va, vb], ArrayType(StringType), path);
+    if (op === "/" && ta.type === "String" && tb.type === "String") return this.split($, va, vb, path);
     return this.failure(`${jqKind(ta)} and ${jqKind(tb)} cannot be combined with ${op}`, path);
   }
 
@@ -1676,6 +1725,13 @@ export class Translator {
     }, option, path);
   }
 
+  /** jq's split of a string by a separator: an empty string has no parts. */
+  split($: Block, s: Expr, separator: Expr, path: string): Expr {
+    const text = this.bind($, s, "text");
+    return this.ifValue(this.eq(this.b("StringLength", [], [text], IntegerType, path), this.int(0), path),
+      () => this.emptyArray(StringType), () => this.b("StringSplit", [], [text, separator], ArrayType(StringType), path), ArrayType(StringType), path);
+  }
+
   /** Whether a Float is NaN: East's order puts it above +Infinity. */
   isNan(f: Expr, path: string): Expr {
     return this.lt(this.float(Infinity), f, path);
@@ -1714,8 +1770,7 @@ export class Translator {
     for (const { name, variable, block, value } of built) {
       // A case that raises: its statements, the error last.
       if (this.ended(block) || this.type(value).type === "Never") {
-        const statements = this.ended(block) ? block.statements : [...block.statements, this.ast(value)];
-        out[name] = { variable, body: { ast_type: "Block", type: NeverType, loc_id: UNKNOWN_LOC_ID, statements } };
+        out[name] = { variable, body: this.diverging(this.ended(block) ? block.statements : [...block.statements, this.ast(value)]) };
         continue;
       }
       const w = this.widenTo(block, value, type, path);
@@ -1724,8 +1779,8 @@ export class Translator {
     return this.mk({ ast_type: "Match", type, loc_id: this.loc(path), variant: this.ast(opened), cases: out });
   }
 
-  /** `a + b` on structs: `b`'s fields win, and new ones follow; `a * b` merges struct fields too. */
-  mergeStructs($: Block, a: Expr, b: Expr, deep: boolean): Expr {
+  /** `a + b` on structs: `b`'s fields win, and new ones follow; `a * b` merges fields that are objects in both deeply. */
+  mergeStructs($: Block, a: Expr, b: Expr, deep: boolean, path: string): Expr {
     const left = this.bind($, this.open(a), "left");
     const right = this.bind($, this.open(b), "right");
     const af = this.type(left).fields as Record<string, EastType>;
@@ -1734,12 +1789,56 @@ export class Translator {
     const types: Record<string, EastType> = {};
     for (const name of Object.keys(af)) { values[name] = this.field(left, name); types[name] = af[name]!; }
     for (const [name, t] of Object.entries(bf)) {
-      values[name] = deep && name in af && unwrap(af[name]!).type === "Struct" && unwrap(t).type === "Struct"
-        ? this.mergeStructs($, this.field(left, name), this.field(right, name), true)
+      values[name] = deep && name in af && mergesDeeply(af[name]!, t)
+        ? this.bind($, this.deepMerge($, this.field(left, name), this.field(right, name), path), name)
         : this.field(right, name);
       types[name] = this.type(values[name]!);
     }
     return this.struct(StructType(types), values);
+  }
+
+  /**
+   * `a + b` on dicts: every key of both, `b`'s value where both hold one;
+   * `a * b` merges those values deeply where both are objects.
+   */
+  mergeDicts($: Block, a: Expr, b: Expr, deep: boolean, path: string): Expr {
+    const merged = unify(this.type(a), this.type(b));
+    if (merged === undefined) throw this.gap(`${printType(this.type(a))} ${deep ? "*" : "+"} ${printType(this.type(b))}`);
+    const K = parts(merged).key;
+    const V = parts(merged).value;
+    const out = this.declare($, this.b("DictCopy", [K, V], [this.widenTo($, a, merged, path)], merged, path), "merged");
+    this.forEach($, this.widenTo($, b, merged, path), ($2, value, key) => {
+      if (!deep || !mergesDeeply(V, V)) { this.put($2, out, key!, value, path); return; }
+      this.match($2, this.b("DictTryGet", [K, V], [out, key!], OptionType(V), path), {
+        none: $3 => this.stmt($3, this.b("DictInsert", [K, V], [out, key!, value], NullType, path)),
+        some: ($3, held) => this.stmt($3, this.b("DictUpdate", [K, V], [out, key!, this.widenTo($3, this.deepMerge($3, held, value, path), V, path)], NullType, path)),
+      }, path);
+    }, path);
+    return out;
+  }
+
+  /**
+   * Two values merged as jq's `*` merges them: structs and dicts deeply, an
+   * option of one where both hold a value; anything else is `b`.
+   */
+  deepMerge($: Block, a: Expr, b: Expr, path: string): Expr {
+    const va = this.open(a);
+    const vb = this.open(b);
+    const ta = this.type(va);
+    const tb = this.type(vb);
+    if (ta.type === "Struct" && tb.type === "Struct") return this.mergeStructs($, va, vb, true, path);
+    if (ta.type === "Dict" && tb.type === "Dict") return this.mergeDicts($, va, vb, true, path);
+    if (!mergesDeeply(ta, tb)) return vb;
+    // Options of one object type: merged where both hold one, else b's.
+    const left = this.bind($, va, "left");
+    const right = this.bind($, vb, "right");
+    return this.matchValue(right, {
+      none: () => right,
+      some: ($2, q) => this.matchValue(left, {
+        none: () => right,
+        some: ($3, p) => this.some(this.deepMerge($3, p, q, path), tb),
+      }, tb, path),
+    }, tb, path);
   }
 
   private genAlternative(node: Extract<JqNode, { type: "alternative" }>, path: string, $: Block, x: Value, env: Env, emit: Emit): void {
@@ -2158,8 +2257,10 @@ export class Translator {
         const { index, optional } = target.value;
         const literal = this.literalOf(index);
         const keyPath = at("index.index");
-        // The key is taken on the index's own input, as jq takes it.
-        const key = literal?.type.type === "String" ? undefined : this.one(index, keyPath, $, v, env, this.typeAt(keyPath, this.envFor(keyPath, env, v)));
+        // The key is taken on the index's own input, as jq takes it; a literal is its own value, as the checker rewrote it.
+        const key = literal?.type.type === "String" ? undefined
+          : literal !== undefined ? this.value(literal.value, literal.type, keyPath)
+          : this.one(index, keyPath, $, v, env, this.typeAt(keyPath, this.envFor(keyPath, env, v)));
         return this.modify($, v, target.value.target, at("index.target"), env, ($2, inner) => {
           if (key !== undefined) return present(this.setIndex($2, inner, key, optional, path, f));
           const name = literal!.value as string;
@@ -2336,7 +2437,7 @@ export class Translator {
     const out: Record<string, { variable: VariableAST; body: AST }> = {};
     for (const b of built) {
       if (this.ended(b.block)) {
-        out[b.name] = { variable: b.variable, body: { ast_type: "Block", type: NeverType, loc_id: UNKNOWN_LOC_ID, statements: b.block.statements } };
+        out[b.name] = { variable: b.variable, body: this.diverging(b.block.statements) };
         continue;
       }
       const wrapped = this.ast(this.variantOf(V, b.name, b.value));
@@ -2381,9 +2482,10 @@ export class Translator {
       const K = t.type === "Dict" ? t.key as EastType : this.type(key);
       const V0 = t.type === "Dict" ? t.value as EastType : NeverType;
       const k = this.bind($, this.widenTo($, key, K, path), "key");
+      // A missing key is null: an option of the value, or the value's own null where it can be null.
       const old = t.type === "Dict"
         ? (nullablePayload(OptionType(V0)) === undefined
-          ? this.matchValue(this.b("DictTryGet", [K, V0], [e, k], OptionType(V0), path), { none: () => this.null(path), some: (_$2, p) => p }, V0, path)
+          ? this.matchValue(this.b("DictTryGet", [K, V0], [e, k], OptionType(V0), path), { none: $2 => this.widenTo($2, this.null(path), V0, path), some: (_$2, p) => p }, V0, path)
           : this.b("DictTryGet", [K, V0], [e, k], OptionType(V0), path))
         : this.null(path);
       const next = f($, old);
@@ -2759,6 +2861,20 @@ function holdsNever(type: EastType): boolean {
 
 /** The error an update raises where it gives no value for a position that cannot be deleted. */
 const UNDELETABLE = "an update gave no value for a struct field, which cannot be deleted";
+
+/**
+ * Whether `*` merges values of two types deeply, as jq merges objects: two
+ * structs, two dicts, or options of one struct or dict type (merged where
+ * both hold one).
+ */
+function mergesDeeply(a: EastType, b: EastType): boolean {
+  const ua = unwrap(a);
+  const ub = unwrap(b);
+  if (ua.type === "Struct" && ub.type === "Struct") return true;
+  if (ua.type === "Dict" && ub.type === "Dict") return true;
+  const payload = nullablePayload(ua);
+  return payload !== undefined && isTypeEqual(ua, ub) && ["Struct", "Dict"].includes(unwrap(payload).type);
+}
 
 /** Whether values of type `b` are values of type `a`: equal types, or `a` recursive with `b` its node. */
 function sameType(a: EastType, b: EastType): boolean {

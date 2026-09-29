@@ -1,7 +1,7 @@
 # east — core language package
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: build test test-export query-corpus query-bench lint example clean help
+.PHONY: build test test-export query-corpus query-types query-types-tables query-bench lint example clean help
 
 ## Build the package
 build:
@@ -18,6 +18,17 @@ test-export:
 ## Rewrite the query corpus and fixture (test/fixtures/query-*.beast2) (builds first)
 query-corpus:
 	pnpm run build && pnpm run query-corpus
+
+## Rewrite test/fixtures/query-types.json: the type matrix's cases (#987) run
+## through jq 1.8.1, which must be on the PATH, then devdocs/QUERY.md §16.5's
+## tables (builds first). By hand, never in CI; the matrix's spec fails while a
+## case's recorded run is not current. `make query-types-tables` rewrites the
+## tables alone, from the checked-in fixture, without jq.
+query-types:
+	pnpm run build && pnpm run query-types
+
+query-types-tables:
+	pnpm run build && node --enable-source-maps scripts/query-types.mjs --tables
 
 ## Time translated queries against jq 1.8.1, by hand and never in CI: east-c
 ## (eager and lazy), east-node, compiled TypeScript and jq over the fixture
@@ -49,6 +60,8 @@ help:
 	@echo "  test        - Run tests"
 	@echo "  test-export - Export test IR to /tmp/east-test-ir"
 	@echo "  query-corpus - Rewrite test/fixtures/query-corpus.beast2 and query-fixture.beast2"
+	@echo "  query-types - Rewrite test/fixtures/query-types.json with jq 1.8.1's runs of the type matrix, and QUERY.md §16.5's tables"
+	@echo "  query-types-tables - Rewrite QUERY.md §16.5's tables alone, from the checked-in runs (no jq)"
 	@echo "  query-bench - Time translated queries against jq (by hand; prints QUERY.md §16.4's table)"
 	@echo "  lint        - Run linter"
 	@echo "  example     - Run examples"

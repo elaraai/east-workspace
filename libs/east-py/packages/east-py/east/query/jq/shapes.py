@@ -27,6 +27,7 @@ from east.types.types import (
     NeverType,
     NullType,
     OptionType,
+    StringType,
     StructType,
     VariantType,
     _close_recursive_refs,
@@ -318,6 +319,10 @@ def unify(a: EastType, b: EastType) -> EastType | None:  # noqa: C901
     """The one type two outputs can share, as jq's typed outputs unify.
 
     - Equal types unify to themselves, and ``Never`` to the other.
+    - A reference is read through, as jq sees its value: ``Ref<T>`` and ``U``
+      unify as ``T`` and ``U`` do.
+    - A recursive type and its node unify to the recursive type; another
+      recursive type only with ``null``, or an option of it.
     - Integer and Float unify to Float.
     - ``null`` and ``T`` unify to ``Option<T>``; ``Option<T>`` and ``U`` to ``Option<T ⊔ U>``.
     - Arrays, sets, dicts and vectors unify element-wise.
@@ -334,8 +339,14 @@ def unify(a: EastType, b: EastType) -> EastType | None:  # noqa: C901
         return b
     if b.type == "Never":
         return a
-    if a.type in ("Recursive", "Ref") or b.type in ("Recursive", "Ref"):
-        return None
+    if a.type == "Ref":
+        return unify(a.value, b)
+    if b.type == "Ref":
+        return unify(a, b.value)
+    if a.type == "Recursive" and type_equal(node_of(a), b):
+        return a
+    if b.type == "Recursive" and type_equal(node_of(b), a):
+        return b
     if (a.type == "Integer" and b.type == "Float") or (a.type == "Float" and b.type == "Integer"):
         return FloatType
 
@@ -349,6 +360,8 @@ def unify(a: EastType, b: EastType) -> EastType | None:  # noqa: C901
     if a_payload is not None or b_payload is not None:
         inner = unify(a_payload if a_payload is not None else a, b_payload if b_payload is not None else b)
         return None if inner is None else or_null(inner)
+    if a.type == "Recursive" or b.type == "Recursive":
+        return None
 
     kind = a.type
     if kind == "Array":
@@ -397,6 +410,51 @@ def unify(a: EastType, b: EastType) -> EastType | None:  # noqa: C901
                 cases[name] = payload
         return VariantType(list(cases.items()))
     return None
+
+
+def descend_types(types: list[EastType] | tuple[EastType, ...]) -> list[EastType]:
+    """The types ``..`` and ``recurse`` give on values of some types.
+
+    Each type, then the types of the values inside it, depth first, each
+    once. Inside a value are an option's value, the elements of an array,
+    set or vector, a matrix's rows, a dict's values, a struct's fields, and a
+    variant's case name and payloads (jq's ``{type, value}``).
+
+    Args:
+        types: The input's types.
+
+    Returns:
+        The types, in the order the walk first meets them.
+    """
+    seen: list[EastType] = []
+
+    def visit(type_: EastType) -> None:
+        if any(type_equal(s, type_) for s in seen):
+            return
+        seen.append(type_)
+        t = unwrap(type_)
+        payload = nullable_payload(t)
+        if payload is not None:
+            visit(payload)
+            return
+        kind = t.type
+        if kind in ("Array", "Set", "Vector"):
+            visit(t.value)
+        elif kind == "Matrix":
+            visit(ArrayType(t.value))
+        elif kind == "Dict":
+            visit(dict_value(t))
+        elif kind == "Struct":
+            for f in fields_of(t).values():
+                visit(f)
+        elif kind == "Variant":
+            visit(StringType)
+            for c in cases_of_type(t).values():
+                visit(c)
+
+    for type_ in types:
+        visit(type_)
+    return seen
 
 
 def unify_shape(shape: Shape) -> EastType | None:
@@ -651,8 +709,8 @@ def is_ordered(type_: EastType) -> bool:
 __all__ = [
     "ERROR", "MANY", "MAYBE", "ONE", "SOME", "ZERO", "JQ_TYPE_NAMES",
     "CaseOf", "ErrorShape", "Facts", "Member", "Mult", "Partial", "Proof", "Result", "Shape", "TypeShape",
-    "UnionShape", "also", "can_be_null", "cases_of", "cases_of_type", "describe_type", "dict_key", "dict_value",
-    "either", "fields_of", "is_ordered", "jq_type_names", "members_of", "narrow_types", "node_of",
+    "UnionShape", "also", "can_be_null", "cases_of", "cases_of_type", "descend_types", "describe_type", "dict_key",
+    "dict_value", "either", "fields_of", "is_ordered", "jq_type_names", "members_of", "narrow_types", "node_of",
     "nullable_payload", "or_null", "refine", "then", "type_equal", "typed", "unify", "unify_shape", "unwrap",
     "wire_multiplicity",
 ]

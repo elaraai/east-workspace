@@ -42,19 +42,27 @@ export ASAN_OPTIONS="detect_leaks=1:exitcode=42"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# The suites beside the IR directory's own: jq 1.8's conformance cases,
-# translated (#924), when the export wrote them.
+# The suites beside the IR directory's own: the query suites, each in a
+# `query-*` directory of its own when the export wrote them — jq 1.8's
+# conformance cases (#924), the type matrix and the query corpus (#987).
 shopt -s nullglob
-SUITES=("$IR_DIR"/*.json "$IR_DIR"/query-conformance/*.json)
+SUITES=("$IR_DIR"/*.json "$IR_DIR"/query-*/*.json)
+
+# A suite's name: its path under the IR directory, so two directories' suites never share one.
+suite_name() {
+    local name="${1#"$IR_DIR"/}"
+    name="${name%.json}"
+    echo "${name//\//__}"
+}
 
 # Run all tests in parallel, capturing both stdout and stderr
 PIDS=()
 FILES=()
 for f in "${SUITES[@]}"; do
-    name=$(basename "$f" .json)
+    name=$(suite_name "$f")
     outfile="$TMPDIR/$name.out"
     errfile="$TMPDIR/$name.err"
-    (timeout 60 "$TEST_BIN" "$f" > "$outfile" 2> "$errfile"; echo "EXIT:$?" >> "$outfile") &
+    (timeout "${SUITE_TIMEOUT:-300}" "$TEST_BIN" "$f" > "$outfile" 2> "$errfile"; echo "EXIT:$?" >> "$outfile") &
     PIDS+=($!)
     FILES+=("$outfile")
 done
@@ -73,7 +81,7 @@ CLEAN_SUMMARY=""
 ERROR_SUMMARY=""
 
 for f in "${SUITES[@]}"; do
-    name=$(basename "$f" .json)
+    name=$(suite_name "$f")
     outfile="$TMPDIR/$name.out"
     errfile="$TMPDIR/$name.err"
 

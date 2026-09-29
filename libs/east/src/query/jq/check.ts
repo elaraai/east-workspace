@@ -25,7 +25,7 @@ import { BUILTINS, type Builtin, type CallContext } from "./catalog.js";
 import { MESSAGES, closest, edit, report, type QueryError, type QueryFix } from "./messages.js";
 import { parseJq, type ParsedJq } from "./parse.js";
 import {
-  ERROR, MANY, MAYBE, ONE, SOME, ZERO, also, canBeNull, casesOf, describeType, either, membersOf, nullablePayload,
+  ERROR, MANY, MAYBE, ONE, SOME, ZERO, also, canBeNull, casesOf, describeType, descendTypes, either, membersOf, nullablePayload,
   JQ_TYPE_NAMES, narrowTypes, orNull, refine, then, typed, unify, unifyShape, union, unwrap, wireMultiplicity,
   type Facts, type Member, type Mult, type Proof, type Result, type Shape, type TypeShape,
 } from "./shapes.js";
@@ -316,6 +316,16 @@ class Checker {
   readonly diagnostics: QueryError[] = [];
   readonly records = new Map<string, Result>();
   readonly rewrites = new Map<string, JqNode>();
+  /** The Integer literals rewritten as Floats, by path. */
+  readonly floatLiterals = new Set<string>();
+  /**
+   * The literals a check kept whole, by path: an operand of Integer
+   * arithmetic or of an Integer comparison. Where another check (a `def`
+   * called with a Float, a `walk` meeting one) made one a Float, the checked
+   * program keeps it whole, so its text means what the query does; each
+   * translation widens it where it needs a Float.
+   */
+  readonly wholeLiterals = new Set<string>();
   /** The nodes checked, by path. */
   readonly nodes = new Map<string, JqNode>();
   /** What is in scope at each node checked, by instance and path. */
@@ -593,27 +603,9 @@ class Checker {
   /** `..`: the value and every value nested in it, depth first. */
   descend(input: Result, path: string, env: Env): Result {
     if (this.refuseRoot(input, path, env)) return { shape: ERROR, mult: ONE };
-    const members: Member[] = [];
-    const seen: EastType[] = [];
-    const visit = (type: EastType): void => {
-      if (seen.some(s => isTypeEqual(s, type))) return;
-      seen.push(type);
-      members.push({ shape: typed(type), case: undefined });
-      const t = unwrap(type);
-      const payload = nullablePayload(t);
-      if (payload !== undefined) { visit(payload); return; }
-      switch (t.type) {
-        case "Array": visit(t.value as EastType); break;
-        case "Set": visit(t.key as EastType); break;
-        case "Vector": visit(t.element as EastType); break;
-        case "Dict": visit(t.value as EastType); break;
-        case "Struct": for (const f of Object.values(t.fields as Record<string, EastType>)) visit(f); break;
-        case "Variant": visit(StringType); for (const c of Object.values(t.cases as Record<string, EastType>)) visit(c); break;
-        default: break;
-      }
-    };
-    for (const member of membersOf(input.shape)) visit(member.shape.type);
-    return { shape: input.shape.kind === "error" ? ERROR : union(members), mult: SOME };
+    if (input.shape.kind === "error") return { shape: ERROR, mult: SOME };
+    const types = descendTypes(membersOf(input.shape).map(member => member.shape.type));
+    return { shape: union(types.map(type => ({ shape: typed(type), case: undefined }))), mult: SOME };
   }
 
   // ─── Paths ─────────────────────────────────────────────────────────────
@@ -809,6 +801,7 @@ class Checker {
     if (isTypeEqual(literal.type, wanted)) return wanted;
     if (wanted.type === "Float" && literal.type.type === "Integer") {
       this.rewrites.set(path, literalNode(encodeFloat(Number(literal.value as bigint))));
+      this.floatLiterals.add(path);
       return FloatType;
     }
     if (wanted.type === "DateTime" && literal.type.type === "String") {
@@ -821,6 +814,36 @@ class Checker {
       return DateTimeType;
     }
     return undefined;
+  }
+
+  /**
+   * An array literal of literals (`["2026-01-01", "2026-02-01"]`) used where
+   * an array of `wanted` is: each element rewritten as {@link coerceLiteral}
+   * rewrites it, and what checking the array recorded retyped to match.
+   *
+   * @returns the array's new type, or `undefined` when it is not such an
+   *   array, or an element does not fit
+   */
+  coerceArrayLiteral(node: JqNode, path: string, wanted: EastType, env: Env): EastType | undefined {
+    if (node.type !== "array" || node.value.type !== "some") return undefined;
+    const literals: { node: Extract<JqNode, { type: "literal" }>; path: string }[] = [];
+    const commas: string[] = [];
+    const collect = (n: JqNode, at: string): boolean => {
+      if (n.type === "literal") { literals.push({ node: n, path: at }); return true; }
+      if (n.type !== "comma") return false;
+      commas.push(at);
+      return collect(n.value.left, childPath(at, "comma.left")) && collect(n.value.right, childPath(at, "comma.right"));
+    };
+    if (!collect(node.value.value, childPath(path, "array.some"))) return undefined;
+    for (const literal of literals) if (this.coerceLiteral(literal.node, literal.path, wanted) === undefined) return undefined;
+    const retype = (at: string, type: EastType): void => {
+      const key = `${env.instance}|${at}`;
+      const r = this.records.get(key);
+      if (r !== undefined) this.records.set(key, { ...r, shape: typed(type) });
+    };
+    for (const at of [...commas, ...literals.map(l => l.path)]) retype(at, wanted);
+    retype(path, ArrayType(wanted));
+    return ArrayType(wanted);
   }
 
   slice(node: Extract<JqNode, { type: "slice" }>, path: string, input: Result, env: Env): Result {
@@ -1090,10 +1113,19 @@ class Checker {
     return this.mismatch(env, this.range(path), "type_mismatch", MESSAGES.compares(op, describeType(lt), describeType(rt)));
   }
 
+  /** Notes that a literal operand stays an Integer in this check (see {@link Checker.wholeLiterals}). */
+  keepWhole(node: JqNode, path: string): void {
+    if (node.type === "literal") this.wholeLiterals.add(path);
+  }
+
   /** Whether two types compare: equal, numbers, a value and its option, or a literal rewritten to the other's type. */
   comparable(a: EastType, b: EastType, node: Extract<JqNode, { type: "binary" }>, path: string): boolean {
     const ua = unwrap(a);
     const ub = unwrap(b);
+    if (ua.type === "Integer" && ub.type === "Integer") {
+      this.keepWhole(node.value.left, childPath(path, "binary.left"));
+      this.keepWhole(node.value.right, childPath(path, "binary.right"));
+    }
     if (isTypeEqual(ua, ub)) return true;
     if (isNumber(ua) && isNumber(ub)) {
       // A literal takes its operand's type.
@@ -1151,6 +1183,8 @@ class Checker {
         if (b.type === "Integer" && operands.right.type === "literal") this.coerceLiteral(operands.right, rightPath, FloatType);
         return { shape: typed(FloatType), mult: ONE };
       }
+      this.keepWhole(operands.left, leftPath);
+      this.keepWhole(operands.right, rightPath);
       return { shape: typed(IntegerType), mult: ONE };
     }
     switch (op) {
@@ -1160,7 +1194,7 @@ class Checker {
           const element = unify(a.value as EastType, b.value as EastType);
           return element === undefined ? fail() : { shape: typed(ArrayType(element)), mult: ONE };
         }
-        if (a.type === "Struct" && b.type === "Struct") return { shape: this.mergeStructs(left, right, false), mult: ONE };
+        if (a.type === "Struct" && b.type === "Struct") return { shape: this.mergeStructs(left, right, false, operands.range), mult: ONE };
         if (a.type === "Dict" && b.type === "Dict") {
           const merged = unify(a, b);
           return merged === undefined ? fail() : { shape: typed(merged), mult: ONE };
@@ -1173,7 +1207,15 @@ class Checker {
         if (a.type === "Array" && b.type === "Array" && unify(a.value as EastType, b.value as EastType) !== undefined) return { shape: typed(a), mult: ONE };
         return fail();
       case "*":
-        if (a.type === "Struct" && b.type === "Struct") return { shape: this.mergeStructs(left, right, true), mult: ONE };
+        if (a.type === "Struct" && b.type === "Struct") return { shape: this.mergeStructs(left, right, true, operands.range), mult: ONE };
+        // Dicts merge deeply, as jq merges objects: a key both hold has their values merged when both are objects.
+        if (a.type === "Dict" && b.type === "Dict") {
+          const merged = unify(a, b);
+          return merged === undefined ? fail() : { shape: typed(merged), mult: ONE };
+        }
+        if ((a.type === "Struct" && Object.keys(a.fields).length === 0 && b.type === "Dict") || (b.type === "Struct" && Object.keys(b.fields).length === 0 && a.type === "Dict")) {
+          return { shape: typed(a.type === "Dict" ? a : b), mult: ONE };
+        }
         // A string repeated, the count a number on either side: a negative count gives null.
         if ((a.type === "String" && isNumber(b)) || (isNumber(a) && b.type === "String")) return { shape: typed(orNull(StringType)!), mult: ONE };
         return fail();
@@ -1185,8 +1227,13 @@ class Checker {
     }
   }
 
-  /** `a + b` or `a * b` on structs: the fields of `a`, then the new fields of `b`; `b`'s value wins, and `*` merges struct fields deeply. */
-  mergeStructs(left: Result, right: Result, deep: boolean): Shape {
+  /**
+   * `a + b` or `a * b` on structs: the fields of `a`, then the new fields of
+   * `b`; `b`'s value wins, and `*` merges fields that are structs, or dicts,
+   * in both deeply.
+   */
+  mergeStructs(left: Result, right: Result, deep: boolean, range: JqRange | undefined): Shape {
+    let problem = false;
     const merge = (a: EastType, b: EastType, aFacts: Facts | undefined, bFacts: Facts | undefined): { type: EastType; facts: Facts | undefined } => {
       const ua = unwrap(a);
       const ub = unwrap(b);
@@ -1206,6 +1253,15 @@ class Checker {
           const inner = merge(af[name]!, t, aKnown?.get(name), bKnown?.get(name));
           fields[name] = inner.type;
           if (inner.facts !== undefined) facts.set(name, inner.facts); else facts.delete(name);
+        } else if (deep && name in af && unwrap(af[name]!).type === "Dict" && unwrap(t).type === "Dict") {
+          // Two dicts merge into one holding both's keys: their types must unify.
+          const inner = unify(unwrap(af[name]!), unwrap(t));
+          if (inner === undefined) {
+            if (!problem) this.fail(range, "type_mismatch", MESSAGES.arithmetic("*", describeType(af[name]!), describeType(t)));
+            problem = true;
+          }
+          fields[name] = inner ?? t;
+          facts.delete(name);
         } else {
           fields[name] = t;
           const f = bKnown?.get(name);
@@ -1217,7 +1273,7 @@ class Checker {
     const l = left.shape as TypeShape;
     const r = right.shape as TypeShape;
     const merged = merge(l.type, r.type, l.facts, r.facts);
-    return typed(merged.type, merged.facts);
+    return problem ? ERROR : typed(merged.type, merged.facts);
   }
 
   // ─── Construction ──────────────────────────────────────────────────────
@@ -1325,7 +1381,10 @@ class Checker {
   format(node: Extract<JqNode, { type: "format" }>, path: string, input: Result, env: Env): Result {
     const { name, string } = node.value;
     const builtin = BUILTINS.get(`@${name}`);
-    if (builtin === undefined) return this.fail(this.range(path), "unknown_function", MESSAGES.unknownFunction(`@${name}`, 0, closest(`@${name}`, [...BUILTINS.keys()].filter(k => k.startsWith("@")))[0]));
+    if (builtin === undefined) {
+      const suggestions = closest(`@${name}`, [...BUILTINS.keys()].filter(k => k.startsWith("@")));
+      return this.fail(this.range(path), "unknown_function", MESSAGES.unknownFunction(`@${name}`, 0, suggestions[0]), { suggestions });
+    }
     const status = this.availability(builtin, `@${name}`, path);
     if (status !== undefined) return status;
     if (string.type === "some") {
@@ -1668,6 +1727,11 @@ class Checker {
         const arg = args[i];
         return arg?.type === "literal" ? this.coerceLiteral(arg, argPaths[i]!, unwrap(wanted)) : undefined;
       },
+      coerceArgElements: (i: number, wanted: EastType) => {
+        const arg = args[i];
+        return arg === undefined ? undefined : this.coerceArrayLiteral(arg, argPaths[i]!, unwrap(wanted), env);
+      },
+      problems: () => this.diagnostics.length,
       fail: (code: string, message: string, options?: { arg?: number; suggestions?: string[]; fixes?: QueryFix[] }) =>
         this.fail(options?.arg !== undefined ? this.range(argPaths[options.arg]!) : this.range(path), code, message, options),
       mismatch: (code: string, message: string, arg?: number, fixes?: QueryFix[]) =>
@@ -2114,10 +2178,10 @@ class Checker {
 
   // ─── The checked query ─────────────────────────────────────────────────
 
-  /** The program with every recorded rewrite applied. */
+  /** The program with every recorded rewrite applied, but a Float's of a literal a check kept whole. */
   rewrite(node: JqNode, path: string): JqNode {
     const replacement = this.rewrites.get(path);
-    if (replacement !== undefined) return replacement;
+    if (replacement !== undefined && !(this.floatLiterals.has(path) && this.wholeLiterals.has(path))) return replacement;
     const children = jqChildren(node);
     if (children.length === 0) return node;
     const map = (child: JqNode, step: string): JqNode => this.rewrite(child, childPath(path, step));

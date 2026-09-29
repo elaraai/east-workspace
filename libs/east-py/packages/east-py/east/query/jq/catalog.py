@@ -39,6 +39,8 @@ from east.query.jq.shapes import (
     Mult,
     Result,
     TypeShape,
+    cases_of_type,
+    descend_types,
     describe_type,
     dict_key,
     dict_value,
@@ -46,6 +48,7 @@ from east.query.jq.shapes import (
     fields_of,
     is_ordered,
     members_of,
+    node_of,
     nullable_payload,
     or_null,
     then,
@@ -68,8 +71,10 @@ from east.types.types import (
     IntegerType,
     NeverType,
     NullType,
+    OptionType,
     StringType,
     StructType,
+    VariantType,
     is_immutable_type,
 )
 from east.utils.ordering import compare_for
@@ -228,14 +233,37 @@ def arg_of(ctx: CallContext, i: int, expected: str, allowed: Callable[[EastType]
         return None
     if not allowed(unwrap(t)):
         # A literal of another type the argument's type is written as: an ISO-8601 string for a DateTime.
-        coerced = None if coerce is None else ctx.coerce_arg(i, coerce)
-        if coerced is not None:
-            return _Arg(one(coerced), coerced)
-        if coerce is not None and ctx.literal(i) is not None and unwrap(coerce).type == "DateTime":
+        coerced = None if coerce is None else coerce_argument(ctx, i, coerce, "value")
+        if coerced is _NOT_ISO:
             return None
+        if coerced is not None:
+            return _Arg(one(coerced), coerced)  # type: ignore[arg-type]
         ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, ordinal(i), expected, describe_type(t)), arg=i)
         return None
     return _Arg(result, t)
+
+
+#: What :func:`coerce_argument` gives for a string that is not an ISO-8601 date, which it has reported.
+_NOT_ISO: Any = object()
+
+
+def coerce_argument(ctx: CallContext, i: int, wanted: EastType, as_: str) -> Any:
+    """Argument ``i`` rewritten as ``wanted`` is written.
+
+    When it is a literal of another type (``as_`` ``"value"``), or an array
+    literal of them (``"elements"``, each element a ``wanted``): an ISO-8601
+    string as a DateTime, an Integer as a Float.
+
+    Returns:
+        The argument's new type; ``None`` when it is no such literal; or
+        ``_NOT_ISO`` when it is a string that is not an ISO-8601 date, which
+        the rewrite has reported.
+    """
+    reported = ctx.problems()
+    coerced = ctx.coerce_arg(i, wanted) if as_ == "value" else ctx.coerce_arg_elements(i, wanted)
+    if coerced is not None:
+        return coerced
+    return _NOT_ISO if ctx.problems() > reported else None
 
 
 def ordinal(i: int) -> str:
@@ -748,28 +776,12 @@ def _t_range(ctx: CallContext) -> Result:
 
 def _t_recurse(ctx: CallContext) -> Result:
     if len(ctx.args) == 0:
+        # `recurse` is `..`: jq defines both as `recurse(.[]?)`.
         if ctx.refuse_root():
             return _error()
-        seen: list[EastType] = []
-        members: list[Member] = []
-
-        def visit(t: EastType) -> None:
-            if any(type_equal(s, t) for s in seen):
-                return
-            seen.append(t)
-            members.append(Member(typed(t), None))
-            u = unwrap(t)
-            inner = element_of(u)
-            if inner is None and u.type == "Dict":
-                inner = dict_value(u)
-            if inner is not None:
-                visit(inner)
-            if u.type == "Struct":
-                for f in fields_of(u).values():
-                    visit(f)
-        for t in _types_of(ctx.input):
-            visit(t)
-        return Result(union(members), MANY)
+        if ctx.input.shape.kind == "error":
+            return _error()
+        return Result(union([Member(typed(t), None) for t in descend_types(_types_of(ctx.input))]), MANY)
     start = ctx.collect(ctx.input)
     if start is None:
         return _error()
@@ -842,32 +854,57 @@ def _t_walk(ctx: CallContext) -> Result:
         return _error()
     memo: dict[int, tuple[EastType, EastType | None]] = {}
 
+    def rebuild_parts(t: EastType) -> EastType | None:
+        """A value's parts, each walked: an option's value's, an array's elements, a dict's values, a struct's
+        fields and a variant's payload (not its case's name, which is its type)."""
+        u = unwrap(t)
+        payload = nullable_payload(u)
+        if payload is not None:
+            p = rebuild_type(payload)
+            if p is None:
+                return None
+            option = or_null(p)
+            return OptionType(p) if option is None else option
+        if u.type == "Array":
+            e = walk_type(u.value)
+            return None if e is None else ArrayType(e)
+        if u.type == "Dict":
+            v = walk_type(dict_value(u))
+            return None if v is None else DictType(dict_key(u), v)
+        if u.type == "Struct":
+            fields: list[tuple[str, EastType]] = []
+            for name, f in fields_of(u).items():
+                w = walk_type(f)
+                if w is None:
+                    return None
+                fields.append((name, w))
+            return StructType(fields)
+        if u.type == "Variant":
+            cases: list[tuple[str, EastType]] = []
+            for name, c in cases_of_type(u).items():
+                w = walk_type(c)
+                if w is None:
+                    return None
+                cases.append((name, w))
+            return VariantType(cases)
+        return t
+
+    def rebuild_type(t: EastType) -> EastType | None:
+        """A value's type rebuilt: a recursive value rebuilt as its node keeps its recursive type."""
+        rebuilt = rebuild_parts(t)
+        return t if rebuilt is not None and t.type == "Recursive" and type_equal(node_of(t), rebuilt) else rebuilt
+
     def walk_type(t: EastType) -> EastType | None:
+        # A Never has no value to walk: an empty collection's elements.
+        if t.type == "Never":
+            return t
         hit = memo.get(id(t))
         if hit is not None and hit[0] is t:
             return hit[1]
         memo[id(t)] = (t, t)
-        u = unwrap(t)
-        rebuilt: EastType = t
-        if t.type != "Recursive":
-            if u.type == "Array":
-                e = walk_type(u.value)
-                if e is None:
-                    return None
-                rebuilt = ArrayType(e)
-            elif u.type == "Dict":
-                v = walk_type(dict_value(u))
-                if v is None:
-                    return None
-                rebuilt = DictType(dict_key(u), v)
-            elif u.type == "Struct":
-                fields: list[tuple[str, EastType]] = []
-                for name, f in fields_of(u).items():
-                    w = walk_type(f)
-                    if w is None:
-                        return None
-                    fields.append((name, w))
-                rebuilt = StructType(fields)
+        rebuilt = t if t.type == "Recursive" else rebuild_type(t)
+        if rebuilt is None:
+            return None
         out = ctx.arg(0, one(rebuilt))
         if out.shape.kind == "error":
             return None
@@ -1095,7 +1132,14 @@ def _t_has(ctx: CallContext) -> Result:
 
     def rule(t: EastType, member: TypeShape) -> Result | None:
         if t.type == "Dict":
-            if type_equal(unwrap(key_type), unwrap(dict_key(t))):
+            the_key = unwrap(dict_key(t))
+            if type_equal(unwrap(key_type), the_key):
+                return one(BooleanType, key.mult)
+            # A literal written as the key type is: an ISO-8601 string for a DateTime, an Integer for a Float.
+            coerced = coerce_argument(ctx, 0, the_key, "value")
+            if coerced is _NOT_ISO:
+                return _error()
+            if coerced is not None:
                 return one(BooleanType, key.mult)
             return ctx.fail("type_mismatch", MESSAGES.key_type(
                 "has", describe_type(dict_key(t)), ctx.source(0), describe_type(key_type)), arg=0)
@@ -1120,7 +1164,27 @@ def _t_in(ctx: CallContext) -> Result:
     container = ctx.arg(0)
     if container.shape.kind == "error":
         return _error()
-    return one(BooleanType, container.mult)
+    key_type = ctx.collect(ctx.input)
+    if key_type is None:
+        return _error()
+    key = unwrap(key_type)
+
+    # The input is a key of the argument: of a dict's key type, a struct's field name, an array's index.
+    def each(member: TypeShape) -> Result:
+        t = unwrap(member.type)
+        if t.type == "Dict":
+            wanted: EastType | None = unwrap(dict_key(t))
+        elif t.type == "Struct":
+            wanted = StringType
+        else:
+            wanted = IntegerType if element_of(t) is not None else None
+        if wanted is None:
+            return ctx.fail("type_mismatch", MESSAGES.argument(
+                "in", "first", "a dict, a struct or an array", describe_type(member.type)), arg=0)
+        if type_equal(key, wanted) or (wanted.type == "Float" and key.type == "Integer"):
+            return one(BooleanType, container.mult)
+        return ctx.fail("type_mismatch", MESSAGES.key_type("in", describe_type(wanted), "its input", describe_type(key_type)))
+    return per_member(ctx, container, each)
 
 
 def _t_map(ctx: CallContext) -> Result:
@@ -1285,8 +1349,19 @@ def _containment(ctx: CallContext) -> Result:
         return _error()
 
     def each(member: TypeShape) -> Result:
-        outer, inner = (member.type, ot) if ctx.name == "contains" else (ot, member.type)
-        if _containable(outer, inner):
+        def holds(arg: EastType) -> bool:
+            return _containable(member.type, arg) if ctx.name == "contains" else _containable(arg, member.type)
+
+        if holds(ot):
+            return one(BooleanType, other.mult)
+        # Literals written as the input's type is: ISO-8601 strings for DateTimes, alone or in an array.
+        element = element_of(unwrap(member.type))
+        coerced = coerce_argument(ctx, 0, element, "elements") \
+            if element is not None and unwrap(ot).type == "Array" \
+            else coerce_argument(ctx, 0, unwrap(member.type), "value")
+        if coerced is _NOT_ISO:
+            return _error()
+        if coerced is not None and holds(coerced):
             return one(BooleanType, other.mult)
         # An input that can be null holds only null: skip the nulls.
         if nullable_payload(unwrap(member.type)) is not None:
@@ -1306,8 +1381,11 @@ def _containable(outer: EastType, inner: EastType) -> bool:
         return True
     if a.type == "String" and b.type == "String":
         return True
-    if a.type == "Array" and b.type == "Array":
-        return _containable(a.value, b.value)
+    # Arrays, sets, vectors and matrices are all arrays to jq.
+    ea = element_of(a)
+    eb = element_of(b)
+    if ea is not None and eb is not None:
+        return _containable(ea, eb)
     if a.type == "Struct" and b.type == "Struct":
         fields = fields_of(a)
         # A field the outer struct lacks is never held: the answer is false, not an error.
@@ -1336,13 +1414,28 @@ def _index_rule(output: str) -> Typing:
             if t.type == "String":
                 return found() if u.type == "String" else ctx.fail("type_mismatch", MESSAGES.argument(
                     ctx.name, "first", "a string", describe_type(xt)), arg=0)
-            if t.type != "Array":
+            element = element_of(t)
+            if element is None:
                 return None
+
             # An element, or an array: a run of elements.
-            element = t.value
-            wanted = u.value if u.type == "Array" else xt
-            if wanted.type == "Never" or unify(element, wanted) is not None:
+            def fits(given: EastType) -> bool:
+                g = unwrap(given)
+                wanted = g.value if g.type == "Array" else given
+                return wanted.type == "Never" or unify(element, wanted) is not None
+
+            if fits(xt):
                 return found()
+            # Literals written as the elements' type is: an ISO-8601 string for a DateTime, alone or in an array.
+            coerced = coerce_argument(ctx, 0, element, "elements" if u.type == "Array" else "value")
+            if coerced is _NOT_ISO:
+                return _error()
+            if coerced is not None and fits(coerced):
+                return found()
+            # An array that is itself an element: jq reads an array as a run of elements.
+            if u.type == "Array" and unify(element, u) is not None:
+                return ctx.fail("type_mismatch", MESSAGES.run_argument(
+                    ctx.name, describe_type(element), describe_type(u.value), f"{ctx.name}([{ctx.source(0)}])"), arg=0)
             return ctx.fail("type_mismatch", MESSAGES.argument(
                 ctx.name, "first", f"{describe_type(element)}, or an array of it", describe_type(xt)), arg=0)
         return on_input(ctx, "a string or an array", rule)
@@ -1359,10 +1452,16 @@ def _t_bsearch(ctx: CallContext) -> Result:
         xt = ctx.collect(x, 0)
         if e is None or xt is None:
             return None
-        if unify(e, xt) is None:
-            return ctx.fail("type_mismatch", MESSAGES.argument(
-                "bsearch", "first", describe_type(e), describe_type(xt)), arg=0)
-        return one(IntegerType, x.mult)
+        if unify(e, xt) is not None:
+            return one(IntegerType, x.mult)
+        # A literal written as the elements' type is: an ISO-8601 string for a DateTime.
+        coerced = coerce_argument(ctx, 0, e, "value")
+        if coerced is _NOT_ISO:
+            return _error()
+        if coerced is not None and unify(e, coerced) is not None:
+            return one(IntegerType, x.mult)
+        return ctx.fail("type_mismatch", MESSAGES.argument(
+            "bsearch", "first", describe_type(e), describe_type(xt)), arg=0)
     return on_input(ctx, "a sorted array", rule)
 
 
@@ -1684,7 +1783,7 @@ _supported("sub", _sub_rule("sub"))
 _supported("gsub", _sub_rule("gsub"))
 _supported("format", _t_format)
 # Formats.
-for _name in ("@text", "@json", "@html", "@uri", "@base64", "@base32"):
+for _name in ("@text", "@json", "@html", "@uri", "@base64"):
     _supported(_name, _any_data)
 _supported("@csv", _cells)
 _supported("@tsv", _cells)
