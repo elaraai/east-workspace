@@ -22,9 +22,11 @@
  * Each piece taken in is remembered in the adoption memo, under a key made of
  * the delivery's SHA-256 and the piece's segments, so taking the same bytes in
  * again after an intake stopped part way — interrupted, or failed on a later
- * piece — runs only the pieces that had not finished. A memo entry roots
- * nothing: gc collects a piece nothing names, and an entry whose objects are
- * gone is a miss, as is one cut under another rule or header.
+ * piece — runs only the pieces that had not finished. Once the delivery is in,
+ * its own entry answers for it and its pieces' are forgotten
+ * ({@link rememberDelivery}). A memo entry roots nothing: gc collects a piece
+ * nothing names and drops the entry, and an entry whose objects are gone is a
+ * miss, as is one cut under another rule or header.
  *
  * @packageDocumentation
  */
@@ -41,7 +43,7 @@ import {
   type EastTypeValue,
 } from '@elaraai/east';
 import type { CollectionManifest } from '@elaraai/e3-types';
-import { eachAtMost } from './concurrency.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { DatasetSegments, readManifest } from './dataset-open.js';
 import { DeliveryRefusedError, ObjectNotFoundError } from './errors.js';
 import { pieceSizes } from './execution/pieces.js';
@@ -90,6 +92,9 @@ export interface DeliveryIntake {
   /** Why a piece was not taken in by the runner the backend prefers, when one
    *  was not. */
   readonly fallback?: string;
+  /** The memo keys its pieces are remembered under, which
+   *  {@link rememberDelivery} forgets: none for a delivery taken in whole. */
+  readonly pieces: readonly string[];
 }
 
 /** A run of a delivery's segments one unit takes in — `null` for the whole
@@ -130,6 +135,7 @@ export async function intakeDelivery(
   options: DeliveryIntakeOptions = {},
 ): Promise<DeliveryIntake> {
   const pieces = await planPieces(storage, repo, source, size);
+  const keys = pieces.map((piece) => (piece.segments === null ? null : pieceKey(sourceHash, piece.segments)));
   const hashes: string[] = new Array(pieces.length);
   const runners: string[] = [];
   let fallback: string | undefined;
@@ -143,7 +149,7 @@ export async function intakeDelivery(
   await eachAtMost(pieces.map((_, i) => i), PIECES_IN_FLIGHT, async (i) => {
     const piece = pieces[i]!;
     try {
-      const key = piece.segments === null ? null : pieceKey(sourceHash, piece.segments);
+      const key = keys[i]!;
       let hash = key === null ? null : (await rememberedManifest(storage, repo, key))?.hash ?? null;
       if (hash === null) {
         const taken = await runner.intake(storage, { source, type, ...(piece.segments !== null && { segments: piece.segments }) }, { signal });
@@ -162,10 +168,27 @@ export async function intakeDelivery(
     bytes += piece.bytes;
     options.onProgress?.({ bytes, pieces: { done, total: pieces.length } });
   });
-  if (pieces.length === 1) return { hash: hashes[0]!, runners, ...(fallback !== undefined && { fallback }) };
+  const remembered = keys.filter((key): key is string => key !== null);
+  if (pieces.length === 1) return { hash: hashes[0]!, runners, ...(fallback !== undefined && { fallback }), pieces: remembered };
   await checkSeams(storage, repo, type, hashes);
   const hash = await storeCollection(storage, repo, type, hashes.map((stored) => ({ stored })));
-  return { hash, runners, ...(fallback !== undefined && { fallback }) };
+  return { hash, runners, ...(fallback !== undefined && { fallback }), pieces: remembered };
+}
+
+/**
+ * Remembers a delivery taken in, under its SHA-256, as the manifest it became,
+ * and then forgets its pieces: the delivery's own entry answers for them from
+ * now on. Written first, so an intake stopped between the two leaves entries
+ * gc drops, never a delivery it forgot.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param sourceHash - The delivery's SHA-256
+ * @param intake - What the intake came to: the manifest, and its pieces' keys
+ */
+export async function rememberDelivery(storage: StorageBackend, repo: string, sourceHash: string, intake: DeliveryIntake): Promise<void> {
+  await storage.refs.adoptionWrite(repo, sourceHash, intake.hash);
+  await eachAtMost(intake.pieces, OBJECT_CONCURRENCY, (key) => storage.refs.adoptionDelete(repo, key));
 }
 
 /**

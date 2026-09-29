@@ -48,7 +48,7 @@ import {
 import { DatasetFileTypeMismatchError, readDatasetFileHeader, readDatasetFileType, sha256File } from '@elaraai/e3';
 import { DatasetTypeMismatchError, DeliveryRefusedError } from './errors.js';
 import { readManifest } from './dataset-open.js';
-import { intakeDelivery, rememberedManifest, type DeliveryIntake, type DeliveryIntakeOptions } from './delivery-intake.js';
+import { intakeDelivery, rememberDelivery, rememberedManifest, type DeliveryIntake, type DeliveryIntakeOptions } from './delivery-intake.js';
 import { withDatasetWriteLock, workspaceSetDatasetByHash } from './trees.js';
 import type { IntakeSource, TaskRunner } from './execution/interfaces.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
@@ -239,7 +239,7 @@ export async function objectAdoptFile(
     verify: unchanged,
   });
   await unchanged();
-  await storage.refs.adoptionWrite(repo, sourceHash, taken.hash);
+  await rememberDelivery(storage, repo, sourceHash, taken);
   return { hash: taken.hash, size, taken: 'taken', runners: taken.runners, ...(taken.fallback !== undefined && { fallback: taken.fallback }) };
 }
 
@@ -395,7 +395,7 @@ export async function datasetAdoptObject(
       if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
       if (isCollectionRoot(leaf.type)) {
         const taken = await takeIn(storage, repo, runner, { object: sourceHash }, leaf.type, sourceHash, size, `object ${sourceHash.slice(0, 8)}...`, {});
-        await storage.refs.adoptionWrite(repo, sourceHash, taken.hash);
+        await rememberDelivery(storage, repo, sourceHash, taken);
         adopted = { hash: taken.hash, size, taken: 'taken', runners: taken.runners, ...(taken.fallback !== undefined && { fallback: taken.fallback }) };
       } else {
         adopted = { hash: sourceHash, size, taken: 'carried' };

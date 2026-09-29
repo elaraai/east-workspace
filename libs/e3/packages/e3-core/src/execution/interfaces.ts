@@ -153,9 +153,6 @@ export interface IntakeOptions {
   /** Aborting it stops the intake, and a runner waiting for room never
    *  starts. */
   signal?: AbortSignal;
-  /** Pass `-v` to the runner, so it prints where the time went and its peak
-   *  memory to stderr. */
-  verbose?: boolean;
 }
 
 /**
@@ -272,7 +269,7 @@ export interface TaskRunner {
    *
    * @param storage - Storage backend
    * @param spec - The delivery, its declared type, and the run of its segments
-   * @param options - Cancellation and verbosity
+   * @param options - Cancellation
    * @returns The stored manifest, and the runner that took it in
    * @throws {DeliveryRefusedError} When the runner refuses the delivery: not a
    *   beast2 collection of the declared type, a malformed or oversized segment,

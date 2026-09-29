@@ -17,7 +17,9 @@
  *
  * Like a function call, an intake runs in a scratch directory of the
  * repository's, under the runner's budget, and writes nothing durable but the
- * objects its output is stored as.
+ * objects its output is stored as. It takes its core before it stages its
+ * unit, so the pieces of a large delivery that wait for room hold nothing but
+ * their place in the budget's queue.
  *
  * @packageDocumentation
  */
@@ -69,7 +71,7 @@ export interface RunIntakeOptions extends IntakeOptions {
  * @param repo - The repository: its scratch root holds the unit, and its store
  *   what the unit wrote
  * @param spec - The delivery, its declared type, and the run of its segments
- * @param options - Cancellation, verbosity, the budget and the runner search
+ * @param options - Cancellation, the budget and the runner search
  * @param unusable - The candidates, by command, that could not run an intake
  *   before, with why: skipped here, and added to when one cannot
  * @param candidates - The runners to try, in order
@@ -88,63 +90,93 @@ export async function runIntake(
   unusable: Map<string, string>,
   candidates: readonly IntakeCandidate[] = INTAKE_CANDIDATES,
 ): Promise<IntakeResult> {
-  const scratchDir = await callScratchDir(repo, uuidv7().replaceAll('-', ''));
-  await fs.mkdir(scratchDir, { recursive: true });
+  // A core first: the unit is staged only once it can run, and the runners it
+  // is tried on run one after another under the one grant.
+  let grant: Grant | undefined;
   try {
-    // A delivery the store holds whole is linked in: the runner only reads it.
-    let input: string;
-    if ('file' in spec.source) {
-      input = spec.source.file;
-    } else {
-      input = path.join(scratchDir, 'delivery.beast2');
-      await storage.objects.materialize(repo, spec.source.object, input, { link: true });
-    }
-    const unit = await stageIntakeUnit(scratchDir, input, spec.type, spec.segments ?? null, unitThreads(options.budget));
-    const searchDirs = [options.runnerSearchDir ?? path.dirname(repo), process.cwd()];
-
-    let fallback: string | undefined;
-    for (const [at, candidate] of candidates.entries()) {
-      const skipped = unusable.get(candidate.command);
-      if (skipped !== undefined) {
-        fallback ??= skipped;
-        continue;
-      }
-      await clearIntakeOutput(unit);
-      const { result, stop } = await spawnIntake(unit, candidate, searchDirs, options);
-      if (result.stoppedByE3 && options.signal?.aborted) throw abortError();
-      if (stop !== null) {
-        throw new Error(`${candidate.command}: the guard stopped the runner at ${Math.round(stop.peak / 1024 ** 2)} MiB, with the machine nearly out of memory`);
-      }
-      // A command that is not there: the next is tried.
-      if (result.exitCode === null && result.signal === null && /ENOENT/.test(result.error ?? '')) continue;
-
-      const recorded = await readUnitResult(unit);
-      if (recorded?.outcome.type === 'ok' && result.exitCode === 0) {
-        const hash = await storeDatasetFile(storage, repo, unit.output, { canonical: true });
-        return { hash, runner: candidate.command, ...(fallback !== undefined && { fallback }), peakBytes: Number(recorded.peakBytes) };
-      }
-      if (recorded?.outcome.type === 'failed') {
-        throw new DeliveryRefusedError(candidate.command, recorded.outcome.value.message, result.stderrTail);
-      }
-      // No result that reads: the runner could not run the unit at all.
-      const ended = result.exitCode !== null ? `exited ${result.exitCode}` : result.signal !== null ? `was ended by ${result.signal}` : 'did not start';
-      const said = tellingLine(result.stderrTail) ?? result.error ?? undefined;
-      const reason = `${candidate.command} ${ended} without recording a result for the intake unit${said === undefined ? '' : ` (${said})`}`;
-      if (at === candidates.length - 1) {
-        throw new Error(result.stderrTail.trim() === '' ? reason : `${reason}\nstderr:\n${result.stderrTail.trim()}`);
-      }
-      unusable.set(candidate.command, reason);
-      fallback ??= reason;
-    }
-    throw new Error(`e3 found no runner to take the delivery in${fallback === undefined ? '' : `, since ${fallback}`}: ` +
-      'add @elaraai/east-node-cli (or east-c) to the project');
-  } finally {
-    try {
-      await fs.rm(scratchDir, { recursive: true, force: true });
-    } catch {
-      // Left for the sweep
-    }
+    grant = await options.budget?.acquire({ signal: options.signal });
+  } catch (err) {
+    if (options.signal?.aborted) throw abortError();
+    throw err;
   }
+  try {
+    const scratchDir = await callScratchDir(repo, uuidv7().replaceAll('-', ''));
+    await fs.mkdir(scratchDir, { recursive: true });
+    try {
+      return await stageAndRun(storage, repo, spec, options, unusable, candidates, scratchDir, grant);
+    } finally {
+      try {
+        await fs.rm(scratchDir, { recursive: true, force: true });
+      } catch {
+        // Left for the sweep
+      }
+    }
+  } finally {
+    grant?.release();
+  }
+}
+
+/** Stages the unit in `scratchDir` and runs it on the first candidate that
+ *  can, under `grant`. */
+async function stageAndRun(
+  storage: StorageBackend,
+  repo: string,
+  spec: IntakeSpec,
+  options: RunIntakeOptions,
+  unusable: Map<string, string>,
+  candidates: readonly IntakeCandidate[],
+  scratchDir: string,
+  grant: Grant | undefined,
+): Promise<IntakeResult> {
+  // A delivery the store holds whole is linked in: the runner only reads it.
+  let input: string;
+  if ('file' in spec.source) {
+    input = spec.source.file;
+  } else {
+    input = path.join(scratchDir, 'delivery.beast2');
+    await storage.objects.materialize(repo, spec.source.object, input, { link: true });
+  }
+  const unit = await stageIntakeUnit(scratchDir, input, spec.type, spec.segments ?? null, unitThreads(options.budget));
+  const searchDirs = [options.runnerSearchDir ?? path.dirname(repo), process.cwd()];
+
+  let fallback: string | undefined;
+  for (const [at, candidate] of candidates.entries()) {
+    const skipped = unusable.get(candidate.command);
+    if (skipped !== undefined) {
+      fallback ??= skipped;
+      continue;
+    }
+    await clearIntakeOutput(unit);
+    const { result, stop } = await spawnIntake(unit, candidate, searchDirs, grant, options);
+    if (result.stoppedByE3 && options.signal?.aborted) throw abortError();
+    if (stop !== null) {
+      throw new Error(`${candidate.command}: the guard stopped the runner at ${Math.round(stop.peak / 1024 ** 2)} MiB, with the machine nearly out of memory`);
+    }
+    // A command that is not there: the next is tried.
+    if (result.exitCode === null && result.signal === null && /ENOENT/.test(result.error ?? '')) continue;
+
+    const recorded = await readUnitResult(unit);
+    if (recorded?.outcome.type === 'ok' && result.exitCode === 0) {
+      // The runner is done with its core: storing what it wrote is e3's work.
+      grant?.release();
+      const hash = await storeDatasetFile(storage, repo, unit.output, { canonical: true });
+      return { hash, runner: candidate.command, ...(fallback !== undefined && { fallback }), peakBytes: Number(recorded.peakBytes) };
+    }
+    if (recorded?.outcome.type === 'failed') {
+      throw new DeliveryRefusedError(candidate.command, recorded.outcome.value.message, result.stderrTail);
+    }
+    // No result that reads: the runner could not run the unit at all.
+    const ended = result.exitCode !== null ? `exited ${result.exitCode}` : result.signal !== null ? `was ended by ${result.signal}` : 'did not start';
+    const said = tellingLine(result.stderrTail) ?? result.error ?? undefined;
+    const reason = `${candidate.command} ${ended} without recording a result for the intake unit${said === undefined ? '' : ` (${said})`}`;
+    if (at === candidates.length - 1) {
+      throw new Error(result.stderrTail.trim() === '' ? reason : `${reason}\nstderr:\n${result.stderrTail.trim()}`);
+    }
+    unusable.set(candidate.command, reason);
+    fallback ??= reason;
+  }
+  throw new Error(`e3 found no runner to take the delivery in${fallback === undefined ? '' : `, since ${fallback}`}: ` +
+    'add @elaraai/east-node-cli (or east-c) to the project');
 }
 
 /** Removes what a runner wrote for a unit, so another runs it from a clean
@@ -155,27 +187,21 @@ async function clearIntakeOutput(unit: IntakeUnit): Promise<void> {
   }
 }
 
-/** Runs an intake unit on one runner, once it holds a core of the budget, in
- *  a cgroup of its own where e3's cgroup is delegated to it; and says whether
- *  the guard stopped it. */
+/** Runs an intake unit on one runner, under the intake's grant, in a cgroup of
+ *  its own where e3's cgroup is delegated to it; and says whether the guard
+ *  stopped it. */
 async function spawnIntake(
   unit: IntakeUnit,
   candidate: IntakeCandidate,
   searchDirs: string[],
+  grant: Grant | undefined,
   options: RunIntakeOptions,
 ): Promise<{ result: SpawnAndCaptureResult; stop: GuardStop | null }> {
-  let grant: Grant | undefined;
-  try {
-    grant = await options.budget?.acquire({ signal: options.signal });
-  } catch (err) {
-    if (options.signal?.aborted) throw abortError();
-    throw err;
-  }
   const cgroups = options.budget === undefined ? null : await unitCgroups();
   let cgroup: string | null = null;
   try {
     if (cgroups !== null) cgroup = await cgroups.create(`intake-${uuidv7().replaceAll('-', '')}`, null).catch(() => null);
-    const argv = unitArgv(candidate.runner, unit, options.verbose, candidate.command);
+    const argv = unitArgv(candidate.runner, unit, false, candidate.command);
     const result = await spawnAndCapture(cgroup === null ? argv : cgroups!.enter(cgroup, argv), path.dirname(unit.file), {
       signal: options.signal,
       searchDirs,
@@ -184,9 +210,9 @@ async function spawnIntake(
         if (pid !== null) grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) });
       },
     });
+    grant?.unwatch();
     return { result, stop: grant?.stopped ?? null };
   } finally {
-    grant?.release();
     if (cgroup !== null) await cgroups!.remove(cgroup);
   }
 }

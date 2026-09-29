@@ -491,14 +491,17 @@ export interface RefStore {
 
   /**
    * Record the collection a delivered file was stored as: the file's SHA-256
-   * and the manifest the store's door split it into.
+   * and the manifest it was taken in as — or, while an intake of a large
+   * delivery is under way, a piece of it, under a key of its own.
    *
-   * A delivery is read and split into segment objects when it is adopted, so
-   * its own hash names no object. This is what lets an adoption, or a transfer
-   * init, of the same bytes find the manifest without reading them again.
+   * A delivery is taken in as segment objects, so its own hash names no
+   * object. This is what lets an adoption, or a transfer init, of the same
+   * bytes find the manifest without reading them again, and an intake stopped
+   * part way take up the pieces it finished.
    *
    * @param repo - Repository identifier
-   * @param sourceHash - SHA-256 of the delivered bytes
+   * @param sourceHash - SHA-256 of the delivered bytes, or a piece's key, a
+   *   SHA-256 too
    * @param manifestHash - Hash of the manifest they were stored as
    */
   adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void>;
@@ -514,6 +517,26 @@ export interface RefStore {
    * @returns The manifest's hash, or null when none is recorded
    */
   adoptionRead(repo: string, sourceHash: string): Promise<string | null>;
+
+  /**
+   * List every entry of the adoption memo: what gc reads to drop the entries
+   * whose manifest it has collected.
+   *
+   * @param repo - Repository identifier
+   * @returns Each entry's key and the manifest it names — null for an entry
+   *   that does not read — in no particular order
+   */
+  adoptionList(repo: string): Promise<Array<{ sourceHash: string; manifestHash: string | null }>>;
+
+  /**
+   * Forget an entry of the adoption memo: a delivery's pieces, once the
+   * delivery itself is remembered, or an entry whose manifest gc collected.
+   * Forgetting one that is not there does nothing.
+   *
+   * @param repo - Repository identifier
+   * @param sourceHash - The entry's key
+   */
+  adoptionDelete(repo: string, sourceHash: string): Promise<void>;
 
   // -------------------------------------------------------------------------
   // Dataflow Run History

@@ -11,7 +11,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ArrayType, IntegerType, StringType, StructType, encodeBeast2PagedFor, toEastTypeValue } from '@elaraai/east';
 import { DatasetSegments } from '../dataset-open.js';
@@ -20,7 +20,9 @@ import { datasetWrite } from '../trees.js';
 import { createTempDir, createTestRepo, encodeInSegmentsOf, removeTempDir, removeTestRepo } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
+import { Budget } from './budget.js';
 import { INTAKE_CANDIDATES, runIntake, type IntakeCandidate } from './intake.js';
+import { scratchRoot } from './scratch.js';
 
 const TableType = ArrayType(StructType({ id: IntegerType, name: StringType }));
 const rows = (n: number): { id: bigint; name: string }[] => Array.from({ length: n }, (_, i) => ({ id: BigInt(i), name: `row-${i}` }));
@@ -107,6 +109,25 @@ describe('a local intake', () => {
       assert.equal(second.fallback, first.fallback, 'each intake says why');
       assert.equal(readFileSync(ran, 'utf8'), 'ran\n', 'the runner that could not run the unit is not tried again');
     });
+
+  it('stages its unit only once it holds a core, so an intake waiting for room holds nothing', async () => {
+    const staged = (): string[] => (existsSync(scratchRoot(repo)) ? readdirSync(scratchRoot(repo)) : []);
+    const budget = new Budget({ cores: 1, memory: 1024 ** 3 }, { sampler: null });
+    const held = await budget.acquire();
+    const spec = { source: { file: deliver('table.beast2', encodeBeast2PagedFor(TableType)(rows(10))) }, type: toEastTypeValue(TableType) };
+
+    const taking = runIntake(storage, repo, spec, { budget }, new Map());
+    const stop = new AbortController();
+    const withdrawn = runIntake(storage, repo, spec, { budget, signal: stop.signal }, new Map());
+    while (budget.queued < 2) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(staged(), [], 'nothing is staged while the intakes wait for a core');
+
+    stop.abort();
+    await assert.rejects(withdrawn, { name: 'AbortError' });
+    held.release();
+    assert.equal((await taking).hash, await datasetWrite(storage, repo, rows(10), TableType));
+    assert.deepEqual(staged(), [], 'nor left behind once the delivery is in');
+  });
 
   it('says what to add when it finds no runner', async () => {
     const candidates: IntakeCandidate[] = [

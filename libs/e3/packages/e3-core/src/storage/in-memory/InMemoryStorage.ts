@@ -353,6 +353,17 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return this.adoptions.get(`${repo}/${sourceHash}`) ?? null;
   }
 
+  async adoptionList(repo: string): Promise<Array<{ sourceHash: string; manifestHash: string | null }>> {
+    const prefix = `${repo}/`;
+    return [...this.adoptions]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, manifestHash]) => ({ sourceHash: key.slice(prefix.length), manifestHash }));
+  }
+
+  async adoptionDelete(repo: string, sourceHash: string): Promise<void> {
+    this.adoptions.delete(`${repo}/${sourceHash}`);
+  }
+
   // Dataflow run operations
   async dataflowRunGet(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
     return this.getDataflowRuns(repo).get(this.makeDataflowRunKey(workspace, runId)) ?? null;

@@ -37,6 +37,7 @@ import { recordMutate } from './records.js';
 import { repositoryOpen } from './repository-record.js';
 import { repoGc } from './gc.js';
 import { LocalStorage } from './storage/local/index.js';
+import { LockProgressRecordType } from './storage/local/LocalLockService.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './storage/local/LocalRefStore.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './storage/local/upgrades.js';
 import { workspaceCreate, workspaceDeploy, workspaceRemove } from './workspaces.js';
@@ -58,6 +59,7 @@ const RECORDS: ReadonlyArray<readonly [name: string, path: RegExp, type: EastTyp
   ['an adoption memo entry', /^adoptions\/[0-9a-f]{2}\/[0-9a-f]{62}\.beast2$/, StringType],
   ['an exclusive lock', /^locks\/[^/]+\/exclusive\.beast2$/, LockStateType],
   ['a shared lock', /^locks\/[^/]+\/shared\.\d+\.[0-9a-f]+\.beast2$/, LockStateType],
+  ['a lock holder\'s progress report', /^locks\/[^/]+\/progress\.beast2$/, LockProgressRecordType],
 ];
 
 describe('the repository\'s records', () => {
@@ -107,7 +109,8 @@ describe('the repository\'s records', () => {
 
   it('holds nothing but East values in beast2 of the types their paths say, a log and an object aside', async () => {
     // An undeployed workspace beside the deployed one, a split task's plan
-    // mid-stage, and a lock of each kind, held across a gc.
+    // mid-stage, and a lock of each kind, held across a gc: the exclusive one
+    // a deploy's, which has said how far it has got.
     await workspaceCreate(storage, repo, 'idle');
     const [execution] = await storage.refs.executionList(repo);
     assert.ok(execution !== undefined, 'the run recorded an execution');
@@ -115,9 +118,10 @@ describe('the repository\'s records', () => {
       kind: UNIT_PLAN_KIND, task: execution.taskHash, inputs: execution.inputsHash, stage: variant('pieces', []), previous: none, peakBytes: none,
     }));
     await storage.refs.executionPlanWrite(repo, execution.taskHash, execution.inputsHash, plan);
-    const exclusive = await storage.locks.acquire(repo, 'main', variant('export', null));
+    const exclusive = await storage.locks.acquire(repo, 'main', variant('deployment', null));
     const shared = await storage.locks.acquire(repo, 'idle', variant('dataset_write', null), { mode: 'shared' });
     assert.ok(exclusive !== null && shared !== null, 'the locks are free');
+    await exclusive.report(variant('deployment', { package: { name: 'layout', version: '1.0.0' }, startedAt: new Date(), files: [], records: [] }));
 
     const found = new Set<string>();
     try {

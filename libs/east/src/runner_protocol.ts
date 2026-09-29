@@ -14,7 +14,9 @@
  * wrote; or takes a delivered collection in, as the Writer writes it.
  * Everything a unit needs is named by path, and a relative path is relative to
  * the unit file, so a unit file and the files it names are a complete,
- * replayable snapshot of the work.
+ * replayable snapshot of the work. An intake's delivery is the one exception:
+ * it may be named by an absolute path, where it lies, since a runner only reads
+ * it and a delivery of many gigabytes is not staged beside the unit.
  *
  * The types live here, beside the collection layer, because every runner and
  * the platform that schedules them read them; east-c declares the same types
@@ -71,7 +73,8 @@ export const UnitWorkType = VariantType({
    */
   merge: StructType({ parts: ArrayType(StringType), range: OptionType(StringType), output: UnitOutputType }),
   /**
-   * Take in `input`, a delivered beast2 file of an Array, Set or Dict, as the
+   * Take in `input`, a delivered beast2 file of an Array, Set or Dict — named
+   * where it lies, by an absolute path or one relative to the unit — as the
    * Writer writes it: the manifest directory `output`. `type` is a file holding
    * the declared type, an `EastTypeValue` blob, which the delivery's header
    * must name. `segments` limits the unit to the delivery's segments `[from,

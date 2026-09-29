@@ -65,10 +65,14 @@ const decodeLockState = decodeBeast2For(LockStateType);
 const HolderStampType = StructType({ holder: LockHolderVariantType, acquiredAt: DateTimeType });
 const sameHolder = equalFor(HolderStampType);
 
-/** A progress report as `progress.beast2` holds it. */
-const ProgressRecordType = StructType({ holder: LockHolderVariantType, acquiredAt: DateTimeType, progress: LockProgressType });
-const encodeProgressRecord = encodeBeast2For(ProgressRecordType);
-const decodeProgressRecord = decodeBeast2For(ProgressRecordType);
+/**
+ * A progress report as a resource's `progress.beast2` holds it: what the
+ * exclusive holder last reported, stamped with that holder and when it
+ * acquired the lock.
+ */
+export const LockProgressRecordType = StructType({ holder: LockHolderVariantType, acquiredAt: DateTimeType, progress: LockProgressType });
+const encodeProgressRecord = encodeBeast2For(LockProgressRecordType);
+const decodeProgressRecord = decodeBeast2For(LockProgressRecordType);
 
 /**
  * Unlink a lock file, retrying transient Windows sharing violations.

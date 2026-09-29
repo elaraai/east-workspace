@@ -175,7 +175,7 @@ export class MockTaskRunner implements TaskRunner {
     return Promise.resolve(this.detachedResult);
   }
 
-  private intakeResult: ((storage: StorageBackend, spec: IntakeSpec) => IntakeResult | Promise<IntakeResult>) | null = null;
+  private intakeResult: ((storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions) => IntakeResult | Promise<IntakeResult>) | null = null;
   private intakeCalls: IntakeSpec[] = [];
 
   /**
@@ -183,9 +183,10 @@ export class MockTaskRunner implements TaskRunner {
    * it is set, an intake throws, since the mock runs no runner to take a
    * delivery in.
    *
-   * @param result - Computes an intake's result from the storage and the spec
+   * @param result - Computes an intake's result from the storage, the spec and
+   *   the options it was given — its abort signal among them
    */
-  setIntakeResult(result: (storage: StorageBackend, spec: IntakeSpec) => IntakeResult | Promise<IntakeResult>): void {
+  setIntakeResult(result: (storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions) => IntakeResult | Promise<IntakeResult>): void {
     this.intakeResult = result;
   }
 
@@ -194,9 +195,9 @@ export class MockTaskRunner implements TaskRunner {
     return this.intakeCalls;
   }
 
-  async intake(storage: StorageBackend, spec: IntakeSpec, _options?: IntakeOptions): Promise<IntakeResult> {
+  async intake(storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions): Promise<IntakeResult> {
     this.intakeCalls.push(spec);
     if (this.intakeResult === null) throw new Error('MockTaskRunner: no intake result is set (setIntakeResult)');
-    return this.intakeResult(storage, spec);
+    return this.intakeResult(storage, spec, options);
   }
 }

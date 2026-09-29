@@ -145,11 +145,22 @@ export function refStoreTests(setup: BackendSetup): void {
       assert.equal(await storage.refs.executionPlanRead(repo, TASK, INPUTS), null);
     });
 
-    it('remembers the manifest a delivery became', async (t) => {
+    it('remembers the manifest a delivery became, lists what it remembers, and forgets an entry', async (t) => {
       const { storage, repo } = await setup(t);
+      const listed = async (): Promise<string[]> =>
+        (await storage.refs.adoptionList(repo)).map(({ sourceHash, manifestHash }) => `${sourceHash}:${manifestHash}`).sort();
       assert.equal(await storage.refs.adoptionRead(repo, HASH), null);
+      assert.deepEqual(await listed(), []);
+
       await storage.refs.adoptionWrite(repo, HASH, OTHER_HASH);
+      await storage.refs.adoptionWrite(repo, OTHER_HASH, TASK);
       assert.equal(await storage.refs.adoptionRead(repo, HASH), OTHER_HASH);
+      assert.deepEqual(await listed(), [`${HASH}:${OTHER_HASH}`, `${OTHER_HASH}:${TASK}`]);
+
+      await storage.refs.adoptionDelete(repo, HASH);
+      await storage.refs.adoptionDelete(repo, HASH);
+      assert.equal(await storage.refs.adoptionRead(repo, HASH), null, 'forgotten, and forgetting it again does nothing');
+      assert.deepEqual(await listed(), [`${OTHER_HASH}:${TASK}`]);
     });
 
     it('keeps a workspace\'s runs by id, the latest sorting last, until each is deleted', async (t) => {

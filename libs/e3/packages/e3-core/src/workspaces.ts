@@ -542,9 +542,12 @@ export async function workspaceDeploy(
       // the hash, a cross-device copy, ENOSPC, a delivery replaced since it
       // was validated — ahead of the first destructive write. Only the ref
       // writes come after.
-      // They are taken in `sourceConcurrency` at a time; the first failure
-      // stops any not yet started, once those in flight have settled.
+      // They are taken in `sourceConcurrency` at a time. The first failure
+      // stops the rest: none not yet started starts, and those in flight are
+      // aborted — each waiting piece withdrawn, each running one stopped — so
+      // a refusal is reported without waiting on the other files' intakes.
       const deliveries = [...sourceFiles];
+      const stop = new AbortController();
       const hashes: string[] = new Array(deliveries.length);
       const sizes = await Promise.all(deliveries.map(async ([, { file }]) => (await fs.stat(file)).size));
       const sources = { count: deliveries.length, bytes: sizes.reduce((sum, size) => sum + size, 0) };
@@ -567,7 +570,11 @@ export async function workspaceDeploy(
           const { hash, size, taken, runners, fallback } = await objectAdoptFile(storage, repo, file, {
             declared,
             runner: options.runner,
+            signal: stop.signal,
             onProgress: (progress) => hear({ path: refPath, file, sources, ...progress }),
+          }).catch((err: unknown) => {
+            stop.abort();
+            throw err;
           });
           hashes[i] = hash;
           hear({

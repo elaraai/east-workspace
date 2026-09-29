@@ -227,7 +227,6 @@ export class LocalTaskRunner implements TaskRunner {
   async intake(storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions): Promise<IntakeResult> {
     return runIntake(storage, this.repo, spec, {
       signal: options?.signal,
-      verbose: options?.verbose,
       budget: this.budget,
       // Anchored at the project, as a task's runner is found.
       runnerSearchDir: path.dirname(this.repo),

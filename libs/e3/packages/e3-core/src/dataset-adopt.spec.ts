@@ -515,13 +515,33 @@ describe('path-initialised inputs', () => {
           /the runner stopped/,
         );
         assert.ok(pieces > 2, `several pieces, not ${pieces}`);
+        assert.equal((await storage.refs.adoptionList(testRepo)).length, pieces - 1, 'the pieces that finished are remembered');
 
         const again = new MockTaskRunner();
         again.setIntakeResult((store, spec) => runner.intake(store, spec));
         const result = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file, { runner: again });
         assert.deepEqual(again.getIntakeCalls().map((spec) => spec.segments?.from), [0], 'only the piece that did not finish runs again');
         assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(20_000), TableType));
+        assert.deepEqual(await storage.refs.adoptionList(testRepo), [{ sourceHash: computeHash(readFileSync(file)), manifestHash: result.hash }],
+          'once the delivery is in, its own entry answers for it, and its pieces are forgotten');
       });
+    });
+
+    it('is forgotten by gc once its manifest is gone, and remembered while it is kept', async () => {
+      await deployTableWorkspace('intake-memo-gc');
+      const file = writeDelivery('kept.beast2', 40);
+      const kept = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file, { runner });
+      const sourceHash = computeHash(readFileSync(file));
+      // An entry whose manifest a sweep took: what an intake stopped part way
+      // leaves once gc collects the pieces it stored.
+      const gone = computeHash(new TextEncoder().encode('a delivery gc took'));
+      await storage.refs.adoptionWrite(testRepo, gone, computeHash(new TextEncoder().encode('its manifest')));
+
+      await repoGc(storage, testRepo, { minAge: 0, dryRun: true });
+      assert.equal((await storage.refs.adoptionList(testRepo)).length, 2, 'a dry run forgets nothing');
+      await repoGc(storage, testRepo, { minAge: 0 });
+      assert.deepEqual(await storage.refs.adoptionList(testRepo), [{ sourceHash, manifestHash: kept.hash }]);
+      assert.equal(await deliveryKnown(storage, testRepo, sourceHash), true, 'the delivery whose manifest gc kept is still known');
     });
 
     it("refuses a Dict whose keys fall back, where two pieces meet as within one", async () => {
@@ -785,6 +805,41 @@ describe('path-initialised inputs', () => {
         const status = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [variant('field', 'inputs'), variant('field', name)], { geometry: true });
         assert.equal(status.rows, 3_000 + i, `inputs.${name} is its own delivery`);
       }
+    });
+
+    it('stops its other file sources at the first refusal, rather than waiting on their intakes', async () => {
+      const files = ['bad', 'slow'].map((name, i) => {
+        const file = join(tempDir, `${name}.beast2`);
+        writeFileSync(file, encodeBeast2PagedFor(TableType)(rows(10 + i)));
+        return file;
+      });
+      const pkg = e3.package('deploy-refused', '1.0.0', ...files.map((file, i) => e3.input(['bad', 'slow'][i]!, TableType, variant('file', file))));
+      const zipPath = join(tempDir, 'deploy-refused.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+
+      // One delivery is refused; the other's intake ends only when it is stopped.
+      let stopped = false;
+      const refusing = new MockTaskRunner();
+      refusing.setIntakeResult((_store, spec, options) => {
+        if ('file' in spec.source && spec.source.file === files[0]) {
+          return Promise.reject(new DeliveryRefusedError('east-c', 'intake: segment 0 of the delivery is malformed: its frame runs past the end of the delivery', ''));
+        }
+        return new Promise<never>((_resolve, reject) => {
+          const stop = (): void => {
+            stopped = true;
+            reject(Object.assign(new Error('intake: aborted'), { name: 'AbortError' }));
+          };
+          if (options?.signal?.aborted) stop();
+          else options?.signal?.addEventListener('abort', stop, { once: true });
+        });
+      });
+
+      await assert.rejects(
+        workspaceDeploy(storage, testRepo, 'ws', 'deploy-refused', '1.0.0', { runner: refusing, sourceConcurrency: 2 }),
+        (err: unknown) => err instanceof DeliveryRefusedError && err.message.includes(files[0]!),
+      );
+      assert.ok(stopped, 'the other intake was stopped, not waited on');
     });
 
     it('says how far it has taken its sources in through its lock, for whoever watches the workspace', async () => {

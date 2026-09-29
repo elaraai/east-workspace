@@ -11,8 +11,9 @@
  * 2. markReachable: DFS through object graph via BEAST2 schema-aware traversal
  * 3. sweepBatch: Pure decision function — identify unreachable objects to delete
  * 4. repoGc: Driver that calls all phases in sequence, after pruning the
- *    history of runs and executions it does not keep (history.ts), and then
- *    the backend's own sweep
+ *    history of runs and executions it does not keep (history.ts), then drops
+ *    the adoption memo's entries whose manifest is gone, and then the
+ *    backend's own sweep
  *
  * These functions work with any StorageBackend, through its interfaces. What a
  * backend keeps beside its objects and records — a local repository's staging
@@ -680,8 +681,9 @@ export function sweepBatch(
  * need no rooting, and no record is written while it decides which to keep. It
  * prunes the history first (history.ts), and then marks from what it kept, so
  * the outputs only the deleted records kept go in the same sweep. Marking is
- * header-first, so a dataset is never read whole. Last, the backend sweeps
- * what it keeps beside its objects and records
+ * header-first, so a dataset is never read whole. The adoption memo's entries
+ * whose manifest is gone are dropped then, since the memo roots nothing. Last,
+ * the backend sweeps what it keeps beside its objects and records
  * ({@link RepoStore.gcSweepBackend}).
  *
  * @param storage - Storage backend
@@ -766,7 +768,17 @@ async function collectGarbage(
     cursor = scan.cursor;
   } while (cursor !== undefined);
 
-  // Step 4: The backend sweeps what it keeps beside its objects and records
+  // Step 4: The adoption memo roots nothing, so an entry whose manifest is
+  // gone — taken by this sweep or an earlier one — would only ever miss: it
+  // is dropped. One whose manifest the age gate kept stays with it.
+  if (!dryRun) {
+    for (const { sourceHash, manifestHash } of await storage.refs.adoptionList(repo)) {
+      if (manifestHash !== null && await storage.objects.exists(repo, manifestHash)) continue;
+      await storage.refs.adoptionDelete(repo, sourceHash);
+    }
+  }
+
+  // Step 5: The backend sweeps what it keeps beside its objects and records
   const backend = await storage.repos.gcSweepBackend(repo, reachable, { minAge, dryRun });
 
   return {

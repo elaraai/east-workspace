@@ -434,6 +434,42 @@ export class LocalRefStore implements RefStore {
     return entry === null ? null : readHash(entry);
   }
 
+  async adoptionList(repo: string): Promise<Array<{ sourceHash: string; manifestHash: string | null }>> {
+    const root = path.join(repo, 'adoptions');
+    const listed: Array<{ sourceHash: string; manifestHash: string | null }> = [];
+    let prefixes: string[];
+    try {
+      prefixes = await fs.readdir(root);
+    } catch (err) {
+      if (isNotFoundError(err)) return listed;
+      throw err;
+    }
+    for (const prefix of prefixes) {
+      let names: string[];
+      try {
+        names = await fs.readdir(path.join(root, prefix));
+      } catch (err) {
+        if (isNotFoundError(err) || (err as NodeJS.ErrnoException).code === 'ENOTDIR') continue;
+        throw err;
+      }
+      for (const name of names) {
+        // In-flight or crash-orphaned staging files end in `.partial`.
+        if (!name.endsWith('.beast2')) continue;
+        const sourceHash = `${prefix}${name.slice(0, -'.beast2'.length)}`;
+        if (!isObjectHash(sourceHash)) continue;
+        listed.push({ sourceHash, manifestHash: await readHash(path.join(root, prefix, name)) });
+      }
+    }
+    return listed;
+  }
+
+  /** Removes an entry. Its directory is left, even once empty: removing it
+   *  could race another entry's write into it. */
+  async adoptionDelete(repo: string, sourceHash: string): Promise<void> {
+    const entry = this.adoptionPath(repo, sourceHash);
+    if (entry !== null) await unlinkIfPresent(entry);
+  }
+
   // -------------------------------------------------------------------------
   // Dataflow Run History
   // -------------------------------------------------------------------------

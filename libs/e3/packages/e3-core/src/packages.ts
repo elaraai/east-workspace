@@ -361,6 +361,8 @@ export async function packageZipOpen(zipPath: string): Promise<PackageZip> {
         executionPlanRead: refs.executionPlanRead.bind(refs),
         adoptionWrite: refuse('write an adoption'),
         adoptionRead: refs.adoptionRead.bind(refs),
+        adoptionList: refs.adoptionList.bind(refs),
+        adoptionDelete: refuse('forget an adoption'),
         dataflowRunGet: refs.dataflowRunGet.bind(refs),
         dataflowRunWrite: refuse('write a run'),
         dataflowRunList: refs.dataflowRunList.bind(refs),
