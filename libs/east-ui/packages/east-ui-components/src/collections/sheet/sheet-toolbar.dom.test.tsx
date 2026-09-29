@@ -21,7 +21,13 @@ import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vite
 import { useState } from "react";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
+import { IntegerType, StringType, StructType, none, variant } from "@elaraai/east";
+import { Editing } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
+import { formatters } from "../../format/index.js";
+import { EditSession } from "../../editing/session.js";
+import { historyToolbarItem } from "../../editing/history-item.js";
+import { editingMessages } from "../../editing/messages.js";
 import { SheetTabs, type SheetTabView } from "./Tabs.js";
 import { SheetToolbar, type SheetToolbarTabs } from "./Toolbar.js";
 import type { LensContext } from "./sheet-types.js";
@@ -294,6 +300,24 @@ describe("by the keyboard alone (#860)", () => {
         fireEvent.mouseDown(add, { button: 0 });
         fireEvent.click(add, { detail: 1 });
         expect(creates()).toBe(2);
+    });
+
+    test("the history item every collection shares sits at the row's end (#988)", () => {
+        row.px = 2000;
+        const Run = StructType({ id: StringType, end: IntegerType });
+        const session = new EditSession<string>({
+            sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
+            apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+        });
+        const history = historyToolbarItem({ session, words: { ...formatters("en-US"), m: editingMessages }, editing: false, onAction: noop, onIssue: noop });
+        function WithHistory() {
+            const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
+            return <SheetToolbar styles={styles} slice={undefined} affordances={[]} count="" partial={false} history={history} />;
+        }
+        const { container } = render(<ChakraProvider value={system}><WithHistory /></ChakraProvider>);
+        const item = container.querySelector('[data-toolbar-item="history"]')!;
+        expect(item.hasAttribute("data-toolbar-end")).toBe(true);
+        expect(item.querySelector('[data-slot="history"]')).not.toBeNull();
     });
 
     test("the context switch is a radio group with one tab stop: ←/→ and Home/End move and pick, and a key's press picks", () => {

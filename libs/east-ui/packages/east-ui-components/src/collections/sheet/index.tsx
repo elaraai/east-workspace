@@ -96,7 +96,9 @@ import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type Str
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { useSheetEditing, type LocalLayer } from "./use-editing.js";
 import { windowedSourceOf } from "../windowed-source.js";
-import { HistoryBar, type HistoryAction } from "../../editing/HistoryBar.js";
+import type { HistoryAction } from "../../editing/HistoryBar.js";
+import { historyToolbarItem } from "../../editing/history-item.js";
+import { historyShortcut } from "../../editing/shortcuts.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { SheetToolbar, type SheetToolbarTabs } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
@@ -1711,10 +1713,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             e.preventDefault(); ringMoves.current += 1; onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
         }
         const meta = e.metaKey || e.ctrlKey;
-        if (meta && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
+        // The history keys every collection shares (#988).
+        const historyKey = historyShortcut(e);
+        if (historyKey !== undefined) {
             e.preventDefault();
             ringMoves.current += 1;
-            onHistoryAction(e.shiftKey || e.key.toLowerCase() === "y" ? "redo" : "undo");
+            onHistoryAction(historyKey);
             return;
         }
         // The browser's own clipboard keys become copy / paste events.
@@ -2832,7 +2836,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     context={lensOn ? { value: ui.lens.context, onChange: onContext } : undefined}
                     search={seek.search}
                     onSearchKey={onSearchKey}
-                    trailing={!readOnly ? <HistoryBar session={session} words={words} editing={ui.edit !== null} onAction={onHistoryAction} onIssue={onIssue} /> : undefined}
+                    history={!readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue }) : undefined}
                 />
             )}
             <Box

@@ -14,7 +14,9 @@
  * Func-style launch/latest-wins channel. On a committed mutation the runtime
  * fires one `cache.refresh(ws)` so the record's bytes are re-fetched and
  * `read()` re-renders, and drops the history cache so the next `history()`
- * refetches.
+ * refetches. `commit.<name>` is the same write awaited, on the same channel:
+ * it resolves to the server's outcome, and a conflict fetches the record and
+ * its history again before it settles.
  *
  * All handles bound to the same record in the same workspace share one mutation
  * channel (mutations serialize server-side under compare-and-swap). Mutation
@@ -24,6 +26,7 @@
  */
 
 import {
+    ConflictError,
     East,
     StructType,
     StringType,
@@ -41,7 +44,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
-import { recordBindPlatformFn, RecordBindPrimitives, type RecordErrorType } from "@elaraai/e3-ui/internal";
+import { recordBindPlatformFn, RecordBindPrimitives, type RecordErrorType, type RecordOutcomeType } from "@elaraai/e3-ui/internal";
 import {
     workspaceRecordDescribe,
     workspaceRecordMutate,
@@ -70,6 +73,10 @@ import type { TreePath } from "@elaraai/e3-types";
  *  args (the extra reducer parameters, after the implicit state). */
 export interface RecordMutateArgs {
     args: Uint8Array[];
+    /** The write's idempotency key: a retry with the same key after an
+     *  unanswered call resolves to the first call's commit instead of writing
+     *  twice. */
+    idempotencyKey?: string;
 }
 
 /**
@@ -106,7 +113,7 @@ export function createDefaultRecordApi(
                 args: req.args,
                 actor: none,
                 limits: none,
-            }, opts());
+            }, opts(), req.idempotencyKey);
         },
         async history(workspace, record, limit, from) {
             return workspaceRecordHistory(apiUrl, repo, workspace, record, limit, opts(), from);
@@ -119,6 +126,7 @@ export function createDefaultRecordApi(
 // =============================================================================
 
 type RecordError = ValueTypeOf<RecordErrorType>;
+type RecordOutcome = ValueTypeOf<RecordOutcomeType>;
 type RecordMutateTag = "idle" | "running" | "committed" | "failed" | "cancelled";
 type CommitInfo = RecordCommitInfo;
 
@@ -186,7 +194,11 @@ function errorOfMutationResult(result: MutationResult): RecordError {
         case "conflict":
             return {
                 kind: variant("conflict", { attempts: outcome.value.attempts }),
-                message: `compare-and-swap conflicted after ${outcome.value.attempts} attempts; try again`,
+                // A write the record no longer matches would disagree again: only
+                // a lost race is worth trying again as it was.
+                message: outcome.value.detail.type === "some"
+                    ? `the write no longer matches the record (${outcome.value.detail.value}); re-read it and resubmit`
+                    : `compare-and-swap conflicted after ${outcome.value.attempts} attempts; try again`,
                 stderr: "",
             };
         default:
@@ -239,14 +251,14 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
     private readonly signatureCache = new Map<string, Promise<RecordSignature>>();
     // History per channel, fetched once + refreshed on commit.
     private readonly histories = new Map<string, CommitInfo[]>();
-    private readonly historyInFlight = new Set<string>();
+    private readonly historyInFlight = new Map<string, Promise<void>>();
     // Channels whose last history fetch failed. Guards `history()` from
     // re-issuing the request on every render (a failing endpoint would
     // otherwise spin); cleared on the next commit / on clear() so a later
     // mutation retries.
     private readonly historyFailed = new Set<string>();
 
-    // Compiled-handle cache (issue #106 perf): buildHandle compiles 8 + (one per
+    // Compiled-handle cache (issue #106 perf): buildHandle compiles 8 + (two per
     // mutation) East.functions per bind, and binds re-run every reactive frame.
     // The method IR is a pure function of the record name (which fixes the handle
     // type), and the methods resolve cache/api/ws LIVE, so a cached handle still
@@ -332,11 +344,17 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         return null;
     }
 
-    /** Fetch a record's history once per channel (deduped); notify on settle. */
-    private fetchHistory(workspace: string, record: string, key: string): void {
-        if (this.historyInFlight.has(key)) return;
-        this.historyInFlight.add(key);
-        void (async () => {
+    /**
+     * Fetch a record's history once per channel (deduped); notify on settle.
+     *
+     * @param again - Fetch once more after a fetch in flight, which may have
+     *   read the chain before what the caller fetches it for
+     * @returns The fetch, settled once the history or its failure is in
+     */
+    private fetchHistory(workspace: string, record: string, key: string, again = false): Promise<void> {
+        const inFlight = this.historyInFlight.get(key);
+        if (inFlight !== undefined) return again ? inFlight.then(() => this.fetchHistory(workspace, record, key)) : inFlight;
+        const fetch = (async () => {
             const api = this.api;
             try {
                 if (!api) throw new Error("no RecordApi installed");
@@ -352,34 +370,58 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                 this.notify(key);
             }
         })();
+        this.historyInFlight.set(key, fetch);
+        return fetch;
     }
 
     // ----- closure semantics -------------------------------------------------
 
-    private launchMutation(workspace: string, record: string, mutation: string, argTypes: EastTypeValue[], args: unknown[]): void {
+    /**
+     * Run one mutation on the record's channel, and settle to the server's
+     * outcome.
+     *
+     * @remarks
+     * The channel shows the write as it shows every launch, latest-wins; the
+     * outcome returned is the server's own, whatever became of the channel. A
+     * commit refreshes the record's bytes and drops its history. A conflict
+     * fetches both again before the outcome settles, so an awaiting caller
+     * reads the state and the history its write lost to.
+     *
+     * @param idempotencyKey - The write's request id, when it has one
+     * @returns The outcome
+     */
+    private runMutation(
+        workspace: string, record: string, mutation: string, argTypes: EastTypeValue[], args: unknown[], idempotencyKey?: string,
+    ): Promise<RecordOutcome> {
         const key = recordChannelKey(workspace, record);
         const { entry, settle } = this.beginLaunch(key, e => { delete e.error; });
 
-        const run = (async () => {
+        const run = (async (): Promise<RecordOutcome> => {
             const invalid = await this.validate(workspace, record, mutation, argTypes);
             if (invalid) {
                 settle(e => { e.status = "failed"; e.error = invalid; });
-                return;
+                return invalid.kind.type === "transport"
+                    ? variant("transport", { message: invalid.message })
+                    : variant("invalid", { message: invalid.message });
             }
             const api = this.api;
             if (!api) {
-                settle(e => { e.status = "failed"; e.error = transportError("no RecordApi installed"); });
-                return;
+                const error = transportError("no RecordApi installed");
+                settle(e => { e.status = "failed"; e.error = error; });
+                return variant("transport", { message: error.message });
             }
             let result: MutationResult;
             try {
                 const encoded = args.map((arg, i) => encodeBeast2For(argTypes[i]!)(arg));
-                result = await api.mutate(workspace, record, mutation, { args: encoded });
+                result = await api.mutate(workspace, record, mutation,
+                    idempotencyKey === undefined ? { args: encoded } : { args: encoded, idempotencyKey });
             } catch (err) {
-                settle(e => { e.status = "failed"; e.error = transportError(err instanceof Error ? err.message : String(err)); });
-                return;
+                const error = transportError(err instanceof Error ? err.message : String(err));
+                settle(e => { e.status = "failed"; e.error = error; });
+                return variant("transport", { message: error.message });
             }
-            if (result.outcome.type === "committed") {
+            const outcome = result.outcome;
+            if (outcome.type === "committed") {
                 settle(e => { e.status = "committed"; delete e.error; });
                 // The record ref's commit hash moved — force one workspace poll so
                 // the dataset cache refetches the record's bytes and read() re-renders.
@@ -392,13 +434,24 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                 this.notify(key);
             } else {
                 settle(e => { e.status = "failed"; e.error = errorOfMutationResult(result); });
+                if (outcome.type === "conflict") {
+                    // Another write moved the record: fetch it and its history
+                    // again before the outcome settles.
+                    this.histories.delete(key);
+                    this.historyFailed.delete(key);
+                    await Promise.all([this.cache?.refresh(workspace), this.fetchHistory(workspace, record, key, true)]);
+                }
             }
+            return outcome;
         })();
-        entry.inflight = run;
-        void run.finally(() => {
+        // start() drains the write, never its failure.
+        const inflight = run.then(() => undefined, () => undefined);
+        entry.inflight = inflight;
+        void inflight.then(() => {
             const current = this.entries.get(key);
-            if (current && current.inflight === run) delete current.inflight;
+            if (current && current.inflight === inflight) delete current.inflight;
         });
+        return run;
     }
 
     /**
@@ -448,7 +501,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                 if (cached === undefined) {
                     // Don't re-issue while a prior fetch is known to have failed
                     // (a commit / clear() clears the flag and retries).
-                    if (!runtime.historyFailed.has(key)) runtime.fetchHistory(ws, name, key);
+                    if (!runtime.historyFailed.has(key)) void runtime.fetchHistory(ws, name, key);
                     return none;
                 }
                 return some(cached);
@@ -500,8 +553,16 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                     const obj = argsStruct as Record<string, unknown>;
                     const argTypes = fields.map(f => f.type);
                     const args = fields.map(f => obj[f.name]);
-                    runtime.launchMutation(runtime.resolveWorkspace(), recordNameArg as string, mutationNameArg as string, argTypes, args);
+                    void runtime.runMutation(runtime.resolveWorkspace(), recordNameArg as string, mutationNameArg as string, argTypes, args);
                     return null;
+                }),
+            RecordBindPrimitives.commit.implement((argsStructType: EastTypeValue) =>
+                async (recordNameArg: unknown, mutationNameArg: unknown, requestArg: unknown, argsStruct: unknown) => {
+                    const fields = (argsStructType as { value: { name: string; type: EastTypeValue }[] }).value;
+                    const obj = argsStruct as Record<string, unknown>;
+                    const request = requestArg as string;
+                    return runtime.runMutation(runtime.resolveWorkspace(), recordNameArg as string, mutationNameArg as string,
+                        fields.map(f => f.type), fields.map(f => obj[f.name]), request === "" ? undefined : request);
                 }),
         ];
     }
@@ -531,6 +592,9 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         const statusRet = fnOut(fields, "status");
         const historyRet = fnOut(fields, "history");
         const mfields = ((fields.find(f => f.name === "mutate")!.type).value as { name: string; type: EastTypeValue }[]);
+        // The awaited writes — built only for a handle type that has them, so a
+        // UI exported before them binds as it was.
+        const cfields = fields.find(f => f.name === "commit")?.type.value as { name: string; type: EastTypeValue }[] | undefined;
 
         const nameExpr = East.value(name, StringType);
         const platform = this.buildPrimitives();
@@ -542,6 +606,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             error: East.compile(East.function([], fnOut(mfields, "error"), ($) => { $.return(P.mutateError(nameExpr)); }), platform),
             cancel: East.compile(East.function([], NullType, ($) => { $.return(P.mutateCancel(nameExpr)); }), platform),
         };
+        const commit: Record<string, unknown> = {};
         for (const [mutationName, argTypes] of sig.mutations) {
             const argTypesEast = argTypes.map(t => fromEastTypeValue(t));
             // Bundle the mutation's N args into one struct (platform fns are fixed-arity).
@@ -552,6 +617,12 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                 args.forEach((a, i) => { obj[`arg${i}`] = a; });
                 $.return(P.mutate([ArgsStruct], nameExpr, mutationNameExpr, East.value(obj as never, ArgsStruct)));
             }), platform);
+            if (cfields === undefined) continue;
+            commit[mutationName] = East.compileAsync(East.asyncFunction([StringType, ...argTypesEast], fnOut(cfields, mutationName), ($, request, ...args) => {
+                const obj: Record<string, unknown> = {};
+                args.forEach((a, i) => { obj[`arg${i}`] = a; });
+                $.return(P.commit([ArgsStruct], nameExpr, mutationNameExpr, request as never, East.value(obj as never, ArgsStruct)));
+            }), platform);
         }
 
         const handle: Record<string, unknown> = {
@@ -559,6 +630,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             status: East.compile(East.function([], statusRet, ($) => { $.return(P.status(nameExpr)); }), platform),
             history: East.compile(East.function([], historyRet, ($) => { $.return(P.history(nameExpr)); }), platform),
             mutate,
+            ...(cfields !== undefined && { commit }),
             start: East.compile(East.function([], NullType, ($) => { $.return(P.start(nameExpr)); }), platform),
             binding: { name, mutations: [...sig.mutations.keys()] },
         };
@@ -656,6 +728,13 @@ export interface InMemoryRecordDef {
  * Build an offline {@link RecordApi} from local implementations — the
  * showcase/snapshot harnesses' stand-in for a deployed record. Seeds each
  * record's current value into the dataset cache so `read()` works offline.
+ *
+ * @remarks
+ * A reducer that throws a patch's `ConflictError` — `applyFor` over a patch
+ * whose befores the state no longer holds — is the stale write the server
+ * reports as a `conflict` naming the key; any other throw is a failed program.
+ * A mutation carrying the key the last one carried returns that one's result
+ * without running again, as the server's idempotent retry does.
  */
 export function createInMemoryRecordApi(
     cache: ReactiveDatasetCacheInterface,
@@ -667,6 +746,8 @@ export function createInMemoryRecordApi(
         mutations: Map<string, { argTypes: EastTypeValue[]; reduce: (state: unknown, ...args: unknown[]) => unknown }>;
         commits: CommitInfo[];
         seq: number;
+        /** The last mutation's idempotency key, and its result. */
+        keyed?: { key: string; result: MutationResult } | undefined;
     }
     const compiled = new Map<string, Compiled>();
     for (const def of defs) {
@@ -703,10 +784,19 @@ export function createInMemoryRecordApi(
             if (!c) throw new Error(`no in-memory record "${record}"`);
             const m = c.mutations.get(mutation);
             if (!m) return { outcome: variant("invalid", { message: `no mutation "${mutation}"` }) } as MutationResult;
+            if (req.idempotencyKey !== undefined && c.keyed?.key === req.idempotencyKey) return c.keyed.result;
             const current = cache.read(ws, recordPath(record));
             const state = current !== undefined ? decodeBeast2For(c.stateType)(current) : undefined;
             const args = req.args.map((bytes, i) => decodeBeast2For(m.argTypes[i]!)(bytes));
-            const next = m.reduce(state, ...args);
+            let next: unknown;
+            try {
+                next = m.reduce(state, ...args);
+            } catch (err) {
+                if (err instanceof ConflictError) {
+                    return { outcome: variant("conflict", { attempts: 1n, detail: some(`primary: ${err.message}`) }) } as MutationResult;
+                }
+                return { outcome: variant("failed", { exitCode: 1n, stderr: err instanceof Error ? err.message : String(err) }) } as MutationResult;
+            }
             await cache.write(ws, recordPath(record), encodeBeast2For(c.stateType)(next));
             c.seq += 1;
             const hash = `${record}-${c.seq}`.padEnd(64, "0");
@@ -719,7 +809,10 @@ export function createInMemoryRecordApi(
                 at: new Date(0),
                 delta: none,
             });
-            return { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
+            const result = { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
+            // Every commit rewrites the slot, and one without a key empties it.
+            c.keyed = req.idempotencyKey !== undefined ? { key: req.idempotencyKey, result } : undefined;
+            return result;
         },
         async history(_ws, record, limit) {
             const c = compiled.get(record);

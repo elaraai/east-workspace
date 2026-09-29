@@ -89,6 +89,8 @@ import {
 import type { RowKey } from "./plan-state.js";
 import { entryOf, usePlanEditing } from "./use-plan-editing.js";
 import { HistoryBar } from "../../editing/HistoryBar.js";
+import { historyToolbarItem } from "../../editing/history-item.js";
+import { historyShortcut } from "../../editing/shortcuts.js";
 import type { EditIssue } from "../../editing/session.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
@@ -601,15 +603,18 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
             }
             : { approveAll: words.m.approveAll(), rejectAll: words.m.rejectAll() }),
         [words, paged, loadedVerdicts]);
-    // The history bar (#880) — in the toolbar, and the narrow layout's chips.
-    // An issue takes the reader to its entry's first row on the canvas.
+    // The history (#880): the toolbar's history item (#988), and the bar
+    // itself among the narrow layout's chips. An issue takes the reader to its
+    // entry's first row on the canvas.
     const onIssue = useCallback((issue: EditIssue) => {
         const row = index.rows.find((r) => entryOf(r.id) === issue.entry);
         if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
     }, [index, controller]);
-    const history = editing.enabled
-        ? <HistoryBar session={editing.session} words={words} editing={false} onAction={editing.action} onIssue={onIssue} />
+    const historyProps = editing.enabled
+        ? { session: editing.session, words, editing: false, onAction: editing.action, onIssue }
         : undefined;
+    const history = historyProps !== undefined ? historyToolbarItem(historyProps) : undefined;
+    const historyBar = historyProps !== undefined ? <HistoryBar {...historyProps} /> : undefined;
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first — published to
@@ -891,12 +896,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         if (e.defaultPrevented) return;
         // An element carried by the keyboard takes the keys while it lasts (#825).
         if (editStore.carry !== null && carry.keys(e)) return;
-        // The history keys (#880), as on the Sheet: ⌘Z / Ctrl+Z undo;
-        // ⌘⇧Z / Ctrl+Shift+Z and Ctrl+Y redo.
-        const letter = e.key.toLowerCase();
-        if (editing.enabled && (e.metaKey || e.ctrlKey) && !e.altKey && (letter === "z" || letter === "y")) {
+        // The history keys every collection shares (#988).
+        const historyKey = editing.enabled ? historyShortcut(e) : undefined;
+        if (historyKey !== undefined) {
             e.preventDefault();
-            editing.action(e.shiftKey || letter === "y" ? "redo" : "undo");
+            editing.action(historyKey);
             return;
         }
         // An open popover is the ladder's top rung.
@@ -984,7 +988,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
                         expandBody={expandBody} expandGutterBody={expandGutterBody}
                         canExpand={canExpand} partial={transport?.partial} fill={frameFills}
                         diagnostics={diagnostics} failures={paging.failures} onRetry={controller.retry}
-                        paging={narrowPaging} history={history} marks={marks}
+                        paging={narrowPaging} history={historyBar} marks={marks}
                     />
                 ) : (
                     <VirtualRows

@@ -53,13 +53,13 @@ function fakeCache(seedValue?: bigint): ReactiveDatasetCacheInterface {
     } as unknown as ReactiveDatasetCacheInterface;
 }
 
-function recordingApi(mutateCalls: { record: string; mutation: string; args: Uint8Array[] }[]): RecordApi {
+function recordingApi(mutateCalls: { record: string; mutation: string; args: Uint8Array[]; idempotencyKey?: string }[]): RecordApi {
     return {
         async describe(_w: string, record: string) {
             return recordSig(record, [{ name: "increment", argTypes: [IntegerType] }]);
         },
-        async mutate(_w: string, record: string, mutation: string, req: { args: Uint8Array[] }) {
-            mutateCalls.push({ record, mutation, args: req.args });
+        async mutate(_w: string, record: string, mutation: string, req: { args: Uint8Array[]; idempotencyKey?: string }) {
+            mutateCalls.push({ record, mutation, ...req });
             return committed();
         },
         async history() { return { commits: [] }; },
@@ -69,7 +69,7 @@ function recordingApi(mutateCalls: { record: string; mutation: string; args: Uin
 const HandleType = RecordBindHandleType(IntegerType, { increment: [IntegerType] });
 const handleTypeValue = toEastTypeValue(HandleType);
 
-function newRuntime(opts: { seed?: bigint; mutateCalls?: { record: string; mutation: string; args: Uint8Array[] }[] } = {}): RecordRuntime {
+function newRuntime(opts: { seed?: bigint; mutateCalls?: { record: string; mutation: string; args: Uint8Array[]; idempotencyKey?: string }[] } = {}): RecordRuntime {
     const runtime = new RecordRuntime();
     runtime.initialize(recordingApi(opts.mutateCalls ?? []), fakeCache(opts.seed), ws);
     return runtime;
@@ -106,6 +106,21 @@ test("#106 — mutate.<name> round-trips and re-binds to the DECODER's api", asy
     assert.equal(decodeBeast2For(IntegerType)(mutateCalls[0]!.args[0]!), 3n, "arg bundled + re-bound");
 });
 
+test("#106 — commit.<name> round-trips and awaits the DECODER's api, request id and all", async () => {
+    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
+    const mutateCalls: { record: string; mutation: string; args: Uint8Array[]; idempotencyKey?: string }[] = [];
+    const runtimeDec = newRuntime({ seed: 0n, mutateCalls });
+    const decoded = decodeBeast2For(HandleType, { platform: runtimeDec.buildPrimitives() })(bytes) as unknown as {
+        commit: { increment: (request: string, n: bigint) => Promise<{ type: string }> };
+    };
+
+    const outcome = await decoded.commit.increment("req-1", 3n);
+    assert.equal(outcome.type, "committed");
+    assert.equal(mutateCalls[0]!.mutation, "increment");
+    assert.equal(mutateCalls[0]!.idempotencyKey, "req-1");
+    assert.equal(decodeBeast2For(IntegerType)(mutateCalls[0]!.args[0]!), 3n);
+});
+
 test("#106 — nested mutate.* lifecycle survives decode (idle on a fresh runtime)", () => {
     const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
     const runtimeDec = newRuntime({ seed: 0n });
@@ -121,6 +136,7 @@ test("#106 — createScopedRecordPlatform ships the backing primitives (e3 ui() 
     for (const name of [
         "record_bind", "record_read", "record_status", "record_history", "record_start",
         "record_mutate_pending", "record_mutate_status", "record_mutate_error", "record_mutate_cancel", "record_mutate",
+        "record_commit",
     ]) {
         assert.ok(names.has(name), `scoped Record platform must include '${name}'`);
     }

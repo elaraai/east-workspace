@@ -16,11 +16,13 @@ import { describe, test } from "node:test";
 import {
     IntegerType,
     StringType,
+    StructType,
     encodeBeast2For,
     decodeBeast2For,
     toEastTypeValue,
     variant,
     none,
+    some,
     type EastType,
     type EastTypeValue,
 } from "@elaraai/east";
@@ -158,6 +160,9 @@ type Handle = {
         error: () => { type: string; value?: { message: string; kind: { type: string }; stderr: string } };
         cancel: () => null;
     };
+    commit: {
+        increment: (request: string, by: bigint) => Promise<{ type: string; value: Record<string, unknown> }>;
+    };
     start: () => null;
     binding: { name: string; mutations: string[] };
 };
@@ -262,7 +267,7 @@ describe("RecordRuntime — mutation lifecycle", () => {
 
     test("conflict / failed / timed_out map onto RecordError arms", async () => {
         const cases: { outcome: MutationResult; kind: string }[] = [
-            { outcome: { outcome: variant("conflict", { attempts: 5n }) } as MutationResult, kind: "conflict" },
+            { outcome: { outcome: variant("conflict", { attempts: 5n, detail: none }) } as MutationResult, kind: "conflict" },
             { outcome: { outcome: variant("failed", { exitCode: 3n, stderr: "boom" }) } as MutationResult, kind: "failed" },
             { outcome: { outcome: variant("timed_out", { ms: 60000n, stderr: "" }) } as MutationResult, kind: "timed_out" },
         ];
@@ -282,6 +287,85 @@ describe("RecordRuntime — mutation lifecycle", () => {
         await waitFor(() => handle.mutate.status().type === "failed", "terminal");
         assert.equal(handle.mutate.error().value!.kind.type, "transport");
         assert.deepEqual(cache.refreshes, []);
+    });
+});
+
+// =============================================================================
+// commit.<name> — the awaited write
+// =============================================================================
+
+describe("RecordRuntime — the awaited write", () => {
+    test("commit.<name> runs on the mutate channel and resolves to the server's outcome", async () => {
+        const { api, handle } = newRuntime();
+        const pause = api.pauseNext();
+        const written = handle.commit.increment("req-1", 5n);
+        await waitFor(() => api.mutateCalls.length === 1, "mutate sent");
+        assert.equal(handle.mutate.status().type, "running");
+        assert.equal(handle.mutate.pending(), true);
+
+        pause.resume(committed("c9"));
+        const outcome = await written;
+        assert.equal(outcome.type, "committed");
+        assert.equal(outcome.value["commitHash"], "c9");
+        assert.equal(handle.mutate.status().type, "committed");
+        assert.equal(decodeBeast2For(toEastTypeValue(IntegerType))(api.mutateCalls[0]!.req.args[0]!), 5n);
+    });
+
+    test("the request id travels as the idempotency key, and a write without one sends none", async () => {
+        const { api, handle } = newRuntime();
+        api.respond(committed()); api.respond(committed());
+        await handle.commit.increment("req-7", 1n);
+        await handle.commit.increment("", 1n);
+        assert.equal(api.mutateCalls[0]!.req.idempotencyKey, "req-7");
+        assert.equal("idempotencyKey" in api.mutateCalls[1]!.req, false);
+    });
+
+    test("a conflict reads the record and its history again before it settles", async () => {
+        const { api, cache, runtime, handle } = newRuntime();
+        const key = recordChannelKey(ws, "counter");
+        api.setHistory([] as RecordHistoryResult["commits"]);
+        handle.history();
+        await waitFor(() => runtime.getKeyVersion(key) > 0, "history loaded");
+        const theirs = { hash: "h1", parent: none, state: "s", mutation: "increment", actor: "someone else", at: new Date(0), delta: none };
+        api.setHistory([theirs] as RecordHistoryResult["commits"]);
+        api.respond({ outcome: variant("conflict", { attempts: 1n, detail: some("primary: Cannot apply replace - expected 0, found 3") }) } as MutationResult);
+
+        const outcome = await handle.commit.increment("req-2", 1n);
+        assert.equal(outcome.type, "conflict");
+        // Settled only once both were read again: no wait needed to see them.
+        assert.deepEqual(cache.refreshes, [ws]);
+        assert.equal(handle.history().value!.length, 1);
+        // A stale write is resubmitted from a fresh read, never retried as it was.
+        assert.match(handle.mutate.error().value!.message, /no longer matches the record .*re-read it and resubmit/);
+    });
+
+    test("an unanswered call is a transport outcome, and so is a record that cannot be described", async () => {
+        const { api, handle } = newRuntime();
+        api.failNext(new Error("socket hang up"));
+        const lost = await handle.commit.increment("req-3", 1n);
+        assert.equal(lost.type, "transport");
+        assert.equal(lost.value["message"], "socket hang up");
+
+        const { runtime } = newRuntime([]);
+        const undescribed = runtime.buildHandle(counterHandleType(), "counter") as unknown as Handle;
+        assert.equal((await undescribed.commit.increment("", 1n)).type, "transport");
+    });
+
+    test("a mutation the deployed record lacks is invalid, and nothing is sent", async () => {
+        const { api, runtime } = newRuntime([recordSig("counter", [])]);
+        const handle = runtime.buildHandle(counterHandleType(), "counter") as unknown as Handle;
+        const outcome = await handle.commit.increment("req-4", 1n);
+        assert.equal(outcome.type, "invalid");
+        assert.equal(api.mutateCalls.length, 0);
+    });
+
+    test("a handle type exported before the awaited write binds without it", () => {
+        const { runtime } = newRuntime();
+        const fields = RecordBindHandleType(IntegerType, { increment: [IntegerType] }).fields;
+        const { commit: _commit, ...released } = fields;
+        const handle = runtime.buildHandle(toEastTypeValue(StructType(released)), "counter-before") as Record<string, unknown>;
+        assert.equal("commit" in handle, false);
+        assert.equal(typeof (handle["mutate"] as Record<string, unknown>)["increment"], "function");
     });
 });
 

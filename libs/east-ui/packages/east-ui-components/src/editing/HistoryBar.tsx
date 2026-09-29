@@ -40,6 +40,12 @@ export interface HistoryBarProps<W> {
     onIssue: (issue: EditIssue) => void;
     /** Run an action — the collection first commits what it has open. */
     onAction: (action: HistoryAction) => void;
+    /**
+     * Undo, Redo, Discard and Apply alone — the form a toolbar short of room
+     * folds the bar to ({@link historyToolbarItem}). The status line and the
+     * issues button go; an error still shows.
+     */
+    buttonsOnly?: boolean | undefined;
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
@@ -70,7 +76,7 @@ function HistoryButton({ label, tip = label, icon, disabled, styles, onClick }: 
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, buttonsOnly = false }: HistoryBarProps<W>) {
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -83,14 +89,14 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue }: Hi
         : status !== "idle" ? m.historyStatus({ status })
         : undefined;
     const n = issues.length;
-    return <Box data-slot="history" css={styles.root}>
+    return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} css={styles.root}>
         <Box css={styles.actions}>
-            {message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
-            <Box data-slot="historyIssues" data-empty={n === 0 ? "" : undefined} css={styles.issues}>
+            {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
+            {!buttonsOnly && <Box data-slot="historyIssues" data-empty={n === 0 ? "" : undefined} css={styles.issues}>
                 <HistoryButton styles={styles} label={m.issues({ n, count: words.number(n) })}
                     tip={m.issuesTip({ n, count: words.number(n) })}
                     icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
-            </Box>
+            </Box>}
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} onClick={() => onAction("redo")} />
             <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} onClick={() => onAction("discard")} />

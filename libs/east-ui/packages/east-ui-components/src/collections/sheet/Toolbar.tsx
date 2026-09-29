@@ -88,12 +88,12 @@ export interface SheetToolbarProps {
     search?: SheetSearch | undefined;
     /** A key in the rail's search box the tabs claim (⏎ · esc); returns `true` when claimed. */
     onSearchKey?: ((key: string) => boolean) | undefined;
-    /** Controls at the row's end, right of the rail — the history controls (undo · redo · discard · apply). */
-    trailing?: ReactNode | undefined;
+    /** The editing session's history item (#988) — undo · redo · discard · apply at the row's end, right of the rail. */
+    history?: ToolbarItem | undefined;
 }
 
 /** Renders the toolbar. */
-export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey, trailing }: SheetToolbarProps) {
+export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey, history }: SheetToolbarProps) {
     // The toolbar's own words (#861).
     const words = useSheetWords();
     const { m } = words;
@@ -183,7 +183,7 @@ export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordan
         },
         rail,
         partial && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
-        trailing !== undefined && { key: "trailing", side: "end", forms: [trailing] },
+        history,
     ];
 
     return (

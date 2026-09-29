@@ -57,7 +57,10 @@ export {
     RecordErrorType,
     RecordBindingType,
     RecordBindHandleType,
+    RecordOutcomeType,
     type BoundRecord,
+    type RecordApplyOptions,
+    type RecordApplyInsideOptions,
     recordBindPlatformFn,
 } from './bind/record.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
