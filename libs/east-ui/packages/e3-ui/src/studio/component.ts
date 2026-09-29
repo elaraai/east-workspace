@@ -158,6 +158,11 @@ const encodeIR = encodeBeast2For(IRType);
  * The IR in a canonical form: every location id zeroed and every variable
  * renamed by its first appearance, so the same code has the same IR wherever
  * it is written and whatever was built before it.
+ *
+ * @remarks
+ * The East types a node carries are kept as they are, not copied: equal types
+ * are one shared object, which the encoder writes once, and a copy would make
+ * it write a UI type again at every node.
  */
 function canonicalIR(ir: IR): IR {
     const names = new Map<string, string>();
@@ -168,7 +173,9 @@ function canonicalIR(ir: IR): IR {
         if (proto !== Object.prototype && proto !== null) return node;
         const out: Record<string, unknown> = {};
         for (const [field, value] of Object.entries(node)) {
-            out[field] = field === "loc_id" ? 0n : walk(value);
+            out[field] = field === "loc_id" ? 0n
+                : (field === "type" && typeof value === "object") || field === "type_parameters" ? value
+                    : walk(value);
         }
         const v = out as { type?: unknown; value?: { name?: unknown } };
         if (v.type === "Variable" && v.value !== undefined && typeof v.value.name === "string") {
