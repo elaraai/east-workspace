@@ -29,7 +29,7 @@ import {
     type InMemoryFunctionDef,
     type InMemoryRecordDef,
 } from "@elaraai/e3-ui-components";
-import { encodeBeast2For, FloatType, IntegerType } from "@elaraai/east";
+import { applyFor, encodeBeast2For, FloatType, IntegerType } from "@elaraai/east";
 import type { DatasetDef, FunctionDef, RecordDef, MutationDef } from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import { App } from "./App";
@@ -81,9 +81,9 @@ function isMutationDef(x: unknown): x is MutationDef {
 /**
  * Offline implementations for the `Record.bind` examples — the record-side
  * mirror of {@link exampleFunctionApi}. Each example module's `e3.record`s are
- * paired with the `e3.mutation`s that write them (matched by name), and each
- * mutation's East reducer body is compiled to JS so reads / mutations resolve
- * with no e3 backend.
+ * paired with the `e3.mutation`s that write them (matched by name): a reducer
+ * body is compiled to JS, and a patch door applies its patch with East's own
+ * checks, so reads / mutations resolve with no e3 backend.
  */
 function exampleRecordDefs(): InMemoryRecordDef[] {
     const defs: InMemoryRecordDef[] = [];
@@ -94,6 +94,11 @@ function exampleRecordDefs(): InMemoryRecordDef[] {
             const recMutations: InMemoryRecordDef["mutations"] = [];
             for (const m of mutations) {
                 if (m.record.name !== rec.name) continue;
+                if (m.form === "patch") {
+                    const applyPatch = applyFor(rec.type);
+                    recMutations.push({ name: m.name, argTypes: [...m.argTypes], reduce: (state, patch) => applyPatch(state as never, patch) });
+                    continue;
+                }
                 const body = m.body as { compile?: (p: never[]) => (...a: unknown[]) => unknown };
                 try {
                     recMutations.push({ name: m.name, argTypes: [...m.argTypes], reduce: body.compile!([]) });

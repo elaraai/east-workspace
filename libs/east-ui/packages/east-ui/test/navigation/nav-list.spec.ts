@@ -5,13 +5,14 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { NavList } from "@elaraai/east-ui/internal";
-import { East, NullType, StringType, type ExprType } from "@elaraai/east";
+import { ArrayType, East, NullType, StringType, StructType, none, some, type ExprType } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./nav-list.examples.js";
 
 describeEast("NavList", (test) => {
     Assert.examples(test, {
         navListBasic: ex.navListBasic,
+        navListFromData: ex.navListFromData,
         navListVariants: ex.navListVariants,
     });
 
@@ -42,6 +43,25 @@ describeEast("NavList", (test) => {
         $(Assert.equal(sections.get(0n).items.size(), 1n));
         $(Assert.equal(sections.get(0n).items.get(0n).key, "a"));
         $(Assert.equal(sections.get(0n).items.get(0n).label, "Alpha"));
+    });
+
+    test("sections computed from data round-trip", $ => {
+        const pages = $.const([
+            { key: "a", title: "Alpha" },
+            { key: "b", title: "Beta" },
+        ], ArrayType(StructType({ key: StringType, title: StringType })));
+        const sections = $.let([{
+            label: none,
+            items: pages.map((_$, page) => East.value({
+                key: page.key, label: page.title, icon: none, badge: none, active: some(page.key.equal("b")),
+            }, NavList.Types.Item)),
+        }], ArrayType(NavList.Types.Section));
+        const r = $.let(NavList.Root(sections));
+        const items = $.let(r.unwrap().unwrap("NavList").sections.get(0n).items);
+        $(Assert.equal(items.size(), 2n));
+        $(Assert.equal(items.get(1n).label, "Beta"));
+        $(Assert.equal(items.get(1n).active.unwrap("some"), true));
+        $(Assert.equal(items.get(0n).active.unwrap("some"), false));
     });
 
     test("section label round-trips", $ => {

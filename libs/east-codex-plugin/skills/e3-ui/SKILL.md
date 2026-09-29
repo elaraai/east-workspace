@@ -5,7 +5,7 @@ description: "e3 + UI bridge — build interactive, reactive decision surfaces a
 
 ## Detailed skill scope
 
-e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft.
+e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft; <Studio.Page> draws one page's live or draft layout on the SnapGrid with no chrome, and <Studio.Site> is a project's published app, its rail the project's live pages.
 
 # e3-ui — e3 + UI Bridge
 
@@ -117,7 +117,9 @@ Task → What do you need?
     │   ├─ Store the pages operators build                → e3.record("pages", Studio.Types.Pages, new Map()) + e3.mutation.patch(pages)
     │   ├─ Save the open page (the canvas's Apply)         → Studio.save(record, key)
     │   ├─ Publish / revert / start a page / a template   → Studio.publish / .revert / .newPage / .saveTemplate → one patch
-    │   └─ The change list, "used in N", live or draft    → Studio.changes / .usage / .status
+    │   ├─ The change list, "used in N", live or draft    → Studio.changes / .usage / .status
+    │   ├─ Show one page, live or draft, with no chrome   → <Studio.Page pages components page version? />
+    │   └─ A project's published site                     → <Studio.Site pages components project title? />
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -493,6 +495,60 @@ Reads, in East over the record's value:
 - `Studio.status(page)` — `live` when the draft is the published layout, else
   `draft`.
 
+### Studio surfaces — `<Studio.Page>` and `<Studio.Site>`
+
+Both read the pages record's value and never write it. A surface built from them
+holds the record's path and its listed components' reads, and no write.
+
+`<Studio.Page>` draws one page with no chrome: its layout on the SnapGrid, each
+placement its component's own UI.
+
+```tsx
+<Reactive>{$ => {
+    const components = $.let([kpiRail, revenueTrend]);
+    const all        = $.let(Data.bind(pages));
+    return <Studio.Page pages={all.read()} components={components}
+        page={{ project: "ops", page: "overview" }} />;
+}}</Reactive>
+```
+
+| Prop | Meaning |
+|---|---|
+| `pages` | **required** — the record's value: `Data.bind(pages).read()`, or a bound record's `read()` |
+| `components` | **required** — the components the surface lists |
+| `page` | **required** — the page's `{ project, page }` key |
+| `version` | `"live"` (default), the published layout, or `"draft"`, the layout as last saved; a template draws its cells either way |
+
+- A frameless component (`frame: "none"`) renders bare. Every other placement is
+  a tile, named by its cell's title, else its component's name.
+- A page with no live version, and a key the record does not hold, each draw a
+  placeholder that says so.
+- Under a narrow container the tiles stack in row order.
+- A chart that fills (`<Chart height="fill">`) takes a sized tile's height, and
+  its natural height in a tile sized by its content.
+
+`<Studio.Site>` is a project's published app: an `<App>` whose rail lists the
+project's live pages in key order, with the open page's live version as its body.
+A page never published, every template and other projects' pages are not in the
+rail, and the breadcrumb names the open page.
+
+```tsx
+export const opsConsole = ui("ops_console", [], East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const components = $.let([kpiRail, revenueTrend, breakdownBars]);
+        const all        = $.let(Data.bind(pages));
+        return <Studio.Site pages={all.read()} components={components} project="ops" title="Ops console" />;
+    }}</Reactive>
+)));
+```
+
+| Prop | Meaning |
+|---|---|
+| `pages`, `components` | **required** — as `<Studio.Page>` |
+| `project` | **required** — the project whose live pages the site shows |
+| `title` | the app bar's title; the project when omitted |
+| `id` | names the site's navigation state — needed only when one surface holds two sites |
+
 ## Key Patterns
 
 ### Staged commit / discard
@@ -557,6 +613,9 @@ Tested examples live in `test/*.examples.tsx`:
   three outcomes.
 - `studio/pages.examples.ts` — the pages record: a publish, a new page from a
   template, the change list, "used in N" and a page's status.
+- `studio/page.examples.tsx` — `<Studio.Page>` and `<Studio.Site>`: a page's
+  live layout, a project's site over its live pages, and a site served from the
+  record that a Publish button changes.
 
 ## Related skills
 

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, none, some } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Configurator, HStack, NavList, SegmentGroup, Switch, VStack, Text, Reactive } from "@elaraai/east-ui";
 
@@ -27,6 +27,27 @@ export const navListBasic = example({
                 },
             ]} />
         );
+    }),
+    inputs: [],
+});
+
+export const navListFromData = example({
+    keywords: ["NavList", "section", "data", "rows", "map", "East array", "NavList.Types.Section", "NavList.Types.Item", "rail", "active"],
+    description: "A nav list whose rows are data — one section mapped from an array of pages, the open page's row active",
+    fn: East.function([], UIComponentType, ($) => {
+        const pages = $.const([
+            { key: "overview", title: "Overview" },
+            { key: "weekly", title: "Weekly" },
+            { key: "detail", title: "Detail" },
+        ], ArrayType(StructType({ key: StringType, title: StringType })));
+        const open = $.const("weekly");
+        const sections = $.let([{
+            label: some("Pages"),
+            items: pages.map((_$, page) => East.value({
+                key: page.key, label: page.title, icon: none, badge: none, active: some(page.key.equal(open)),
+            }, NavList.Types.Item)),
+        }], ArrayType(NavList.Types.Section));
+        return <NavList sections={sections} surface="shell" />;
     }),
     inputs: [],
 });

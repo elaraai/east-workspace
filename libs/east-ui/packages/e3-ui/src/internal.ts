@@ -77,10 +77,14 @@ export {
     StudioPageType,
     StudioPagesType,
     StudioStatusType,
+    StudioVersionType,
     fingerprintOf,
     type StudioNamespace,
     type StudioComponentMeta,
     type StudioFrameLiteral,
+    type StudioPageOptions,
+    type StudioSiteOptions,
+    type StudioVersionLiteral,
 } from './studio/index.js';
 export {
     Diff,

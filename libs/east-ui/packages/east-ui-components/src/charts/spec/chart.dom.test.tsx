@@ -403,8 +403,9 @@ const gridNode = (tag: "gridRows" | "gridColumns") =>
     variant(tag, { numTicks: none, dashArray: none });
 
 describe("Chart renderer — horizontal bars (#249)", () => {
-    // Frame geometry: innerW = 400−40−8 = 352, innerH = 240−8−24 = 208.
-    // Measure domain [0, 20] (niced) → x(10) = 176, x(20) = 352.
+    // Frame geometry: the left margin holds "Alpha" (48), so innerW =
+    // 400−48−8 = 344, innerH = 240−8−24 = 208. Measure domain [0, 20]
+    // (niced) → x(10) = 172, x(20) = 344.
 
     test("bars grow along x from the plot's left edge; the y band carries the category", () => {
         const node = hframe([
@@ -421,7 +422,7 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         // …lengths track the values along x (20 is twice 10, out to the domain edge)…
         const widths = bars.map(b => Number(b.getAttribute("width"))).sort((a, b) => a - b);
         expect(widths[1]).toBeCloseTo(2 * widths[0]!, 3);
-        expect(widths[1]).toBeCloseTo(352, 3);
+        expect(widths[1]).toBeCloseTo(344, 3);
         // …and the thickness is the shared y bandwidth at distinct band rows.
         const heights = bars.map(b => Number(b.getAttribute("height")));
         expect(heights[0]).toBeCloseTo(heights[1]!, 3);
@@ -451,7 +452,7 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         // Second segment starts where the first ends; together they span the total.
         expect(byX[0]!.x).toBeCloseTo(0, 3);
         expect(byX[1]!.x).toBeCloseTo(byX[0]!.w, 3);
-        expect(byX[0]!.w + byX[1]!.w).toBeCloseTo(352, 3);
+        expect(byX[0]!.w + byX[1]!.w).toBeCloseTo(344, 3);
         // Same band row for both segments.
         expect(byX[0]!.y).toBeCloseTo(byX[1]!.y, 3);
         // The colour-matched legend rows render as normal.
@@ -513,13 +514,29 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         const { container } = ui(<EastVisxChart value={node as never} />);
 
         // The only free-standing line (grid off; axis baselines carry
-        // .visx-axis-line) is the rule — vertical at x(15) = 264, full height.
+        // .visx-axis-line) is the rule — vertical at x(15) = 258, full height.
         const rules = [...container.querySelectorAll("line.visx-line:not(.visx-axis-line)")];
         expect(rules.length).toBe(1);
         const rule = rules[0]!;
-        expect(Number(rule.getAttribute("x1"))).toBeCloseTo(264, 3);
+        expect(Number(rule.getAttribute("x1"))).toBeCloseTo(258, 3);
         expect(Number(rule.getAttribute("x1"))).toBeCloseTo(Number(rule.getAttribute("x2")), 3);
         expect(Math.abs(Number(rule.getAttribute("y2")) - Number(rule.getAttribute("y1")))).toBeCloseTo(208, 3);
+    });
+
+    test("the left margin holds the widest category, so a parent that clips never cuts a label", () => {
+        const node = hframe([
+            barNode([series("Tonnes", "teal.solid", [pt("Alpha", 10), pt("A much longer category", 20)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        // Twenty-two mono glyphs at the tick size, the label's offset from the
+        // axis, and its inset from the frame's edge.
+        expect(container.querySelector("svg > g")!.getAttribute("transform")).toBe("translate(161, 8)");
+        // The plot keeps the rest: the longest bar reaches 400−161−8.
+        const widths = [...container.querySelectorAll("rect.visx-bar")].map(b => Number(b.getAttribute("width")));
+        expect(Math.max(...widths)).toBeCloseTo(231, 3);
     });
 });
 

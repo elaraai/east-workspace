@@ -74,6 +74,10 @@ import { Pages, type NavConfig, type NavRoutes, type BoundNav, type PagesHandler
  *   (leading cluster) — e.g. an environment switcher.
  * @property barEnd - Optional app-bar nodes rendered at the trailing edge —
  *   `<IconButton>` / `<Menu>` / `<Avatar>` actions.
+ * @property rail - Optional rail in place of the one the config derives — a
+ *   `<NavList>` over rows that are data, such as the pages a record holds.
+ * @property breadcrumb - Optional breadcrumb in place of the one the nav path
+ *   derives — one that names what the route's payload is.
  */
 export interface AppInput<R extends NavRoutes> {
     /** The nav handle from `Navigation.bind(config, key, initial)`. */
@@ -101,6 +105,17 @@ export interface AppInput<R extends NavRoutes> {
     barStart?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
     /** App-bar nodes at the trailing edge. */
     barEnd?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
+    /**
+     * The rail, in place of the one the config derives — a `<NavList>` whose
+     * rows are data (a route per row of a record, which a static config cannot
+     * list). Its rows navigate through the same `nav` handle.
+     */
+    rail?: SubtypeExprOrValue<UIComponentType>;
+    /**
+     * The breadcrumb, in place of the one the nav path derives — for routes
+     * whose static labels do not name what their payload is.
+     */
+    breadcrumb?: SubtypeExprOrValue<UIComponentType>;
 }
 
 // ============================================================================
@@ -234,8 +249,8 @@ function buildBreadcrumb<R extends NavRoutes>(input: AppInput<R>): ExprType<UICo
 function createApp<R extends NavRoutes>(input: AppInput<R>): ExprType<UIComponentType> {
     const { nav, pages } = input;
     const body = Pages.Root({ nav, pages: pages as PagesHandlers<R> });
-    const rail = buildRail(input);
-    const breadcrumb = buildBreadcrumb(input);
+    const rail = input.rail !== undefined ? East.value(input.rail, UIComponentType) : buildRail(input);
+    const breadcrumb = input.breadcrumb !== undefined ? East.value(input.breadcrumb, UIComponentType) : buildBreadcrumb(input);
     const emptyChildren = East.value([], ArrayType(UIComponentType));
 
     return East.value(variant("App", {
