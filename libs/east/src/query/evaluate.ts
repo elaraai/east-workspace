@@ -152,7 +152,7 @@ function runtimeDiagnostic(checked: CheckJqResult, error: EastError): QueryDiagn
     // The node that raised it: the innermost that starts at that line and column and can raise
     // (a literal, `.` or a variable, which can start at the same place, cannot).
     const offset = offsetOf(text, Number(at.line), Number(at.column));
-    const kinds = checked.query === null ? new Map<string, string>() : nodeKinds(checked.query.value.program);
+    const kinds = checked.rewritten === null ? new Map<string, string>() : nodeKinds(checked.rewritten);
     for (const [path, span] of checked.source.spans) {
       if (span.from !== offset || LEAVES.has(kinds.get(path) ?? "")) continue;
       if (range === undefined || span.to - span.from < range.to - range.from) range = span;

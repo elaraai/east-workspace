@@ -7,24 +7,34 @@
  * East suite (exported for east-c and east-py like any spec); the corpus runs
  * through East.jq and through evaluateJq over the shared fixture (E1); the
  * query editor's default query gives its ten rows (E2); a runtime error names
- * its place in the jq text, and QueryError carries the checker's words (E4). */
+ * its place in the jq text, and QueryError carries the checker's words (E4);
+ * East.jq's IR is a call of the Query builtin, which analysis holds to its
+ * query (#1041). */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
-  ArrayType, BlobType, DictType, EastError, East, Expr, FloatType, IntegerType, NeverType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
-  SummaryLeafType, SummaryType, checkJq, compareFor, equalFor, evaluateJq, printFor, QueryError, some, summaryProgram, translateJq,
-  type ArrayExpr, type EastType, type ValueTypeOf,
+  ArrayType, BlobType, DictType, EastError, EastIR, East, Expr, FloatType, FunctionType, IRType, IntegerType, NeverType, NullType, OptionType, QueryCallType, RecursiveType,
+  SortedMap, StringType, StructType, SummaryLeafType, SummaryType, checkJq, compareFor, constValueOf, equalFor, evaluateJq, none, printFor, printJq, QueryError, some,
+  summaryProgram, toSource, translateJq, variant,
+  type ArrayExpr, type EastType, type IR, type ValueTypeOf,
 } from "../src/index.js";
+import { canonicalDifference, canonicalIR } from "../src/codegen/canonical.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
 import { BUILTIN_RULES, FORMATS } from "../src/query/jq/translate-builtins.js";
-import type { AST } from "../src/ast.js";
 import { inExportSubdirectory } from "./export-subdirectory.js";
 import { describeEast, assertEast } from "./platforms.spec.js";
-import { QUERY_CORPUS, translatedBytes } from "./query.corpus.js";
+import { QUERY_CORPUS, calledIR, translatedBytes } from "./query.corpus.js";
 import { FixtureRoot, Order, queryFixture, queryFixtureBytes } from "./query.fixture.js";
 import * as ex from "./query.examples.js";
+
+/** The module a printed program imports East from: this build's. */
+const INDEX_URL = new URL("../src/index.js", import.meta.url).href;
 
 /** Asserts two East values of a type are equal, as East compares them. */
 function assertValue(type: EastType, actual: unknown, expected: unknown, message = ""): void {
@@ -131,32 +141,55 @@ function holdsFunction(type: EastType): boolean {
   return visit(type);
 }
 
-// Each corpus case over the fixture with an output, run by East.jq in an East
-// test and equal to the value TypeScript's translation gives, which E1 holds
-// to the corpus's text: a suite in <dir>/query-corpus/, which every runtime runs.
+// Each corpus case over the fixture with an output, run by its translation in
+// an East test and equal to the value evaluateJq gives, which E1 holds to the
+// corpus's text: a suite in <dir>/query-corpus/, which every runtime runs. The
+// Query builtin East.jq wraps a translation in is the East.jq suite's to run,
+// and the corpus fixture's (#1041).
 {
   const fixture = queryFixture();
   const bytes = queryFixtureBytes();
   const corpus = QUERY_CORPUS.flatMap(c => {
     if (c.output === undefined || c.input !== FixtureRoot) return [];
     const checked = checkJq(c.program, c.input, { root: c.root === true });
-    const resultType = translateJq(checked).resultType;
-    return holdsFunction(resultType) ? [] : [{ c, resultType, expected: evaluateJq(checked, fixture) }];
+    const translation = translateJq(checked);
+    return holdsFunction(translation.resultType) ? [] : [{ c, translation, expected: evaluateJq(checked, fixture) }];
   });
   await inExportSubdirectory("query-corpus", () => describeEast("jq corpus", test => {
-    for (const { c, resultType, expected } of corpus) {
+    for (const { c, translation, expected } of corpus) {
       test(c.name, $ => {
         // The fixture as test/fixtures/query-fixture.beast2 holds it, its model
         // with it: its value written into each test would be a hundred times the bytes.
         const root = $.let($.const(bytes, BlobType).decodeBeast(FixtureRoot, "v2"));
-        const input = c.root === true
-          ? Object.fromEntries(Object.keys(FixtureRoot.fields).map(name => [name, (root as any)[name] as Expr]))
-          : root;
-        $(assertEast.equal(East.jq(input, c.program, resultType), expected as never));
+        // A root's each field the query reads is an input of its own; otherwise the fixture is the one input.
+        const inputs = translation.inputs.map(i => i.name === null ? root : (root as any)[i.name] as Expr);
+        $(assertEast.equal(translation.build(...inputs), expected as never));
       });
     }
   }));
 }
+
+describe("every corpus case's call of the Query builtin prints as the East.jq that made it, and rebuilds (#1041 B2)", () => {
+  test("in TypeScript", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "east-jq-"));
+    try {
+      for (const c of QUERY_CORPUS) {
+        const checked = checkJq(c.program, c.input, { root: c.root === true });
+        if (checked.query === null) continue;
+        const ir = calledIR(checked);
+        const source = toSource(ir, { importFrom: INDEX_URL });
+        assert.match(source, /East\.jq\(/, c.name);
+        assert.doesNotMatch(source, /"Query"|east_jq/, c.name);
+        const path = join(dir, `${c.name}.mjs`);
+        writeFileSync(path, source, "utf-8");
+        const main = (await import(pathToFileURL(path).href)).main;
+        assert.equal(canonicalDifference(canonicalIR(main.toIR().ir), canonicalIR(ir)), null, `${c.name}:\n${source}`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 // ─── The query editor's default query (E2) ───────────────────────────────
 
@@ -181,26 +214,70 @@ describe("the query editor's default query (E2)", () => {
     assertValue(ArrayType(FloatType), rows.map(r => r.total), [2381.61, 1913.4, 1765.97, 1537.52, 1352.32, 1225.5, 1171.58, 1162.92, 1109.6, 1041.68]);
   });
 
-  test("East.jq's IR begins with the marker: the canonical jq, and the inputs' names", () => {
-    const datasets = StructType({ customers: FixtureRoot.fields.customers, orders: FixtureRoot.fields.orders });
-    const resultType = translateJq(checkJq(DEFAULT_QUERY, datasets, { root: true })).resultType;
+  test("East.jq's IR is a call of the Query builtin: the checked query, its translation, and every input (#1041)", () => {
+    const datasets = StructType({ customers: FixtureRoot.fields.customers, forecast: FixtureRoot.fields.forecast, orders: FixtureRoot.fields.orders });
+    const checked = checkJq(DEFAULT_QUERY, datasets, { root: true });
+    const resultType = translateJq(checked).resultType;
     const fn = East.function([FixtureRoot], resultType, ($, root) => {
       const r = root as any;
-      return East.jq({ customers: r.customers, orders: r.orders }, DEFAULT_QUERY, resultType);
+      return East.jq({ customers: r.customers, forecast: r.forecast, orders: r.orders }, DEFAULT_QUERY, resultType);
     });
-    const body = (fn as any)[Symbol.for("@elaraai/east/expr/ast")].body as AST;
-    const block = body.ast_type === "Block" ? body : undefined;
-    assert.ok(block !== undefined);
-    const first = block.statements[0]!;
-    assert.equal(first.ast_type, "Struct");
-    const marker = first as Extract<AST, { ast_type: "Struct" }>;
-    const text = marker.fields["east_jq"] as Extract<AST, { ast_type: "Value" }>;
-    assert.equal(text.value, DEFAULT_QUERY.replaceAll("\n", " "));
-    const inputs = marker.fields["inputs"] as Extract<AST, { ast_type: "NewArray" }>;
-    assert.deepEqual(inputs.values.map(v => (v as Extract<AST, { ast_type: "Value" }>).value), ["customers", "orders"]);
-    // Then a let per input, in order, then the translation.
-    assert.equal(block.statements[1]!.ast_type, "Let");
-    assert.equal(block.statements[2]!.ast_type, "Let");
+    const body = fn.toIR().ir.value.body as IR;
+    assert.equal(body.type, "Call");
+    const call = body as Extract<IR, { type: "Call" }>;
+    const builtin = call.value.function as IR;
+    assert.ok(builtin.type === "Builtin" && builtin.value.builtin === "Query");
+    // The query as the constant its first argument holds: the program as written, and the root's input names.
+    const query = constValueOf(builtin.value.arguments[0]!) as ValueTypeOf<typeof QueryCallType>;
+    const expected = variant("v1", { inputs: some(["customers", "forecast", "orders"]), program: checked.query!.value.program });
+    assert.ok(equalFor(QueryCallType)(query, expected));
+    assert.equal(printJq(query.value.program).text, DEFAULT_QUERY.replaceAll("\n", " "));
+    // The translation, whose type carries the query's types, takes every input, forecast too, which the query
+    // does not read; the call passes each.
+    assert.equal(builtin.value.arguments[1]!.type, "Function");
+    assert.ok(builtin.value.type_parameters[0]!.type === "Function" && builtin.value.type_parameters[0]!.value.inputs.length === 3);
+    assert.deepEqual(call.value.arguments.map(a => a.type), ["GetField", "GetField", "GetField"]);
+    assert.deepEqual(call.value.arguments.map(a => (a as Extract<IR, { type: "GetField" }>).value.field), ["customers", "forecast", "orders"]);
+  });
+});
+
+// ─── The Query builtin (#1041) ───────────────────────────────────────────
+
+describe("the Query builtin (#1041)", () => {
+  const Numbers = ArrayType(IntegerType);
+  // The query as the builtin carries it: its program as written, and no input names for a query of one input.
+  const doubled = variant("v1", { inputs: none, program: checkJq("map(. * 2)", Numbers).query!.value.program });
+
+  test("running a call runs its translation", () => {
+    const F = FunctionType([Numbers], Numbers);
+    const translation = East.function([Numbers], Numbers, ($, xs) => xs.map(($, x) => x.multiply(2n)));
+    const fn = East.function([Numbers], Numbers, ($, xs) => (East.builtin("Query", [F], [doubled, translation], F) as any)(xs));
+    assertValue(Numbers, East.compile(fn, [])([1n, 2n]), [2n, 4n]);
+  });
+
+  test("IR analysis refuses a translation that does not take the query's inputs (B4)", () => {
+    const F = FunctionType([Numbers, Numbers], Numbers);
+    const translation = East.function([Numbers, Numbers], Numbers, ($, xs, _ys) => xs);
+    const fn = East.function([Numbers], Numbers, ($, xs) => (East.builtin("Query", [F], [doubled, translation], F) as any)(xs, xs));
+    assert.throws(() => East.compile(fn, []), /Builtin function 'Query': its query takes one input, but its translation is of type \.Function/);
+  });
+
+  test("IR analysis refuses a query that is not a constant", () => {
+    const F = FunctionType([Numbers], Numbers);
+    const translation = East.function([Numbers], Numbers, ($, xs) => xs);
+    const fn = East.function([QueryCallType, Numbers], Numbers, ($, query, xs) => (East.builtin("Query", [F], [query, translation], F) as any)(xs));
+    assert.throws(() => East.compile(fn, []), /Builtin function 'Query' takes its query as a constant/);
+  });
+
+  test("IR analysis refuses a call without its one type parameter", () => {
+    // East.builtin refuses such a call as it is built; IR that arrives built, as from a file, meets the analyzer.
+    const F = FunctionType([Numbers], Numbers);
+    const translation = East.function([Numbers], Numbers, ($, xs) => xs);
+    const ir = East.function([Numbers], Numbers, ($, xs) => (East.builtin("Query", [F], [doubled, translation], F) as any)(xs)).toIR().ir;
+    const call = ir.value.body as Extract<IR, { type: "Call" }>;
+    const builtin = call.value.function as Extract<IR, { type: "Builtin" }>;
+    const untyped = variant("Function", { ...ir.value, body: variant("Call", { ...call.value, function: variant("Builtin", { ...builtin.value, type_parameters: [] }) }) });
+    assert.throws(() => new EastIR(untyped as any).compile([]), /Builtin function 'Query' takes 1 type parameter, got 0/);
   });
 });
 
@@ -294,12 +371,19 @@ describe("the translation", () => {
     }
   });
 
-  test("is deterministic: a checked program gives the same IR bytes each time", () => {
+  test("is deterministic: a checked program gives the same IR bytes each time, its translation and its call", () => {
     for (const c of QUERY_CORPUS.slice(0, 40)) {
       const checked = checkJq(c.program, c.input, { root: c.root === true });
       if (checked.query === null) continue;
-      assert.deepEqual(translatedBytes(checked), translatedBytes(checkJq(c.program, c.input, { root: c.root === true })), c.name);
+      const again = checkJq(c.program, c.input, { root: c.root === true });
+      assert.deepEqual(translatedBytes(checked), translatedBytes(again), c.name);
+      assert.ok(equalFor(IRType)(calledIR(checked), calledIR(again)), c.name);
     }
+  });
+
+  test("build gives a translation that is one value as that value, not a block of it, as the builders give it", () => {
+    const translation = translateJq(checkJq("1", NullType));
+    assert.equal(Expr.ast(translation.build(East.value(null))).ast_type, "Value");
   });
 
   test("a root's inputs are the fields the query reads, in the order it reads them", () => {

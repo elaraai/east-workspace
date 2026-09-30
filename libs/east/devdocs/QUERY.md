@@ -10,12 +10,13 @@ East's, and every departure from jq 1.8 is deliberate and listed in §13.
 
 A query's text is parsed and checked **once, in an SDK**, against the type of
 its input. Checking gives a **checked query**: a `QueryType` value holding
-the program, the input type, the type of each output and how many outputs
-there are. That value is East's narrow waist for queries, as the token array
-of a datetime format string is for `DateTime.printFormatted`. An SDK
-translates a checked query to ordinary East IR, which every runtime runs as it
-runs any program (§15). No runtime reads query text, and none has a builtin
-for queries.
+the program as written, the input type, the type of each output and how many
+outputs there are. That value is East's narrow waist for queries, as the
+token array of a datetime format string is for `DateTime.printFormatted`. An
+SDK translates a checked query to ordinary East IR, which every runtime runs
+as it runs any program (§15). In code, a query is a call of the `Query`
+builtin, which carries the program beside its translation and gives the
+translation (§15.7), so no runtime reads query text or evaluates jq.
 
 | Piece | Where |
 |---|---|
@@ -25,6 +26,7 @@ for queries.
 | Completions, descriptions, summaries (§19) | `src/query/jq/complete.ts`, `describe.ts`, `summary.ts` (#922) |
 | Translator (§15) | `src/query/jq/translate.ts`, each builtin's rule in `translate-builtins.ts` (#923) |
 | `East.jq`, `evaluateJq`, `QueryError` (§15) | `src/expr/query.ts`, `src/query/evaluate.ts` (#923) |
+| The `Query` builtin (§15.7) | `src/builtins.ts`, `src/compile/builtins/query.ts`, `src/analyze.ts`; east-c `src/builtins/query.c`; printed by `src/codegen/printer.ts` (#1041) |
 | Corpus | `test/query.corpus.ts`, generating `test/fixtures/query-corpus.beast2` |
 | Shared fixture | `test/query.fixture.ts`, generating `test/fixtures/query-fixture.beast2` |
 | Conformance (§16) | `test/jq-conformance/` and `test/query.conformance.spec.ts` (#924) |
@@ -1224,9 +1226,15 @@ export const QueryV1Type = StructType({
   element_type: EastTypeType,     // the type of each output
   input_type: EastTypeType,       // the type the program was checked against
   multiplicity: QueryMultiplicityType,
-  program: JqType,                // with the checker's rewrites applied
+  program: JqType,                // as written: printJq prints it back exactly
+  root: BooleanType,              // checked as an e3 root: each field of the input is its own input
 });
 export const QueryType = VariantType({ v1: QueryV1Type });
+
+export const QueryCallType = VariantType({ v1: StructType({   // what the Query builtin carries (§15.7)
+  inputs: OptionType(ArrayType(StringType)),                  // a root's field names, in order; none for one input
+  program: JqType,                                            // as written
+}) });
 
 export const QuerySpanType = StructType({ column: IntegerType, length: IntegerType, line: IntegerType, offset: IntegerType });
 export const QueryEditType = StructType({ insert: StringType, length: IntegerType, offset: IntegerType });
@@ -1244,6 +1252,12 @@ export const QueryErrorType = StructType({
 **Why a checked query carries its types.** A runtime then never needs the
 checker, and a client knows the result's shape before anything runs: the
 result type follows from `element_type` and `multiplicity` (§3).
+
+**What code carries.** A query in code is a call of the `Query` builtin
+(§15.7), whose query is a `QueryCallType`: the program as written, and a
+root's field names. The builtin's type parameter, the translation's function
+type, carries the input and result types, so the call does not hold them
+twice.
 
 **Type values are numbered canonically.** `element_type` and `input_type` are
 written with `canonicalTypeValue`: each recursive wrapper numbered in
@@ -1264,7 +1278,10 @@ Multilingual Plane gets the same spans in both.
 **A fix is text edits**, so every client applies it the same way. The query
 editor turns the fixes it recognises into edits of its steps.
 
-**The checker's rewrites**, so that no runtime parses text:
+**The checker's rewrites.** A checked query holds its program as written, so
+that it prints back as its author wrote it. The checker's rewrites are the
+check result's `rewritten` tree, which the translator reads, so that no
+runtime parses text:
 
 - an ISO string compared with a DateTime, used as a DateTime key or passed as
   a DateTime argument, alone or as an element of an array literal
@@ -1280,9 +1297,12 @@ editor turns the fixes it recognises into edits of its steps.
 - on an e3 root, `keys`, `keys_unsorted` and `has("name")` are answered from
   its type (§17).
 
-A checked program prints (§18.4) as text that checks to it again: a DateTime
+The rewritten tree prints (§18.4) as text that checks to it again: a DateTime
 literal prints as its RFC 3339 string, a token array as its format, and a
-folded `keys` as an array of strings.
+folded `keys` as an array of strings. That text is not always what was
+written (`"2026-01-01"` compared with a DateTime comes back as
+`"2026-01-01T00:00:00.000+00:00"`), which is why a checked query keeps the
+program as written.
 
 **Evolution.** Operators, builtin names and error codes are strings. A
 structural change is a new case of `QueryType`, sorting after `v1`, and every
@@ -1299,8 +1319,9 @@ cases.)
 `translateJq(checked, options?)` turns a checked query into ordinary East IR
 with East's own builder, typed by the checker's types. `East.jq` and
 `evaluateJq` are built on it. TypeScript compiles the IR as it compiles any
-program, east-c runs it natively, and python runs it through east-c: no
-runtime has a builtin for queries, and none reads query text.
+program, east-c runs it natively, and python runs it through east-c. `East.jq`
+emits the translation inside a call of the `Query` builtin, which gives it
+(§15.7): no runtime reads query text, and none evaluates jq.
 
 ```ts
 const checked = checkJq(".orders | map(.total) | add", FixtureRoot, { root: true });
@@ -1443,9 +1464,12 @@ A new field gives the Struct type the checker inferred (§5).
 ### 15.6 Inputs and paging
 
 - **Checked as an e3 root** (`East.jq({ orders, customers }, …)`, e3's root),
-  each field the query reads is its own parameter, and `.orders` reads it
-  directly: the root is never built as a value. The checker's `reads` lists
-  the fields.
+  each field is its own parameter, and `.orders` reads it directly: the root
+  is never built as a value. `translation.fn()` takes the fields the query
+  reads, which the checker's `reads` lists. `translation.call(…)`, which
+  `East.jq` emits (§15.7), takes every field of the root, in order, and gives
+  the translation those it reads; `keys` and `has` on a root answer from the
+  whole root's type (§14), so it is never narrowed to its reads.
 - **A lazy input stays lazy.** It is iterated, indexed, looked up and counted
   with the builtins that read a lazy value without reading it whole, and early
   exit stops reading it: `first(.orders[])` reads the first segment of the
@@ -1474,15 +1498,38 @@ and so on), and its methods chain:
 `East.jq(orders, "map(.total)", ArrayType(FloatType)).sum()`. python's
 `East.jq(input, program, result_type)` takes it the same way.
 
-The expression is a block:
+The expression is a call of the `Query` builtin, which `translation.call(…)`
+builds (#1041):
 
-1. **the marker**, a discarded Struct statement
-   `{east_jq: "<the canonical text, one line>", inputs: [<the inputs' names, or [] for one input>]}`;
-2. **one `let` per input**, in order, holding the expression given;
-3. **the translation** over those variables, whose value is the block's.
+```
+Call(Builtin("Query", [F], [<query>, <translation>]), [<inputs>])
+```
 
-The marker is the whole of the convention: nothing reads it at run time, and
-the IR printers read it to show `East.jq(…)` again (#927).
+- **`F`** is the translation's function type: one parameter per input, in
+  order, and the result type (§3).
+- **`<query>`** is a `QueryCallType` constant (§14): the program as written,
+  and for an object of inputs their names, in order (`none` for one input).
+- **`<translation>`** is an East function of type `F`, which runs the
+  translation over the inputs the query reads.
+- **The call's arguments** are the inputs: every field of a root, not only
+  those it reads (§15.6).
+
+The builtin is `Query<F>(query: QueryCallType, translation: F) -> F`. It gives
+its second argument, so calling it runs the translation.
+
+- **Every runtime implements it that way,** as it does any builtin:
+  TypeScript's compiler and east-c's builtin table, and python through
+  east-c. None reads the query. Like any constant argument, the program is
+  built each time the call is evaluated, as `DateTime.printFormatted`'s tokens
+  are: a cost that grows with the program, not with the data.
+- **IR analysis refuses a `Query` whose translation does not fit its
+  query:**
+  - the query is not a constant `QueryCallType`;
+  - `F` does not take one input per name (one input for a query of one);
+  - the translation, or what the builtin gives, is not of type `F`.
+- **The printers** print the call back as `East.jq(<input>, "<jq>", <R>)`
+  from the constant (`docs/conventions/EAST_CODEGEN.md` §2).
+- **Tools find a query** in any code by the builtin's name.
 
 ### 15.8 `evaluateJq` and `QueryError`
 
@@ -1513,7 +1560,9 @@ span of the node that raised it. Its message lists each error as
   but for variable names and locations, which the IR normaliser ignores. The
   corpus fixture holds each case's translation (`translated`), built without
   source locations but the jq text's, and python's translator is held to it
-  (#926).
+  (#926). It also holds each case's `Query` call (`called`): an East function
+  of the checked input's fields, or of the one input, whose body is
+  `translation.call(…)`. Python's call is held to it too (#1041).
 
 ---
 
@@ -1698,8 +1747,10 @@ run on each of the shape's values: a **case**.
 - **East refuses** a program for a type only where jq raises an error too,
   or where a section says so; every case of a refused pair is refused.
 - **Every case** that runs is a compliance test: each kind's pairs are a
-  suite, each pair's query as `East.jq` builds it, called on each value, and
-  equal to the expected result or raising an error. `make test-export`
+  suite, each pair's translation (`translateJq(checked).fn()`) called on each
+  value, and equal to the expected result or raising an error. The query
+  suites hold raw translations; `East_jq.json`, beside them, holds the `Query`
+  builtin. `make test-export`
   writes them to `/tmp/east-test-ir/query-types/`, and the corpus's cases
   that have an output to `/tmp/east-test-ir/query-corpus/`, each reading the
   fixture from the bytes of `test/fixtures/query-fixture.beast2` and held to

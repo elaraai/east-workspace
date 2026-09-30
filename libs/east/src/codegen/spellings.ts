@@ -334,7 +334,10 @@ export const SPELLINGS: Record<string, Spelling> = {
  * from the receiver; the formatted-datetime pair takes a pre-tokenized token
  * array the surface builds from a format STRING; `ArraySortDefault` is the
  * python-only keyless sort (TypeScript's `sort()` is `ArraySort` over the
- * identity); `MatrixMapElements` has no method on either surface.
+ * identity); `MatrixMapElements` has no method on either surface; `Query`
+ * carries a query beside its translation, and a call of it prints as the
+ * `East.jq` that built it (#1041), so only the builtin standing elsewhere
+ * prints raw.
  */
 export const RAW_ONLY: ReadonlySet<string> = new Set([
   "ArrayGetKeys",
@@ -342,6 +345,7 @@ export const RAW_ONLY: ReadonlySet<string> = new Set([
   "DateTimeParseFormat",
   "DateTimePrintFormat",
   "MatrixMapElements",
+  "Query",
 ]);
 
 /**

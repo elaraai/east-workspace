@@ -20,6 +20,7 @@ from east.query.jq.translate import JqInput, JqTranslation, TranslationError, tr
 from east.query.types import (
     JqPatternType,
     JqType,
+    QueryCallType,
     QueryEditType,
     QueryErrorType,
     QueryFixType,
@@ -45,6 +46,7 @@ __all__ = [
     "JqType",
     "ParsedJq",
     "PrintedJq",
+    "QueryCallType",
     "QueryEditType",
     "QueryError",
     "QueryErrorType",

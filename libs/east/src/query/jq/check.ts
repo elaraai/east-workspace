@@ -71,8 +71,15 @@ export interface CheckedStage {
 
 /** What {@link checkJq} makes of a program. */
 export interface CheckJqResult {
-  /** The checked query: present exactly when no diagnostic is an error. */
+  /** The checked query, its program as written: present exactly when no diagnostic is an error. */
   query: ValueTypeOf<typeof QueryType> | null;
+  /**
+   * The program with the checker's rewrites applied, which the translator
+   * reads: an ISO string compared with a DateTime is a DateTime literal, a
+   * `strftime` format its tokens, and `keys` or `has` on a root the answer
+   * its type gives. Present exactly when {@link CheckJqResult.query} is.
+   */
+  rewritten: JqNode | null;
   /** The type of each output, when the outputs share one. */
   elementType: EastType | null;
   /** How many outputs the program gives, when it checks. */
@@ -2300,8 +2307,10 @@ function spine(node: JqNode, path: string): { node: JqNode; path: string }[] {
  * should parse (an ISO string compared with a DateTime becomes a DateTime
  * literal; a `strftime` format becomes its tokens). A problem is a diagnostic
  * with its span, one sentence, suggestions and fixes; lints are warnings. The
- * checked query holds the rewritten program, the input type, the element type
- * and the multiplicity, and is present exactly when no diagnostic is an error.
+ * checked query holds the program as written, the input type, the element
+ * type, the multiplicity and whether the input is a root, and is present
+ * exactly when no diagnostic is an error; the program with the rewrites
+ * applied is `rewritten`, which the translator reads.
  *
  * @example
  * ```ts
@@ -2317,7 +2326,7 @@ function spine(node: JqNode, path: string): { node: JqNode; path: string }[] {
 export function checkJq(program: string | ParsedJq, input: EastType, options: CheckJqOptions = {}): CheckJqResult {
   const parsed = typeof program === "string" ? parseJq(program) : program;
   const empty = (diagnostics: QueryError[]): CheckJqResult => ({
-    query: null, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
+    query: null, rewritten: null, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
     resultAt: () => null, scopeAt: () => null, source: { text: parsed.text, spans: parsed.spans, root: options.root === true },
     inputAt: () => null, retype: () => null, updatedCases: () => null, opened: () => null,
   });
@@ -2357,10 +2366,12 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
     element_type: canonicalTypeValue(toEastTypeValue(elementType)),
     input_type: canonicalTypeValue(toEastTypeValue(input)),
     multiplicity: variant(multiplicity, null),
-    program: checker.rewrite(root, ""),
+    program: root,
+    root: options.root === true,
   });
   return {
     query,
+    rewritten: query === null ? null : checker.rewrite(root, ""),
     elementType: errors || elementType === undefined ? null : elementType,
     multiplicity: errors ? null : multiplicity,
     reads: checker.reads,

@@ -64,13 +64,17 @@ REBUILD=1 make leak-check-all
   `east_set_at` / `east_dict_key_at` / `east_dict_val_at`.
 - `int64_t` for integers (no bigint).
 - Async preserved in IR but executed synchronously.
-- Typed jq queries (#875) reach east-c as ordinary East IR, translated by the
-  SDK that checked them (`libs/east/devdocs/QUERY.md` §15): nothing in the
-  runtime is query-specific. The compliance runners and the leak check take
-  the query suites from `/tmp/east-test-ir/query-*/`: jq 1.8's conformance
-  cases (`query-conformance/`, #924), the type matrix (`query-types/`) and the
-  query corpus (`query-corpus/`, #987). `tests/test_query_paged.c` runs the
-  query corpus's translations over paged inputs.
+- Typed jq queries (#875) reach east-c as a call of the `Query` builtin
+  (`src/builtins/query.c`, #1041), which gives its second argument, the
+  query's translation: ordinary East IR, translated by the SDK that checked
+  it (`libs/east/devdocs/QUERY.md` §15). The builtin never reads the query it
+  carries, and nothing else in the runtime is query-specific. The compliance
+  runners and the leak check take the query suites from
+  `/tmp/east-test-ir/query-*/`: jq 1.8's conformance cases
+  (`query-conformance/`, #924), the type matrix (`query-types/`) and the
+  query corpus (`query-corpus/`, #987), all raw translations, and the `Query`
+  builtin from `East_jq.json`. `tests/test_query_paged.c` runs the query
+  corpus's translations over paged inputs.
 
 ## Reference implementations
 

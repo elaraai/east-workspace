@@ -10,37 +10,14 @@
  * @packageDocumentation
  */
 
-import type { AST, VariableAST } from "../ast.js";
-import { get_location_id } from "../location.js";
 import { QueryError } from "../query/evaluate.js";
 import { checkJq } from "../query/jq/check.js";
 import { report } from "../query/jq/messages.js";
-import { parseJq } from "../query/jq/parse.js";
-import { printJq } from "../query/jq/print.js";
 import { translateJq } from "../query/jq/translate.js";
 import { describeType } from "../query/jq/shapes.js";
-import { ArrayType, NullType, StringType, StructType, isTypeEqual, type EastType } from "../types.js";
-import { valueOrExprToAstTyped } from "./ast.js";
-import { fromAst } from "./block.js";
-import { AstSymbol, Expr } from "./expr.js";
+import { StructType, isTypeEqual, type EastType } from "../types.js";
+import { Expr } from "./expr.js";
 import type { ExprType } from "./types.js";
-
-/**
- * The type of `East.jq`'s marker statement: the query's canonical text and
- * its inputs' names. The one definition the marker is built from and the
- * printers recognise it by.
- *
- * A function, not a module constant: a type built as the module loads takes
- * a type id, and every recursive type built after it — in every program that
- * imports East — would carry a different id in its IR.
- *
- * @returns the marker's struct type; types are interned, so every call gives
- *   the same one
- * @internal
- */
-export function jqMarkerType(): StructType<{ east_jq: StringType, inputs: ArrayType<StringType> }> {
-  return StructType({ east_jq: StringType, inputs: ArrayType(StringType) });
-}
 
 /**
  * A jq query over East values, as East code: the query is parsed, checked
@@ -65,10 +42,11 @@ export function jqMarkerType(): StructType<{ east_jq: StringType, inputs: ArrayT
  *   its line and column in the jq text.
  *
  * @remarks
- * The expression is a block: a marker statement holding the query's canonical
- * text and its inputs' names, which printers read back as `East.jq(…)`; one
- * `let` per input; then the translation. The marker costs one constant and
- * nothing reads it at run time.
+ * The expression is a call of the `Query` builtin (#1041), whose arguments
+ * are the checked query, a typed constant, and its translation, an East
+ * function of the inputs; the call's arguments are the inputs, each named
+ * input among them whether the query reads it or not. Running the call runs
+ * the translation, and printers print it back as `East.jq(…)` from its query.
  *
  * @example
  * ```ts
@@ -96,30 +74,12 @@ export function jq<T extends EastType>(input: Expr | { readonly [name: string]: 
   const inputType = named
     ? StructType(Object.fromEntries(names.map((n, i) => [n, Expr.type(values[i]!) as EastType])))
     : Expr.type(input) as EastType;
-  const parsed = parseJq(program);
-  const checked = checkJq(parsed, inputType, { root: named });
+  const checked = checkJq(program, inputType, { root: named });
   if (checked.query === null) throw new QueryError(checked.diagnostics);
   const translation = translateJq(checked);
   if (!isTypeEqual(resultType, translation.resultType)) {
     const message = `type_mismatch: the query gives ${describeType(translation.resultType)}, not the ${describeType(resultType)} it was given.`;
     throw new QueryError([report(program, "type_mismatch", undefined, message)]);
   }
-  const loc = get_location_id();
-  const canonical = parsed.program.type === "some" ? printJq(parsed.program.value).text : program;
-  // The marker: the query as printers show it again.
-  const marker = valueOrExprToAstTyped({ east_jq: canonical, inputs: names }, jqMarkerType(), undefined, loc);
-  const statements: AST[] = [marker];
-  const bound = new Map<string, Expr>();
-  values.forEach((value, i) => {
-    const type = Expr.type(value) as EastType;
-    const variable: VariableAST = { ast_type: "Variable", type, loc_id: loc, mutable: false, name: named ? names[i] : "input" };
-    statements.push({ ast_type: "Let", type: NullType, loc_id: loc, variable, value: (value as any)[AstSymbol] as AST });
-    bound.set(named ? names[i]! : "", fromAst(variable) as Expr);
-  });
-  const args = translation.inputs.map(i => bound.get(i.name ?? "")!);
-  const result = (translation.build(...args) as any)[AstSymbol] as AST;
-  if (result.ast_type === "Block") statements.push(...result.statements);
-  else statements.push(result);
-  const last = statements[statements.length - 1]!;
-  return fromAst({ ast_type: "Block", type: last.type.type === "Never" ? last.type : translation.resultType, loc_id: loc, statements }) as ExprType<T>;
+  return translation.call(...values) as ExprType<T>;
 }

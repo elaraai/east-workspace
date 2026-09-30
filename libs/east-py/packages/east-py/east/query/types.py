@@ -6,9 +6,12 @@
 
 The python twins of ``libs/east/src/query/types.ts``. A query's text is parsed
 and checked once, in an SDK, into a ``QueryType`` value: the program as a
-``JqType`` tree, the type it was checked against, the type of each output, and
-how many outputs it gives. A runtime evaluates a checked query and never reads
-query text.
+``JqType`` tree, the type it was checked against, the type of each output, how
+many outputs it gives, and whether it reads an e3 root. That value is how East
+keeps a checked query, a saved one included. In code, the ``Query`` builtin
+carries the program and a root's input names (``QueryCallType``) beside the
+query's translation, whose function type carries the types, and a runtime runs
+the translation (#1041), so no runtime reads query text.
 
 Struct fields are declared alphabetically in both languages, so each type
 encodes to the same bytes as its TypeScript twin; ``tests/test_query_types.py``
@@ -177,20 +180,39 @@ JqType = recursive_type(
 QueryMultiplicityType = VariantType([("many", NullType), ("maybe", NullType), ("one", NullType)])
 
 # A checked query, version 1: the type of each output, the type it was checked
-# against, how many outputs it gives, and the program with the checker's
-# rewrites applied.
+# against, how many outputs it gives, the program AS WRITTEN (so ``print_jq``
+# prints it back exactly; the checker's rewrites, which spare every runtime
+# parsing text, are the check result's ``rewritten``, where the translator
+# reads them), and whether it was checked as an e3 root (``input_type`` is a
+# struct of datasets, and each field the program reads is its own input).
 QueryV1Type = StructType(
     [
         ("element_type", EastTypeType),
         ("input_type", EastTypeType),
         ("multiplicity", QueryMultiplicityType),
         ("program", JqType),
+        ("root", BooleanType),
     ]
 )
 
 # The versioned envelope every runtime accepts. A structural change is a new
 # case sorting after ``v1``; readers accept every released version.
 QueryType = VariantType([("v1", QueryV1Type)])
+
+# A query as the ``Query`` builtin carries it in code (#1041): ``inputs``, the
+# names of a root's fields, one per input of the translation, in order (``none``
+# for a query of one input); and ``program``, the program as written, as
+# ``QueryV1Type``'s is. The builtin's type parameter, the translation's function
+# type, carries the query's input and result types, so they are not held
+# twice. A structural change is a new case that sorts after ``v1``.
+QueryCallType = VariantType(
+    [
+        (
+            "v1",
+            StructType([("inputs", OptionType(ArrayType(StringType))), ("program", JqType)]),
+        ),
+    ]
+)
 
 # A range of query text, in UTF-16 code units (the unit browsers and
 # TypeScript index strings in): ``column`` and ``line`` are 1-based, ``offset``
@@ -225,6 +247,7 @@ QueryErrorType = StructType(
 __all__ = [
     "JqPatternType",
     "JqType",
+    "QueryCallType",
     "QueryEditType",
     "QueryErrorType",
     "QueryFixType",

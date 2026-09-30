@@ -6,19 +6,17 @@
 
 The twin of ``libs/east/src/expr/query.ts`` (``libs/east/devdocs/QUERY.md``
 §15). In a build, the query is parsed, checked against its inputs' types and
-translated to ordinary East IR, so it runs wherever East runs; on values, it
-is checked, translated, compiled once and run now, through ``evaluate_jq``'s
-cache.
+translated to ordinary East IR, so it runs wherever East runs; the expression
+is a call of the ``Query`` builtin (#1041), which carries the checked query
+beside its translation. On values, it is checked, translated, compiled once
+and run now, through ``evaluate_jq``'s cache.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from east.types.types import ArrayType, EastType, StringType, StructType
-
-#: The marker's type: the query's canonical text, and its inputs' names.
-MARKER_TYPE = StructType([("east_jq", StringType), ("inputs", ArrayType(StringType))])
+from east.types.types import EastType, StructType
 
 
 def jq(input: Any, program: str, result_type: EastType) -> Any:
@@ -59,6 +57,14 @@ def jq(input: Any, program: str, result_type: EastType) -> Any:
             the jq text.
         TypeError: When a value's East type cannot be told from the value.
 
+    In a build, the expression is a call of the ``Query`` builtin (#1041),
+    whose arguments are the checked query, a typed constant (``QueryCallType``:
+    the program as written and a root's input names), and its translation, an
+    East function of the inputs; the call's arguments are the inputs, each
+    named input among them whether the query reads it or not. Running the call
+    runs the translation, and printers print it back as ``East.jq(…)`` from
+    its query.
+
     Example:
         >>> Order = StructType([("id", IntegerType), ("total", FloatType)])
         >>> big_orders = East.function(
@@ -79,46 +85,21 @@ def jq(input: Any, program: str, result_type: EastType) -> Any:
 
 
 def _build(named: bool, names: list[str], values: list[Any], program: str, result_type: EastType) -> Any:
-    """The query in a build: its marker, one ``let`` per input, then the translation, as one block."""
-    from east.expression.expr import Expression
+    """The query in a build: a call of the ``Query`` builtin over every input, in the order given."""
     from east.expression.lift import _lift
-    from east.expression.location import location_id
     from east.query.evaluate import QueryBuildError
     from east.query.jq.check import check_jq
-    from east.query.jq.lower import A, external, lower
-    from east.query.jq.parse import parse_jq
-    from east.query.jq.print import print_jq
     from east.query.jq.translate import translate_jq
-    from east.types.types import NullType
 
     exprs = [_lift(v) for v in values]
     input_type = StructType([(n, e.east_type) for n, e in zip(names, exprs, strict=True)]) if named \
         else exprs[0].east_type
-    parsed = parse_jq(program)
-    checked = check_jq(parsed, input_type, root=named)
+    checked = check_jq(program, input_type, root=named)
     if checked.query is None:
         raise QueryBuildError(checked.diagnostics)
     translation = translate_jq(checked)
     _check_result_type(program, translation.result_type, result_type, QueryBuildError)
-    loc = location_id()
-    canonical = print_jq(parsed.program.value).text if parsed.program.type == "some" else program
-    # The marker: the query as printers show it again.
-    marker = A("Struct", MARKER_TYPE, loc, fields={
-        "east_jq": A("Value", StringType, loc, value=canonical),
-        "inputs": A("NewArray", ArrayType(StringType), loc, values=[A("Value", StringType, loc, value=n) for n in names]),
-    })
-    statements: list[A] = [marker]
-    bound: dict[str, A] = {}
-    for i, e in enumerate(exprs):
-        variable = A("Variable", e.east_type, loc, mutable=False, name=names[i] if named else "input")
-        statements.append(A("Let", NullType, loc, variable=variable, value=external(e.ir, e.east_type)))
-        bound[names[i] if named else ""] = variable
-    result = translation.build_ast(*(bound[i.name if i.name is not None else ""] for i in translation.inputs))
-    statements.extend(result.statements)
-    last = statements[-1]
-    block = A("Block", last.type if last.type.type == "Never" else translation.result_type, loc,
-              statements=statements)
-    return Expression(lower(block), block.type)
+    return translation.call(*exprs)
 
 
 def _evaluate(input: Any, named: bool, names: list[str], values: list[Any], program: str,
@@ -152,4 +133,4 @@ def _check_result_type(program: str, given: EastType, expected: EastType, error:
     raise error([report(to_utf16(program), "type_mismatch", None, message)])
 
 
-__all__ = ["MARKER_TYPE", "jq"]
+__all__ = ["jq"]

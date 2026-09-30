@@ -407,4 +407,8 @@ RAW_ONLY: frozenset[str] = frozenset({
     # from the receiver; the formatted-datetime pair takes a pre-tokenized
     # token array the namespace sugar builds from a format STRING.
     "ArrayGetKeys", "DateTimeParseFormat", "DateTimePrintFormat",
+    # Query carries a query beside its translation, and a call of it prints
+    # as the East.jq that built it (#1041), so only the builtin standing
+    # elsewhere prints raw.
+    "Query",
 })
