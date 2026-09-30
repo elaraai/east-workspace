@@ -5,6 +5,7 @@
 # Environment variables for version pinning (optional, defaults to "latest"):
 #   EAST_VERSION, EAST_NODE_STD_VERSION, EAST_NODE_IO_VERSION,
 #   EAST_NODE_CLI_VERSION, EAST_UI_VERSION, E3_VERSION, etc.
+#   TYPESCRIPT_VERSION defaults to the TypeScript the workspace builds with.
 #
 # Flags (each selects one image's package set; default = the e3 everything image):
 #   --node-only    Node.js packages only (east-node image: no Python, no east-c)
@@ -53,6 +54,11 @@ E3_API_SERVER_VERSION="${E3_API_SERVER_VERSION:-latest}"
 # like the Node packages above, not built from `main` / installed unpinned.
 EAST_C_CLI_VERSION="${EAST_C_CLI_VERSION:-latest}"
 EAST_PY_VERSION="${EAST_PY_VERSION:-latest}"
+# The TypeScript the workspace builds with (5.9.x), not `latest`: east reads a
+# body's parameter names with its compiler API, and /compile type-checks with
+# its tsc. `latest` has been TypeScript 7 since 2026-07, whose package carries
+# no compiler API, and east 1.0.69 to 1.0.83 failed at import beside it (#1042).
+TYPESCRIPT_VERSION="${TYPESCRIPT_VERSION:-5.9}"
 
 echo "Installing East packages..."
 
@@ -60,7 +66,7 @@ if [ "$INSTALL_NODE" = true ]; then
     # Install Node.js packages (AGPL)
     echo "Installing Node.js packages..."
     npm install -g \
-        typescript \
+        "typescript@${TYPESCRIPT_VERSION}" \
         @types/node \
         "@elaraai/east@${EAST_VERSION}" \
         "@elaraai/east-node-std@${EAST_NODE_STD_VERSION}" \
@@ -129,9 +135,11 @@ done
 fi
 
 # Install Python packages if requested
+PYTHON_INSTALLED=false
 if [ "$INSTALL_PYTHON" = true ]; then
     if command -v uv &> /dev/null; then
         echo "Installing Python packages..."
+        PYTHON_INSTALLED=true
         # Pin numba/llvmlite for compatibility; pin east-py to the lockstep
         # release (==${EAST_PY_VERSION}) — unpinned installs pulled whatever
         # was newest on PyPI, drifting the runtime out of lockstep with the IR.
@@ -155,18 +163,26 @@ if [ "$INSTALL_PYTHON" = true ]; then
     fi
 fi
 
-# Verify installations
+# Verify installations: every runtime installed starts, or the install fails.
+# A runtime that cannot start must fail the build rather than ship — e3 and
+# east-node crashed on start beside TypeScript 7 in images this step passed,
+# its checks each guarded by `|| echo` (#1042). (`east-py version` prints
+# "not installed" and exits 0 when east cannot import, hence the imports.)
 if [ "$VERIFY" = true ]; then
     echo "Verifying installations..."
     if [ "$INSTALL_NODE" = true ]; then
-        npx @elaraai/east-node-cli --version || echo "east-node-cli installed"
-        e3 --version || echo "e3-cli installed"
+        east-node --version
+        e3 --version
     fi
     if [ "$INSTALL_EAST_C" = true ]; then
-        east-c --help >/dev/null 2>&1 && echo "east-c installed" || echo "east-c NOT installed"
+        east-c version
     fi
-    if [ "$INSTALL_PYTHON" = true ] && command -v python3 &> /dev/null; then
-        python3 -c "import east; print('east-py installed')" || true
+    if [ "$PYTHON_INSTALLED" = true ]; then
+        east-py version
+        python3 -c "import east, east_py_std, east_py_io"
+        if [ "$INSTALL_DATASCIENCE" = true ]; then
+            python3 -c "import east_py_datascience"
+        fi
     fi
 fi
 
