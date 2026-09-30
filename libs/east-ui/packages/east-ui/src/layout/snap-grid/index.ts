@@ -16,7 +16,8 @@
  *
  * Declared with `edit` and `editing`, the SnapGrid is the builder's canvas: a
  * tile moves, resizes and drops as a draft of the shared editing session, and
- * Apply sends every draft as one checked batch.
+ * Apply sends every draft as one checked batch — from its history item, or
+ * when a host asks through a bound `apply` (#998).
  *
  * @packageDocumentation
  */
@@ -63,6 +64,8 @@ import {
 } from "../../contracts/editing.js";
 import {
     SnapGridAlignType,
+    SnapGridApplyBindType,
+    SnapGridApplyStateType,
     SnapGridCellOf,
     SnapGridEditingOf,
     SnapGridPlaceType,
@@ -83,6 +86,8 @@ import {
 
 export {
     SnapGridAlignType,
+    SnapGridApplyBindType,
+    SnapGridApplyStateType,
     SnapGridPlaceType,
     SnapGridRequestType,
     SnapGridSurfaceType,
@@ -153,6 +158,7 @@ export type SnapGridEditingType = typeof SnapGridEditingType;
  * @property editing - The editing session (#990); `none` takes no gesture
  * @property ui - The bound selection; `none` keeps it in the canvas
  * @property view - The bound design width and zoom (#995); `none` keeps them in the canvas
+ * @property apply - The bound Apply request (#998); `none` takes none
  * @property id - The drag surface's name in a drop's cell refs; `none` names one of its own
  * @property sources - The library ids whose cards land on the canvas
  * @property canDrop - The veto over a drop where the drag rests (the shared grammar)
@@ -382,6 +388,15 @@ export interface SnapGridConfig<R extends EastType> {
      * keeps them, starting from `width` and `zoom`.
      */
     view?: SubtypeExprOrValue<SnapGridViewBindType>;
+    /**
+     * The bound Apply request (#998) — `State.bind([SnapGrid.Types.ApplyState],
+     * key, variant("idle", null))`: a host writes `asked` with an id of its own,
+     * and the editing canvas applies its drafts and answers under the id —
+     * `applied` once the source confirms them, or at once when it has none;
+     * `refused` with why. A publish that must not leave drafts behind asks
+     * for one. Omitted, only the history item applies.
+     */
+    apply?: SubtypeExprOrValue<SnapGridApplyBindType>;
     /** The drag surface's name in a drop's cell refs; omitted, the canvas names one of its own. */
     id?: string;
     /** The library ids whose cards land on the canvas (`edit.create` builds the row). */
@@ -574,7 +589,9 @@ function createViewState(state?: {
  * A pane beside the canvas works with it through the host's state (#996): it
  * reads the rows the canvas draws, which `editing.onDrafted` hears, and asks
  * for a change by writing a `request` to the bound `ui` — a span, a row, a
- * height or an alignment, taken as one gesture of the session.
+ * height or an alignment, taken as one gesture of the session. A screen that
+ * must not leave drafts behind asks for an Apply through the bound `apply`
+ * (#998), and the canvas answers once its drafts land or cannot.
  *
  * @typeParam T - The `data` passed
  * @param data - The rows: an `Array` or a `Dict`, inline or through a bound handle
@@ -582,8 +599,8 @@ function createViewState(state?: {
  * @returns An East expression of type `UIComponentType`
  * @throws {Error} When `data` is a paged source, or not an `Array` or a `Dict`; when the editing
  *   declaration is inconsistent — see {@link SnapGridEditConfig} and {@link SnapGridEditingConfig};
- *   or when the editing canvas's chrome — `view`, `widths`, `toolbar`, `panes`, `surface` — is given
- *   without `editing`
+ *   or when the editing canvas's chrome — `view`, `apply`, `widths`, `toolbar`, `panes`, `surface` — is
+ *   given without `editing`
  *
  * @example
  * ```tsx
@@ -618,7 +635,7 @@ function createSnapGrid<T extends SnapGridData>(data: T, config: SnapGridConfig<
             `give both, or neither (got only \`${config.edit !== undefined ? "edit" : "editing"}\`)`);
     }
     if (config.editing === undefined) {
-        const chrome = (["view", "widths", "toolbar", "panes", "surface"] as const).filter((name) => config[name] !== undefined);
+        const chrome = (["view", "apply", "widths", "toolbar", "panes", "surface"] as const).filter((name) => config[name] !== undefined);
         if (chrome.length > 0) {
             throw new Error(
                 `SnapGrid: ${chrome.map((name) => `\`${name}\``).join(", ")} dress the editing canvas — give ` +
@@ -649,6 +666,7 @@ function createSnapGrid<T extends SnapGridData>(data: T, config: SnapGridConfig<
         editing: editing === undefined ? none : some(editing),
         ui: config.ui === undefined ? none : some(East.value(config.ui, SnapGridUiBindType)),
         view: config.view === undefined ? none : some(East.value(config.view, SnapGridViewBindType)),
+        apply: config.apply === undefined ? none : some(East.value(config.apply, SnapGridApplyBindType)),
         id: config.id === undefined ? none : some(config.id),
         sources: East.value(config.sources ?? [], ArrayType(StringType)),
         canDrop: config.canDrop === undefined ? none : some(config.canDrop),
@@ -886,6 +904,8 @@ export interface SnapGridNamespace {
         Request: typeof SnapGridRequestType;
         /** The bound design width and zoom's value ({@link SnapGridViewStateType}). */
         ViewState: typeof SnapGridViewStateType;
+        /** An Apply asked of the editing canvas, and its answer ({@link SnapGridApplyStateType}). */
+        ApplyState: typeof SnapGridApplyStateType;
         /** One design width the editing canvas offers ({@link SnapGridWidthType}). */
         Width: typeof SnapGridWidthType;
         /** The editing canvas's frame, or none ({@link SnapGridSurfaceType}). */
@@ -916,6 +936,7 @@ export const SnapGrid: SnapGridNamespace = {
         UiState: SnapGridUiStateType,
         Request: SnapGridRequestType,
         ViewState: SnapGridViewStateType,
+        ApplyState: SnapGridApplyStateType,
         Width: SnapGridWidthType,
         Surface: SnapGridSurfaceType,
         Place: SnapGridPlaceType,

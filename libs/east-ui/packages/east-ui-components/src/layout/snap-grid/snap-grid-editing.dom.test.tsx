@@ -14,7 +14,9 @@
  * the selection bar, the saved time, and the panes. Then a pane beside the
  * canvas (#996): the changes it asks for through the bound selection, each
  * one gesture by the canvas's own rules, the rows the author hears the canvas
- * draw, and the history shortcuts from a pane.
+ * draw, and the history shortcuts from a pane. Then an Apply a screen asks
+ * for (#998): answered under the id asked — at once with no drafts, once the
+ * source confirms them, or refused in the canvas's words.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -25,7 +27,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { layOut } from "../../dnd/dnd.test-utils.js";
 import {
     BLOCKED, SEED, type EditingSnapGrid, type TileValue,
-    announced, clickTile, drop, dragHandle, endZone, gapEl, heightOf, history, historyButton, hold, key, layRows, marks,
+    announced, clickTile, drop, dragHandle, endZone, gapEl, heightOf, history, historyButton, hold, hostWrites, key, layRows, marks,
     mountSnapGrid, rowsDrawn, selectedTile, spanOf, tileEl,
 } from "./snap-grid-editing.test-utils.js";
 
@@ -649,5 +651,64 @@ describe("a pane beside the canvas (#996)", () => {
         expect(spanOf(c, "trend")).toBe(8);
         await act(async () => { fireEvent.keyDown(pane, { key: "y", ctrlKey: true }); });
         expect(spanOf(c, "trend")).toBe(7);
+    }, 30_000);
+});
+
+describe("an Apply a screen asks for (#998)", () => {
+    test("with no drafts the canvas answers applied at once, under the id asked, and writes nothing", async () => {
+        const canvas = await mountSnapGrid({ applies: true });
+        await canvas.hostAsksApply("ask-1");
+        expect(canvas.boundApply()).toEqual(variant("applied", "ask-1"));
+        expect(canvas.applies).toHaveLength(0);
+        expect(canvas.writes()).toBe(0);
+    }, 30_000);
+
+    test("with drafts it applies them as its history item does — one checked batch — and answers once the source confirms them", async () => {
+        const canvas = await mountSnapGrid({ applies: true });
+        const c = canvas.container;
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        await canvas.hostAsksApply("ask-2");
+        expect(canvas.applies).toHaveLength(1);
+        expect(canvas.writes()).toBe(1);
+        expect(canvas.stored().find((t) => t.id === "trend")!.span).toBe(7n);
+        // Not until the source reads back as the Apply left it.
+        expect(canvas.boundApply()).toEqual(variant("asked", "ask-2"));
+        await canvas.confirm();
+        expect(canvas.boundApply()).toEqual(variant("applied", "ask-2"));
+        expect(marks(c)).toEqual({});
+        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+    }, 30_000);
+
+    test("each ask is answered under its own id", async () => {
+        const canvas = await mountSnapGrid({ applies: true });
+        await canvas.hostAsksApply("first");
+        expect(canvas.boundApply()).toEqual(variant("applied", "first"));
+        await canvas.hostAsksApply("second");
+        expect(canvas.boundApply()).toEqual(variant("applied", "second"));
+    }, 30_000);
+
+    test("drafts the author's check refuses are refused, in the check's words, and nothing is applied", async () => {
+        const canvas = await mountSnapGrid({ applies: true, ready: true });
+        const c = canvas.container;
+        await clickTile(c, "region");
+        await key(c, { key: "[" }, "region");
+        await key(c, { key: "[" }, "region");
+        expect(marks(c)).toEqual({ region: "invalid" });
+        await canvas.hostAsksApply("ask-3");
+        expect(canvas.boundApply()).toEqual(variant("refused", { id: "ask-3", reason: "A tile spans 3 columns at least" }));
+        expect(canvas.applies).toHaveLength(0);
+    }, 30_000);
+
+    test("drafts the source moved under are refused, in the history item's words", async () => {
+        const canvas = await mountSnapGrid({ applies: true });
+        const c = canvas.container;
+        await clickTile(c, "trend");
+        await key(c, { key: "[" }, "trend");
+        hostWrites(SEED.map((t) => (t.id === "board" ? { ...t, span: 6n } : t)));
+        await canvas.confirm();
+        await canvas.hostAsksApply("ask-4");
+        expect(canvas.boundApply()).toEqual(variant("refused", { id: "ask-4", reason: "Source changed — review or discard these drafts" }));
+        expect(canvas.applies).toHaveLength(0);
     }, 30_000);
 });

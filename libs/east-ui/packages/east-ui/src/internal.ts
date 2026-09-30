@@ -71,7 +71,7 @@ export {
     Sticky, ScrollArea, Expandable, Dock,
     SnapGrid, SnapGridCellType, SnapGridRootType, SnapGridEditingType, SnapGridAlignType, SnapGridVariantType,
     SnapGridUiStateType, SnapGridUiBindType, SnapGridViewStateType, SnapGridViewBindType, SnapGridWidthType, SnapGridSurfaceType,
-    SnapGridPlaceType, SnapGridPatchEventTypeFor, SnapGridRequestType,
+    SnapGridPlaceType, SnapGridPatchEventTypeFor, SnapGridRequestType, SnapGridApplyStateType, SnapGridApplyBindType,
 } from "./layout/index.js";
 export type {
     SnapGridConfig, SnapGridCellFields, SnapGridEditConfig, SnapGridEditingConfig, SnapGridFieldOf, SnapGridData, SnapGridRowOf,

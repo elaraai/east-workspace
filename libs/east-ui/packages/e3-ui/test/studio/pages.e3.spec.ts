@@ -13,7 +13,9 @@
  * The canvas's own Apply, `Studio.save`, commits and conflicts the same way
  * (B12, #995). The page library's new page and the builder's Save as template
  * are each one commit, and a name another write took first is refused in the
- * words their popovers show (D5, D7, #997).
+ * words their popovers show (D5, D7, #997). The publish preview's Publish is
+ * one commit stamping the code each placement goes live with, and one another
+ * publish overtook is refused in the preview's words (E6, #998).
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -21,7 +23,7 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 
 import {
-    AsyncFunctionType, East, FunctionType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor,
+    ArrayType, AsyncFunctionType, East, FunctionType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor,
     encodeBeast2For, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -34,7 +36,7 @@ import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from "@e
 import { Editing, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
 import { RecordOutcomeType, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
-import { RecordBindHandleType, nameWriteRefusal } from "@elaraai/e3-ui/internal";
+import { RecordBindHandleType, fingerprintOf, nameWriteRefusal, publishRefusal } from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -62,11 +64,13 @@ const noProgram = { execute: async () => { throw new Error("the patch door ran a
 
 const OVERVIEW_KEY: Key = { project: "ops", page: "overview" };
 
-/** A component the surface lists, and one a later deploy adds. */
-const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" },
-    East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
-const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n },
-    East.function([], UIComponentType, (_$) => Text.Root("Revenue")));
+/** A component the surface lists, and one a later deploy adds — and their code, whose fingerprints a publish stamps. */
+const kpiRailFn = East.function([], UIComponentType, (_$) => Text.Root("KPIs"));
+const revenueTrendFn = East.function([], UIComponentType, (_$) => Text.Root("Revenue"));
+const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" }, kpiRailFn);
+const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n }, revenueTrendFn);
+/** The components the surface lists, as values — what a publish stamps its placements from. */
+const listed = East.compile(East.function([], ArrayType(Studio.Types.Component), (_$) => [kpiRail, revenueTrend]), [])();
 
 /** The pages record, holding the Overview — never published — and its one write. */
 const pages = e3.record("pages", StudioPagesType, new SortedMap<Key, Entry>([
@@ -156,11 +160,13 @@ describe("the pages record in e3 (#992)", () => {
     });
 
     it("R3: a publish and a revert are one commit each, exact, and the version counts up from 1", async () => {
-        assert.equal((await commit(publish(await current(), OVERVIEW_KEY), "ana")).kind, "committed");
+        assert.equal((await commit(publish(await current(), OVERVIEW_KEY, listed), "ana")).kind, "committed");
         const published = (await current()).get(OVERVIEW_KEY)!;
         if (published.type !== "page" || published.value.live.type !== "some") assert.fail("expected a published page");
         assert.equal(published.value.live.value.version, 1n);
         assert.deepEqual(published.value.live.value.page, published.value.draft);
+        assert.deepEqual(published.value.draft.cells.map((c) => c.fingerprint), [fingerprintOf(kpiRailFn), fingerprintOf(revenueTrendFn)],
+            "each placement stamped with the code it went live with");
 
         // A save, then a revert back to version 1's layout.
         const edited: Entry = variant("page", {
@@ -171,7 +177,7 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal((await commit(revert(await current(), OVERVIEW_KEY), "ben")).kind, "committed");
         assert.deepEqual((await current()).get(OVERVIEW_KEY), published, "the draft is version 1's layout again");
 
-        assert.equal((await commit(publish(await current(), OVERVIEW_KEY), "ben")).kind, "committed");
+        assert.equal((await commit(publish(await current(), OVERVIEW_KEY, listed), "ben")).kind, "committed");
         const again = (await current()).get(OVERVIEW_KEY)!;
         if (again.type !== "page" || again.value.live.type !== "some") assert.fail("expected a published page");
         assert.equal(again.value.live.value.version, 2n);
@@ -309,8 +315,49 @@ describe("the pages record in e3 (#992)", () => {
         assert.deepEqual((await current()).get({ project: "ops", page: "Q3 review" }), now.get({ project: "ops", page: "Q3 review" }), "the first write stands");
     });
 
+    it("E6 (#998): the preview's Publish is one commit — the draft live as the next version, each placement stamped with the code it goes live with — and one another publish overtook is refused in the preview's words", async () => {
+        // The preview's Publish, over the record as it stands when it commits.
+        const publishNow = East.compileAsync(East.asyncFunction([WriterType, ArrayType(Studio.Types.Component)], OptionType(StringType), ($, record, components) => {
+            const now = $.let(record.read());
+            const outcome = $.let(record.commit.patch("", Studio.publish(now, OVERVIEW_KEY, components)));
+            return publishRefusal(outcome);
+        }), []) as unknown as (handle: unknown, components: unknown) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
+        // The record over the repository, its read what the preview read.
+        const read = await current();
+        const handle = {
+            read: () => read,
+            commit: {
+                patch: async (_requestId: string, patch: unknown) => {
+                    const outcome = await commit(patch, "ana");
+                    switch (outcome.kind) {
+                        case "committed": return variant("committed", { commitHash: outcome.commitHash, stateHash: outcome.stateHash });
+                        case "conflict": return variant("conflict", { attempts: BigInt(outcome.attempts), detail: outcome.detail === undefined ? none : some(outcome.detail) });
+                        case "invalid": return variant("invalid", { message: outcome.message });
+                        case "failed": return variant("failed", { exitCode: BigInt(outcome.exitCode), stderr: outcome.stderr });
+                        case "timed_out": return variant("timed_out", { ms: BigInt(outcome.ms), stderr: outcome.stderr });
+                    }
+                },
+            },
+        };
+
+        assert.deepEqual(await publishNow(handle, listed), none, "published");
+        const overview = (await current()).get(OVERVIEW_KEY)!;
+        if (overview.type !== "page" || overview.value.live.type !== "some") assert.fail("expected a published page");
+        assert.equal(overview.value.live.value.version, 1n);
+        assert.deepEqual(overview.value.live.value.page, overview.value.draft, "the draft is the live version");
+        assert.deepEqual(overview.value.draft.cells.map((c) => c.fingerprint), [fingerprintOf(kpiRailFn), fingerprintOf(revenueTrendFn)],
+            "each placement stamped with the code it went live with");
+        const history = await recordHistory(storage, repo, "main", "pages");
+        assert.deepEqual([history[0]!.commit.mutation, history[0]!.commit.actor], ["patch", "ana"], "one commit");
+
+        // A preview still holding the record as it read it before that publish landed.
+        assert.deepEqual(await publishNow(handle, listed), some("Another write changed this page first — review it and publish again"));
+        assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length, "the refused publish made no commit");
+        assert.deepEqual((await current()).get(OVERVIEW_KEY), overview, "the first publish stands");
+    });
+
     it("R7: a redeploy that adds a component keeps the record as it is — no migration runs", async () => {
-        assert.equal((await commit(publish(await current(), OVERVIEW_KEY), "ana")).kind, "committed");
+        assert.equal((await commit(publish(await current(), OVERVIEW_KEY, listed), "ana")).kind, "committed");
         const before = await recordHistory(storage, repo, "main", "pages");
 
         const surface = ui("studio", [], East.function([], UIComponentType, ($) => {

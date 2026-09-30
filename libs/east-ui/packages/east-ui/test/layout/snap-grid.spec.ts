@@ -62,6 +62,7 @@ describeEast("SnapGrid", (test) => {
         $(Assert.equal(value.sources.size(), 0n));
         // Nor any of the editing canvas's chrome.
         $(Assert.equal(value.view, none));
+        $(Assert.equal(value.apply, none));
         $(Assert.equal(value.widths.size(), 0n));
         $(Assert.equal(value.toolbar.start.size(), 0n));
         $(Assert.equal(value.toolbar.end.size(), 0n));
@@ -267,6 +268,30 @@ describeEast("SnapGrid", (test) => {
         $(Assert.equal(value.surface.unwrap("some").getTag(), "shell"));
     });
 
+    test("an editing canvas takes a bound Apply request, which a screen asks it for through (#998)", $ => {
+        const rows = $.const([{ id: "a", row: "top", span: 12n, height: none, name: "A" }], Rows);
+        const handle = $.const({
+            read: East.function([], Rows, (_$) => rows),
+            write: East.function([Rows], NullType, (_$) => null),
+        }, Handle);
+        const apply = $.const({
+            read: East.function([], SnapGrid.Types.ApplyState, (_$) => variant("asked", "publish-1")),
+            write: East.function([SnapGrid.Types.ApplyState], NullType, (_$) => null),
+            has: East.function([], BooleanType, (_$) => true),
+        }, StructType({
+            read: FunctionType([], SnapGrid.Types.ApplyState),
+            write: FunctionType([SnapGrid.Types.ApplyState], NullType),
+            has: FunctionType([], BooleanType),
+        }));
+        const grid = $.let(SnapGrid.Root(handle, {
+            cell: r => SnapGrid.cell({ key: r.id, row: r.row, span: r.span, content: Text.Root(r.name) }),
+            edit: { key: "id", row: "row", span: "span" },
+            editing: { onUpdate: handle.write },
+            apply,
+        }));
+        $(Assert.equal(grid.unwrap().unwrap("SnapGrid").apply.unwrap("some").read(), variant("asked", "publish-1")));
+    });
+
     test("refuses the editing canvas's chrome on a page — it dresses the editing canvas", _ => {
         assert.throws(() => East.function([], UIComponentType, $ => {
             const tiles = $.const([{ id: "a", row: "top", span: 12n, height: none }], ArrayType(Tile));
@@ -276,6 +301,22 @@ describeEast("SnapGrid", (test) => {
                 panes: { start: Text.Root("Palette") },
             });
         }), /SnapGrid: `widths`, `panes` dress the editing canvas/);
+        assert.throws(() => East.function([], UIComponentType, $ => {
+            const tiles = $.const([{ id: "a", row: "top", span: 12n, height: none }], ArrayType(Tile));
+            const apply = $.const({
+                read: East.function([], SnapGrid.Types.ApplyState, (_$) => variant("idle", null)),
+                write: East.function([SnapGrid.Types.ApplyState], NullType, (_$) => null),
+                has: East.function([], BooleanType, (_$) => false),
+            }, StructType({
+                read: FunctionType([], SnapGrid.Types.ApplyState),
+                write: FunctionType([SnapGrid.Types.ApplyState], NullType),
+                has: FunctionType([], BooleanType),
+            }));
+            return SnapGrid.Root(tiles, {
+                cell: t => SnapGrid.cell({ key: t.id, row: t.row, span: t.span, content: Text.Root(t.id) }),
+                apply,
+            });
+        }), /SnapGrid: `apply` dress the editing canvas/);
     });
 
     test("refuses an editing declaration it cannot honour — a Dict, a field at another type, one half without the other, onUpdate without a handle", _ => {

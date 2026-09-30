@@ -7,8 +7,8 @@
  * Every word the SnapGrid's editing canvas says itself (#990, #995) — ONE
  * typed message table: the end zone, the handles and the remove button, the
  * toolbar's own items and the selection bar, the names a screen reader hears
- * for a tile and for where a drag rests, what its live region says, and the
- * editing session's own words, so a host translates the canvas's history item
+ * for a tile and for where a drag rests, what its live region says, why an
+ * Apply a screen asked for cannot run, and the editing session's own words, so a host translates the canvas's history item
  * where it translates the canvas. What the AUTHOR wrote — a tile's label, its
  * meta, a design width's name — is data, and never passes through it.
  *
@@ -82,6 +82,8 @@ export interface SnapGridMessages extends EditingMessages {
     noSelection: () => string;
     /** Beside it, what to do. */
     noSelectionHint: () => string;
+    /** An Apply a screen asked for that cannot run here, when nothing else says why (#998). */
+    applyRefused: () => string;
 }
 
 /** The SnapGrid's English messages — the default table. */
@@ -112,6 +114,7 @@ export const snapGridMessages: SnapGridMessages = {
     widthsLabel: () => "Design width",
     noSelection: () => "No selection",
     noSelectionHint: () => "Click a component on the grid to arrange it",
+    applyRefused: () => "The drafts could not be applied",
 };
 
 const SnapGridMessagesContext = createContext<SnapGridMessages>(snapGridMessages);

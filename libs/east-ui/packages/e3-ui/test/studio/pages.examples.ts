@@ -45,8 +45,9 @@ export const studioChanges = example({
 export const studioPublish = example({
     keywords: [
         "Studio", "Studio.publish", "publish", "version", "live", "draft", "patch", "record", "pages", "Studio.Types.Pages",
+        "fingerprint", "stamp",
     ],
-    description: "A publish is one patch of the page: applied, the page's live version is its draft, numbered from 1",
+    description: "A publish is one patch of the page: applied, the page's live version is its draft, numbered from 1 — each placement stamped with its listed component's fingerprint, and one whose component the surface does not list keeping its own",
     fn: East.function([], IntegerType, ($) => {
         const pages = $.const(new Map([
             [{ project: "ops", page: "overview" }, variant("page", {
@@ -60,7 +61,8 @@ export const studioPublish = example({
             })],
         ]), Studio.Types.Pages);
         const key = $.const({ project: "ops", page: "overview" }, Studio.Types.Key);
-        const published = $.const(East.applyPatch(pages, Studio.publish(pages, key)), Studio.Types.Pages);
+        const components = $.const([], ArrayType(Studio.Types.Component));
+        const published = $.const(East.applyPatch(pages, Studio.publish(pages, key, components)), Studio.Types.Pages);
         return published.get(key).match({
             page: (_$, page) => page.live.match({ some: (_$2, live) => live.version, none: (_$2) => East.value(0n) }),
             template: (_$) => East.value(0n),

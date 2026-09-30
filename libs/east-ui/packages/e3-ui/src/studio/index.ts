@@ -33,6 +33,7 @@ import { StudioPalette } from "./palette.js";
 import { StudioCanvas } from "./canvas.js";
 import { StudioInspector } from "./inspector.js";
 import { StudioPageLibrary } from "./library.js";
+import { StudioPublish } from "./publish.js";
 
 export {
     StudioComponentType,
@@ -96,6 +97,17 @@ export {
     type StudioPageLibraryOptions,
 } from "./library.js";
 export {
+    StudioPublish,
+    StudioPublishComponent,
+    StudioPublishPayloadType,
+    PublishChangeType,
+    PublishStandingType,
+    PublishSummaryType,
+    publishSummary,
+    publishRefusal,
+    type StudioPublishOptions,
+} from "./publish.js";
+export {
     StudioInspector,
     StudioInspectorComponent,
     inspectorSelection,
@@ -113,7 +125,7 @@ export interface StudioNamespace {
     dispatch: typeof StudioComponents.dispatch;
     /** Saves the page open in the builder — the canvas's Apply, one patch to the page's draft. */
     save: typeof StudioPages.save;
-    /** Publishes a page: the patch that makes its draft its next live version. */
+    /** Publishes a page: the patch that makes its draft its next live version, each placement stamped with the code it goes live with. */
     publish: typeof StudioPages.publish;
     /** Reverts a page: the patch that makes its live version's layout its draft. */
     revert: typeof StudioPages.revert;
@@ -139,6 +151,8 @@ export interface StudioNamespace {
     Inspector: typeof StudioInspector;
     /** `<Studio.PageLibrary>` — a project's templates and pages, and where new pages start. */
     PageLibrary: typeof StudioPageLibrary;
+    /** `<Studio.Publish>` — the publish preview: the open page as it will publish, what changed, and the actions that publish it. */
+    Publish: typeof StudioPublish;
     /** The Studio's East types. */
     Types: {
         /** A Studio component ({@link StudioComponentType}). */
@@ -175,8 +189,9 @@ export interface StudioNamespace {
  * the placements that render them (`Studio.dispatch`), the pages record
  * operators build (`Studio.Types.Pages`, its writes and the change list), the
  * surfaces that read it (`<Studio.Page>` and `<Studio.Site>`), the builder's
- * screens (`<Studio.Palette>`, `<Studio.Canvas>`, `<Studio.Inspector>`), and
- * the page library (`<Studio.PageLibrary>`).
+ * screens (`<Studio.Palette>`, `<Studio.Canvas>`, `<Studio.Inspector>`), the
+ * page library (`<Studio.PageLibrary>`), and the publish preview
+ * (`<Studio.Publish>`).
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
@@ -195,6 +210,7 @@ export const Studio: StudioNamespace = {
     Canvas: StudioCanvas,
     Inspector: StudioInspector,
     PageLibrary: StudioPageLibrary,
+    Publish: StudioPublish,
     Types: {
         Component: StudioComponentType,
         Frame: StudioFrameType,

@@ -12,7 +12,8 @@
  * design widths, the host's toolbar items and panes, and each tile's icon and
  * meta. A pane's requests reach it through the bound selection
  * ({@link EditingSnapGrid.hostAsks}, #996), and with `drafted` its author
- * hears the rows it draws.
+ * hears the rows it draws. With `applies`, a screen asks it for an Apply
+ * through the bound `apply` ({@link EditingSnapGrid.hostAsksApply}, #998).
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded and
  * kept, every apply request's bytes kept, and the real callback answers.
@@ -70,6 +71,8 @@ export const UI_KEY = "snap-grid-990.selection";
 export const VIEW_KEY = "snap-grid-995.view";
 /** Where the author keeps the rows the canvas draws, heard through `editing.onDrafted` (#996). */
 export const DRAFTED_KEY = "snap-grid-996.drafted";
+/** Where the bound Apply request and the canvas's answer are held (#998). */
+export const APPLY_KEY = "snap-grid-998.apply";
 
 /** A card that no destination takes — the veto's. */
 export const BLOCKED = "blocked";
@@ -113,6 +116,8 @@ export interface CanvasOptions {
     aligns?: boolean;
     /** Whether the author hears the rows the canvas draws — `editing.onDrafted`, kept at {@link DRAFTED_KEY} (default `false`, #996). */
     drafted?: boolean;
+    /** Whether a screen asks the canvas for an Apply — the bound `apply`, at {@link APPLY_KEY} (default `false`, #998). */
+    applies?: boolean;
 }
 
 type Resolved = Required<CanvasOptions>;
@@ -126,6 +131,7 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
         const view = $.const(State.bind([SnapGrid.Types.ViewState], VIEW_KEY, SnapGrid.viewState()));
         const drafted = $.const(State.bind([OptionType(Tiles)], DRAFTED_KEY, none));
         const heard = $.const(East.function([Tiles], NullType, ($2, rows) => { $2(drafted.write(some(rows))); }));
+        const applying = $.const(State.bind([SnapGrid.Types.ApplyState], APPLY_KEY, East.value(variant("idle", null), SnapGrid.Types.ApplyState)));
         return SnapGrid.Root(tiles, {
             cell: (t) => SnapGrid.cell({
                 key: t.id, row: t.row, span: t.span, height: t.height, minHeight: t.minHeight, label: some(t.name), align: t.align,
@@ -136,6 +142,7 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
             id: SURFACE,
             sources: [PALETTE],
             ...(o.bound ? { ui } : {}),
+            ...(o.applies ? { apply: applying } : {}),
             ...(o.chrome ? {
                 view,
                 width: "1440px",
@@ -170,6 +177,11 @@ const encodeUi = encodeBeast2For(SnapGrid.Types.UiState);
 const decodeUi = decodeBeast2For(SnapGrid.Types.UiState);
 const decodeView = decodeBeast2For(SnapGrid.Types.ViewState);
 const decodeDrafted = decodeBeast2For(OptionType(Tiles));
+const encodeApply = encodeBeast2For(SnapGrid.Types.ApplyState);
+const decodeApply = decodeBeast2For(SnapGrid.Types.ApplyState);
+
+/** An Apply a screen asks of the canvas, and the canvas's answer (#998). */
+export type SnapGridApply = ValueTypeOf<typeof SnapGrid.Types.ApplyState>;
 
 /** A change a pane asks of the canvas (#996), as the host writes it. */
 export type SnapGridRequest = ValueTypeOf<typeof SnapGrid.Types.Request>;
@@ -241,6 +253,10 @@ export interface EditingSnapGrid extends RenderResult {
     boundRequest: () => SnapGridRequest | null;
     /** The design width and zoom the bound view holds (#995) — `null` each while it holds none. */
     boundView: () => { width: string | null; zoom: number | null };
+    /** A screen asks the canvas for an Apply under an id — `asked`, written to the bound `apply` — and renders (#998). */
+    hostAsksApply: (id: string) => Promise<void>;
+    /** What the bound `apply` holds — the ask, or the canvas's answer (#998). */
+    boundApply: () => SnapGridApply;
 }
 
 /** Let everything in flight land — microtasks, and timers queued behind them. */
@@ -257,7 +273,9 @@ export async function settle(): Promise<void> {
  * @returns The mounted canvas
  */
 export async function mountSnapGrid(options: CanvasOptions = {}): Promise<EditingSnapGrid> {
-    const o: Resolved = { seed: SEED, bound: true, veto: false, ready: false, creates: true, chrome: false, aligns: false, drafted: false, ...options };
+    const o: Resolved = {
+        seed: SEED, bound: true, veto: false, ready: false, creates: true, chrome: false, aligns: false, drafted: false, applies: false, ...options,
+    };
     const probe: Probe = { patches: [], applies: [], drafts: [] };
     const program = compileCanvas(o);
     const view = (): SnapGridValue => {
@@ -330,6 +348,14 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
                 width: state.width.type === "some" ? state.width.value : null,
                 zoom: state.zoom.type === "some" ? state.zoom.value : null,
             };
+        },
+        hostAsksApply: async (id) => {
+            act(() => { getStore().write(APPLY_KEY, encodeApply(variant("asked", id))); });
+            await settle();
+        },
+        boundApply: () => {
+            const bytes = getStore().read(APPLY_KEY);
+            return bytes === undefined ? variant("idle", null) : decodeApply(bytes);
         },
     };
 }

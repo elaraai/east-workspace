@@ -211,7 +211,7 @@ export const studioSiteRecord = example({
             ]);
             const record = $.let(Record.bind(studioSitePages, [studioSitePagesPatch]));
             const publish = $.const(East.function([], NullType, ($2) => {
-                $2(record.mutate.patch(Studio.publish(record.read(), { project: "ops", page: "detail" })));
+                $2(record.mutate.patch(Studio.publish(record.read(), { project: "ops", page: "detail" }, components)));
             }));
             return (
                 <VStack gap="3" align="stretch">

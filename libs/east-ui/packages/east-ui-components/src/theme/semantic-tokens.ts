@@ -127,6 +127,12 @@ export const semanticTokens = defineSemanticTokens({
          * rings (per pattern_spec/spec.css `--brand-tint`). */
         brandTint: { value: { base: "#e8f6f7", _dark: "{colors.brand.800}" } },
 
+        /* Pressed brand — the design system's `--brand-dd`: the brand's
+         * deep step in light, a pale teal in dark (the heat ramp's darkest
+         * step is the same colour). The publish preview's pressed device, on
+         * the inverse bar. */
+        brandPressed: { value: { base: "{colors.brand.700}", _dark: "#83c7cc" } },
+
         /* Brand heatmap scale — calendars, density heatmaps. Dark ramp runs
          * dim-surface → bright teal so intensity still reads as "more". */
         brandHeat: {
