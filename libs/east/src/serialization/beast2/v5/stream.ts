@@ -1139,6 +1139,9 @@ export class Beast2Pages<T extends EastType = EastType> {
   private decodes = 0;
   /** Fences probed so far — see {@link fencesProbed}. */
   private probes = 0;
+  /** The first key of each Set or Dict segment probed so far, by segment
+   *  index — see {@link firstKey}. */
+  private readonly keptFences: any[] = [];
 
   /** @internal Use {@link openBeast2PagesFor}. */
   constructor(source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
@@ -1217,8 +1220,9 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /** The segment fences this reader has probed: each segment's first key it
-   *  decoded without the segment, as its keyed reads verify them once and
-   *  {@link fence} probes one. */
+   *  decoded without the segment. A Set or Dict fence is probed once, whether
+   *  its keyed reads verify the fences or {@link fence} asks for one, and kept,
+   *  so asking for it again probes nothing; an Array's is probed each time. */
   get fencesProbed(): number {
     return this.probes;
   }
@@ -1327,12 +1331,26 @@ export class Beast2Pages<T extends EastType = EastType> {
     return seg;
   }
 
+  /** Segment `i`'s first key or element, probed ({@link probeFirstKey}) and
+   *  counted. A Set element or Dict key is immutable, so a Set or Dict fence
+   *  is kept and handed out again without a probe; an Array's first element
+   *  may be a container its caller changes, so it is probed afresh each time.
+   *  East values are never `undefined`, which marks a fence not yet kept. */
+  private firstKey(i: number): any {
+    const kept = this.keptFences[i];
+    if (kept !== undefined) return kept;
+    const fence = this.probeFirstKey(i);
+    this.probes++;
+    if (this.kind !== "Array") this.keptFences[i] = fence;
+    return fence;
+  }
+
   /** Decodes just the first key/element of segment `i` — a bounded probe
    *  (a prefix of the frame read and inflated, one element decode), not a
    *  whole-segment decode. A first key wider than the probe grows it; the
    *  final attempt reads the frame whole, so corruption is still reported
    *  with the frame's own error. */
-  private firstKey(i: number): any {
+  private probeFirstKey(i: number): any {
     // A manifest stores every fence already, so a bisect over one reads no
     // segment bytes at all — the whole point of carrying them.
     if (this.manifestSource !== null) {
@@ -1340,9 +1358,7 @@ export class Beast2Pages<T extends EastType = EastType> {
         const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
         this.manifestFenceDec = decodeBeast2FenceFor(keyType, this.platform);
       }
-      const fence = this.manifestFenceDec(this.manifestSource.manifest.entries[i]!.fence);
-      this.probes++;
-      return fence;
+      return this.manifestFenceDec(this.manifestSource.manifest.entries[i]!.fence);
     }
     if (!this.fenceDec) {
       const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
@@ -1358,17 +1374,13 @@ export class Beast2Pages<T extends EastType = EastType> {
       if (whole) {
         const reader = new FrameReader(bytes, 0).next();
         reader.readVarint();  // element count — segments are never empty
-        const fence = this.fenceDec(reader, ctx);
-        this.probes++;
-        return fence;
+        return this.fenceDec(reader, ctx);
       }
       try {
         const reader = openFramePrefix(bytes);
         if (reader !== null) {
           reader.readVarint();
-          const fence = this.fenceDec(reader, ctx);
-          this.probes++;
-          return fence;
+          return this.fenceDec(reader, ctx);
         }
       } catch {
         // Short, or corrupt: more of the frame decides which.
@@ -1379,7 +1391,8 @@ export class Beast2Pages<T extends EastType = EastType> {
   /**
    * Probes segment `i`'s fence: its first Dict key, Set element, or Array
    * element, decoded without decoding the rest of the segment (one frame
-   * inflate, one element decode).
+   * inflate, one element decode). A Set or Dict fence is probed once per
+   * reader and kept, so asking for it again reads nothing.
    *
    * For Set/Dict roots the fences bound each segment's canonical key range —
    * segment `i` holds exactly the keys in `[fence(i), fence(i+1))` — which is

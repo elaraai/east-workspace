@@ -65,12 +65,20 @@ def _report_input(i: int, path: Path, param_type: Any) -> None:
     print(f"    {print_type(param_type)}", file=sys.stderr)
 
 
+def _format_resident(grown: int) -> str:
+    """What a whole decode added to resident memory, as the verbose account
+    says it: ``+X resident``, never below 0 B, since memory freed across the
+    decode can leave the process smaller after it. The load-time and the
+    mid-run whole-decode accounts both say it through here."""
+    return f"+{_format_size(max(grown, 0))} resident"
+
+
 def _report_input_whole(i: int, grown: int) -> None:
     """The verbose account of input ``i`` decoded whole as it loaded: the
     growth in resident memory across its decode — what it holds in memory, as
     a runner that loads its inputs first sees it — beside what it weighs on
     disk, since a nested collection decodes at many times that."""
-    print(f"  input {i}: decoded whole — +{_format_size(max(grown, 0))} resident", file=sys.stderr)
+    print(f"  input {i}: decoded whole — {_format_resident(grown)}", file=sys.stderr)
 
 
 def _report_input_reads(i: int, value: object) -> None:
@@ -90,7 +98,7 @@ def _report_input_reads(i: int, value: object) -> None:
     if hydrated:
         grown = _paged_hydrated_bytes(ptr) or 0
         print(f"  input {i}: decoded whole (an operation the pager cannot serve) — "
-              f"+{_format_size(grown)} resident", file=sys.stderr)
+              f"{_format_resident(grown)}", file=sys.stderr)
     elif decoded > segments:
         print(f"  input {i}: {decoded} segment decodes of its {segments} segments, {fences} fences "
               "probed — its reads land at random beyond the segments kept, so decoding it whole "
