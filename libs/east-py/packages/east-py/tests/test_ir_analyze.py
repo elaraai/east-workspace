@@ -352,6 +352,19 @@ def test_recursive_wrap_and_unwrap_rules():
            r"UnwrapRecursive result type .Integer does not match recursive type")
 
 
+def test_a_struct_or_variant_node_is_never_typed_with_a_recursive_wrapper():
+    # #1044: a value of a recursive type is its node, wrapped. TypeScript's
+    # analyzer refuses a Variant or Struct node typed with the wrapper; its
+    # twin does too, rather than expanding the wrapper and accepting it.
+    R = recursive_type(lambda self: VariantType([("nil", NullType), ("cons", self)]))
+    raises(fn(R, ir_variant(R, "nil", value(NullType, None))),
+           r"Variant node must have Variant type, got .Recursive")
+    S = recursive_type(lambda self: StructType([("head", BooleanType), ("tail", ArrayType(self))]))
+    tail = ir_new_array(ArrayType(S), [])
+    raises(fn(S, ir_struct(S, [("head", value(BooleanType, True)), ("tail", tail)])),
+           r"Struct node must have Struct type, got .Recursive")
+
+
 def test_break_outside_a_loop_is_not_the_analyzers_business():
     # Labels are matched at run time by name; the analyzer only types the
     # node (Never), exactly as the TypeScript analyzer does.

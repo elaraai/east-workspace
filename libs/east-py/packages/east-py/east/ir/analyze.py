@@ -596,9 +596,12 @@ class _Analyzer:
         return p["type"]
 
     def v_Struct(self, node, p, scope, ret):
-        if p["type"].type != "Struct" and _expand(p["type"]).type != "Struct":
+        # A Struct node is typed with its Struct type: a value of a recursive
+        # type is the node, wrapped (WrapRecursive), never a node typed with the
+        # wrapper — TypeScript refuses that, and so does this twin (#1044).
+        if p["type"].type != "Struct":
             self.fail(f"Struct node must have Struct type, got {_print(p['type'])}", node)
-        struct_t = _expand(p["type"])
+        struct_t = p["type"]
         fields = list(struct_t.value)
         if len(fields) != len(p["fields"]):
             self.fail(
@@ -633,9 +636,11 @@ class _Analyzer:
 
     def v_Variant(self, node, p, scope, ret):
         value_t = self.visit(p["value"], scope, ret)
-        expanded = _expand(p["type"])
-        if expanded.type != "Variant":
+        # As a Struct node: typed with its Variant type, never the recursive
+        # wrapper (#1044).
+        if p["type"].type != "Variant":
             self.fail(f"Variant node must have Variant type, got {_print(p['type'])}", node)
+        expanded = p["type"]
         case = next((c for c in expanded.value if c["name"] == p["case"]), None)
         if case is None:
             self.fail(f"Variant type does not have case {p['case']}", node)

@@ -42,7 +42,8 @@ type Ctx = {
  * `StructType` or both are `VariantType` AND `value_ir` is the matching
  * literal shape (a `Struct` / `Variant` IR node), recursively rewrite each
  * child and rebuild the outer IR with the wider declared type — no outer
- * `As` wrapper. Otherwise (primitives, variable references, invariant
+ * `As` wrapper; a recursive target's literal is its node type's, wrapped in
+ * `WrapRecursive`. Otherwise (primitives, variable references, invariant
  * containers), emit a single outer `As`, matching legacy behaviour.
  *
  * Narrow→wide compound widening is only possible for Struct (covariant fields)
@@ -87,6 +88,13 @@ export function coerce_to(
   if (s.type === "Recursive") s = s.node;
   if (t.type === "Recursive") t = t.node;
 
+  // A literal widened to a recursive type is a literal of the type's node,
+  // wrapped, as `valueOrExprToAstTyped` builds a value of one: no Struct or
+  // Variant node is typed with the wrapper, which the analyzer refuses (#1044).
+  const wrapped = (node: IR): IR => target_type.type === "Recursive"
+    ? variant("WrapRecursive", { type: toEastTypeValue(target_type), loc_id, value: node })
+    : node;
+
   if (value_ir.type === "Struct" && s.type === "Struct" && t.type === "Struct") {
     const s_fields = s.fields;
     const t_fields = t.fields;
@@ -98,11 +106,11 @@ export function coerce_to(
       }
       return { name, value: coerce_to(field_ir, s_field, t_field, loc_id, visited2) };
     });
-    return variant("Struct", {
-      type: toEastTypeValue(target_type),
+    return wrapped(variant("Struct", {
+      type: toEastTypeValue(t),
       loc_id: value_ir.value.loc_id,
       fields: new_fields,
-    });
+    }));
   }
 
   if (value_ir.type === "Variant" && s.type === "Variant" && t.type === "Variant") {
@@ -112,12 +120,12 @@ export function coerce_to(
     const inner = (s_case !== undefined && t_case !== undefined)
       ? coerce_to(value_ir.value.value, s_case, t_case, loc_id, visited2)
       : value_ir.value.value;
-    return variant("Variant", {
-      type: toEastTypeValue(target_type),
+    return wrapped(variant("Variant", {
+      type: toEastTypeValue(t),
       loc_id: value_ir.value.loc_id,
       case: case_name,
       value: inner,
-    });
+    }));
   }
 
   return variant("As", {
