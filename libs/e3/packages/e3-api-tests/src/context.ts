@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import type { RequestOptions, WorkspaceInfo } from '@elaraai/e3-api-client';
 import {
   ApiError,
+  requestFetch,
   repoCreate,
   repoRemove,
   packageImport,
@@ -55,6 +56,17 @@ export interface TestConfig {
 
   /** Whether to clean up created resources (default: true) */
   cleanup?: boolean;
+
+  /**
+   * The `fetch` every request of the suites goes through: the client calls
+   * (`RequestOptions.fetch`), the suites' own requests ({@link TestContext.fetch})
+   * and e3's platform functions. Absent, the global `fetch`.
+   *
+   * @remarks
+   * A harness whose server answers requests in the process itself — e3
+   * running in a page — gives the `fetch` that reaches it.
+   */
+  fetch?: typeof globalThis.fetch;
 }
 
 /**
@@ -76,6 +88,10 @@ export interface TestContext {
   /** Get request options with a reader's token for this repository
    *  ({@link TestConfig.getReaderToken}) */
   readerOpts: () => Promise<RequestOptions>;
+
+  /** The `fetch` a suite's own requests go through: {@link TestConfig.fetch},
+   *  or the global `fetch` when the harness gives none. */
+  fetch: typeof globalThis.fetch;
 
   /** Create a test package and return path to zip file */
   createPackage: (name: string, version: string) => Promise<string>;
@@ -140,10 +156,14 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
   // Determine repo name - use provided or generate unique one
   const repoName = config.repoName ?? `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+  /** Request options for a caller's token, through the harness's `fetch`. */
+  const requestOptions = (token: string): RequestOptions =>
+    (config.fetch === undefined ? { token } : { token, fetch: config.fetch });
+
   // Create repo if not using an existing one
   if (!config.repoName) {
     const token = await config.getToken();
-    await repoCreate(config.baseUrl, repoName, { token });
+    await repoCreate(config.baseUrl, repoName, requestOptions(token));
     createdRepo = true;
   }
 
@@ -181,9 +201,11 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
     repoName,
     tempDir,
 
-    opts: async () => ({ token: await config.getToken() }),
+    opts: async () => requestOptions(await config.getToken()),
 
-    readerOpts: async () => ({ token: await config.getReaderToken(repoName) }),
+    readerOpts: async () => requestOptions(await config.getReaderToken(repoName)),
+
+    fetch: (input, init) => requestFetch(config)(input, init),
 
     createPackage: async (name: string, version: string) => {
       const zipPath = await createPackageZip(tempDir, name, version);
@@ -193,19 +215,19 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
     importPackage: async (zipPath: string) => {
       const token = await config.getToken();
       const packageZip = readFileSync(zipPath);
-      const result = await packageImport(config.baseUrl, repoName, packageZip, { token });
+      const result = await packageImport(config.baseUrl, repoName, packageZip, requestOptions(token));
       createdPackages.push({ name: result.name, version: result.version });
     },
 
     createWorkspace: async (name: string) => {
       const token = await config.getToken();
-      await workspaceCreate(config.baseUrl, repoName, name, { token });
+      await workspaceCreate(config.baseUrl, repoName, name, requestOptions(token));
       createdWorkspaces.push(name);
     },
 
     deployPackage: async (workspace: string, pkgRef: string) => {
       const token = await config.getToken();
-      await workspaceDeploy(config.baseUrl, repoName, workspace, pkgRef, { token });
+      await workspaceDeploy(config.baseUrl, repoName, workspace, pkgRef, requestOptions(token));
     },
 
     cleanup: async () => {
@@ -213,8 +235,7 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
         return;
       }
 
-      const token = await config.getToken();
-      const opts = { token };
+      const opts = requestOptions(await config.getToken());
 
       try {
         if (createdRepo) {

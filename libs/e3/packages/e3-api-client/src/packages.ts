@@ -21,7 +21,7 @@ import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import type { PackageListItem } from './types.js';
 import { PackageListItemType } from './types.js';
 import { ResponseType } from './types.js';
-import { get, del, fetchWithAuth, fetchWithProgress, ApiError, type RequestOptions, type Response } from './http.js';
+import { get, del, fetchWithAuth, fetchWithProgress, requestFetch, ApiError, type RequestOptions, type Response } from './http.js';
 
 /**
  * List all packages in the repository.
@@ -98,7 +98,7 @@ export async function packageImport(
   const uploadBody = onUploadProgress
     ? createProgressStream(archive, onUploadProgress)
     : archive;
-  const uploadRes = await fetch(uploadUrl, {
+  const uploadRes = await requestFetch(options)(uploadUrl, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/zip',
@@ -190,7 +190,7 @@ export async function packageExport(
   const { downloadUrl } = status.value;
 
   // 3. Download zip (no auth — URL may be a presigned S3 URL)
-  return fetchWithProgress(downloadUrl, exportOptions?.onDownloadProgress, signal);
+  return fetchWithProgress(downloadUrl, exportOptions?.onDownloadProgress, signal, options.fetch);
 }
 
 /**

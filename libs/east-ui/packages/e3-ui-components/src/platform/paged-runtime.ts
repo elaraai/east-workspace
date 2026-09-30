@@ -70,6 +70,7 @@ import {
     type DatasetPage,
     type DatasetFindQuery,
     type DatasetFindResult,
+    type RequestOptions,
 } from "@elaraai/e3-api-client";
 import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
@@ -160,26 +161,26 @@ export interface PagedApi {
  *
  * @param apiUrl - Base URL of the e3 API server
  * @param repo - Repository name
- * @param getToken - Reads the current token, so a rotated one is used at once
+ * @param getOptions - Reads the current request options — the token, and the
+ *   `fetch` requests go through — so a rotated one is used at once
  * @param datasets - The dataset store whose status poll reports the hashes
  * @returns The adapter
  */
 export function createDefaultPagedApi(
     apiUrl: string,
     repo: string,
-    getToken: () => string | null,
+    getOptions: () => RequestOptions,
     datasets: Pick<ReactiveDatasetCacheInterface, "watchHash">,
 ): PagedApi {
-    const opts = (): { token: string | null } => ({ token: getToken() });
     return {
         async getPage(workspace, path, window) {
-            return datasetGetPage(apiUrl, repo, workspace, path, window, opts());
+            return datasetGetPage(apiUrl, repo, workspace, path, window, getOptions());
         },
         async findKey(workspace, path, query) {
-            return datasetFindKey(apiUrl, repo, workspace, path, query, opts());
+            return datasetFindKey(apiUrl, repo, workspace, path, query, getOptions());
         },
         async getRevision(workspace, path) {
-            const status = await datasetGetStatus(apiUrl, repo, workspace, path, opts());
+            const status = await datasetGetStatus(apiUrl, repo, workspace, path, getOptions());
             return status.hash.type === "some" ? status.hash.value : null;
         },
         watchRevision(workspace, path, onChange) {

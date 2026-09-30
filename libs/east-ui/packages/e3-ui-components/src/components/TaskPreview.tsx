@@ -66,7 +66,10 @@ export const TaskPreview = memo(function TaskPreview({
                             ? <UITaskPreview
                                 task={task}
                                 bare={bare}
-                                config={{ apiUrl, repo, workspace, token: requestOptions?.token ?? null }}
+                                config={{
+                                    apiUrl, repo, workspace, token: requestOptions?.token ?? null,
+                                    ...(requestOptions?.fetch !== undefined && { fetch: requestOptions.fetch }),
+                                }}
                             />
                             : <DataTaskPreview
                                 apiUrl={apiUrl}
@@ -81,5 +84,7 @@ export const TaskPreview = memo(function TaskPreview({
     );
 }, (prev, next) => prev.task === next.task && prev.apiUrl === next.apiUrl && prev.repo === next.repo
     && prev.workspace === next.workspace && prev.bare === next.bare
-    // A rotated token re-renders the preview, or its reads keep the old one.
-    && prev.requestOptions?.token === next.requestOptions?.token);
+    // A rotated token, or another fetch, re-renders the preview, or its reads
+    // keep the old one.
+    && prev.requestOptions?.token === next.requestOptions?.token
+    && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch));

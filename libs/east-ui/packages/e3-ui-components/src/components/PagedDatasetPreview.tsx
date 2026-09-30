@@ -354,5 +354,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     );
 }, (prev, next) => prev.apiUrl === next.apiUrl && prev.repo === next.repo && prev.workspace === next.workspace
     && prev.path === next.path && prev.hash === next.hash && prev.sizeBytes === next.sizeBytes
-    // A rotated token re-renders the preview, or its reads keep the old one.
-    && prev.requestOptions?.token === next.requestOptions?.token);
+    // A rotated token, or another fetch, re-renders the preview, or its reads
+    // keep the old one.
+    && prev.requestOptions?.token === next.requestOptions?.token
+    && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch));

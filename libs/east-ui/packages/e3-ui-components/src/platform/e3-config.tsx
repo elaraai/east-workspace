@@ -8,7 +8,8 @@
  * auth.
  *
  * @remarks
- * Server identity (`apiUrl`, `repo`, `workspace`, `token`) is shared
+ * Server identity (`apiUrl`, `repo`, `workspace`, `token`, and the `fetch`
+ * requests go through) is shared
  * across every e3-talking surface in this package — the dataset cache,
  * task-detail queries, status polls, list endpoints, etc. It therefore
  * lives in a single context here, not threaded through individual
@@ -30,6 +31,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { RequestOptions } from "@elaraai/e3-api-client";
 
 /**
  * Server identity + auth for an e3 React tree.
@@ -41,12 +43,36 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  *  `Data.bind`) surface their own error if it's missing.
  * @property token - Optional bearer token for authenticated requests.
  *  May be `null` for "anonymous." Rotates freely — every call re-reads.
+ * @property fetch - The `fetch` every request goes through
+ *  (`RequestOptions.fetch`); the global `fetch` when omitted. A host that
+ *  answers e3's API itself — e3 running in a page — gives its own. Changes
+ *  freely, as the token does.
  */
 export interface E3Config {
     apiUrl: string;
     repo?: string;
     workspace?: string;
     token?: string | null;
+    fetch?: typeof globalThis.fetch;
+}
+
+/**
+ * The request options an {@link E3Config} gives: its token, and its `fetch`
+ * when it gives one.
+ *
+ * @remarks
+ * The provider's runtimes and the previews build their requests' options
+ * here, so a `fetch` the config gives reaches every request they make.
+ *
+ * @param config - The token and the `fetch` to send requests with
+ * @returns The options for `@elaraai/e3-api-client`'s calls
+ */
+export function e3RequestOptions(config: {
+    token?: string | null | undefined;
+    fetch?: typeof globalThis.fetch | undefined;
+}): RequestOptions {
+    const token = config.token ?? null;
+    return config.fetch === undefined ? { token } : { token, fetch: config.fetch };
 }
 
 const E3ConfigContext = createContext<E3Config | null>(null);

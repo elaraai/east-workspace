@@ -34,6 +34,9 @@ import { createPackageZip } from '../fixtures.js';
  * @param setup - Factory that creates a fresh test context per test
  */
 export function platformTests(setup: TestSetup<TestContext>): void {
+  /** e3's platform functions, over the harness's `fetch`. */
+  const platformFor = (ctx: TestContext) => Platform.implementation({ fetch: ctx.config.fetch });
+
   const withPackage: TestSetup<TestContext> = async (t) => {
     const ctx = await setup(t);
     const opts = await ctx.opts();
@@ -59,7 +62,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(getStatus, Platform.Implementation);
+      const compiled = East.compileAsync(getStatus, platformFor(ctx));
 
       // Run the compiled function with token from context
       const status = await compiled(ctx.config.baseUrl, ctx.repoName, (await ctx.opts()).token!);
@@ -88,7 +91,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(listWorkspaces, Platform.Implementation);
+      const compiled = East.compileAsync(listWorkspaces, platformFor(ctx));
 
       // Run the compiled function
       const workspaces = await compiled(ctx.config.baseUrl, ctx.repoName, (await ctx.opts()).token!);
@@ -118,7 +121,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(createAndList, Platform.Implementation);
+      const compiled = East.compileAsync(createAndList, platformFor(ctx));
 
       // Run the compiled function
       const workspaces = await compiled(ctx.config.baseUrl, ctx.repoName, 'east-created-ws', (await ctx.opts()).token!);
@@ -136,7 +139,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
           return Platform.workspaceRemove(url, repo, name, token);
         }
       );
-      const compiledRemove = East.compileAsync(removeWs, Platform.Implementation);
+      const compiledRemove = East.compileAsync(removeWs, platformFor(ctx));
       await compiledRemove(ctx.config.baseUrl, ctx.repoName, 'east-created-ws', (await ctx.opts()).token!);
 
       // Verify removed
@@ -160,7 +163,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(listAndCount, Platform.Implementation);
+      const compiled = East.compileAsync(listAndCount, platformFor(ctx));
 
       // Run the compiled function
       const count = await compiled(ctx.config.baseUrl, ctx.repoName, (await ctx.opts()).token!);

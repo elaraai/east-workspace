@@ -4,9 +4,9 @@
  *
  * @vitest-environment jsdom
  *
- * A rotated token reaches a memoized preview: its next request carries the new
- * token. A memo that ignores the request options keeps the preview on the
- * render that captured the old one.
+ * A rotated token, or another fetch, reaches a memoized preview: its next
+ * request carries the new one. A memo that ignores the request options keeps
+ * the preview on the render that captured the old one.
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -87,5 +87,48 @@ describe("a rotated token", () => {
         shown.paging!.onNeedRows(500, 1000);
         await vi.waitFor(() => expect(vi.mocked(datasetGetPage)).toHaveBeenCalledTimes(2));
         expect(vi.mocked(datasetGetPage).mock.lastCall?.[5]).toEqual({ token: "new" });
+    });
+});
+
+describe("another fetch", () => {
+    /** Two fetches a host might give, one after the other. */
+    const before = vi.fn() as unknown as typeof globalThis.fetch;
+    const after = vi.fn() as unknown as typeof globalThis.fetch;
+
+    test("reaches TaskPreview's next request", async () => {
+        vi.mocked(taskGet).mockRejectedValue(new Error("unreachable"));
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const preview = (fetch: typeof globalThis.fetch) => inProviders(client,
+            <TaskPreview apiUrl={API} repo="default" workspace="w" task="t" requestOptions={{ token: "tok", fetch }} />);
+        const { rerender } = render(preview(before));
+        expect(await screen.findByText("unreachable")).not.toBe(null);
+
+        rerender(preview(after));
+        await client.invalidateQueries({ queryKey: ["taskDetails"] });
+        expect(vi.mocked(taskGet)).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(taskGet).mock.lastCall?.[4]).toEqual({ token: "tok", fetch: after });
+    });
+
+    test("reaches PagedDatasetPreview's next page", async () => {
+        const RowsType = ArrayType(IntegerType);
+        vi.mocked(datasetGetPage).mockImplementation(async (_url, _repo, _ws, _path, asked) => {
+            if (!("offset" in asked)) throw new Error(`the preview asked for a segment, where it reads element windows: ${JSON.stringify(asked)}`);
+            const { offset, limit } = asked;
+            return {
+                data: encodeBeast2For(RowsType)(Array.from({ length: limit }, (_, i) => BigInt(offset + i))),
+                totalElements: 1000, totalBytes: 8000, totalExact: true, segmentCount: 2, offset, count: limit, hash: "3".repeat(64),
+            } as DatasetPage;
+        });
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const preview = (fetch: typeof globalThis.fetch) => inProviders(client,
+            <PagedDatasetPreview apiUrl={API} repo="default" workspace="w" path="rows" type={toEastTypeValue(RowsType)}
+                hash={"3".repeat(64)} sizeBytes={8000} requestOptions={{ token: "tok", fetch }} onDownload={() => {}} />);
+        const { rerender } = render(preview(before));
+        expect(await screen.findByText(/^1,000 items/)).not.toBe(null);
+
+        rerender(preview(after));
+        shown.paging!.onNeedRows(500, 1000);
+        await vi.waitFor(() => expect(vi.mocked(datasetGetPage)).toHaveBeenCalledTimes(2));
+        expect(vi.mocked(datasetGetPage).mock.lastCall?.[5]).toEqual({ token: "tok", fetch: after });
     });
 });

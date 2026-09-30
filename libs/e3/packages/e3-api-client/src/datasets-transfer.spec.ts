@@ -13,7 +13,9 @@
  * commit, each part's exact byte range with the headers the server named and
  * no credentials, a transient part failure retried from a fresh read of its
  * range, the commit polled until it finishes, with how far it has got heard as
- * it goes, and every refusal surfaced.
+ * it goes, and every refusal surfaced. Given a `fetch`, every request of the
+ * transfer goes through it — the parts' uploads among them — and none through
+ * the global one.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -49,16 +51,25 @@ interface Call {
   body: Uint8Array | null;
 }
 
-/** Stands a fake server in for `fetch`, recording every request it answers. */
-function fakeServer(answer: (call: Call) => globalThis.Response | Promise<globalThis.Response>): Call[] {
+/** A fake server as a `fetch`, recording every request it answers. */
+function fakeFetch(
+  answer: (call: Call) => globalThis.Response | Promise<globalThis.Response>,
+): { calls: Call[]; fetch: typeof globalThis.fetch } {
   const calls: Call[] = [];
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const body = init?.body ? new Uint8Array(await new Response(init.body).arrayBuffer()) : null;
     const call = { method: init?.method ?? 'GET', url: new URL(String(input)), headers: new Headers(init?.headers), body };
     calls.push(call);
     return answer(call);
-  }) as typeof fetch;
-  return calls;
+  }) as typeof globalThis.fetch;
+  return { calls, fetch };
+}
+
+/** Stands a fake server in for the global `fetch`, recording every request it answers. */
+function fakeServer(answer: (call: Call) => globalThis.Response | Promise<globalThis.Response>): Call[] {
+  const server = fakeFetch(answer);
+  globalThis.fetch = server.fetch;
+  return server.calls;
 }
 
 /** A BEAST2 success envelope, as the server sends one. */
@@ -240,5 +251,38 @@ describe('datasetSetStream: the transfer protocol', () => {
     await datasetSetStream(BASE, 'r', 'ws', PATH, source, { token: null, retry: NO_WAIT });
     assert.deepEqual(source.reads, []);
     assert.equal(calls.length, 1);
+  });
+
+  it('sends every request of the transfer through a given fetch, the parts\' uploads among them', async () => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      throw new Error(`the global fetch was called for ${String(input)}`);
+    }) as typeof fetch;
+    const parts = new Map<number, Uint8Array>();
+    const server = fakeFetch(({ method, url, body }) => {
+      const part = url.pathname.match(/\/upload\/[^/]+\/parts\/(\d+)$/);
+      if (method === 'POST' && url.pathname.endsWith('/upload')) {
+        return success(TransferUploadResponseType, variant('upload_parts', { id: ID, partBytes: 4n }));
+      }
+      if (method === 'GET' && part) {
+        return success(TransferPartResponseType, { url: `https://store.test/part/${part[1]}`, headers: new Map() });
+      }
+      if (method === 'PUT' && url.host === 'store.test') {
+        parts.set(Number(url.pathname.split('/').pop()), body!);
+        return new Response(null, { status: 200 });
+      }
+      if (method === 'POST' && url.pathname.endsWith(`/upload/${ID}`)) {
+        return success(TransferDoneResponseType, variant('completed', null));
+      }
+      return new Response(`unexpected ${method} ${url.href}`, { status: 500 });
+    });
+
+    await datasetSetStream(BASE, 'r', 'ws', PATH, streamedSource(payload), { token: 'tok', retry: NO_WAIT, fetch: server.fetch });
+    assert.deepEqual([...parts.keys()].sort(), [1, 2, 3]);
+    assert.deepEqual([...parts.get(2)!], [...payload.subarray(4, 8)]);
+    assert.deepEqual(
+      server.calls.map((call) => `${call.method} ${call.url.host}`).sort(),
+      ['GET e3.test', 'GET e3.test', 'GET e3.test', 'POST e3.test', 'POST e3.test', 'PUT store.test', 'PUT store.test', 'PUT store.test'],
+      'the init, each part\'s URL and upload, and the commit',
+    );
   });
 });

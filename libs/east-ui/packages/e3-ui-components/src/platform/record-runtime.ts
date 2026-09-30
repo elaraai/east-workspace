@@ -53,6 +53,7 @@ import {
     type MutationResult,
     type RecordHistoryResult,
     type RecordCommitInfo,
+    type RequestOptions,
 } from "@elaraai/e3-api-client";
 import {
     registerReactiveTracker,
@@ -97,26 +98,31 @@ export interface RecordApi {
 /**
  * Build the default {@link RecordApi} that talks to a real e3 server via
  * `@elaraai/e3-api-client`.
+ *
+ * @param apiUrl - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param getOptions - Reads the current request options — the token, and the
+ *   `fetch` requests go through — so a rotated one is used at once
+ * @returns The adapter
  */
 export function createDefaultRecordApi(
     apiUrl: string,
     repo: string,
-    getToken: () => string | null,
+    getOptions: () => RequestOptions,
 ): RecordApi {
-    const opts = (): { token: string | null } => ({ token: getToken() });
     return {
         async describe(workspace, record) {
-            return workspaceRecordDescribe(apiUrl, repo, workspace, record, opts());
+            return workspaceRecordDescribe(apiUrl, repo, workspace, record, getOptions());
         },
         async mutate(workspace, record, mutation, req) {
             return workspaceRecordMutate(apiUrl, repo, workspace, record, mutation, {
                 args: req.args,
                 actor: none,
                 limits: none,
-            }, opts(), req.idempotencyKey);
+            }, getOptions(), req.idempotencyKey);
         },
         async history(workspace, record, limit, from) {
-            return workspaceRecordHistory(apiUrl, repo, workspace, record, limit, opts(), from);
+            return workspaceRecordHistory(apiUrl, repo, workspace, record, limit, getOptions(), from);
         },
     };
 }

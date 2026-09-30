@@ -52,6 +52,7 @@ import {
     workspaceFunctionCall,
     type ExecuteResult,
     type FunctionSignature,
+    type RequestOptions,
 } from "@elaraai/e3-api-client";
 import {
     registerReactiveTracker,
@@ -86,23 +87,28 @@ export interface FunctionApi {
 /**
  * Build the default {@link FunctionApi} that talks to a real e3 server via
  * `@elaraai/e3-api-client`.
+ *
+ * @param apiUrl - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param getOptions - Reads the current request options — the token, and the
+ *   `fetch` requests go through — so a rotated one is used at once
+ * @returns The adapter
  */
 export function createDefaultFunctionApi(
     apiUrl: string,
     repo: string,
-    getToken: () => string | null,
+    getOptions: () => RequestOptions,
 ): FunctionApi {
-    const opts = (): { token: string | null } => ({ token: getToken() });
     return {
         async list(workspace) {
-            return workspaceFunctionList(apiUrl, repo, workspace, opts());
+            return workspaceFunctionList(apiUrl, repo, workspace, getOptions());
         },
         async call(workspace, fn, req) {
             return workspaceFunctionCall(apiUrl, repo, workspace, fn, {
                 args: req.args,
                 runner: none,
                 limits: none,
-            }, opts());
+            }, getOptions());
         },
     };
 }

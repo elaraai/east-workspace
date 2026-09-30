@@ -59,6 +59,33 @@ export interface RequestOptions {
    * param — no wire-type change — so a server that predates it simply ignores
    * it. Runtime-only: never affects hashing or caching. */
   verbose?: boolean;
+  /**
+   * The `fetch` every request of the call goes through: its API requests, the
+   * upload and download URLs they are sent to, and their retries. Absent, the
+   * global `fetch`.
+   *
+   * @remarks
+   * A host that answers e3's API itself passes its own: e3 running in a page,
+   * whose requests a function answers rather than the network. The client
+   * calls it as a plain function, never as a method of these options, so a
+   * browser's `fetch` passed as it stands works.
+   */
+  fetch?: typeof globalThis.fetch;
+}
+
+/**
+ * The `fetch` a request goes through: the one its options give, or the global
+ * `fetch`, looked up when the request is made.
+ *
+ * @remarks
+ * The result is called as a plain function, never as a method of the options:
+ * a browser's `fetch` refuses to run with another object as its `this`.
+ *
+ * @param options - The request's options
+ * @returns The `fetch` to call
+ */
+export function requestFetch(options: { fetch?: typeof globalThis.fetch }): typeof globalThis.fetch {
+  return options.fetch ?? globalThis.fetch;
 }
 
 /** Append `?verbose=1` to an endpoint path when verbose was requested. */
@@ -294,16 +321,18 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * @param init - Standard `fetch` init; a re-readable body (string / `Uint8Array` / `Blob`) is required for a retry to resend it.
  *   Pass a function to build the init afresh for every attempt instead — the way to retry a body that is a stream, which
  *   one attempt consumes.
- * @param opts - `idempotent` gates transient-status retries; `retry` overrides the {@link DEFAULT_RETRY} policy (set `attempts: 1` to opt out).
+ * @param opts - `idempotent` gates transient-status retries; `retry` overrides the {@link DEFAULT_RETRY} policy (set `attempts: 1` to opt out);
+ *   `fetch` is the `fetch` every attempt goes through ({@link RequestOptions.fetch}), the global one when absent.
  * @returns The final `fetch` response — a success, or the last transient/non-retryable response for the caller to decode.
  * @throws The original error once retries are exhausted or the error is non-retryable; the abort reason if `init.signal` aborts.
  */
 export async function fetchWithRetry(
   input: string | URL,
   init: RequestInit | (() => RequestInit),
-  opts: { idempotent: boolean; retry?: RetryOptions },
+  opts: { idempotent: boolean; retry?: RetryOptions; fetch?: typeof globalThis.fetch },
 ): Promise<globalThis.Response> {
   const cfg = resolveRetry(opts.retry);
+  const send = requestFetch(opts);
   for (let attempt = 0; ; attempt++) {
     const request = typeof init === 'function' ? init() : init;
     const signal = request.signal ?? undefined;
@@ -315,7 +344,7 @@ export async function fetchWithRetry(
     }
     let response: globalThis.Response;
     try {
-      response = await fetch(input, request);
+      response = await send(input, request);
     } catch (err) {
       if (isAbortError(err)) throw err;
       if (!isRetryableNetworkError(err) || attempt + 1 >= cfg.attempts) throw err;
@@ -357,6 +386,7 @@ export async function fetchWithAuth(
   const response = await fetchWithRetry(input, withHeaders, {
     idempotent: isIdempotentRequest(withHeaders),
     retry: options.retry,
+    fetch: options.fetch,
   });
   if (response.status === 401) {
     throw new AuthError(await response.text());
@@ -426,7 +456,7 @@ export async function get<T extends EastType>(
       'Accept': BEAST2_CONTENT_TYPE,
       ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
     },
-  }, { idempotent: true, retry: options.retry });
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
 
   return decodeResponse(response, successType);
 }
@@ -456,7 +486,7 @@ export async function post<Req extends EastType, Res extends EastType>(
       ...extraHeaders,
     },
     body: encode(body),
-  }, { idempotent: hasIdempotencyKey(extraHeaders), retry: options.retry });
+  }, { idempotent: hasIdempotencyKey(extraHeaders), retry: options.retry, fetch: options.fetch });
 
   return decodeResponse(response, successType);
 }
@@ -483,7 +513,7 @@ export async function put<Req extends EastType, Res extends EastType>(
       ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
     },
     body: encode(body),
-  }, { idempotent: true, retry: options.retry });
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
 
   return decodeResponse(response, successType);
 }
@@ -505,7 +535,7 @@ export async function del<T extends EastType>(
       'Accept': BEAST2_CONTENT_TYPE,
       ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
     },
-  }, { idempotent: true, retry: options.retry });
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
 
   return decodeResponse(response, successType);
 }
@@ -527,7 +557,7 @@ export async function putEmpty<T extends EastType>(
       'Accept': BEAST2_CONTENT_TYPE,
       ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
     },
-  }, { idempotent: true, retry: options.retry });
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
 
   return decodeResponse(response, successType);
 }
@@ -572,13 +602,21 @@ async function decodeResponse<T extends EastType>(
  * The initial request is retried per {@link fetchWithRetry} (GET is idempotent);
  * once streaming begins a mid-stream failure surfaces, since a partial download
  * cannot be safely resumed.
+ *
+ * @param url - The URL to download
+ * @param onProgress - Told the bytes downloaded so far and the total
+ * @param signal - Aborts the download
+ * @param fetch - The `fetch` the download goes through
+ *   ({@link RequestOptions.fetch}); the global one when absent
+ * @returns The downloaded bytes
  */
 export async function fetchWithProgress(
   url: string,
   onProgress?: (downloaded: number, total: number) => void,
   signal?: AbortSignal,
+  fetch?: typeof globalThis.fetch,
 ): Promise<Uint8Array> {
-  const res = await fetchWithRetry(url, { method: 'GET', signal }, { idempotent: true });
+  const res = await fetchWithRetry(url, { method: 'GET', signal }, { idempotent: true, fetch });
   if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
 
   if (!onProgress || !res.body) {

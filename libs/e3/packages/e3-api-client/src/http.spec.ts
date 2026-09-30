@@ -11,7 +11,9 @@
  * 429/502/503/504) must not hard-fail a call, but a retry must never double-apply
  * a non-idempotent write nor mask a real 500. These tests pin that contract:
  * which errors/statuses are retried, the idempotency gate, the attempt cap,
- * abort handling, and the backoff/Retry-After policy.
+ * abort handling, and the backoff/Retry-After policy. A host that answers e3's
+ * API itself gives the `fetch` its requests go through: every helper, and
+ * every attempt, goes through the given one, called as a plain function.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -20,12 +22,16 @@ import { encodeBeast2For, variant, IntegerType } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import {
   fetchWithRetry,
+  fetchWithAuth,
+  fetchWithProgress,
   parseRetryAfter,
   computeBackoffMs,
   isRetryableNetworkError,
   get,
   del,
   post,
+  put,
+  putEmpty,
   ApiError,
   type RetryOptions,
 } from './http.js';
@@ -284,6 +290,76 @@ describe('helper idempotency wiring', () => {
       ApiError,
     );
     assert.equal(m.calls, 3); // key makes the retry safe
+  });
+});
+
+// ===========================================================================
+// A given fetch (RequestOptions.fetch)
+// ===========================================================================
+
+describe('a given fetch', () => {
+  /** A global fetch that fails any request that reaches it. */
+  function refuseGlobalFetch(): void {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      throw new Error(`the global fetch was called for ${String(input)}`);
+    }) as typeof fetch;
+  }
+
+  /** A BEAST2 success answer carrying 42. */
+  const answer = (): globalThis.Response => new Response(
+    encodeBeast2For(ResponseType(IntegerType))(variant('success', 42n)),
+    { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } },
+  );
+
+  it('takes every attempt of a request, and the global fetch none', async () => {
+    refuseGlobalFetch();
+    let calls = 0;
+    const given = (async () => (++calls === 1 ? networkError() : ok())) as typeof fetch;
+    const res = await fetchWithRetry(URL, {}, { idempotent: true, retry: NO_WAIT, fetch: given });
+    assert.equal(res.status, 200);
+    assert.equal(calls, 2, 'the retry went through the given fetch too');
+  });
+
+  it('takes the requests of every helper', async () => {
+    refuseGlobalFetch();
+    const methods: string[] = [];
+    const given = (async (_input: string | URL | Request, init?: RequestInit) => {
+      methods.push(init?.method ?? 'GET');
+      return answer();
+    }) as typeof fetch;
+    const options = { token: 'tok', fetch: given };
+    assert.equal(await get(URL, '/x', IntegerType, options), 42n);
+    assert.equal(await post(URL, '/x', 1n, IntegerType, IntegerType, options), 42n);
+    assert.equal(await put(URL, '/x', 1n, IntegerType, IntegerType, options), 42n);
+    assert.equal(await del(URL, '/x', IntegerType, options), 42n);
+    assert.equal(await putEmpty(URL, '/x', IntegerType, options), 42n);
+    assert.equal((await fetchWithAuth(URL, { method: 'GET' }, options)).status, 200);
+    assert.deepEqual(methods, ['GET', 'POST', 'PUT', 'DELETE', 'PUT', 'GET']);
+  });
+
+  it('is called as a plain function, never as a method of the options', async () => {
+    refuseGlobalFetch();
+    // A browser's fetch refuses to run with another object as its `this`.
+    const receivers: unknown[] = [];
+    const given = function (this: unknown) {
+      receivers.push(this);
+      return Promise.resolve(answer());
+    } as unknown as typeof fetch;
+    assert.equal(await get(URL, '/x', IntegerType, { token: null, fetch: given }), 42n);
+    assert.deepEqual(receivers, [undefined]);
+  });
+
+  it('takes a download, with its progress', async () => {
+    refuseGlobalFetch();
+    const bytes = Uint8Array.from({ length: 1000 }, (_, i) => i % 251);
+    const given = (async () => new Response(new Blob([bytes]).stream(), {
+      status: 200,
+      headers: { 'Content-Length': String(bytes.length) },
+    })) as typeof fetch;
+    const heard: number[] = [];
+    const downloaded = await fetchWithProgress(URL, (done) => heard.push(done), undefined, given);
+    assert.deepEqual(downloaded, bytes);
+    assert.equal(heard.at(-1), bytes.length);
   });
 });
 

@@ -68,6 +68,7 @@ import {
   datasetGetStatus,
   datasetSet,
   datasetSetStream,
+  requestFetch,
   type RequestOptions,
 } from '@elaraai/e3-api-client';
 
@@ -82,7 +83,7 @@ type Envelope<T extends EastType> =
 
 /**
  * One transfer request made the way a client without e3-api-client makes it,
- * with the response envelope decoded.
+ * through the options' `fetch`, with the response envelope decoded.
  */
 async function transferCall<T extends EastType>(
   url: string,
@@ -91,7 +92,7 @@ async function transferCall<T extends EastType>(
   opts: RequestOptions,
   body?: Uint8Array,
 ): Promise<Envelope<T>> {
-  const response = await fetch(url, {
+  const response = await requestFetch(opts)(url, {
     method,
     headers: {
       'Accept': BEAST2_CONTENT_TYPE,
@@ -214,7 +215,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       );
 
       // Fetch directly from object endpoint
-      const response = await fetch(
+      const response = await ctx.fetch(
         `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/objects/${hash}`,
         {
           headers: { 'Authorization': `Bearer ${(await ctx.opts()).token}` },
@@ -233,7 +234,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       const opts = await ctx.opts();
 
       const fakeHash = 'a'.repeat(64);
-      const response = await fetch(
+      const response = await ctx.fetch(
         `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/objects/${fakeHash}`,
         {
           headers: { 'Authorization': `Bearer ${opts.token}` },
@@ -254,7 +255,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, data, opts);
       const hash = computeHash(data);
 
-      const response = await fetch(`${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/objects/${hash}`, {
+      const response = await ctx.fetch(`${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/objects/${hash}`, {
         headers: { 'Authorization': `Bearer ${opts.token}` },
       });
       assert.strictEqual(response.status, 200);
@@ -264,7 +265,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
 
       // The URL may be presigned, so it is fetched without the API's auth.
       const { url } = await response.json() as { url: string };
-      const downloaded = await fetch(url);
+      const downloaded = await ctx.fetch(url);
       assert.ok(downloaded.ok, `${downloaded.status} ${downloaded.statusText}`);
       assert.strictEqual(computeHash(new Uint8Array(await downloaded.arrayBuffer())), hash);
     });
@@ -286,13 +287,13 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
 
       const datasetUrl = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/table-ws/datasets/inputs/rows`;
       const auth = { 'Authorization': `Bearer ${opts.token}` };
-      const named = await fetch(`${datasetUrl}?segments=true`, { headers: auth });
+      const named = await ctx.fetch(`${datasetUrl}?segments=true`, { headers: auth });
       assert.strictEqual(named.headers.get('Content-Type'), 'application/json');
       assert.deepStrictEqual(some((await named.json() as { manifest: string }).manifest), status.hash, 'the manifest is the dataset');
 
       const { data, hash } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'table-ws', path, opts);
       assert.deepStrictEqual(some(hash), status.hash);
-      const streamed = new Uint8Array(await (await fetch(datasetUrl, { headers: auth })).arrayBuffer());
+      const streamed = new Uint8Array(await (await ctx.fetch(datasetUrl, { headers: auth })).arrayBuffer());
       assert.deepStrictEqual(data, streamed, 'the splice the route streams');
       const rows = decodeBeast2For(RowsType)(data);
       assert.strictEqual(rows.length, 50_000);
@@ -416,7 +417,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       for (let part = count; part >= 1; part--) {
         const target = success(await transferCall(`${uploadUrl}/${id}/parts/${part}`, 'GET', TransferPartResponseType, opts));
         const { start, end } = transferPartRange(data.byteLength, partBytes, part)!;
-        const put = await fetch(target.url, {
+        const put = await ctx.fetch(target.url, {
           method: 'PUT',
           headers: Object.fromEntries(target.headers),
           body: data.subarray(start, end),
@@ -469,7 +470,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       for (let part = 1; part <= transferPartCount(data.byteLength, partBytes); part++) {
         const target = success(await transferCall(`${uploadUrl}/${id}/parts/${part}`, 'GET', TransferPartResponseType, opts));
         const { start, end } = transferPartRange(data.byteLength, partBytes, part)!;
-        await fetch(target.url, { method: 'PUT', headers: Object.fromEntries(target.headers), body: data.subarray(start, end) });
+        await ctx.fetch(target.url, { method: 'PUT', headers: Object.fromEntries(target.headers), body: data.subarray(start, end) });
       }
 
       // Refused as an `error` answer, or as an API error when nothing was staged.

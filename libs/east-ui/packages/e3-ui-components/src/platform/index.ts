@@ -114,13 +114,14 @@ export {
     type RecordMutateArgs,
 } from "./record-runtime.js";
 
-// E3 server-identity context (apiUrl / repo / workspace / token).
+// E3 server-identity context (apiUrl / repo / workspace / token / fetch).
 // Mounted as the outermost e3-related provider; every hook in this
 // package that talks to e3 reads from it.
 export {
     E3Provider,
     useE3Config,
     useE3ConfigOptional,
+    e3RequestOptions,
     type E3Config,
     type E3ProviderProps,
 } from "./e3-config.js";
