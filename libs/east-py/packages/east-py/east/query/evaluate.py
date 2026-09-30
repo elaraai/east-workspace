@@ -161,9 +161,10 @@ def _runtime_diagnostic(checked: CheckJqResult, error: EastError) -> EastStruct:
     span: JqRange | None = None
     if at is not None:
         # The node that raised it: the innermost that starts at that line and
-        # column and can raise (a literal, `.` or a variable cannot).
+        # column and can raise (a literal, `.` or a variable cannot), as the
+        # translation ran it: the program with the checker's rewrites.
         offset = _offset_of(text, int(at["line"]), int(at["column"]))
-        kinds = {} if checked.query is None else _node_kinds(checked.query.value["program"])
+        kinds = {} if checked.rewritten is None else _node_kinds(checked.rewritten)
         for path, candidate in checked.source.spans.items():
             if candidate.from_ != offset or kinds.get(path, "") in _LEAVES:
                 continue

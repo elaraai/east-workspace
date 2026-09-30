@@ -11,26 +11,28 @@
  * outputs: `a | b` generates `b` in `a`'s continuation, `.[]` is a loop, and
  * early exit (`first`, `limit`, `label`) is a labelled break out of every loop
  * between. Every value is built by an East builtin, so a query runs wherever
- * East IR runs, and no runtime has anything of its own for queries.
+ * East IR runs; a runtime's only part is the `Query` builtin, which carries a
+ * query beside its translation and runs the translation (#1041).
  *
  * @packageDocumentation
  */
 
 import type { AST, Label, VariableAST } from "../../ast.js";
 import type { BuiltinName } from "../../builtins.js";
-import { isVariant, variant } from "../../containers/variant.js";
+import { isVariant, none, some, variant } from "../../containers/variant.js";
 import { valueOrExprToAstTyped } from "../../expr/ast.js";
 import { BlockBuilder, fromAst, func } from "../../expr/block.js";
 import { AstSymbol, Expr } from "../../expr/expr.js";
 import type { FunctionExpr } from "../../expr/function.js";
 import FloatLib from "../../expr/libs/float.js";
-import { get_current_source_map, UNKNOWN_LOC_ID } from "../../location.js";
+import { get_current_source_map, get_location_id, UNKNOWN_LOC_ID } from "../../location.js";
 import { decodeBeast2 } from "../../serialization/beast2/index.js";
 import { fromEastTypeValue } from "../../type_of_type.js";
 import {
   ArrayType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NeverType, NullType, OptionType, RefType,
   StringType, StructType, VariantType, isSubtype, isTypeEqual, printType, type EastType,
 } from "../../types.js";
+import { QueryCallType } from "../types.js";
 import { UPDATE_SELECTORS, walkSteps, type CheckJqResult } from "./check.js";
 import { casesOf, membersOf, nullablePayload, unify, unifyShape, unwrap, type Facts, type Result, type Shape } from "./shapes.js";
 import { childPath, jqChildren, toQuerySpan, type JqNode, type JqPattern } from "./spans.js";
@@ -65,6 +67,22 @@ export interface JqTranslation {
   build(...inputs: Expr[]): Expr;
   /** The translation as an East function of its inputs. */
   fn(): FunctionExpr<any[], any>;
+  /**
+   * A call of the `Query` builtin over given inputs, as `East.jq` emits it
+   * (#1041): the builtin's arguments are the program as written and a root's
+   * input names, a typed constant (`QueryCallType`), and the translation, an
+   * East function of every input the query was checked against, which reads
+   * those the query reads and whose type carries the query's types; the
+   * call's arguments are the inputs. Running the call runs the translation,
+   * and printers print it back as `East.jq`.
+   *
+   * @param inputs - one expression per field of a root, in the root's order,
+   *   or the one input
+   * @returns the result, of {@link JqTranslation.resultType}
+   * @throws {TranslationError} When the inputs are not one per field of the
+   *   root, or the one input.
+   */
+  call(...inputs: Expr[]): Expr;
 }
 
 /** The input of a program checked as an e3 root: each field it reads, an input of its own. @internal */
@@ -2982,20 +3000,24 @@ function callsItself(node: JqNode, key: string): boolean {
  * ```
  */
 export function translateJq(checked: CheckJqResult, options: TranslateJqOptions = {}): JqTranslation {
-  if (checked.query === null || checked.elementType === null || checked.multiplicity === null) {
+  if (checked.query === null || checked.rewritten === null || checked.elementType === null || checked.multiplicity === null) {
     const errors = checked.diagnostics.filter(d => d.severity.type === "error").map(d => d.message);
     throw new TranslationError(`the program does not check: ${errors.join(" ")}`);
   }
-  const query = checked.query.value;
+  const query = checked.query;
   const element = checked.elementType;
   const multiplicity = checked.multiplicity;
-  const inputType = fromEastTypeValue(query.input_type);
+  const inputType = fromEastTypeValue(query.value.input_type);
   const root = checked.source.root;
   const inputs: { name: string | null; type: EastType }[] = root
     ? checked.reads.map(name => ({ name, type: parts(unwrap(inputType)).fields[name]! }))
     : [{ name: null, type: inputType }];
   const resultType = multiplicity === "one" ? element : multiplicity === "maybe" ? OptionType(element) : ArrayType(element);
-  const program = query.program;
+  // The rewritten program: the checker's rewrites mean no translation parses text.
+  const program = checked.rewritten;
+  // What the `Query` builtin's function takes: every field of a root, in order, or the one input.
+  const fields = root ? Object.entries(parts(unwrap(inputType)).fields) : [];
+  const params = root ? fields.map(([, type]) => type) : [inputType];
   const into = ($: Block, values: readonly Expr[]): Expr => {
     const t = new Translator(checked, options);
     const x: Value = root ? { root: true, fields: new Map(inputs.map((input, i) => [input.name!, values[i]!])) } : values[0]!;
@@ -3028,9 +3050,27 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
     build: (...values: Expr[]): Expr => {
       const $ = BlockBuilder(NeverType);
       const result = into($, values);
+      // A block of one expression is the expression, as the builders give it.
+      if ($.statements.length === 0) return result;
       const statements = isTypeEqual($.type(), NeverType) ? $.statements : [...$.statements, (result as any)[AstSymbol] as AST];
       return fromAst({ ast_type: "Block", type: isTypeEqual($.type(), NeverType) ? NeverType : resultType, loc_id: UNKNOWN_LOC_ID, statements }) as Expr;
     },
     fn: () => func(inputs.map(i => i.type), resultType, ($: Block, ...values: Expr[]) => into($, values)) as unknown as FunctionExpr<any[], any>,
+    call: (...values: Expr[]): Expr => {
+      if (values.length !== params.length) {
+        throw new TranslationError(`the query takes ${params.length} input${params.length === 1 ? "" : "s"}, not ${values.length}`);
+      }
+      const loc = get_location_id();
+      const F = FunctionType(params, resultType);
+      // Each field of the root is a parameter; the translation reads those the query reads.
+      const translation = func(params, resultType, ($: Block, ...args: Expr[]) =>
+        into($, root ? inputs.map(i => args[fields.findIndex(([name]) => name === i.name)]!) : args));
+      const constant = variant("v1", { inputs: root ? some(fields.map(([name]) => name)) : none, program: query.value.program });
+      const builtin: AST = {
+        ast_type: "Builtin", type: F, loc_id: loc, builtin: "Query", type_parameters: [F],
+        arguments: [valueOrExprToAstTyped(constant, QueryCallType, undefined, loc), (translation as any)[AstSymbol] as AST],
+      };
+      return fromAst({ ast_type: "Call", type: resultType, loc_id: loc, function: builtin, arguments: values.map(v => (v as any)[AstSymbol] as AST) }) as Expr;
+    },
   };
 }

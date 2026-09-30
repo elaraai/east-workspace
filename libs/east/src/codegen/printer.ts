@@ -41,9 +41,9 @@
  *   type would otherwise be lost (a callback returning `none`, an empty
  *   collection or a general `variant`) — an expression IfElse / Match /
  *   TryCatch / Block through `.ifElse(...)` / `.match({...})` /
- *   `Expr.tryCatch(...)` / `Expr.block(...)`, a Block `East.jq` built (its
- *   marker's query re-translates to it exactly, #927) as `East.jq(input,
- *   "<jq>", T)`, the match `unwrap` lowers to
+ *   `Expr.tryCatch(...)` / `Expr.block(...)`, a call of the `Query` builtin
+ *   as the `East.jq(input, "<jq>", T)` that built it, read from its query
+ *   (#927, #1041), the match `unwrap` lowers to
  *   as `.unwrap()` / `.unwrap("case")`, a Builtin through its spelling
  *   row (callbacks as `($, ...) => ...` arrows) or the raw
  *   `East.builtin(name, [T...], [args], out)`, an As through `East.as`, a
@@ -87,15 +87,13 @@
  */
 
 import { Expr } from "../expr/expr.js";
-import { func, isPlatformDeclaration, type PlatformDeclaration } from "../expr/block.js";
-import { jq, jqMarkerType } from "../expr/query.js";
-import { variant } from "../containers/variant.js";
-import { checkJq } from "../query/jq/check.js";
-import { translateJq } from "../query/jq/translate.js";
-import { fromEastTypeValue, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
-import { StructType, type EastType } from "../types.js";
+import { isPlatformDeclaration, type PlatformDeclaration } from "../expr/block.js";
+import { printJq } from "../query/jq/print.js";
+import { QueryCallType } from "../query/types.js";
+import { isTypeValueEqual, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
+import type { EastType, ValueTypeOf } from "../types.js";
 import { IMPORT_PLATFORM } from "../functions.js";
-import { canonicalDifference, canonicalIR } from "./canonical.js";
+import { constValueOf } from "../walker.js";
 import { spellingFor, type Spelling } from "./spellings.js";
 import { TYPE_IMPORTS, isOptionValue, objectKey, typeConstructors, typeDoc, typeKey } from "./types.js";
 import {
@@ -420,73 +418,34 @@ function foldsKey(key: EastTypeValue, keys: Node[]): boolean {
   return key.type === "Float" && keys.some(k => k.type === "Value" && Object.is(k.value.value.value, -0));
 }
 
-/**
- * The key of `East.jq`'s marker type ({@link jqMarkerType}), made when the
- * first block is printed: a type built as this module loads would shift the
- * id every later recursive type carries in its IR.
- */
-let jqMarkerKey: string | null = null;
+/** {@link QueryCallType}'s type value, made when the first query is printed. */
+let queryCallType: EastTypeValue | undefined;
 
 /**
- * The parts of what `East.jq` builds, or `null` for any other node: a Block
- * whose first statement is the marker — a Struct literal of the query's
- * canonical text and its named inputs — then one Let per input (one for an
- * unnamed input), then the translation.
+ * The parts of a call of the `Query` builtin (#1041), read from its query,
+ * or `null` for any other node: the program, a root's input names (none for
+ * one input), and the result type, which is the translation's. A query that
+ * is not a constant, or does not fit its call, gives `null`, and the call
+ * prints as it stands.
  */
-function jqParts(node: Node): { program: string, names: string[], lets: Node[] } | null {
-  if (node.type !== "Block") return null;
-  const statements = node.value.statements as Node[];
-  const marker = statements[0];
-  if (marker === undefined || marker.type !== "Struct") return null;
-  if (typeKey(marker.value.type) !== (jqMarkerKey ??= typeKey(toEastTypeValue(jqMarkerType())))) return null;
-  const fields = new Map((marker.value.fields as { name: string, value: Node }[]).map(f => [f.name, f.value]));
-  const text = fields.get("east_jq");
-  const inputs = fields.get("inputs");
-  if (text?.type !== "Value" || inputs?.type !== "NewArray") return null;
-  const names: string[] = [];
-  for (const name of inputs.value.values as Node[]) {
-    if (name.type !== "Value") return null;
-    names.push(name.value.value.value as string);
-  }
-  const lets = statements.slice(1, 1 + Math.max(names.length, 1));
-  if (lets.length !== Math.max(names.length, 1) || lets.some(l => l.type !== "Let") || statements.length === 1 + lets.length) return null;
-  return { program: text.value.value.value as string, names, lets };
-}
-
-/** An `East.jq` block's canonical form with its inputs' values left out: what re-translating its query must give back. */
-function jqShape(node: Node, inputs: number): unknown {
-  const statements = (node.value.statements as Node[]).map((s, i) => i >= 1 && i <= inputs ? variant("Let", { ...s.value, value: null }) : s);
-  return canonicalIR(variant("Block", { ...node.value, statements }));
-}
-
-/** What `East.jq` built from a query over inputs of some types, by the query, the names and the types. */
-const jqTranslations = new Map<string, { resultType: EastType, shape: unknown } | null>();
-
-/**
- * What `East.jq` builds from a marker's query over inputs of the given types:
- * the query's result type, and the block's canonical form without its inputs'
- * values; `null` when the query does not check over them.
- */
-function jqTranslation(program: string, names: string[], types: EastTypeValue[]): { resultType: EastType, shape: unknown } | null {
-  const key = JSON.stringify([program, names, types.map(t => typeKey(t))]);
-  const hit = jqTranslations.get(key);
-  if (hit !== undefined || jqTranslations.has(key)) return hit ?? null;
-  let out: { resultType: EastType, shape: unknown } | null = null;
+function queryCall(node: Node): { program: string, names: string[] | null, resultType: EastTypeValue } | null {
+  if (node.type !== "Call") return null;
+  const head = node.value.function as Node;
+  if (head.type !== "Builtin" || head.value.builtin !== "Query") return null;
+  if (!isTypeValueEqual((head.value.arguments[0] as Node).value.type, queryCallType ??= toEastTypeValue(QueryCallType))) return null;
+  let query: ValueTypeOf<typeof QueryCallType>;
   try {
-    const inputs = types.map(t => fromEastTypeValue(t));
-    const named = names.length > 0;
-    const checked = checkJq(program, named ? StructType(Object.fromEntries(names.map((n, i) => [n, inputs[i]!]))) : inputs[0]!, { root: named });
-    if (checked.query !== null) {
-      const resultType = translateJq(checked).resultType;
-      const fn = func(inputs, resultType, ($, ...params: Expr[]) =>
-        jq(named ? Object.fromEntries(names.map((n, i) => [n, params[i]!])) : params[0]!, program, resultType));
-      out = { resultType, shape: jqShape((fn.toIR().ir as Node).value.body as Node, types.length) };
-    }
+    query = constValueOf(head.value.arguments[0]) as ValueTypeOf<typeof QueryCallType>;
   } catch {
-    out = null;
+    return null;
   }
-  jqTranslations.set(key, out);
-  return out;
+  const q = query.value;
+  const args = node.value.arguments as Node[];
+  const fn = (head.value.type_parameters as EastTypeValue[])[0];
+  if (fn?.type !== "Function") return null;
+  const names = q.inputs.type === "some" ? q.inputs.value : null;
+  if (args.length !== (names?.length ?? 1)) return null;
+  return { program: printJq(q.program).text, names, resultType: fn.value.output };
 }
 
 /** A structural key for a Function node: two inlined copies of one artifact print once. */
@@ -817,12 +776,6 @@ class Printer {
     const inputs = bracket("[", f.inputs.map(t => this.typeRef(t)), "]");
     const out = this.typeRef(f.output);
     const names = [BLOCK, ...params];
-    // A body that is one `East.jq` prints as the call: `($, xs) => East.jq(xs, "…", T)`.
-    if (consts.length === 0 && (p.body as Node).type === "Block") {
-      const sub: Doc[] = [];
-      const call = this.jqCall(p.body, inner, sub, 0);
-      if (call !== null && sub.length === 0) return [ctor, callArgs([inputs, out, arrow(names, call)])];
-    }
     // A body that is one expression is a concise arrow, as a callback is
     // and as the source writes it: `($, x) => x.multiply(2n)`; the declared
     // output types what it returns, so a construction prints bare.
@@ -1093,6 +1046,8 @@ class Printer {
         return this.functionExpr(node, scope);
       case "Call":
       case "CallAsync": {
+        const query = this.jqCall(node, scope, pre, d);
+        if (query !== null) return query;
         const head = p.function as Node;
         // the callee's declared inputs type its arguments
         const args = (p.arguments as Node[]).map(a => this.valueDoc(a, scope, pre, d, true));
@@ -1156,7 +1111,7 @@ class Printer {
         return ["Expr.tryCatch", callArgs([body, handler])];
       }
       case "Block":
-        return this.jqCall(node, scope, pre, d) ?? this.blockExpr(node, scope);
+        return this.blockExpr(node, scope);
       default:
         if (STATEMENT_KINDS.has(kind)) throw new Unprintable(`${kind} node in expression position`);
         throw new Unprintable(`unknown node kind ${kind}`);
@@ -1351,30 +1306,27 @@ class Printer {
     return this.callbackExpr(body, [], scope, pre);
   }
 
-  /** An expression arm that must be an Expr: a Block as `Expr.block(...)`
-   * (or the `East.jq` it is), a literal through `East.value`. */
+  /** An expression arm that must be an Expr: a Block as `Expr.block(...)`, a literal through `East.value`. */
   armExpr(body: Node, scope: Scope, pre: Doc[], depth: number): Doc {
-    if (body.type === "Block") return this.jqCall(body, scope, pre, depth) ?? this.blockExpr(body, scope);
+    if (body.type === "Block") return this.blockExpr(body, scope);
     return this.tracedExpr(body, scope, pre, depth);
   }
 
   /**
-   * `East.jq(<input>, "<jq>", <result type>)` for a Block `East.jq` built —
-   * one that re-translating its marker's query over its inputs' types gives
-   * back exactly (#927) — its input the one Let's value, or an object of the
-   * named inputs' values; `null` for any other node, which prints as it
-   * stands, a look-alike included.
+   * `East.jq(<input>, "<jq>", <result type>)` for a call of the `Query`
+   * builtin (#1041), from its query: its input the call's one argument, or
+   * for a root an object of its input names, each the call's argument in its
+   * place; the jq its program as written; the result type its translation's.
+   * `null` for any other node, which prints as it stands.
    */
   jqCall(node: Node, scope: Scope, pre: Doc[], depth: number): Doc | null {
-    const parts = jqParts(node);
+    const parts = queryCall(node);
     if (parts === null) return null;
-    const translation = jqTranslation(parts.program, parts.names, parts.lets.map(l => l.value.variable.value.type as EastTypeValue));
-    if (translation === null || canonicalDifference(jqShape(node, parts.lets.length), translation.shape) !== null) return null;
-    const values = parts.lets.map(l => this.tracedExpr(l.value.value as Node, scope, pre, depth + 1));
-    const input: Doc = parts.names.length === 0
+    const values = (node.value.arguments as Node[]).map(a => this.tracedExpr(a, scope, pre, depth + 1));
+    const input: Doc = parts.names === null
       ? values[0]!
       : hug(bracket("{", parts.names.map((name, i): Doc => [objectKey(name), ": ", values[i]!]), "}", " "));
-    return ["East.jq", callArgs([input, JSON.stringify(parts.program), this.typeRef(toEastTypeValue(translation.resultType))])];
+    return ["East.jq", callArgs([input, JSON.stringify(parts.program), this.typeRef(parts.resultType)])];
   }
 
   /** A Block in expression position: `Expr.block(($) => { ... })`. */
@@ -1396,11 +1348,6 @@ class Printer {
     const inner = new Scope(scope);
     const names = [BLOCK, ...params.map(v => this.bind(inner, v))];
     void pre;
-    if (body.type === "Block") {
-      const sub: Doc[] = [];
-      const call = this.jqCall(body, inner, sub, 0);
-      if (call !== null) return sub.length === 0 ? arrow(names, call) : arrowBlock(names, [...sub, ["return ", call, ";"]]);
-    }
     const tryWithFinally = body.type === "TryCatch" && !isNullValue(body.value.finally_body);
     if (body.type !== "Block" && body.type !== "Let" && !tryWithFinally) {
       const sub: Doc[] = [];

@@ -528,6 +528,58 @@ def ir_continue(typ: EastTypeValue, label, loc_id: int = 0):
     }))
 
 
+def const_value_of(ir: Any) -> Any:
+    """The East value a *constant* IR subtree builds — the inverse of the
+    lowering ``East.value`` performs (TS ``constValueOf``).
+
+    A constant is built from literals by the constructors alone: a ``Value``
+    is its literal, a ``NewArray`` / ``NewSet`` / ``NewDict`` the collection
+    of its node's type, a ``Struct`` a struct, a ``Variant`` a variant, a
+    ``NewRef`` a reference, and a ``WrapRecursive`` its value. Dispatch is on
+    the node, whose own type types each collection. Any other node — a
+    ``Variable``, a ``Call``, a ``GetField``, a ``Builtin``, an ``As`` — means
+    the value is computed at run time, and raises. Vectors and matrices are
+    not read back, as TypeScript reads neither.
+
+    Args:
+        ir: The IR node (an ``IRType`` value).
+
+    Returns:
+        The value.
+
+    Raises:
+        ValueError: When the subtree is not a constant.
+    """
+    from east.types.values import EastDict, EastRef, EastSet
+
+    kind = ir.type
+    payload = ir.value
+    if kind == "Value":
+        return payload["value"].value
+    if kind == "NewArray":
+        return EastArray(payload["type"].value, [const_value_of(v) for v in payload["values"]])
+    if kind == "NewSet":
+        return EastSet(payload["type"].value, [const_value_of(v) for v in payload["values"]])
+    if kind == "NewDict":
+        entries: EastDict = EastDict(payload["type"].value["key"], payload["type"].value["value"])
+        for entry in payload["values"]:
+            entries[const_value_of(entry["key"])] = const_value_of(entry["value"])
+        return entries
+    if kind == "Struct":
+        return EastStruct({f["name"]: const_value_of(f["value"]) for f in payload["fields"]})
+    if kind == "Variant":
+        return EastVariant(payload["case"], const_value_of(payload["value"]))
+    if kind == "NewRef":
+        return EastRef(const_value_of(payload["value"]))
+    if kind == "WrapRecursive":
+        return const_value_of(payload["value"])
+    raise ValueError(
+        f"const_value_of: cannot read a constant value from a {kind} node. Only literals "
+        "produced by East.value are supported (Value / NewArray / NewSet / NewDict / Struct / "
+        "Variant / NewRef); pass a value, not a computed expression."
+    )
+
+
 def ir_trycatch(
     typ: EastTypeValue,
     try_body,
@@ -556,6 +608,7 @@ def ir_trycatch(
 
 
 __all__ = [
+    "const_value_of",
     "location",
     "location_stack",
     "ir_label",

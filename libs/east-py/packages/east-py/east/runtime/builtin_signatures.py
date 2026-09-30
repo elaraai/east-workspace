@@ -61,6 +61,18 @@ FN = _FunctionSlot()
 
 _TOKENS = ArrayType(DateTimeFormatTokenType)
 
+
+def _query_call_type() -> Any:
+    """``QueryCallType``, the ``Query`` builtin's first input (#1041).
+
+    Imported at the call: ``east.query`` loads the translator, whose lowering
+    imports this module.
+    """
+    from east.query.types import QueryCallType
+
+    return QueryCallType
+
+
 # name -> lambda(*type_parameters) -> [input slot types]; FN marks callbacks.
 _SIGNATURES: dict[str, Any] = {
     # ── comparisons ──
@@ -353,6 +365,13 @@ _SIGNATURES: dict[str, Any] = {
     "MatrixRowSums": lambda T: [MatrixType(T)],
     "MatrixColSums": lambda T: [MatrixType(T)],
     "MatrixVecMul": lambda T: [MatrixType(T), VectorType(T)],
+    # ── query (#1041) ──
+    # A jq query as East.jq emits it: its program as written and a root's
+    # input names, a constant, beside its translation F, an East function of
+    # the query's inputs, which is what the builtin gives. F is a type
+    # parameter the call carries — the Function-typed slot is F itself, not a
+    # callback — and the analyzer holds F's inputs to the names.
+    "Query": lambda F: [_query_call_type(), F],
 }
 
 

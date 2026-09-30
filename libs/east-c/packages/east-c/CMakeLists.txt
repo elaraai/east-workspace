@@ -34,6 +34,7 @@ set(EAST_C_SOURCES
     src/builtins/vector.c
     src/builtins/matrix.c
     src/builtins/patch.c
+    src/builtins/query.c
     src/builtins/tree.c
     src/serialization/json.c
     src/serialization/beast.c

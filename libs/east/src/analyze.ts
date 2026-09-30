@@ -17,8 +17,10 @@ import type { EastTypeValue, StructTypeValue } from "./type_of_type.js";
 import { isTypeValueEqual, isSubtypeValue, expandTypeValue, toEastTypeValue } from "./type_of_type.js";
 import { printTypeValue } from "./compile.js";
 import { variant } from "./containers/variant.js";
-import { ArrayType, IntegerType, StringType, StructType } from "./types.js";
+import { ArrayType, IntegerType, StringType, StructType, type ValueTypeOf } from "./types.js";
 import { Builtins } from "./builtins.js";
+import { QueryCallType } from "./query/types.js";
+import { constValueOf } from "./walker.js";
 
 /**
  * Platform definition for JavaScript backend.
@@ -902,6 +904,8 @@ export function analyzeIR<T extends IR>(
           isAsync = true;
         }
       }
+
+      if (builtinName === "Query") checkQueryBuiltin(node, analyzedArgs[1]!.value.type);
 
       // Return analyzed Builtin with analyzed arguments
       return {
@@ -1866,4 +1870,49 @@ export function analyzeIR<T extends IR>(
   }
 
   return visit(ir, ctx) as AnalyzedIR<T>;
+}
+
+/** {@link QueryCallType}'s type value, made when the first query is analyzed. */
+let queryCallType: EastTypeValue | undefined;
+
+/**
+ * Holds a call of the `Query` builtin to its query (#1041). The first
+ * argument is the query's program and a root's input names, a constant; the
+ * builtin's type parameter is the translation's function type, which takes
+ * one input per name, or one input for a query of one; the second argument,
+ * and what the builtin gives, are of it.
+ *
+ * @param node - the builtin
+ * @param translation - the type of its second argument
+ * @throws {Error} When the builtin does not have one type parameter, the query
+ *   is not a constant, or the translation's type does not fit it.
+ */
+function checkQueryBuiltin(node: Extract<IR, { type: "Builtin" }>, translation: EastTypeValue): void {
+  const loc = node.value.loc_id;
+  if (node.value.type_parameters.length !== 1) {
+    throw new Error(`Builtin function 'Query' takes 1 type parameter, got ${node.value.type_parameters.length} at loc_id ${loc}`);
+  }
+  const constant = node.value.arguments[0]!;
+  const expected = queryCallType ??= toEastTypeValue(QueryCallType);
+  if (!isTypeValueEqual(constant.value.type, expected)) {
+    throw new Error(`Builtin function 'Query' takes its query as ${printTypeValue(expected)}, not ${printTypeValue(constant.value.type)} at loc_id ${loc}`);
+  }
+  let query: ValueTypeOf<typeof QueryCallType>;
+  try {
+    query = constValueOf(node.value.arguments[0]!) as ValueTypeOf<typeof QueryCallType>;
+  } catch {
+    throw new Error(`Builtin function 'Query' takes its query as a constant at loc_id ${loc}`);
+  }
+  const names = query.value.inputs;
+  const count = names.type === "some" ? names.value.length : 1;
+  const given = node.value.type_parameters[0]!;
+  if (given.type !== "Function" || given.value.inputs.length !== count) {
+    const takes = names.type === "none" ? "one input" : names.value.length === 0 ? "no inputs" : `the inputs ${names.value.join(", ")}`;
+    throw new Error(`Builtin function 'Query': its query takes ${takes}, but its translation is of type ${printTypeValue(given)} at loc_id ${loc}`);
+  }
+  for (const [what, type] of [["its second argument", translation], ["what it gives", node.value.type]] as const) {
+    if (!isTypeValueEqual(type, given)) {
+      throw new Error(`Builtin function 'Query': its translation is of type ${printTypeValue(given)}, but ${what} is of type ${printTypeValue(type)} at loc_id ${loc}`);
+    }
+  }
 }

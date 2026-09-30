@@ -25,11 +25,11 @@
  */
 
 import {
-  ArrayType, BlobType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, IntegerType, NeverType, NullType,
+  ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IRType, IntegerType, NeverType, NullType,
   OptionType, SortedMap, StringType, StructType,
-  JqPatternType, JqType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
+  JqPatternType, JqType, QueryCallType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
   QuerySpanType, QueryType, QueryV1Type,
-  canonicalTypeValue, checkJq, compareFor, encodeBeast2For, encodeEastIR, equalFor, none, parseJq, printJq, setLocationCapture, some,
+  canonicalTypeValue, checkJq, compareFor, encodeBeast2For, encodeEastIR, equalFor, fromEastTypeValue, none, parseJq, printJq, setLocationCapture, some,
   toEastTypeValue, translateJq,
   type CheckJqResult, type EastType, type ValueTypeOf,
 } from "../src/index.js";
@@ -492,6 +492,12 @@ export const QUERY_CORPUS: readonly QueryCorpusCase[] = [
 
 /** What the front end made of one case, as the corpus fixture holds it. */
 export const QueryCorpusEntryType = StructType({
+  /** The call of the `Query` builtin `East.jq` makes of the case (#1041): the
+   *  IR of an East function of the checked input's fields (a root's each
+   *  field, or the one input) that makes it, the checked query and its
+   *  translation, built without source locations but the jq text's; none for
+   *  a case that does not check. python's is held to it. */
+  called: OptionType(IRType),
   /** `printJq(parseJq(program))`: the canonical text; empty for a program
    *  that does not parse. */
   canonical: StringType,
@@ -504,7 +510,7 @@ export const QueryCorpusEntryType = StructType({
     program: StringType,
     root: BooleanType,
   }),
-  /** The checked query; none for a case that does not check. */
+  /** The checked query, its program as written; none for a case that does not check. */
   checked: OptionType(QueryType),
   /** The checker's diagnostics, lints included. */
   diagnostics: ArrayType(QueryErrorType),
@@ -525,7 +531,7 @@ export const QueryCorpusFixtureType = StructType({
 
 /** The query wire types the header holds, by name. */
 export const QUERY_WIRE_TYPES: Readonly<Record<string, EastType>> = {
-  JqPatternType, JqType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
+  JqPatternType, JqType, QueryCallType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
   QuerySpanType, QueryType, QueryV1Type,
 };
 
@@ -550,6 +556,7 @@ function entryFor(c: QueryCorpusCase): ValueTypeOf<typeof QueryCorpusEntryType> 
   const parsed = parseJq(c.program);
   const checked = checkJq(parsed, c.input, { root: c.root === true });
   return {
+    called: checked.query === null ? none : some(calledIR(checked)),
     canonical: parsed.program.type === "some" ? printJq(parsed.program.value).text : "",
     case: {
       input: canonicalTypeValue(toEastTypeValue(c.input)),
@@ -576,6 +583,27 @@ export function translatedBytes(checked: CheckJqResult): Uint8Array {
   setLocationCapture(false);
   try {
     return encodeEastIR(translateJq(checked).fn().toIR());
+  } finally {
+    setLocationCapture(true);
+  }
+}
+
+/**
+ * A checked case's call of the `Query` builtin as the corpus fixture holds it
+ * (#1041): an East function of the checked input's fields (a root's each
+ * field, or the one input) whose body is the call `East.jq` makes, built
+ * without the locations of the code that builds it.
+ *
+ * @param checked - the case, checked
+ * @returns the function's IR
+ */
+export function calledIR(checked: CheckJqResult): ValueTypeOf<typeof IRType> {
+  setLocationCapture(false);
+  try {
+    const translation = translateJq(checked);
+    const input = fromEastTypeValue(checked.query!.value.input_type);
+    const params = checked.source.root ? Object.values((input as StructType).fields) as EastType[] : [input];
+    return East.function(params, translation.resultType, ($, ...inputs) => translation.call(...inputs)).toIR().ir;
   } finally {
     setLocationCapture(true);
   }

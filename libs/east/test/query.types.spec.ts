@@ -15,15 +15,16 @@
  * error or a section says so; none fails. QUERY.md §16.5's tables are where
  * the cases land.
  * M3: under EXPORT_TEST_IR (`make test-export`) each kind's pairs are a
- * compliance suite in <dir>/query-types/: each pair's query as East.jq builds
- * it, called on each value, equal to the expected result or raising an error,
- * which east-c and east-py run. */
+ * compliance suite in <dir>/query-types/: each pair's translation, called on
+ * each value, equal to the expected result or raising an error, which east-c
+ * and east-py run. The Query builtin East.jq wraps a translation in is the
+ * East.jq suite's to run (#1041). */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { East } from "../src/index.js";
+import { translateJq } from "../src/index.js";
 import { inExportSubdirectory } from "./export-subdirectory.js";
 import { assertEast, describeEast } from "./platforms.spec.js";
 import { DEVIATIONS, ORACLE_SECTIONS, REFUSALS } from "./query-types/oracle.js";
@@ -116,7 +117,7 @@ describe("the type matrix (#987)", () => {
   });
 });
 
-// The compliance suites (M3): a pair's query once, as East.jq builds it, called on each of its shape's values.
+// The compliance suites (M3): a pair's translation once, called on each of its shape's values.
 for (const kind of KINDS) {
   const ofKind = runs.filter(r => r.pair.shape.kind === kind);
   await inExportSubdirectory("query-types", () => describeEast(`jq type matrix: ${kind}`, test => {
@@ -125,7 +126,7 @@ for (const kind of KINDS) {
       if ("refused" in check) continue;
       test(r.pair.id, $ => {
         const shape = r.pair.shape;
-        const query = $.let(East.function([shape.type], check.resultType, ($2, x) => East.jq(x, r.pair.text, check.resultType)));
+        const query = $.let(translateJq(check.checked).fn());
         for (const c of r.runs) {
           const input = c.value.bind?.($) ?? $.const(c.value.value as never, shape.type);
           const result = query(input);

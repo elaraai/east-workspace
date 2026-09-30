@@ -8,9 +8,10 @@ Every corpus case that checks runs over the shared fixture
 (``libs/east/test/fixtures/query-fixture.beast2``) three ways: through
 ``evaluate_jq``, through ``East.jq`` on values, and through ``East.jq`` in an
 ``East.function`` body. Each gives the output the corpus holds, which is what
-TypeScript's runs give (E1). The tests also cover the marker ``East.jq``'s
-block begins with (E2), the errors a query raises (E4), and the translator's
-own cases.
+TypeScript's runs give (E1). The tests also cover ``East.jq``'s IR, a call of
+the ``Query`` builtin, which IR analysis holds to its query (E2, #1041 B4), the
+checked query's program as written (B5), the errors a query raises (E4), and
+the translator's own cases.
 """
 
 from __future__ import annotations
@@ -22,19 +23,21 @@ from typing import Any
 import pytest
 
 from east import East
-from east.expression.query import MARKER_TYPE
-from east.query import QueryError, check_jq, evaluate_jq, translate_jq
+from east.ir.analyze import IRAnalysisError
+from east.ir.builders import const_value_of
+from east.query import QueryCallType, QueryError, check_jq, evaluate_jq, print_jq, translate_jq
 from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError
 from east.serialization.beast2 import decode_beast2_with_header_for, read_beast2_type
 from east.serialization.east_printer import print_for
-from east.types.construct import some
+from east.types.construct import none, some, variant
 from east.types.type_of_type import IRType
 from east.types.types import (
     ArrayType,
     DictType,
     EastType,
     FloatType,
+    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -159,49 +162,134 @@ def test_the_default_query_gives_its_ten_rows_as_jq_gives_them() -> None:
                                        1041.68]))
 
 
-def _literal(node: Any) -> Any:
-    """A Value node's literal."""
-    assert node.type == "Value"
-    return node.value["value"].value
-
-
-def test_the_block_begins_with_the_marker_then_a_let_per_input() -> None:
+def test_east_jqs_ir_is_a_call_of_the_query_builtin_with_every_input() -> None:
     fields = {f["name"]: f["type"] for f in FIXTURE_ROOT.value}
-    datasets = StructType([("customers", fields["customers"]), ("orders", fields["orders"])])
-    result_type = translate_jq(check_jq(DEFAULT_QUERY, datasets, root=True)).result_type
-    built: dict[str, Any] = {}
+    datasets = StructType([("customers", fields["customers"]), ("forecast", fields["forecast"]),
+                           ("orders", fields["orders"])])
+    checked = check_jq(DEFAULT_QUERY, datasets, root=True)
+    result_type = translate_jq(checked).result_type
+    fn = East.function([FIXTURE_ROOT], result_type, lambda _b, root: East.jq(
+        {"customers": root["customers"], "forecast": root["forecast"], "orders": root["orders"]},
+        DEFAULT_QUERY, result_type))
+    call = fn._east_ir.value["body"]
+    assert call.type == "Call"
+    builtin = call.value["function"]
+    assert builtin.type == "Builtin" and builtin.value["builtin"] == "Query"
+    # The query as the constant its first argument holds: the program as written, and the root's input names.
+    query = const_value_of(builtin.value["arguments"][0])
+    expected = variant("v1", {"inputs": some(["customers", "forecast", "orders"]),
+                              "program": checked.query.value["program"]}, QueryCallType)
+    assert equal_for(QueryCallType)(query, expected)
+    assert print_jq(query.value["program"]).text == DEFAULT_QUERY.replace("\n", " ")
+    # The translation, whose type carries the query's types, takes every input, forecast too, which the query
+    # does not read; the call passes each.
+    assert builtin.value["arguments"][1].type == "Function"
+    translation_type = builtin.value["type_parameters"][0]
+    assert translation_type.type == "Function" and len(translation_type.value["inputs"]) == 3
+    arguments = list(call.value["arguments"])
+    assert [a.type for a in arguments] == ["GetField", "GetField", "GetField"]
+    assert [a.value["field"] for a in arguments] == ["customers", "forecast", "orders"]
 
-    def body(_b: Any, root: Any) -> Any:
-        query = East.jq({"customers": root["customers"], "orders": root["orders"]}, DEFAULT_QUERY, result_type)
-        built["ir"] = query.ir
-        return query
-    East.function([FIXTURE_ROOT], result_type, body)
-    block = built["ir"]
-    assert block.type == "Block"
-    statements = list(block.value["statements"])
-    marker = statements[0]
-    assert marker.type == "Struct" and is_type_equal(marker.value["type"], MARKER_TYPE)
-    fields_of_marker = {f["name"]: f["value"] for f in marker.value["fields"]}
-    assert _literal(fields_of_marker["east_jq"]) == DEFAULT_QUERY.replace("\n", " ")
-    inputs = fields_of_marker["inputs"]
-    assert inputs.type == "NewArray"
-    assert [_literal(v) for v in inputs.value["values"]] == ["customers", "orders"]
-    # Then a let per input, in order, then the translation.
-    assert [s.type for s in statements[1:3]] == ["Let", "Let"]
+
+# ─── The Query builtin (#1041) ───────────────────────────────────────────
+
+Numbers = ArrayType(IntegerType)
+#: The query as the builtin carries it — its program as written, and no input
+#: names for a query of one input — as a constant built outside any build, so
+#: a build embeds it as it stands.
+DOUBLED = East.value(variant("v1", {"inputs": none, "program": check_jq("map(. * 2)", Numbers).query.value["program"]},
+                             QueryCallType), QueryCallType)
 
 
-def test_one_input_is_marked_with_no_names() -> None:
-    built: dict[str, Any] = {}
+def test_a_query_of_one_input_carries_no_names() -> None:
+    fn = East.function([Numbers], Numbers, lambda _b, xs: East.jq(xs, "map(. * 2)", Numbers))
+    call = fn._east_ir.value["body"]
+    query = const_value_of(call.value["function"].value["arguments"][0])
+    assert query.value["inputs"].type == "none"
+    assert print_jq(query.value["program"]).text == "map(. * 2)"
+    assert len(list(call.value["arguments"])) == 1
 
-    def body(_b: Any, xs: Any) -> Any:
-        query = East.jq(xs, "map(. * 2)", ArrayType(IntegerType))
-        built["ir"] = query.ir
-        return query
-    East.function([ArrayType(IntegerType)], ArrayType(IntegerType), body)
-    marker = list(built["ir"].value["statements"])[0]
-    fields_of_marker = {f["name"]: f["value"] for f in marker.value["fields"]}
-    assert _literal(fields_of_marker["east_jq"]) == "map(. * 2)"
-    assert list(fields_of_marker["inputs"].value["values"]) == []
+
+def test_running_a_call_of_the_query_builtin_runs_its_translation() -> None:
+    translation_type = FunctionType([Numbers], Numbers)
+    translation = East.function([Numbers], Numbers, lambda _b, xs: xs.map(lambda _b2, x: x * 2))
+    fn = East.function([Numbers], Numbers, lambda _b, xs: East.builtin(
+        "Query", [translation_type], [DOUBLED, translation], translation_type)(xs))
+    assert_value(Numbers, East.compile(fn)(_numbers(1, 2)), _numbers(2, 4))
+
+
+def test_ir_analysis_refuses_a_translation_that_does_not_take_the_querys_inputs() -> None:
+    # B4: the query takes one input, the translation two.
+    translation_type = FunctionType([Numbers, Numbers], Numbers)
+    translation = East.function([Numbers, Numbers], Numbers, lambda _b, xs, _ys: xs)
+    with pytest.raises(IRAnalysisError, match=r"Builtin function 'Query': its query takes one input, but its "
+                                              r"translation is of type \.Function"):
+        East.function([Numbers], Numbers, lambda _b, xs: East.builtin(
+            "Query", [translation_type], [DOUBLED, translation], translation_type)(xs, xs))
+
+
+def test_ir_analysis_refuses_a_query_that_is_not_a_constant() -> None:
+    # B4: the query is read from a parameter.
+    translation_type = FunctionType([Numbers], Numbers)
+    translation = East.function([Numbers], Numbers, lambda _b, xs: xs)
+    with pytest.raises(IRAnalysisError, match=r"Builtin function 'Query' takes its query as a constant"):
+        East.function([QueryCallType, Numbers], Numbers, lambda _b, query, xs: East.builtin(
+            "Query", [translation_type], [query, translation], translation_type)(xs))
+
+
+def test_ir_analysis_refuses_a_call_without_its_one_type_parameter() -> None:
+    translation_type = FunctionType([Numbers], Numbers)
+    translation = East.function([Numbers], Numbers, lambda _b, xs: xs)
+    with pytest.raises(IRAnalysisError, match=r"Builtin function 'Query' takes 1 type parameter, got 0"):
+        East.function([Numbers], Numbers, lambda _b, xs: East.builtin(
+            "Query", [], [DOUBLED, translation], translation_type)(xs))
+
+
+def test_a_query_inside_a_callback_keeps_its_constant() -> None:
+    # The build's common-subexpression pass leaves a Query call's arguments as
+    # East.jq built them: hoisted out of the callback, the query would be a
+    # variable read, which IR analysis refuses.
+    sums = East.function([ArrayType(Numbers)], Numbers,
+                         lambda _b, rows: rows.map(lambda _b2, row: East.jq(row, "map(. * 2) | add", IntegerType)))
+    assert_value(Numbers, sums(EastArray(Numbers, [_numbers(1, 2), _numbers(3)])), _numbers(6, 6))
+
+
+# ─── The checked query (#1041) ───────────────────────────────────────────
+
+
+@pytest.mark.parametrize(("program", "rewritten_differs"), [
+    # The rewritten program holds a DateTime literal where the query wrote an ISO string…
+    ('.orders[] | select(.status.type == "shipped" and .status.value.date >= "2026-01-01") | .id', True),
+    # … and a Float literal where it wrote an Integer.
+    (".orders | map(.total * 2)", True),
+    # A format's tokens print back as the format, rewritten or not.
+    ('first(.orders[] | select(.status.type == "shipped")) | .status.value.date | strftime("%Y-%m")', False),
+])
+def test_the_checked_query_holds_the_program_as_written_which_prints_back_exactly(
+        program: str, rewritten_differs: bool) -> None:
+    # B5
+    checked = check_jq(program, FIXTURE_ROOT)
+    assert print_jq(checked.query.value["program"]).text == program
+    assert (print_jq(checked.rewritten).text != program) == rewritten_differs
+
+
+def test_an_integer_literal_an_operand_makes_a_float_is_a_float_literal_in_the_rewritten_program() -> None:
+    checked = check_jq(".orders | map(.total * 2)", FIXTURE_ROOT)
+    assert print_jq(checked.rewritten).text == ".orders | map(.total * 2.0)"
+
+
+def test_keys_on_the_root_is_answered_from_the_roots_type_in_the_rewritten_program() -> None:
+    checked = check_jq("keys", FIXTURE_ROOT, root=True)
+    assert list(checked.diagnostics) == [] and checked.reads == []
+    assert checked.query.value["program"].type == "call"
+    assert checked.rewritten.type == "literal"
+
+
+def test_a_checked_query_says_whether_it_reads_a_root() -> None:
+    rooted = check_jq(".orders | length", FIXTURE_ROOT, root=True).query.value
+    assert rooted["root"] is True
+    assert is_type_equal(rooted["input_type"], FIXTURE_ROOT)
+    assert check_jq(".orders | length", FIXTURE_ROOT).query.value["root"] is False
 
 
 # ─── The result type ─────────────────────────────────────────────────────
@@ -291,6 +379,11 @@ def test_max_outputs_stops_a_many_query_one_output_past_the_limit() -> None:
     assert_value(ArrayType(IntegerType), East.compile(fn)(FIXTURE), EastArray(IntegerType, [1001, 1002, 1003, 1004]))
 
 
+def test_build_gives_a_translation_that_is_one_value_as_that_value_not_a_block_of_it() -> None:
+    translation = translate_jq(check_jq("1", NullType))
+    assert translation.build(None).ir.type == "Value"
+
+
 @East.generic_platform_function(type_parameters=["F"], inputs=["F"], output=StringType, name="jq_signature")
 def _jq_signature(_platform: Any, F: EastType) -> Any:  # noqa: N803 — the type argument, as the factory convention names it
     return lambda _f: "(price, region) => demand"
@@ -318,9 +411,6 @@ def test_walk_rebuilds_a_recursive_value_bottom_up() -> None:
                           FIXTURE, input_type=FIXTURE_ROOT)
     original = evaluate_jq(".bom | [recurse(.children[]) | .cost] | add", FIXTURE, input_type=FIXTURE_ROOT)
     assert doubled == original * 2
-
-
-Numbers = ArrayType(IntegerType)
 
 
 def _numbers(*ns: int) -> Any:

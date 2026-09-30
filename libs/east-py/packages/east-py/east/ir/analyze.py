@@ -354,9 +354,55 @@ class _Analyzer:
             self.fail(
                 f"Builtin function '{name}' expects {len(inputs)} arguments, "
                 f"but got {len(p['arguments'])}", node)
-        for arg in p["arguments"]:
-            self.visit(arg, scope, ret)
+        arg_types = [self.visit(arg, scope, ret) for arg in p["arguments"]]
+        if name == "Query":
+            self._query_builtin(node, p, arg_types)
         return p["type"]
+
+    def _query_builtin(self, node, p, arg_types):
+        """Holds a call of the ``Query`` builtin to its query (#1041), as TS
+        ``checkQueryBuiltin`` does.
+
+        The first argument is the query's program and a root's input names,
+        a constant of ``QueryCallType``; the builtin's type parameter is the
+        translation's function type, which takes one input per name, or one
+        input for a query of one; the second argument, and what the builtin
+        gives, are of it.
+        """
+        from east.ir.builders import const_value_of
+        from east.query.types import QueryCallType
+
+        type_parameters = list(p["type_parameters"])
+        if len(type_parameters) != 1:
+            self.fail(f"Builtin function 'Query' takes 1 type parameter, got {len(type_parameters)}", node)
+        constant = p["arguments"][0]
+        constant_t = constant.value["type"]
+        if not is_type_equal(constant_t, QueryCallType):
+            self.fail(
+                f"Builtin function 'Query' takes its query as {_print(QueryCallType)}, "
+                f"not {_print(constant_t)}", node)
+        try:
+            query = const_value_of(constant)
+        except ValueError:
+            self.fail("Builtin function 'Query' takes its query as a constant", node)
+        names = query.value["inputs"]
+        count = len(names.value) if names.type == "some" else 1
+        given = type_parameters[0]
+        if given.type != "Function" or len(given.value["inputs"]) != count:
+            if names.type == "none":
+                takes = "one input"
+            elif len(names.value) == 0:
+                takes = "no inputs"
+            else:
+                takes = f"the inputs {', '.join(names.value)}"
+            self.fail(
+                f"Builtin function 'Query': its query takes {takes}, but its "
+                f"translation is of type {_print(given)}", node)
+        for what, t in (("its second argument", arg_types[1]), ("what it gives", p["type"])):
+            if not is_type_equal(t, given):
+                self.fail(
+                    f"Builtin function 'Query': its translation is of type {_print(given)}, "
+                    f"but {what} is of type {_print(t)}", node)
 
     def v_Return(self, node, p, scope, ret):
         if ret is None:

@@ -4,7 +4,7 @@
  */
 export {
   JqPatternType, JqType,
-  QueryMultiplicityType, QueryV1Type, QueryType,
+  QueryMultiplicityType, QueryV1Type, QueryType, QueryCallType,
   QuerySpanType, QueryEditType, QueryFixType, QueryErrorType,
 } from "./types.js";
 export { QueryError, evaluateJq, type EvaluateJqOptions, type QueryDiagnostic } from "./evaluate.js";

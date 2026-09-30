@@ -4,6 +4,7 @@
  */
 import { ArrayType, BlobType, BooleanType, DateTimeType, DictType, type EastType, FloatType, FunctionType, IntegerType, NullType, RefType, SetType, StringType, StructType, VariantType, VectorType, MatrixType, assignTypeId } from "./types.js";
 import { DateTimeFormatTokenType } from "./datetime_format/types.js";
+import { QueryCallType } from "./query/types.js";
 
 /** @internal */
 export type BuiltinType = {
@@ -32,6 +33,7 @@ export type BuiltinName = "Is" | "Equal" | "NotEqual" | "Less" | "LessEqual" | "
   | "SparseAxpy" | "SparseFromPairs" | "SparseFilterGt"
   | "MatrixRows" | "MatrixCols" | "MatrixGet" | "MatrixSet" | "MatrixGetRow" | "MatrixGetCol" | "MatrixToVector" | "MatrixFromArray" | "MatrixToArray" | "MatrixTranspose" | "MatrixZeros" | "MatrixOnes" | "MatrixFill" | "MatrixMapElements" | "MatrixMapRows" | "MatrixToRows" | "MatrixFromRows"
   | "MatrixScale" | "MatrixAddScaled" | "MatrixMulElementwise" | "MatrixRowSums" | "MatrixColSums" | "MatrixVecMul"
+  | "Query"
   ;
 
 /** @internal */
@@ -1432,13 +1434,62 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     inputs: [MatrixType("T" as any), VectorType("T" as any)] as const,
     output: VectorType("T" as any),
   },
+
+  // A jq query (#1041): its program as written and a root's input names, a
+  // constant, beside its translation, an East function F of the query's
+  // inputs, which is what the builtin gives, so calling it runs the
+  // translation. F carries the query's types; the analyzer holds its inputs
+  // to the names.
+  Query: {
+    type_parameters: ["F"],
+    inputs: [QueryCallType, "F"] as const,
+    output: "F",
+  },
 }
+
+/**
+ * Whether a type names a type parameter anywhere in it.
+ *
+ * @param type - a type of the table, or a type parameter's name
+ * @param seen - the types being walked, for a recursive type's cycle
+ */
+function namesTypeParameter(type: EastType | string, seen: Set<EastType>): boolean {
+  if (typeof type === "string") return true;
+  if (seen.has(type)) return false;
+  seen.add(type);
+  switch (type.type) {
+    case "Ref": case "Array": return namesTypeParameter(type.value, seen);
+    case "Set": return namesTypeParameter(type.key, seen);
+    case "Dict": return namesTypeParameter(type.key, seen) || namesTypeParameter(type.value, seen);
+    case "Struct": return Object.values(type.fields).some(t => namesTypeParameter(t as EastType | string, seen));
+    case "Variant": return Object.values(type.cases).some(t => namesTypeParameter(t as EastType | string, seen));
+    case "Vector": case "Matrix": return namesTypeParameter(type.element, seen);
+    case "Recursive": return namesTypeParameter(type.node, seen);
+    case "Function": case "AsyncFunction":
+      return type.inputs.some(t => namesTypeParameter(t as EastType | string, seen)) || namesTypeParameter(type.output, seen);
+    default: return false;
+  }
+}
+
+/** The types of the table that name no type parameter, by object: each is its own application. */
+const parameterFree = new WeakMap<object, boolean>();
 
 /** @internal */
 export function applyTypeParameters(type: EastType | string, params: Map<string, EastType>, inStack: EastType[], outStack: EastType[]): EastType {
   const idx = inStack.indexOf(type as EastType);
   if (idx !== -1) {
     return outStack[idx]!;
+  }
+
+  // A type that names no type parameter is its own application: rebuilt, a
+  // recursive type inside it would take a new type id at every call.
+  if (typeof type !== "string" && inStack.length === 0) {
+    let free = parameterFree.get(type);
+    if (free === undefined) {
+      free = !namesTypeParameter(type, new Set());
+      parameterFree.set(type, free);
+    }
+    if (free) return type;
   }
 
   if (typeof(type) === "string") {

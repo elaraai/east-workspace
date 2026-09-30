@@ -8,10 +8,12 @@
  *
  * A query's text is parsed and checked once, in an SDK, into a
  * {@link QueryType} value: the program as a {@link JqType} tree, the type it
- * was checked against, the type of each output, and how many outputs it
- * gives. That value is East's narrow waist for queries, as
- * `DateTimeFormatTokenType` is for datetime formats: a runtime evaluates a
- * checked query and never reads query text.
+ * was checked against, the type of each output, how many outputs it gives,
+ * and whether it reads an e3 root. That value is how East keeps a checked
+ * query, a saved one included. In code, the `Query` builtin carries the
+ * program and a root's input names ({@link QueryCallType}) beside the query's
+ * translation, whose function type carries the types, and a runtime runs the
+ * translation (#1041), so no runtime reads query text.
  *
  * Struct fields are declared alphabetically, as `FunctionManifestType`'s are,
  * and the python twins in `east/query/types.py` declare the same types, so a
@@ -140,15 +142,20 @@ export const QueryMultiplicityType = VariantType({ many: NullType, maybe: NullTy
  * - `input_type` — the type the program was checked against. A runtime
  *   refuses an input of any other type.
  * - `multiplicity` — how many outputs it gives ({@link QueryMultiplicityType}).
- * - `program` — the program, with the checker's rewrites applied, so no
- *   runtime parses text: an ISO string compared with a DateTime is a DateTime
- *   literal, and a `strftime` format is a token array.
+ * - `program` — the program as written, so `printJq` prints it back exactly.
+ *   The checker's rewrites, which spare every runtime parsing text (an ISO
+ *   string compared with a DateTime is a DateTime literal, a `strftime`
+ *   format a token array), are the check result's, where the translator
+ *   reads them.
+ * - `root` — whether it was checked as an e3 root: `input_type` is a struct
+ *   of datasets, and each field the program reads is its own input.
  */
 export const QueryV1Type = StructType({
   element_type: EastTypeType,
   input_type: EastTypeType,
   multiplicity: QueryMultiplicityType,
   program: JqType,
+  root: BooleanType,
 });
 
 /**
@@ -160,6 +167,26 @@ export const QueryV1Type = StructType({
  * case renumbers it), and readers accept every released version.
  */
 export const QueryType = VariantType({ v1: QueryV1Type });
+
+/**
+ * A query as the `Query` builtin carries it in code (#1041): the program as
+ * written, and a root's input names.
+ *
+ * @remarks
+ * - `inputs` — the names of a root's fields, one per input of the
+ *   translation, in order; `none` for a query of one input.
+ * - `program` — the program as written, as {@link QueryV1Type}'s is.
+ *
+ * The builtin's type parameter, the translation's function type, carries the
+ * query's input and result types, so they are not held twice. A structural
+ * change is a new case that sorts after `v1`, as {@link QueryType}'s is.
+ */
+export const QueryCallType = VariantType({
+  v1: StructType({
+    inputs: OptionType(ArrayType(StringType)),
+    program: JqType,
+  }),
+});
 
 /**
  * A range of query text.

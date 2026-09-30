@@ -128,12 +128,20 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
     `translate_builtins.py`), which writes TypeScript's AST and lowers it
     with `ast_to_ir`'s rules (`lower.py`), so the two give the same IR;
     `evaluate.py` holds `evaluate_jq` and `QueryError`. `East.jq`
-    (`east/expression/query.py`) translates in a build behind the marker
-    statement, and runs on values. The corpus fixture holds them to
-    TypeScript: `tests/test_query_corpus.py` (checked queries, diagnostics,
-    and translations under `diff_ir`), `tests/test_query.py` (outputs over
-    the fixture), `tests/test_query_types.py` (the wire types' bytes, which
-    the header of `libs/east/test/fixtures/query-corpus.beast2` carries) and
+    (`east/expression/query.py`) translates in a build and emits a call of
+    the `Query` builtin (#1041): the program as written and a root's input
+    names (a `QueryCallType` constant) beside the translation, an East
+    function of every input, which the builtin gives — every runtime
+    implements it as any builtin. IR analysis (`east/ir/analyze.py`) holds a
+    call to its query, the build's CSE (`finalize.py`) leaves its arguments
+    as built, and the printer prints it back as `East.jq` from its query. On
+    values `East.jq` runs now. The corpus fixture holds them to TypeScript:
+    `tests/test_query_corpus.py` (checked queries, diagnostics, translations
+    and `Query` calls under `diff_ir`), `tests/test_query.py` (outputs over
+    the fixture, the builtin), `tests/test_codegen_printer_jq.py` (every
+    corpus call printed as `East.jq` and rebuilt), `tests/test_query_types.py`
+    (the wire types' bytes, which the header of
+    `libs/east/test/fixtures/query-corpus.beast2` carries) and
     `tests/test_query_catalog.py` (the catalog).
 
 ### Invariants

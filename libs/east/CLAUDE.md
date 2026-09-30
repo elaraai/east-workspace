@@ -45,8 +45,12 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
   builtin's rule in `translate-builtins.ts`): a checked program as ordinary
   East IR, typed from the checker's records (a node the checker's one record
   cannot serve is checked again for its input's type, `retype`). `East.jq`
-  (`src/expr/query.ts`) translates at build time behind a marker statement;
-  `evaluateJq` and `QueryError` (`src/query/evaluate.ts`) are the host entry.
+  (`src/expr/query.ts`) translates at build time and emits a call of the
+  `Query` builtin (#1041), which carries the program as written
+  (`QueryCallType`) beside the translation and gives the translation — every
+  runtime implements it as any builtin, and the printers print it back as
+  `East.jq`; `evaluateJq` and `QueryError` (`src/query/evaluate.ts`) are the
+  host entry.
   Normative spec `devdocs/QUERY.md` (§10 catalog, §12 diagnostics, §13
   deviations, §15 translation, §18 grammar and canonical text). The shared
   fixture (`test/query.fixture.ts`) and the corpus (`test/query.corpus.ts`)

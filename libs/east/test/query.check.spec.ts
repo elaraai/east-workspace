@@ -174,17 +174,15 @@ describe("checkJq: the corpus (C1)", () => {
     for (const code of CODES) assert.ok(codes.has(code), `no case reports ${code}`);
   });
 
-  test("a checked program prints as text that checks to a query of the same types and text", () => {
+  test("a checked query's program prints as text that checks to the same query (#1041)", () => {
     for (const c of QUERY_CORPUS) {
       const result = check(c);
       if (result.query === null) continue;
       const text = printJq(result.query.value.program).text;
+      assert.equal(text, c.canonical, `${c.name}: the program is as written`);
       const again = checkJq(text, c.input, { root: c.root === true });
       assert.ok(again.query !== null, `${c.name}: ${text} does not check: ${again.diagnostics.map(d => d.message).join(" ")}`);
-      // A folded `keys` prints as an array of strings, which parses as an array rather than one literal.
-      assert.equal(printJq(again.query.value.program).text, text, c.name);
-      assert.ok(isTypeEqual(again.elementType!, result.elementType!), c.name);
-      assert.equal(again.multiplicity, result.multiplicity, c.name);
+      assert.ok(equalFor(QueryType)(again.query, result.query), c.name);
     }
   });
 
@@ -317,11 +315,12 @@ describe("checkJq: e3 roots (C4)", () => {
     ]);
   });
 
-  test("keys on the root checks to a literal of the root's names, and reads nothing", () => {
+  test("keys on the root is answered from the root's type: the rewritten program is a literal of its names, and it reads nothing", () => {
     const result = checkJq("keys", FixtureRoot, { root: true });
     assert.deepEqual(result.diagnostics, []);
     assert.deepEqual(result.reads, []);
-    const program = result.query!.value.program;
+    assert.equal(result.query!.value.program.type, "call");
+    const program = result.rewritten!;
     assert.equal(program.type, "literal");
     if (program.type === "literal") {
       const { type, value } = decodeBeast2(program.value);
@@ -334,37 +333,50 @@ describe("checkJq: e3 roots (C4)", () => {
     assert.deepEqual(checkJq(DEFAULT_QUERY, FixtureRoot, { root: true }).reads, ["customers", "orders"]);
   });
 
-  test("the checked program re-checks against the root narrowed to what it reads, keeping keys folded", () => {
-    const result = checkJq(".orders | length", FixtureRoot, { root: true });
-    const narrowed = StructType({ orders: FixtureRoot.fields.orders });
-    const again = checkJq(printJq(result.query!.value.program).text, narrowed, { root: true });
-    assert.deepEqual(again.diagnostics, []);
-    const keys = checkJq("keys | length", FixtureRoot, { root: true });
-    const keysAgain = checkJq(printJq(keys.query!.value.program).text, StructType({}), { root: true });
-    assert.deepEqual(keysAgain.diagnostics, []);
+  test("a checked query says whether it reads a root, whose every field is its input type's (#1041)", () => {
+    const rooted = checkJq(".orders | length", FixtureRoot, { root: true }).query!.value;
+    assert.equal(rooted.root, true);
+    assert.ok(isTypeEqual(fromEastTypeValue(rooted.input_type), FixtureRoot));
+    const plain = checkJq(".orders | length", FixtureRoot).query!.value;
+    assert.equal(plain.root, false);
   });
 });
 
 describe("checkJq: rewrites and inference", () => {
-  test("an ISO string compared with a DateTime is a DateTime literal in the checked program", () => {
+  test("an ISO string compared with a DateTime is a DateTime literal in the rewritten program", () => {
     const result = checkJq(".orders[] | select(.status.type == \"shipped\" and .status.value.date >= \"2026-01-01\") | .id", FixtureRoot);
-    const literals = nodesOf(result.query!.value.program).filter(n => n.type === "literal").map(n => decodeBeast2(n.value as Uint8Array));
+    const literals = nodesOf(result.rewritten!).filter(n => n.type === "literal").map(n => decodeBeast2(n.value as Uint8Array));
     const date = literals.find(l => fromEastTypeValue(l.type).type === "DateTime");
     assert.ok(date !== undefined);
     assert.equal((date.value as Date).getTime(), Date.UTC(2026, 0, 1));
   });
 
-  test("a strftime format is a token array in the checked program", () => {
+  test("a strftime format is a token array in the rewritten program", () => {
     const result = checkJq("first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | strftime(\"%Y-%m\")", FixtureRoot);
-    const literals = nodesOf(result.query!.value.program).filter(n => n.type === "literal").map(n => decodeBeast2(n.value as Uint8Array));
+    const literals = nodesOf(result.rewritten!).filter(n => n.type === "literal").map(n => decodeBeast2(n.value as Uint8Array));
     const tokens = literals.find(l => isTypeEqual(fromEastTypeValue(l.type), ArrayType(DateTimeFormatTokenType)));
     assert.ok(tokens !== undefined);
     assert.deepEqual((tokens.value as { type: string }[]).map(t => t.type), ["year4", "literal", "month2"]);
   });
 
-  test("an Integer literal an operand makes a Float is a Float literal", () => {
+  test("an Integer literal an operand makes a Float is a Float literal in the rewritten program", () => {
     const result = checkJq(".orders | map(.total * 2)", FixtureRoot);
-    assert.equal(printJq(result.query!.value.program).text, ".orders | map(.total * 2.0)");
+    assert.equal(printJq(result.rewritten!).text, ".orders | map(.total * 2.0)");
+  });
+
+  test("the checked query holds the program as written, which prints back exactly (#1041 B5)", () => {
+    for (const [program, rewrittenDiffers] of [
+      // The rewritten program holds a DateTime literal where the query wrote an ISO string.
+      [".orders[] | select(.status.type == \"shipped\" and .status.value.date >= \"2026-01-01\") | .id", true],
+      // … and a Float literal where it wrote an Integer.
+      [".orders | map(.total * 2)", true],
+      // A format's tokens print back as the format, rewritten or not.
+      ["first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | strftime(\"%Y-%m\")", false],
+    ] as const) {
+      const result = checkJq(program, FixtureRoot);
+      assert.equal(printJq(result.query!.value.program).text, program);
+      assert.equal(printJq(result.rewritten!).text !== program, rewrittenDiffers, program);
+    }
   });
 
   test("reduce infers its accumulator by fixpoint: {} becomes Dict<String, Float>", () => {

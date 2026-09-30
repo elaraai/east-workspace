@@ -27,7 +27,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   East, Expr, variant, ref, some, none, SortedSet, SortedMap, compareFor,
-  ArrayType, BlobType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType,
+  ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, QueryCallType, RecursiveType,
   SetType, StringType, StructType, VariantType, VectorType,
   IRType, EastTypeType, fromJSONFor, equalFor, isVariant, isPlatformDeclaration, toSource, RAW_ONLY,
   type ToSourceOptions,
@@ -602,23 +602,33 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])([1n, 2n, 3n], "n"), fn.toIR().compile([])([1n, 2n, 3n], "n"));
   });
 
-  test("a query prints as the East.jq it was, with named inputs as an object, and rebuilds (#927)", async () => {
+  test("a query prints as the East.jq it was, with named inputs as an object, and rebuilds (#927, #1041)", async () => {
     const Order = StructType({ id: IntegerType, total: FloatType });
     const fn = East.function([ArrayType(Order)], ArrayType(IntegerType), ($, orders) =>
       East.jq(orders, "[.[] | select(.total > 1000) | .id]", ArrayType(IntegerType)));
     const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
     assert.match(source, /\(\$, orders\) => East\.jq\(orders, "\[\.\[\] \| select\(\.total > 1000\) \| \.id\]", ArrayType\(IntegerType\)\)/, source);
-    assert.doesNotMatch(source, /east_jq/, source);
+    assert.doesNotMatch(source, /east_jq|Query/, source);
     const main = await roundTrip(fn, "jq one input");
     assert.deepEqual(main.toIR().compile([])([{ id: 1n, total: 250.0 }, { id: 2n, total: 1200.0 }]), [2n]);
 
-    const named = East.function([ArrayType(Order), IntegerType], FloatType, ($, orders, min) => {
-      const total = $.const(East.jq({ orders, min }, ".min as $m | [.orders[] | select(.id >= $m) | .total] | add", FloatType));
+    // Every named input is an argument of the call, one the query does not read too.
+    const named = East.function([ArrayType(Order), IntegerType, StringType], FloatType, ($, orders, min, note) => {
+      const total = $.const(East.jq({ orders, min, note }, ".min as $m | [.orders[] | select(.id >= $m) | .total] | add", FloatType));
       return total.add(1.0);
     });
     const printed = toSource(named, { importFrom: INDEX_URL, width: Infinity });
-    assert.match(printed, /const total = \$\.const\(East\.jq\(\{ orders: orders, min: min \}, "[^"]*", FloatType\)\);/, printed);
+    assert.match(printed, /const total = \$\.const\(East\.jq\(\{ orders: orders, min: min, note: note \}, "[^"]*", FloatType\)\);/, printed);
     await roundTrip(named, "jq named inputs");
+  });
+
+  test("a query's program prints as written: an ISO date compared with a DateTime stays the text it was (#1041)", async () => {
+    const Order = StructType({ id: IntegerType, at: DateTimeType });
+    const fn = East.function([ArrayType(Order)], ArrayType(IntegerType), ($, orders) =>
+      East.jq(orders, "[.[] | select(.at >= \"2026-01-01\") | .id]", ArrayType(IntegerType)));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /East\.jq\(orders, "\[\.\[\] \| select\(\.at >= \\"2026-01-01\\"\) \| \.id\]", ArrayType\(IntegerType\)\)/, source);
+    await roundTrip(fn, "jq as written");
   });
 
   test("a query inside a callback prints as East.jq there (#927)", async () => {
@@ -630,19 +640,15 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.deepEqual(main.toIR().compile([])([[1n, 2n], [3n]]), [6n, 6n]);
   });
 
-  test("a block that looks like a query but is not what East.jq builds prints as it stands (#927)", async () => {
-    const Marker = StructType({ east_jq: StringType, inputs: ArrayType(StringType) });
-    // The marker, a Let of the input, then not the translation of "." over an Integer.
-    const fn = East.function([IntegerType], IntegerType, ($, x) => Expr.block($ => {
-      $(East.value({ east_jq: ".", inputs: [] }, Marker));
-      const input = $.const(x);
-      return input.add(1n);
-    }));
+  test("a Query call whose query is not a constant prints raw, and rebuilds (#1041)", async () => {
+    const Numbers = ArrayType(IntegerType);
+    const F = FunctionType([Numbers], Numbers);
+    const fn = East.function([QueryCallType, Numbers], Numbers, ($, query, xs) =>
+      (East.builtin("Query", [F], [query, East.function([Numbers], Numbers, ($, ys) => ys)], F) as any)(xs));
     const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
     assert.doesNotMatch(source, /East\.jq\(/, source);
-    assert.match(source, /east_jq: "\."/, source);
-    const main = await roundTrip(fn, "jq look-alike");
-    assert.equal(main.toIR().compile([])(41n), 42n);
+    assert.match(source, /East\.builtin\("Query"/, source);
+    await roundTrip(fn, "Query call of no constant");
   });
 
   test("a raw builtin prints through East.builtin and rebuilds", async () => {

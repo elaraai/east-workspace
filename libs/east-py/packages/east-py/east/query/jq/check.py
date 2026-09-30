@@ -147,8 +147,13 @@ class Scope:
 class CheckJqResult:
     """What :func:`check_jq` makes of a program."""
 
-    #: The checked query (a ``QueryType`` value): present exactly when no diagnostic is an error.
+    #: The checked query (a ``QueryType`` value), its program as written: present exactly when no
+    #: diagnostic is an error.
     query: EastVariant | None
+    #: The program with the checker's rewrites applied, which the translator reads: an ISO string
+    #: compared with a DateTime is a DateTime literal, a ``strftime`` format its tokens, and ``keys`` or
+    #: ``has`` on a root the answer its type gives. Present exactly when ``query`` is.
+    rewritten: JqNode | None
     #: The type of each output, when the outputs share one.
     element_type: EastType | None
     #: How many outputs the program gives, when it checks: ``one``, ``maybe`` or ``many``.
@@ -2678,9 +2683,14 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
     The checker types every node over East types as ``QUERY.md`` says: it
     narrows variants through ``select`` and ``if``, infers ``reduce`` and
     ``foreach`` accumulators and recursive ``def``s by fixpoint, and rewrites
-    what no runtime should parse. A problem is a diagnostic with its span, one
-    sentence, suggestions and fixes; lints are warnings. The checked query is
-    present exactly when no diagnostic is an error.
+    what no runtime should parse (an ISO string compared with a DateTime
+    becomes a DateTime literal; a ``strftime`` format becomes its tokens). A
+    problem is a diagnostic with its span, one sentence, suggestions and
+    fixes; lints are warnings. The checked query holds the program as
+    written, the input type, the element type, the multiplicity and whether
+    the input is a root, and is present exactly when no diagnostic is an
+    error; the program with the rewrites applied is ``rewritten``, which the
+    translator reads.
 
     Args:
         program: The program's text, or what ``parse_jq`` made of it.
@@ -2689,8 +2699,9 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
         tooling: Allow the tooling-only builtins ``signature``, ``source``, ``calls`` and ``captures``.
 
     Returns:
-        The checked query when there is no error, the element type and
-        multiplicity, the root fields read, the stages, and the diagnostics.
+        The checked query when there is no error, the program with the
+        checker's rewrites, the element type and multiplicity, the root
+        fields read, the stages, and the diagnostics.
 
     Example:
         >>> Order = StructType([("id", IntegerType), ("total", FloatType)])
@@ -2701,7 +2712,7 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
     units = parsed.units
     source = CheckedSource(parsed.text, units, parsed.spans, root)
     if parsed.program.type == "none":
-        return CheckJqResult(None, None, None, [], [], list(parsed.diagnostics), source, input_type)
+        return CheckJqResult(None, None, None, None, [], [], list(parsed.diagnostics), source, input_type)
     tree = parsed.program.value
     checker = _Checker(units, parsed.spans, root, tooling, input_type)
     env = Env({}, {}, frozenset(), "", False)
@@ -2734,10 +2745,12 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
             "element_type": canonical_type_value(element_type),
             "input_type": canonical_type_value(input_type),
             "multiplicity": EastVariant(multiplicity, east_null),
-            "program": checker.rewrite(tree, ""),
+            "program": tree,
+            "root": root,
         }))
     return CheckJqResult(
         query=query,
+        rewritten=None if query is None else checker.rewrite(tree, ""),
         element_type=None if errors or element_type is None else element_type,
         multiplicity=None if errors else multiplicity,
         reads=checker.reads,

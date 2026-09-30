@@ -8,7 +8,9 @@ A filter is generated with a continuation that receives each of its outputs:
 ``a | b`` generates ``b`` in ``a``'s continuation, ``.[]`` is a loop, and early
 exit (``first``, ``limit``, ``label``) is a labelled break out of every loop
 between (``libs/east/devdocs/QUERY.md`` §15). Every value is built by an East
-builtin, so a query runs wherever East IR runs.
+builtin, so a query runs wherever East IR runs; a runtime's only part is the
+``Query`` builtin, which carries a query beside its translation and gives the
+translation, so calling it runs the query (#1041).
 
 The program is written as East's typed AST (``east.query.jq.lower``), rule for
 rule as TypeScript writes it, and lowered with ``ast_to_ir``'s rules, so the
@@ -3113,7 +3115,7 @@ class JqTranslation:
     """A checked program as East IR: its inputs, its result type, and builders for the IR."""
 
     def __init__(self, checked: Any, inputs: list[JqInput], result_type: EastType, max_outputs: int | None,
-                 tooling: bool) -> None:
+                 tooling: bool, fields: list[tuple[str, EastType]], params: list[EastType]) -> None:
         #: The translation's parameters, in order.
         self.inputs = inputs
         #: The result's type: ``T`` for ``one``, ``Option<T>`` for ``maybe``, ``Array<T>`` for ``many``.
@@ -3121,18 +3123,22 @@ class JqTranslation:
         self._checked = checked
         self._max_outputs = max_outputs
         self._tooling = tooling
+        #: Every field of a root, in the root's order (empty for a query of one input).
+        self._fields = fields
+        #: What the ``Query`` builtin's function takes: every field of a root, in order, or the one input.
+        self._params = params
 
     def _into(self, b: Block, values: list[A]) -> A:
         """The translation written into a block over its inputs: its statements there, its result returned."""
         checked = self._checked
-        query = checked.query.value
         element = checked.element_type
         multiplicity = checked.multiplicity
         t = Translator(checked, self._max_outputs, self._tooling)
         root = checked.source.root
         x: Value = RootValue({i.name: values[k] for k, i in enumerate(self.inputs)}) if root else values[0]  # type: ignore[misc]
         env = Env({}, {}, {}, "", {})
-        program = query["program"]
+        # The rewritten program: the checker's rewrites mean no translation parses text.
+        program = checked.rewritten
         if multiplicity == "one":
             return t.one(program, "", b, x, env, element)
         if multiplicity == "maybe":
@@ -3162,9 +3168,16 @@ class JqTranslation:
         return out
 
     def build_ast(self, *values: A) -> A:
-        """The translation over given inputs, as a block of East's AST (TypeScript's ``build``)."""
+        """The translation over given inputs, as East's AST (TypeScript's ``build``).
+
+        A block of its statements then its result; a translation that needs
+        no statement is its result alone, as the builders give a block of one
+        expression.
+        """
         b = Block()
         result = self._into(b, list(values))
+        if not b.statements:
+            return result
         ended = _block_type(b).type == "Never"
         statements = b.statements if ended else [*b.statements, result]
         return A("Block", NeverType if ended else self.result_type, UNKNOWN_LOC_ID, statements=statements)
@@ -3189,14 +3202,16 @@ class JqTranslation:
         block = self.build_ast(*values)
         return Expression(lower(block), block.type)
 
-    def function_ir(self) -> Any:
-        """The translation as an East function's IR, in the open source map (TypeScript's ``fn().toIR()``)."""
-        from east.expression.location import location_id
-        from east.query.jq.lower import finalize_ir, lower
+    def _function_ast(self, parameters: list[A], values: list[A]) -> A:
+        """The translation as an East function of ``parameters`` (TypeScript's ``func``), reading ``values``.
 
-        parameters = [variable(i.type) for i in self.inputs]
+        ``values`` are the translation's inputs, one per :attr:`inputs`, each
+        one of ``parameters``.
+        """
+        from east.expression.location import location_id
+
         b = Block()
-        ret = self._into(b, parameters)
+        ret = self._into(b, values)
         if not is_subtype(ret.type, self.result_type):
             raise TranslationError(f"the result is {print_type(ret.type)}, not {print_type(self.result_type)}")
         statements = b.statements
@@ -3207,9 +3222,66 @@ class JqTranslation:
             body_ast = statements[0]
         else:
             body_ast = A("Block", statements[-1].type, location_id(), statements=statements)
-        fn_ast = A("Function", FunctionType([i.type for i in self.inputs], self.result_type), location_id(),
-                   parameters=parameters, body=body_ast)
-        return finalize_ir(lower(fn_ast))
+        return A("Function", FunctionType([p.type for p in parameters], self.result_type), location_id(),
+                 parameters=parameters, body=body_ast)
+
+    def function_ir(self) -> Any:
+        """The translation as an East function's IR, in the open source map (TypeScript's ``fn().toIR()``)."""
+        from east.query.jq.lower import finalize_ir, lower
+
+        parameters = [variable(i.type) for i in self.inputs]
+        return finalize_ir(lower(self._function_ast(parameters, parameters)))
+
+    def call(self, *inputs: Any) -> Any:
+        """A call of the ``Query`` builtin over given inputs, as ``East.jq`` emits it (#1041).
+
+        The builtin's arguments are the program as written and a root's input
+        names, a typed constant (``QueryCallType``), and the translation, an
+        East function of every input the query was checked against, which
+        reads those the query reads and whose type carries the query's types;
+        the call's arguments are the inputs. Running the call runs the
+        translation, and the printers print it back as ``East.jq``.
+
+        Args:
+            inputs: One expression per field of a root, in the root's order,
+                or the one input.
+
+        Returns:
+            The result, an expression of :attr:`result_type`.
+
+        Raises:
+            TranslationError: When the inputs are not one per field of the
+                root, or the one input.
+        """
+        from east.expression import _lift
+        from east.expression.expr import Expression
+        from east.expression.location import location_id
+        from east.query.jq.lower import lower
+        from east.query.types import QueryCallType
+        from east.types.construct import none, some, variant
+
+        params = self._params
+        if len(inputs) != len(params):
+            count = len(params)
+            raise TranslationError(f"the query takes {count} input{'' if count == 1 else 's'}, not {len(inputs)}")
+        loc = location_id()
+        fn_type = FunctionType(params, self.result_type)
+        # Each field of the root is a parameter; the translation reads those the query reads.
+        parameters = [variable(t) for t in params]
+        root = self._checked.source.root
+        names = [name for name, _t in self._fields]
+        values = [parameters[names.index(i.name)] for i in self.inputs] if root else parameters
+        translation = self._function_ast(parameters, values)
+        constant = variant("v1", {"inputs": some(names) if root else none,
+                                  "program": self._checked.query.value["program"]}, QueryCallType)
+        builtin = A("Builtin", fn_type, loc, builtin="Query", type_parameters=[fn_type],
+                    arguments=[_value_ast(constant, QueryCallType, loc), translation])
+        arguments = []
+        for value, declared in zip(inputs, params, strict=True):
+            e = value if isinstance(value, Expression) else _lift(value, hint=declared)
+            arguments.append(external(e.ir, e.east_type))
+        return Expression(lower(A("Call", self.result_type, loc, function=builtin, arguments=arguments)),
+                          self.result_type)
 
     def fn(self) -> Any:
         """The translation as an East function: compiled, and spliced when called inside another build.
@@ -3255,7 +3327,8 @@ def translate_jq(checked: Any, *, max_outputs: int | None = None, tooling: bool 
         TranslationError: When the program does not check, or holds something
             the translator cannot express.
     """
-    if checked.query is None or checked.element_type is None or checked.multiplicity is None:
+    if checked.query is None or checked.rewritten is None or checked.element_type is None \
+            or checked.multiplicity is None:
         errors = [d["message"] for d in checked.diagnostics if d["severity"].type == "error"]
         raise TranslationError(f"the program does not check: {' '.join(errors)}")
     element = checked.element_type
@@ -3263,18 +3336,22 @@ def translate_jq(checked: Any, *, max_outputs: int | None = None, tooling: bool 
     # The type as it was given: python's canonical copy numbers its wrappers
     # from 0, as every other canonical type does.
     input_type = checked.input_type
+    # What the `Query` builtin's function takes: every field of a root, in order, or the one input.
+    fields = list(fields_of(unwrap(input_type)).items()) if checked.source.root else []
     if checked.source.root:
-        root_fields = fields_of(unwrap(input_type))
+        root_fields = dict(fields)
         inputs = [JqInput(name, root_fields[name]) for name in checked.reads]
+        params = [t for _name, t in fields]
     else:
         inputs = [JqInput(None, input_type)]
+        params = [input_type]
     if multiplicity == "one":
         result_type = element
     elif multiplicity == "maybe":
         result_type = OptionType(element)
     else:
         result_type = ArrayType(element)
-    return JqTranslation(checked, inputs, result_type, max_outputs, tooling)
+    return JqTranslation(checked, inputs, result_type, max_outputs, tooling, fields, params)
 
 
 __all__ = [
