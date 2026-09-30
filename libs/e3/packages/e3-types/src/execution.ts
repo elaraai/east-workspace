@@ -175,19 +175,29 @@ export const ExecutionStatusType = VariantType({
 
 export type ExecutionStatus = ValueTypeOf<typeof ExecutionStatusType>;
 
+/** An object's hash: a SHA-256 in lowercase hex. */
+const OBJECT_HASH = /^[0-9a-f]{64}$/;
+
 /**
  * The objects an execution's record keeps from garbage collection: a
  * success's output, and a split task's last `$plan`, which names every stage
- * before it and so the units gc keeps beside the task.
+ * before it and so the units gc keeps beside the task; and the inputs a
+ * running attempt reads.
  *
  * @remarks
  * Every backend's scan of execution roots applies it, as gc does to the
- * executions it keeps.
+ * executions it keeps. A running attempt reads its inputs as it goes — a unit
+ * fetches their segments as it reads them — so gc beside running work never
+ * takes one from under it, however long it runs: a merge's `merge` tag, which
+ * names no object, is passed over. gc keeps whatever is running, so a
+ * `running` record nothing repairs keeps its inputs until an execution of its
+ * task over them does.
  *
  * @param status - the execution's status
  * @returns the hashes of the objects it keeps
  */
 export function executionStatusRoots(status: ExecutionStatus): string[] {
+  if (status.type === 'running') return status.value.inputHashes.filter((hash) => OBJECT_HASH.test(hash));
   if (status.type !== 'success') return [];
   const { outputHash, plan } = status.value;
   return plan.type === 'some' ? [outputHash, plan.value] : [outputHash];

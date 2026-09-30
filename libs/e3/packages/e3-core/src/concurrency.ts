@@ -17,6 +17,10 @@
 /** How many objects are moved at once. */
 export const OBJECT_CONCURRENCY = 16;
 
+/** How many objects one re-reference (`ObjectStore.touch`) takes: a store
+ *  whose re-references are requests makes them a batch at a time. */
+export const TOUCH_BATCH = 1000;
+
 /**
  * Calls `fn` for every item, at most `width` calls at once.
  *

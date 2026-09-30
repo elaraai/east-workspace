@@ -26,6 +26,8 @@ const setup: TestSetup<TestContext> = async (t) => {
   const ctx = await createTestContext({
     baseUrl: `http://localhost:${server.port}`,
     getToken: async () => '',
+    // No auth: a reader's token is the admin's
+    getReaderToken: async () => '',
     cleanup: true,
   });
   t.after(() => ctx.cleanup());
@@ -37,6 +39,13 @@ describe('API compliance', { concurrency: true }, () => {
   allApiTests(setup);
 });
 ```
+
+The suites call as two callers:
+
+- **`getToken`'s**, who may do anything the suites do.
+- **`getReaderToken(repo)`'s**, who may read `repo`, and whose one-shot grant there is `platform_free`: the reader cases in `functionTests` run as it. A harness whose server keeps access per repository grants this caller access to `repo` before it answers.
+
+A server with no auth answers any token. One with auth needs both tokens signed or fetched, as `test/integration/src/api-compliance.spec.ts` signs them for the local server.
 
 ## Exports
 

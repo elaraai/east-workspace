@@ -17,6 +17,7 @@
 // renameWithRetry. (Behaviourally identical to `fs/promises`.)
 import { promises as fs, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
+import { isNotFoundError } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
 import { isObjectHash } from '../../objects.js';
 
@@ -63,6 +64,148 @@ export function objectPath(repoPath: string, hash: string): string {
   const dirName = hash.slice(0, 2);
   const fileName = hash.slice(2) + '.beast2';
   return path.join(repoPath, 'objects', dirName, fileName);
+}
+
+/**
+ * The directory gc keeps its own records in: `<repo>/gc`, beside the record
+ * trees. It holds the unreachable notes of a sweep beside running work, and
+ * the parts of a gc run in steps.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @returns The directory's path
+ */
+export function gcDir(repoPath: string): string {
+  return path.join(repoPath, 'gc');
+}
+
+/**
+ * The file that notes when a sweep beside running work first saw an object
+ * unreachable: `<repo>/gc/unreachable/<hash[0..2]>/<hash[2..]>`, an empty
+ * file whose modification time is the note's.
+ *
+ * @remarks
+ * A note is a file of its own, never the object's: a write or a touch of the
+ * object removes it, and the object file — which an adopted delivery may
+ * share by a hard link — is never modified.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param hash - SHA256 hash of the object
+ * @returns The note's path
+ * @throws {Error} When the hash is not a SHA-256 in lowercase hex
+ */
+export function unreachableNotePath(repoPath: string, hash: string): string {
+  if (!isObjectHash(hash)) throw new Error(`'${hash}' is not an object hash`);
+  return path.join(gcDir(repoPath), 'unreachable', hash.slice(0, 2), hash.slice(2));
+}
+
+/**
+ * The directory of a gc run in steps, `<repo>/gc/runs/<run>`, or of one of
+ * its parts, `…/<name>.beast2`.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param run - The run's id, a UUIDv7
+ * @param name - The part's name: lowercase letters, digits and dots
+ * @returns The path
+ * @throws {Error} When the run is no UUIDv7, or the name is not of its form
+ */
+export function gcRunPath(repoPath: string, run: string, name?: string): string {
+  if (!isUuidv7(run)) throw new Error(`'${run}' is not a gc run's id`);
+  const runDir = path.join(gcDir(repoPath), 'runs', run);
+  if (name === undefined) return runDir;
+  if (!/^[a-z0-9][a-z0-9.]*$/.test(name)) throw new Error(`'${name}' is not the name of a gc run's part`);
+  return path.join(runDir, `${name}.beast2`);
+}
+
+/**
+ * The time an object's unreachable note stands at, to the millisecond.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param hash - SHA256 hash of the object
+ * @returns The note's time (epoch ms), or null when no note stands
+ */
+export async function unreachableNoteTime(repoPath: string, hash: string): Promise<number | null> {
+  try {
+    return Math.round((await fs.stat(unreachableNotePath(repoPath, hash))).mtimeMs);
+  } catch (err) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Notes that a sweep saw an object unreachable at `at`, unless a note stands
+ * already, whose time is kept.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param hash - SHA256 hash of the object
+ * @param at - When the sweep saw it (epoch ms)
+ * @returns The time the note stands at
+ */
+export async function noteUnreachable(repoPath: string, hash: string, at: number): Promise<number> {
+  const standing = await unreachableNoteTime(repoPath, hash);
+  if (standing !== null) return standing;
+  const note = unreachableNotePath(repoPath, hash);
+  await fs.mkdir(path.dirname(note), { recursive: true });
+  try {
+    // Created only where none stands, so the first sweep's time is kept
+    await (await fs.open(note, 'wx')).close();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    return (await unreachableNoteTime(repoPath, hash)) ?? at;
+  }
+  const time = new Date(at);
+  try {
+    await fs.utimes(note, time, time);
+  } catch (err) {
+    // A write or a touch of the object has cleared it already
+    if (isNotFoundError(err)) return at;
+    throw err;
+  }
+  return (await unreachableNoteTime(repoPath, hash)) ?? at;
+}
+
+/**
+ * Clears an object's unreachable note, if one stands: what every write and
+ * touch of the object does before it looks for the object, so a sweep beside
+ * running work never deletes an object this process is about to root.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param hash - SHA256 hash of the object
+ */
+export async function clearUnreachableNote(repoPath: string, hash: string): Promise<void> {
+  try {
+    await fs.unlink(unreachableNotePath(repoPath, hash));
+  } catch (err) {
+    if (!isNotFoundError(err)) throw err;
+  }
+}
+
+/**
+ * The suffix of an object a sweep beside running work has moved aside to
+ * delete it: `objects/<hash[0..2]>/<hash[2..]>.beast2.<time>.<random>.gc.partial`.
+ */
+export const GC_ASIDE_SUFFIX = '.gc.partial';
+
+/**
+ * Puts an object a sweep moved aside back in its place: a delete a
+ * re-reference raced, or one a crash cut short. A copy written to the place
+ * since holds the same bytes, and is kept.
+ *
+ * @param aside - Where the sweep moved the object
+ * @param file - The object's path
+ * @throws When the object can be put back in neither way
+ */
+export async function restoreAside(aside: string, file: string): Promise<void> {
+  try {
+    await renameWithRetry(aside, file);
+  } catch (err) {
+    try {
+      await fs.access(file);
+    } catch {
+      throw err;
+    }
+    await fs.unlink(aside).catch(() => { /* swept with the staging files */ });
+  }
 }
 
 /**

@@ -262,7 +262,9 @@ export const platform_function_call = East.asyncPlatform(
   ExecuteResultType
 );
 
-/** Run an anonymous one-shot IR against a workspace (role-gated server-side). */
+/** Run an anonymous one-shot IR against a workspace: a platform-free one for
+ *  any caller who may read it, any other under the elevated grant the server
+ *  gives (see `oneShotExecute`). */
 export const platform_one_shot_execute = East.asyncPlatform(
   'e3_one_shot_execute',
   [StringType, StringType, StringType, OneShotRequestType, StringType],  // url, repo, workspace, request, token

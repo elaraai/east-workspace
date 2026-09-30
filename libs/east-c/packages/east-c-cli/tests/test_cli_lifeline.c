@@ -57,7 +57,7 @@ static int failures = 0;
  * resolve against the unit's directory, the working directory. */
 static bool write_unit(const char *program)
 {
-    static const char *unit_names[4] = {"work", "platforms", "threads", "result"};
+    static const char *unit_names[5] = {"work", "platforms", "threads", "fetch", "result"};
     static const char *run_names[3] = {"program", "inputs", "output"};
     EastType *unit_type = east_unit_type();
     EastType *work_type = unit_type->data.struct_.fields[0].type;
@@ -71,9 +71,9 @@ static bool write_unit(const char *program)
     EastValue *run = east_struct_new_owned(run_names, run_fields, 3, run_type);
     EastValue *work = east_variant_new("run", run, work_type);
     east_value_release(run);
-    EastValue *fields[4] = {work, east_array_new(&east_string_type), east_integer(1),
-                            east_string(LIFELINE_RESULT)};
-    EastValue *unit = east_struct_new_owned(unit_names, fields, 4, unit_type);
+    EastValue *fields[5] = {work, east_array_new(&east_string_type), east_integer(1),
+                            east_boolean(false), east_string(LIFELINE_RESULT)};
+    EastValue *unit = east_struct_new_owned(unit_names, fields, 5, unit_type);
     ByteBuffer *bytes = east_beast2_encode_full(unit, unit_type);
     east_value_release(unit);
     if (!bytes) return false;

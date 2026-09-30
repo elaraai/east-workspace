@@ -344,15 +344,16 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       // no-store, stale pin ⇒ 409 carrying the current hash — a hash-keyed
       // URL never answers with different bytes, so HTTP caches stay sound.
       const base = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/pages-ws/datasets/inputs/rows?page=true&offset=0&limit=10`;
-      const pinned = await fetch(`${base}&hash=${hash}`);
+      const auth = { 'Authorization': `Bearer ${opts.token}` };
+      const pinned = await fetch(`${base}&hash=${hash}`, { headers: auth });
       assert.equal(pinned.status, 200);
       assert.match(pinned.headers.get('Cache-Control') ?? '', /immutable/);
 
-      const unpinned = await fetch(base);
+      const unpinned = await fetch(base, { headers: auth });
       assert.equal(unpinned.status, 200);
       assert.equal(unpinned.headers.get('Cache-Control'), 'no-store');
 
-      const stale = await fetch(`${base}&hash=${'0'.repeat(64)}`);
+      const stale = await fetch(`${base}&hash=${'0'.repeat(64)}`, { headers: auth });
       assert.equal(stale.status, 409);
       assert.equal(stale.headers.get('X-Content-SHA256'), hash);
       assert.equal(stale.headers.get('Cache-Control'), 'no-store');

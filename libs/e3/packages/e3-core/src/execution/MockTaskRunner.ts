@@ -175,6 +175,12 @@ export class MockTaskRunner implements TaskRunner {
     return Promise.resolve(this.detachedResult);
   }
 
+  /**
+   * The largest delivery the mock takes in whole: none, unless a test sets
+   * one, as a runner on compute of a bounded size states it.
+   */
+  wholeIntakeLimit: number | null = null;
+
   private intakeResult: ((storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions) => IntakeResult | Promise<IntakeResult>) | null = null;
   private intakeCalls: IntakeSpec[] = [];
 

@@ -28,11 +28,13 @@ import { newRepositoryRecord } from '../../repository-record.js';
 
 /**
  * The objects an in-memory repository store scans and deletes for gc: its
- * backend's object store, which keeps when it wrote each.
+ * backend's object store, which keeps when it wrote each, and the note of an
+ * object a sweep beside running work found unreachable.
  */
 export interface InMemoryObjectCatalogue {
   /**
-   * Every object of a repository, with its size and when it was last written.
+   * Every object of a repository, with its size, when it was last written and
+   * its unreachable note.
    *
    * @param repo - Repository identifier
    * @returns The objects
@@ -45,6 +47,31 @@ export interface InMemoryObjectCatalogue {
    * @param hashes - The objects' hashes
    */
   gcDelete(repo: string, hashes: readonly string[]): void;
+  /**
+   * Notes objects unreachable at `at`, keeping a note that stands.
+   *
+   * @param repo - Repository identifier
+   * @param hashes - The objects' hashes
+   * @param at - When a sweep saw them unreachable (epoch ms)
+   * @returns Each note's time, in the order given
+   */
+  gcNote(repo: string, hashes: readonly string[], at: number): number[];
+  /**
+   * Clears the unreachable notes of objects.
+   *
+   * @param repo - Repository identifier
+   * @param hashes - The objects' hashes
+   */
+  gcClear(repo: string, hashes: readonly string[]): void;
+  /**
+   * Deletes an object while its note stands at `since`.
+   *
+   * @param repo - Repository identifier
+   * @param hash - The object's hash
+   * @param since - The time its note must stand at
+   * @returns Whether it deleted the object
+   */
+  gcDeleteIf(repo: string, hash: string, since: number): boolean;
 }
 
 /**
@@ -75,6 +102,8 @@ export interface InMemoryRepositoryRecords {
 /* eslint-disable @typescript-eslint/require-await */
 export class InMemoryRepoStore implements RepoStore {
   private repos = new Map<string, RepoMetadata>();
+  /** The parts of gc runs in steps, by repository, run and part */
+  private gcRuns = new Map<string, Uint8Array>();
 
   /**
    * @param refs - The ref store a created repository's record is written to,
@@ -166,7 +195,12 @@ export class InMemoryRepoStore implements RepoStore {
   // ===========================================================================
 
   async deleteRefsBatch(repo: string, _cursor?: string): Promise<BatchResult> {
-    const deleted = this.records.reduce((sum, store) => sum + store.drop(repo), 0);
+    let deleted = this.records.reduce((sum, store) => sum + store.drop(repo), 0);
+    for (const key of [...this.gcRuns.keys()]) {
+      if (!key.startsWith(`${repo}\0`)) continue;
+      this.gcRuns.delete(key);
+      deleted++;
+    }
     return { status: 'done', deleted };
   }
 
@@ -192,12 +226,38 @@ export class InMemoryRepoStore implements RepoStore {
     return { roots: await executionRoots(this.refs, repo) };
   }
 
-  async gcScanObjects(repo: string, _cursor?: unknown): Promise<GcObjectScanResult> {
+  async gcScanObjects(repo: string, _cursor?: string): Promise<GcObjectScanResult> {
     return { objects: this.objects.gcEntries(repo) };
   }
 
   async gcDeleteObjects(repo: string, hashes: string[]): Promise<void> {
     this.objects.gcDelete(repo, hashes);
+  }
+
+  async gcNoteUnreachable(repo: string, hashes: readonly string[], at: number): Promise<number[]> {
+    return this.objects.gcNote(repo, hashes, at);
+  }
+
+  async gcClearUnreachable(repo: string, hashes: readonly string[]): Promise<void> {
+    this.objects.gcClear(repo, hashes);
+  }
+
+  async gcDeleteUnreachable(repo: string, hash: string, since: number): Promise<boolean> {
+    return this.objects.gcDeleteIf(repo, hash, since);
+  }
+
+  async gcRunWrite(repo: string, run: string, name: string, data: Uint8Array): Promise<void> {
+    this.gcRuns.set(`${repo}\0${run}\0${name}`, data);
+  }
+
+  async gcRunRead(repo: string, run: string, name: string): Promise<Uint8Array | null> {
+    return this.gcRuns.get(`${repo}\0${run}\0${name}`) ?? null;
+  }
+
+  async gcRunDelete(repo: string, run: string): Promise<void> {
+    for (const key of [...this.gcRuns.keys()]) {
+      if (key.startsWith(`${repo}\0${run}\0`)) this.gcRuns.delete(key);
+    }
   }
 
   async gcSweepBackend(_repo: string, _reachable: ReadonlySet<string>, _options: GcBackendSweepOptions): Promise<GcBackendSweepResult> {
@@ -215,5 +275,6 @@ export class InMemoryRepoStore implements RepoStore {
    */
   clear(): void {
     this.repos.clear();
+    this.gcRuns.clear();
   }
 }

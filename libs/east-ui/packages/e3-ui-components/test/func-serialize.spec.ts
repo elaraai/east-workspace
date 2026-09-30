@@ -43,7 +43,7 @@ function recordingApi(received: { fn: string; args: Uint8Array[] }[], result: nu
             received.push({ fn, args: req.args });
             return {
                 outcome: variant("success", { value: encodeBeast2For(FloatType)(result) }),
-                stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false,
+                stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false, inputs: [],
             } as ExecuteResult;
         },
     } as unknown as FunctionApi;

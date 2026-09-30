@@ -17,16 +17,17 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { none, some, variant } from '@elaraai/east';
-import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
+import { type ExecutionOwner, type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type {
-  IntakeOptions, IntakeResult, IntakeSpec, RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue,
+  ExecutionLiveness, IntakeOptions, IntakeResult, IntakeSpec, RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue,
 } from './interfaces.js';
 import { runIntake } from './intake.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
+import { SegmentFetcher } from './segment-fetch.js';
 import { storeDatasetFile } from '../store-collection.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
@@ -86,9 +87,28 @@ export interface ExecuteOptions {
   /** Variables every runner process of the execution gets in its environment,
    *  after this process's own: a unit's run and its output merge, and every
    *  unit of a split task. Runtime-only: never hashed and never logged. One
-   *  that sets a variable e3 sets itself (`PATH`, `E3_RUNNER_SEARCH_DIRS`) is
-   *  refused. */
+   *  that sets a variable e3 sets itself (`PATH`, `E3_RUNNER_SEARCH_DIRS`,
+   *  `E3_FETCH_SEGMENTS`, which only a unit turns on) is refused. */
   extraEnv?: Readonly<Record<string, string>>;
+  /**
+   * Whether an execution the cache probe finds recorded `running` can still
+   * finish, as the runner that started it judges it — its
+   * `TaskRunner.executionAlive` — for the probe of the execution and, for a
+   * split task, of each of its units. A backend whose executions run on other
+   * hosts passes its own, so a probe here leaves one still running there as
+   * it is. Absent, the probe judges as the local runner does: by the
+   * execution's runner process and its recorded owner, on this host.
+   * Runtime-only.
+   */
+  executionAlive?: ExecutionLiveness;
+  /**
+   * The owner the executions this call runs are recorded under: every
+   * runner's, and a split task's own. This process when absent, which a probe
+   * finds exited once it has; `null` records none, whose execution the local
+   * judgement never repairs — what a host passes that runs an execution on
+   * another's behalf and judges its liveness itself. Runtime-only.
+   */
+  owner?: ExecutionOwner | null;
 }
 
 /**
@@ -140,6 +160,9 @@ export class LocalTaskRunner implements TaskRunner {
   /** The runners, by command, that could not run an intake unit at all, with
    *  why: not tried again by this runner. */
   private readonly intakeUnusable = new Map<string, string>();
+
+  /** A local runner takes in whole any delivery its machine holds. */
+  readonly wholeIntakeLimit = null;
 
   async execute(
     storage: StorageBackend,
@@ -293,7 +316,7 @@ export async function taskExecute(
 
   // Step 1: Check cache (unless force)
   if (!options.force) {
-    const cached = await probeExecutionCache(storage, repo, taskHash, inHash);
+    const cached = await probeExecutionCache(storage, repo, taskHash, inHash, options.executionAlive);
     if (cached !== null) return cached;
   }
 
@@ -305,11 +328,16 @@ export async function taskExecute(
   if (isSplitTask(task)) {
     // Under a budget the pool is as wide as its cores, and the budget, not the
     // pool, bounds the runner processes. This process drives the stages, so it
-    // owns the task's execution.
+    // owns the task's execution unless its caller names another owner, and
+    // each unit is probed with the caller's judgement of what still runs.
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
       (unitInputs, unitIds, merge, expectedPeakBytes, own) =>
         taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge, 'unit', !own),
-      { width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH), owner: await processOwner() });
+      {
+        width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH),
+        owner: options.owner === undefined ? await processOwner() : options.owner,
+        ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
+      });
   }
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
 }
@@ -339,7 +367,7 @@ export async function taskExecuteUnit(
 ): Promise<ExecutionResult> {
   const inHash = inputsHash(unit.inputs);
   if (!options.force) {
-    const cached = await probeExecutionCache(storage, repo, taskHash, inHash);
+    const cached = await probeExecutionCache(storage, repo, taskHash, inHash, options.executionAlive);
     if (cached !== null) return cached;
   }
   const ids = { inHash, executionId: uuidv7(), startTime: Date.now() };
@@ -391,14 +419,22 @@ async function readTaskObject(
  * holds. A success followed by an attempt that failed or was cancelled is not
  * served, so the task runs again.
  *
- * A latest record still `running` whose runner and owner have both exited is
- * first rewritten as `interrupted` (see {@link repairInterruptedExecution}), so
- * it no longer reads as live. One with no owner recorded is left alone.
+ * A latest record still `running` that cannot finish is first rewritten as
+ * `interrupted` (see {@link repairInterruptedExecution}), so it no longer
+ * reads as live. Whether it can finish is the judgement of the runner that
+ * started it, which `alive` gives: a backend whose executions run on other
+ * hosts passes its own, and one still running there is left as it is. Absent,
+ * the probe judges as the local runner does, on this host: it cannot once its
+ * runner and its recorded owner have both exited, and one with no owner
+ * recorded is left alone.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param taskHash - Hash of the task object
  * @param inHash - Combined inputs hash
+ * @param alive - Whether an execution recorded `running` can still finish, as
+ *   the runner that started it judges it (`TaskRunner.executionAlive`);
+ *   absent, the local runner's judgement on this host
  * @returns The cached result, or `null` when the latest attempt is not a
  *   `success`
  */
@@ -406,11 +442,12 @@ export async function probeExecutionCache(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
-  inHash: string
+  inHash: string,
+  alive?: ExecutionLiveness,
 ): Promise<ExecutionResult | null> {
   const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
   if (status?.type === 'running') {
-    await repairInterruptedExecution(storage, repo, taskHash, inHash, status.value);
+    await repairInterruptedExecution(storage, repo, taskHash, inHash, status.value, alive);
     return null;
   }
   if (status?.type !== 'success') {
@@ -463,18 +500,23 @@ async function runningCanFinish(
 
 /**
  * Rewrites a `running` record as `interrupted` when its execution can no
- * longer finish ({@link runningCanFinish}): its runner and the orchestrator
- * recorded as its owner have both exited, so nothing will ever write its
- * outcome. A record with no owner sidecar is left alone.
+ * longer finish, so nothing will ever write its outcome: when `alive`, the
+ * judgement of the runner that started it, says so; or, without it, when its
+ * runner and the orchestrator recorded as its owner have both exited here
+ * ({@link runningCanFinish}), a record with no owner sidecar left alone.
  */
 async function repairInterruptedExecution(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inHash: string,
-  running: RunningExecution
+  running: RunningExecution,
+  alive: ExecutionLiveness | undefined,
 ): Promise<void> {
-  if ((await runningCanFinish(storage, repo, taskHash, inHash, running)) !== false) return;
+  const canFinish = alive === undefined
+    ? await runningCanFinish(storage, repo, taskHash, inHash, running)
+    : await alive(storage, taskHash, inHash, running);
+  if (canFinish !== false) return;
   const status: ExecutionStatus = variant('interrupted', {
     executionId: running.executionId,
     inputHashes: running.inputHashes,
@@ -586,6 +628,10 @@ export async function taskExecuteBody(
   const scratchDir = await executionScratchDir(repo, taskHash, inHash, executionId);
   await fs.mkdir(scratchDir, { recursive: true });
 
+  // Where placing an object is a download, a stock runner's collections are
+  // staged without their segments: it asks for each as it reads it, and the
+  // fetcher places it, so the unit downloads what it reads.
+  const fetcher = stock && storage.objects.placement === 'download' ? new SegmentFetcher(storage, repo, true) : null;
   try {
     // Step 5: Marshal inputs to scratch dir. A stock runner only ever READS
     // its inputs, so they may share the object's storage, and it opens a
@@ -597,7 +643,10 @@ export async function taskExecuteBody(
     const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, staged, {
       link: stock,
       manifests: stock,
+      ...(fetcher !== null && { fetcher }),
     });
+    const fetching = fetcher !== null && fetcher.size > 0;
+    if (fetching) fetcher.start();
 
     // Step 6: The runner's argv, by the body.
     const outputPath = path.join(scratchDir, 'output.beast2');
@@ -605,8 +654,8 @@ export async function taskExecuteBody(
     let args: string[];
     if (merge !== null) {
       unit = merge.range === null
-        ? await stageMergeUnit(storage, repo, scratchDir, task, inputPaths, null, unitThreads(options.budget))
-        : await stageMergeUnit(storage, repo, scratchDir, task, inputPaths.slice(1), inputPaths[0]!, unitThreads(options.budget));
+        ? await stageMergeUnit(storage, repo, scratchDir, task, inputPaths, null, unitThreads(options.budget), fetching)
+        : await stageMergeUnit(storage, repo, scratchDir, task, inputPaths.slice(1), inputPaths[0]!, unitThreads(options.budget), fetching);
       args = unitArgv(unit.runner, unit, options.verbose);
     } else if (task.body.type === 'command') {
       // The e3 SDK's `customTask` wraps the user command in `["bash", "-c",
@@ -633,7 +682,7 @@ export async function taskExecuteBody(
       await storage.objects.materialize(repo, task.body.value.program, program, { link: false });
       args = [...task.runner.value.command, ...inputPaths.flatMap((input) => ['-i', input]), '-o', outputPath, program];
     } else {
-      unit = await stageRunUnit(storage, repo, scratchDir, task, inputPaths, unitThreads(options.budget));
+      unit = await stageRunUnit(storage, repo, scratchDir, task, inputPaths, unitThreads(options.budget), fetching);
       args = unitArgv(unit.runner, unit, options.verbose);
     }
 
@@ -874,6 +923,8 @@ export async function taskExecuteBody(
       ...(peakBytes !== undefined && { peakBytes }),
     };
   } finally {
+    // Nothing more is asked for once the runners have exited.
+    await fetcher?.stop();
     // Cleanup scratch directory
     try {
       await fs.rm(scratchDir, { recursive: true, force: true });
@@ -996,12 +1047,14 @@ async function runCommand(
         if (pid !== null) onRunner?.(pid, stop);
         const startedAt = new Date();
         // The owner sidecar first: this process, which alone writes the
-        // outcome. A `running` record with no owner is never repaired, so every
+        // outcome, unless the caller names another owner or none. The local
+        // judgement never repairs a `running` record with no owner, so every
         // one has its owner before it is written, and a process killed between
         // the two leaves no `running` record at all. One whose owner cannot be
         // recorded is recorded `error` before the spawn fails.
+        const owner = options.owner === undefined ? await processOwner() : options.owner;
         try {
-          await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, await processOwner());
+          if (owner !== null) await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, owner);
         } catch (err) {
           await storage.refs.executionWrite(repo, taskHash, inHash, executionId, variant('error', {
             executionId,

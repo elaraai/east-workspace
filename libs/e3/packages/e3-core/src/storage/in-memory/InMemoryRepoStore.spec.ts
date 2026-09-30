@@ -105,14 +105,15 @@ describe('InMemoryRepoStore', () => {
     it('updates statusChangedAt', async () => {
       await store.create('my-repo');
       const before = await store.getMetadata('my-repo');
+      assert.ok(before);
 
-      // Wait a tiny bit to ensure timestamps differ
-      await new Promise(resolve => setTimeout(resolve, 10));
+      // Wait for the clock to pass the first timestamp, so the second differs
+      while (Date.now() <= before.statusChangedAt.getTime()) await new Promise(resolve => setTimeout(resolve, 1));
 
       await store.setStatus('my-repo', 'gc');
       const after = await store.getMetadata('my-repo');
 
-      assert.ok(before && after);
+      assert.ok(after);
       assert.notStrictEqual(before.statusChangedAt.getTime(), after.statusChangedAt.getTime());
     });
 
@@ -267,7 +268,7 @@ describe('InMemoryRepoStore', () => {
   describe('gcSweepBackend', () => {
     it('sweeps nothing: nothing is kept beside the objects and records', async () => {
       await store.create('my-repo');
-      const result = await store.gcSweepBackend('my-repo', new Set(), { minAge: 0, dryRun: false });
+      const result = await store.gcSweepBackend('my-repo', new Set(), { minAge: 0, dryRun: false, held: true });
       assert.deepStrictEqual(result, { deletedPartials: 0, skippedYoung: 0 });
     });
   });

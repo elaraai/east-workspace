@@ -52,14 +52,14 @@ const ws = "test-workspace";
 function successResult(outputType: EastType, value: unknown): ExecuteResult {
     return {
         outcome: variant("success", { value: encodeBeast2For(outputType)(value) }),
-        stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false,
+        stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false, inputs: [],
     } as ExecuteResult;
 }
 
 function failedResult(exitCode: bigint, stderr = "boom"): ExecuteResult {
     return {
         outcome: variant("failed", { exitCode }),
-        stdout: "", stderr, stdoutTruncated: false, stderrTruncated: false,
+        stdout: "", stderr, stdoutTruncated: false, stderrTruncated: false, inputs: [],
     } as ExecuteResult;
 }
 
@@ -203,7 +203,7 @@ describe("FuncRuntime — call lifecycle", () => {
         const { api, handle } = newRuntime();
         api.respond({
             outcome: variant("timed_out", { ms: 120000n }),
-            stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false,
+            stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false, inputs: [],
         } as ExecuteResult);
         handle.call(1n, 1.0);
         await waitFor(() => handle.status().type === "failed", "terminal");

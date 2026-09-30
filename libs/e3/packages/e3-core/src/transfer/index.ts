@@ -17,10 +17,15 @@ export {
   PackageExportProgressType,
   PackageExportStatusType,
   type PackageExport,
+  PackageZipCheckpointType,
+  type PackageZipCheckpoint,
   WorkspaceDeployJobType,
   type WorkspaceDeployJob,
   RepoGcJobType,
   type RepoGcJob,
+  SplitCallJobStatusType,
+  SplitCallJobType,
+  type SplitCallJob,
 } from './types.js';
 
 // Interfaces
@@ -32,6 +37,7 @@ export {
   type PackageExportStore,
   type WorkspaceDeployStore,
   type RepoGcStore,
+  type SplitCallStore,
   type TransferBackend,
 } from './interfaces.js';
 
@@ -40,6 +46,7 @@ export {
   DEFAULT_TRANSFER_PART_BYTES,
   InMemoryTransferBackend,
   type InMemoryTransferBackendOptions,
+  type UploadCommitForm,
 } from './InMemoryTransferBackend.js';
 
 // Shared processing handlers
@@ -48,6 +55,7 @@ export {
   handleProcessImport,
   handleProcessDeploy,
   handleProcessGc,
+  handleProcessSplitCall,
   type ProcessExportDeps,
   type ProcessExportInput,
   type ProcessImportDeps,
@@ -56,4 +64,6 @@ export {
   type ProcessDeployInput,
   type ProcessGcDeps,
   type ProcessGcInput,
+  type ProcessSplitCallDeps,
+  type ProcessSplitCallInput,
 } from './process.js';

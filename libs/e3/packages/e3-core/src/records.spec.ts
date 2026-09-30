@@ -327,14 +327,19 @@ describe('records', () => {
     assert.strictEqual(calls, 0, 'the reducer is not started past the deadline');
   });
 
-  it('the budget bounds a contended retry loop to a typed conflict, not a hang', async () => {
+  it('the budget bounds a contended retry loop to a typed conflict, not a hang', async (t) => {
     const genesis = await storage.datasets.read(repo, ws, 'records/counter');
     assert.ok(genesis && genesis.type === 'value');
     const stateHash = genesis.value.hash;
 
+    // The clock moves only as the test moves it: each run of the reducer takes
+    // a tenth of a second of it, so two spend the 200ms budget however slow
+    // the machine, where the 30s default would take three hundred.
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
     let calls = 0;
     const runner = runnerReturning(async () => {
       calls++;
+      t.mock.timers.tick(100);
       // Always interfere so every writeIf conflicts (would retry to maxRetryMs=30s
       // without a budget); the budget must cut it far sooner.
       await storage.datasets.write(repo, ws, 'records/counter', variant('value', {
@@ -343,12 +348,9 @@ describe('records', () => {
       return succeeded(encodeInt(7n));
     });
 
-    const start = Date.now();
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(7n)], { actor: 'cli:test', budgetMs: 200 });
-    const elapsed = Date.now() - start;
-    assert.strictEqual(outcome.kind, 'conflict', 'the budget bounded the retry loop');
-    assert.ok(calls >= 1, 'at least one attempt ran');
-    assert.ok(elapsed < 5000, `returned within the budget (~200ms), not the 30s default: ${elapsed}ms`);
+    assert.deepStrictEqual(outcome, { kind: 'conflict', attempts: 2 }, 'the budget bounded the retry loop');
+    assert.strictEqual(calls, 2, 'the reducer ran until the budget was spent, and no more');
   });
 
   it('stops a run at what remains of the budget, not at its own longer timeout', async () => {
@@ -359,14 +361,14 @@ describe('records', () => {
     const runner = runnerReturning((_taskHash, _inputs, options) => new Promise((resolve) => {
       options!.signal!.addEventListener('abort', () => resolve({ state: 'error', cached: false, cancelled: true }), { once: true });
     }));
-    const start = Date.now();
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], {
       actor: 'cli:test', budgetMs: 200,
       limits: { timeoutMs: 50_000, maxLogBytes: 64 * 1024 },
     });
+    // The limit it reports is the one its timer ran to: the budget's rest, not
+    // the run's 50s
     assert.strictEqual(outcome.kind, 'timed_out', JSON.stringify(outcome));
     if (outcome.kind === 'timed_out') assert.ok(outcome.ms >= 1 && outcome.ms <= 200, `the run's limit was the budget's rest, ${outcome.ms}ms`);
-    assert.ok(Date.now() - start < 5000, 'stopped within the budget, not the run\'s 50s');
   });
 
   // ---- OPS-2: abort signal (issue #69) ----

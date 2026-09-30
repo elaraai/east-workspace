@@ -9,16 +9,19 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { E3_RELEASE } from '@elaraai/e3-types';
 import { LocalRepoStore, METADATA_FILE } from './LocalRepoStore.js';
 import { LocalStorage } from './LocalBackend.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './LocalRefStore.js';
+import { GC_ASIDE_SUFFIX, objectPath, unreachableNotePath } from './localHelpers.js';
+import { repoGc } from '../../gc.js';
 import { repoInit } from './repository.js';
 import { repositoryOpen } from '../../repository-record.js';
 import {
   InvalidNameError,
+  ObjectNotFoundError,
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
@@ -207,14 +210,15 @@ describe('LocalRepoStore', () => {
     it('updates statusChangedAt', async () => {
       await store.create('my-repo');
       const before = await store.getMetadata('my-repo');
+      assert.ok(before);
 
-      // Wait a tiny bit to ensure timestamps differ
-      await new Promise(resolve => setTimeout(resolve, 10));
+      // Wait for the clock to pass the first timestamp, so the second differs
+      while (Date.now() <= before.statusChangedAt.getTime()) await new Promise(resolve => setTimeout(resolve, 1));
 
       await store.setStatus('my-repo', 'gc');
       const after = await store.getMetadata('my-repo');
 
-      assert.ok(before && after);
+      assert.ok(after);
       assert.notStrictEqual(before.statusChangedAt.getTime(), after.statusChangedAt.getTime());
     });
 
@@ -380,7 +384,7 @@ describe('LocalRepoStore', () => {
       assert.strictEqual(result.objects[0].hash, 'ab' + 'cd' + '0'.repeat(60));
     });
 
-    it('gcDeleteObjects removes objects', async () => {
+    it('gcDeleteObjects removes objects, and their notes', async () => {
       await store.create('my-repo');
       const repoPath = join(testDir, 'my-repo');
 
@@ -388,11 +392,105 @@ describe('LocalRepoStore', () => {
       const objDir = join(repoPath, 'objects', 'ab');
       mkdirSync(objDir, { recursive: true });
       writeFileSync(join(objDir, 'cd' + '0'.repeat(60) + '.beast2'), 'data');
+      await store.gcNoteUnreachable(repoPath, [hash], 1_000_000);
 
       await store.gcDeleteObjects(repoPath, [hash]);
 
       const result = await store.gcScanObjects(repoPath);
       assert.strictEqual(result.objects.length, 0);
+      assert.strictEqual(existsSync(unreachableNotePath(repoPath, hash)), false, 'the note went with it');
+    });
+  });
+
+  describe('gc beside running work', () => {
+    it('pages the object scan by prefix, each object with the note that stands for it', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const [first, second] = ['ab', 'cd'].map((prefix) => prefix + '0'.repeat(62));
+      for (const hash of [first!, second!]) {
+        mkdirSync(join(repoPath, 'objects', hash.slice(0, 2)), { recursive: true });
+        writeFileSync(objectPath(repoPath, hash), 'data');
+      }
+      assert.deepStrictEqual(await store.gcNoteUnreachable(repoPath, [second!], 1_000_000), [1_000_000]);
+
+      const page = await store.gcScanObjects(repoPath);
+      assert.deepStrictEqual(page.objects.map(({ hash, unreachableSince }) => [hash, unreachableSince]), [[first, null]]);
+      assert.strictEqual(page.cursor, 'ab');
+      const last = await store.gcScanObjects(repoPath, page.cursor);
+      assert.deepStrictEqual(last.objects.map(({ hash, unreachableSince }) => [hash, unreachableSince]), [[second, 1_000_000]]);
+      assert.strictEqual(last.cursor, undefined);
+    });
+
+    it('passes over a note whose object is gone as it scans, and drops it in the sweep, but not in a dry run', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const gone = 'ef' + '0'.repeat(62);
+      const there = 'ab' + '0'.repeat(62);
+      mkdirSync(join(repoPath, 'objects', 'ab'), { recursive: true });
+      writeFileSync(objectPath(repoPath, there), 'data');
+      await store.gcNoteUnreachable(repoPath, [gone, there], 1_000_000);
+
+      const scanned = [(await store.gcScanObjects(repoPath)).objects, (await store.gcScanObjects(repoPath, 'ab')).objects];
+      assert.deepStrictEqual(scanned.map((objects) => objects.map(({ hash }) => hash)), [[there], []]);
+      assert.ok(existsSync(unreachableNotePath(repoPath, gone)), 'the scan changes nothing');
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: true, held: false });
+      assert.ok(existsSync(unreachableNotePath(repoPath, gone)), 'nor does a dry run');
+
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: false, held: false });
+      assert.strictEqual(existsSync(unreachableNotePath(repoPath, gone)), false);
+      assert.ok(existsSync(unreachableNotePath(repoPath, there)), 'a note whose object is there stands');
+    });
+
+    it('leaves an adopted delivery\'s file as it was when it touches or writes the object again', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      // Adopted on the repository's volume, the object may be the delivery's
+      // own file, by a hard link
+      const delivery = join(testDir, 'delivery.beast2');
+      writeFileSync(delivery, 'a delivery');
+      const { hash } = await storage.objects.adoptFile(repoPath, delivery);
+      const before = statSync(delivery, { bigint: true });
+
+      await store.gcNoteUnreachable(repoPath, [hash], 1_000_000);
+      assert.deepStrictEqual(await storage.objects.touch(repoPath, [hash]), [true]);
+      assert.strictEqual(await storage.objects.write(repoPath, new TextEncoder().encode('a delivery')), hash);
+      await storage.objects.adoptFile(repoPath, delivery, hash);
+
+      const after = statSync(delivery, { bigint: true });
+      assert.deepStrictEqual([after.ino, after.mtimeNs, after.size], [before.ino, before.mtimeNs, before.size]);
+      assert.strictEqual(existsSync(unreachableNotePath(repoPath, hash)), false, 'the touch cleared the note');
+    });
+
+    it('places a delivery again when the object its touch found reads as gone, as a delete that raced the touch leaves it aside', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const delivery = join(testDir, 'delivery.beast2');
+      writeFileSync(delivery, 'a delivery');
+      const { hash, size } = await storage.objects.adoptFile(repoPath, delivery);
+
+      // The touch finds the object, and the look after it falls in the moment
+      // a racing delete has it aside
+      let looks = 0;
+      storage.objects.stat = (_repo: string, looked: string): Promise<{ size: number }> => {
+        looks++;
+        return Promise.reject(new ObjectNotFoundError(looked));
+      };
+
+      assert.deepStrictEqual(await storage.objects.adoptFile(repoPath, delivery, hash), { hash, size });
+      assert.strictEqual(looks, 1, 'it looked after the touch');
+      assert.strictEqual(readFileSync(objectPath(repoPath, hash), 'utf8'), 'a delivery');
+    });
+
+    it('puts back an object a delete left aside, as when a crash cut it short', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const hash = await storage.objects.write(repoPath, new TextEncoder().encode('left aside'));
+      await storage.refs.packageWrite(repoPath, 'names-it', '1.0.0', hash);
+      const file = objectPath(repoPath, hash);
+      renameSync(file, `${file}.1000.abcdefgh${GC_ASIDE_SUFFIX}`);
+
+      await repoGc(storage, repoPath, { minAge: 0 });
+      assert.strictEqual(readFileSync(file, 'utf8'), 'left aside');
     });
   });
 

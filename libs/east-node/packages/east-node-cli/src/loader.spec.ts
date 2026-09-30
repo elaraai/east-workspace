@@ -17,10 +17,11 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { Worker } from 'node:worker_threads';
 import {
   DictType, East, IntegerType, StringType, SortedMap, compareFor,
   decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, isFrozenValue, Beast2Pages,
@@ -324,6 +325,125 @@ describe('loadInputLazy — an input staged as a manifest over segment files', (
       const path = stageManifest(dir, rows(5_000));
       rmSync(join(dir, 'table.beast2.segments'), { recursive: true, force: true });
       assert.equal(loadInputLazy(path), undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * A host that places segments as the runner reads them, on a thread of its
+   * own — the runner waits on its own thread — until stopped: each segment of
+   * `segmentDir` asked for, from `store`, where they were moved; or, given a
+   * refusal, why it cannot.
+   */
+  function host(segmentDir: string, store: string, refusal?: string): { stop: () => Promise<string[]> } {
+    const worker = new Worker(`
+      const { parentPort, workerData } = require('node:worker_threads');
+      const { copyFileSync, existsSync, readdirSync, renameSync, writeFileSync } = require('node:fs');
+      const { join } = require('node:path');
+      const { segmentDir, store, refusal } = workerData;
+      const placed = [];
+      const serve = () => {
+        for (const name of readdirSync(segmentDir)) {
+          if (!name.endsWith('.want')) continue;
+          const segment = name.slice(0, -'.want'.length);
+          const file = join(segmentDir, segment);
+          if (placed.includes(segment) || existsSync(file)) continue;
+          placed.push(segment);
+          if (refusal !== undefined) {
+            writeFileSync(file + '.error', refusal);
+          } else {
+            copyFileSync(join(store, segment), file + '.placing');
+            renameSync(file + '.placing', file);
+          }
+        }
+      };
+      const timer = setInterval(serve, 2);
+      parentPort.on('message', () => { clearInterval(timer); parentPort.postMessage(placed); });
+    `, { eval: true, workerData: { segmentDir, store, refusal } });
+    return {
+      stop: async () => {
+        const placed = new Promise<string[]>((resolve) => worker.once('message', resolve));
+        worker.postMessage('stop');
+        const names = await placed;
+        await worker.terminate();
+        return names;
+      },
+    };
+  }
+
+  /** Runs `fn` with the host placing segments as they are read. */
+  function fetching<T>(fn: () => T): T {
+    const saved = process.env.E3_FETCH_SEGMENTS;
+    process.env.E3_FETCH_SEGMENTS = '1';
+    try {
+      return fn();
+    } finally {
+      if (saved === undefined) delete process.env.E3_FETCH_SEGMENTS;
+      else process.env.E3_FETCH_SEGMENTS = saved;
+    }
+  }
+
+  /** Moves a staged manifest's segment files out, to where its host places
+   *  them from. */
+  function unplace(dir: string): { segmentDir: string; store: string; segments: number } {
+    const segmentDir = join(dir, 'table.beast2.segments');
+    const store = join(dir, 'store');
+    mkdirSync(store);
+    const names = readdirSync(segmentDir);
+    for (const name of names) renameSync(join(segmentDir, name), join(store, name));
+    return { segmentDir, store, segments: names.length };
+  }
+
+  it('asks the host for each segment it reads, when the host places them as they are read', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const path = stageManifest(dir, rows(20_000));
+      const { segmentDir, store, segments } = unplace(dir);
+      assert.ok(segments > 4, `precondition: several segments, got ${segments}`);
+      const placing = host(segmentDir, store);
+      let row: string | undefined;
+      let size = 0;
+      try {
+        fetching(() => {
+          const value = loadInputLazy(path) as SortedMap<bigint, string>;
+          size = value.size;
+          row = value.get(9_999n);
+        });
+      } finally {
+        const placed = await placing.stop();
+        assert.equal(placed.length, 1, `the one segment the read touched was asked for, of ${segments}: ${placed.join(', ')}`);
+      }
+      assert.equal(size, 20_000, 'the size is the manifest\'s, and asks for nothing');
+      assert.equal(row, 'row-9999');
+
+      // The eager load splices every segment, and asks for each it lacks.
+      const all = host(segmentDir, store);
+      try {
+        const eager = fetching(() => loadInput(path, toEastTypeValue(DT))) as SortedMap<bigint, string>;
+        assert.equal(eager.size, 20_000);
+      } finally {
+        assert.equal((await all.stop()).length, segments - 1, 'every segment not placed already');
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails with the host's words when the host cannot place a segment", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
+    try {
+      const path = stageManifest(dir, rows(20_000));
+      const { segmentDir, store } = unplace(dir);
+      const refusing = host(segmentDir, store, 'the store is throttling');
+      try {
+        assert.throws(
+          () => fetching(() => (loadInputLazy(path) as SortedMap<bigint, string>).get(9_999n)),
+          (err: unknown) => err instanceof Error && /^beast2 v5: manifest segment .*\.beast2 cannot be placed: the store is throttling$/.test(err.message),
+        );
+      } finally {
+        await refusing.stop();
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

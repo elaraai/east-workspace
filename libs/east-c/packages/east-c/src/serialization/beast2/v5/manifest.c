@@ -133,6 +133,71 @@ static char *object_path(const char *dir, const char *hash)
     return path;
 }
 
+/* The longest the runner waits between looks for a segment it asked for. */
+#define FETCH_WAIT_MAX_US 50000UL
+
+static bool file_exists(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+/* Makes the segment file at `path` present when it is absent and the host
+ * places segments as they are read (EAST_BEAST2_FETCH_SEGMENTS_ENV): creates
+ * `<path>.want` beside where it would be, and waits for the host to place the
+ * file, whole, or to write `<path>.error`, why it cannot. Without the switch
+ * an absent file is left for its open to fail, as ever. False with the
+ * message posted when the host cannot place it, or the ask cannot be made. */
+static bool fetch_segment(const char *path)
+{
+    const char *fetch = getenv(EAST_BEAST2_FETCH_SEGMENTS_ENV);
+    if (file_exists(path) || !fetch || strcmp(fetch, "1") != 0) return true;
+    char msg[1024];
+    size_t need = strlen(path) + sizeof(".error");
+    char *want = malloc(need);
+    char *error = malloc(need);
+    if (!want || !error) {
+        free(want);
+        free(error);
+        east_builtin_error("beast2 v5: out of memory asking for a manifest segment");
+        return false;
+    }
+    snprintf(want, need, "%s.want", path);
+    snprintf(error, need, "%s.error", path);
+    bool ok = true;
+    FILE *asked = fopen(want, "ab");
+    if (!asked) {
+        snprintf(msg, sizeof(msg), "beast2 v5: cannot ask for manifest segment %s: %s", path,
+                 strerror(errno));
+        east_builtin_error(msg);
+        ok = false;
+    } else {
+        fclose(asked);
+        /* The runner has nothing else to do while it waits: it sleeps between
+         * looks, a little longer each time. */
+        unsigned long wait = 1000;
+        while (!file_exists(path)) {
+            FILE *refused = fopen(error, "rb");
+            if (refused) {
+                char why[512];
+                size_t n = fread(why, 1, sizeof(why) - 1, refused);
+                fclose(refused);
+                why[n] = '\0';
+                snprintf(msg, sizeof(msg), "beast2 v5: manifest segment %s cannot be placed: %s",
+                         path, why);
+                east_builtin_error(msg);
+                ok = false;
+                break;
+            }
+            usleep(wait);
+            wait = wait * 2 < FETCH_WAIT_MAX_US ? wait * 2 : FETCH_WAIT_MAX_US;
+        }
+    }
+    free(want);
+    free(error);
+    return ok;
+}
+
 static bool manifest_dir_open(void *ctx, size_t i, const uint8_t **data, size_t *len, void **handle)
 {
     ManifestDir *dir = ctx;
@@ -148,6 +213,10 @@ static bool manifest_dir_open(void *ctx, size_t i, const uint8_t **data, size_t 
     char *path = object_path(dir->segment_dir, hash->data.string.data);
     if (!path) {
         east_builtin_error("beast2 v5: out of memory opening a manifest segment");
+        return false;
+    }
+    if (!fetch_segment(path)) {
+        free(path);
         return false;
     }
     uint8_t *mapped = map_input_file(path, len, handle);

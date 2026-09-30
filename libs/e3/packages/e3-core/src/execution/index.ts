@@ -13,6 +13,7 @@ export {
   type TaskResult,
   type TaskRunner,
   type RunningExecution,
+  type ExecutionLiveness,
   type SplitUnit,
   type UnitRequeue,
   type IntakeSource,
@@ -50,14 +51,52 @@ export {
   type DetachedRunOptions,
 } from './runDetached.js';
 
+// One-shot: a caller's IR run once under the grant the host's auth gives it,
+// and the limits and result every graph-free call shares
+export {
+  oneShotExecute,
+  oneShotPlatformUse,
+  resolveExecuteLimits,
+  resolveJobLimits,
+  detachedToExecuteResult,
+  invalidExecuteResult,
+  type OneShotGrant,
+  type OneShotOptions,
+  type ExecuteCeilings,
+  type ResolvedLimits,
+} from './oneShot.js';
+
+// Split calls: a caller's program run over a dataset's pieces as a job, under
+// one-shot's grant
+export {
+  splitCallPlatformUse,
+  splitCallPlatformFree,
+  splitCallPrepare,
+  splitCallReference,
+  splitCallExplain,
+  splitCallRun,
+  splitCallResult,
+  splitCallInvalid,
+  SplitCallOutcomeType,
+  type SplitCallOutcome,
+  type SplitCallTask,
+  type SplitCallOptions,
+  type SplitCallRunOptions,
+} from './splitCall.js';
+
 // Persistence-free process helpers (shared by tracked + detached paths)
 export {
   marshalInputsToDir,
+  stageInput,
   type MarshalInputsOptions,
   spawnAndCapture,
   type SpawnAndCaptureOptions,
   type SpawnAndCaptureResult,
 } from './processExec.js';
+
+// A unit's segments placed as its runner reads them, where placing an object
+// is a download
+export { SegmentFetcher } from './segment-fetch.js';
 
 // An execution environment: its local build, and the reading of the files an
 // environment names, which a remote builder does too

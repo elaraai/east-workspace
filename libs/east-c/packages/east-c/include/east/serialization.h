@@ -597,6 +597,13 @@ EastValue *east_beast2_open_manifest_dir(const char *path, EastValue *manifest, 
                                          bool frozen);
 EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest, EastType *type,
                                            bool frozen);
+// Segments on demand, the runner protocol's (east/unit.h): while this
+// environment variable holds "1" — set by a runner's exec in its own process
+// when its unit's `fetch` says the host places segments as they are read — a
+// read of a segment file absent from `<path>.segments/` asks for it, by
+// creating `<segment file>.want`, and waits until the host places the file or
+// writes `<segment file>.error`, why it cannot, which the read fails with.
+#define EAST_BEAST2_FETCH_SEGMENTS_ENV "E3_FETCH_SEGMENTS"
 
 // The canonical writer of a collection as a manifest directory (the C mirror
 // of TypeScript's Beast2ManifestWriter): elements go in as the element writer

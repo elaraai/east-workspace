@@ -69,6 +69,11 @@ export type {
   FunctionCallRequest,
   FunctionSignature,
   OneShotRequest,
+  SplitCallArg,
+  SplitCallRequest,
+  SplitCallProgress,
+  SplitCallStatus,
+  SplitCallPlan,
   MutationCallRequest,
   MutationResult,
   RecordSignature,
@@ -152,6 +157,12 @@ export {
   workspaceFunctionDescribe,
   workspaceFunctionCall,
   oneShotExecute,
+  splitCallLaunch,
+  splitCallStatus,
+  splitCallExplain,
+  splitCall,
+  type SplitCallOptions,
+  type SplitCallAnswer,
 } from './functions.js';
 
 // Records (describe + mutations + history + compaction)

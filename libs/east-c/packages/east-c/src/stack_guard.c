@@ -12,6 +12,13 @@
  * pthread_get_stack*_np pair, GetCurrentThreadStackLimits), read once per
  * thread. A call running on a stack outside those bounds — a fiber, a
  * greenlet — is never refused: the guard only acts on the stack it measured.
+ *
+ * A stack larger than EAST_STACK_BUDGET gives East calls what an 8 MiB stack
+ * does, and no more: the depth at which a runaway recursion is refused is the
+ * same on every platform, whatever stack its thread reserved. Windows
+ * executables reserve 1 GiB, and before the budget a runaway recursion there
+ * committed a gigabyte of stack and unwound millions of frames: 17 minutes on
+ * the CI runner, against milliseconds on an 8 MiB stack.
  */
 
 #if defined(__linux__) && !defined(_GNU_SOURCE)
@@ -98,6 +105,10 @@ bool east_stack_exhausted(void)
             uintptr_t headroom = size / 4 < EAST_STACK_HEADROOM ? size / 4 : EAST_STACK_HEADROOM;
             s_low = low;
             s_limit = low + headroom;
+            /* A larger stack refuses where an 8 MiB one would: its headroom
+             * above the point the budget ends. */
+            if (size > (uintptr_t)EAST_STACK_BUDGET)
+                s_limit = high - (uintptr_t)EAST_STACK_BUDGET + headroom;
             s_high = high;
         }
     }

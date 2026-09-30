@@ -5,8 +5,9 @@
 
 /**
  * The local server's upload commits: a commit still running says how far it
- * has taken the file in, for the client polling it, and how it finished once
- * it has.
+ * has taken the upload in, for the client polling it, and how it finished once
+ * it has — whether it takes the staged file in, or the object its bytes hash
+ * to, as a store whose uploads land in an object store does.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -48,42 +49,46 @@ describe('an upload commit', () => {
     removeTempDir(tempDir);
   });
 
-  it('says how far it has taken the file in while it runs, and how it finished once it has', async () => {
-    // The adoption's last write holds until released: the commit has taken the
-    // file in, and has not yet pointed the dataset at it.
-    let release!: () => void;
-    const released = new Promise<void>((resolve) => { release = resolve; });
-    let reach!: () => void;
-    const reached = new Promise<void>((resolve) => { reach = resolve; });
-    const refs = Object.create(storage.refs) as RefStore;
-    refs.adoptionWrite = async (...args) => {
-      reach();
-      await released;
-      return storage.refs.adoptionWrite(...args);
-    };
-    const held = Object.assign(Object.create(storage) as StorageBackend, { refs });
-    const uploads = new InMemoryTransferBackend({
-      storage: held, getRepoPath: () => repo, getRunner: (repoPath) => new LocalTaskRunner(repoPath),
-    }).datasetUpload;
+  for (const commitAs of ['file', 'object'] as const) {
+    it(`says how far it has taken the upload in while it runs, and how it finished once it has, taken in as the staged ${commitAs}`, async () => {
+      // The adoption's last write holds until released: the commit has taken the
+      // upload in, and has not yet pointed the dataset at it. Taken in as an
+      // object, it is adopted as a store whose uploads land in an object store
+      // adopts one.
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      let reach!: () => void;
+      const reached = new Promise<void>((resolve) => { reach = resolve; });
+      const refs = Object.create(storage.refs) as RefStore;
+      refs.adoptionWrite = async (...args) => {
+        reach();
+        await released;
+        return storage.refs.adoptionWrite(...args);
+      };
+      const held = Object.assign(Object.create(storage) as StorageBackend, { refs });
+      const uploads = new InMemoryTransferBackend({
+        storage: held, getRepoPath: () => repo, getRunner: (repoPath) => new LocalTaskRunner(repoPath), commitAs,
+      }).datasetUpload;
 
-    // A delivery the Writer wrote, staged as its parts stage it.
-    const data = encodeBeast2PagedFor(RowsType)(Array.from({ length: 100 }, (_, i) => ({ id: BigInt(i), name: `row ${i}` })));
-    const record = { repo: 'r', workspace: 'main', path: 'inputs/rows', hash: computeHash(data), size: BigInt(data.byteLength) };
-    await uploads.create('u1', record);
-    await uploads.createParts('u1', record);
-    writeFileSync(transferStagingPath(repo, 'u1'), data);
+      // A delivery the Writer wrote, staged as its parts stage it.
+      const data = encodeBeast2PagedFor(RowsType)(Array.from({ length: 100 }, (_, i) => ({ id: BigInt(i), name: `row ${i}` })));
+      const record = { repo: 'r', workspace: 'main', path: 'inputs/rows', hash: computeHash(data), size: BigInt(data.byteLength) };
+      await uploads.create('u1', record);
+      await uploads.createParts('u1', record);
+      writeFileSync(transferStagingPath(repo, 'u1'), data);
 
-    const committing = uploads.commit('u1', record);
-    await reached;
-    assert.deepEqual(await uploads.getCommitStatus('u1'), variant('processing', some({
-      path: 'inputs/rows',
-      step: variant('taking_in', { pieces: 1n, done: 1n }),
-      bytes: BigInt(data.byteLength),
-      total: BigInt(data.byteLength),
-    })), 'its one piece taken in, and not yet named by the dataset');
+      const committing = uploads.commit('u1', record);
+      await reached;
+      assert.deepEqual(await uploads.getCommitStatus('u1'), variant('processing', some({
+        path: 'inputs/rows',
+        step: variant('taking_in', { pieces: 1n, done: 1n }),
+        bytes: BigInt(data.byteLength),
+        total: BigInt(data.byteLength),
+      })), 'its one piece taken in, and not yet named by the dataset');
 
-    release();
-    assert.deepEqual(await committing, variant('completed', null));
-    assert.deepEqual(await uploads.getCommitStatus('u1'), variant('completed', null));
-  });
+      release();
+      assert.deepEqual(await committing, variant('completed', null));
+      assert.deepEqual(await uploads.getCommitStatus('u1'), variant('completed', null));
+    });
+  }
 });

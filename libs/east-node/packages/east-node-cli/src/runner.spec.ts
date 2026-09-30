@@ -601,6 +601,7 @@ describe('the blob merge and the stdin lifeline (#770)', () => {
       work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'spin-output') }),
       platforms: [],
       threads: 1n,
+      fetch: false,
       result: 'result.beast2',
     }));
     const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));

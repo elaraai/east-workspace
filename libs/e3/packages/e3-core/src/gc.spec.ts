@@ -14,11 +14,12 @@ import assert from 'node:assert';
 import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
-import { PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
+import { PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, WorkspaceRecordType, encodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
 import type { PackageObject, TaskObject } from '@elaraai/e3-types';
 import { gcTests } from './contract/index.js';
+import { GcReadError } from './errors.js';
 import { repoGc, markReachable, sweepBatch } from './gc.js';
-import { packageStagingPath, transferStagingPath } from './storage/local/localHelpers.js';
+import { executionPath, packageStagingPath, transferStagingPath } from './storage/local/localHelpers.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
 import { sweepEnvironments } from './execution/environment.js';
 import { getPidStartTime } from './execution/processHelpers.js';
@@ -33,7 +34,18 @@ describe('over a local repository', () => {
   gcTests(async (t) => {
     const repo = createTestRepo();
     t.after(() => removeTestRepo(repo));
-    return { storage: new LocalStorage(), repo };
+    return {
+      storage: new LocalStorage(),
+      repo,
+      damage: {
+        execution: (taskHash, inputsHash, executionId) => {
+          const dir = executionPath(repo, taskHash, inputsHash, executionId);
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, 'status.beast2'), 'not a record');
+          return Promise.resolve();
+        },
+      },
+    };
   });
 });
 
@@ -41,7 +53,16 @@ describe('over the in-memory backend', () => {
   gcTests(async () => {
     const storage = new InMemoryStorage();
     await storage.repos.create('repo');
-    return { storage, repo: 'repo' };
+    return {
+      storage,
+      repo: 'repo',
+      damage: {
+        execution: (taskHash, inputsHash, executionId) => {
+          storage.refs.damageExecution('repo', taskHash, inputsHash, executionId);
+          return Promise.resolve();
+        },
+      },
+    };
   });
 });
 
@@ -206,6 +227,36 @@ describe('gc', () => {
 
       assert.strictEqual(await sweepEnvironments(testRepoPath, new Set([reached])), 2);
       assert.deepStrictEqual(readdirSync(envs).sort(), [reached, liveBuild].sort());
+    });
+  });
+
+  describe('its root scans', () => {
+    it('stop, sweeping nothing, when a deployed workspace\'s dataset ref cannot be read', async () => {
+      // Skipped, the workspace would root nothing, and the sweep delete the
+      // values its datasets name.
+      const value = await objectWrite(testRepoPath, encodeBeast2For(StringType)('a value only a dataset names'));
+      const pkg = await objectWrite(testRepoPath, encodeBeast2For(PackageObjectType)({
+        tasks: new Map(),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map(),
+        records: new Map(), sources: new Map(),
+      } as PackageObject));
+      await storage.refs.workspaceWrite(testRepoPath, 'main', encodeBeast2For(WorkspaceRecordType)(some({
+        packageName: 'scan', packageVersion: '1.0.0', packageHash: pkg, deployedAt: new Date(), currentRunId: none,
+      })));
+      await storage.datasets.write(testRepoPath, 'main', 'inputs/x', variant('value', { hash: value, versions: new Map() }));
+
+      const datasets = storage.datasets;
+      const read = datasets.read;
+      datasets.read = () => Promise.reject(new Error('the ref store is throttling'));
+      try {
+        await assert.rejects(repoGc(storage, testRepoPath, { minAge: 0 }),
+          /^Error: gc sweeps nothing while it cannot read what workspace 'main' names: the ref store is throttling$/);
+      } finally {
+        datasets.read = read;
+      }
+      assert.ok(await storage.objects.exists(testRepoPath, value), 'the value is still there');
+      assert.strictEqual((await repoGc(storage, testRepoPath, { minAge: 0 })).deletedObjects, 0, 'read, the workspace roots its value');
     });
   });
 
@@ -452,6 +503,58 @@ describe('gc', () => {
       assert.strictEqual(reachable.size, 0);
     });
 
+    it('stops at an object whose read fails for any reason but its absence, naming it', async () => {
+      // Read as absence, the mark would stop here and a sweep delete what the
+      // object names.
+      const root = 'a'.repeat(64);
+      const readObject = async (hash: string): Promise<Uint8Array | null> => {
+        if (hash === root) throw new Error('connection reset by peer');
+        return null;
+      };
+      await assert.rejects(markReachable(readObject, new Set([root])), (err: unknown) => {
+        assert.ok(err instanceof GcReadError, `expected a GcReadError, got ${err}`);
+        assert.strictEqual(err.hash, root);
+        assert.strictEqual(err.undecodable, false);
+        assert.match(err.message, /connection reset by peer/);
+        return true;
+      });
+    });
+
+    it('stops at an object whose head read fails for any reason but its absence', async () => {
+      const root = 'b'.repeat(64);
+      const readHead = async (): Promise<Uint8Array | null> => {
+        throw new Error('the request timed out');
+      };
+      await assert.rejects(markReachable(async () => null, new Set([root]), { readHead }), (err: unknown) => {
+        assert.ok(err instanceof GcReadError && err.hash === root && /the request timed out/.test(err.message));
+        return true;
+      });
+    });
+
+    it('stops at an object of a shape that names other objects when it does not decode, and keeps one that is not beast2 a leaf', async () => {
+      const whole = encodeBeast2For(PackageObjectType)({
+        tasks: new Map([['t', 'e'.repeat(64)]]),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map(),
+        records: new Map(), sources: new Map(),
+      } as PackageObject);
+      const broken = 'c'.repeat(64);
+      const junk = 'd'.repeat(64);
+      const objects = new Map<string, Uint8Array>([[broken, whole.subarray(0, whole.length - 1)], [junk, new Uint8Array([1, 2, 3])]]);
+      const readObject = async (hash: string) => objects.get(hash) ?? null;
+      const readHead = async (hash: string, length: number) => objects.get(hash)?.subarray(0, length) ?? null;
+
+      for (const options of [{}, { readHead }]) {
+        await assert.rejects(markReachable(readObject, new Set([broken]), options), (err: unknown) => {
+          assert.ok(err instanceof GcReadError, `expected a GcReadError, got ${err}`);
+          assert.strictEqual(err.hash, broken);
+          assert.strictEqual(err.undecodable, true);
+          return true;
+        });
+        assert.deepStrictEqual([...await markReachable(readObject, new Set([junk]), options)], [junk], 'not beast2: a leaf');
+      }
+    });
+
     it('handles DAG deduplication (shared objects)', async () => {
       // Two trees both reference the same value
       const sharedValueHash = 'c'.repeat(64);
@@ -641,8 +744,8 @@ describe('gc', () => {
   describe('sweepBatch', () => {
     it('marks unreachable old objects for deletion', () => {
       const objects: GcObjectEntry[] = [
-        { hash: 'a'.repeat(64), lastModified: 0, size: 100 },
-        { hash: 'b'.repeat(64), lastModified: 0, size: 200 },
+        { hash: 'a'.repeat(64), lastModified: 0, size: 100, unreachableSince: null },
+        { hash: 'b'.repeat(64), lastModified: 0, size: 200, unreachableSince: null },
       ];
       const reachable = new Set<string>();
 
@@ -656,7 +759,7 @@ describe('gc', () => {
     it('retains reachable objects', () => {
       const hashA = 'a'.repeat(64);
       const objects: GcObjectEntry[] = [
-        { hash: hashA, lastModified: 0, size: 100 },
+        { hash: hashA, lastModified: 0, size: 100, unreachableSince: null },
       ];
       const reachable = new Set([hashA]);
 
@@ -668,7 +771,7 @@ describe('gc', () => {
 
     it('skips young objects', () => {
       const objects: GcObjectEntry[] = [
-        { hash: 'a'.repeat(64), lastModified: Date.now(), size: 100 },
+        { hash: 'a'.repeat(64), lastModified: Date.now(), size: 100, unreachableSince: null },
       ];
       const reachable = new Set<string>();
 

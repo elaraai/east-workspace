@@ -49,6 +49,7 @@ import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
+import { touchReachable } from './gc-graph.js';
 import { withRunningWork } from './running-work.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './execution/interfaces.js';
@@ -1501,7 +1502,10 @@ export async function recordSystemCommit(
  * A rollback walks the chain back from the head to its commit, and is refused
  * past a `$migrate` or `$reset` commit, or when the chain ends before it. A
  * restore is refused unless its state had had the migrations the record has
- * applied.
+ * applied, and the store holds it whole. Its state comes from outside the
+ * record's history, and may have been unreachable for as long, so it is
+ * re-referenced with everything it names (`touchReachable`) before the commit
+ * roots it: gc beside running work leaves it meanwhile.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -1527,8 +1531,8 @@ async function systemCommitState(
           `${namedSteps(target.applied)}: migrations run forward only, so a record is restored only to a state at the migrations it has applied`,
       };
     }
-    if (!await storage.objects.exists(repo, target.state)) {
-      return { refusal: `the state ${target.state} is not in the repository` };
+    if (!await touchReachable(storage, repo, [target.state])) {
+      return { refusal: `the state ${target.state} is not in the repository, whole` };
     }
     return { state: target.state };
   }

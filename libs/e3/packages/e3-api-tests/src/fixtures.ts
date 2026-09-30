@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
-import { ArrayType, DictType, IntegerType, NullType, StringType, StructType, East, variant } from '@elaraai/east';
+import { ArrayType, DictType, FunctionType, IntegerType, NullType, StringType, StructType, East, variant } from '@elaraai/east';
 import { Time } from '@elaraai/east-node-std';
 
 /**
@@ -97,6 +97,8 @@ export async function createRolesPackageZip(
  * - Input: "value" (Integer, default 10)
  * - Input: "prices" (Dict<String, Integer>, default {a: 1, b: 2, c: 3}) - a
  *   collection, stored as a manifest, for a one-shot call to bind
+ * - Input: "apply" (Integer -> Integer, unassigned) - a function value, which
+ *   a test sets and a one-shot call binds and calls
  * - Task: "compute" - multiplies input by 2 (so the package is deployable)
  * - Function: "add" - (Integer, Integer) -> Integer
  * - Function: "slow" - (Integer) -> Integer, sleeps 30s (for timeout/cancel tests)
@@ -131,7 +133,8 @@ export async function createFunctionPackageZip(
     })
   );
   const prices = e3.input('prices', DictType(StringType, IntegerType), variant('value', new Map([['a', 1n], ['b', 2n], ['c', 3n]])));
-  const pkg = e3.package(name, version, compute, add, slow, prices);
+  const apply = e3.input('apply', FunctionType([IntegerType], IntegerType));
+  const pkg = e3.package(name, version, compute, add, slow, prices, apply);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

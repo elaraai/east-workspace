@@ -28,6 +28,7 @@ import { randomBytes } from 'crypto';
 import { encodeBeast2SegmentsFor, readBeast2Manifest, spliceBeast2 } from '@elaraai/east';
 import { manifestByteSize, type RunnerValue } from '@elaraai/e3-types';
 import { spawnAndCapture, stageInput, type SpawnAndCaptureResult } from './processExec.js';
+import { SegmentFetcher } from './segment-fetch.js';
 import { callScratchDir } from './scratch.js';
 import { stageCallUnit, unitArgv } from './units.js';
 import { unitThreads, type Budget, type Grant } from './budget.js';
@@ -107,7 +108,8 @@ export interface DetachedRunOptions {
   /** Variables the runner gets in its environment, after this process's own:
    *  the secrets a platform function reads, say. Runtime-only: never logged.
    *  One that sets a variable e3 sets itself (`PATH`,
-   *  `E3_RUNNER_SEARCH_DIRS`) is refused. */
+   *  `E3_RUNNER_SEARCH_DIRS`, `E3_FETCH_SEGMENTS`, which only a unit turns
+   *  on) is refused. */
   extraEnv?: Readonly<Record<string, string>>;
 }
 
@@ -120,7 +122,9 @@ export interface DetachedRunOptions {
  * sized before it is read, so a value over `maxResultBytes` is `too_large`
  * and never loaded. A collection, which `exec` writes as a manifest naming its
  * segments, is spliced back into one blob. The scratch directory is removed
- * however the call ends.
+ * however the call ends. Where placing an object is a download, a stock
+ * runner's dataset argument is staged without its segments, which the runner
+ * asks for as it reads them.
  *
  * NEVER writes to the object store, execution records, or logs.
  *
@@ -144,12 +148,17 @@ export async function runDetached(
     : path.join(tmpdir(), `e3-call-${process.pid}-${Date.now()}-${randomBytes(4).toString('hex')}`);
   await fs.mkdir(scratchDir, { recursive: true });
 
+  // A stock runner runs the call as a unit, and exits with this process: the
+  // stdin lifeline pipe below and `--exit-with-parent` on its command line.
+  // A custom command is given `run`'s arguments, and left alone.
+  const runner = spec.runner;
+  const stock = runner.type !== 'custom';
+  // Where placing an object is a download, a stock runner's dataset argument
+  // is staged without its segments, and placed as the runner asks for them.
+  const fetcher = stock && options.storage !== undefined && options.repo !== undefined && options.storage.objects.placement === 'download'
+    ? new SegmentFetcher(options.storage, options.repo, true)
+    : null;
   try {
-    // A stock runner runs the call as a unit, and exits with this process: the
-    // stdin lifeline pipe below and `--exit-with-parent` on its command line.
-    // A custom command is given `run`'s arguments, and left alone.
-    const runner = spec.runner;
-    const stock = runner.type !== 'custom';
     const program = path.join(scratchDir, 'program.beast2');
     await fs.writeFile(program, spec.bodyIr);
     const inputs: string[] = [];
@@ -162,14 +171,20 @@ export async function runDetached(
       } else {
         // As a task input: a stock runner opens a manifest and reads only the
         // segments it touches, and a command gets its own copy of one file.
-        await stageInput(options.storage, options.repo, arg.dataset, input, { link: stock, manifests: stock });
+        await stageInput(options.storage, options.repo, arg.dataset, input, {
+          link: stock,
+          manifests: stock,
+          ...(fetcher !== null && { fetcher }),
+        });
       }
       inputs.push(input);
     }
+    const fetching = fetcher !== null && fetcher.size > 0;
+    if (fetching) fetcher.start();
     const outputPath = path.join(scratchDir, 'output.beast2');
     const args = runner.type === 'custom'
       ? [...runner.value.command, ...inputs.flatMap((input) => ['-i', input]), '-o', outputPath, program]
-      : unitArgv(runner, await stageCallUnit(scratchDir, runner, program, inputs, outputPath, unitThreads(budget)), options.verbose);
+      : unitArgv(runner, await stageCallUnit(scratchDir, runner, program, inputs, outputPath, unitThreads(budget), fetching), options.verbose);
 
     const searchDirs = options.runnerSearchDir
       ? [options.runnerSearchDir, process.cwd()]
@@ -277,6 +292,8 @@ export async function runDetached(
       : spliceBeast2(await Promise.all(manifest.entries.map((entry) => fs.readFile(path.join(segments, `${entry.hash}.beast2`)))));
     return { kind: 'success', value, ...streams };
   } finally {
+    // Nothing more is asked for once the runner has exited.
+    await fetcher?.stop();
     try {
       await fs.rm(scratchDir, { recursive: true, force: true });
     } catch {

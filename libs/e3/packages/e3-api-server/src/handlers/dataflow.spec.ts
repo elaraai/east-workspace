@@ -81,6 +81,38 @@ describe('dataflow routes', () => {
     assert.equal(again.type, 'error', 'no run is running');
   });
 
+  it('start a run and leave nothing of it in the request\'s host: the orchestrator\'s wait is never called', async () => {
+    // A host whose runs execute elsewhere: its wait lasts as long as the run,
+    // so a route that called it would hold the host for the whole run.
+    let waits = 0;
+    const orchestrator: DataflowOrchestrator = {
+      start: async (_storage, repo, workspace) => ({ id: 'run-1', repo, workspace }),
+      wait: () => {
+        waits++;
+        throw new Error('the route waited on a run another host executes');
+      },
+      getStatus: () => Promise.reject(new Error('not polled')),
+      cancel: async () => {},
+      getEvents: async () => [],
+    };
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => orchestrator,
+      getStateStore: () => new InMemoryStateStore(),
+    }));
+
+    const response = await app.request('/api/repos/r/workspaces/main/dataflow', {
+      method: 'POST',
+      headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+      body: encodeBeast2For(DataflowRequestType)({ force: false, filter: none }),
+    });
+    assert.equal(response.status, 202);
+    assert.equal(decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer())).type, 'success');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(waits, 0);
+  });
+
   it('serve the budget a run gets, with what its runners hold now, and none when mounted without one', async () => {
     const decode = decodeBeast2For(ResponseType(OptionType(DataflowBudgetType)));
     const budgetOf = async (app: Hono) =>

@@ -19,7 +19,13 @@ Supports two modes:
 The server opens a repository before it serves it, as the CLI does: the one
 repository when it starts, and each of several at its first request. A
 repository an older release wrote is upgraded in place first, and one this e3
-cannot open is refused, naming why and the fix.
+cannot open is refused, naming why and the fix. An upgrade waits for work
+running in the repository, and no request waits with it: while a run or a task
+holds a repository that owes one, a request to it is answered `503` with
+`Retry-After` and the JSON error `{ error: { type:
+'repository_upgrade_pending', message } }`, naming the steps and the work —
+except that run's cancel and poll, so the run can always be stopped. The steps
+apply at the first request that finds the repository still.
 
 ## CLI Usage
 
@@ -147,13 +153,15 @@ The route factories are exported, so a host that runs e3 on its own backends
 mounts them over its own seams. The repositories' routes list, create and
 remove repositories through the storage backend's `RepoStore`, and the
 repository gate, mounted ahead of every repository's routes, checks that the
-repository exists and is not being removed, and opens it. The dataflow routes
-take the runner, the orchestrator that runs a repository's dataflows, and the
-state store it writes: a poll and a cancel read the latest run from that
-store, whichever instance answers them. The dataset transfer routes
-(`createTransferRoutes`) take each repository's runner too: an upload whose
-bytes the store already holds as one object, and which is a collection, is
-taken in by intake units on it (`TaskRunner.intake`).
+repository exists and is not being removed, and opens it without holding the
+request. The dataflow routes take the runner, the orchestrator that runs a
+repository's dataflows, and the state store it writes: a start leaves nothing
+of the run in the request's host, and a poll and a cancel read the latest run
+from that store, whichever instance answers them. The dataset transfer routes
+(`createTransferRoutes`) take the transfer backend, whose upload store takes a
+delivery in on the runner it was given: an init adopts only what takes nothing
+in, and answers at once. A route answers for the repository in its URL alone:
+a job, an upload or a run another repository started is not found through it.
 
 ```typescript
 import { Hono } from 'hono';
@@ -166,6 +174,23 @@ app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(stor
   getRunner: (repo) => runnerFor(repo),
   getOrchestrator: (repo) => orchestratorFor(repo),
   getStateStore: (repo) => stateStoreFor(repo),
+}));
+```
+
+A host whose requests have a time limit, which an upgrade step may outlast,
+leaves the steps to a job of its own. Given `applyUpgrades: false`, the gate
+applies none: it answers every request to a repository that owes them `503`
+`repository_upgrade_pending` — but a running dataflow's cancel and poll — until
+the steps are applied, and calls `onUpgradePending` for each, where the host
+starts its job, once. The job opens the repository with e3-core's
+`repositoryOpen`, which applies them, waiting for work running in it as any
+open does.
+
+```typescript
+app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath, {
+  applyUpgrades: false,
+  // The job runs repositoryOpen(storage, getRepoPath(repo))
+  onUpgradePending: (repo) => startUpgradeJob(repo),
 }));
 ```
 
@@ -272,12 +297,53 @@ piece of its segments each, as many at once as the server's budget allows — an
 its `processing` says how many pieces are in. An upload stopped part way and
 sent again takes up from the pieces it finished.
 
+An init whose bytes the store already knows answers `completed` when adopting
+them takes nothing in: the manifest an earlier delivery of them became, or an
+object of a value that is not a collection. A collection the store holds whole,
+which no finished intake has taken in, is uploaded and committed as any other,
+and its commit takes it in.
+
 ### Tasks
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/workspaces/:ws/tasks` | List tasks |
 | GET | `/api/repos/:repo/workspaces/:ws/tasks/:task` | Get task details |
+
+### Functions and one-shot
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/repos/:repo/packages/:pkg/:version/functions` | A package's functions and their signatures |
+| GET | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | One function's signature |
+| POST | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | Call a package's function: its result, inline |
+| GET | `/api/repos/:repo/workspaces/:ws/functions` | The deployed package's functions |
+| GET | `/api/repos/:repo/workspaces/:ws/functions/:fn` | One function's signature |
+| POST | `/api/repos/:repo/workspaces/:ws/functions/:fn` | Call one of them |
+| POST | `/api/repos/:repo/workspaces/:ws/one-shot` | Run a caller's program over the workspace's datasets: its result, naming the datasets it read (`inputs`) |
+| POST | `/api/repos/:repo/workspaces/:ws/one-shot/split` | Launch a split call — a caller's program over a dataset's pieces — as a job: answers the job's id; with `?explain=1` the job plans the pieces the call would run, and runs nothing |
+| GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, or why it failed |
+
+What a caller may run through one-shot is the grant the host gives it
+(`OneShotAccess`). This server's, with auth, gives an elevated role (`admin`,
+`owner`) any program, and any other identity a platform-free one: a stock
+runner given no platform, and a program that calls none. Without auth, a
+single-tenant server, it gives any.
+
+A call to a function runs it on the runner its author chose, for any caller.
+A call that names a runner of its own is held to the same grant, which the
+function routes take as `access`: a runner on the `custom` runtime is refused,
+`invalid`, whoever names it, and one that loads a platform package the
+function's own runner does not is refused `permission_denied` (path `runner`)
+without the elevated grant. A host that mounts the function routes without
+`access` refuses every caller such a runner.
+
+A split call runs as a split task, so each
+piece and merge is cached: a relaunch is served from the cache, and one after
+an append reruns only the pieces the append reached. Its timeout is one budget
+for the whole job, counted from its launch. A call is polled only through the
+repository and workspace that launched it, and a caller with a platform-free
+grant polls only a platform-free call, or one such a caller launched.
 
 ### Execution
 
@@ -307,6 +373,7 @@ Error variants include:
 - `package_exists` - Package already exists
 - `dataset_not_found` - Dataset path doesn't exist
 - `task_not_found` - Task doesn't exist
+- `permission_denied` - The caller's grant does not run the request: a one-shot or split call (path `one-shot`), or a function call's runner (path `runner`)
 - `internal` - Internal server error
 
 ## Using with e3-api-client

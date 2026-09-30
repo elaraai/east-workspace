@@ -21,10 +21,30 @@
  * The types live here, beside the collection layer, because every runner and
  * the platform that schedules them read them; east-c declares the same types
  * in C, and the conformance corpus pins that all three runners agree.
+ *
+ * A collection a unit reads is staged as its manifest and the manifest's
+ * segments beside it, `<file>.segments/<hash>.beast2`. A host whose store is
+ * elsewhere may leave the segments out and place each as the runner first
+ * reads it, so a unit downloads what it reads: the unit says so (`fetch`). Its
+ * runner then asks for a staged manifest's segment file it finds absent, by
+ * creating `<segment file>.want` beside where it would be, and waits for the
+ * host to place the file, whole, or to write `<segment file>.error`, holding
+ * why it cannot, which the runner fails with. A unit that does not say so reads
+ * an absent segment as the input's own error, at once. Such a unit and the
+ * files beside it are a snapshot of the work only once its segments are there.
  */
 
-import { ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from "./types.js";
+import { ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from "./types.js";
 import { LocationType } from "./ir.js";
+
+/**
+ * The environment variable a runner's `exec` sets to `1` in its own process
+ * when its unit asks for segments as it reads them (`fetch`), which the
+ * runner's manifest openers read — east-c's, for east-c and east-py alike. A
+ * host never sets it for a runner: e3 strips it from every runner it starts,
+ * so only a unit turns it on.
+ */
+export const FETCH_SEGMENTS_ENV = "E3_FETCH_SEGMENTS";
 
 /**
  * Where a unit's output goes, by the kind of output it is.
@@ -105,6 +125,7 @@ export type UnitWork = ValueTypeOf<typeof UnitWorkType>;
  *   }),
  *   platforms: [],
  *   threads: 1n,
+ *   fetch: false,
  *   result: "result.beast2",
  * };
  * writeFileSync("unit.beast2", encodeBeast2For(UnitType)(unit));
@@ -120,6 +141,10 @@ export const UnitType = StructType({
   /** The threads the runner may use, its own pools included: one frames every
    *  output inline. */
   threads: IntegerType,
+  /** Whether the host places the segments of the collections the unit reads
+   *  as the runner asks for them: a segment file of a staged manifest may be
+   *  absent, and the runner asks for it (see the module's description). */
+  fetch: BooleanType,
   /** Where the runner writes its {@link UnitResultType}. */
   result: StringType,
 });

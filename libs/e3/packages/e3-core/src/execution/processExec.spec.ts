@@ -216,23 +216,41 @@ describe('staging by link or kernel copy', () => {
     compareFor(StringType),
   );
 
-  /** Counts how many of an object store's calls are in flight at once, each
-   *  held a moment as a remote store's request is. */
+  /**
+   * Counts how many of an object store's calls are in flight at once. Each is
+   * held until `together` of them are, as a remote store holds its requests,
+   * and then all go on: so the most in flight at once is what the code under
+   * test starts, never a race against a timer. Calls that never get to
+   * `together` go on after a long while, and the count's assertion fails.
+   */
   function countInFlight<A extends unknown[], R>(call: (...args: A) => Promise<R>, counts: (...args: A) => boolean = () => true) {
     let inFlight = 0;
     let peak = 0;
+    let together = 16;
+    let arrive = (): void => {};
+    let arrived = new Promise<void>((resolve) => { arrive = resolve; });
     const counted = async (...args: A): Promise<R> => {
       if (!counts(...args)) return call(...args);
       inFlight++;
       peak = Math.max(peak, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 2));
+      if (inFlight >= together) arrive();
+      await Promise.race([arrived, new Promise((resolve) => setTimeout(resolve, 10_000).unref())]);
       try {
         return await call(...args);
       } finally {
         inFlight--;
       }
     };
-    return { counted, peak: () => peak, reset: () => { peak = 0; } };
+    return {
+      counted,
+      peak: () => peak,
+      /** Counts from nothing again, holding calls until `next` are in flight. */
+      reset: (next: number) => {
+        peak = 0;
+        together = next;
+        arrived = new Promise<void>((resolve) => { arrive = resolve; });
+      },
+    };
   }
 
   it('places a unit\'s objects sixteen at a time, its inputs\' together', async () => {
@@ -279,7 +297,7 @@ describe('staging by link or kernel copy', () => {
     assert.equal(decoded.size, 40_000);
     assert.equal(counter.peak(), 16, 'a custom runner\'s splice reads sixteen segments at once');
 
-    counter.reset();
+    counter.reset(1);
     for await (const chunk of (await DatasetSegments.open(storage, testRepo, hash)).splice()) void chunk;
     assert.equal(counter.peak(), 1, 'a splice reads one segment at a time unless asked to read ahead');
   });
@@ -331,6 +349,16 @@ async function exitsWithin(pid: number, ms: number): Promise<boolean> {
   while (alive(pid)) {
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return true;
+}
+
+/** Whether `holds` comes true within `ms` — a bounded wait on a condition. */
+async function until(holds: () => boolean, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (!holds()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return true;
 }
@@ -504,6 +532,23 @@ describe('a runner\'s command line', () => {
       else process.env.E3_TEST_OVERRIDDEN = previous;
     }
   });
+
+  it('never hands a runner the segments-on-demand switch, which only its unit turns on', async () => {
+    // A runner asks for its segments only when its unit's `fetch` says the
+    // host serves them: one this process holds must not tell it to wait on a
+    // host that serves nothing.
+    const previous = process.env.E3_FETCH_SEGMENTS;
+    process.env.E3_FETCH_SEGMENTS = '1';
+    try {
+      const result = await spawnAndCapture([process.execPath, '-e',
+        'process.stdout.write(process.env.E3_FETCH_SEGMENTS ?? "unset")'], dir);
+      assert.equal(result.exitCode, 0, result.stderrTail);
+      assert.equal(result.stdoutTail, 'unset');
+    } finally {
+      if (previous === undefined) delete process.env.E3_FETCH_SEGMENTS;
+      else process.env.E3_FETCH_SEGMENTS = previous;
+    }
+  });
 });
 
 describe('output held for a callback that has not settled', () => {
@@ -548,7 +593,10 @@ describe('output held for a callback that has not settled', () => {
     });
     try {
       assert.ok(pid !== null && await exitsWithin(pid, 10_000), 'the child exited while its output was held');
-      // Node's drain runs as the exit is handled; a turn more lets it land.
+      // Node's drain runs as the exit is handled, and the chunk it resumes
+      // with arrives however long that takes
+      assert.ok(await until(() => deliveredWhileHeld >= 2, 10_000), `the chunk Node resumed with never arrived: ${deliveredWhileHeld} delivered while held`);
+      // The pause is renewed: no third chunk arrives while the others are held
       await new Promise((resolve) => setTimeout(resolve, 200));
       assert.equal(deliveredWhileHeld, 2, 'the chunk that crossed the cap, and the one Node resumed with before the pause was renewed');
     } finally {
@@ -768,6 +816,7 @@ describe('the stdin lifeline (#770)', () => {
       work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'output') }),
       platforms: [],
       threads: 1n,
+      fetch: false,
       result: 'result.beast2',
     }));
     const outputPath = join(scratch, 'output');

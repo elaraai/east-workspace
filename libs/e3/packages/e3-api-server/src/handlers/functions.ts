@@ -4,94 +4,47 @@
  */
 
 /**
- * Handlers for named package functions and one-shot execution.
+ * Handlers for named package functions.
  *
- * Both reduce to the graph-free `runDetached` primitive: marshal inputs →
+ * A call reduces to the graph-free `runDetached` primitive: marshal inputs →
  * run a body IR on a runner → return the result inline. Nothing durable is
  * written — no output object, no execution record, no logs, no dataset ref.
- *
- * Named functions are author-published IR (same trust as a deployed task).
- * One-shot evaluates CALLER-supplied IR — remote code execution with the
- * server's authority — and must be gated by the route layer (see
- * routes/functions.ts).
+ * Named functions are author-published IR (same trust as a deployed task),
+ * which any caller the route admits runs on the function's own runner; a
+ * runner the caller names instead is held to its grant (`callFunctionSync`).
+ * One-shot, whose IR is the caller's, runs through e3-core's `oneShotExecute`
+ * under the grant the host gives the caller (routes/functions.ts), and so does
+ * a split call's launch, which runs as a job the client polls.
  */
 
-import { ArrayType, variant, none } from '@elaraai/east';
+import { randomUUID } from 'node:crypto';
+import { ArrayType, none, some, variant } from '@elaraai/east';
 import {
   packageRead,
-  workspaceGetPackage,
-  workspaceGetDatasetHash,
+  PermissionDeniedError,
   TaskNotFoundError,
+  detachedToExecuteResult,
+  invalidExecuteResult,
+  resolveExecuteLimits,
+  resolveJobLimits,
+  splitCallInvalid,
+  splitCallPlatformFree,
+  splitCallPrepare,
+  splitCallResult,
 } from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner, DetachedArg, DetachedResult } from '@elaraai/e3-core';
-import { type FunctionObject, type RunnerValue, type TreePath, decodeFunctionObject } from '@elaraai/e3-types';
+import type { ExecuteCeilings, OneShotGrant, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core';
+import { type FunctionObject, type RunnerValue, decodeFunctionObject } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
   FunctionSignatureType,
   ExecuteResultType,
+  PackageJobResponseType,
+  SplitCallStatusType,
   type ExecuteResult,
-  type ExecuteLimits,
   type FunctionCallRequest,
-  type OneShotRequest,
+  type SplitCallRequest,
 } from '../types.js';
-
-// =============================================================================
-// Limits (server-owned, clamped)
-// =============================================================================
-
-/** Default per-call timeout when the request doesn't specify one. */
-const DEFAULT_TIMEOUT_MS = 60_000;
-/** Hard ceiling on any call's timeout (async included). */
-const MAX_TIMEOUT_MS = 10 * 60_000;
-/** Sync calls additionally respect a server-owned wall-clock deadline so the
- *  caller gets a structured `timed_out` instead of a transport cut. (The
- *  cloud sets this below API Gateway's 29 s; locally we can be generous.) */
-const SERVER_SYNC_DEADLINE_MS = 120_000;
-/** Default + ceiling for the inline result size (see design §9: 1 MB leaves
- *  3-4x headroom under the base64-inflated Lambda ceiling and still allows
- *  multi-thousand-row tables inline). Requests may lower it, never raise it. */
-const MAX_RESULT_BYTES = 1024 * 1024;
-/** Default + ceiling for each captured log stream's tail. */
-const MAX_LOG_BYTES = 256 * 1024;
-const DEFAULT_LOG_BYTES = 64 * 1024;
-
-interface ResolvedLimits {
-  timeoutMs: number;
-  maxResultBytes: number;
-  maxLogBytes: number;
-}
-
-function resolveLimits(
-  limits: { type: 'some'; value: ExecuteLimits } | { type: 'none'; value: null },
-  sync: boolean
-): ResolvedLimits {
-  const req = limits.type === 'some' ? limits.value : undefined;
-
-  let timeoutMs = req && req.timeoutMs.type === 'some'
-    ? Number(req.timeoutMs.value)
-    : DEFAULT_TIMEOUT_MS;
-  timeoutMs = Math.min(Math.max(1, timeoutMs), MAX_TIMEOUT_MS);
-  if (sync) timeoutMs = Math.min(timeoutMs, SERVER_SYNC_DEADLINE_MS);
-
-  let maxResultBytes = req && req.maxResultBytes.type === 'some'
-    ? Number(req.maxResultBytes.value)
-    : MAX_RESULT_BYTES;
-  maxResultBytes = Math.min(Math.max(1, maxResultBytes), MAX_RESULT_BYTES);
-
-  let maxLogBytes = req && req.maxLogBytes.type === 'some'
-    ? Number(req.maxLogBytes.value)
-    : DEFAULT_LOG_BYTES;
-  maxLogBytes = Math.min(Math.max(0, maxLogBytes), MAX_LOG_BYTES);
-
-  return { timeoutMs, maxResultBytes, maxLogBytes };
-}
-
-// =============================================================================
-// Shared helpers
-// =============================================================================
-
-
 
 /**
  * Resolve a named function in a package to its FunctionObject.
@@ -117,42 +70,45 @@ async function resolveFunction(
   return decodeFunctionObject(Buffer.from(fnData));
 }
 
-/** Map a DetachedResult to the wire ExecuteResult. */
-function detachedToExecuteResult(result: DetachedResult): ExecuteResult {
-  const streams = {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    stdoutTruncated: result.stdoutTruncated,
-    stderrTruncated: result.stderrTruncated,
-  };
-  switch (result.kind) {
-    case 'success':
-      return { outcome: variant('success', { value: result.value }), ...streams };
-    case 'failed':
-      return { outcome: variant('failed', { exitCode: BigInt(result.exitCode) }), ...streams };
-    case 'too_large':
-      return { outcome: variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), ...streams };
-    case 'timed_out':
-      return { outcome: variant('timed_out', { ms: BigInt(result.ms) }), ...streams };
+/**
+ * The runner a call names in place of the function's own, as the caller's
+ * grant allows it: the `invalid` result that refuses it, or `null` when it
+ * runs.
+ *
+ * @remarks
+ * A function's body is its author's, and runs on its author's runner as a
+ * task's does, so a call that names no runner runs for any caller the route
+ * admits. A runner the call names is the caller's:
+ * - the `custom` runtime is refused whatever the grant, since it would run a
+ *   command of the caller's own;
+ * - a stock runtime given a platform package the function's own runner does
+ *   not load makes more reachable than the author gave the body, and runs only
+ *   under the elevated grant (`any`);
+ * - any other — the function's packages, or fewer, on a stock runtime — runs
+ *   for any caller.
+ *
+ * @throws {PermissionDeniedError} When the runner gives a package the
+ *   function's does not load, and the grant is not `any` (`path` `runner`).
+ */
+function overrideRefusal(stored: RunnerValue, override: RunnerValue, grant: OneShotGrant): ExecuteResult | null {
+  if (override.type === 'custom') {
+    return invalidExecuteResult(
+      'the call names the custom runtime to run the function on, which runs a command of its own: '
+      + 'a function runs on its own runner, or on a stock runtime the call names — east_c, east_node or east_py'
+    );
   }
-}
-
-/** Build an `invalid` ExecuteResult (signature/IR error; nothing ran). */
-function invalidResult(message: string): ExecuteResult {
-  return {
-    outcome: variant('invalid', {
-      diagnostics: [{ message, filename: none, line: none, column: none }],
-    }),
-    stdout: '',
-    stderr: '',
-    stdoutTruncated: false,
-    stderrTruncated: false,
-  };
+  const loaded = stored.type === 'custom' ? [] : stored.value.platforms;
+  if (grant !== 'any' && override.value.platforms.some((platform) => !loaded.includes(platform))) {
+    throw new PermissionDeniedError('runner');
+  }
+  return null;
 }
 
 /**
- * Execute a resolved named function: arity check → read bodyIr → runDetached.
- * Never throws for execution outcomes — only for storage/infra errors.
+ * Execute a resolved named function: arity check → the caller's runner, when
+ * it names one → read bodyIr → runDetached. Never throws for execution
+ * outcomes — only for storage/infra errors, and a runner the caller's grant
+ * does not allow.
  */
 async function executeFunction(
   storage: StorageBackend,
@@ -160,7 +116,8 @@ async function executeFunction(
   runner: TaskRunner,
   fnObj: FunctionObject,
   req: FunctionCallRequest,
-  sync: boolean,
+  syncDeadlineMs: number | undefined,
+  grant: OneShotGrant,
   signal?: AbortSignal,
   verbose?: boolean
 ): Promise<ExecuteResult> {
@@ -168,89 +125,30 @@ async function executeFunction(
   // Per-element type errors surface as a runtime decode failure (`failed`)
   // from the runner.
   if (req.args.length !== fnObj.inputTypes.length) {
-    return invalidResult(
+    return invalidExecuteResult(
       `Expected ${fnObj.inputTypes.length} argument(s), got ${req.args.length}`
     );
+  }
+  if (req.runner.type === 'some') {
+    const refused = overrideRefusal(fnObj.runner, req.runner.value, grant);
+    if (refused !== null) return refused;
   }
 
   const bodyIr = await storage.objects.read(repoPath, fnObj.bodyIr);
   const runnerValue: RunnerValue = req.runner.type === 'some' ? req.runner.value : fnObj.runner;
-  const limits = resolveLimits(req.limits, sync);
+  const limits = resolveExecuteLimits(req.limits, syncDeadlineMs === undefined ? {} : { syncDeadlineMs });
 
   const result = await runner.runDetached(
     {
       bodyIr,
-      args: req.args.map((a) => a as Uint8Array),
+      args: req.args,
       runner: runnerValue,
       limits,
       environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
     },
     { signal, storage, verbose }
   );
-  return detachedToExecuteResult(result);
-}
-
-/**
- * Resolve one-shot args: inline values pass through; dataset paths are
- * resolved + pinned by content hash at launch (objects are immutable, so no
- * lock is needed — snapshot consistency) and handed to the runner by that
- * hash, which it stages as a task input is: never read here, whatever its
- * size.
- *
- * @returns The args, or an `invalid` ExecuteResult if a dataset arg is
- *   unassigned.
- */
-async function resolveOneShotArgs(
-  storage: StorageBackend,
-  repoPath: string,
-  workspace: string,
-  args: OneShotRequest['args']
-): Promise<{ ok: true; args: DetachedArg[] } | { ok: false; invalid: ExecuteResult }> {
-  const resolved: DetachedArg[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
-    if (arg.type === 'value') {
-      resolved.push(arg.value as Uint8Array);
-    } else {
-      const path = arg.value as TreePath;
-      const { refType, hash } = await workspaceGetDatasetHash(storage, repoPath, workspace, path);
-      if (refType !== 'value' || hash === null) {
-        return {
-          ok: false,
-          invalid: invalidResult(`Dataset argument ${i} is not assigned (ref type: ${refType})`),
-        };
-      }
-      resolved.push({ dataset: hash });
-    }
-  }
-  return { ok: true, args: resolved };
-}
-
-/** Execute a one-shot request (bodyIr from the request). */
-async function executeOneShot(
-  storage: StorageBackend,
-  repoPath: string,
-  workspace: string,
-  runner: TaskRunner,
-  req: OneShotRequest,
-  sync: boolean,
-  signal?: AbortSignal,
-  verbose?: boolean
-): Promise<ExecuteResult> {
-  const resolved = await resolveOneShotArgs(storage, repoPath, workspace, req.args);
-  if (!resolved.ok) {
-    return resolved.invalid;
-  }
-  const limits = resolveLimits(req.limits, sync);
-  const result = await runner.runDetached(
-    {
-      bodyIr: req.bodyIr as Uint8Array,
-      args: resolved.args,
-      runner: req.runner,
-      limits,
-    },
-    { signal, verbose, storage }
-  );
+  // A named function reads no dataset: its result names none.
   return detachedToExecuteResult(result);
 }
 
@@ -311,8 +209,30 @@ export async function describePackageFunction(
 
 /**
  * Call a named function synchronously: resolve → validate arity → run →
- * 200 ExecuteResult. The sync path enforces a server-owned deadline so the
- * caller gets a structured `timed_out` instead of a transport cut.
+ * 200 ExecuteResult. The call's timeout is clamped under the host's sync
+ * deadline, so the caller gets a structured `timed_out` instead of a
+ * transport cut.
+ *
+ * @remarks
+ * A call that names no runner runs the function on its own, whatever the
+ * caller's grant. One that names a runner is refused the `custom` runtime
+ * (`invalid`), and a platform package the function's own runner does not
+ * load unless the grant is `any` (`permission_denied`, `path` `runner`).
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository
+ * @param runner - The repository's task runner
+ * @param pkgName - The package
+ * @param version - Its version
+ * @param fnName - The function
+ * @param req - The arguments, and any runner and limits the caller names
+ * @param verbose - Pass `-v` to a stock runner
+ * @param syncDeadlineMs - The host's deadline for a sync call, under its
+ *   request timeout (default 120 000 ms)
+ * @param grant - The caller's one-shot grant, which decides whether its call
+ *   may give the function a platform package the function does not load:
+ *   only `any` may (default `platform_free`)
+ * @returns The call's result, or the error that stopped it
  */
 export async function callFunctionSync(
   storage: StorageBackend,
@@ -322,43 +242,173 @@ export async function callFunctionSync(
   version: string,
   fnName: string,
   req: FunctionCallRequest,
-  verbose?: boolean
+  verbose?: boolean,
+  syncDeadlineMs?: number,
+  grant: OneShotGrant = 'platform_free'
 ): Promise<Response> {
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    const result = await executeFunction(storage, repoPath, runner, fnObj, req, true, undefined, verbose);
+    const result = await executeFunction(storage, repoPath, runner, fnObj, req, syncDeadlineMs, grant, undefined, verbose);
     return sendSuccess(ExecuteResultType, result);
   } catch (err) {
     return sendError(ExecuteResultType, errorToVariant(err));
   }
 }
 
-
-
-
 // =============================================================================
-// One-shot handlers (workspace-scoped; anonymous caller-supplied IR)
+// Split call handlers
 // =============================================================================
+
+/** Options for {@link startSplitCall}. */
+export interface StartSplitCallOptions {
+  /** The most a request may ask for (default: a server's). */
+  ceilings?: ExecuteCeilings;
+  /** Whether the job only explains the call: it plans the call's pieces, and
+   *  runs no unit. */
+  explain?: boolean;
+}
 
 /**
- * Run a one-shot synchronously. SECURITY: caller-supplied IR — the route
- * layer gates this behind an elevated role.
+ * Launch a split call, as a job the client polls; or an explain of one, a job
+ * that plans its pieces.
+ *
+ * @remarks
+ * The launch applies the caller's grant, pins the call's dataset arguments and
+ * writes what the job runs (e3-core `splitCallPrepare`), then files the job and
+ * dispatches it to the compute the store chooses. An explain launches the same
+ * way, and its job plans the pieces, which stores them for the run to take up:
+ * the request does no more than the launch's small writes. A request found
+ * wrong is filed as a job already `completed` with its `invalid` result, so
+ * every call's result, whatever it is, comes back through the poll. The job
+ * records whether a caller whose grant is `platform_free` may poll it
+ * (e3-core `splitCallPlatformFree`).
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param repo - The repository's name, which the job is filed under
+ * @param workspace - The workspace whose datasets the call reads
+ * @param request - The call
+ * @param grant - What the caller may run: the grant the host's auth gave it
+ * @param splitCallStore - Where the job is filed, and dispatched from
+ * @param options - The ceilings the call's limits are held to, and whether
+ *   the job only explains it
+ * @returns The response: the job's id, or the error — `permission_denied`
+ *   (`path` `one-shot`) for a caller whose grant does not run the call
  */
-export async function callOneShotSync(
+export async function startSplitCall(
   storage: StorageBackend,
   repoPath: string,
-  runner: TaskRunner,
+  repo: string,
   workspace: string,
-  req: OneShotRequest,
-  verbose?: boolean
+  request: SplitCallRequest,
+  grant: OneShotGrant,
+  splitCallStore: SplitCallStore,
+  options: StartSplitCallOptions = {},
 ): Promise<Response> {
   try {
-    // Validate the workspace exists / is deployed before running anything.
-    await workspaceGetPackage(storage, repoPath, workspace);
-    const result = await executeOneShot(storage, repoPath, workspace, runner, req, true, undefined, verbose);
-    return sendSuccess(ExecuteResultType, result);
+    const { ceilings } = options;
+    const launched = await splitCallPrepare(storage, repoPath, workspace, request, { grant, ...(ceilings !== undefined && { ceilings }) });
+    const id = randomUUID();
+    const filed = {
+      repo,
+      workspace,
+      explain: options.explain ?? false,
+      platformFree: splitCallPlatformFree(request, grant),
+      createdAt: new Date(),
+    };
+    if ('outcome' in launched) {
+      const limits = resolveJobLimits(request.limits, ceilings);
+      await splitCallStore.create(id, {
+        ...filed,
+        task: '',
+        inputs: [],
+        objects: [],
+        then: none,
+        limits: { timeoutMs: BigInt(limits.timeoutMs), maxResultBytes: BigInt(limits.maxResultBytes), maxLogBytes: BigInt(limits.maxLogBytes) },
+        read: [],
+        status: variant('completed', splitCallInvalid(launched)),
+      });
+      return sendSuccess(PackageJobResponseType, { id });
+    }
+    await splitCallStore.create(id, {
+      ...filed,
+      task: launched.task,
+      inputs: [...launched.inputs],
+      objects: launched.objects.map((index) => BigInt(index)),
+      then: launched.then === null ? none : some(launched.then),
+      limits: {
+        timeoutMs: BigInt(launched.limits.timeoutMs),
+        maxResultBytes: BigInt(launched.limits.maxResultBytes),
+        maxLogBytes: BigInt(launched.limits.maxLogBytes),
+      },
+      read: launched.read,
+      status: variant('processing', none),
+    });
+    await splitCallStore.execute(id, repo);
+    return sendSuccess(PackageJobResponseType, { id });
   } catch (err) {
-    return sendError(ExecuteResultType, errorToVariant(err));
+    return sendError(PackageJobResponseType, errorToVariant(err));
   }
 }
 
+/**
+ * A split call's status: how far its job has got, its result, the pieces an
+ * explain planned, or why e3 could not run it.
+ *
+ * @remarks
+ * A job's record holds hashes: a finished call's value is read from the store
+ * and answered inline up to the call's `maxResultBytes`, a collection spliced,
+ * and over that the result is `too_large` and names the assembled output, which
+ * the caller reads by its hash.
+ *
+ * A caller whose grant is `none` polls no job, and one whose grant is
+ * `platform_free` only a job its record lets it (`platformFree`): a result
+ * persists and is found by its id, so a reader never reads that of a call only
+ * an elevated grant could run.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param splitCallStore - Where the job is filed
+ * @param repo - The repository's name
+ * @param workspace - Workspace name
+ * @param id - The job's id
+ * @param grant - What the caller may run: the grant the host's auth gave it
+ * @returns The response: the status; or the error — `permission_denied`
+ *   (`path` `one-shot`) for a caller whose grant does not poll the job, and
+ *   `internal` when this workspace launched no such job
+ */
+export async function getSplitCallStatus(
+  storage: StorageBackend,
+  repoPath: string,
+  splitCallStore: SplitCallStore,
+  repo: string,
+  workspace: string,
+  id: string,
+  grant: OneShotGrant,
+): Promise<Response> {
+  try {
+    if (grant === 'none') throw new PermissionDeniedError('one-shot');
+    const job = await splitCallStore.get(id);
+    if (job === null || job.repo !== repo || job.workspace !== workspace) {
+      return sendError(SplitCallStatusType, variant('internal', {
+        message: `workspace '${workspace}' has no split call '${id}'`,
+      }));
+    }
+    if (grant === 'platform_free' && !job.platformFree) throw new PermissionDeniedError('one-shot');
+    const status = job.status;
+    switch (status.type) {
+      case 'processing':
+        return sendSuccess(SplitCallStatusType, variant('processing', status.value));
+      case 'failed':
+        return sendSuccess(SplitCallStatusType, variant('failed', status.value));
+      case 'planned':
+        return sendSuccess(SplitCallStatusType, variant('planned', status.value));
+      case 'completed': {
+        const result = await splitCallResult(storage, repoPath, status.value, job.read, Number(job.limits.maxResultBytes));
+        return sendSuccess(SplitCallStatusType, variant('completed', { result, output: status.value.output }));
+      }
+    }
+  } catch (err) {
+    return sendError(SplitCallStatusType, errorToVariant(err));
+  }
+}

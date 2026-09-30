@@ -15,7 +15,7 @@
  */
 
 import { E3_RELEASE, type RepositoryRecord } from '@elaraai/e3-types';
-import { RepoLayoutError } from './errors.js';
+import { RepoLayoutError, RepositoryBusyError, RepositoryUpgradePendingError } from './errors.js';
 import { withKeyedLock } from './keyed-mutex.js';
 import { withRepositoryHeld } from './running-work.js';
 import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js';
@@ -35,8 +35,28 @@ import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js'
 export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [];
 
 /** How long an open that owes upgrades waits for work running in the
- *  repository to finish. */
+ *  repository to finish, unless its caller says otherwise. */
 const UPGRADE_WAIT_MS = 30_000;
+
+/** How {@link repositoryOpen} treats a repository that owes upgrades, and
+ *  work running in it. */
+export interface RepositoryOpenOptions {
+  /**
+   * Whether the open applies the upgrades the repository owes: true unless
+   * set. `false` refuses at once, naming them, and applies nothing, which a
+   * host passes that applies them in a job of its own — an open there, that
+   * does — rather than in whichever request comes first, whose time limit a
+   * step may outlast.
+   */
+  apply?: boolean;
+  /**
+   * How long, in milliseconds, an open that owes upgrades waits for work
+   * running in the repository to finish before it refuses: 30 s unless set,
+   * as a person running the CLI waits. `0` refuses at once, which a request
+   * that must never be held for the wait passes — a server's gate.
+   */
+  waitMs?: number;
+}
 
 /**
  * A new repository's record: this release, and every upgrade the backend
@@ -75,35 +95,60 @@ export function newRepositoryRecord(backendUpgrades: readonly RepositoryUpgrade[
  * change no stored form ship no step, so they open each other's repositories
  * either way.
  *
+ * An open that owes steps waits for work running in the repository to finish
+ * for as long as `options.waitMs` says, 30 s unless set, and then refuses. An
+ * open that may not wait refuses at once, naming the steps owed and the work
+ * that holds the repository, and applies nothing: that work is left running,
+ * and stopping it is its own route's.
+ *
+ * An open that leaves the steps to a job (`options.apply: false`) refuses at
+ * once, naming them, whether or not work runs in the repository: its host
+ * applies them in a job of its own, by an open there that applies them, which
+ * waits for running work as any open does.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
+ * @param options - Whether to apply the upgrades a repository owes, and how
+ *   long to wait for work running in it
  * @returns The record, once every step this e3 knows is applied
  * @throws {RepoNotFoundError} When there is no repository
  * @throws {RepoLayoutError} When the repository has no record this e3 reads,
  *   or has had an upgrade this e3 does not know
- * @throws {Error} When the repository owes an upgrade and work running in it
- *   holds it past the wait
+ * @throws {RepositoryUpgradePendingError} When the repository owes an upgrade
+ *   and work running in it holds it past the wait, or the open leaves the
+ *   upgrades it owes to a job
  */
-export async function repositoryOpen(storage: StorageBackend, repo: string): Promise<RepositoryRecord> {
+export async function repositoryOpen(storage: StorageBackend, repo: string, options: RepositoryOpenOptions = {}): Promise<RepositoryRecord> {
   await storage.validateRepository(repo);
   const known = knownUpgrades(storage.upgrades);
   const record = await readRecord(storage, repo, known);
   if (owed(record, known).length === 0) return record;
+  if (options.apply === false) {
+    throw new RepositoryUpgradePendingError(repo, owed(record, known).map((upgrade) => upgrade.name), null, true);
+  }
+  const waitMs = options.waitMs ?? UPGRADE_WAIT_MS;
   // One open in this process applies the steps, and the others wait for it and
   // find them applied.
   return withKeyedLock(`repository-open\u0000${repo}`, async () => {
     const before = await readRecord(storage, repo, known);
     if (owed(before, known).length === 0) return before;
-    const hold = { doing: `upgrading the repository ${repo}`, wait: UPGRADE_WAIT_MS };
-    return withRepositoryHeld(storage, repo, hold, async () => {
-      let current = await readRecord(storage, repo, known);
-      for (const upgrade of owed(current, known)) {
-        await upgrade.apply(storage, repo);
-        current = { release: E3_RELEASE, upgrades: [...current.upgrades, { name: upgrade.name, release: E3_RELEASE }] };
-        await storage.refs.repositoryWrite(repo, current);
+    const hold = { doing: `upgrading the repository ${repo}`, ...(waitMs > 0 && { wait: waitMs }) };
+    try {
+      return await withRepositoryHeld(storage, repo, hold, async () => {
+        let current = await readRecord(storage, repo, known);
+        for (const upgrade of owed(current, known)) {
+          await upgrade.apply(storage, repo);
+          current = { release: E3_RELEASE, upgrades: [...current.upgrades, { name: upgrade.name, release: E3_RELEASE }] };
+          await storage.refs.repositoryWrite(repo, current);
+        }
+        return current;
+      });
+    } catch (err) {
+      if (err instanceof RepositoryBusyError) {
+        throw new RepositoryUpgradePendingError(repo, owed(before, known).map((upgrade) => upgrade.name), err.workspace);
       }
-      return current;
-    });
+      throw err;
+    }
   });
 }
 

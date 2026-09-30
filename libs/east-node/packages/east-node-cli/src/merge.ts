@@ -55,7 +55,7 @@ import {
 } from '@elaraai/east';
 import type { EastTypeValue, PlatformFunction } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
-import { segmentDirFor } from './loader.js';
+import { segmentDirFor, segmentFile } from './loader.js';
 import { loadMergeFunction } from './runner.js';
 
 /** Options accepted by {@link mergeBlobs}. */
@@ -125,7 +125,8 @@ function readExactly(fd: number, offset: number, length: number): Uint8Array {
  * The segments of the manifest directory at `path`, each read through
  * positioned reads on its file in `<path>.segments/`, the convention e3 stages
  * inputs in. A segment's file is opened for each read and closed after it, so
- * a merge of a large manifest holds no descriptor per segment.
+ * a merge of a large manifest holds no descriptor per segment; one the host
+ * places as it is read is asked for when it is first read.
  *
  * @param path - the manifest's file
  * @param manifest - its decoded manifest
@@ -136,7 +137,7 @@ function manifestSource(path: string, manifest: CollectionManifest): Beast2Manif
     return {
         manifest,
         segment(i) {
-            const file = `${dir}/${manifest.entries[i]!.hash}.beast2`;
+            const file = segmentFile(`${dir}/${manifest.entries[i]!.hash}.beast2`);
             let size: number;
             try {
                 size = statSync(file).size;

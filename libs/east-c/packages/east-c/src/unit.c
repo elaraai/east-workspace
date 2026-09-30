@@ -70,10 +70,10 @@ EastType *east_unit_type(void)
     EastType *work_types[3] = {east_struct_type(intake_names, intake_types, 4),
                                east_struct_type(merge_names, merge_types, 3),
                                east_struct_type(run_names, run_types, 3)};
-    const char *names[4] = {"work", "platforms", "threads", "result"};
-    EastType *types[4] = {east_variant_type(work_names, work_types, 3), strings, &east_integer_type,
-                          &east_string_type};
-    return east_struct_type(names, types, 4);
+    const char *names[5] = {"work", "platforms", "threads", "fetch", "result"};
+    EastType *types[5] = {east_variant_type(work_names, work_types, 3), strings, &east_integer_type,
+                          &east_boolean_type, &east_string_type};
+    return east_struct_type(names, types, 5);
 }
 
 EastType *east_unit_result_type(void)
@@ -311,7 +311,8 @@ static bool unit_fields(EastUnit *unit, EastValue *value, const char *base)
         oom = !unit->platforms[i];
     }
     unit->threads = east_struct_get_field_idx(value, 2)->data.integer;
-    unit->result = resolve_path(base, east_struct_get_field_idx(value, 3));
+    unit->fetch = east_struct_get_field_idx(value, 3)->data.boolean;
+    unit->result = resolve_path(base, east_struct_get_field_idx(value, 4));
     return !oom && unit->result;
 }
 

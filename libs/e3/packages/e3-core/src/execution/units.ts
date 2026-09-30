@@ -22,7 +22,9 @@
  * Spawning a unit is the caller's: the local runner spawns a process, and
  * another backend runs it wherever it runs units. Every path a unit names is
  * relative to the unit's directory, so a unit and the files it names are a
- * snapshot `exec` replays wherever they are moved together.
+ * snapshot `exec` replays wherever they are moved together — once its
+ * segments are there, for a unit whose host places them as the runner reads
+ * them (its `fetch`).
  *
  * @packageDocumentation
  */
@@ -110,6 +112,8 @@ const unitPath = (dir: string, file: string): string => path.relative(dir, file)
  * @param task - The task object: an East body, on a stock runner
  * @param inputs - The staged inputs, in the body's parameter order
  * @param threads - The threads the runner may use (`unitThreads`)
+ * @param fetch - Whether the inputs' segments were left to a
+ *   `SegmentFetcher`, which places each as the runner asks for it
  * @returns The staged unit
  * @throws {Error} When the task's body is a command, or its runner is the
  *   `custom` runtime, which executes no unit.
@@ -121,6 +125,7 @@ export async function stageRunUnit(
   task: TaskObject,
   inputs: readonly string[],
   threads: number,
+  fetch = false,
 ): Promise<TaskUnit> {
   const runner = task.runner;
   if (task.body.type !== 'east' || runner.type === 'custom') {
@@ -159,6 +164,7 @@ export async function stageRunUnit(
     }),
     platforms: runner.value.platforms,
     threads: BigInt(threads),
+    fetch,
     result: RESULT_FILE,
   };
   const file = path.join(dir, 'unit.beast2');
@@ -180,6 +186,8 @@ export async function stageRunUnit(
  * @param parts - The staged parts, in piece order
  * @param range - The staged key range, or `null` to merge the parts whole
  * @param threads - The threads the runner may use (`unitThreads`)
+ * @param fetch - Whether the parts' segments were left to a
+ *   `SegmentFetcher`, which places each as the runner asks for it
  * @returns The staged unit
  * @throws {Error} When the task's runner is the `custom` runtime, or its output
  *   is a value or an array, whose parts no unit merges.
@@ -192,6 +200,7 @@ export async function stageMergeUnit(
   parts: readonly string[],
   range: string | null,
   threads: number,
+  fetch = false,
 ): Promise<TaskUnit> {
   const runner = task.runner;
   if (runner.type === 'custom') {
@@ -231,6 +240,7 @@ export async function stageMergeUnit(
     }),
     platforms: runner.value.platforms,
     threads: BigInt(threads),
+    fetch,
     result: RESULT_FILE,
   };
   const file = path.join(dir, 'unit.beast2');
@@ -249,6 +259,8 @@ export async function stageMergeUnit(
  * @param inputs - The arguments' files, in the function's parameter order
  * @param output - The file the value is written to
  * @param threads - The threads the runner may use (`unitThreads`)
+ * @param fetch - Whether the arguments' segments were left to a
+ *   `SegmentFetcher`, which places each as the runner asks for it
  * @returns The staged unit
  */
 export async function stageCallUnit(
@@ -258,6 +270,7 @@ export async function stageCallUnit(
   inputs: readonly string[],
   output: string,
   threads: number,
+  fetch = false,
 ): Promise<StagedUnit> {
   const unit: Unit = {
     work: variant('run', {
@@ -267,6 +280,7 @@ export async function stageCallUnit(
     }),
     platforms: runner.value.platforms,
     threads: BigInt(threads),
+    fetch,
     result: RESULT_FILE,
   };
   const file = path.join(dir, 'unit.beast2');
@@ -315,6 +329,8 @@ export async function stageIntakeUnit(
     }),
     platforms: [],
     threads: BigInt(threads),
+    // A delivery is one file, placed whole before the unit runs.
+    fetch: false,
     result: RESULT_FILE,
   };
   const file = path.join(dir, 'unit.beast2');
@@ -396,6 +412,8 @@ export async function stageOutputMerge(unit: TaskUnit): Promise<StagedUnit | nul
     }),
     platforms: unit.unit.platforms,
     threads: unit.unit.threads,
+    // Its parts are the runs the unit wrote beside it: nothing to fetch.
+    fetch: false,
     result: OUTPUT_MERGE_RESULT,
   };
   const file = path.join(unit.dir, OUTPUT_MERGE_FILE);

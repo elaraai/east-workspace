@@ -19,6 +19,7 @@
  *   const ctx = await createTestContext({
  *     baseUrl: 'http://localhost:3000',
  *     getToken: async () => 'test-token',
+ *     getReaderToken: async (repo) => readerTokenFor(repo),
  *     cleanup: true,
  *   });
  *   t.after(() => ctx.cleanup());

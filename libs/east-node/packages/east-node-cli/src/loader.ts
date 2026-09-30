@@ -10,6 +10,7 @@ import { extname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import {
     IRType,
+    FETCH_SEGMENTS_ENV,
     decodeBeast2For,
     decodeBeast2,
     decodeEastFor,
@@ -398,7 +399,7 @@ function spliceManifestFiles(filePath: string, manifest: CollectionManifest): Ui
     if (manifest.entries.length === 0) return encodeBeast2SegmentsFor(type)([]);
     const dir = segmentDirFor(filePath);
     return spliceBeast2(manifest.entries.map((entry) =>
-        new Uint8Array(readFileSync(path.join(dir, `${entry.hash}.beast2`)))));
+        new Uint8Array(readFileSync(segmentFile(path.join(dir, `${entry.hash}.beast2`))))));
 }
 
 /** Bytes each lazily opened input has read from its descriptor so far —
@@ -493,6 +494,37 @@ export function segmentDirFor(filePath: string): string {
     return `${filePath}.segments`;
 }
 
+/** The longest a runner waits between looks for a segment it asked for. */
+const FETCH_WAIT_MAX_MS = 50;
+
+/**
+ * A staged manifest's segment file, present: asked of the host when it is
+ * absent and the host places segments as they are read ({@link
+ * FETCH_SEGMENTS_ENV} is `1`), by creating `<file>.want` and waiting for the
+ * host to place the file, whole, or to write `<file>.error`, why it cannot.
+ * Without the variable, an absent file is returned as it is, for its read to
+ * fail as ever.
+ *
+ * @param file - the segment's file, `<input>.segments/<hash>.beast2`
+ * @returns the file
+ * @throws {Error} When the host writes why it cannot place the segment.
+ */
+export function segmentFile(file: string): string {
+    if (existsSync(file) || process.env[FETCH_SEGMENTS_ENV] !== '1') return file;
+    const error = `${file}.error`;
+    closeSync(openSync(`${file}.want`, 'a'));
+    // The runner has nothing else to do while it waits: it sleeps between
+    // looks, a little longer each time.
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    for (let wait = 1; !existsSync(file); wait = Math.min(2 * wait, FETCH_WAIT_MAX_MS)) {
+        if (existsSync(error)) {
+            throw new Error(`beast2 v5: manifest segment ${file} cannot be placed: ${readFileSync(error, 'utf8')}`);
+        }
+        Atomics.wait(pause, 0, 0, wait);
+    }
+    return file;
+}
+
 /**
  * The bytes an input stands for: the collection a manifest-rooted file names
  * — the manifest and every segment file — or any other file's own size.
@@ -525,7 +557,8 @@ export function inputBytes(filePath: string): number {
 /** Opens a manifest-rooted input as a lazy collection over its segment files.
  *  Returns `undefined` when the element shape is not lazy-safe or a segment
  *  the manifest names is missing — the caller falls back to the eager load,
- *  which splices the same files. */
+ *  which splices the same files. A segment the host places as it is read is
+ *  asked for when it is first read, and not missed. */
 function openManifestLazy(filePath: string, manifest: CollectionManifest, open: CountedOpener): unknown | undefined {
     const typeValue = manifest.type as EastTypeValue;
     if (!isBeast2LazySafe(typeValue, { frozen: true })) {
@@ -534,10 +567,12 @@ function openManifestLazy(filePath: string, manifest: CollectionManifest, open: 
     }
     const dir = segmentDirFor(filePath);
     const entries = manifest.entries;
-    for (const entry of entries) {
-        if (!existsSync(path.join(dir, `${entry.hash}.beast2`))) {
-            open.closeAll();
-            return undefined;
+    if (process.env[FETCH_SEGMENTS_ENV] !== '1') {
+        for (const entry of entries) {
+            if (!existsSync(path.join(dir, `${entry.hash}.beast2`))) {
+                open.closeAll();
+                return undefined;
+            }
         }
     }
     const readers: (Beast2SyncRangeReader | undefined)[] = new Array(entries.length);
@@ -548,7 +583,7 @@ function openManifestLazy(filePath: string, manifest: CollectionManifest, open: 
             // body that iterates every segment of a large record would
             // otherwise hold a descriptor per segment for the value's life,
             // and run out of them.
-            return readers[i] ??= open.segment(path.join(dir, `${entries[i]!.hash}.beast2`));
+            return readers[i] ??= open.segment(segmentFile(path.join(dir, `${entries[i]!.hash}.beast2`)));
         },
     };
     const value = openBeast2LazyFor(typeValue, { frozen: true })(source) as object;

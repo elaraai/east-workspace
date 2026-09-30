@@ -21,9 +21,11 @@ import type { Readable } from 'stream';
 import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { createRequire } from 'module';
+import { FETCH_SEGMENTS_ENV } from '@elaraai/east';
 import { DatasetSegments, openDatasetObject } from '../dataset-open.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../concurrency.js';
 import type { StorageBackend } from '../storage/interfaces.js';
+import type { SegmentFetcher } from './segment-fetch.js';
 
 // On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
 // executables. Node's `spawn(name, ...)` doesn't honour PATHEXT and
@@ -109,12 +111,38 @@ export interface MarshalInputsOptions {
    * which, through a hard link, would corrupt the object itself.
    */
   link?: boolean;
+  /**
+   * Leaves each manifest's segments unplaced and hands them to this fetcher,
+   * which places each as the runner asks for it: the runner protocol's
+   * segments on demand, for a store whose objects are elsewhere, so a unit
+   * downloads the segments it reads. Only with `manifests`, for a unit that
+   * says so (its `fetch`), which turns the asking on in its runner.
+   */
+  fetcher?: SegmentFetcher;
 }
 
 /** One object staged at a path, for a runner to read. */
 interface Placement {
   hash: string;
   dest: string;
+  /** Whether it is a segment of a manifest staged beside it. */
+  segment?: boolean;
+}
+
+/**
+ * Places what staging an input decided on, {@link OBJECT_CONCURRENCY} at a
+ * time; a segment is handed to the fetcher instead, when there is one, to be
+ * placed as the runner asks for it.
+ */
+async function place(storage: StorageBackend, repo: string, placements: readonly Placement[], options: MarshalInputsOptions): Promise<void> {
+  const fetcher = options.fetcher;
+  const now = fetcher === undefined ? placements : placements.filter((placement) => {
+    if (placement.segment !== true) return true;
+    fetcher.add(placement.hash, placement.dest);
+    return false;
+  });
+  await eachAtMost(now, OBJECT_CONCURRENCY, ({ hash, dest }) =>
+    storage.objects.materialize(repo, hash, dest, { link: options.link !== false }));
 }
 
 /**
@@ -145,7 +173,7 @@ async function inputPlacements(
     const segments = [...new Set(manifest.entries.map((entry) => entry.hash))];
     return [
       { hash, dest: inputPath },
-      ...segments.map((segment) => ({ hash: segment, dest: path.join(segmentDir, `${segment}.beast2`) })),
+      ...segments.map((segment) => ({ hash: segment, dest: path.join(segmentDir, `${segment}.beast2`), segment: true })),
     ];
   }
   const segments = await DatasetSegments.open(storage, repo, hash);
@@ -173,15 +201,16 @@ async function inputPlacements(
  * into one file for a runner that does not. Peak memory is a few segments
  * either way; for the first, no segment's bytes move at all. Objects are
  * placed {@link OBJECT_CONCURRENCY} at a time: a link each locally, but a
- * request each on a remote store. An indexed record's `$record` state is never
- * staged: its primary is, the rows.
+ * request each on a remote store — where, given a fetcher, a manifest's
+ * segments are placed as the runner asks for them instead. An indexed
+ * record's `$record` state is never staged: its primary is, the rows.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param dataset - The hash of the object the dataset's ref names
  * @param inputPath - Where the input is staged
- * @param options - Whether it may share the object's storage, and whether the
- *   runner opens a manifest
+ * @param options - Whether it may share the object's storage, whether the
+ *   runner opens a manifest, and the fetcher its segments are left to
  */
 export async function stageInput(
   storage: StorageBackend,
@@ -190,9 +219,7 @@ export async function stageInput(
   inputPath: string,
   options: MarshalInputsOptions = {}
 ): Promise<void> {
-  const placements = await inputPlacements(storage, repo, dataset, inputPath, options.manifests === true);
-  await eachAtMost(placements, OBJECT_CONCURRENCY, ({ hash, dest }) =>
-    storage.objects.materialize(repo, hash, dest, { link: options.link !== false }));
+  await place(storage, repo, await inputPlacements(storage, repo, dataset, inputPath, options.manifests === true), options);
 }
 
 /**
@@ -208,7 +235,8 @@ export async function stageInput(
  * @param repo - Repository identifier
  * @param scratchDir - The execution's scratch directory
  * @param inputHashes - Object hashes, in input order
- * @param options - Whether a staged input may share the object's storage
+ * @param options - Whether a staged input may share the object's storage,
+ *   whether the runner opens a manifest, and the fetcher segments are left to
  * @returns The staged file paths, in input order
  */
 export async function marshalInputsToDir(
@@ -225,8 +253,7 @@ export async function marshalInputsToDir(
     placements.push(...await inputPlacements(storage, repo, inputHashes[i]!, inputPath, options.manifests === true));
     inputPaths.push(inputPath);
   }
-  await eachAtMost(placements, OBJECT_CONCURRENCY, ({ hash, dest }) =>
-    storage.objects.materialize(repo, hash, dest, { link: options.link !== false }));
+  await place(storage, repo, placements, options);
   return inputPaths;
 }
 
@@ -435,8 +462,10 @@ export interface SpawnAndCaptureOptions {
   searchDirs?: string[];
   /** Variables the child's environment gains after `process.env`'s: the
    *  secrets a runner's platform functions read, say. Runtime-only, so never
-   *  hashed and never logged. They may not set a variable e3 sets itself,
-   *  `PATH` or `E3_RUNNER_SEARCH_DIRS`: the spawn refuses one that does. */
+   *  hashed and never logged. They may not set a variable e3 sets itself:
+   *  `PATH`, `E3_RUNNER_SEARCH_DIRS`, or `E3_FETCH_SEGMENTS`, which no runner
+   *  inherits — only a unit's `fetch` turns it on, in its runner's own
+   *  process. The spawn refuses one that does. */
   extraEnv?: Readonly<Record<string, string>>;
   /** Called once the child has spawned, with its pid (or null) and the stop
    *  an abort makes, which ends the child's process group and reports
@@ -587,7 +616,7 @@ export async function spawnAndCapture(
   // ones e3 sets for the runner. Windows compares names case-insensitively.
   for (const name of Object.keys(options.extraEnv ?? {})) {
     const key = process.platform === 'win32' ? name.toUpperCase() : name;
-    if (key === 'PATH' || key === 'E3_RUNNER_SEARCH_DIRS') {
+    if (key === 'PATH' || key === 'E3_RUNNER_SEARCH_DIRS' || key === FETCH_SEGMENTS_ENV) {
       throw new Error(`a runner's environment may not set ${name}, which e3 sets itself`);
     }
   }
@@ -598,6 +627,9 @@ export async function spawnAndCapture(
       .filter(Boolean)
       .join(pathSep),
   };
+  // Only a unit turns segments on demand on, in its runner's own process: one
+  // this process holds reaches no runner.
+  delete spawnOpts.env[FETCH_SEGMENTS_ENV];
   // Propagate the project search dirs to the runner. The child runs in a scratch
   // cwd (above), so it cannot find the project root on its own — without this a
   // runner CLI can't resolve a project's OWN platform package by Node

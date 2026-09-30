@@ -56,7 +56,7 @@ describe('the segment-object layout', () => {
   /** Object hashes in the store, so a write's object count can be counted. */
   async function storedHashes(): Promise<Set<string>> {
     const hashes = new Set<string>();
-    let cursor: unknown;
+    let cursor: string | undefined;
     do {
       const scan = await storage.repos.gcScanObjects(repo, cursor);
       for (const entry of scan.objects) hashes.add(entry.hash);

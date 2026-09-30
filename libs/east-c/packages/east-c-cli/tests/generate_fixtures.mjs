@@ -145,6 +145,7 @@ const fixtures = {
     work: variant('run', { program: 'emit_spin.beast2', inputs: [], output: variant('set', 'lifeline_output') }),
     platforms: [],
     threads: 1n,
+    fetch: false,
     result: 'lifeline_result.beast2',
   }),
 
@@ -161,7 +162,37 @@ const fixtures = {
     }),
     platforms: [],
     threads: 1n,
+    fetch: false,
     result: 'paged_has_result.beast2',
+  }),
+
+  // ---- A unit given no platform (#1031) ---------------------------------
+
+  // A program calling east-node-std's `console_log`, by the name it declares
+  // it under, and the unit that runs it given no platform package. A runner
+  // loads none, so the program fails, naming it: e3 lets a reader run a
+  // one-shot on such a unit. Its paths are relative, like the lifeline
+  // unit's.
+  'platform_call.beast2': (() => {
+    const consoleLog = East.platform('console_log', [StringType], NullType);
+    return encodeEastIR(
+      East.function([], IntegerType, ($) => {
+        const message = $.const('called');
+        $(consoleLog(message));
+        return 1n;
+      }).toIR(),
+    );
+  })(),
+  'platform_call_unit.beast2': encodeBeast2For(UnitType)({
+    work: variant('run', {
+      program: 'platform_call.beast2',
+      inputs: [],
+      output: variant('value', 'platform_call_output.beast2'),
+    }),
+    platforms: [],
+    threads: 1n,
+    fetch: false,
+    result: 'platform_call_result.beast2',
   }),
 };
 

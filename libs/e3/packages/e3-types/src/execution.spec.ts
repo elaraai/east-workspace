@@ -70,6 +70,13 @@ describe('ExecutionStatusType', () => {
     assert.deepEqual(executionStatusRoots(variant('cancelled', { ...stopped, unit: false })), []);
   });
 
+  it('keeps from gc the inputs a running attempt reads, passing over a merge\'s tag', () => {
+    const running = { executionId: '0199-c', startedAt: new Date(1000), pid: 4242n, pidStartTime: 7n, bootId: 'boot' };
+    assert.deepEqual(executionStatusRoots(variant('running', { ...running, inputHashes: ['a'.repeat(64), 'd'.repeat(64)], unit: false })),
+      ['a'.repeat(64), 'd'.repeat(64)]);
+    assert.deepEqual(executionStatusRoots(variant('running', { ...running, inputHashes: ['merge', 'e'.repeat(64)], unit: true })), ['e'.repeat(64)]);
+  });
+
   it('refuses a record an older e3 wrote, naming the fix', () => {
     const refusal = /^Error: the execution status does not decode: an older e3 wrote this repository — re-create it: deploy again and import its data again \(/;
     const records = [

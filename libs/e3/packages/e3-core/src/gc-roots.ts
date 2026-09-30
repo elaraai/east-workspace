@@ -36,18 +36,25 @@ export async function packageRoots(refs: RefStore, repo: string): Promise<string
  * What each deployed workspace names: its package object, and the value and
  * the history of each of its datasets.
  *
+ * @remarks
+ * A workspace whose record or dataset refs cannot be read names roots that
+ * cannot be known, and a sweep without them would delete its data: the scan
+ * refuses instead, naming the workspace.
+ *
  * @param refs - The backend's ref store
  * @param datasets - The backend's dataset ref store
  * @param repo - Repository identifier
  * @returns The roots' hashes
+ * @throws {Error} When a workspace's record or one of its dataset refs cannot
+ *   be read
  */
 export async function workspaceRoots(refs: RefStore, datasets: DatasetRefStore, repo: string): Promise<string[]> {
   const roots: string[] = [];
   const decoder = decodeBeast2For(WorkspaceRecordType);
   for (const name of await refs.workspaceList(repo)) {
-    const data = await refs.workspaceRead(repo, name);
-    if (data === null) continue;
     try {
+      const data = await refs.workspaceRead(repo, name);
+      if (data === null) continue;
       const record = decoder(data);
       if (record.type === 'none') continue; // not deployed
       roots.push(record.value.packageHash);
@@ -63,8 +70,8 @@ export async function workspaceRoots(refs: RefStore, datasets: DatasetRefStore, 
         const selfEntry = ref.value.versions.get(refPathToKeypath(refPath));
         if (selfEntry !== undefined) roots.push(selfEntry);
       }
-    } catch {
-      // Corrupt workspace state - skip
+    } catch (err) {
+      throw new Error(`gc sweeps nothing while it cannot read what workspace '${name}' names: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return roots;

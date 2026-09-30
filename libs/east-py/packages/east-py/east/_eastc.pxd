@@ -580,6 +580,10 @@ cdef extern from "east/serialization.h":
                                              EastType *type, bint frozen)
     EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest,
                                                EastType *type, bint frozen)
+    # Segments on demand: while this environment variable holds "1" — set by
+    # a runner's exec when its unit's `fetch` says so — a read of an absent
+    # segment file asks the host for it and waits.
+    const char *EAST_BEAST2_FETCH_SEGMENTS_ENV
     ctypedef struct Beast2ManifestWriter:
         pass
     Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
@@ -790,6 +794,7 @@ cdef extern from "east/unit.h":
         char **platforms
         size_t num_platforms
         int64_t threads
+        bint fetch
         char *result
 
     EastUnit *east_unit_read(const char *path)

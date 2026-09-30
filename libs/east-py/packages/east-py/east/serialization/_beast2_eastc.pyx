@@ -1257,10 +1257,11 @@ def _read_unit(object path):
     ``inputs`` (a merge's parts, an intake's delivery), ``range``, ``type``
     and ``segments`` (an intake's type file, and ``(from, to)`` of its
     delivery's segments or None), ``output`` (its ``kind`` and its ``path``,
-    ``merge``, ``zero`` and ``combine``), ``platforms``, ``threads`` and
-    ``result``. Every path is resolved against the unit file's directory.
-    Raises ValueError with east-c's message when the file does not hold a
-    unit."""
+    ``merge``, ``zero`` and ``combine``), ``platforms``, ``threads``,
+    ``fetch`` (whether the host places the segments of the collections the
+    unit reads as the runner asks for them) and ``result``. Every path is
+    resolved against the unit file's directory. Raises ValueError with
+    east-c's message when the file does not hold a unit."""
     _ensure_eastc_runtime()
     cdef bytes c_path = _c_path(path)
     cdef _eastc.EastUnit* unit = _eastc.east_unit_read(<const char*>c_path)
@@ -1291,10 +1292,17 @@ def _read_unit(object path):
             },
             "platforms": platforms,
             "threads": unit.threads,
+            "fetch": bool(unit.fetch),
             "result": _py_path(unit.result),
         }
     finally:
         _eastc.east_unit_free(unit)
+
+
+# The environment variable east-c's manifest openers read (serialization.h):
+# ``exec`` sets it to ``1`` in its own process when its unit's ``fetch`` asks
+# for segments as they are read, so a read of an absent segment asks the host.
+_FETCH_SEGMENTS_ENV = (<bytes>_eastc.EAST_BEAST2_FETCH_SEGMENTS_ENV).decode("ascii")
 
 
 def _write_unit_result(object path, bint ok, object message, object locations,

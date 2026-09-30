@@ -24,10 +24,14 @@ export * from './handlers/index.js';
 export * from './routes/index.js';
 
 // Export auth middleware
-export { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
+export { createAuthMiddleware, type AuthConfig, type Identity } from './middleware/auth.js';
+
+// A key pair and the tokens it signs, as the built-in OIDC provider issues
+// them: what a host or a test signs its callers' tokens with
+export { generateKeyPair, signJwt, type KeyPair, type JwtPayload } from './auth/keys.js';
 
 // The gate every request to one repository passes
-export { createRepositoryGate, createSingleRepositoryGate } from './middleware/repository.js';
+export { createRepositoryGate, createSingleRepositoryGate, type RepositoryGateOptions } from './middleware/repository.js';
 
 // Export BEAST2 helpers for custom integrations
 export { sendSuccess, sendError, sendSuccessWithStatus, decodeBeast2, decodeBody } from './beast2.js';

@@ -40,6 +40,7 @@ export {
 export {
   repositoryOpen,
   newRepositoryRecord,
+  type RepositoryOpenOptions,
 } from './repository-record.js';
 
 // What holds a repository: running work shared, and gc or an upgrade exclusive
@@ -50,14 +51,23 @@ export {
   type RepositoryHoldOptions,
 } from './running-work.js';
 
-// Garbage collection
+// Garbage collection: holding the repository still, or beside running work in
+// steps; and the re-reference of what a caller roots without writing it
 export {
   repoGc,
+  repoGcStep,
+  GcStepType,
   collectAllRoots,
+  gcObjectReaders,
   markReachable,
+  touchReachable,
   sweepBatch,
   type GcOptions,
+  type GcRetention,
   type GcResult,
+  type GcStep,
+  type GcStepOptions,
+  type GcStepResult,
   type MarkReachableOptions,
   type SweepBatchResult,
 } from './gc.js';
@@ -95,6 +105,7 @@ export {
   packageImport,
   packageZipOpen,
   packageExport,
+  packageZipCheckpointWithin,
   packageRemove,
   packageList,
   packageGetLatestVersion,
@@ -104,7 +115,20 @@ export {
   type PackageImportOptions,
   type PackageZip,
   type PackageExportResult,
+  type PackageExportOptions,
 } from './packages.js';
+
+// Zips read by ranges where they lie, and written a stream an entry at a time
+export {
+  ZipWriter,
+  ZipSourceError,
+  openZip,
+  iterateZipEntries,
+  type ZipSource,
+  type ZipEntry,
+  type ZipRecord,
+  type ZipWritten,
+} from './zip.js';
 
 // Workspace operations
 export {
@@ -117,6 +141,7 @@ export {
   workspaceDeploy,
   workspaceExport,
   type WorkspaceExportResult,
+  type WorkspaceExportOptions,
   type WorkspaceRemoveOptions,
   type WorkspaceDeployOptions,
   type DeploySourceProgress,
@@ -192,9 +217,11 @@ export {
 export {
   datasetAdoptFile,
   datasetAdoptObject,
-  deliveryKnown,
+  datasetAdoptKnown,
   objectAdoptFile,
+  adoptProgressToIntakeFile,
   type DatasetAdoptOptions,
+  type DatasetAdoptObjectOptions,
   type DatasetAdoptProgress,
   type DatasetAdoptResult,
   type DatasetTaken,
@@ -406,6 +433,8 @@ export {
   RepoAlreadyExistsError,
   RepoStatusConflictError,
   RepoLayoutError,
+  RepositoryBusyError,
+  RepositoryUpgradePendingError,
   // Names
   InvalidNameError,
   checkName,
@@ -421,6 +450,7 @@ export {
   PackageNotFoundError,
   PackageInvalidError,
   PackageExistsError,
+  ExportStoppedError,
   // Dataset
   DatasetNotFoundError,
   DatasetRefConflictError,
@@ -431,6 +461,7 @@ export {
   // Object
   ObjectNotFoundError,
   ObjectCorruptError,
+  GcReadError,
   // Execution
   ExecutionCorruptError,
   ExecutionNotFoundError,

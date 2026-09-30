@@ -607,8 +607,9 @@ describe('dataflow', () => {
       const inputEncoder = encodeBeast2For(StringType);
       const inputHash = await objectWrite(testRepo, inputEncoder('test'));
 
-      // Task that sleeps for 2 seconds
-      const slowCmd = ['bash', '-c', 'sleep 2; cp "$1" "$2"', '--', '{input}', '{output}'];
+      // A task that says it has started, then would take a minute, far longer
+      // than any machine takes to stop it
+      const slowCmd = ['bash', '-c', 'echo started; sleep 60; cp "$1" "$2"', '--', '{input}', '{output}'];
       await createPackageWithTasks(
         testRepo,
         [{ name: 'slow-task', command: slowCmd, inputs: [inputPath], output: outputPath }],
@@ -625,14 +626,12 @@ describe('dataflow', () => {
 
       const controller = new AbortController();
 
-      // Start execution
+      // Start execution, aborting it once the task says it has started: while
+      // it runs, at no time the test guesses
       const executionPromise = dataflowExecute(storage, testRepo, 'test-ws', {
         signal: controller.signal,
+        onStdout: () => controller.abort(),
       });
-
-      // Abort after a short delay
-      await new Promise(resolve => setTimeout(resolve, 200));
-      controller.abort();
 
       // Should throw DataflowAbortedError
       await assert.rejects(
@@ -662,12 +661,13 @@ describe('dataflow', () => {
       const inputEncoder = encodeBeast2For(StringType);
       const inputHash = await objectWrite(testRepo, inputEncoder('test'));
 
-      // Fast task completes quickly, slow task takes long
+      // The fast task completes at once; the slow one would take a minute, far
+      // longer than any machine takes to run the fast one, and the abort stops it
       await createPackageWithTasks(
         testRepo,
         [
           { name: 'fast-task', command: ['cp', '{input}', '{output}'], inputs: [inputPath], output: fastOutputPath },
-          { name: 'slow-task', command: ['bash', '-c', 'sleep 2; cp "$1" "$2"', '--', '{input}', '{output}'], inputs: [inputPath], output: slowOutputPath },
+          { name: 'slow-task', command: ['bash', '-c', 'sleep 60; cp "$1" "$2"', '--', '{input}', '{output}'], inputs: [inputPath], output: slowOutputPath },
         ],
         structure,
         {
@@ -683,14 +683,15 @@ describe('dataflow', () => {
       const controller = new AbortController();
 
       // Start execution: the loop keeps four tasks in flight unless told
-      // otherwise, so both tasks start
+      // otherwise, so both tasks start. The run is aborted as the fast task
+      // completes, which the run records before it reports it, while the slow
+      // one still runs: at no time the test guesses
       const executionPromise = dataflowExecute(storage, testRepo, 'test-ws', {
         signal: controller.signal,
+        onTaskComplete: (result) => {
+          if (result.name === 'fast-task') controller.abort();
+        },
       });
-
-      // Wait for fast task to complete, then abort
-      await new Promise(resolve => setTimeout(resolve, 300));
-      controller.abort();
 
       // Should throw with partial results
       try {
@@ -704,6 +705,7 @@ describe('dataflow', () => {
         const fastResult = abortErr.partialResults!.find(r => r.name === 'fast-task');
         assert.ok(fastResult, 'Fast task should be in partial results');
         assert.strictEqual(fastResult!.state, 'success');
+        assert.ok(!abortErr.partialResults!.some(r => r.name === 'slow-task'), 'the slow task was stopped, not completed');
       }
     });
   });

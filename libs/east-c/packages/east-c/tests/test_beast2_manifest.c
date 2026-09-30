@@ -18,6 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <dirent.h>
+#endif
 
 static int failures = 0;
 
@@ -388,6 +391,148 @@ static void test_merge(void)
     east_value_release(dict);
 }
 
+/* ----- segments the host places as they are read -------------------------- */
+
+/* A host on a thread of its own — the reader waits on its own thread — that
+ * places each segment asked for in `segment_dir` from `store`, where the
+ * segments were moved, or writes `refusal` for it, until stopped. */
+typedef struct {
+    const char *segment_dir;
+    const char *store;
+    const char *refusal;
+    unsigned char stop;
+    int placed;
+} Host;
+
+static EAST_THREAD_ENTRY host_serve(void *arg)
+{
+    Host *h = arg;
+    while (!__atomic_load_n(&h->stop, __ATOMIC_ACQUIRE)) {
+        DIR *d = opendir(h->segment_dir);
+        struct dirent *e;
+        while (d && (e = readdir(d))) {
+            size_t n = strlen(e->d_name);
+            if (n < 5 || strcmp(e->d_name + n - 5, ".want") != 0) continue;
+            char file[512], from[512], placing[600];
+            struct stat st;
+            snprintf(file, sizeof(file), "%s/%.*s", h->segment_dir, (int)(n - 5), e->d_name);
+            if (stat(file, &st) == 0) continue;
+            if (h->refusal) {
+                snprintf(placing, sizeof(placing), "%s.error", file);
+                if (stat(placing, &st) == 0) continue;
+                FILE *f = fopen(placing, "wb");
+                if (f) {
+                    fputs(h->refusal, f);
+                    fclose(f);
+                }
+                continue;
+            }
+            snprintf(from, sizeof(from), "%s/%.*s", h->store, (int)(n - 5), e->d_name);
+            snprintf(placing, sizeof(placing), "%s.placing", file);
+            ByteBuffer *bytes = read_file(from);
+            FILE *f = bytes ? fopen(placing, "wb") : NULL;
+            if (f) {
+                fwrite(bytes->data, 1, bytes->len, f);
+                fclose(f);
+                if (rename(placing, file) == 0) h->placed++;
+            }
+            byte_buffer_free(bytes);
+        }
+        if (d) closedir(d);
+        usleep(1000);
+    }
+    return EAST_THREAD_DONE;
+}
+
+/* With EAST_BEAST2_FETCH_SEGMENTS_ENV at "1" a reader asks the host for each
+ * segment it reads, beside where it would be, and waits for it: a keyed read
+ * asks for the one it lands in, and a segment the host cannot place fails the
+ * read in the host's words. Without it, an absent segment fails the read at
+ * once. */
+static void test_fetched_segments(void)
+{
+    char path[256], store[256], segment_dir[300], object[512], moved[512];
+    EastType *type = east_dict_type(&east_string_type, &east_integer_type);
+    EastValue *dict = parity_dict(type, 50000);
+    path_of(path, sizeof(path), "fetched.beast2");
+    CHECK(east_beast2_write_manifest_dir(dict, type, EAST_BEAST2_CODEC_DEFLATE, path),
+          "writing failed: %s", east_builtin_get_error());
+    EastValue *manifest = manifest_at(path);
+    if (!manifest) {
+        east_value_release(dict);
+        return;
+    }
+    path_of(store, sizeof(store), "store");
+    east_mkdir(store);
+    snprintf(segment_dir, sizeof(segment_dir), "%s.segments", path);
+    size_t n = east_array_len(entries_of(manifest));
+    for (size_t i = 0; i < n; i++) {
+        EastValue *hash = entry_hash(manifest, i);
+        object_path(object, sizeof(object), path, hash->data.string.data, hash->data.string.len);
+        snprintf(moved, sizeof(moved), "%s/%.64s.beast2", store, hash->data.string.data);
+        rename(object, moved);
+    }
+
+    setenv(EAST_BEAST2_FETCH_SEGMENTS_ENV, "1", 1);
+    Host host = {segment_dir, store, NULL, 0, 0};
+    EastThread thread;
+    CHECK(east_thread_start(&thread, host_serve, &host), "the host did not start");
+    EastValue *lazy = east_beast2_open_manifest_dir(path, manifest, type, true);
+    CHECK(lazy && lazy->kind == EAST_VAL_PAGED, "the directory did not open lazily: %s",
+          east_builtin_get_error());
+    if (lazy) {
+        EastValue *key = east_string("k0031415");
+        EastValue *value = NULL;
+        CHECK(east_beast2_pages_get_key(lazy->data.paged.pages, key, &value) == 1 && value &&
+                  value->data.integer == 31415,
+              "a keyed read of the fetched directory missed: %s", east_builtin_get_error());
+        if (value) east_value_release(value);
+        east_value_release(key);
+        east_value_release(lazy);
+    }
+    __atomic_store_n(&host.stop, 1, __ATOMIC_RELEASE);
+    east_thread_join(thread);
+    CHECK(host.placed == 1, "a keyed read asked for %d segments, not the one it lands in",
+          host.placed);
+
+    Host refusing = {segment_dir, store, "the store is throttling", 0, 0};
+    CHECK(east_thread_start(&thread, host_serve, &refusing), "the refusing host did not start");
+    CHECK(east_beast2_decode_manifest_dir(path, manifest, type, false) == NULL,
+          "a directory whose host refused a segment decoded");
+    char *err = east_builtin_get_error();
+    CHECK(err && strstr(err, "cannot be placed: the store is throttling"),
+          "the refusal was reported as: %s", err ? err : "nothing");
+    free(err);
+    __atomic_store_n(&refusing.stop, 1, __ATOMIC_RELEASE);
+    east_thread_join(thread);
+
+    unsetenv(EAST_BEAST2_FETCH_SEGMENTS_ENV);
+    CHECK(east_beast2_decode_manifest_dir(path, manifest, type, false) == NULL,
+          "a directory missing its segments decoded with no host placing them");
+    err = east_builtin_get_error();
+    CHECK(err && strstr(err, "cannot be read"), "the missing segment was reported as: %s",
+          err ? err : "nothing");
+    free(err);
+
+    /* Everything back where the directory's removal finds it. */
+    for (size_t i = 0; i < n; i++) {
+        EastValue *hash = entry_hash(manifest, i);
+        object_path(object, sizeof(object), path, hash->data.string.data, hash->data.string.len);
+        snprintf(moved, sizeof(moved), "%s/%.64s.beast2", store, hash->data.string.data);
+        remove(object);
+        rename(moved, object);
+        char asked[600];
+        snprintf(asked, sizeof(asked), "%s.want", object);
+        remove(asked);
+        snprintf(asked, sizeof(asked), "%s.error", object);
+        remove(asked);
+    }
+    rmdir(store);
+    remove_dir(path);
+    east_value_release(manifest);
+    east_value_release(dict);
+}
+
 /* ----- a sink that refuses ------------------------------------------------ */
 
 typedef struct {
@@ -462,6 +607,7 @@ int main(void)
     test_read_back();
     test_recognition();
     test_merge();
+    test_fetched_segments();
     test_refused_segment();
     rmdir(g_dir);
 

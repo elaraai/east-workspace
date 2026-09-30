@@ -17,6 +17,24 @@
 > `{ dataset }` beside a value's bytes), and a local runner stages it as a task
 > input is — its manifest with the segments linked, or spliced into one file
 > for a custom command — in a scratch directory inside the repository.
+> **Amended 2026-09-30 (#1031):** a caller who may read a workspace may run a
+> *platform-free* one-shot, and only an elevated grant runs any other (§10,
+> §11). Who may run what is the host's `OneShotAccess`, which
+> `createOneShotRoutes` takes (§7.1), and the call runs in e3-core's
+> `oneShotExecute` (§6.1). A result names the datasets it read
+> (`ExecuteResult.inputs`, §5).
+> **Amended 2026-09-30 (#1032):** a split call runs a caller's program over a
+> dataset's pieces as a job, as e3 runs an index build, launched and polled
+> through the one-shot routes under one-shot's grant (§10.1). An explain is a
+> job too, the job's timeout is one budget counted from its launch, and a
+> reader polls only a call a reader could have launched. What an `object`
+> argument names is re-referenced by the job, never by the launch.
+> **Amended 2026-09-30 (#1031, review of #1035):** a named function runs on
+> its own runner for any caller who reaches it. A call's `runner` override
+> naming the `custom` runtime is refused, `invalid`, whoever sends it; one that
+> loads a platform package the function's own runner does not needs the `any`
+> grant. The function routes take the host's `OneShotAccess` for it (§7.1,
+> §11).
 > Audience: e3 maintainers + an implementing agent. This is the **local/shared**
 > spec (e3 monorepo). The AWS cloud implementation is specified in the companion
 > doc `e3-cloud/design/e3-functions-cloud.md`, which depends on the published
@@ -376,12 +394,13 @@ export const ExecuteResultType = StructType({
   stderr: StringType,
   stdoutTruncated: BooleanType,
   stderrTruncated: BooleanType,
+  inputs: ArrayType(StructType({ path: TreePathType, hash: StringType })),   // what it read (#1031)
 }); // ValueTypeOf → ExecuteResult
 
 /** Named function call. Positional args, one beast2-encoded value per param. */
 export const FunctionCallRequestType = StructType({
   args:   ArrayType(BlobType),
-  runner: OptionType(RunnerType),       // optional override; only the known runtimes
+  runner: OptionType(RunnerType),       // optional override; a stock runtime, gated (§7.1)
   limits: OptionType(ExecuteLimitsType),
 });
 
@@ -415,6 +434,13 @@ export const CallStatusResultType = StructType({
 Register every new type in the **`ApiTypes`** const in BOTH
 `packages/e3-api-server/src/types.ts` and `packages/e3-api-client/src/types.ts`
 (they must stay mirrored), and export from `packages/e3-types/src/index.ts`.
+
+**What a result read (#1031).** `ExecuteResult.inputs` names each dataset
+argument, in argument order: its path, and the hash it was pinned at. An answer
+is a function of the values it read, so a caller can reproduce it, and notice a
+stale one. It is empty for a named function call, for a one-shot with value
+arguments only, and for an `invalid` result. The field is last, a wire change
+released in lockstep with the SDK (`docs/conventions/BEAST2_WIRE_VERSION.md`).
 
 ## 6. Shared execution core (e3-core) — `runDetached`
 
@@ -479,6 +505,52 @@ runtime decode failure from the runner (`failed`). `runnerSearchDir` replaces th
 task path's "walk up from repo dir" anchor — for the local server pass the
 server's cwd / configured runner dir (one-shot has no repo path).
 
+### 6.1 `oneShotExecute` — one-shot in e3-core (#1031)
+
+A one-shot runs in e3-core, through `StorageBackend` and `TaskRunner` only, so
+every backend shares it: a server's route calls it, and so does a caller with
+no server, such as `e3 query` over a local repository
+(`packages/e3-core/src/execution/oneShot.ts`):
+
+```ts
+export type OneShotGrant = 'any' | 'platform_free' | 'none';
+
+export interface OneShotOptions {
+  grant: OneShotGrant;          // what the caller may run: the grant the host's auth gave
+  syncDeadlineMs?: number;      // a call's timeout is clamped under it (default 120 000 ms)
+  ceilings?: { timeoutMs?: number; maxResultBytes?: number; maxLogBytes?: number };
+                                // the most a request may ask for (default a server's:
+                                // 10 minutes, 1 MiB, 256 KiB)
+  signal?: AbortSignal;
+  verbose?: boolean;
+}
+
+export async function oneShotExecute(storage, runner, repo, workspace, request: OneShotRequest,
+  options: OneShotOptions): Promise<ExecuteResult>;     // @throws {PermissionDeniedError}
+export function oneShotPlatformUse(request: OneShotRequest): string | null;
+export function resolveExecuteLimits(limits, options?): ResolvedLimits;
+export function detachedToExecuteResult(result: DetachedResult, inputs?): ExecuteResult;
+```
+
+It works in this order:
+
+1. **Grant.** `none` throws `PermissionDeniedError('one-shot')`; so does
+   `platform_free` with a request `oneShotPlatformUse` names a use in. Both
+   checks come before any storage read or runner call. A `platform_free`
+   caller's body that does not decode is `invalid`, with the decoder's message;
+   an `any` caller's goes to the runner undecoded.
+2. **Workspace.** It must exist and be deployed.
+3. **Pin.** Each dataset argument is pinned with `workspaceGetDatasetHash`; an
+   unassigned one is `invalid`, with `inputs` empty.
+4. **Run.** `runner.runDetached({ bodyIr, args, runner, limits }, { storage,
+   signal, verbose })`, each dataset argument passed as `{ dataset: hash }`.
+5. **Map.** `detachedToExecuteResult`, with `inputs` filled.
+
+The limits (`resolveExecuteLimits`) and the result mapping
+(`detachedToExecuteResult`) are shared: the named-function handler resolves its
+limits and maps its result through them, and `e3 call` maps its local result
+through `detachedToExecuteResult`, so it renders what a server answers.
+
 ## 7. Invocation surfaces
 
 `e3.function` touches no datasets, so it is callable at the **package** level
@@ -511,15 +583,35 @@ New files:
   - `callFunctionAsync(…)` → 202 `CallStartResultType` via the GC `void`-IIFE
     pattern: `createFunctionCall()`, fire the run detached, return `{callId}`.
   - `getCallStatus(callId)` → `CallStatusResultType`; `cancelCall(callId)` → abort.
-  - `callOneShotSync` / `callOneShotAsync` — same, but `bodyIr` comes from the
-    request (see §10) and (when binding datasets) inputs resolve from workspace
-    paths. **Gate by role** (one-shot = RCE; §11).
+  - one-shot has no handler: its route decodes the request and calls e3-core's
+    `oneShotExecute` (§6.1) with the grant the host gives the caller (§10), the
+    request's abort signal and `?verbose=1`. A thrown `PermissionDeniedError`
+    answers `permission_denied { path: "one-shot" }`.
   Export all from `handlers/index.ts` (and thus `index.ts`) "for Lambda reuse".
-- **`packages/e3-api-server/src/routes/functions.ts`** — two factories
-  `createPackageFunctionRoutes(storage, getRepoPath, runner)` and
-  `createOneShotRoutes(storage, getRepoPath, runner)` (Hono children), wiring the
-  handlers. The `runner: TaskRunner` is **injected** (local passes a
-  `LocalTaskRunner`), mirroring the orchestrator runner-injection seam.
+- **`packages/e3-api-server/src/routes/functions.ts`** — the factories
+  `createPackageFunctionRoutes(storage, getRepoPath, getRunner, { access?, syncDeadlineMs? })`,
+  `createWorkspaceFunctionRoutes(…, { access?, syncDeadlineMs? })` and
+  `createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, { access, syncDeadlineMs?, ceilings? })`
+  (Hono children), wiring the handlers; the one-shot routes' transfer backend
+  files and dispatches the split calls' jobs (§10.1). The runner is **injected** (local passes
+  a `LocalTaskRunner`), mirroring the orchestrator runner-injection seam, and so
+  is who may run what (#1031):
+  - **`OneShotAccess`** — `(c: Context) => OneShotGrant | Promise<OneShotGrant>`:
+    each request's caller's grant. Only the host's auth knows who the caller is,
+    so `access` is required, and every host decides. The local server passes
+    `oneShotAccessByRoles()` with `auth` or `oidc` configured — `any` for an
+    identity holding `admin` or `owner`, `platform_free` for any other identity,
+    `none` for a request with none — and `() => 'any'` with neither: a
+    single-tenant server, whose author is its operator. e3-cloud passes its own,
+    from its ACL store. The function routes take the same `access`, which only a
+    call's runner override is gated by (below); without one, a caller's
+    override loads no platform package the function's own runner does not. The
+    local server passes all three factories the one `access`.
+  - **`syncDeadlineMs`** — a sync call's deadline, under the host's request
+    timeout (default 120 000 ms): a slow call answers `timed_out`, not a
+    gateway error. The function and one-shot routes share the limits, so both
+    take it. `ceilings` lowers what a request may ask for, where a host's
+    response limits are tighter than a server's.
 
 Mount in **`packages/e3-api-server/src/server.ts`** after the auth middleware
 (`app.use('/api/repos/:repo/*', authMiddleware)`), before any catch-all:
@@ -538,16 +630,29 @@ GET    /api/repos/:repo/workspaces/:ws/functions
 GET    /api/repos/:repo/workspaces/:ws/functions/:fn
 POST   /api/repos/:repo/workspaces/:ws/functions/:fn            (+ /async, /calls/:callId)
 
-# one-shot (workspace-scoped; anonymous IR) — gated by role
-POST   /api/repos/:repo/workspaces/:ws/one-shot                 → callOneShotSync
+# one-shot (workspace-scoped; anonymous IR) — gated by the host's OneShotAccess
+POST   /api/repos/:repo/workspaces/:ws/one-shot                 → oneShotExecute (e3-core, §6.1)
+POST   /api/repos/:repo/workspaces/:ws/one-shot/split           → a split call's job id (§10.1); ?explain=1 a job that plans its pieces
+GET    /api/repos/:repo/workspaces/:ws/one-shot/split/:id       → the split call's status
 POST   /api/repos/:repo/workspaces/:ws/one-shot/async           → callOneShotAsync
 GET    /api/repos/:repo/workspaces/:ws/one-shot/calls/:callId   → getCallStatus
 DELETE /api/repos/:repo/workspaces/:ws/one-shot/calls/:callId   → cancelCall
 ```
 
 Request body = `FunctionCallRequestType` (decoded via `decodeBody`, wrapped in
-try/catch → `sendError`). `custom` runner override: the local server MAY allow it
-(single-tenant); document that the cloud forbids it. (Route params: the existing
+try/catch → `sendError`). A plain call — `runner: none` — runs the function on
+its own runner, for any caller who reaches the route: its author chose that
+runner, as a task's does, and a UI's viewers and the chat call functions so. A
+`runner` in the request overrides the stored one, and is gated before anything
+runs:
+
+| Override | Runs when |
+|---|---|
+| the `custom` runtime | never, on any host: `invalid`, since it runs a command of its own |
+| a stock runtime loading only packages the function's own runner loads | always |
+| a stock runtime loading any other package | the caller's grant is `any`; otherwise `permission_denied { path: "runner" }` |
+
+(Route params: the existing
 package routes use `:name/:version`; the new function factory is a separate Hono
 child, so its `:pkg` param is router-local — match `:name` if you prefer, but
 there is no collision.)
@@ -667,24 +772,196 @@ Async launch/poll/cancel state uses the same in-memory `function-call-state.ts`
 registry. **Snapshot consistency** for `dataset` args: resolve and pin each
 dataset's content hash at launch (objects are immutable, so no lock is needed).
 
-**Security (critical).** one-shot evaluates a **caller-supplied** IR → arbitrary
-argv → spawn: it is remote code execution with the server's authority. The named
-function path is safer (IR is author-published into the content-addressed store).
-Therefore: gate one-shot behind an **elevated role** (owner/admin), and in the
-cloud **forbid `custom`** and consider disabling one-shot entirely in multi-tenant
-deployments. Named-function calls are member-level and safe-by-construction
-(no caller IR). The deployed-task trust model already permits author IR to run;
-one-shot only differs by *who* supplies the IR and *when* — make that explicit.
+**Security (critical).** one-shot evaluates a **caller-supplied** IR on a
+**caller-chosen** runner, which may load platform functions: files, the network,
+processes. Such a call is code with the server's authority. The named function
+path is safer (IR is author-published into the content-addressed store). The
+deployed-task trust model already permits author IR to run; one-shot only
+differs by *who* supplies the IR and *when*.
+
+**Grants (#1031).** What a caller may run is a grant the host's auth gives it
+(`OneShotAccess`, §7.1), which `oneShotExecute` applies before it reads
+anything:
+
+| Grant | A one-shot request runs when |
+|---|---|
+| `any` | always, as `admin` and `owner` run one-shot |
+| `platform_free` | it is platform-free (below); otherwise `permission_denied { path: "one-shot" }`, and nothing runs |
+| `none` | never: `permission_denied { path: "one-shot" }` |
+
+A request is **platform-free** when both hold:
+
+1. **Its runner** is a stock runtime (`east_c`, `east_node` or `east_py`) with
+   `platforms: []`. A `custom` runner is not, and neither is a stock runtime
+   listing any package.
+2. **Its body IR** decodes and holds no `Platform` node at any depth, nested
+   functions included. An unresolved `East.importFunction` is a `Platform` node
+   (`IMPORT_PLATFORM`), so it counts too. The walk is `@elaraai/east`'s
+   `walkIR`, over the nodes `platformDependencies` reads.
+
+A runtime given a unit with no platform packages loads none — east-node's
+`loadPlatforms(unit.platforms)`, east-py's `for package in unit["platforms"]`,
+east-c's `east_std_register_all` only when `num_platforms > 0` — and each
+runtime's `exec` tests pin it, because the reader tier rests on it.
+
+**Why a platform-free one-shot is safe for a reader.** With no platform function
+in its body, and none loaded by its runner, it can only compute over its
+arguments: the workspace's datasets, which a reader can already read, pinned by
+hash at launch, and values the reader sent. A function value inside an argument
+may call platform functions; with none loaded, that call fails — the outcome is
+`failed`, with stderr naming the platform function — so it cannot reach I/O
+either. Its cost is bounded by one-shot's limits, unchanged for a reader: a
+60 s default timeout, clamped under the host's sync deadline; a 1 MiB result;
+64 KiB of logs by default.
+
+### 10.1 Split calls (#1032)
+
+A one-shot runs one function once. A split call runs a caller's program over a
+dataset's **pieces**, assembles the pieces' outputs by an output kind, and may
+run a final function over what was assembled: a query plan's per-row part, its
+combine, and the rest over the small combined result. Inside e3 this already
+happens — an index build writes a split task object and runs it with
+`runner.execute` (`records.ts`), as a deploy's migrations do — and a split call
+is that same step with the caller's program. Pieces, merges, the budget and the
+cache are the engine's (`execution/engine.ts`); nothing new is built there.
+
+```ts
+// packages/e3-types/src/api.ts
+export const SplitCallArgType = VariantType({
+  dataset: TreePathType,   // a workspace dataset, pinned by its hash at launch
+  object:  StringType,     // a stored object, such as an earlier call's output: a plan's next stage
+  value:   BlobType,
+});
+export const SplitCallRequestType = StructType({
+  bodyIr: BlobType,                                   // the program each piece runs, emitting into `output`
+  args:   ArrayType(StructType({ arg: SplitCallArgType, partition: OptionType(TaskPartitionType) })),
+  output: VariantType({                               // a task's output kinds, the programs and zero inline
+    array: NullType,
+    dict:  StructType({ merge: OptionType(BlobType) }),
+    fold:  StructType({ combine: BlobType, zero: BlobType }),
+    set:   NullType,
+  }),
+  then:   OptionType(BlobType),                       // a final function: the assembled output, then the args
+  runner: RunnerType,
+  limits: OptionType(ExecuteLimitsType),
+});
+// the poll: SplitCallStatusType — processing (SplitCallProgressType), completed { result: ExecuteResult,
+// output: Option(hash) }, planned (an explain's: SplitCallPlanType { pieces, over, bytes }), failed { message }
+```
+
+At least one argument is partitioned, and the pieces follow the task's rules
+(`planPieces`): they are cut over the partitioned argument that weighs the
+most, the other partitioned arguments are cut at the same keys, and an argument
+not partitioned reaches every piece whole.
+
+**The launch** (e3-core `splitCallPrepare`, `execution/splitCall.ts`) applies
+the caller's grant, pins each dataset argument by hash as a one-shot does,
+stores the value arguments through the store's door (so a partitioned one is a
+collection its pieces are cut from) and the programs and a fold's zero as
+objects, and writes the task object: `body: east { program }`, the call's
+runner, one input per argument with its partition and no path, as an index
+build's are, the output kind, `role: data`, `environment: none`. A request
+found wrong — no partitioned argument, a `custom` runner (a split task runs on
+a stock runner), a partitioned argument that is not a collection, an unassigned
+dataset, an object the store does not hold — is `invalid`, and the route files
+it as a job already `completed`, so every result comes back through the poll.
+Of an `object` argument the launch reads only its own object: what it names —
+an earlier call's output, say, a collection of thousands of segments — is the
+job's to re-reference, and the launch records which arguments are objects
+(`objects`).
+
+**The job** runs as a deploy's does (`E3_BACKEND_SEAMS.md`): the route files it
+in `TransferBackend.splitCall` (`SplitCallStore`: `create`, `get`,
+`updateStatus`, `delete`, `execute`) and the store dispatches it — the local
+`InMemoryTransferBackend` in the server's process, on its runner; e3-cloud to
+its own compute. Either runs `handleProcessSplitCall` (`transfer/process.ts`),
+which holds the repository's running work and calls `splitCallRun`. Before
+any unit, it re-references what each `object` argument names, with
+everything it names (`splitCallReference`, `touchReachable`), so gc beside
+running work leaves it while the job reads it; an argument the store no longer
+holds whole ends the call `invalid`, naming it, and nothing runs. An explain's
+job does the same before it plans. Then
+`runner.execute(storage, task, inputs, { signal, onPartitionProgress })` —
+`executeSplitTask`'s pieces and merges, each a unit cached on its program and
+inputs — and then, with `then`, `runner.runDetached` over the assembled output
+and the arguments, each as `{ dataset: hash }`, whose value is stored through
+the door. The job's timeout is `limits.timeoutMs`, by default and at most
+one-shot's ceiling of 10 minutes (`resolveJobLimits`: a job has no sync
+deadline). It is one budget for the whole job, counted from its launch (the
+record's `createdAt`, `splitCallRun`'s `launchedAt`); past it the run is
+aborted and the call ends `timed_out`. A caller that stops a call to run it
+again, as compute with a time limit does, leaves the job `processing`, and the
+next run is served the finished units from the cache, within what is left of
+the timeout: a run that starts with none left ends `timed_out` without running
+a unit. So a host that runs a job in rounds sets the one-shot routes'
+`ceilings.timeoutMs` to the budget for the whole job, not for one round.
+
+**Hashes, not values.** A completed job's record holds the result's object and
+the assembled output's hash (`SplitCallOutcomeType`), so a store with small
+records keeps it. The poll (`splitCallResult`) reads the value and answers it
+inline, a collection spliced as `runDetached` splices one, up to the call's
+`maxResultBytes`; over it the result is `too_large`, and the caller reads the
+output by its hash through the object route, or passes it on as the next
+call's `object` argument. `inputs` names each pinned dataset, as a one-shot's
+does. A job's record is forgotten a while after it finishes.
+
+**What a split call writes** is what an index build writes: the task object,
+the piece manifests, the units' outputs, executions and logs, and the `$plan`
+objects — the execution cache, which gc keeps while its executions are kept and
+prunes with them. Nothing names a dataset. So a relaunch is served from the
+cache, and a call after an append reruns only the pieces whose rows changed,
+and the merges they reach.
+
+**Grants.** Launching goes through `createOneShotRoutes` under the same
+`OneShotAccess`, and the platform-free test extends to a split call's four
+programs (`splitCallPlatformUse`): its runner a stock runtime with
+`platforms: []`, and none of `bodyIr`, `then`, `merge` or `combine` holding a
+`Platform` node. A refusal is `permission_denied { path: "one-shot" }`, and a
+caller whose grant is `none` polls no call either. A result persists and is
+found by its id, so a job records at launch whether a `platform_free` caller
+may poll it (`platformFree`, `splitCallPlatformFree`): the call is
+platform-free, or such a caller launched it. A reader polling any other — an
+admin's call on a runner given a platform package, whose result a reader could
+not produce — is refused as a launch would be.
+
+**Explain.** `?explain=1` launches the call as its launch does, and files a
+job that plans its pieces as the run would (`splitCallExplain`) — the count is
+the run's, and the piece manifests it stores are the ones the run takes up —
+and runs no unit; its poll answers `planned`. Planning stores every piece and
+re-cuts a segment at each boundary a `by` or a co-partitioned argument moves,
+so it is the job's work: the request does only the grant, the pins and the
+launch's small writes.
+
+The client has `splitCallLaunch`, `splitCallStatus`, `splitCallExplain`, which
+launches an explain and polls it for the plan, and `splitCall`, which launches
+and polls to the end. A backend implements the `SplitCallStore`, keeping each
+job's `objects`, `explain` and `platformFree`, and dispatches its jobs to compute that
+runs `handleProcessSplitCall` on its runner; its `TaskRunner.execute` of a
+split task is what index builds already need.
 
 ## 11. Security summary
 
 - **Named functions** = author-published IR (same trust as a deployed task),
-  member-level, safe by construction.
-- **one-shot** = caller-supplied IR = RCE → elevated role only; cloud forbids
-  `custom` and may disable one-shot in multi-tenant.
+  member-level, safe by construction, on the author's runner. A call's runner
+  override is the caller's choice, so it is gated (§7.1): never `custom`, and
+  a platform package the author's runner does not load only for an `any`
+  grant.
+- **one-shot** = caller-supplied IR. A platform-free one computes over its
+  arguments only, so a caller who may read the workspace runs it; any other is
+  code with the server's authority, which only an elevated grant runs (§10).
+  The grant is the host's `OneShotAccess`: the cloud maps its own roles to it.
+- **Split calls** = one-shot's rule over each of a call's four programs, with
+  one-shot's ceiling on the job's time, and a reader polls only a call a reader
+  could have launched (§10.1).
+- **Residual risk of the reader tier:** a reader's IR reaches the runtime's
+  decoder and compiler, so a defect there becomes reachable by any reader, where
+  before only an admin could send IR. The limits bound what a call costs, not
+  what a runtime defect exposes.
 - **`custom` runner** = arbitrary argv. The `RunnerType` variant isolates it as a
-  single gateable tag. Local single-tenant may allow it (author = operator);
-  the cloud handler rejects a `custom` stored runner or `custom` override.
+  single gateable tag. Local single-tenant may allow a `custom` stored runner
+  (author = operator), and the cloud handler rejects one. A call's override
+  never names it, on any host: a caller who could would run a command of their
+  own with the server's authority.
 - No sandboxing beyond the process/container boundary (existing posture; the
   doc states it, does not change it).
 
@@ -736,21 +1013,82 @@ paths.
     writes the decoded result; non-success sets a non-zero exit code.
 11. **one-shot** sync + async (east-node) returns the right value; one-shot is
     refused without the elevated role.
-12. **Runner override**: a `runner` in the request overrides the stored one;
-    `custom` override behaves per the deployment policy.
+12. **Runner override**: a `runner` in the request overrides the stored one.
+    - e3-api-server `handlers/functions.spec.ts`: a plain call, and an override
+      loading no package the stored runner lacks, run for a caller with no
+      grant; an override adding a package is `permission_denied { path:
+      "runner" }` below `any`, and runs for `any`; a `custom` override is
+      `invalid` for every grant; the routes answer by their `access`, and
+      without one refuse an added package.
+    - e3-api-tests `functionTests`, on every server: a `custom` override is
+      `invalid` for an admin and a reader alike, and runs nothing; a reader
+      calls a function on its own runner, and is refused an override adding a
+      package.
 13. **GC survival** (§4.2): deploy a package with a function, run `e3 repo gc`,
     then call the function — the `FunctionObject` and its `bodyIr` object are
     retained and the call succeeds.
 14. **Old-package compatibility** (§4.1): a package exported before `functions`
     existed still decodes and runs its tasks through every decode site (dual-decode
     round-trip), and an old client reading a new server's `getPackage` succeeds.
+15. **one-shot for readers (#1031).**
+    - e3-core `execution/oneShot.spec.ts`: `oneShotPlatformUse` is `null` for a
+      platform-free body on each stock runtime, names each use (a nested
+      platform call, an unresolved import, a `custom` runner, a stock runtime
+      listing a package) and throws for a body that does not decode;
+      `oneShotExecute` refuses `none` and a platform-free caller's other
+      requests with no runner call, passes dataset arguments as `{ dataset }`
+      and names them in `inputs`, and clamps the limits.
+    - e3-api-server `handlers/functions.spec.ts`: `oneShotAccessByRoles`, a
+      refusal answering `permission_denied` with no runner call, and a server
+      without auth running a one-shot that uses a platform.
+    - e3-api-tests `functionTests`, on every server, with the reader token the
+      harness supplies (`TestConfig.getReaderToken`): a reader's platform-free
+      one-shot over two datasets, one a manifest, answers the value and names
+      both with the hashes `datasetGetStatus` reports; a reader is refused a
+      body calling a platform function, a runner given a platform package and
+      a `custom` runner; a function value, read from a dataset, that needs a
+      platform function fails naming it; a named call's `inputs` is empty. The
+      local compliance run goes through auth, as a deployed server does.
+    - Each runtime's `exec` (east-node-cli `exec.spec.ts`, east-py-cli
+      `test_exec_corpus.py`, east-c-cli `test_cli_exec.c`): a unit with no
+      platforms fails a program calling one, naming it.
+16. **Split calls (#1032).**
+    - e3-core `execution/splitCall.spec.ts`, over a local repository with
+      `E3_TEST_PIECE_BYTES` so a small dataset is many pieces: `array`, `set`,
+      `dict` with a merge and `fold` calls give what one unit over the whole
+      dataset gives; `then` runs over the assembled output and the arguments; an
+      argument not partitioned reaches every piece whole; an `object` argument
+      chains one call's output into the next; the launch of a call whose
+      `object` argument is a collection of many segments asks the store about
+      none of them, and its job touches every one before its first unit; an
+      argument whose segment is gone by the job ends it `invalid`, naming it,
+      and runs nothing; a relaunch runs no unit, and an append reruns only the
+      pieces it touches; the launch stores no piece, and explain's job stores
+      them, its count is the run's, and it runs no unit; a `platform_free`
+      caller is refused a platform call in any of the four programs and a
+      runner listing a package; a wrong request is `invalid`; the timeout ends
+      the job `timed_out`; over a clock the test sets, a run handed over at
+      2 s of a 4 s budget arms 2 s, the one that goes on at 3 s arms 1 s, and
+      one with none left runs no unit.
+    - e3-api-server `handlers/functions.spec.ts`: the split routes refuse a
+      launch the grant does not run, and a poll by a caller with no grant; a
+      poll answers only through the repository and workspace that launched the
+      job, and a `platform_free` caller only a job it may poll.
+    - e3-api-tests `functionTests`, on every server: a reader launches, polls
+      and gets the right value for an `array`, a `dict` and a `fold` call over
+      the fixture, whatever the piece count, with `inputs` naming the pinned
+      datasets; a reader's call on a runner listing a package is refused; a
+      reader explains a call through its job; a call is found only through the
+      repository and workspace that launched it; and a reader is refused the
+      poll of an admin's call on a runner given a platform package.
 
 ## 14. Open questions
 
 - **Caching default** (§8) — keep off (purity) vs opt-in `cache: true`.
 - **Migration strategy** (§4.1) — dual-decode (recommended) vs format bump.
-- **one-shot exposure** (§10) — elevated-role-gated everywhere vs disabled in
-  multi-tenant cloud.
+- ~~**one-shot exposure** (§10)~~ — resolved (#1031): the host's
+  `OneShotAccess` decides; a reader runs a platform-free one-shot, and only an
+  elevated grant any other.
 - **`e3.function` signature** — infer from the East function (recommended) vs an
   explicit `(name, inputTypes, outputType, fn)` overload for non-`East.function`
   bodies.

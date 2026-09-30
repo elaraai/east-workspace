@@ -95,6 +95,18 @@ export function objectStoreTests(setup: BackendSetup): void {
       assert.equal(readFileSync(other, 'utf8'), 'not the promised bytes', 'the file is left as it was');
     });
 
+    it('re-references the objects it holds in a batch, leaving their bytes, and answers false for those it does not, in order', async (t) => {
+      const { storage, repo } = await setup(t);
+      const hash = await storage.objects.write(repo, bytes('touched'));
+      const other = await storage.objects.write(repo, bytes('touched too'));
+      const missing = computeHash(bytes('never written'));
+      assert.deepEqual(await storage.objects.touch(repo, [hash]), [true]);
+      assert.deepEqual(await storage.objects.touch(repo, [missing, hash, other, missing]), [false, true, true, false]);
+      assert.deepEqual(await storage.objects.touch(repo, []), []);
+      assert.equal(text(await storage.objects.read(repo, hash)), 'touched');
+      assert.equal(text(await storage.objects.read(repo, other)), 'touched too');
+    });
+
     it('places an object\'s bytes at a path, shared or copied', async (t) => {
       const { storage, repo } = await setup(t);
       const dir = scratch(t);

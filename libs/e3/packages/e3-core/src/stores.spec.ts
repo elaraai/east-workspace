@@ -10,6 +10,7 @@
  */
 
 import { describe } from 'node:test';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   datasetRefStoreTests, lockServiceTests, logStoreTests, objectStoreTests, refStoreTests, repoStoreTests,
@@ -17,18 +18,39 @@ import {
 } from './contract/index.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/LocalBackend.js';
+import { executionPath } from './storage/local/localHelpers.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
 
 const BACKENDS: [string, BackendSetup][] = [
   ['over a local repository', async (t) => {
     const repo = createTestRepo();
     t.after(() => removeTestRepo(repo));
-    return { storage: new LocalStorage(), repo };
+    return {
+      storage: new LocalStorage(),
+      repo,
+      damage: {
+        execution: (taskHash, inputsHash, executionId) => {
+          const dir = executionPath(repo, taskHash, inputsHash, executionId);
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, 'status.beast2'), 'not a record');
+          return Promise.resolve();
+        },
+      },
+    };
   }],
   ['over the in-memory backend', async () => {
     const storage = new InMemoryStorage();
     await storage.repos.create('created');
-    return { storage, repo: 'created' };
+    return {
+      storage,
+      repo: 'created',
+      damage: {
+        execution: (taskHash, inputsHash, executionId) => {
+          storage.refs.damageExecution('created', taskHash, inputsHash, executionId);
+          return Promise.resolve();
+        },
+      },
+    };
   }],
 ];
 

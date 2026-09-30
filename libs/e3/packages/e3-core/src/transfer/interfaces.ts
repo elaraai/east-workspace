@@ -13,7 +13,7 @@
  * - S3DynamoTransferBackend (AWS cloud, future)
  */
 
-import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
+import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, SplitCallJob, WorkspaceDeployJob } from './types.js';
 
 // =============================================================================
 // Dataset Upload Store
@@ -238,6 +238,43 @@ export interface RepoGcStore {
 }
 
 // =============================================================================
+// Split Call Store
+// =============================================================================
+
+/**
+ * Manages split call jobs: launch → process → poll.
+ *
+ * @remarks
+ * A split call runs a caller's program over a dataset's pieces, and takes as
+ * long as the dataset is large, which outlasts a request. So it runs as a job
+ * in the compute the store dispatches it to, and the client polls its status
+ * from the store, whichever instance answers the poll. A job's record holds
+ * hashes, never values, and is forgotten a while after the job finishes. An
+ * explain is a job too, which plans the call's pieces and ends `planned`.
+ *
+ * A job's timeout is one budget for the whole job, counted from its launch
+ * (the record's `createdAt`), however many calls run it: a host that runs a
+ * job in rounds sets the one-shot routes' `ceilings.timeoutMs` to the budget
+ * for the whole job, not for one round. The record keeps whether a caller
+ * whose one-shot grant is `platform_free` may poll the job (`platformFree`).
+ *
+ * Flow: create → execute → poll get → delete
+ */
+export interface SplitCallStore {
+  create(id: string, record: SplitCallJob): Promise<void>;
+  get(id: string): Promise<SplitCallJob | null>;
+  updateStatus(id: string, status: SplitCallJob['status']): Promise<void>;
+  delete(id: string): Promise<void>;
+
+  /**
+   * Dispatch processing.
+   * Local: runs `handleProcessSplitCall` in the background, on the server's runner.
+   * Cloud: invokes its own compute, which runs `handleProcessSplitCall` on its runner.
+   */
+  execute(id: string, repo: string): Promise<void>;
+}
+
+// =============================================================================
 // Transfer Backend
 // =============================================================================
 
@@ -255,4 +292,5 @@ export interface TransferBackend {
   readonly packageExport: PackageExportStore;
   readonly workspaceDeploy: WorkspaceDeployStore;
   readonly repoGc: RepoGcStore;
+  readonly splitCall: SplitCallStore;
 }

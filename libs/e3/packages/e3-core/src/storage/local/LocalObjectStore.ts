@@ -12,6 +12,10 @@
  * Writes are atomic using stage-and-rename pattern:
  * 1. Write to a temporary .partial file
  * 2. Rename to final destination (atomic on POSIX filesystems)
+ *
+ * Every write, and every touch, first clears the object's unreachable note
+ * (`gc/unreachable/…`), which a sweep beside running work deletes it by, and
+ * then looks for the object: an object found then is one the sweep leaves.
  */
 
 import * as fs from 'fs/promises';
@@ -21,8 +25,9 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { constants, createWriteStream } from 'fs';
 import { sha256File } from '@elaraai/e3';
+import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
 import { ObjectNotFoundError, isNotFoundError } from '../../errors.js';
-import { objectPath } from './localHelpers.js';
+import { clearUnreachableNote, objectPath } from './localHelpers.js';
 import type { ObjectStore } from '../interfaces.js';
 
 /** A staging name beside the final object: same directory, so the closing
@@ -146,13 +151,8 @@ export async function objectWrite(
   const dirPath = path.join(repoPath, 'objects', dirName);
   const filePath = path.join(dirPath, fileName);
 
-  // Check if already exists
-  try {
-    await fs.access(filePath);
-    return hash; // Already exists
-  } catch {
-    // Doesn't exist, continue
-  }
+  // Held already: the write re-references it
+  if (await objectTouch(repoPath, hash)) return hash;
 
   // Create directory if needed
   await fs.mkdir(dirPath, { recursive: true });
@@ -234,13 +234,15 @@ export async function objectWriteStreamIterable(
   const dirPath = path.join(objectsDir, hash.slice(0, 2));
   const filePath = path.join(dirPath, hash.slice(2) + extension);
 
-  // Deduplicate: the object may already exist (content-addressed store).
-  try {
-    await fs.access(filePath);
-    await fs.unlink(stagingPath);
-    return hash;
-  } catch {
-    // Doesn't exist, continue
+  // Deduplicate: the object may already exist (content-addressed store), and
+  // the write re-references it.
+  if (await objectTouch(repoPath, hash)) {
+    try {
+      await fs.unlink(stagingPath);
+      return hash;
+    } catch {
+      // Renamed over the object below
+    }
   }
 
   await fs.mkdir(dirPath, { recursive: true });
@@ -305,6 +307,34 @@ export async function objectRead(
 }
 
 /**
+ * Re-reference an object in the repository, as a write of its bytes would:
+ * clear gc's unreachable note, then look for the object.
+ *
+ * @remarks
+ * The note goes first. A sweep beside running work deletes an object only
+ * while its note stands, and moves the object aside before it looks at the
+ * note again, so an object this finds in place after clearing the note is one
+ * the sweep puts back, and leaves.
+ *
+ * Until the sweep puts it back, the object is aside: a read right after a
+ * touch that found it may find nothing for a moment. What a caller reads right
+ * after its touch it reads once more before it takes the object for gone
+ * (`readTouched`), and {@link LocalObjectStore.adoptFile}, which has the file
+ * at hand, places it again.
+ *
+ * @param repoPath - Path to e3 repository
+ * @param hash - SHA256 hash of the object
+ * @returns true if object exists
+ */
+export async function objectTouch(
+  repoPath: string,
+  hash: string
+): Promise<boolean> {
+  await clearUnreachableNote(repoPath, hash);
+  return objectExists(repoPath, hash);
+}
+
+/**
  * Check if an object exists in the repository.
  *
  * @param repoPath - Path to e3 repository
@@ -335,6 +365,9 @@ export async function objectExists(
  * The `repo` parameter is the path to the e3 repository directory.
  */
 export class LocalObjectStore implements ObjectStore {
+  /** Objects are files here: placing one is a link, or a kernel copy. */
+  readonly placement = 'link';
+
   async write(repo: string, data: Uint8Array): Promise<string> {
     return objectWrite(repo, data);
   }
@@ -391,6 +424,11 @@ export class LocalObjectStore implements ObjectStore {
    * since the caller hashed it is refused rather than stored under the old
    * bytes' hash — at the cost of one read of a file the store did not hold.
    *
+   * An object the store holds under `hash` is touched, not placed again. A
+   * delete that raced the touch may have it aside for a moment
+   * ({@link objectTouch}), and then the file, which is at hand, is placed as
+   * though the store did not hold it.
+   *
    * @param repo - Path to the e3 repository
    * @param file - Path to the file to adopt
    * @param hash - The file's SHA256 when already known; else read here
@@ -400,7 +438,13 @@ export class LocalObjectStore implements ObjectStore {
   async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
     const stats = await fs.stat(file);
     if (!stats.isFile()) throw new Error(`Not a file: ${file}`);
-    if (hash !== undefined && await objectExists(repo, hash)) return { hash, size: (await this.stat(repo, hash)).size };
+    if (hash !== undefined && await objectTouch(repo, hash)) {
+      const held = await this.stat(repo, hash).catch((err: unknown) => {
+        if (err instanceof ObjectNotFoundError) return null; // aside for a moment: placed below
+        throw err;
+      });
+      if (held !== null) return { hash, size: held.size };
+    }
 
     // Staged at the root of objects/, as a streamed write is: the object's
     // directory is known only once the placed file is hashed, and the closing
@@ -416,7 +460,7 @@ export class LocalObjectStore implements ObjectStore {
         throw new Error(`${file} changed while it was adopted: it holds ${digest}, not the ${hash} it was hashed as`);
       }
       const filePath = objectPath(repo, digest);
-      if (await objectExists(repo, digest)) {
+      if (await objectTouch(repo, digest)) {
         await fs.unlink(stagingPath);
         return { hash: digest, size };
       }
@@ -471,6 +515,16 @@ export class LocalObjectStore implements ObjectStore {
 
   async exists(repo: string, hash: string): Promise<boolean> {
     return objectExists(repo, hash);
+  }
+
+  /** Re-references each object as {@link objectTouch} does,
+   *  {@link OBJECT_CONCURRENCY} at a time. */
+  async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
+    const held: boolean[] = new Array<boolean>(hashes.length).fill(false);
+    await eachAtMost([...hashes.keys()], OBJECT_CONCURRENCY, async (i) => {
+      held[i] = await objectTouch(repo, hashes[i]!);
+    });
+    return held;
   }
 
   async stat(repo: string, hash: string): Promise<{ size: number }> {

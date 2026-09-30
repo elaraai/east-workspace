@@ -6,7 +6,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { none, variant } from '@elaraai/east';
 import { computeHash } from '../../objects.js';
-import { ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
+import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord } from '@elaraai/e3-types';
 import type {
   StorageBackend,
@@ -26,17 +26,31 @@ import type {
 import { completeUtf8Length } from '../utf8.js';
 import { InMemoryRepoStore, type InMemoryRepositoryRecords } from './InMemoryRepoStore.js';
 
+/** An object as the in-memory store holds it: its bytes, when it was last
+ *  written or re-referenced, and gc's unreachable note, when one stands. */
+interface HeldObject {
+  data: Uint8Array;
+  writtenAt: number;
+  unreachableSince: number | null;
+}
+
 /**
  * In-memory implementation of ObjectStore for testing.
  *
- * It keeps when it last wrote each object, as a file keeps its mtime, so gc's
- * age gate spares an object written a moment ago.
+ * It keeps when it last wrote or re-referenced each object, as a file keeps
+ * its mtime, so gc's age gate spares an object written a moment ago; and gc's
+ * unreachable note beside it, as a catalogue row would, so a write or a touch
+ * clears the note in the same step.
  */
 /* eslint-disable @typescript-eslint/require-await */
 class InMemoryObjectStore implements ObjectStore {
-  private objects = new Map<string, Map<string, { data: Uint8Array; writtenAt: number }>>();
+  /** Objects are held apart from any file, as a store elsewhere holds them:
+   *  placing one writes its bytes. */
+  readonly placement = 'download';
 
-  private getRepoObjects(repo: string): Map<string, { data: Uint8Array; writtenAt: number }> {
+  private objects = new Map<string, Map<string, HeldObject>>();
+
+  private getRepoObjects(repo: string): Map<string, HeldObject> {
     let repoObjects = this.objects.get(repo);
     if (!repoObjects) {
       repoObjects = new Map();
@@ -47,8 +61,19 @@ class InMemoryObjectStore implements ObjectStore {
 
   async write(repo: string, data: Uint8Array): Promise<string> {
     const hash = computeHash(data);
-    this.getRepoObjects(repo).set(hash, { data, writtenAt: Date.now() });
+    this.getRepoObjects(repo).set(hash, { data, writtenAt: Date.now(), unreachableSince: null });
     return hash;
+  }
+
+  async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
+    const repoObjects = this.getRepoObjects(repo);
+    return hashes.map((hash) => {
+      const object = repoObjects.get(hash);
+      if (object === undefined) return false;
+      object.writtenAt = Date.now();
+      object.unreachableSince = null;
+      return true;
+    });
   }
 
   async writeStream(repo: string, stream: AsyncIterable<Uint8Array>): Promise<string> {
@@ -115,11 +140,11 @@ class InMemoryObjectStore implements ObjectStore {
     return this.getRepoObjects(repo).size;
   }
 
-  /** Every object of a repository, with its size and when it was last
-   *  written: what gc's object scan lists. */
+  /** Every object of a repository, with its size, when it was last written
+   *  or re-referenced, and its unreachable note: what gc's object scan lists. */
   gcEntries(repo: string): GcObjectEntry[] {
-    return [...this.getRepoObjects(repo)].map(([hash, { data, writtenAt }]) => ({
-      hash, lastModified: writtenAt, size: data.length,
+    return [...this.getRepoObjects(repo)].map(([hash, { data, writtenAt, unreachableSince }]) => ({
+      hash, lastModified: writtenAt, size: data.length, unreachableSince,
     }));
   }
 
@@ -127,6 +152,35 @@ class InMemoryObjectStore implements ObjectStore {
   gcDelete(repo: string, hashes: readonly string[]): void {
     const repoObjects = this.getRepoObjects(repo);
     for (const hash of hashes) repoObjects.delete(hash);
+  }
+
+  /** Notes objects unreachable at `at`, keeping a note that stands, and
+   *  answers each note's time. */
+  gcNote(repo: string, hashes: readonly string[], at: number): number[] {
+    const repoObjects = this.getRepoObjects(repo);
+    return hashes.map((hash) => {
+      const object = repoObjects.get(hash);
+      if (object === undefined) return at;
+      object.unreachableSince ??= at;
+      return object.unreachableSince;
+    });
+  }
+
+  /** Clears the unreachable notes of objects. */
+  gcClear(repo: string, hashes: readonly string[]): void {
+    const repoObjects = this.getRepoObjects(repo);
+    for (const hash of hashes) {
+      const object = repoObjects.get(hash);
+      if (object !== undefined) object.unreachableSince = null;
+    }
+  }
+
+  /** Deletes an object while its note stands at `since`, and says whether it
+   *  did. */
+  gcDeleteIf(repo: string, hash: string, since: number): boolean {
+    const repoObjects = this.getRepoObjects(repo);
+    if (repoObjects.get(hash)?.unreachableSince !== since) return false;
+    return repoObjects.delete(hash);
   }
 
   clear(): void {
@@ -153,6 +207,9 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   private plans = new Map<string, string>();
   // adoption memo entries keyed by repo/sourceHash
   private adoptions = new Map<string, string>();
+  // execution records a test left in bytes that do not decode, keyed by
+  // repo/taskHash/inputsHash/executionId
+  private damaged = new Set<string>();
 
   private getPackages(repo: string): Map<string, string> {
     let repoPackages = this.packages.get(repo);
@@ -259,17 +316,38 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
 
   // Execution operations (with executionId)
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
-    return this.getExecutions(repo).get(this.makeExecutionKey(taskHash, inputsHash, executionId)) ?? null;
+    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
+    if (this.damaged.has(`${repo}/${key}`)) {
+      throw new ExecutionCorruptError(taskHash, inputsHash, new Error('the record does not decode'));
+    }
+    return this.getExecutions(repo).get(key) ?? null;
   }
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
-    this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), status);
+    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
+    this.damaged.delete(`${repo}/${key}`);
+    this.getExecutions(repo).set(key, status);
+  }
+
+  /**
+   * Leaves an execution attempt's record in bytes that do not decode, as a
+   * crash or a failing disk leaves one: a test's, for the cases of such a
+   * record. A write of the record replaces it.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - The attempt's id
+   */
+  damageExecution(repo: string, taskHash: string, inputsHash: string, executionId: string): void {
+    this.damaged.add(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`);
   }
 
   async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
     this.getExecutions(repo).delete(key);
     this.owners.delete(`${repo}/${key}`);
+    this.damaged.delete(`${repo}/${key}`);
   }
 
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
@@ -410,6 +488,9 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
         }
       }
     }
+    for (const key of [...this.damaged]) {
+      if (key.startsWith(`${repo}/`)) this.damaged.delete(key);
+    }
     return dropped;
   }
 
@@ -422,6 +503,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     this.owners.clear();
     this.plans.clear();
     this.adoptions.clear();
+    this.damaged.clear();
   }
 }
 

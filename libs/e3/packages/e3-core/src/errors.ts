@@ -12,6 +12,7 @@
 
 import { E3_RELEASE, nameProblem, type DatasetTypeMismatch, type LockState, type NamedKind } from '@elaraai/e3-types';
 import type { TaskExecutionResult } from './dataflow.js';
+import type { PackageZipCheckpoint } from './transfer/types.js';
 
 // =============================================================================
 // Base Error
@@ -64,6 +65,57 @@ export class RepoLayoutError extends E3Error {
       ? `the repository at ${repo} has no repository record: an older e3 wrote it — re-create it: deploy again and import its data again`
       : `the repository at ${repo} has had the upgrade ${JSON.stringify(upgrade.name)}, which e3 ${upgrade.release} applied and this e3, ` +
         `${E3_RELEASE}, does not know — open it with e3 ${upgrade.release} or a newer one`);
+  }
+}
+
+/**
+ * Thrown when work running in a repository holds it, so what must find it
+ * still — gc, or an upgrade — cannot take it: a task, or a dataflow in one of
+ * its workspaces.
+ */
+export class RepositoryBusyError extends E3Error {
+  constructor(
+    /** What wanted the repository held, which the message begins with */
+    public readonly doing: string,
+    /** The workspace whose dataflow runs, or `null` when a task runs */
+    public readonly workspace: string | null,
+  ) {
+    super(workspace === null
+      ? `${doing}: a task is running — retry when it finishes`
+      : `${doing}: a dataflow is running in workspace '${workspace}' — retry when it finishes`);
+  }
+}
+
+/**
+ * Thrown by an open that does not apply the store upgrades a repository owes:
+ * one that may not wait (`repositoryOpen`'s `waitMs: 0`) while work running in
+ * the repository holds it, or one that leaves them to a job of its host's
+ * (`apply: false`).
+ *
+ * @remarks
+ * The steps apply once nothing runs in the repository, and nothing reads it
+ * before they have. A server answers every request to the repository with it
+ * but a running dataflow's cancel and poll, so the work the steps wait for can
+ * always be stopped, and no request is held for the wait.
+ */
+export class RepositoryUpgradePendingError extends E3Error {
+  constructor(
+    public readonly repo: string,
+    /** The steps the repository owes, in the order they apply */
+    public readonly upgrades: readonly string[],
+    /** The workspace whose dataflow holds the repository, or `null` when a
+     *  task does, or when the steps are left to a job */
+    public readonly workspace: string | null,
+    /** Whether the steps are left to a job of the host's, which applies them,
+     *  rather than to the next open that finds the repository still */
+    public readonly job: boolean = false,
+  ) {
+    const one = upgrades.length === 1;
+    const owes = `the repository ${repo} owes the upgrade${one ? '' : 's'} ${upgrades.map((name) => JSON.stringify(name)).join(', ')}`;
+    super(job
+      ? `${owes}, which a job applies before the repository is read — retry once it has`
+      : `${owes}, which ${one ? 'applies' : 'apply'} once nothing runs in it, and ` +
+        `${workspace === null ? 'a task is running' : `a dataflow is running in workspace '${workspace}'`} — retry when it finishes, or cancel it`);
   }
 }
 
@@ -227,6 +279,23 @@ export class PackageExistsError extends E3Error {
   }
 }
 
+/**
+ * Thrown by an export stopped at its signal, once the entry it was writing is
+ * written: where its zip had got to, which an export resumes from.
+ *
+ * @remarks
+ * What compute with a time limit keeps at its deadline, beside the bytes its
+ * destination holds, and hands the next round, which resumes the export.
+ */
+export class ExportStoppedError extends E3Error {
+  constructor(
+    /** Where the zip had got to */
+    public readonly checkpoint: PackageZipCheckpoint,
+  ) {
+    super(`the export stopped at its signal with ${checkpoint.entries.length} entries in ${checkpoint.bytes} bytes of its zip: resume it from its checkpoint`);
+  }
+}
+
 // =============================================================================
 // Dataset Errors
 // =============================================================================
@@ -335,6 +404,34 @@ export class ObjectCorruptError extends E3Error {
     public readonly reason: string
   ) {
     super(`Object ${hash.slice(0, 8)}... is corrupt: ${reason}`);
+  }
+}
+
+/**
+ * Thrown when gc cannot tell what an object it reached names: a read of it
+ * failed for a reason other than its absence — a store under load, a timeout,
+ * an expired credential — or it is of a shape that names other objects and
+ * does not decode.
+ *
+ * @remarks
+ * Only an object's absence ({@link ObjectNotFoundError}) tells gc the object
+ * names nothing. An object it could not read may name objects nothing else
+ * keeps, so gc stops before it deletes anything that depends on what it
+ * names, rather than sweep them.
+ */
+export class GcReadError extends E3Error {
+  constructor(
+    /** The object gc could not read */
+    public readonly hash: string,
+    /** Why: the read's failure, or the decoder's */
+    public readonly reason: string,
+    /** Whether the object was read, and is a shape that names other objects
+     *  but does not decode */
+    public readonly undecodable: boolean = false,
+  ) {
+    super(undecodable
+      ? `gc stopped: object ${hash} names other objects and does not decode, so gc cannot tell what it keeps: ${reason}`
+      : `gc stopped: it cannot read object ${hash}, so it cannot tell what that object keeps: ${reason}`);
   }
 }
 

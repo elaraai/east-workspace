@@ -34,6 +34,7 @@ import {
     EastError,
     EastIR,
     EastTypeValueType,
+    FETCH_SEGMENTS_ENV,
     SortedMap,
     SortedSet,
     UnitType,
@@ -107,10 +108,14 @@ export function readUnit(unitPath: string): ReadUnit {
  *
  * @remarks
  * The unit's thread grant caps the frame pool for the rest of the process: a
- * grant of one frames every output inline.
+ * grant of one frames every output inline. A unit whose host places its
+ * segments as they are read (`fetch`) has the process's manifest openers ask
+ * for a segment they find absent.
  */
 export async function executeUnit({ unit, at }: ReadUnit, verbose = false): Promise<UnitResult> {
     configureFramePool({ workers: Number(unit.threads) });
+    if (unit.fetch) process.env[FETCH_SEGMENTS_ENV] = '1';
+    else delete process.env[FETCH_SEGMENTS_ENV];
     const timings = { load: 0, compile: 0, execute: 0, output: 0 };
     let mark = performance.now();
     const lap: Lap = (phase) => {

@@ -38,7 +38,7 @@ import {
 import { StructureType, TreePathType } from './structure.js';
 import { IntakeFileType } from './intake.js';
 import { RunnerType } from './runner.js';
-import { TaskBodyType, TaskInputType, TaskOutputType, TaskRoleType } from './task.js';
+import { TaskBodyType, TaskInputType, TaskOutputType, TaskPartitionType, TaskRoleType } from './task.js';
 import { RequeueReasonType, StageUnitType } from './dataflow.js';
 
 // =============================================================================
@@ -1040,6 +1040,11 @@ export const DiagnosticType = StructType({
  * - `invalid`: signature/IR error; nothing ran
  * - `too_large`: result over `maxResultBytes`; deploy a task and read it with `datasetGet`
  * - `timed_out`: exceeded `timeoutMs` / the server's sync deadline guard
+ *
+ * `inputs` names what the call read: each dataset argument's path and the hash
+ * it was pinned at, in argument order, so an answer can be reproduced and a
+ * stale one noticed. It is empty for a named function call, for a one-shot
+ * with value arguments only, and for an `invalid` result.
  */
 export const ExecuteResultType = StructType({
   outcome: VariantType({
@@ -1053,6 +1058,7 @@ export const ExecuteResultType = StructType({
   stderr: StringType,
   stdoutTruncated: BooleanType,
   stderrTruncated: BooleanType,
+  inputs: ArrayType(StructType({ path: TreePathType, hash: StringType })),
 });
 
 /** Named function call. Positional args, one beast2-encoded value per param. */
@@ -1075,8 +1081,11 @@ export const FunctionSignatureType = StructType({
  * at call time, optionally bound to existing workspace datasets, returning
  * the result inline and persisting nothing.
  *
- * SECURITY: one-shot evaluates a caller-supplied IR — remote code execution
- * with the server's authority. Gate behind an elevated role.
+ * SECURITY: one-shot evaluates a caller-supplied IR. One that is platform-free
+ * — a stock runtime given no platform package, and a body that calls no
+ * platform function — only computes over its arguments, and a caller who may
+ * read the workspace may run it. Any other is code with the server's
+ * authority, which only an elevated grant runs (e3-core `oneShotExecute`).
  */
 export const OneShotRequestType = StructType({
   bodyIr: BlobType,                       // anonymous EastIR, not deployed
@@ -1086,6 +1095,93 @@ export const OneShotRequestType = StructType({
   })),
   runner: RunnerType,
   limits: OptionType(ExecuteLimitsType),
+});
+
+/**
+ * A split call's argument: a workspace dataset, pinned by its hash at launch;
+ * a stored object by its hash, such as an earlier split call's output, which
+ * chains a plan's stages; or a value.
+ */
+export const SplitCallArgType = VariantType({
+  dataset: TreePathType,
+  object:  StringType,
+  value:   BlobType,
+});
+
+/**
+ * A split call: a caller's program run over a dataset's pieces as a job, as e3
+ * runs an index build, and the pieces' outputs assembled by an output kind.
+ *
+ * `bodyIr` is the program each piece runs, which emits into its trailing
+ * parameter. At least one argument is partitioned, as a task input's
+ * `e3.partition` is: the pieces are cut over the partitioned argument that
+ * weighs the most, the others partitioned are cut at the same keys, and one
+ * not partitioned reaches every piece whole. `output` is how the pieces'
+ * outputs combine, as a task's output kinds do, with its programs and its zero
+ * inline. `then`, when given, runs once over the assembled output and then the
+ * arguments, and its value is the call's.
+ *
+ * SECURITY: a caller whose one-shot grant is `platform_free` may launch one
+ * only when it is platform-free: a stock runtime given no platform package,
+ * and none of `bodyIr`, `then`, `merge` or `combine` calling a platform
+ * function (e3-core `splitCallPlatformUse`).
+ */
+export const SplitCallRequestType = StructType({
+  bodyIr: BlobType,
+  args:   ArrayType(StructType({
+    arg:       SplitCallArgType,
+    partition: OptionType(TaskPartitionType),
+  })),
+  output: VariantType({
+    array: NullType,
+    dict:  StructType({ merge: OptionType(BlobType) }),
+    fold:  StructType({ combine: BlobType, zero: BlobType }),
+    set:   NullType,
+  }),
+  then:   OptionType(BlobType),
+  runner: RunnerType,
+  limits: OptionType(ExecuteLimitsType),
+});
+
+/**
+ * How far a split call's job has got: the stage its units are in — the pieces
+ * (`partition`), a merge of a set's or a dict's outputs, or a fold's partials
+ * combined — and how many of the stage's units have finished.
+ */
+export const SplitCallProgressType = StructType({
+  phase: VariantType({ combine: NullType, merge: NullType, partition: NullType }),
+  done:  IntegerType,
+  units: IntegerType,
+});
+
+/**
+ * What a split call's pieces would be, which an explain's job plans and runs
+ * nothing for: the piece count, the argument they are cut over, by its
+ * position, and what that argument weighs in the store, in bytes.
+ */
+export const SplitCallPlanType = StructType({
+  pieces: IntegerType,
+  over:   IntegerType,
+  bytes:  IntegerType,
+});
+
+/**
+ * A split call's status, as its poll answers it.
+ *
+ * - `processing`: the job runs, and how far it has got once it has said
+ * - `completed`: the call's result, and the assembled output's hash once the
+ *   pieces ran — what a caller reads through the object route when the result
+ *   is `too_large`, or passes on as the next call's `object` argument; an
+ *   explain found wrong ends here too, `invalid`
+ * - `planned`: an explain's answer, the pieces the call's run would cut, which
+ *   its job stored for the run to take up, and ran no unit for
+ * - `failed`: why e3 could not run it
+ */
+export const SplitCallStatusType = VariantType({
+  processing: OptionType(SplitCallProgressType),
+  completed:  StructType({ result: ExecuteResultType, output: OptionType(StringType) }),
+  planned:    SplitCallPlanType,
+  failed:     StructType({ message: StringType }),
 });
 
 /**
@@ -1228,6 +1324,11 @@ export type ExecuteResult = ValueTypeOf<typeof ExecuteResultType>;
 export type FunctionCallRequest = ValueTypeOf<typeof FunctionCallRequestType>;
 export type FunctionSignature = ValueTypeOf<typeof FunctionSignatureType>;
 export type OneShotRequest = ValueTypeOf<typeof OneShotRequestType>;
+export type SplitCallArg = ValueTypeOf<typeof SplitCallArgType>;
+export type SplitCallRequest = ValueTypeOf<typeof SplitCallRequestType>;
+export type SplitCallProgress = ValueTypeOf<typeof SplitCallProgressType>;
+export type SplitCallStatus = ValueTypeOf<typeof SplitCallStatusType>;
+export type SplitCallPlan = ValueTypeOf<typeof SplitCallPlanType>;
 export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
 export type MutationResult = ValueTypeOf<typeof MutationResultType>;
 export type RecordSignature = ValueTypeOf<typeof RecordSignatureType>;

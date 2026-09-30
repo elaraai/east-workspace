@@ -46,9 +46,10 @@ import {
 } from '@elaraai/east';
 import e3, { DatasetFileTypeMismatchError, type DatasetSource } from '@elaraai/e3';
 import type { LockProgress, LockStatus } from '@elaraai/e3-types';
-import { datasetAdoptFile, datasetAdoptObject, deliveryKnown, objectAdoptFile, type DatasetAdoptProgress } from './dataset-adopt.js';
+import { datasetAdoptFile, datasetAdoptKnown, datasetAdoptObject, objectAdoptFile, type DatasetAdoptProgress } from './dataset-adopt.js';
 import { DatasetSegments } from './dataset-open.js';
-import { DatasetTypeMismatchError, DeliveryRefusedError, WorkspaceLockError } from './errors.js';
+import { rememberedManifest } from './delivery-intake.js';
+import { DatasetTypeMismatchError, DeliveryRefusedError, ObjectNotFoundError, WorkspaceLockError } from './errors.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { computeHash } from './objects.js';
@@ -137,6 +138,20 @@ describe('path-initialised inputs', () => {
     return path;
   }
 
+  /** `storage`, with some of its stores swapped. */
+  function withStores(stores: Partial<Pick<StorageBackend, 'objects' | 'refs'>>): StorageBackend {
+    return {
+      upgrades: storage.upgrades,
+      objects: stores.objects ?? storage.objects,
+      refs: stores.refs ?? storage.refs,
+      locks: storage.locks,
+      logs: storage.logs,
+      repos: storage.repos,
+      datasets: storage.datasets,
+      validateRepository: (repo) => storage.validateRepository(repo),
+    };
+  }
+
   describe('datasetAdoptFile', () => {
     it('points the dataset at the manifest the delivery is stored as, with its geometry', async () => {
       await deployTableWorkspace('adopt-basic');
@@ -205,7 +220,7 @@ describe('path-initialised inputs', () => {
       // What a gc does to a collection no ref names — the memo is not a root.
       const lost = (await DatasetSegments.open(storage, testRepo, first.hash)).manifest!.entries[0]!.hash;
       rmSync(objectPath(testRepo, lost));
-      assert.equal(await deliveryKnown(storage, testRepo, computeHash(readFileSync(file))), false,
+      assert.equal(await rememberedManifest(storage, testRepo, computeHash(readFileSync(file))), null,
         'a memo naming a collection with a missing object is a miss');
 
       const second = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file, { runner });
@@ -371,20 +386,6 @@ describe('path-initialised inputs', () => {
     // the old one. A rename landing after the adoption hashed the first file
     // would pair that file's hash with the second file's bytes.
 
-    /** `storage`, with some of its stores swapped. */
-    function withStores(stores: Partial<Pick<StorageBackend, 'objects' | 'refs'>>): StorageBackend {
-      return {
-        upgrades: storage.upgrades,
-        objects: stores.objects ?? storage.objects,
-        refs: stores.refs ?? storage.refs,
-        locks: storage.locks,
-        logs: storage.logs,
-        repos: storage.repos,
-        datasets: storage.datasets,
-        validateRepository: (repo) => storage.validateRepository(repo),
-      };
-    }
-
     it('refuses a collection replaced after it was hashed, and remembers nothing of it', async () => {
       const file = writeDelivery('table.beast2', 16);
       const first = computeHash(readFileSync(file));
@@ -400,7 +401,7 @@ describe('path-initialised inputs', () => {
       }) as StorageBackend['refs'];
 
       await assert.rejects(objectAdoptFile(withStores({ refs }), testRepo, file, { runner }), /changed while it was adopted/);
-      assert.equal(await deliveryKnown(storage, testRepo, first), false,
+      assert.equal(await storage.refs.adoptionRead(testRepo, first), null,
         'the memo pairs the first bytes with nothing, rather than with the second');
     });
 
@@ -541,7 +542,7 @@ describe('path-initialised inputs', () => {
       assert.equal((await storage.refs.adoptionList(testRepo)).length, 2, 'a dry run forgets nothing');
       await repoGc(storage, testRepo, { minAge: 0 });
       assert.deepEqual(await storage.refs.adoptionList(testRepo), [{ sourceHash, manifestHash: kept.hash }]);
-      assert.equal(await deliveryKnown(storage, testRepo, sourceHash), true, 'the delivery whose manifest gc kept is still known');
+      assert.equal((await rememberedManifest(storage, testRepo, sourceHash))?.hash, kept.hash, 'the delivery whose manifest gc kept is still known');
     });
 
     it("refuses a Dict whose keys fall back, where two pieces meet as within one", async () => {
@@ -561,7 +562,7 @@ describe('path-initialised inputs', () => {
       // Taken in whole, the runner refuses it; in a piece a segment, e3 does.
       await assert.rejects(objectAdoptFile(storage, testRepo, file, { runner }), refused((by) => by !== 'e3'));
       await withPieceBytes(4, () => assert.rejects(objectAdoptFile(storage, testRepo, file, { runner }), refused((by) => by === 'e3')));
-      assert.equal(await deliveryKnown(storage, testRepo, computeHash(readFileSync(file))), false, 'a refused delivery is not remembered');
+      assert.equal(await storage.refs.adoptionRead(testRepo, computeHash(readFileSync(file))), null, 'a refused delivery is not remembered');
       assert.ok(await storage.objects.count(testRepo) >= before, 'what the pieces stored is named by nothing');
     });
 
@@ -570,6 +571,38 @@ describe('path-initialised inputs', () => {
       await assert.rejects(objectAdoptFile(storage, testRepo, file), /holds a collection, which intake units take in, and no runner was given to run them/);
       await objectAdoptFile(storage, testRepo, file, { runner });
       assert.equal((await objectAdoptFile(storage, testRepo, file)).taken, 'known', 'a delivery the store knows needs no runner');
+    });
+
+    it('refuses a delivery it cannot cut into pieces, above what the runner takes in whole, before any unit runs, naming the fix', async () => {
+      // A delivery encoded whole has no index, so it is taken in by one unit.
+      const file = join(tempDir, 'whole.beast2');
+      writeFileSync(file, encodeBeast2For(TableType)(rows(2_000)));
+      const size = statSync(file).size;
+      const bounded = new MockTaskRunner();
+      bounded.setIntakeResult((store, spec) => runner.intake(store, spec));
+      bounded.wholeIntakeLimit = size - 1;
+
+      await assert.rejects(objectAdoptFile(storage, testRepo, file, { runner: bounded }), (err: unknown) => {
+        assert.ok(err instanceof DeliveryRefusedError, String(err));
+        assert.equal(err.runner, 'e3');
+        assert.equal(err.refusal,
+          `intake: the delivery has no index that reads, so it is taken in whole, by one unit, and at ${size} bytes it is more than the ${size - 1} ` +
+          'a unit of this runner takes in whole — write it again with a current Writer, which indexes it');
+        assert.ok(err.message.includes(file), 'the refusal names the delivery');
+        return true;
+      });
+      assert.deepEqual(bounded.getIntakeCalls(), [], 'no unit ran');
+
+      // One no larger than the limit is taken in whole; one with an index is
+      // cut into pieces, whatever its size.
+      bounded.wholeIntakeLimit = size;
+      assert.equal((await objectAdoptFile(storage, testRepo, file, { runner: bounded })).hash, await datasetWrite(storage, testRepo, rows(2_000), TableType));
+      bounded.wholeIntakeLimit = 1;
+      const indexed = writeDelivery('indexed.beast2', 2_000, 5_000);
+      const taken = await withPieceBytes(1024, () => objectAdoptFile(storage, testRepo, indexed, { runner: bounded }));
+      assert.equal(taken.hash, await datasetWrite(storage, testRepo, rows(2_000, 5_000), TableType));
+      const pieces = bounded.getIntakeCalls().slice(1);
+      assert.ok(pieces.length > 1 && pieces.every((spec) => spec.segments !== undefined), `in pieces, not ${pieces.length} whole`);
     });
 
     it('is taken in by the runners when the store holds it whole, through the dedup door', async () => {
@@ -609,11 +642,11 @@ describe('path-initialised inputs', () => {
       const file = join(tempDir, 'table.beast2');
       writeFileSync(file, bytes);
       const sourceHash = computeHash(bytes);
-      assert.equal(await deliveryKnown(storage, testRepo, sourceHash), false);
+      assert.equal(await rememberedManifest(storage, testRepo, sourceHash), null);
 
       const adopted = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file, { runner });
       assert.equal(await storage.objects.exists(testRepo, sourceHash), false, 'the delivery is split, not stored as it came');
-      assert.equal(await deliveryKnown(storage, testRepo, sourceHash), true);
+      assert.equal((await rememberedManifest(storage, testRepo, sourceHash))?.hash, adopted.hash);
 
       await workspaceSetDataset(storage, testRepo, 'ws', [...tablePath], rows(3), TableType);
       const result = await datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], sourceHash, runner);
@@ -631,6 +664,126 @@ describe('path-initialised inputs', () => {
         () => datasetAdoptObject(storage, testRepo, 'ws2', [variant('field', 'inputs'), variant('field', 'narrow')], sourceHash, runner),
         (err: unknown) => err instanceof DatasetTypeMismatchError && /declares/.test(err.message)
       );
+    });
+
+    it('takes a collection the store holds whole in, in pieces, saying how far it has got as each piece finishes', async () => {
+      await deployTableWorkspace('adopt-object-progress');
+      await withPieceBytes(16 * 1024, async () => {
+        const bytes = encodeInSegmentsOf(TableType, 8)(rows(20_000));
+        const whole = await storage.objects.write(testRepo, bytes);
+        const heard: DatasetAdoptProgress[] = [];
+
+        const result = await datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], whole, runner, { onProgress: (progress) => heard.push(progress) });
+
+        assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(20_000), TableType));
+        assert.ok(heard.every((progress) => progress.phase === 'take-in' && progress.total === bytes.length), 'an object is named by its hash: there is nothing to hash');
+        const pieces = heard.at(-1)!.pieces!;
+        assert.ok(pieces.total > 2, `20,000 rows in 16 KiB pieces should be several, not ${pieces.total}`);
+        assert.deepEqual(heard.map((progress) => progress.pieces!.done), Array.from({ length: pieces.total + 1 }, (_, i) => i), 'each piece is heard as it finishes');
+        assert.equal(heard.at(-1)!.bytes, bytes.length);
+      });
+    });
+
+    it('stops at its signal with the pieces it finished remembered, so the next adopt takes in only the rest', async () => {
+      await deployTableWorkspace('adopt-object-stopped');
+      await withPieceBytes(16 * 1024, async () => {
+        const whole = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(20_000)));
+        // Every piece but the first finishes, and then the adopt is stopped, as
+        // a round of compute with a time limit stops at its deadline.
+        let pieces = 0;
+        let finished = 0;
+        const round = new AbortController();
+        const stopping = new MockTaskRunner();
+        stopping.setIntakeResult(async (store, spec, options) => {
+          if (spec.segments?.from === 0) {
+            return new Promise<never>((_resolve, reject) => {
+              const stop = (): void => reject(Object.assign(new Error('intake: aborted'), { name: 'AbortError' }));
+              if (options?.signal?.aborted) stop();
+              else options?.signal?.addEventListener('abort', stop, { once: true });
+            });
+          }
+          const taken = await runner.intake(store, spec);
+          if (++finished === pieces - 1) round.abort();
+          return taken;
+        });
+        await assert.rejects(
+          datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], whole, stopping, {
+            signal: round.signal,
+            onProgress: (progress) => { if (progress.pieces !== undefined) pieces = progress.pieces.total; },
+          }),
+          (err: unknown) => err instanceof Error && err.name === 'AbortError',
+        );
+        assert.ok(pieces > 2, `several pieces, not ${pieces}`);
+        assert.equal((await storage.refs.adoptionList(testRepo)).length, pieces - 1, 'the pieces that finished are remembered');
+        assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned', 'a stopped adopt points nothing');
+
+        const next = new MockTaskRunner();
+        next.setIntakeResult((store, spec) => runner.intake(store, spec));
+        const result = await datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], whole, next);
+        assert.deepEqual(next.getIntakeCalls().map((spec) => spec.segments?.from), [0], 'only the piece that did not finish runs');
+        assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(20_000), TableType));
+      });
+    });
+  });
+
+  describe('datasetAdoptKnown (the transfer init\'s dedup)', () => {
+    it('adopts at once what the memo names, and leaves a collection the store holds whole to a commit, taking nothing in', async () => {
+      await deployTableWorkspace('adopt-known-init');
+      const whole = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(24)));
+
+      assert.equal(await datasetAdoptKnown(storage, testRepo, 'ws', [...tablePath], whole), null, 'held whole, it is an intake: a commit\'s');
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned', 'nothing was written');
+      assert.equal(await datasetAdoptKnown(storage, testRepo, 'ws', [...tablePath], 'f'.repeat(64)), null, 'a delivery the store does not hold');
+
+      // Once it is taken in, the memo names what it became.
+      const taken = await datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], whole, runner);
+      await workspaceSetDataset(storage, testRepo, 'ws', [...tablePath], rows(3), TableType);
+      const known = await datasetAdoptKnown(storage, testRepo, 'ws', [...tablePath], whole);
+      assert.deepEqual([known?.taken, known?.hash], ['known', taken.hash]);
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash, taken.hash);
+    });
+
+    it('adopts an object of another value as the value it is, and refuses one of another type', async () => {
+      const pkg = e3.package('adopt-known-value', '1.0.0', e3.input('tally', IntegerType));
+      const zipPath = join(tempDir, 'adopt-known-value.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'ws', 'adopt-known-value', '1.0.0');
+      const tallyPath = [variant('field', 'inputs'), variant('field', 'tally')];
+
+      const five = await storage.objects.write(testRepo, encodeBeast2For(IntegerType)(5n));
+      const adopted = await datasetAdoptKnown(storage, testRepo, 'ws', tallyPath, five);
+      assert.deepEqual([adopted?.taken, adopted?.hash], ['carried', five]);
+
+      const text = await storage.objects.write(testRepo, encodeBeast2For(StringType)('five'));
+      await assert.rejects(datasetAdoptKnown(storage, testRepo, 'ws', tallyPath, text), DatasetTypeMismatchError);
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', tallyPath)).hash, five);
+    });
+
+    it('looks once more at an object that reads as gone right after its touch found it, as a delete that raced the touch leaves it', async () => {
+      const pkg = e3.package('adopt-known-raced', '1.0.0', e3.input('tally', IntegerType));
+      const zipPath = join(tempDir, 'adopt-known-raced.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'ws', 'adopt-known-raced', '1.0.0');
+      const tallyPath = [variant('field', 'inputs'), variant('field', 'tally')];
+      const five = await storage.objects.write(testRepo, encodeBeast2For(IntegerType)(5n));
+
+      // The first look after the touch falls in the moment a racing delete
+      // has the object aside, before it puts it back
+      let looks = 0;
+      const objects = Object.create(storage.objects, {
+        stat: {
+          value: async (repo: string, hash: string): Promise<{ size: number }> => {
+            if (hash === five && looks++ === 0) throw new ObjectNotFoundError(hash);
+            return storage.objects.stat(repo, hash);
+          },
+        },
+      }) as StorageBackend['objects'];
+
+      const adopted = await datasetAdoptKnown(withStores({ objects }), testRepo, 'ws', tallyPath, five);
+      assert.deepEqual([adopted?.taken, adopted?.hash], ['carried', five], 'adopted, not taken for a delivery the store does not hold');
+      assert.equal(looks, 2, 'it looked once more');
     });
   });
 

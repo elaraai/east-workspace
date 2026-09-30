@@ -73,7 +73,7 @@ import type { StorageBackend } from '../storage/interfaces.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { storeCollection } from '../store-collection.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
-import type { SplitUnit } from './interfaces.js';
+import type { ExecutionLiveness, SplitUnit } from './interfaces.js';
 import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './LocalTaskRunner.js';
 import { planPieces, pieceSizes, type PiecePlan, type PieceSizes } from './pieces.js';
 import { mergeComponents, mergeTreeGroups, mergeTreeLevels, planMergeRanges } from './steps.js';
@@ -742,6 +742,15 @@ export interface SplitTaskDriver {
   /** The owner the task's own execution is recorded under while its stages
    *  run, or `null` for none (see {@link SplitTask.open}). */
   readonly owner: ExecutionOwner | null;
+  /**
+   * Whether a unit recorded `running` can still finish, as the runner that
+   * started it judges it — its `TaskRunner.executionAlive` — for each unit's
+   * probe of the execution cache. A driver whose units run on other hosts
+   * passes its runner's, so a unit still running elsewhere is left as it is and
+   * handed to the executor, which attaches to it rather than running it again.
+   * Absent, each probe judges as the local runner does, on this host.
+   */
+  readonly executionAlive?: ExecutionLiveness;
 }
 
 /**
@@ -754,12 +763,14 @@ export interface SplitTaskDriver {
  * runner calls it for a task run outside the dataflow — an index build — with
  * an `execute` that runs each unit where it runs. The stage the plan sidecar
  * names is taken up again, so a run that stopped mid-task resumes where it
- * stopped. Every unit is probed in the execution cache here, and run by
- * `execute` only on a miss. A stage's first unit runs alone, and the rest then
- * as many at once as the driver's width, each expecting to need the largest
- * peak the stage has reached. The driver holds the task in memory from its
- * first stage to its end; one that cannot drives {@link SplitTask} a step at a
- * time instead.
+ * stopped. Every unit is probed in the execution cache here, with the driver's
+ * judgement of whether a unit recorded `running` can still finish, and run by
+ * `execute` only on a miss: a unit still running on another host is handed to
+ * `execute` as it is, never rewritten as interrupted by a host that cannot see
+ * it. A stage's first unit runs alone, and the rest then as many at once as
+ * the driver's width, each expecting to need the largest peak the stage has
+ * reached. The driver holds the task in memory from its first stage to its
+ * end; one that cannot drives {@link SplitTask} a step at a time instead.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -770,7 +781,8 @@ export interface SplitTaskDriver {
  * @param options - Execution options: the run's signal, progress callback and
  *   `force`
  * @param execute - Runs one unit on a cache miss
- * @param driver - The pool's width, and the owner of the task's execution
+ * @param driver - The pool's width, the owner of the task's execution, and
+ *   the judgement of whether a unit recorded running can still finish
  * @returns The task's execution result
  * @throws {RangeError} When the width is not a positive integer.
  * @throws The error of the lowest-index unit whose executor or cache probe
@@ -787,7 +799,7 @@ export async function executeSplitTask(
   execute: UnitExecutor,
   driver: SplitTaskDriver,
 ): Promise<ExecutionResult> {
-  const { width, owner } = driver;
+  const { width, owner, executionAlive } = driver;
   if (!(Number.isInteger(width) && width >= 1)) {
     throw new RangeError(`width must be a positive integer, got ${width}`);
   }
@@ -805,7 +817,7 @@ export async function executeSplitTask(
       const unit = units[index]!;
       split.unitStarted(index);
       const unitHash = inputsHash(unit.inputs);
-      const result = (options.force ? null : await probeExecutionCache(storage, repo, taskHash, unitHash))
+      const result = (options.force ? null : await probeExecutionCache(storage, repo, taskHash, unitHash, executionAlive))
         ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak, unit.own);
       split.unitSettled(index, result);
       return result;
