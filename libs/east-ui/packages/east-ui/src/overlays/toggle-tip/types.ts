@@ -26,11 +26,19 @@ export { PlacementType, type PlacementLiteral } from "../tooltip/types.js";
  *
  * @property placement - Position relative to trigger
  * @property hasArrow - Show arrow pointing to trigger
+ * @property open - Controlled open state — pair with `onOpenChange`
+ * @property defaultOpen - Initial open state, uncontrolled
+ * @property closeOnInteractOutside - Close when clicking outside
+ * @property closeOnEscape - Close on escape key
  * @property onOpenChange - Callback triggered when open state changes
  */
 export const ToggleTipStyleType = StructType({
     placement: OptionType(PlacementType),
     hasArrow: OptionType(BooleanType),
+    open: OptionType(BooleanType),
+    defaultOpen: OptionType(BooleanType),
+    closeOnInteractOutside: OptionType(BooleanType),
+    closeOnEscape: OptionType(BooleanType),
     /** Callback triggered when open state changes */
     onOpenChange: OptionType(FunctionType([BooleanType], NullType)),
 });
@@ -57,7 +65,7 @@ export interface ToggleTipStyle {
     placement?: SubtypeExprOrValue<PlacementType> | PlacementLiteral;
     /** Show arrow pointing to trigger */
     hasArrow?: SubtypeExprOrValue<BooleanType>;
-    /** Controlled open state */
+    /** Controlled open state — pair with `onOpenChange`; a callback anywhere opens it by writing the State this reads */
     open?: SubtypeExprOrValue<BooleanType>;
     /** Initial open state */
     defaultOpen?: SubtypeExprOrValue<BooleanType>;

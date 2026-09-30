@@ -54,7 +54,12 @@ export function toChakraDialog(value: DialogOpenInputValue): Partial<ChakraDialo
         scrollBehavior: style ? getSomeorUndefined(style.scrollBehavior)?.type : undefined,
         motionPreset: style ? getSomeorUndefined(style.motionPreset)?.type : undefined,
         role: style ? getSomeorUndefined(style.role)?.type : undefined,
-
+        open: style ? getSomeorUndefined(style.open) : undefined,
+        defaultOpen: style ? getSomeorUndefined(style.defaultOpen) : undefined,
+        closeOnInteractOutside: style ? getSomeorUndefined(style.closeOnInteractOutside) : undefined,
+        closeOnEscape: style ? getSomeorUndefined(style.closeOnEscape) : undefined,
+        lazyMount: style ? getSomeorUndefined(style.lazyMount) : undefined,
+        unmountOnExit: style ? getSomeorUndefined(style.unmountOnExit) : undefined,
     };
 }
 
@@ -129,7 +134,14 @@ export function DialogContent({ value, storageKey, trigger, open, onClose, onExi
 
     return (
         <ChakraDialog.Root
-            open={open}
+            // A dialog the overlay manager opened is the manager's to open
+            // and close; otherwise the author's `open` controls it.
+            open={open ?? props.open}
+            defaultOpen={props.defaultOpen}
+            closeOnInteractOutside={props.closeOnInteractOutside}
+            closeOnEscape={props.closeOnEscape}
+            lazyMount={props.lazyMount}
+            unmountOnExit={props.unmountOnExit}
             size={props.size}
             placement={props.placement}
             scrollBehavior={props.scrollBehavior}

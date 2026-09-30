@@ -89,6 +89,7 @@ export const drawerStackedNested = example({
                                             // Collapses to a "bell" rail when the detail drawer opens on top.
                                             style: some(East.value({
                                                 size: none, placement: none, contained: none,
+                                                open: none, defaultOpen: none, closeOnInteractOutside: none, closeOnEscape: none, lazyMount: none, unmountOnExit: none,
                                                 onOpenChange: none, onExitComplete: none, bodyPadding: none,
                                                 flush: none, fillBody: none, stacked: some(true), stackIcon: some("bell"),
                                             }, Drawer.Types.Style)),
@@ -103,6 +104,7 @@ export const drawerStackedNested = example({
                         // Collapses to a "flask" rail while any deeper drawer is open.
                         style: some(East.value({
                             size: none, placement: none, contained: none,
+                            open: none, defaultOpen: none, closeOnInteractOutside: none, closeOnEscape: none, lazyMount: none, unmountOnExit: none,
                             onOpenChange: none, onExitComplete: none, bodyPadding: none,
                             flush: none, fillBody: none, stacked: some(true), stackIcon: some("flask"),
                         }, Drawer.Types.Style)),
@@ -210,5 +212,26 @@ export const drawerVariants = example({
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+export const drawerOpenFromState = example({
+    keywords: ["Drawer", "open", "onOpenChange", "State", "Reactive", "controlled", "callback", "detail"],
+    description: "A drawer a callback opens: its `open` reads State the button writes, and closing it writes the State back",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const shown = $.let(State.bind([BooleanType], "drawer_open_from_state", false));
+            const openIt = $.const(East.function([], NullType, ($) => { $(shown.write(true)); }));
+            return (
+                <VStack gap="2" align="flex-start">
+                    <Button variant="outline" onClick={openIt}>Open B4418</Button>
+                    <Drawer trigger={<Text color="fg.muted">Reactor detail</Text>} eyebrow="Reactor" title="B4418" placement="end" size="sm"
+                        open={shown.read()} onOpenChange={shown.write}>
+                        <Text>Opened by a callback.</Text>
+                    </Drawer>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });

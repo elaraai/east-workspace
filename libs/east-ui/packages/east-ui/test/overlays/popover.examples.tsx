@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Chart, Configurator, Popover, Reactive, Text } from "@elaraai/east-ui";
+import { Button, Chart, Configurator, HStack, Popover, Reactive, Text } from "@elaraai/east-ui";
 
 export const popoverBasic = example({
     keywords: ["Popover", "Root", "title", "description", "click"],
@@ -56,6 +56,26 @@ export const popoverVariants = example({
                     spec={[
                     ]}
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const popoverOpenFromState = example({
+    keywords: ["Popover", "open", "onOpenChange", "State", "Reactive", "controlled", "callback", "closeOnInteractOutside"],
+    description: "A popover a callback elsewhere opens: its `open` reads State the button writes, and it hangs from its own trigger; closing it writes the State back",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const shown = $.let(State.bind([BooleanType], "popover_open_from_state", false));
+            const openIt = $.const(East.function([], NullType, ($) => { $(shown.write(true)); }));
+            return (
+                <HStack gap="3">
+                    <Button variant="outline" onClick={openIt}>Open the details</Button>
+                    <Popover trigger={<Button>Details</Button>} title="Details" open={shown.read()} onOpenChange={shown.write}>
+                        <Text>Opened by a callback, at its own trigger.</Text>
+                    </Popover>
+                </HStack>
             );
         }}</Reactive>
     )),

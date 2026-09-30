@@ -72,6 +72,12 @@ export type DrawerPlacementLiteral = "start" | "end" | "top" | "bottom";
  * @property size - Drawer size variant
  * @property placement - Edge placement
  * @property contained - Render within parent container
+ * @property open - Controlled open state — pair with `onOpenChange`; a drawer the overlay manager opened (`Drawer.open`) stays its to open and close
+ * @property defaultOpen - Initial open state, uncontrolled
+ * @property closeOnInteractOutside - Close when clicking outside
+ * @property closeOnEscape - Close on escape key
+ * @property lazyMount - Delay mounting until first open
+ * @property unmountOnExit - Unmount when closed
  * @property onOpenChange - Callback triggered when open state changes
  * @property onExitComplete - Callback triggered when exit animation completes
  * @property bodyPadding - CSS padding shorthand for the body (default `"16px 20px"`)
@@ -82,6 +88,12 @@ export const DrawerStyleType = StructType({
     size: OptionType(DrawerSizeType),
     placement: OptionType(DrawerPlacementType),
     contained: OptionType(BooleanType),
+    open: OptionType(BooleanType),
+    defaultOpen: OptionType(BooleanType),
+    closeOnInteractOutside: OptionType(BooleanType),
+    closeOnEscape: OptionType(BooleanType),
+    lazyMount: OptionType(BooleanType),
+    unmountOnExit: OptionType(BooleanType),
     /** Callback triggered when open state changes */
     onOpenChange: OptionType(FunctionType([BooleanType], NullType)),
     /** Callback triggered when exit animation completes */
@@ -138,7 +150,7 @@ export interface DrawerStyle {
     title?: SubtypeExprOrValue<StringType>;
     /** Drawer description */
     description?: SubtypeExprOrValue<StringType>;
-    /** Controlled open state */
+    /** Controlled open state — pair with `onOpenChange`; a callback anywhere opens it by writing the State this reads */
     open?: SubtypeExprOrValue<BooleanType>;
     /** Initial open state */
     defaultOpen?: SubtypeExprOrValue<BooleanType>;

@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1234,
-    "totalFiles": 204,
+    "totalEntries": 1241,
+    "totalFiles": 205,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 382,
-      "e3-ui": 54,
+      "east-ui": 388,
+      "e3-ui": 55,
       "e3": 15,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -30934,7 +30934,7 @@
         "palette"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, variant, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -30970,7 +30970,7 @@
         "State"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, variant, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -31016,7 +31016,7 @@
         "#320"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, variant, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -31062,7 +31062,7 @@
         "State"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, variant, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -31070,6 +31070,37 @@
         "tsx"
       ],
       "source": "// A gallery of pages — each card's media the page's wireframe at its start, its status a dot or an open ring, an action in its foot, a dashed card to add one, and a toolbar holding the search and the grid · list switch\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n            const pages = $.const([\n                {\n                    key: \"overview\", title: \"Overview\", live: true,\n                    cells: [\n                        { id: \"revenue\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"orders\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"avg-ticket\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"fill-rate\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"revenue-trend\", row: \"charts\", span: 8n, height: some(56n) },\n                        { id: \"breakdown\", row: \"charts\", span: 4n, height: some(56n) },\n                        { id: \"accounts\", row: \"accounts\", span: 12n, height: some(18n) },\n                    ],\n                },\n                {\n                    key: \"account-detail\", title: \"Account detail\", live: false,\n                    cells: [\n                        { id: \"header\", row: \"header\", span: 12n, height: some(10n) },\n                        { id: \"owner\", row: \"facts\", span: 4n, height: some(14n) },\n                        { id: \"revenue\", row: \"facts\", span: 4n, height: some(14n) },\n                        { id: \"status\", row: \"facts\", span: 4n, height: some(14n) },\n                        { id: \"orders\", row: \"orders\", span: 12n, height: some(60n) },\n                    ],\n                },\n                {\n                    key: \"regional-rollup\", title: \"Regional rollup\", live: true,\n                    cells: [\n                        { id: \"trend\", row: \"trend\", span: 12n, height: some(72n) },\n                        { id: \"north\", row: \"regions\", span: 6n, height: some(18n) },\n                        { id: \"south\", row: \"regions\", span: 6n, height: some(18n) },\n                    ],\n                },\n            ], ArrayType(StructType({ key: StringType, title: StringType, live: BooleanType, cells: ArrayType(Placement) })));\n            const opened = $.let(State.bind([StringType], \"library_gallery_opened\", \"nothing\"));\n            const onOpen = $.const(East.function([StringType], NullType, ($2, key) => { $2(opened.write(key)); }));\n            const onAdd = $.const(East.function([], NullType, ($2) => { $2(opened.write(\"a new page\")); }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Library\n                        id=\"pages\"\n                        variant=\"gallery\"\n                        data={pages}\n                        item={p => ({\n                            key: p.key,\n                            label: p.title,\n                            sublabel: East.str`${p.cells.size()} components`,\n                            status: p.live.ifElse(\n                                () => some(Library.status(\"Live\", \"success\")),\n                                () => some(Library.status(\"Draft\", \"neutral\", true)),\n                            ),\n                            media: (\n                                <SnapGrid data={p.cells} variant=\"wireframe\"\n                                    cell={c => SnapGrid.cell({ key: c.id, row: c.row, span: c.span, height: c.height, content: <Text>{c.id}</Text> })} />\n                            ),\n                            action: \"Open in builder →\",\n                            draggable: false,\n                        })}\n                        search={p => p.title}\n                        noun={{ singular: \"page\", plural: \"pages\" }}\n                        onCardClick={onOpen}\n                        addLabel=\"New page from template\"\n                        onAdd={onAdd}\n                        style={{ columns: 2n, mediaPlacement: \"start\", mediaSize: \"156px\" }}\n                    />\n                    <Text>{East.str`Opened · ${opened.read()}`}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:library.examples.tsx:libraryGalleryHosted",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/library.examples.tsx",
+      "suite": "",
+      "test": "A gallery with no toolbar of its own — its host's Grid · List control lays it out from State",
+      "keywords": [
+        "Library",
+        "gallery",
+        "toolbar",
+        "host",
+        "layout",
+        "Library.Types.Layout",
+        "templates",
+        "wireframe",
+        "SnapGrid",
+        "SegmentGroup",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import { East, example, some, none, variant, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A gallery with no toolbar of its own — its host's Grid · List control lays it out from State\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n            const templates = $.const([\n                { key: \"blank\", title: \"Blank grid\", summary: \"12-col · empty\", cells: [] },\n                {\n                    key: \"summary\", title: \"Summary\", summary: \"KPI rail ×4 · Revenue trend\",\n                    cells: [\n                        { id: \"k1\", row: \"kpis\", span: 3n, height: some(10n) },\n                        { id: \"k2\", row: \"kpis\", span: 3n, height: some(10n) },\n                        { id: \"k3\", row: \"kpis\", span: 3n, height: some(10n) },\n                        { id: \"k4\", row: \"kpis\", span: 3n, height: some(10n) },\n                        { id: \"trend\", row: \"chart\", span: 12n, height: some(30n) },\n                    ],\n                },\n                {\n                    key: \"brief\", title: \"Report brief\", summary: \"Heading · Note · Table\",\n                    cells: [\n                        { id: \"heading\", row: \"head\", span: 12n, height: some(8n) },\n                        { id: \"table\", row: \"body\", span: 12n, height: some(34n) },\n                    ],\n                },\n            ], ArrayType(StructType({ key: StringType, title: StringType, summary: StringType, cells: ArrayType(Placement) })));\n            const layout = $.let(State.bind([Library.Types.Layout], \"library_hosted_layout\", variant(\"grid\", null)));\n            const onLayout = $.const(East.function([StringType], NullType, ($2, next) => {\n                $2.if(next.equal(\"list\"), ($3) => { $3(layout.write(variant(\"list\", null))); })\n                    .else(($3) => { $3(layout.write(variant(\"grid\", null))); });\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <SegmentGroup value={layout.read().getTag()} onChange={onLayout} size=\"sm\"\n                        items={[SegmentGroup.Item(\"grid\", <Text>Grid</Text>), SegmentGroup.Item(\"list\", <Text>List</Text>)]} />\n                    <Library\n                        id=\"templates\"\n                        variant=\"gallery\"\n                        toolbar={false}\n                        layout={layout.read()}\n                        data={templates}\n                        item={t => ({\n                            key: t.key,\n                            label: t.title,\n                            sublabel: t.summary,\n                            media: (\n                                <SnapGrid data={t.cells} variant=\"wireframe\"\n                                    cell={c => SnapGrid.cell({ key: c.id, row: c.row, span: c.span, height: c.height, content: <Text>{c.id}</Text> })} />\n                            ),\n                            draggable: false,\n                        })}\n                        style={{ columns: 3n, mediaSize: \"80px\" }}\n                    />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:library.examples.tsx:libraryGalleryReports",
@@ -31101,7 +31132,7 @@
         "catalog"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, variant, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -39088,7 +39119,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/layout/snap-grid.examples.tsx",
       "suite": "",
-      "test": "Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages",
+      "test": "Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages, each framed by its host; the last, with no cells, is the blank page",
       "keywords": [
         "SnapGrid",
         "wireframe",
@@ -39100,7 +39131,9 @@
         "variant",
         "tiles",
         "grid",
-        "miniature"
+        "miniature",
+        "blank",
+        "empty"
       ],
       "imports": [
         "import { ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
@@ -39109,7 +39142,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n        const overview = $.const([\n            { id: \"revenue\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"orders\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"avg-ticket\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"fill-rate\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"revenue-trend\", row: \"charts\", span: 8n, height: some(64n) },\n            { id: \"breakdown\", row: \"charts\", span: 4n, height: some(64n) },\n            { id: \"accounts\", row: \"accounts\", span: 12n, height: some(20n) },\n        ], ArrayType(Placement));\n        const accountDetail = $.const([\n            { id: \"header\", row: \"header\", span: 12n, height: some(10n) },\n            { id: \"owner\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"revenue\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"status\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"orders\", row: \"orders\", span: 12n, height: some(68n) },\n        ], ArrayType(Placement));\n        const regionalRollup = $.const([\n            { id: \"trend\", row: \"trend\", span: 12n, height: some(84n) },\n            { id: \"north\", row: \"regions\", span: 6n, height: some(16n) },\n            { id: \"south\", row: \"regions\", span: 6n, height: some(16n) },\n        ], ArrayType(Placement));\n        return (\n            <HStack gap=\"4\" align=\"flex-start\">\n                <SnapGrid data={overview} variant=\"wireframe\" width=\"160px\"\n                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                <SnapGrid data={accountDetail} variant=\"wireframe\" width=\"160px\"\n                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                <SnapGrid data={regionalRollup} variant=\"wireframe\" width=\"160px\"\n                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n            </HStack>\n        );\n    })"
+      "source": "// Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages, each framed by its host; the last, with no cells, is the blank page\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n        const overview = $.const([\n            { id: \"revenue\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"orders\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"avg-ticket\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"fill-rate\", row: \"kpis\", span: 3n, height: some(12n) },\n            { id: \"revenue-trend\", row: \"charts\", span: 8n, height: some(64n) },\n            { id: \"breakdown\", row: \"charts\", span: 4n, height: some(64n) },\n            { id: \"accounts\", row: \"accounts\", span: 12n, height: some(20n) },\n        ], ArrayType(Placement));\n        const accountDetail = $.const([\n            { id: \"header\", row: \"header\", span: 12n, height: some(10n) },\n            { id: \"owner\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"revenue\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"status\", row: \"facts\", span: 4n, height: some(14n) },\n            { id: \"orders\", row: \"orders\", span: 12n, height: some(68n) },\n        ], ArrayType(Placement));\n        const regionalRollup = $.const([\n            { id: \"trend\", row: \"trend\", span: 12n, height: some(84n) },\n            { id: \"north\", row: \"regions\", span: 6n, height: some(16n) },\n            { id: \"south\", row: \"regions\", span: 6n, height: some(16n) },\n        ], ArrayType(Placement));\n        const blank = $.const([], ArrayType(Placement));\n        return (\n            <HStack gap=\"4\" align=\"stretch\">\n                <Box display=\"flex\" flexDirection=\"column\" padding=\"3.5\" background=\"bg.subtle\">\n                    <SnapGrid data={overview} variant=\"wireframe\" width=\"160px\"\n                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                </Box>\n                <Box display=\"flex\" flexDirection=\"column\" padding=\"3.5\" background=\"bg.subtle\">\n                    <SnapGrid data={accountDetail} variant=\"wireframe\" width=\"160px\"\n                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                </Box>\n                <Box display=\"flex\" flexDirection=\"column\" padding=\"3.5\" background=\"bg.subtle\">\n                    <SnapGrid data={regionalRollup} variant=\"wireframe\" width=\"160px\"\n                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                </Box>\n                <Box display=\"flex\" flexDirection=\"column\" padding=\"3.5\" background=\"bg.subtle\">\n                    <SnapGrid data={blank} variant=\"wireframe\" width=\"160px\"\n                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />\n                </Box>\n            </HStack>\n        );\n    })"
     },
     {
       "id": "east-ui:snap-grid.examples.tsx:snapGridEditor",
@@ -39920,6 +39953,34 @@
       "source": "// Dialog.open() without trigger\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Dialog.open(East.value({\n                        body: [\n                            <Text>This dialog was opened programmatically using Dialog.open().</Text>,\n                            <HStack gap=\"2\" justify=\"flex-end\">\n                                <Button variant=\"solid\">Cool!</Button>\n                            </HStack>,\n                        ],\n                        eyebrow: some(\"Confirm · programmatic\"),\n                        title: some(\"Programmatic Dialog\"),\n                        description: some(\"No trigger element needed\"),\n                        style: none,\n                    }, Dialog.Types.OpenInput)));\n                })}\n            >Open Dialog Programmatically</Button>\n        );\n    })"
     },
     {
+      "id": "east-ui:dialog.examples.tsx:dialogOpenFromState",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/overlays/dialog.examples.tsx",
+      "suite": "",
+      "test": "The one modal, a confirmation, opened from a callback: its `open` reads State, and Cancel and the act's verb close it; a click outside does not dismiss it",
+      "keywords": [
+        "Dialog",
+        "open",
+        "onOpenChange",
+        "State",
+        "Reactive",
+        "controlled",
+        "callback",
+        "confirm",
+        "closeOnInteractOutside"
+      ],
+      "imports": [
+        "import { East, BooleanType, IntegerType, NullType, example, some, none } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, Card, Configurator, Dialog, HStack, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The one modal, a confirmation, opened from a callback: its `open` reads State, and Cancel and the act's verb close it; a click outside does not dismiss it\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const asking = $.let(State.bind([BooleanType], \"dialog_open_from_state\", false));\n            const ask = $.const(East.function([], NullType, ($) => { $(asking.write(true)); }));\n            const close = $.const(East.function([], NullType, ($) => { $(asking.write(false)); }));\n            return (\n                <HStack gap=\"3\">\n                    <Button variant=\"outline\" onClick={ask}>Remove cohort…</Button>\n                    <Dialog trigger={<Text color=\"fg.muted\">Late · 412</Text>} eyebrow=\"Can't be undone\" title=\"Remove cohort Late?\"\n                        open={asking.read()} onOpenChange={asking.write} closeOnInteractOutside={false}>\n                        <HStack gap=\"2\" justify=\"flex-end\">\n                            <Button variant=\"outline\" onClick={close}>Cancel</Button>\n                            <Button variant=\"solid\" onClick={close}>Remove cohort</Button>\n                        </HStack>\n                    </Dialog>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
       "id": "east-ui:drawer.examples.tsx:drawerBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -39995,7 +40056,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// Programmatic nested drawers with stacked:true — each drawer's body opens the next, and every ancestor collapses to a labeled icon rail you can click to pop back to it (#328)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Drawer.open(East.value({\n                        body: [\n                            <VStack gap=\"4\" align=\"flex-start\">\n                                <Text>Reactor B4418 — detail. Drill into its decisions from here.</Text>\n                                <Button\n                                    variant=\"outline\"\n                                    onClick={East.function([], NullType, $ => {\n                                        $(Drawer.open(East.value({\n                                            body: [\n                                                <VStack gap=\"4\" align=\"flex-start\">\n                                                    <Text>Decisions queue for B4418.</Text>\n                                                    <Button\n                                                        variant=\"outline\"\n                                                        onClick={East.function([], NullType, $ => {\n                                                            $(Drawer.open(East.value({\n                                                                body: [<Text>Adjust setpoint — the deepest drawer.</Text>],\n                                                                eyebrow: some(\"Decision\"),\n                                                                title: some(\"Adjust setpoint\"),\n                                                                description: none,\n                                                                style: none,\n                                                            }, Drawer.Types.OpenInput)));\n                                                        })}\n                                                    >Open decision detail</Button>\n                                                </VStack>,\n                                            ],\n                                            eyebrow: some(\"Notifications\"),\n                                            title: some(\"Decisions\"),\n                                            description: none,\n                                            // Collapses to a \"bell\" rail when the detail drawer opens on top.\n                                            style: some(East.value({\n                                                size: none, placement: none, contained: none,\n                                                onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                                                flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"bell\"),\n                                            }, Drawer.Types.Style)),\n                                        }, Drawer.Types.OpenInput)));\n                                    })}\n                                >Open decisions</Button>\n                            </VStack>,\n                        ],\n                        eyebrow: some(\"Reactor\"),\n                        title: some(\"B4418\"),\n                        description: none,\n                        // Collapses to a \"flask\" rail while any deeper drawer is open.\n                        style: some(East.value({\n                            size: none, placement: none, contained: none,\n                            onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                            flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"flask\"),\n                        }, Drawer.Types.Style)),\n                    }, Drawer.Types.OpenInput)));\n                })}\n            >Open B4418</Button>\n        );\n    })"
+      "source": "// Programmatic nested drawers with stacked:true — each drawer's body opens the next, and every ancestor collapses to a labeled icon rail you can click to pop back to it (#328)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Drawer.open(East.value({\n                        body: [\n                            <VStack gap=\"4\" align=\"flex-start\">\n                                <Text>Reactor B4418 — detail. Drill into its decisions from here.</Text>\n                                <Button\n                                    variant=\"outline\"\n                                    onClick={East.function([], NullType, $ => {\n                                        $(Drawer.open(East.value({\n                                            body: [\n                                                <VStack gap=\"4\" align=\"flex-start\">\n                                                    <Text>Decisions queue for B4418.</Text>\n                                                    <Button\n                                                        variant=\"outline\"\n                                                        onClick={East.function([], NullType, $ => {\n                                                            $(Drawer.open(East.value({\n                                                                body: [<Text>Adjust setpoint — the deepest drawer.</Text>],\n                                                                eyebrow: some(\"Decision\"),\n                                                                title: some(\"Adjust setpoint\"),\n                                                                description: none,\n                                                                style: none,\n                                                            }, Drawer.Types.OpenInput)));\n                                                        })}\n                                                    >Open decision detail</Button>\n                                                </VStack>,\n                                            ],\n                                            eyebrow: some(\"Notifications\"),\n                                            title: some(\"Decisions\"),\n                                            description: none,\n                                            // Collapses to a \"bell\" rail when the detail drawer opens on top.\n                                            style: some(East.value({\n                                                size: none, placement: none, contained: none,\n                                                open: none, defaultOpen: none, closeOnInteractOutside: none, closeOnEscape: none, lazyMount: none, unmountOnExit: none,\n                                                onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                                                flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"bell\"),\n                                            }, Drawer.Types.Style)),\n                                        }, Drawer.Types.OpenInput)));\n                                    })}\n                                >Open decisions</Button>\n                            </VStack>,\n                        ],\n                        eyebrow: some(\"Reactor\"),\n                        title: some(\"B4418\"),\n                        description: none,\n                        // Collapses to a \"flask\" rail while any deeper drawer is open.\n                        style: some(East.value({\n                            size: none, placement: none, contained: none,\n                            open: none, defaultOpen: none, closeOnInteractOutside: none, closeOnEscape: none, lazyMount: none, unmountOnExit: none,\n                            onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                            flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"flask\"),\n                        }, Drawer.Types.Style)),\n                    }, Drawer.Types.OpenInput)));\n                })}\n            >Open B4418</Button>\n        );\n    })"
     },
     {
       "id": "east-ui:drawer.examples.tsx:drawerVariants",
@@ -40037,6 +40098,33 @@
         "tsx"
       ],
       "source": "// Drawer configurator — placement and body-preset axes driving one live drawer behind its trigger button; the aside counts onOpenChange opens\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                // Enumerated axes are just their variants — `getTag()` gives the\n                // segment key AND its label, so there is no parallel table to\n                // keep in step.\n                const placements = $.const([\n                    variant(\"start\", null), variant(\"end\", null),\n                ], ArrayType(Drawer.Types.Placement));\n\n                // A body preset is the flush / fillBody pair plus the inset\n                // they override, so the axis is a struct. `flush` (zero\n                // padding) + `fillBody` (definite-height flex column) let a\n                // single height:100% child own its own scroll.\n                const bodies = $.const([\n                    { label: \"default\", flush: false, fillBody: false, bodyPadding: \"16px 20px\" },\n                    { label: \"flush\",   flush: true,  fillBody: true,  bodyPadding: \"0\" },\n                    { label: \"inset\",   flush: false, fillBody: false, bodyPadding: \"8px 12px\" },\n                ], ArrayType(StructType({ label: StringType, flush: BooleanType, fillBody: BooleanType, bodyPadding: StringType })));\n\n                const placementBind = $.let(State.bind([StringType], \"drawer_placement\", \"end\"));\n                const bodyBind      = $.let(State.bind([StringType], \"drawer_body\", \"default\"));\n                const openCountBind = $.let(State.bind([IntegerType], \"drawer_open_count\", 0n));\n\n                const pKey = $.let(placementBind.read());\n                const bKey = $.let(bodyBind.read());\n                const openCount = $.let(openCountBind.read());\n\n                const onPlacement = $.const(East.function([StringType], NullType, ($, next) => { $(placementBind.write(next)); }));\n                const onBody      = $.const(East.function([StringType], NullType, ($, next) => { $(bodyBind.write(next)); }));\n                const onOpenChange = $.const(East.function([BooleanType], NullType, ($, isOpen) => {\n                    const cur = $.let(openCountBind.read());\n                    $.if(isOpen, $ => {\n                        $(openCountBind.write(cur.add(1n)));\n                    });\n                }));\n\n                // Each selection is a lookup into the same array the control renders.\n                const placement = $.let(placements.filter((_$, v) => v.getTag().equal(pKey)).get(0n));\n                const body = $.let(bodies.filter((_$, o) => o.label.equal(bKey)).get(0n));\n\n                return (\n                    <Configurator\n                        controls={[\n                            Configurator.Control(\"Placement\", pKey,\n                                <SegmentGroup value={pKey} onChange={onPlacement} size=\"sm\"\n                                    items={placements.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),\n                            Configurator.Control(\"Body\", bKey,\n                                <SegmentGroup value={bKey} onChange={onBody} size=\"sm\"\n                                    items={bodies.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),\n                        ]}\n                        preview={\n                            <Drawer\n                                trigger={<Button>Open Drawer</Button>}\n                                eyebrow=\"Rail · configurator\"\n                                title=\"Configured Drawer\"\n                                description={East.str`${pKey} placement · ${bKey} body`}\n                                placement={placement}\n                                size=\"md\"\n                                flush={body.flush}\n                                fillBody={body.fillBody}\n                                bodyPadding={body.bodyPadding}\n                                onOpenChange={onOpenChange}\n                            >\n                                <Box height=\"100%\" overflowY=\"auto\">\n                                    <VStack gap=\"2\" align=\"stretch\">\n                                        <Text>The body follows the configured preset — flush zeroes the padding and fillBody makes this box own the panel scroll.</Text>\n                                        <Text color=\"fg.muted\">The inset preset swaps the default 16px 20px bodyPadding for 8px 12px.</Text>\n                                        <Status label={<Text>{East.str`OPENED · ${East.print(openCount)} TIMES`}</Text>} value=\"info\" />\n                                    </VStack>\n                                </Box>\n                            </Drawer>\n                        }\n                        aside={{\n                            label: \"Opens · Reactive\",\n                            body: (\n                                <Status label={<Text>{East.str`DRAWER OPENED · ${East.print(openCount)} TIMES`}</Text>} value=\"info\" />\n                            ),\n                        }}\n                        spec={[\n                            Configurator.Spec(\"Flush\", body.flush.ifElse(_$ => \"full-bleed\", _$ => \"padded\")),\n                            Configurator.Spec(\"Fill body\", body.fillBody.ifElse(_$ => \"child owns scroll\", _$ => \"panel scrolls\")),\n                            Configurator.Spec(\"Body padding\", body.bodyPadding),\n                        ]}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:drawer.examples.tsx:drawerOpenFromState",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/overlays/drawer.examples.tsx",
+      "suite": "",
+      "test": "A drawer a callback opens: its `open` reads State the button writes, and closing it writes the State back",
+      "keywords": [
+        "Drawer",
+        "open",
+        "onOpenChange",
+        "State",
+        "Reactive",
+        "controlled",
+        "callback",
+        "detail"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, some, none, variant } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, Drawer, Reactive, SegmentGroup, Status, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A drawer a callback opens: its `open` reads State the button writes, and closing it writes the State back\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const shown = $.let(State.bind([BooleanType], \"drawer_open_from_state\", false));\n            const openIt = $.const(East.function([], NullType, ($) => { $(shown.write(true)); }));\n            return (\n                <VStack gap=\"2\" align=\"flex-start\">\n                    <Button variant=\"outline\" onClick={openIt}>Open B4418</Button>\n                    <Drawer trigger={<Text color=\"fg.muted\">Reactor detail</Text>} eyebrow=\"Reactor\" title=\"B4418\" placement=\"end\" size=\"sm\"\n                        open={shown.read()} onOpenChange={shown.write}>\n                        <Text>Opened by a callback.</Text>\n                    </Drawer>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:hover-card.examples.tsx:hoverCardProfile",
@@ -40093,6 +40181,33 @@
         "tsx"
       ],
       "source": "// HoverCard configurator — a content preset axis (profile / link) on one live card; the aside counts hover-open transitions\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const togglesBind = $.let(State.bind([IntegerType], \"hovercard_toggles\", 0n));\n            const toggles = $.let(togglesBind.read());\n            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {\n                const cur = $.let(togglesBind.read());\n                $(togglesBind.write(cur.add(1n)));\n            }));\n\n            // ONE hover card — the richest composition (title, description,\n            // delayed open, placement).\n            const preview = $.const(\n                <HoverCard\n                    trigger={<Button variant=\"ghost\">View Documentation</Button>}\n                    title=\"East UI · docs\"\n                    description=\"Complete guide to building UIs with East UI components.\"\n                    placement=\"bottom-start\"\n                    openDelay={200n}\n                    onOpenChange={onOpenChange}\n                >\n                    <Text textStyle=\"body-sm\">Learn about layout, forms, charts, and more.</Text>\n                </HoverCard>,\n            );\n\n            return (\n                <Configurator\n                    controls={[\n                    ]}\n                    preview={preview}\n                    aside={{\n                        label: \"onOpenChange · Reactive\",\n                        body: <Text.MonoLabel>{East.str`TOGGLED · ${East.print(toggles)}`}</Text.MonoLabel>,\n                    }}\n                    spec={[\n                    ]}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:hover-card.examples.tsx:hoverCardOpenFromState",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/overlays/hover-card.examples.tsx",
+      "suite": "",
+      "test": "A hover card a button pins open: its `open` reads State the button writes, and hovering away writes it back",
+      "keywords": [
+        "HoverCard",
+        "open",
+        "onOpenChange",
+        "State",
+        "Reactive",
+        "controlled",
+        "callback",
+        "pin"
+      ],
+      "imports": [
+        "import { BooleanType, East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Avatar, Badge, Button, Configurator, HoverCard, HStack, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A hover card a button pins open: its `open` reads State the button writes, and hovering away writes it back\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const pinned = $.let(State.bind([BooleanType], \"hovercard_pinned\", false));\n            const pin = $.const(East.function([], NullType, ($) => { $(pinned.write(pinned.read().not())); }));\n            return (\n                <HStack gap=\"3\">\n                    <Button variant=\"outline\" onClick={pin}>Pin the preview</Button>\n                    <HoverCard trigger={<Text color=\"link\" fontWeight=\"medium\">@johndoe</Text>} title=\"Operator · @johndoe\" open={pinned.read()} onOpenChange={pinned.write}>\n                        <Text textStyle=\"body-sm\">Opened by the button, at its own trigger.</Text>\n                    </HoverCard>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:menu.examples.tsx:menuBasic",
@@ -40170,7 +40285,7 @@
       "imports": [
         "import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Button, Chart, Configurator, Popover, Reactive, Text } from \"@elaraai/east-ui\";"
+        "import { Button, Chart, Configurator, HStack, Popover, Reactive, Text } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -40201,12 +40316,39 @@
       "imports": [
         "import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Button, Chart, Configurator, Popover, Reactive, Text } from \"@elaraai/east-ui\";"
+        "import { Button, Chart, Configurator, HStack, Popover, Reactive, Text } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// Popover configurator — a content preset axis (text / chart) on one live popover; the aside counts open/close transitions\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rows = $.const([\n                { day: \"Mon\", value: 120n }, { day: \"Tue\", value: 150n }, { day: \"Wed\", value: 180n },\n                { day: \"Thu\", value: 140n }, { day: \"Fri\", value: 200n },\n            ], ArrayType(StructType({ day: StringType, value: IntegerType })));\n            const togglesBind = $.let(State.bind([IntegerType], \"popover_toggles\", 0n));\n            const toggles = $.let(togglesBind.read());\n            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {\n                const cur = $.let(togglesBind.read());\n                $(togglesBind.write(cur.add(1n)));\n            }));\n\n            // ONE popover — the richest composition (title, description,\n            // arrow, chart body).\n            const preview = $.const(\n                <Popover trigger={<Button variant=\"solid\">View Stats</Button>} hasArrow={true} title=\"Weekly Sales\" description=\"Each open/close fires onOpenChange\" placement=\"bottom-start\" onOpenChange={onOpenChange}>\n                    <Chart layers={Chart.Area(rows, { x: r => r.day, y: r => r.value }, { color: \"brand.500\", fillOpacity: 0.3 })} height={160} />\n                </Popover>,\n            );\n\n            return (\n                <Configurator\n                    controls={[\n                    ]}\n                    preview={preview}\n                    aside={{\n                        label: \"onOpenChange · Reactive\",\n                        body: <Text.MonoLabel>{East.str`TOGGLED · ${East.print(toggles)}`}</Text.MonoLabel>,\n                    }}\n                    spec={[\n                    ]}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:popover.examples.tsx:popoverOpenFromState",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/overlays/popover.examples.tsx",
+      "suite": "",
+      "test": "A popover a callback elsewhere opens: its `open` reads State the button writes, and it hangs from its own trigger; closing it writes the State back",
+      "keywords": [
+        "Popover",
+        "open",
+        "onOpenChange",
+        "State",
+        "Reactive",
+        "controlled",
+        "callback",
+        "closeOnInteractOutside"
+      ],
+      "imports": [
+        "import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, Chart, Configurator, HStack, Popover, Reactive, Text } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A popover a callback elsewhere opens: its `open` reads State the button writes, and it hangs from its own trigger; closing it writes the State back\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const shown = $.let(State.bind([BooleanType], \"popover_open_from_state\", false));\n            const openIt = $.const(East.function([], NullType, ($) => { $(shown.write(true)); }));\n            return (\n                <HStack gap=\"3\">\n                    <Button variant=\"outline\" onClick={openIt}>Open the details</Button>\n                    <Popover trigger={<Button>Details</Button>} title=\"Details\" open={shown.read()} onOpenChange={shown.write}>\n                        <Text>Opened by a callback, at its own trigger.</Text>\n                    </Popover>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:toggle-tip.examples.tsx:toggleTipBasic",
@@ -40225,7 +40367,7 @@
       "imports": [
         "import { BooleanType, East, IntegerType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Configurator, HStack, IconButton, Reactive, Text, ToggleTip } from \"@elaraai/east-ui\";"
+        "import { Button, Configurator, HStack, IconButton, Reactive, Text, ToggleTip } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -40256,12 +40398,38 @@
       "imports": [
         "import { BooleanType, East, IntegerType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Configurator, HStack, IconButton, Reactive, Text, ToggleTip } from \"@elaraai/east-ui\";"
+        "import { Button, Configurator, HStack, IconButton, Reactive, Text, ToggleTip } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// ToggleTip configurator — a placement axis on one live tip; the aside counts open/close transitions\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const togglesBind = $.let(State.bind([IntegerType], \"toggletip_toggles\", 0n));\n            const toggles = $.let(togglesBind.read());\n            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {\n                const cur = $.let(togglesBind.read());\n                $(togglesBind.write(cur.add(1n)));\n            }));\n\n            // ONE toggle tip — arrowed, bottom-placed.\n            const preview = $.const(\n                <ToggleTip\n                    trigger={<IconButton prefix=\"fas\" name=\"circle-info\" label=\"Help\" variant=\"ghost\" size=\"xs\" color=\"fg.muted\" />}\n                    placement=\"bottom\"\n                    hasArrow={true}\n                    onOpenChange={onOpenChange}\n                >ToggleTip is an accessible alternative to hover tooltips. Click to toggle!</ToggleTip>,\n            );\n\n            return (\n                <Configurator\n                    controls={[\n                    ]}\n                    preview={preview}\n                    aside={{\n                        label: \"onOpenChange · Reactive\",\n                        body: <Text.MonoLabel>{East.str`TOGGLED · ${East.print(toggles)}`}</Text.MonoLabel>,\n                    }}\n                    spec={[\n                    ]}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:toggle-tip.examples.tsx:toggleTipOpenFromState",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/overlays/toggle-tip.examples.tsx",
+      "suite": "",
+      "test": "A toggle tip a button opens: its `open` reads State the button writes, and it hangs from its own trigger",
+      "keywords": [
+        "ToggleTip",
+        "open",
+        "onOpenChange",
+        "State",
+        "Reactive",
+        "controlled",
+        "callback"
+      ],
+      "imports": [
+        "import { BooleanType, East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, Configurator, HStack, IconButton, Reactive, Text, ToggleTip } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A toggle tip a button opens: its `open` reads State the button writes, and it hangs from its own trigger\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const shown = $.let(State.bind([BooleanType], \"toggletip_open_from_state\", false));\n            const openIt = $.const(East.function([], NullType, ($) => { $(shown.write(true)); }));\n            return (\n                <HStack gap=\"2\" align=\"center\">\n                    <Button variant=\"outline\" onClick={openIt}>Explain the score</Button>\n                    <ToggleTip\n                        trigger={<IconButton prefix=\"fas\" name=\"circle-info\" label=\"What is the score\" variant=\"ghost\" size=\"xs\" color=\"fg.muted\" />}\n                        hasArrow={true}\n                        open={shown.read()}\n                        onOpenChange={shown.write}\n                    >The score weighs the last four weeks.</ToggleTip>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:tooltip.examples.tsx:tooltipBasic",
@@ -43101,6 +43269,50 @@
         "tsx"
       ],
       "source": "// How a placement renders: the component its surface lists under the key; a key the surface does not list is a placeholder naming it; a key two listed components share is an error naming it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const hello = $.let(Studio.component(\"hello\", {\n            name: \"Hello\", category: \"Display\", icon: \"hand\",\n        }, East.function([], UIComponentType, _$ => <Text>Hello from a component</Text>)));\n        const components = $.let([hello]);\n        const twice = $.let([hello, hello]);\n        return (\n            <VStack gap=\"4\" align=\"stretch\">\n                {Studio.dispatch(components, \"hello\")}\n                {Studio.dispatch(components, \"retired\")}\n                {Studio.dispatch(twice, \"hello\")}\n            </VStack>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:library.examples.tsx:studioPageLibrary",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/studio/library.examples.tsx",
+      "suite": "",
+      "test": "The page library over the pages record: one toolbar — the search over templates and pages, Sort · Name, Grid · List and \"+ New page in Ops console\" — beside the projects and the project's pages with their status; the Templates row starts with Blank grid, each card a wireframe of its layout and what it places; the Pages row shows each page's wireframe, status and component count with \"Open in builder →\"; a new page takes a name and a template and is one patch commit",
+      "keywords": [
+        "Studio",
+        "Studio.PageLibrary",
+        "page library",
+        "pages",
+        "templates",
+        "Blank grid",
+        "new page",
+        "Studio.newPage",
+        "project",
+        "Library",
+        "gallery",
+        "wireframe",
+        "SnapGrid",
+        "search",
+        "sort",
+        "grid",
+        "list",
+        "Record.bind",
+        "patch",
+        "e3.record",
+        "Open in builder",
+        "status",
+        "Live",
+        "Draft"
+      ],
+      "imports": [
+        "import {",
+        "import { BarStrip, Box, Chart, Format, HStack, MetricChip, Reactive, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Record, Studio } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The page library over the pages record: one toolbar — the search over templates and pages, Sort · Name, Grid · List and \"+ New page in Ops console\" — beside the projects and the project's pages with their status; the Templates row starts with Blank grid, each card a wireframe of its layout and what it places; the Pages row shows each page's wireframe, status and component count with \"Open in builder →\"; a new page takes a name and a template and is one patch commit\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const components = $.let([\n                Studio.component(\"kpi_rail\", {\n                    name: \"KPI rail\", category: \"Display\", icon: \"gauge-high\",\n                    description: \"Revenue, orders, average ticket and fill rate, each with its change since last week.\",\n                },\n                    East.function([], UIComponentType, ($2) => {\n                        const Kpi = StructType({ label: StringType, value: FloatType, format: Format.Types.Tick, change: StringType, tone: MetricChip.Types.Tone });\n                        const kpis = $2.const([\n                            { label: \"Revenue\", value: 1284000.0, format: Format.Currency({ currency: \"USD\", compact: \"short\", maximumFractionDigits: 2n }), change: \"▲ 6.4%\", tone: variant(\"positive\", null) },\n                            { label: \"Orders\", value: 8412.0, format: Format.Number(), change: \"▲ 2.1%\", tone: variant(\"positive\", null) },\n                            { label: \"Avg ticket\", value: 152.0, format: Format.Currency({ currency: \"USD\", maximumFractionDigits: 0n }), change: \"▼ 1.3%\", tone: variant(\"negative\", null) },\n                            { label: \"Fill rate\", value: 0.94, format: Format.Percent({ maximumFractionDigits: 0n }), change: \"— flat\", tone: variant(\"neutral\", null) },\n                        ], ArrayType(Kpi));\n                        return (\n                            <HStack gap=\"0\" align=\"stretch\">\n                                {kpis.map(($3, k, i) => (\n                                    <Box flex=\"1\" borderColor=\"border.subtle\"\n                                        borderWidth={i.equal(kpis.size().subtract(1n)).ifElse(_$4 => \"0\", _$4 => \"0 1px 0 0\")}\n                                        padding={{ top: some(\"3\"), right: some(\"4\"), bottom: some(\"3\"), left: some(\"4\") }}>\n                                        <Stat label={k.label} value={k.value} format={k.format}\n                                            baseline={<MetricChip tone={k.tone}><Text>{k.change}</Text></MetricChip>} />\n                                    </Box>\n                                ))}\n                            </HStack>\n                        );\n                    })),\n                Studio.component(\"revenue_trend\", {\n                    name: \"Revenue trend\", category: \"Charts\", icon: \"chart-area\", span: 8n,\n                    description: \"Weekly revenue over the last six weeks, as an area.\",\n                },\n                    East.function([], UIComponentType, ($2) => {\n                        const days = $2.const([\n                            { day: new Date(\"2026-02-12T00:00:00Z\"), revenue: 2640000.0 },\n                            { day: new Date(\"2026-02-19T00:00:00Z\"), revenue: 2710000.0 },\n                            { day: new Date(\"2026-02-26T00:00:00Z\"), revenue: 2900000.0 },\n                            { day: new Date(\"2026-03-05T00:00:00Z\"), revenue: 3180000.0 },\n                            { day: new Date(\"2026-03-12T00:00:00Z\"), revenue: 3300000.0 },\n                            { day: new Date(\"2026-03-19T00:00:00Z\"), revenue: 3430000.0 },\n                        ], ArrayType(StructType({ day: DateTimeType, revenue: FloatType })));\n                        return (\n                            <Box height=\"168px\" padding={{ top: some(\"4\"), right: some(\"4\"), bottom: some(\"3\"), left: some(\"3\") }}>\n                                <Chart height=\"fill\" grid\n                                    layers={Chart.Area(days, { x: r => r.day, y: r => r.revenue }, { color: \"brand.solid\", fillOpacity: 0.08, curve: \"linear\" })}\n                                    x={{ format: Chart.format.date(\"MMM D\") }}\n                                    y={{ format: Chart.format.compact() }} />\n                            </Box>\n                        );\n                    })),\n                Studio.component(\"breakdown_bars\", {\n                    name: \"Breakdown bars\", category: \"Display\", icon: \"chart-bar\", span: 4n,\n                    description: \"Each region's share of revenue.\",\n                },\n                    East.function([], UIComponentType, (_$2) => (\n                        <Box padding=\"4\">\n                            <BarStrip showValues={false} items={[\n                                { label: <Text>North</Text>, value: 42.0, trailing: <Text>42%</Text> },\n                                { label: <Text>South</Text>, value: 31.0, trailing: <Text>31%</Text> },\n                                { label: <Text>West</Text>, value: 27.0, trailing: <Text>27%</Text> },\n                            ]} />\n                        </Box>\n                    ))),\n                Studio.component(\"orders_by_week\", {\n                    name: \"Orders by week\", category: \"Charts\", icon: \"chart-column\", span: 6n,\n                    description: \"Orders placed each week.\",\n                },\n                    East.function([], UIComponentType, ($2) => {\n                        const weeks = $2.const([\n                            { week: \"W9\", orders: 96.0 }, { week: \"W10\", orders: 158.0 }, { week: \"W11\", orders: 214.0 },\n                            { week: \"W12\", orders: 271.0 }, { week: \"W13\", orders: 248.0 }, { week: \"W14\", orders: 196.0 },\n                        ], ArrayType(StructType({ week: StringType, orders: FloatType })));\n                        return (\n                            <Box height=\"168px\" padding={{ top: some(\"4\"), right: some(\"4\"), bottom: some(\"3\"), left: some(\"3\") }}>\n                                <Chart height=\"fill\" grid layers={Chart.Column(weeks, { x: r => r.week, y: r => r.orders }, { color: \"brand.solid\" })} />\n                            </Box>\n                        );\n                    })),\n            ]);\n            const record = $.let(Record.bind(studioLibraryPages, [studioLibraryPagesPatch]));\n            return (\n                <Box height=\"764px\">\n                    <Studio.PageLibrary pages={record} components={components} project=\"Ops console\" id=\"library\" />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:page.examples.tsx:studioPage",

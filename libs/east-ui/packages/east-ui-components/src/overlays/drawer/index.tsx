@@ -43,7 +43,12 @@ export function toChakraDrawer(value: DrawerOpenInputValue): Partial<DrawerRootP
         size: style ? getSomeorUndefined(style.size)?.type : undefined,
         placement: style ? getSomeorUndefined(style.placement)?.type : undefined,
         contained: style ? getSomeorUndefined(style.contained) : undefined,
-
+        open: style ? getSomeorUndefined(style.open) : undefined,
+        defaultOpen: style ? getSomeorUndefined(style.defaultOpen) : undefined,
+        closeOnInteractOutside: style ? getSomeorUndefined(style.closeOnInteractOutside) : undefined,
+        closeOnEscape: style ? getSomeorUndefined(style.closeOnEscape) : undefined,
+        lazyMount: style ? getSomeorUndefined(style.lazyMount) : undefined,
+        unmountOnExit: style ? getSomeorUndefined(style.unmountOnExit) : undefined,
     };
 }
 
@@ -133,7 +138,14 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
 
     return (
         <ChakraDrawer.Root
-            open={open}
+            // A drawer the overlay manager opened is the manager's to open
+            // and close; otherwise the author's `open` controls it.
+            open={open ?? props.open}
+            defaultOpen={props.defaultOpen}
+            closeOnInteractOutside={props.closeOnInteractOutside}
+            closeOnEscape={props.closeOnEscape}
+            lazyMount={props.lazyMount}
+            unmountOnExit={props.unmountOnExit}
             size={effectiveSize}
             placement={props.placement}
             contained={props.contained}

@@ -103,7 +103,9 @@ function createToggleTip(
             : visual.placement)
         : undefined;
 
-    const hasStyle = placementValue || visual.hasArrow !== undefined || visual.onOpenChange !== undefined;
+    const hasStyle = placementValue || visual.hasArrow !== undefined || visual.open !== undefined ||
+        visual.defaultOpen !== undefined || visual.closeOnInteractOutside !== undefined ||
+        visual.closeOnEscape !== undefined || visual.onOpenChange !== undefined;
 
     return East.value(variant("ToggleTip", {
         trigger: trigger,
@@ -112,6 +114,10 @@ function createToggleTip(
             ? some(East.value({
                 placement: placementValue ? some(placementValue) : none,
                 hasArrow: visual.hasArrow !== undefined ? some(visual.hasArrow) : none,
+                open: visual.open !== undefined ? some(visual.open) : none,
+                defaultOpen: visual.defaultOpen !== undefined ? some(visual.defaultOpen) : none,
+                closeOnInteractOutside: visual.closeOnInteractOutside !== undefined ? some(visual.closeOnInteractOutside) : none,
+                closeOnEscape: visual.closeOnEscape !== undefined ? some(visual.closeOnEscape) : none,
                 onOpenChange: visual.onOpenChange !== undefined ? some(visual.onOpenChange) : none,
             }, ToggleTipStyleType))
             : none,
@@ -172,6 +178,11 @@ export const ToggleTip = {
          *
          * @property placement - Position relative to trigger (OptionType<PlacementType>)
          * @property hasArrow - Show arrow pointing to trigger (OptionType<BooleanType>)
+         * @property open - Controlled open state (OptionType<BooleanType>)
+         * @property defaultOpen - Initial open state (OptionType<BooleanType>)
+         * @property closeOnInteractOutside - Close when clicking outside (OptionType<BooleanType>)
+         * @property closeOnEscape - Close on escape key (OptionType<BooleanType>)
+         * @property onOpenChange - Callback triggered when open state changes
          */
         Style: ToggleTipStyleType,
         /**

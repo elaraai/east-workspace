@@ -31,6 +31,22 @@ export const EastChakraPopover = memo(function EastChakraPopover({ value, storag
     const hasArrow = useMemo(() => style ? getSomeorUndefined(style.hasArrow) : undefined, [style]);
     const title = useMemo(() => getSomeorUndefined(value.title), [value.title]);
     const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
+    const positioning = useMemo(() => {
+        const gutter = style ? getSomeorUndefined(style.gutter) : undefined;
+        if (placement === undefined && gutter === undefined) return undefined;
+        return { ...(placement !== undefined ? { placement } : {}), ...(gutter !== undefined ? { gutter: Number(gutter) } : {}) };
+    }, [style, placement]);
+    // How it opens and closes: `open` controls it, so a callback anywhere
+    // opens it at its own trigger through the State it reads.
+    const behaviour = useMemo(() => ({
+        open: style ? getSomeorUndefined(style.open) : undefined,
+        defaultOpen: style ? getSomeorUndefined(style.defaultOpen) : undefined,
+        closeOnInteractOutside: style ? getSomeorUndefined(style.closeOnInteractOutside) : undefined,
+        closeOnEscape: style ? getSomeorUndefined(style.closeOnEscape) : undefined,
+        autoFocus: style ? getSomeorUndefined(style.autoFocus) : undefined,
+        lazyMount: style ? getSomeorUndefined(style.lazyMount) : undefined,
+        unmountOnExit: style ? getSomeorUndefined(style.unmountOnExit) : undefined,
+    }), [style]);
 
     // Extract callbacks from style
     const onOpenChangeFn = useMemo(() => style ? getSomeorUndefined(style.onOpenChange) : undefined, [style]);
@@ -43,8 +59,9 @@ export const EastChakraPopover = memo(function EastChakraPopover({ value, storag
 
     return (
         <ChakraPopover.Root
-            positioning={placement ? { placement } : undefined}
+            positioning={positioning}
             size={size}
+            {...behaviour}
             onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
         >
             <ChakraPopover.Trigger asChild>
