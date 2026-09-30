@@ -76,6 +76,14 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
         return value
     if isinstance(value, (_DeferredIfElse, _Jump)):
         return value.resolve(hint)
+    if hint is not None and hint.type == "Recursive":
+        # A value of a recursive type is a value of the type's node, wrapped
+        # (TS `valueOrExprToAstTyped`): lifted under the node, then
+        # `WrapRecursive`. No Struct or Variant node carries the wrapper as its
+        # type, which the analyzers refuse (#1044).
+        node_t = _unroll(hint)
+        node = _coerce(_lift(value, hint=node_t), node_t)
+        return Expression(ir_wrap_recursive(hint, node.ir, _loc_id()), hint)
     if value is None or is_east_null(value):
         return Expression(_literal(None, NullType), NullType)
     if isinstance(value, bool):
@@ -185,8 +193,8 @@ def _coerce(expr: Expression, target: EastType, _visited: set | None = None) -> 
                 value = _coerce(Expression(value, s_f), t_f, visited).ir
             fields.append(EastStruct({"name": name, "value": value}))
         rebuilt: Any = EastVariant("Struct", EastStruct({
-            "type": target, "loc_id": node.value["loc_id"], "fields": fields}))
-        return Expression(rebuilt, target)
+            "type": t, "loc_id": node.value["loc_id"], "fields": fields}))
+        return _widened(rebuilt, target)
     if node.type == "Variant" and s.type == "Variant" and t.type == "Variant":
         case = node.value["case"]
         s_c = next((c["type"] for c in s.value if c["name"] == case), None)
@@ -195,9 +203,21 @@ def _coerce(expr: Expression, target: EastType, _visited: set | None = None) -> 
         if s_c is not None and t_c is not None:
             inner = _coerce(Expression(inner, s_c), t_c, visited).ir
         rebuilt = EastVariant("Variant", EastStruct({
-            "type": target, "loc_id": node.value["loc_id"], "case": case, "value": inner}))
-        return Expression(rebuilt, target)
+            "type": t, "loc_id": node.value["loc_id"], "case": case, "value": inner}))
+        return _widened(rebuilt, target)
     return Expression(ir_as(target, expr.ir, _loc_id()), target)
+
+
+def _widened(node: Any, target: EastType) -> Expression:
+    """A Struct or Variant literal rebuilt under ``target``, as TS
+    ``coerce_to`` rebuilds one: typed with a recursive target's node, and
+    wrapped in ``WrapRecursive`` at the widening, where an ``As`` would stand
+    (#1044)."""
+    from east.expression.expr import Expression
+
+    if target.type == "Recursive":
+        node = ir_wrap_recursive(target, node, _loc_id())
+    return Expression(node, target)
 
 
 def _lift_python_dict(value: dict, hint: EastType) -> Expression:
@@ -734,11 +754,6 @@ def _lift_struct(value: dict, hint: EastType | None = None) -> Expression:
     from east.types.types import StructType as _StructType
 
     shape = hint
-    if hint is not None and hint.type == "Recursive":
-        # A struct literal typed by a recursive wrapper: the node carries the
-        # wrapper (the TS lowering's widened Struct node); the fields come
-        # from the unrolled inner type.
-        shape = _unroll(hint)
     if shape is not None and getattr(shape, "type", None) == "Struct":
         # Under a declared Struct type the node IS that type (TS
         # `valueOrExprToAstTyped(obj, StructType)`): fields are taken in the
@@ -787,15 +802,14 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
 
     if not is_east_variant(value) or not isinstance(value, EastVariant):
         return None
-    # A recursive wrapper as the hint: the node carries the wrapper type (the
-    # TS lowering's widened Variant node); the cases come from the inner.
-    shape = _unroll(hint) if hint is not None and hint.type == "Recursive" else hint
+    # (A recursive hint never reaches here: `_lift` lifts under its node, then wraps.)
+    shape = hint
     if (shape is not None and shape.type == "Variant" and not _is_option(shape)
             and any(c["name"] == value.type for c in shape.value)):
         # Under a declared (non-Option) variant type naming the case, the
         # general construction below types the node exactly as declared —
         # `some(...)` under a wider variant included.
-        return _general_variant(value, hint, shape)
+        return _general_variant(value, shape)
     if value.type == "some":
         payload = value.value
         # An Option hint threads into the payload, so `some(variant(case, …))`
@@ -824,7 +838,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
             node = ir_variant(hint, "none", _literal(None, NullType), _loc_id())
             return Expression(node, hint)
     if shape is not None and shape.type == "Variant":
-        return _general_variant(value, hint, shape)
+        return _general_variant(value, shape)
     # A general variant — the 2-arg variant(case, payload) construction
     # carries no VariantType — reached here with no Variant hint (#541).
     raise ExpressionError(
@@ -835,11 +849,11 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
     )
 
 
-def _general_variant(value: Any, hint: EastType, shape: EastType) -> Expression:
+def _general_variant(value: Any, shape: EastType) -> Expression:
     """General variant construction: variant("case", payload) with the type
     from context (an if_else() arm, a declared output); the payload may be a
     traced expression or a liftable literal. ``shape`` is the Variant type
-    the cases come from (``hint`` unrolled when it is recursive)."""
+    the node is typed with and its cases come from."""
     from east.expression.expr import Expression
 
     case_t = next((c["type"] for c in shape.value if c["name"] == value.type), None)
@@ -852,8 +866,8 @@ def _general_variant(value: Any, hint: EastType, shape: EastType) -> Expression:
             f"variant case {value.type!r} payload has type {payload.east_type.type}, "
             f"expected {case_t.type}"
         )
-    node = ir_variant(hint, value.type, _coerce(payload, case_t).ir, _loc_id())
-    return Expression(node, hint)
+    node = ir_variant(shape, value.type, _coerce(payload, case_t).ir, _loc_id())
+    return Expression(node, shape)
 
 
 def _needs_type_context(value: Any) -> bool:

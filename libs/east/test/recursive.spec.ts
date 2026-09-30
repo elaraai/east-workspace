@@ -163,4 +163,23 @@ await describe("Recursive", (test) => {
         $(assert.equal(node.unwrap().tag, "book"));
         $(assert.equal(node.unwrap().children.length(), 1n));
     });
+
+    // A literal of a narrower type widened to a recursive type is the type's
+    // node, wrapped, as East.value builds one: a Variant or Struct node typed
+    // with the wrapper fails analysis (#1044).
+    const ChainType = RecursiveType(self => StructType({
+        head: BooleanType,
+        tail: VariantType({ end: NullType, next: self }),
+    }));
+
+    test("A variant literal widened to a recursive type", $ => {
+        const nil = $.let(East.value(variant("nil", null)), LinkedListType);
+        $(assert.equal(nil, list0));
+    });
+
+    test("A struct literal widened to a recursive type", $ => {
+        const chain = $.let(East.value({ head: true, tail: variant("end", null) }), ChainType);
+        $(assert.equal(chain, East.value({ head: true, tail: variant("end", null) }, ChainType)));
+        $(assert.equal(chain.unwrap().head, true));
+    });
 });

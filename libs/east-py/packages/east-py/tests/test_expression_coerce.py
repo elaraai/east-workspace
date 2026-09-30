@@ -37,9 +37,17 @@ from east import (
     VectorType,
 )
 from east.expression import Expression, ExpressionError
-from east.expression.lift import _coerce
-from east.ir.builders import ir_call, ir_error, ir_struct, ir_value, ir_variable, ir_variant
-from east.types.types import recursive_type
+from east.expression.lift import _coerce, _unroll
+from east.ir.builders import (
+    ir_call,
+    ir_error,
+    ir_struct,
+    ir_value,
+    ir_variable,
+    ir_variant,
+    ir_wrap_recursive,
+)
+from east.types.types import is_type_equal, recursive_type
 
 LOC = 1
 
@@ -283,7 +291,8 @@ def test_vector_and_matrix_elements_are_scalars_only():
 
 def test_equal_recursive_types_are_a_no_op():
     R = recursive_type(lambda self: VariantType([("nil", NullType), ("cons", self)]))
-    e = Expression(ir_variant(R, "nil", ir_value(NullType, None, LOC), LOC), R)
+    nil = ir_variant(_unroll(R), "nil", ir_value(NullType, None, LOC), LOC)
+    e = Expression(ir_wrap_recursive(R, nil, LOC), R)
     assert _coerce(e, R) is e
 
 
@@ -298,9 +307,38 @@ def test_nested_recursive_widening_terminates(monkeypatch):
     real = lift._coerce
     monkeypatch.setattr(lift, "_coerce", lambda *a, **k: calls.append(1) or real(*a, **k))
     R = recursive_type(lambda self: VariantType([("nil", NullType), ("cons", self)]))
-    e = Expression(ir_variant(R, "cons", ir_variable(R, "inner", LOC), LOC), R)
+    cons = ir_variant(_unroll(R), "cons", ir_variable(R, "inner", LOC), LOC)
+    e = Expression(ir_wrap_recursive(R, cons, LOC), R)
     assert lift._coerce(e, R) is e
     assert len(calls) == 1
+
+
+def test_a_variant_literal_widened_to_a_recursive_type_is_its_node_wrapped():
+    # #1044, TS coerce_to's rule: the literal is re-typed with the recursive
+    # type's node and wrapped in WrapRecursive where an As would stand. A
+    # Variant node typed with the wrapper fails analysis in both languages.
+    R = recursive_type(lambda self: VariantType([("nil", NullType), ("cons", self)]))
+    narrow = VariantType([("nil", NullType)])
+    out = _coerce(mk_variant("nil", NullType, None, narrow), R)
+    assert out.ir.type == "WrapRecursive" and is_type_equal(out.east_type, R)
+    node = out.ir.value["value"]
+    assert node.type == "Variant" and node.value["case"] == "nil"
+    assert is_type_equal(node.value["type"], _unroll(R))
+
+
+def test_a_struct_literal_widened_to_a_recursive_type_is_its_node_wrapped():
+    R = recursive_type(lambda self: StructType([
+        ("head", BooleanType), ("tail", VariantType([("end", NullType), ("next", self)]))]))
+    narrow_tail = VariantType([("end", NullType)])
+    Narrow = StructType([("head", BooleanType), ("tail", narrow_tail)])
+    out = _coerce(mk_struct(Narrow, [("head", ir_value(BooleanType, True, LOC)),
+                                     ("tail", mk_variant("end", NullType, None, narrow_tail).ir)]), R)
+    assert out.ir.type == "WrapRecursive" and is_type_equal(out.east_type, R)
+    node = out.ir.value["value"]
+    assert node.type == "Struct" and is_type_equal(node.value["type"], _unroll(R))
+    # The field widens to the node's field type, as any struct literal's does.
+    wide_tail = next(f["type"] for f in _unroll(R).value if f["name"] == "tail")
+    assert is_type_equal(field(node, "tail").value["type"], wide_tail)
 
 
 # ── §9 determinism ──────────────────────────────────────────────────────────
