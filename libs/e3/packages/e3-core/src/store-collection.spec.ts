@@ -24,7 +24,8 @@ import {
   readBeast2Extents, type ValueTypeOf,
 } from '@elaraai/east';
 import { DatasetSegments } from './dataset-open.js';
-import { storeCollection, storeDatasetBytes, storeDatasetFile } from './store-collection.js';
+import { storeCollection, storeDatasetBytes } from './store-collection.js';
+import { storeDatasetFile } from './store-collection-file.js';
 import { datasetWrite } from './trees.js';
 import { createTempDir, createTestRepo, encodeInSegmentsOf, removeTempDir, removeTestRepo, storeSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';

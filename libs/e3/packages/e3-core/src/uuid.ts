@@ -17,10 +17,12 @@
  *   - y: variant (8, 9, a, or b)
  */
 
-import { randomBytes } from 'crypto';
-
 /**
  * Generate a new UUIDv7.
+ *
+ * @remarks
+ * Its random bits come from the Web Crypto API's `getRandomValues`, which Node
+ * and every browser provide.
  *
  * @returns A new UUIDv7 string
  */
@@ -40,7 +42,7 @@ export function uuidv7(): string {
   bytes[5] = timestamp & 0xff;
 
   // Fill remaining bytes with random data
-  const random = randomBytes(10);
+  const random = globalThis.crypto.getRandomValues(new Uint8Array(10));
   for (let i = 0; i < 10; i++) {
     bytes[6 + i] = random[i]!;
   }

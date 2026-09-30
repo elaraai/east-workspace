@@ -47,9 +47,13 @@
  * every machine at every `-j`.
  *
  * While the units run, the task's own execution is recorded `running`, under
- * the owner its driver passes when it passes one, and its log names each
- * unit's execution. An aborted run records it `cancelled`, and a failure is
- * the lowest-index failing unit's.
+ * the owner its driver passes, whose identity its record carries, and its log
+ * names each unit's execution. An aborted run records it `cancelled`, and a
+ * failure is the lowest-index failing unit's.
+ *
+ * The engine runs wherever its driver does: it reaches storage through the
+ * storage interfaces and runs units through the executor its driver gives, and
+ * knows nothing of the process it runs in but the owner its driver names.
  *
  * @packageDocumentation
  */
@@ -72,12 +76,17 @@ import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { storeCollection } from '../store-collection.js';
-import { getBootId, getPidStartTime } from './processHelpers.js';
-import type { ExecutionLiveness, SplitUnit } from './interfaces.js';
-import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './LocalTaskRunner.js';
+import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './cache.js';
+import type { ExecutionLiveness, MergeParts, SplitUnit } from './interfaces.js';
 import { planPieces, pieceSizes, type PiecePlan, type PieceSizes } from './pieces.js';
 import { mergeComponents, mergeTreeGroups, mergeTreeLevels, planMergeRanges } from './steps.js';
-import type { MergeParts } from './units.js';
+
+/**
+ * The identity a split task's own `running` record carries when its driver
+ * names no owner: pid 0, which the local judgement of what still runs takes for
+ * no process at all.
+ */
+const NO_OWNER: ExecutionOwner = { pid: 0n, pidStartTime: 0n, bootId: '' };
 
 /** The first of a merge unit's inputs as its execution records them — then its
  *  range, when it has one, and its parts — so no merge shares an identity with
@@ -222,6 +231,9 @@ export class SplitTask {
     private readonly inputHashes: string[],
     private readonly ids: ExecutionIds,
     private readonly options: ExecuteOptions,
+    /** The owner the task's own execution is recorded under, whose identity
+     *  its `running` and `interrupted` records carry. */
+    private readonly owner: ExecutionOwner | null,
   ) {}
 
   /** The stage in progress. */
@@ -270,7 +282,8 @@ export class SplitTask {
    *   its stages run: the process that drives them, which a probe finds
    *   exited if the execution cannot finish, or `null` for none, whose
    *   execution is never repaired as interrupted — what a driver passes when no
-   *   other process can check its liveness
+   *   other process can check its liveness. The execution's `running` record
+   *   carries its pid, start time and boot id; pid 0 for none.
    * @returns The task; or its execution, recorded `error`, when its pieces
    *   cannot be planned
    * @throws {Error} When the plan or the task's `running` record cannot be
@@ -287,7 +300,7 @@ export class SplitTask {
     plan: string | null,
     owner: ExecutionOwner | null,
   ): Promise<SplitTask | ExecutionResult> {
-    const split = new SplitTask(storage, repo, taskHash, task, inputHashes, ids, options);
+    const split = new SplitTask(storage, repo, taskHash, task, inputHashes, ids, options, owner);
     let stage: UnitPlanStage | null = null;
     // The plan of the stage before the one taken up, which its plan names.
     let previous: string | null = null;
@@ -333,13 +346,14 @@ export class SplitTask {
     if (owner !== null) {
       await storage.refs.executionOwnerWrite(repo, taskHash, ids.inHash, ids.executionId, owner);
     }
+    const identity = owner ?? NO_OWNER;
     await storage.refs.executionWrite(repo, taskHash, ids.inHash, ids.executionId, variant('running', {
       executionId: ids.executionId,
       inputHashes,
       startedAt: new Date(ids.startTime),
-      pid: BigInt(process.pid),
-      pidStartTime: BigInt(await getPidStartTime(process.pid)),
-      bootId: await getBootId(),
+      pid: identity.pid,
+      pidStartTime: identity.pidStartTime,
+      bootId: identity.bootId,
       unit: false,
     }));
     split.running = true;
@@ -533,7 +547,7 @@ export class SplitTask {
       inputHashes: this.inputHashes,
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
-      pid: BigInt(process.pid),
+      pid: (this.owner ?? NO_OWNER).pid,
       unit: false,
     }));
   }
@@ -748,9 +762,10 @@ export interface SplitTaskDriver {
    * probe of the execution cache. A driver whose units run on other hosts
    * passes its runner's, so a unit still running elsewhere is left as it is and
    * handed to the executor, which attaches to it rather than running it again.
-   * Absent, each probe judges as the local runner does, on this host.
+   * The root entry's `executeSplitTask` takes it as optional, and judges as the
+   * local runner does, on this host, without it.
    */
-  readonly executionAlive?: ExecutionLiveness;
+  readonly executionAlive: ExecutionLiveness;
 }
 
 /**

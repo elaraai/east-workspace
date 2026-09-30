@@ -14,8 +14,9 @@ import { variant, StringType, IntegerType, StructType, ArrayType, DictType, East
 import e3 from '@elaraai/e3';
 import type { DataRef, Structure } from '@elaraai/e3-types';
 import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetStatus, workspaceGetTree, workspaceSetDataset } from './trees.js';
-import { packageImport } from './packages.js';
-import { workspaceCreate, workspaceDeploy } from './workspaces.js';
+import { packageImport } from './package-files.js';
+import { workspaceCreate } from './workspaces.js';
+import { workspaceDeploy } from './workspace-files.js';
 import { WorkspaceNotFoundError, WorkspaceNotDeployedError } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';

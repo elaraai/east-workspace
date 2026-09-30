@@ -27,12 +27,12 @@ import {
   DataflowExecutionStateType, DataflowRunType, DatasetRefType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType,
   LockStateType, RepoMetadataType, RepositoryRecordType, UNIT_PLAN_KIND, WorkspaceRecordType, encodeUnitPlan,
 } from '@elaraai/e3-types';
-import { datasetAdoptFile } from './dataset-adopt.js';
-import { LocalOrchestrator } from './dataflow/orchestrator/LocalOrchestrator.js';
+import { datasetAdoptFile } from './dataset-adopt-file.js';
+import { LocalOrchestrator } from './execution/local-orchestrator.js';
 import { FileStateStore } from './dataflow/state-store/FileStateStore.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { getBootId } from './execution/processHelpers.js';
-import { packageImport } from './packages.js';
+import { packageImport } from './package-files.js';
 import { recordMutate } from './records.js';
 import { repositoryOpen } from './repository-record.js';
 import { repoGc } from './gc.js';
@@ -40,7 +40,8 @@ import { LocalStorage } from './storage/local/index.js';
 import { LockProgressRecordType } from './storage/local/LocalLockService.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './storage/local/LocalRefStore.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './storage/local/upgrades.js';
-import { workspaceCreate, workspaceDeploy, workspaceRemove } from './workspaces.js';
+import { workspaceCreate, workspaceRemove } from './workspaces.js';
+import { workspaceDeploy } from './workspace-files.js';
 import { createTempDir, createTestRepo, deadPid, removeTempDir, removeTestRepo } from './test-helpers.js';
 import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js';
 

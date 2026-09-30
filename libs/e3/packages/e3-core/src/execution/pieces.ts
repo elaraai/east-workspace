@@ -59,6 +59,29 @@ export interface PieceSizes {
 /** The platform's piece sizes: 16, 64 and 256 MiB. */
 export const PIECE_SIZES: PieceSizes = { min: 16 * 2 ** 20, target: 64 * 2 ** 20, max: 256 * 2 ** 20 };
 
+/** Where this process reads the piece size a test sets: nowhere, until its
+ *  host says ({@link readTestPieceBytesFrom}). */
+let testPieceBytes: () => string | undefined = () => undefined;
+
+/**
+ * Sets where this process reads the piece size a test sets
+ * (`E3_TEST_PIECE_BYTES`), which {@link pieceSizes} reads each time pieces are
+ * planned.
+ *
+ * @remarks
+ * A setting of the process a test runs e3 in, which a host reads from its
+ * environment: the local runner reads `E3_TEST_PIECE_BYTES` from the Node
+ * process's (`LocalTaskRunner.ts`), so the CLI and the server, and every test
+ * of them, plan as they always have. A host that sets none plans with the
+ * platform's sizes.
+ *
+ * @param read - Reads the setting: its text, or `undefined` when none is set
+ * @internal
+ */
+export function readTestPieceBytesFrom(read: () => string | undefined): void {
+  testPieceBytes = read;
+}
+
 /**
  * The piece sizes this process plans with: the platform's, or, when a test
  * sets `E3_TEST_PIECE_BYTES=n`, `n/4`, `n` and `4n` bytes, so a small input has
@@ -69,7 +92,7 @@ export const PIECE_SIZES: PieceSizes = { min: 16 * 2 ** 20, target: 64 * 2 ** 20
  *   number of bytes, at least 4.
  */
 export function pieceSizes(): PieceSizes {
-  const test = process.env.E3_TEST_PIECE_BYTES;
+  const test = testPieceBytes();
   if (test === undefined || test === '') return PIECE_SIZES;
   const n = Number(test);
   if (!Number.isSafeInteger(n) || n < 4) {

@@ -5,6 +5,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { computeHash, isObjectHash } from './objects.js';
@@ -71,6 +72,39 @@ describe('objects', () => {
 
       assert.strictEqual(typeof hash, 'string');
       assert.strictEqual(hash.length, 64); // SHA256 produces 64 hex chars
+    });
+
+    it('is the SHA-256 Node\'s crypto computes, byte for byte, at every length a block boundary moves and at several megabytes', async () => {
+      // Bytes no two runs differ in: a xorshift stream from a fixed seed.
+      const bytes = (length: number, seed: number): Uint8Array => {
+        const out = new Uint8Array(length);
+        let state = seed >>> 0 || 1;
+        for (let i = 0; i < length; i++) {
+          state ^= state << 13;
+          state ^= state >>> 17;
+          state ^= state << 5;
+          out[i] = state & 0xff;
+        }
+        return out;
+      };
+      const node = (data: Uint8Array): string => createHash('sha256').update(data).digest('hex');
+
+      // Either side of the 55/56-byte padding split and of each 64-byte block,
+      // for the first few blocks.
+      for (let length = 0; length <= 200; length++) {
+        const data = bytes(length, length + 1);
+        assert.strictEqual(computeHash(data), node(data), `${length} bytes`);
+      }
+      // Several megabytes, not a whole number of blocks.
+      const large = bytes(3 * 1024 * 1024 + 7, 0x5eed);
+      assert.strictEqual(computeHash(large), node(large), 'several megabytes');
+      // A view into a larger buffer hashes its own bytes, and a Buffer as the
+      // Uint8Array it is.
+      const view = large.subarray(1001, 1001 + 70_000);
+      assert.strictEqual(computeHash(view), node(view), 'a view with an offset');
+      assert.strictEqual(computeHash(Buffer.from(view)), node(view), 'a Buffer');
+      // And the local store, which hashes its own writes, names them alike.
+      assert.strictEqual(await objectWrite(testRepo, large), computeHash(large), 'the local store\'s name for it');
     });
   });
 

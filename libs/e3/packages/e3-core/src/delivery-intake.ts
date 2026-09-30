@@ -32,10 +32,13 @@
  * miss, as is one cut under another rule or header. An entry that answers is
  * re-referenced whole, since its caller is about to root it.
  *
+ * A delivery the store holds is read here, through the store; a delivered file
+ * is read on the machine it lies on, by the reader its caller gives
+ * (`delivery-intake-file.ts`).
+ *
  * @packageDocumentation
  */
 
-import { open, type FileHandle } from 'node:fs/promises';
 import {
   Beast2ElementWriter,
   compareFor,
@@ -109,6 +112,17 @@ interface Piece {
   readonly bytes: number;
 }
 
+/**
+ * Reads a delivered file's bytes by ranges while `use` runs: a host's with a
+ * filesystem, which an intake of a file source reads the file's index through.
+ *
+ * @internal
+ */
+export type DeliveryFileReader = <T>(
+  file: string,
+  use: (read: (offset: number, length: number) => Promise<Uint8Array>) => Promise<T>,
+) => Promise<T>;
+
 /** The pieces a delivery is taken in as. */
 interface PiecePlan {
   readonly pieces: Piece[];
@@ -121,6 +135,11 @@ interface PiecePlan {
 /**
  * Takes a delivered collection into the store through intake units, and
  * returns the manifest it became.
+ *
+ * @remarks
+ * A delivery the store holds is taken in here. A delivered file, whose index
+ * is read where it lies, is taken in through the root entry's
+ * `intakeDelivery`, which reads it on this machine.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -138,7 +157,8 @@ interface PiecePlan {
  *   Dict's keys do not ascend where two pieces meet, or the delivery cannot be
  *   cut into pieces and is larger than the runner takes in whole.
  * @throws {Error} When a runner cannot take a piece in, the delivery's tail
- *   cannot be read, or `verify` throws.
+ *   cannot be read, `verify` throws, or the delivery is a file, which this
+ *   entry does not read.
  */
 export async function intakeDelivery(
   storage: StorageBackend,
@@ -150,7 +170,30 @@ export async function intakeDelivery(
   size: number,
   options: DeliveryIntakeOptions = {},
 ): Promise<DeliveryIntake> {
-  const { pieces, uncut } = await planPieces(storage, repo, source, size);
+  return intakeDeliveryReading(storage, repo, runner, source, type, sourceHash, size, options, null);
+}
+
+/**
+ * Takes a delivered collection into the store through intake units, as
+ * {@link intakeDelivery} does, reading a delivered file's index through
+ * `readFile`: what the root entry's `intakeDelivery` takes a file in through.
+ *
+ * @param readFile - Reads a delivered file by ranges; `null` where no file is
+ *   read, and a file source is refused
+ * @internal
+ */
+export async function intakeDeliveryReading(
+  storage: StorageBackend,
+  repo: string,
+  runner: TaskRunner,
+  source: IntakeSource,
+  type: EastTypeValue,
+  sourceHash: string,
+  size: number,
+  options: DeliveryIntakeOptions,
+  readFile: DeliveryFileReader | null,
+): Promise<DeliveryIntake> {
+  const { pieces, uncut } = await planPieces(storage, repo, source, size, readFile);
   // A runner on compute of a bounded size says how large a delivery it takes
   // in whole: one that cannot be cut, and is larger, is refused before any
   // unit runs, rather than failing on the runner part way through.
@@ -272,9 +315,15 @@ function pieceKey(sourceHash: string, segments: { from: number; to: number }): s
  *
  * @throws {Error} When the delivery's tail or head cannot be read.
  */
-async function planPieces(storage: StorageBackend, repo: string, source: IntakeSource, size: number): Promise<PiecePlan> {
+async function planPieces(
+  storage: StorageBackend,
+  repo: string,
+  source: IntakeSource,
+  size: number,
+  readFile: DeliveryFileReader | null,
+): Promise<PiecePlan> {
   const whole = (uncut: string | null): PiecePlan => ({ pieces: [{ segments: null, bytes: size }], uncut });
-  const extents = await readExtents(storage, repo, source, size);
+  const extents = await readExtents(storage, repo, source, size, readFile);
   if (extents === null) return whole('the delivery has no index that reads');
   const { offsets, segmentsEnd } = extents;
   if (offsets.length < 2) return whole(null);
@@ -301,9 +350,16 @@ async function planPieces(storage: StorageBackend, repo: string, source: IntakeS
  * it has none that read: no index, or not a collection of beast2 version 5.
  *
  * @throws {Error} When the store or the filesystem fails a read: that is not a
- *   delivery without an index.
+ *   delivery without an index; or the delivery is a file, and no reader of
+ *   files was given.
  */
-async function readExtents(storage: StorageBackend, repo: string, source: IntakeSource, size: number): Promise<Beast2RangedExtents | null> {
+async function readExtents(
+  storage: StorageBackend,
+  repo: string,
+  source: IntakeSource,
+  size: number,
+  readFile: DeliveryFileReader | null,
+): Promise<Beast2RangedExtents | null> {
   let failed: { err: unknown } | null = null;
   const reading = (read: (offset: number, length: number) => Promise<Uint8Array>) => async (offset: number, length: number): Promise<Uint8Array> => {
     try {
@@ -322,24 +378,11 @@ async function readExtents(storage: StorageBackend, repo: string, source: Intake
     }
   };
   if ('object' in source) return extentsOf((offset, length) => storage.objects.readRange(repo, source.object, offset, length));
-  const handle = await open(source.file, 'r');
-  try {
-    return await extentsOf((offset, length) => readRange(handle, offset, length));
-  } finally {
-    await handle.close();
+  if (readFile === null) {
+    throw new Error(`intake: the delivery is the file ${source.file}, which is read on the machine it lies on: ` +
+      'take it in through the root entry of @elaraai/e3-core');
   }
-}
-
-/** Exactly `length` bytes of a file at `offset`, or fewer at its end. */
-async function readRange(handle: FileHandle, offset: number, length: number): Promise<Uint8Array> {
-  const buffer = new Uint8Array(length);
-  let read = 0;
-  while (read < length) {
-    const { bytesRead } = await handle.read(buffer, read, length - read, offset + read);
-    if (bytesRead === 0) break;
-    read += bytesRead;
-  }
-  return read === length ? buffer : buffer.subarray(0, read);
+  return readFile(source.file, extentsOf);
 }
 
 /**

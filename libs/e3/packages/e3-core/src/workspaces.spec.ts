@@ -23,10 +23,10 @@ import {
   workspaceRemove,
   workspaceGetState,
   workspaceGetPackage,
-  workspaceDeploy,
-  workspaceExport,
 } from './workspaces.js';
-import { packageImport, packageResolve, packageRead } from './packages.js';
+import { workspaceDeploy, workspaceExport } from './workspace-files.js';
+import { packageResolve, packageRead } from './packages.js';
+import { packageImport } from './package-files.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,

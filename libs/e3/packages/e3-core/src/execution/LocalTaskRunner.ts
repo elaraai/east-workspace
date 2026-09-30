@@ -17,130 +17,54 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { none, some, variant } from '@elaraai/east';
-import { type ExecutionOwner, type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
+import { type ExecutionStatus, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type {
-  ExecutionLiveness, IntakeOptions, IntakeResult, IntakeSpec, RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue,
+  DetachedResult, DetachedRunOptions, DetachedSpec, ExecutionLiveness, IntakeOptions, IntakeResult, IntakeSpec, MergeParts,
+  RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue,
 } from './interfaces.js';
+import { probeExecutionCache as probeCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './cache.js';
 import { runIntake } from './intake.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { SegmentFetcher } from './segment-fetch.js';
-import { storeDatasetFile } from '../store-collection.js';
+import { storeDatasetFile } from '../store-collection-file.js';
 import { materializeEnvironment } from './environment.js';
-import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
+import { runDetached } from './runDetached.js';
 import { executionScratchDir } from './scratch.js';
 import { unitThreads, type Budget, type Grant, type GrantKind } from './budget.js';
 import { unitCap, unitCgroups } from './cgroups.js';
 import {
   clearUnitOutput, readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv,
-  type MergeParts, type StagedUnit, type TaskUnit,
+  type StagedUnit, type TaskUnit,
 } from './units.js';
-import { executeSplitTask, isSplitTask } from './engine.js';
+import { executeSplitTask as runSplitTask, isSplitTask, type SplitTaskDriver as SharedSplitTaskDriver, type UnitExecutor } from './engine.js';
+import { readTestPieceBytesFrom } from './pieces.js';
+
+export type { ExecuteOptions, ExecutionIds, ExecutionResult } from './cache.js';
+
+declare module './cache.js' {
+  interface ExecuteOptions {
+    /** The process's budget (see {@link Budget}): a runner spawns only while
+     *  its execution holds a core, and a split task's units take cores like any
+     *  execution; each unit is granted threads from it, and on Linux and macOS
+     *  its guard watches what the runners use. A split task run on its own
+     *  keeps as many units in flight as the budget has cores. Runtime-only, and
+     *  never seen by a remote backend. Absent, spawns are not budgeted. */
+    budget?: Budget;
+  }
+}
+
+// A test sets the pieces' sizes in the environment of the process e3 runs in:
+// read each time pieces are planned, as a test that sets it around a run
+// expects.
+readTestPieceBytesFrom(() => process.env.E3_TEST_PIECE_BYTES);
 
 /** The pool width — the most units in flight at once — of a task run on its
  *  own without a budget. */
 const DEFAULT_POOL_WIDTH = 4;
-
-/**
- * Options for task execution
- */
-export interface ExecuteOptions {
-  /** Re-run even if cached (default: false) */
-  force?: boolean;
-  /** Pass `-v` to a stock runner's `exec`, so it prints where the time went
-   *  and its peak memory to stderr. Runtime-only: it never affects the task
-   *  hash or caching. */
-  verbose?: boolean;
-  /** Timeout in milliseconds (default: none) */
-  timeout?: number;
-  /** AbortSignal for cancellation */
-  signal?: AbortSignal;
-  /** Stream stdout callback */
-  onStdout?: (data: string) => void;
-  /** Stream stderr callback */
-  onStderr?: (data: string) => void;
-  /** The process's budget (see {@link Budget}): a runner spawns only while
-   *  its execution holds a core, and a split task's units take cores like any
-   *  execution; each unit is granted threads from it, and on Linux and macOS
-   *  its guard watches what the runners use. A split task run on its own
-   *  keeps as many units in flight as the budget has cores. Runtime-only, and
-   *  never seen by a remote backend. Absent, spawns are not budgeted. */
-  budget?: Budget;
-  /** The memory, in bytes, the execution reserves from the budget while its
-   *  runner runs: for a unit of a split task, the largest peak its stage has
-   *  reached in the run. Absent, it reserves none. */
-  expectedPeakBytes?: number;
-  /** Called as each unit of a split task (a piece, or a merge of their
-   *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
-  onPartitionProgress?: (progress: PartitionProgress) => void;
-  /** Called when the execution waits for room in the budget, with the memory
-   *  in bytes it waits to reserve (0 when it waits for a core alone), and with
-   *  `null` once it has room or stops waiting: again for each attempt that
-   *  waits. Runtime-only. */
-  onWaiting?: (needs: number | null) => void;
-  /** Called when the guard, or the attempt's cgroup's cap, stopped a unit of
-   *  a split task, which runs again under the same execution. Runtime-only. */
-  onRequeued?: (requeue: UnitRequeue) => void;
-  /** Variables every runner process of the execution gets in its environment,
-   *  after this process's own: a unit's run and its output merge, and every
-   *  unit of a split task. Runtime-only: never hashed and never logged. One
-   *  that sets a variable e3 sets itself (`PATH`, `E3_RUNNER_SEARCH_DIRS`,
-   *  `E3_FETCH_SEGMENTS`, which only a unit turns on) is refused. */
-  extraEnv?: Readonly<Record<string, string>>;
-  /**
-   * Whether an execution the cache probe finds recorded `running` can still
-   * finish, as the runner that started it judges it — its
-   * `TaskRunner.executionAlive` — for the probe of the execution and, for a
-   * split task, of each of its units. A backend whose executions run on other
-   * hosts passes its own, so a probe here leaves one still running there as
-   * it is. Absent, the probe judges as the local runner does: by the
-   * execution's runner process and its recorded owner, on this host.
-   * Runtime-only.
-   */
-  executionAlive?: ExecutionLiveness;
-  /**
-   * The owner the executions this call runs are recorded under: every
-   * runner's, and a split task's own. This process when absent, which a probe
-   * finds exited once it has; `null` records none, whose execution the local
-   * judgement never repairs — what a host passes that runs an execution on
-   * another's behalf and judges its liveness itself. Runtime-only.
-   */
-  owner?: ExecutionOwner | null;
-}
-
-/**
- * Result of task execution
- */
-export interface ExecutionResult {
-  /** Combined inputs hash (identifies this execution) */
-  inputsHash: string;
-  /** Execution ID (UUIDv7) */
-  executionId: string;
-  /** True if result was from cache */
-  cached: boolean;
-  /** Final state */
-  state: 'success' | 'failed' | 'error';
-  /** Output dataset hash (null on failure) */
-  outputHash: string | null;
-  /** Process exit code (null if not applicable) */
-  exitCode: number | null;
-  /** Execution time in ms (0 if cached) */
-  duration: number;
-  /** Error message on failure */
-  error: string | null;
-  /** True when e3 stopped the execution because the run was aborted: it is
-   *  recorded `cancelled`, and is not the task's own failure */
-  cancelled: boolean;
-  /** The highest peak resident memory, in bytes, a runner process of the
-   *  execution reached, as its execution records it: a unit's, the larger of
-   *  its run's and its output merge's; a split task's, the largest of its
-   *  units'. Absent when no runner reported one: a command body, or a runner
-   *  that recorded no result. */
-  peakBytes?: number;
-}
 
 /**
  * TaskRunner implementation for local process execution.
@@ -420,13 +344,13 @@ async function readTaskObject(
  * served, so the task runs again.
  *
  * A latest record still `running` that cannot finish is first rewritten as
- * `interrupted` (see {@link repairInterruptedExecution}), so it no longer
- * reads as live. Whether it can finish is the judgement of the runner that
- * started it, which `alive` gives: a backend whose executions run on other
- * hosts passes its own, and one still running there is left as it is. Absent,
- * the probe judges as the local runner does, on this host: it cannot once its
- * runner and its recorded owner have both exited, and one with no owner
- * recorded is left alone.
+ * `interrupted`, so it no longer reads as live. Whether it can finish is the
+ * judgement of the runner that started it, which `alive` gives: a backend
+ * whose executions run on other hosts passes its own, and one still running
+ * there is left as it is. Absent, the probe judges as the local runner does,
+ * on this host ({@link localLiveness}): it cannot once its runner and its
+ * recorded owner have both exited, and one with no owner recorded is left
+ * alone.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -445,26 +369,80 @@ export async function probeExecutionCache(
   inHash: string,
   alive?: ExecutionLiveness,
 ): Promise<ExecutionResult | null> {
-  const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-  if (status?.type === 'running') {
-    await repairInterruptedExecution(storage, repo, taskHash, inHash, status.value, alive);
-    return null;
-  }
-  if (status?.type !== 'success') {
-    return null;
-  }
-  return {
-    inputsHash: inHash,
-    executionId: status.value.executionId,
-    cached: true,
-    state: 'success',
-    outputHash: status.value.outputHash,
-    exitCode: 0,
-    duration: 0,
-    error: null,
-    cancelled: false,
-    ...(status.value.peakBytes.type === 'some' && { peakBytes: Number(status.value.peakBytes.value) }),
-  };
+  return probeCache(storage, repo, taskHash, inHash, alive ?? localLiveness(repo));
+}
+
+/**
+ * How a driver runs a split task on its own ({@link executeSplitTask}): as the
+ * engine's, with its liveness optional.
+ */
+export interface SplitTaskDriver {
+  /** The most units in flight at once, a positive integer. */
+  readonly width: SharedSplitTaskDriver['width'];
+  /** The owner the task's own execution is recorded under while its stages
+   *  run, or `null` for none (see `SplitTask.open`). */
+  readonly owner: SharedSplitTaskDriver['owner'];
+  /**
+   * Whether a unit recorded `running` can still finish, as the runner that
+   * started it judges it — its `TaskRunner.executionAlive` — for each unit's
+   * probe of the execution cache. A driver whose units run on other hosts
+   * passes its runner's, so a unit still running elsewhere is left as it is and
+   * handed to the executor, which attaches to it rather than running it again.
+   * Absent, each probe judges as the local runner does, on this host.
+   */
+  readonly executionAlive?: ExecutionLiveness;
+}
+
+/**
+ * Executes a task whose work is split over its inputs on its own, as the
+ * engine's `executeSplitTask` does, with each unit's probe judging as the
+ * local runner does, on this host, unless the driver gives its runner's
+ * judgement.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param taskHash - Hash of the task object
+ * @param task - The task, which `isSplitTask`
+ * @param inputHashes - The task's input hashes
+ * @param ids - The task's execution identity
+ * @param options - Execution options: the run's signal, progress callback and
+ *   `force`
+ * @param execute - Runs one unit on a cache miss
+ * @param driver - The pool's width, the owner of the task's execution, and
+ *   the judgement of whether a unit recorded running can still finish
+ * @returns The task's execution result
+ * @throws {RangeError} When the width is not a positive integer.
+ * @throws The error of the lowest-index unit whose executor or cache probe
+ *   threw, once the task's execution is recorded `error`.
+ */
+export async function executeSplitTask(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  task: TaskObject,
+  inputHashes: string[],
+  ids: ExecutionIds,
+  options: ExecuteOptions,
+  execute: UnitExecutor,
+  driver: SplitTaskDriver,
+): Promise<ExecutionResult> {
+  return runSplitTask(storage, repo, taskHash, task, inputHashes, ids, options, execute, {
+    ...driver,
+    executionAlive: driver.executionAlive ?? localLiveness(repo),
+  });
+}
+
+/**
+ * The local runner's judgement of whether an execution recorded `running` can
+ * still finish, as the execution cache's probe asks it on this host: not once
+ * its runner and its recorded owner have both exited ({@link runningCanFinish}),
+ * and a record with no owner is left alone, since nothing says whether it can.
+ *
+ * @param repo - Repository identifier
+ * @returns The judgement
+ */
+function localLiveness(repo: string): ExecutionLiveness {
+  return async (storage, taskHash, inHash, running) => (await runningCanFinish(storage, repo, taskHash, inHash, running)) !== false;
 }
 
 /**
@@ -496,47 +474,6 @@ async function runningCanFinish(
   const owner = await storage.refs.executionOwnerRead(repo, taskHash, inHash, running.executionId);
   if (owner === null) return null;
   return isProcessAlive(Number(owner.pid), Number(owner.pidStartTime), owner.bootId);
-}
-
-/**
- * Rewrites a `running` record as `interrupted` when its execution can no
- * longer finish, so nothing will ever write its outcome: when `alive`, the
- * judgement of the runner that started it, says so; or, without it, when its
- * runner and the orchestrator recorded as its owner have both exited here
- * ({@link runningCanFinish}), a record with no owner sidecar left alone.
- */
-async function repairInterruptedExecution(
-  storage: StorageBackend,
-  repo: string,
-  taskHash: string,
-  inHash: string,
-  running: RunningExecution,
-  alive: ExecutionLiveness | undefined,
-): Promise<void> {
-  const canFinish = alive === undefined
-    ? await runningCanFinish(storage, repo, taskHash, inHash, running)
-    : await alive(storage, taskHash, inHash, running);
-  if (canFinish !== false) return;
-  const status: ExecutionStatus = variant('interrupted', {
-    executionId: running.executionId,
-    inputHashes: running.inputHashes,
-    startedAt: running.startedAt,
-    completedAt: new Date(),
-    pid: running.pid,
-    unit: running.unit,
-  });
-  await storage.refs.executionWrite(repo, taskHash, inHash, running.executionId, status);
-}
-
-/** The identity of one execution attempt: the execution-cache key it is
- *  recorded under, and its own ID and start. */
-export interface ExecutionIds {
-  /** Combined inputs hash. */
-  inHash: string;
-  /** Fresh execution ID (UUIDv7). */
-  executionId: string;
-  /** Wall-clock start of the attempt (epoch ms). */
-  startTime: number;
 }
 
 /** One attempt at an execution's runners: its hold on the budget, the cgroup

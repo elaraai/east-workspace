@@ -14,6 +14,7 @@ export {
   type TaskRunner,
   type RunningExecution,
   type ExecutionLiveness,
+  type MergeParts,
   type SplitUnit,
   type UnitRequeue,
   type IntakeSource,
@@ -30,26 +31,45 @@ export { LocalTaskRunner } from './LocalTaskRunner.js';
 export { MockTaskRunner, type MockTaskCall, type MockTaskResult, type MockUnitCall } from './MockTaskRunner.js';
 
 // The engine: a task split into pieces, as the stages its units run in, and
-// the driver that runs a task on its own
+// the driver that runs a task on its own — whose judgement of what still runs
+// is this machine's unless its caller gives its runner's
 export {
   SplitTask,
   isSplitTask,
   stageUnits,
-  executeSplitTask,
   type SplitStage,
-  type SplitTaskDriver,
   type ThrownUnit,
   type UnitExecutor,
 } from './engine.js';
+export { executeSplitTask, type SplitTaskDriver } from './LocalTaskRunner.js';
+
+// The pieces of a split task, and the merge fan-in of its sorted partials
+export {
+  PIECE_SIZES,
+  pieceSizes,
+  pieceBoundaries,
+  planPieces,
+  type PieceSizes,
+  type SplitPoint,
+  type PiecePlan,
+} from './pieces.js';
+export {
+  MERGE_TREE_FANIN,
+  mergeComponents,
+  planMergeRanges,
+  mergeTreeGroups,
+  mergeTreeLevels,
+  type MergeComponent,
+} from './steps.js';
 
 // Graph-free execution (functions / one-shot)
+export { runDetached } from './runDetached.js';
 export {
-  runDetached,
   type DetachedArg,
   type DetachedSpec,
   type DetachedResult,
   type DetachedRunOptions,
-} from './runDetached.js';
+} from './interfaces.js';
 
 // One-shot: a caller's IR run once under the grant the host's auth gives it,
 // and the limits and result every graph-free call shares

@@ -48,7 +48,8 @@ import {
 } from '@elaraai/east';
 import { withRunnerLifeline, type RunnerValue, type TaskObject } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
-import { storeCollection, storeDatasetFile } from '../store-collection.js';
+import { storeCollection } from '../store-collection.js';
+import { storeDatasetFile } from '../store-collection-file.js';
 
 /** A stock runner's wire variant: one that executes units. */
 export type StockRunner = Exclude<RunnerValue, { type: 'custom' }>;
@@ -77,16 +78,6 @@ export interface TaskUnit extends StagedUnit {
   readonly unit: Unit;
   /** The runner that executes it. */
   readonly runner: StockRunner;
-}
-
-/** What a `merge` unit of a split task assembles: outputs its pieces wrote. */
-export interface MergeParts {
-  /** The parts' hashes, in piece order. */
-  readonly parts: readonly string[];
-  /** The hash of the key range the merge is limited to — `{from, to}` over
-   *  the parts' key type, as `planMergeRanges` writes it — or `null` to
-   *  merge them whole. */
-  readonly range: string | null;
 }
 
 /** The file a unit's result is recorded in, beside the unit. */

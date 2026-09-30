@@ -15,22 +15,22 @@
  * until a package is deployed, then its state. No record means the workspace
  * does not exist. A local repository keeps it at `workspaces/<name>.beast2`,
  * and its dataset refs at `workspaces/<ws>/data/<path>.beast2`.
+ *
+ * A deploy's `file` sources are read, and an export's zip written, on the
+ * machine that has them (`workspace-files.ts`).
  */
 
-import * as fs from 'fs/promises';
-import type { Writable } from 'node:stream';
-import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
-import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
+import { decodeBeast2For, encodeBeast2For, variant, none, some, type EastTypeValue } from '@elaraai/east';
 import {
-  E3_RELEASE, PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject, isCollectionRoot,
+  WorkspaceRecordType, decodePackageObject, decodeRecordObject, isCollectionRoot,
 } from '@elaraai/e3-types';
 import type {
   DeployProgress, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState, RecordDeployStep, RecordIndexPlan,
-  RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, TreePath,
+  RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, TreePath,
 } from '@elaraai/e3-types';
-import { objectAdoptFile, type DatasetTaken } from './dataset-adopt.js';
+import type { DatasetAdoptProgress, DatasetTaken, ObjectAdoptResult } from './dataset-adopt.js';
 import { eachAtMost } from './concurrency.js';
-import { ZIP_RELEASE_ENTRY, addPackageObjects, packageResolve, packageRead, writePackageZip } from './packages.js';
+import { packageResolve, packageRead } from './packages.js';
 import type { PackageZipCheckpoint } from './transfer/types.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import { workspaceSetDatasetByHash } from './trees.js';
@@ -86,7 +86,7 @@ async function readState(
     return { exists: false };
   }
 
-  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  const record = decodeBeast2For(WorkspaceRecordType)(data);
   if (record.type === 'none') {
     return { exists: true, deployed: false };
   }
@@ -97,8 +97,9 @@ async function readState(
  * Read workspace state, throwing if workspace doesn't exist or is not deployed.
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ * @internal
  */
-async function readStateOrThrow(storage: StorageBackend, repo: string, name: string): Promise<WorkspaceState> {
+export async function readStateOrThrow(storage: StorageBackend, repo: string, name: string): Promise<WorkspaceState> {
   const result = await readState(storage, repo, name);
   if (!result.exists) {
     throw new WorkspaceNotFoundError(name);
@@ -432,6 +433,70 @@ export interface WorkspaceDeployOptions {
 }
 
 /**
+ * The files a deploy's `file` sources name, as the machine the deploy runs on
+ * reads them: a delivery's header checked against its declared type, its size,
+ * and its adoption.
+ *
+ * @internal
+ */
+export interface DeployFiles {
+  /**
+   * Reads a delivery's header and checks it holds the declared type.
+   *
+   * @param file - The delivery's path
+   * @param subject - The input, as a refusal names it
+   * @param type - The type the input declares
+   * @returns `null` when the file reads as the declared type; otherwise why it
+   *   does not read, which the deploy reports as a missing delivery
+   * @throws The type mismatch, when the file holds another type: a broken
+   *   package, which fails the deploy whatever its warning sink.
+   */
+  check(file: string, subject: string, type: EastTypeValue): { readonly err: unknown } | null;
+  /**
+   * The delivery's size in bytes.
+   *
+   * @param file - The delivery's path
+   */
+  size(file: string): Promise<number>;
+  /**
+   * Adopts the delivery into the object store, as the root entry's
+   * `objectAdoptFile` does.
+   *
+   * @param storage - Storage backend
+   * @param repo - Repository identifier
+   * @param file - The delivery's path
+   * @param options - The type it declares, the runner that takes a collection
+   *   in, the signal that stops it, and a listener for how far it has got
+   */
+  adopt(
+    storage: StorageBackend,
+    repo: string,
+    file: string,
+    options: {
+      declared: { subject: string; type: EastTypeValue };
+      runner: TaskRunner | undefined;
+      signal: AbortSignal;
+      onProgress: (progress: DatasetAdoptProgress) => void;
+    },
+  ): Promise<ObjectAdoptResult>;
+}
+
+/** Why a deploy that reads no files leaves a `file` source: it names a file on
+ *  a machine this e3 does not read. */
+function readsNoFiles(subject: string, file: string): Error {
+  return new Error(`${subject} is the file ${file}, and this e3 reads no files: deploy the package where the file lies, ` +
+    'or complete the input over the dataset transfer protocol (resolveFileSources: false)');
+}
+
+/** The files of a deploy that reads none: each `file` source is one that does
+ *  not read. */
+const NO_FILES: DeployFiles = {
+  check: (file, subject) => ({ err: readsNoFiles(subject, file) }),
+  size: (file) => Promise.reject(readsNoFiles('a file source', file)),
+  adopt: (_storage, _repo, file, { declared }) => Promise.reject(readsNoFiles(declared.subject, file)),
+};
+
+/**
  * Deploy a package to a workspace.
  *
  * Creates the workspace if it doesn't exist. Writes state file atomically
@@ -441,6 +506,12 @@ export interface WorkspaceDeployOptions {
  * Acquires a workspace lock to prevent conflicts with running dataflows
  * or concurrent deploys. Throws WorkspaceLockError if the workspace is
  * currently locked by another process.
+ *
+ * A package's `file` source names a file on the machine that exported it,
+ * which the root entry's `workspaceDeploy` reads. This entry reads no files:
+ * each `file` source is one whose delivery does not read, which
+ * {@link WorkspaceDeployOptions.sourceWarning} hears and the deploy leaves
+ * unassigned, or which fails the deploy without a sink.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -463,6 +534,26 @@ export async function workspaceDeploy(
   pkgName: string,
   pkgVersion: string,
   options: WorkspaceDeployOptions = {}
+): Promise<void> {
+  return workspaceDeployWith(storage, repo, name, pkgName, pkgVersion, options, NO_FILES);
+}
+
+/**
+ * Deploy a package to a workspace, as {@link workspaceDeploy} does, reading
+ * its `file` sources through `files`: what the root entry's `workspaceDeploy`
+ * deploys through.
+ *
+ * @param files - How the files a `file` source names are read
+ * @internal
+ */
+export async function workspaceDeployWith(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+  pkgName: string,
+  pkgVersion: string,
+  options: WorkspaceDeployOptions,
+  files: DeployFiles,
 ): Promise<void> {
   // Acquire lock if not provided externally
   const externalLock = options.lock;
@@ -520,7 +611,7 @@ export async function workspaceDeploy(
     // follows the same rule as a record: every file source is validated here,
     // before the wipe.
     const sourceFiles = validateDatasetSources(
-      pkg, options.sourceWarning, options.resolveFileSources ?? true,
+      pkg, options.sourceWarning, options.resolveFileSources ?? true, files,
     );
     if (options.runner === undefined) {
       for (const [refPath, { declared }] of sourceFiles) {
@@ -549,7 +640,7 @@ export async function workspaceDeploy(
       const deliveries = [...sourceFiles];
       const stop = new AbortController();
       const hashes: string[] = new Array(deliveries.length);
-      const sizes = await Promise.all(deliveries.map(async ([, { file }]) => (await fs.stat(file)).size));
+      const sizes = await Promise.all(deliveries.map(([, { file }]) => files.size(file)));
       const sources = { count: deliveries.length, bytes: sizes.reduce((sum, size) => sum + size, 0) };
       // How far the deploy has got goes through its lock to whoever watches
       // the workspace, and to the caller.
@@ -567,7 +658,7 @@ export async function workspaceDeploy(
             options.onSourceProgress?.(progress);
             reports.file(progress);
           };
-          const { hash, size, taken, runners, fallback } = await objectAdoptFile(storage, repo, file, {
+          const { hash, size, taken, runners, fallback } = await files.adopt(storage, repo, file, {
             declared,
             runner: options.runner,
             signal: stop.signal,
@@ -780,6 +871,7 @@ function deployReports(
  *   rather than failing the deploy
  * @param resolve - Whether this process reads and validates the `file` sources;
  *   false leaves every one unassigned without touching its path
+ * @param files - How this process reads the files the sources name
  * @returns refPath -> the absolute file path and the type it must hold, for
  *   the sources to adopt (always empty when `resolve` is false)
  * @throws {DatasetTypeMismatchError} When a delivery's type has drifted
@@ -790,8 +882,9 @@ function validateDatasetSources(
   pkg: PackageObject,
   warn: ((message: string) => void) | undefined,
   resolve: boolean,
+  files: DeployFiles,
 ): Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }> {
-  const files = new Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }>();
+  const sources = new Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }>();
   for (const [refPath, source] of pkg.sources) {
     const inputName = refPath.split('/').pop() ?? refPath;
     const type = recordLeafType(pkg.data.structure, refPath);
@@ -806,17 +899,17 @@ function validateDatasetSources(
       continue;
     }
     const declared = { subject: `input '${inputName}'`, type };
-    try {
-      readDatasetFileHeader(source.value.path, declared.subject, declared.type);
-      files.set(refPath, { file: source.value.path, declared });
-    } catch (err) {
-      if (!warn || err instanceof DatasetFileTypeMismatchError) throw err;
-      warn(
-        `input '${inputName}' is left unassigned: ${err instanceof Error ? err.message : String(err)}`
-      );
+    const unreadable = files.check(source.value.path, declared.subject, declared.type);
+    if (unreadable === null) {
+      sources.set(refPath, { file: source.value.path, declared });
+      continue;
     }
+    if (!warn) throw unreadable.err;
+    warn(
+      `input '${inputName}' is left unassigned: ${unreadable.err instanceof Error ? unreadable.err.message : String(unreadable.err)}`
+    );
   }
-  return files;
+  return sources;
 }
 
 /**
@@ -899,189 +992,4 @@ export interface WorkspaceExportOptions {
    * refused when the workspace changed since.
    */
   resume?: PackageZipCheckpoint;
-}
-
-/**
- * Export a workspace as a package.
- *
- * 1. Read workspace state
- * 2. Read deployed package structure using stored packageHash
- * 3. Create new PackageObject with current structure
- * 4. Collect all referenced objects from dataset refs
- * 5. Write the release exporting it, the objects, the package ref and the
- *    executions the current run used to the .zip — not the run's record,
- *    which names this repository's workspace
- *
- * The zip is written an entry at a time, to a file or to a stream, as a
- * package's export writes it (`packageExport`), reading its segments ahead of
- * the entry it writes, and an export stopped at its signal is resumed from its
- * checkpoint.
- *
- * It writes a package object that nothing in the repository names, and reads
- * what the workspace named as it started, which a write may leave unnamed
- * since: so it holds the repository's running work ({@link withRunningWork}),
- * as a package's export does, and gc holding the repository still sweeps none
- * of it, and an upgrade waits for it.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param name - Workspace name
- * @param destination - The path to write the .zip file to, or the stream to
- *   write its bytes to
- * @param outputName - Package name (default: deployed package name)
- * @param version - Package version (default: <pkgVersion>-<short hash>)
- * @param options - Progress, the workspace lock, and the signal that stops the
- *   export and the checkpoint it resumes from
- * @returns Export result with package info and the zip's size
- * @throws {WorkspaceNotFoundError} If workspace doesn't exist
- * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
- * @throws {ExportStoppedError} When `options.signal` stopped the export.
- * @throws {Error} When `options.resume` is given without the version, or is a
- *   checkpoint of the workspace as it was before it changed; and when a
- *   garbage collection or an upgrade holds the repository.
- */
-export async function workspaceExport(
-  storage: StorageBackend,
-  repo: string,
-  name: string,
-  destination: string | Writable,
-  outputName?: string,
-  version?: string,
-  options?: WorkspaceExportOptions,
-): Promise<WorkspaceExportResult> {
-  return withRunningWork(storage, repo, () => exportWorkspace(storage, repo, name, destination, outputName, version, options));
-}
-
-/** The export of {@link workspaceExport}, holding the repository's running
- *  work. */
-async function exportWorkspace(
-  storage: StorageBackend,
-  repo: string,
-  name: string,
-  destination: string | Writable,
-  outputName: string | undefined,
-  version: string | undefined,
-  options: WorkspaceExportOptions | undefined,
-): Promise<WorkspaceExportResult> {
-  if (options?.resume !== undefined && version === undefined) {
-    throw new Error('a resumed export of a workspace names the version the export it resumes named');
-  }
-
-  // Acquire workspace lock for snapshot consistency
-  const externalLock = options?.lock;
-  let lock: LockHandle | null = externalLock ?? null;
-  if (!lock) {
-    lock = await storage.locks.acquire(repo, name, variant('export', null));
-    if (!lock) {
-      const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
-    }
-  }
-  try {
-
-  // Get workspace state
-  const state = await readStateOrThrow(storage, repo, name);
-
-  // Read the deployed package object using the stored hash
-  const deployedPkgData = await storage.objects.read(repo, state.packageHash);
-  const deployedPkgObject = decodePackageObject(Buffer.from(deployedPkgData));
-
-  // Determine output name and version
-  const finalName = outputName ?? state.packageName;
-  // For version, use a short identifier from the workspace name + timestamp
-  const finalVersion = version ?? `${state.packageVersion}-${Date.now().toString(36)}`;
-
-  // Read all workspace refs for the package
-  const refList = await storage.datasets.list(repo, name);
-  const workspaceRefs = new Map<string, DatasetRef>();
-  for (const refPath of refList) {
-    const ref = await storage.datasets.read(repo, name, refPath);
-    if (ref) {
-      workspaceRefs.set(refPath, ref);
-    }
-  }
-
-  // Create new PackageObject with inline refs (functions and records carry
-  // through unchanged — the record dataset state lives in the refs)
-  const newPkgObject: PackageObject = {
-    tasks: deployedPkgObject.tasks,
-    data: {
-      structure: deployedPkgObject.data.structure,
-      refs: workspaceRefs,
-    },
-    functions: deployedPkgObject.functions,
-    records: deployedPkgObject.records,
-    // No sources: a workspace export carries the workspace's RESOLVED refs
-    // (`value { hash }` plus the object bytes), so a path-initialised input
-    // travels as an ordinary object and the exported package is self-contained
-    // on a machine that has never seen the delivery.
-    sources: new Map(),
-  };
-
-  // Encode and store the new package object
-  const encoder = encodeBeast2For(PackageObjectType);
-  const pkgData = encoder(newPkgObject);
-  const packageHash = await storage.objects.write(repo, pkgData);
-
-  const { objectCount, bytes } = await writePackageZip(destination, packageHash, options ?? {}, async (zip) => {
-    // The release exporting it, first, so an import meets it before anything
-    await zip.add(ZIP_RELEASE_ENTRY, encodeBeast2For(StringType)(E3_RELEASE));
-    const objectCount = await addPackageObjects(zip, storage, repo, packageHash, newPkgObject, options?.onProgress);
-
-    // The package ref, as a repository keeps one
-    await zip.add(`packages/${finalName}/${finalVersion}.beast2`, encodeBeast2For(StringType)(packageHash));
-
-    // Include the executions and logs of the current run. The run's own record
-    // stays here: it names this repository's workspace, and a run's history
-    // belongs to the repository the run ran in. The executions travel so the
-    // importing repository's cache serves the outputs they made.
-    if (state.currentRunId.type === 'some') {
-      const currentRunId = state.currentRunId.value;
-      const dataflowRun = await storage.refs.dataflowRunGet(repo, name, currentRunId);
-      if (dataflowRun) {
-        // Include the execution each task used, which the run's record names
-        // whole: its inputs may have changed in the workspace since.
-        const statusEncoder = encodeBeast2For(ExecutionStatusType);
-        for (const { taskHash, inputsHash: inHash, executionId } of dataflowRun.taskExecutions.values()) {
-          // Read and add execution status
-          const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
-          if (execStatus) {
-            await zip.add(`executions/${taskHash}/${inHash}/${executionId}/status.beast2`, statusEncoder(execStatus));
-          }
-
-          // Read and add logs (stdout/stderr)
-          for (const stream of ['stdout', 'stderr'] as const) {
-            let log: string;
-            try {
-              log = (await storage.logs.read(repo, taskHash, inHash, executionId, stream, { limit: 100 * 1024 * 1024 })).data;
-            } catch {
-              // Skip if log not available
-              continue;
-            }
-            if (log.length > 0) {
-              await zip.add(`executions/${taskHash}/${inHash}/${executionId}/${stream}.txt`, Buffer.from(log));
-            }
-          }
-        }
-      }
-    }
-    return { objectCount };
-  });
-
-  return {
-    packageHash,
-    objectCount,
-    name: finalName,
-    version: finalVersion,
-    bytes,
-  };
-
-  } finally {
-    if (!externalLock) {
-      await lock.release();
-    }
-  }
 }

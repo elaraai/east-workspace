@@ -140,9 +140,10 @@ export async function objectWrite(
   repoPath: string,
   data: Uint8Array
 ): Promise<string> {
-  const { computeHash } = await import('../../objects.js');
   const extension = '.beast2';
-  const hash = computeHash(data);
+  // Node's SHA-256, the digest `computeHash` gives, at the speed a store that
+  // writes every segment of every dataset needs.
+  const hash = crypto.createHash('sha256').update(data).digest('hex');
 
   // Split hash: first 2 chars as directory
   const dirName = hash.slice(0, 2);

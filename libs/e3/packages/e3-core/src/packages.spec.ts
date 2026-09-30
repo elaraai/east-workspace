@@ -16,15 +16,13 @@ import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, e
 import e3 from '@elaraai/e3';
 import { DataflowRunType, E3_RELEASE, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
 import {
-  packageImport,
-  packageZipOpen,
-  packageExport,
   packageRemove,
   packageList,
   packageResolve,
   packageRead,
 } from './packages.js';
-import { workspaceDeploy } from './workspaces.js';
+import { packageImport, packageZipOpen, packageExport } from './package-files.js';
+import { workspaceDeploy } from './workspace-files.js';
 import { computeHash } from './objects.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';

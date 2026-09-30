@@ -31,7 +31,7 @@ import {
 } from '@elaraai/east';
 import { encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
-import { storeDatasetFile } from './store-collection.js';
+import { storeDatasetFile } from './store-collection-file.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';

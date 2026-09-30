@@ -53,13 +53,15 @@ export {
 export {
   handleProcessExport,
   handleProcessImport,
-  handleProcessDeploy,
-  handleProcessGc,
-  handleProcessSplitCall,
   type ProcessExportDeps,
   type ProcessExportInput,
   type ProcessImportDeps,
   type ProcessImportInput,
+} from './process-files.js';
+export {
+  handleProcessDeploy,
+  handleProcessGc,
+  handleProcessSplitCall,
   type ProcessDeployDeps,
   type ProcessDeployInput,
   type ProcessGcDeps,

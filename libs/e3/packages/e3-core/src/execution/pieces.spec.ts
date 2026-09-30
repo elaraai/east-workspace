@@ -18,6 +18,9 @@ import {
 } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
 import { PIECE_SIZES, pieceBoundaries, pieceSizes, planPieces, type PieceSizes } from './pieces.js';
+// The local runner is the host that reads a test's piece size from this
+// process's environment: loaded, it says where pieceSizes reads it.
+import './LocalTaskRunner.js';
 import { readDatasetWhole } from '../dataset-open.js';
 import { storeCollection } from '../store-collection.js';
 import { datasetWrite } from '../trees.js';
@@ -87,7 +90,7 @@ describe('the piece rule', () => {
     assert.ok(changed.length <= 3, `${changed.length} of ${now.length} pieces changed around a 6-segment insertion`);
   });
 
-  it('plans with the platform\'s sizes, and a test\'s through E3_TEST_PIECE_BYTES', () => {
+  it('plans with the platform\'s sizes, and a test\'s through E3_TEST_PIECE_BYTES, which the local runner reads', () => {
     const saved = process.env.E3_TEST_PIECE_BYTES;
     try {
       delete process.env.E3_TEST_PIECE_BYTES;

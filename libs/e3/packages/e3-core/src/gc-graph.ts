@@ -210,7 +210,7 @@ export async function markFrom(
     // delete: the mark stops instead.
     let children: { hash: string; kind: GcChildKind }[];
     try {
-      const decoded = decodeBeast2(Buffer.from(data));
+      const decoded = decodeBeast2(data);
       children = extractChildren(decoded.type, decoded.value);
     } catch (err) {
       throw new GcReadError(hash, messageOf(err), true);
@@ -739,7 +739,7 @@ export async function touchReachable(storage: StorageBackend, repo: string, root
       }
       let children: { hash: string; kind: GcChildKind }[];
       try {
-        const decoded = decodeBeast2(Buffer.from(data));
+        const decoded = decodeBeast2(data);
         children = extractChildren(decoded.type, decoded.value);
       } catch (err) {
         throw new GcReadError(hash, messageOf(err), true);

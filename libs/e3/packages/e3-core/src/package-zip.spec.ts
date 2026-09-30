@@ -19,13 +19,13 @@ import { ArrayType, IntegerType, StringType, StructType, none, some, variant } f
 import e3 from '@elaraai/e3';
 import { ExportStoppedError, PackageInvalidError, RepositoryBusyError, WorkspaceLockError } from './errors.js';
 import { repoGc } from './gc.js';
-import { packageExport, packageImport, packageZipCheckpointWithin } from './packages.js';
-import { workspaceDeploy, workspaceExport } from './workspaces.js';
+import { packageExport, packageImport, packageZipCheckpointWithin } from './package-files.js';
+import { workspaceDeploy, workspaceExport } from './workspace-files.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { InMemoryTransferBackend } from './transfer/InMemoryTransferBackend.js';
-import { handleProcessExport, handleProcessImport } from './transfer/process.js';
+import { handleProcessExport, handleProcessImport } from './transfer/process-files.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
 import type { ZipSource } from './zip.js';
 

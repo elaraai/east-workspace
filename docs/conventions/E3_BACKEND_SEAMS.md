@@ -187,6 +187,20 @@ given. The modules that may are listed in it, each with why — a zip given as a
 file on the machine that runs the job, a delivered file an adoption takes in —
 and an exception no longer needed fails too, so the list only shrinks.
 
+It holds the portable entry to more. `@elaraai/e3-core/portable`
+(`portable.ts`) is e3's logic with nothing of the machine it runs on: every
+module it reaches, through every import — type-only, dynamic, re-exported —
+imports only another of them, `@elaraai/east` and `@elaraai/e3-types`, and
+names neither `Buffer` nor `process`. What needs the machine is a module of the
+root entry beside it — a zip or a file read and written here
+(`package-files.ts`, `workspace-files.ts`, `store-collection-file.ts`,
+`dataset-adopt-file.ts`, `delivery-intake-file.ts`,
+`transfer/process-files.ts`), and the `LocalOrchestrator` whose host is this
+process (`execution/local-orchestrator.ts`) — and the root entry exports its
+form of such an operation where the portable one refuses a file or names no
+runner. `portable.spec.ts` runs a dataflow through the entry in a process that
+loads no Node module.
+
 ## Tests
 
 **A store's behaviour is a contract suite.** The suites live in e3-core's

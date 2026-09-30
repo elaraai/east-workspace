@@ -18,15 +18,16 @@ import { join } from 'node:path';
 import { East, IntegerType, decodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { PackageObjectType } from '@elaraai/e3-types';
-import { LocalOrchestrator } from '../dataflow/orchestrator/LocalOrchestrator.js';
+import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import type { ExecutionHandle } from '../dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
 import { DataflowAbortedError } from '../errors.js';
 import { inputsHash } from '../executions.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
-import { packageImport } from '../packages.js';
+import { packageImport } from '../package-files.js';
 import { workspaceSetDataset } from '../trees.js';
-import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from '../workspaces.js';
+import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
+import { workspaceDeploy } from '../workspace-files.js';
 import type { BackendSetup } from './setup.js';
 
 /** A directory for a test's own files, removed when the test ends. */

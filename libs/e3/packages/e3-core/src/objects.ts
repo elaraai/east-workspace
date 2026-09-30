@@ -10,7 +10,7 @@
  * Local filesystem operations are in storage/local/LocalObjectStore.ts
  */
 
-import * as crypto from 'crypto';
+import { sha256Hex } from '@elaraai/east';
 
 /**
  * Calculate SHA256 hash of data.
@@ -18,11 +18,17 @@ import * as crypto from 'crypto';
  * This is the core hashing function used throughout e3 for content addressing.
  * It's storage-agnostic and can be used with any backend.
  *
+ * @remarks
+ * East's SHA-256, which runs wherever e3 does, a browser among them, and names
+ * an object as every runtime's Writer names it. A backend that writes large
+ * objects on a machine with a faster hash of its own may use it for its
+ * writes: the local store hashes with Node's, which gives the same digest.
+ *
  * @param data - Data to hash
  * @returns SHA256 hash as a hex string
  */
 export function computeHash(data: Uint8Array): string {
-  return crypto.createHash('sha256').update(data).digest('hex');
+  return sha256Hex(data);
 }
 
 /** An object's hash, as {@link computeHash} gives it: a SHA-256 in lowercase hex. */

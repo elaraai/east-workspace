@@ -81,7 +81,7 @@ export async function packageGetTask(
 
   const taskData = await storage.objects.read(repo, taskHash);
   const decoder = decodeTaskObject;
-  return decoder(Buffer.from(taskData));
+  return decoder(taskData);
 }
 
 // =============================================================================
@@ -100,7 +100,7 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
     throw new WorkspaceNotFoundError(ws);
   }
 
-  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  const record = decodeBeast2For(WorkspaceRecordType)(data);
   if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
@@ -113,7 +113,7 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
 async function getWorkspacePackageObject(storage: StorageBackend, repo: string, ws: string) {
   const state = await readWorkspaceState(storage, repo, ws);
   const pkgData = await storage.objects.read(repo, state.packageHash);
-  return decodePackageObject(Buffer.from(pkgData));
+  return decodePackageObject(pkgData);
 }
 
 /**
@@ -185,5 +185,5 @@ export async function workspaceGetTask(
   const taskHash = await workspaceGetTaskHash(storage, repo, ws, taskName);
   const taskData = await storage.objects.read(repo, taskHash);
   const decoder = decodeTaskObject;
-  return decoder(Buffer.from(taskData));
+  return decoder(taskData);
 }

@@ -19,15 +19,15 @@ import {
   type DataRef,
 } from '@elaraai/e3-types';
 import {
-  dataflowExecute,
   dataflowGetGraph,
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
   dataflowGetDependencyClosure,
   type DataflowGraph,
 } from './dataflow.js';
+import { dataflowExecute } from './execution/local-orchestrator.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
-import { workspaceDeploy } from './workspaces.js';
+import { workspaceDeploy } from './workspace-files.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
 import { DataflowAbortedError } from './errors.js';
 import { createTestRepo, removeTestRepo } from './test-helpers.js';

@@ -302,7 +302,7 @@ export async function evaluateCommandIr(
   try {
     // Decode as an EastIR bundle so the source map travels with the IR and
     // loc_ids resolve to source locations if compile() throws.
-    const eastIr = decodeEastIR<[string[], string], string[]>(Buffer.from(irData));
+    const eastIr = decodeEastIR<[string[], string], string[]>(irData);
     const compiledFn = eastIr.compile([]);
 
     // Execute the compiled function with inputPaths and outputPath

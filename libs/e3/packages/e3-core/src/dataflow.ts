@@ -6,9 +6,10 @@
 /**
  * Dataflow execution for e3 workspaces.
  *
- * Provides the high-level `dataflowExecute` entry point (which delegates
- * to `LocalOrchestrator`) and shared graph-building utilities used by
- * both local and cloud execution paths.
+ * Provides the shared graph-building utilities used by both local and cloud
+ * execution paths, and the types of a dataflow's run. The high-level
+ * `dataflowExecute` entry point, which runs the root entry's
+ * `LocalOrchestrator` on this machine, is `execution/local-orchestrator.ts`'s.
  *
  * The reactive execution logic (input change detection, task invalidation,
  * version vector consistency) lives in `dataflow/steps.ts` and is orchestrated
@@ -207,7 +208,7 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
   }
-  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  const record = decodeBeast2For(WorkspaceRecordType)(data);
   if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
@@ -233,7 +234,7 @@ async function buildDependencyGraph(
   const state = await readWorkspaceState(storage, repo, ws);
 
   const pkgData = await storage.objects.read(repo, state.packageHash);
-  const pkgObject = decodePackageObject(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(pkgData);
 
   const taskNodes = new Map<string, TaskNode>();
   const outputToTask = new Map<string, string>();
@@ -241,7 +242,7 @@ async function buildDependencyGraph(
   const taskDecoder = decodeTaskObject;
   for (const [taskName, taskHash] of pkgObject.tasks) {
     const taskData = await storage.objects.read(repo, taskHash);
-    const task = taskDecoder(Buffer.from(taskData));
+    const task = taskDecoder(taskData);
 
     const outputPathStr = pathToString(task.output.path);
     outputToTask.set(outputPathStr, taskName);
@@ -279,111 +280,6 @@ async function buildDependencyGraph(
   }
 
   return { taskNodes, outputToTask, taskDependents };
-}
-
-// =============================================================================
-// Dataflow Execution
-// =============================================================================
-
-/**
- * Execute all tasks in a workspace according to the dependency graph.
- *
- * Delegates to `LocalOrchestrator` which implements reactive fixpoint
- * execution using step functions. After each task completes, input changes
- * are detected and affected tasks are invalidated and re-executed.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param ws - Workspace name
- * @param options - Execution options
- * @returns Result of the dataflow execution
- *
- * @throws {WorkspaceLockError} If workspace is locked by another process
- * @throws {WorkspaceNotFoundError} If workspace doesn't exist
- * @throws {WorkspaceNotDeployedError} If workspace has no package deployed
- * @throws {TaskNotFoundError} If filter specifies a task that doesn't exist
- * @throws {DataflowError} If execution fails for other reasons
- */
-export async function dataflowExecute(
-  storage: StorageBackend,
-  repo: string,
-  ws: string,
-  options: DataflowOptions = {}
-): Promise<DataflowResult> {
-  const { LocalOrchestrator } = await import('./dataflow/orchestrator/LocalOrchestrator.js');
-  const orchestrator = new LocalOrchestrator();
-
-  const taskResults: TaskExecutionResult[] = [];
-
-  const handle = await orchestrator.start(storage, repo, ws, {
-    force: options.force,
-    filter: options.filter,
-    signal: options.signal,
-    lock: options.lock,
-    runner: options.runner,
-    width: options.width,
-    onTaskStart: options.onTaskStart,
-    onTaskComplete: (result) => {
-      taskResults.push({
-        name: result.name,
-        cached: result.cached,
-        state: result.state,
-        error: result.error,
-        exitCode: result.exitCode,
-        duration: result.duration,
-      });
-      options.onTaskComplete?.({
-        name: result.name,
-        cached: result.cached,
-        state: result.state,
-        error: result.error,
-        exitCode: result.exitCode,
-        duration: result.duration,
-      });
-    },
-    onStdout: options.onStdout,
-    onStderr: options.onStderr,
-    onInputChanged: options.onInputChanged,
-    onTaskInvalidated: options.onTaskInvalidated,
-    onTaskDeferred: options.onTaskDeferred,
-  });
-
-  const result = await orchestrator.wait(handle);
-
-  return {
-    success: result.success,
-    runId: result.runId,
-    executed: result.executed,
-    cached: result.cached,
-    failed: result.failed,
-    skipped: result.skipped,
-    reexecuted: result.reexecuted,
-    tasks: taskResults,
-    duration: result.duration,
-  };
-}
-
-/**
- * Execute dataflow with an externally-held lock.
- * The lock is released automatically when execution completes or fails.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param ws - Workspace name
- * @param options - Execution options (lock must be provided)
- * @returns Promise that resolves when execution completes
- */
-export async function dataflowStart(
-  storage: StorageBackend,
-  repo: string,
-  ws: string,
-  options: DataflowOptions & { lock: LockHandle }
-): Promise<DataflowResult> {
-  try {
-    return await dataflowExecute(storage, repo, ws, options);
-  } finally {
-    await options.lock.release();
-  }
 }
 
 // =============================================================================

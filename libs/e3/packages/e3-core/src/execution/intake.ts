@@ -40,7 +40,7 @@ import { pipeline } from 'node:stream/promises';
 import { readBeast2ExtentsRanged, spliceBeast2Tail, variant, type Beast2RangedExtents } from '@elaraai/east';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DeliveryRefusedError } from '../errors.js';
-import { storeDatasetFile } from '../store-collection.js';
+import { storeDatasetFile } from '../store-collection-file.js';
 import { uuidv7 } from '../uuid.js';
 import type { IntakeOptions, IntakeResult, IntakeSpec } from './interfaces.js';
 import { spawnAndCapture, type SpawnAndCaptureResult } from './processExec.js';

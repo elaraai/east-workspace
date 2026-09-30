@@ -6,9 +6,9 @@
 import type { StorageBackend } from '../storage/interfaces.js';
 import { uuidv7 } from '../uuid.js';
 import type {
-  IntakeOptions, IntakeResult, IntakeSpec, RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult,
+  DetachedResult, DetachedRunOptions, DetachedSpec, IntakeOptions, IntakeResult, IntakeSpec, RunningExecution, SplitUnit, TaskRunner,
+  TaskExecuteOptions, TaskResult,
 } from './interfaces.js';
-import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
 
 /**
  * A result a test configures. It may leave out the execution's id: the mock
