@@ -19,10 +19,12 @@
  * Both are read with the TypeScript compiler's parser (`typescript`, an
  * optional peer dependency loaded through node's `require` on first use),
  * never by matching patterns against text. Where the compiler is absent — a
- * browser, a project without TypeScript — or a source cannot be read (a REPL
- * line that is gone, a native function), the name stays `_N`, exactly as
- * before. Uniqueness is the lowering's job (`ast_to_ir` suffixes a
- * collision), not this module's.
+ * browser, a project without TypeScript, a TypeScript whose package carries no
+ * parser (TypeScript 7's exports its version alone) — or a source cannot be
+ * read (a REPL line that is gone, a native function), the name stays `_N`,
+ * exactly as before: East's own libraries build functions as they are
+ * imported, so a parser that fails here would fail the import. Uniqueness is
+ * the lowering's job (`ast_to_ir` suffixes a collision), not this module's.
  */
 
 import type { Location } from "./location.js";
@@ -34,14 +36,24 @@ type SignatureDeclaration = import("typescript").SignatureDeclaration;
 
 let compilerModule: Compiler | null | undefined;
 
-/** The TypeScript compiler, required once from this module's location; `null` where it cannot be. */
+/** Whether a module `require("typescript")` gave carries the parser these
+ *  helpers read with. TypeScript 7's package carries none — it exports its
+ *  version alone — so it counts as no compiler at all. */
+function hasParser(found: unknown): found is Compiler {
+  const ts = found as Partial<Compiler> | null | undefined;
+  return typeof ts?.createSourceFile === "function" && typeof ts.forEachChild === "function" &&
+    ts.ScriptTarget !== undefined && ts.ScriptKind !== undefined && ts.SyntaxKind !== undefined;
+}
+
+/** The TypeScript compiler, required once from this module's location; `null` where it cannot be, or where the package found carries no parser. */
 function compiler(): Compiler | null {
   if (compilerModule !== undefined) return compilerModule;
   compilerModule = null;
   try {
     const proc = (globalThis as any).process;
     const nodeModule = typeof proc?.getBuiltinModule === "function" ? proc.getBuiltinModule("node:module") : null;
-    if (nodeModule) compilerModule = nodeModule.createRequire(import.meta.url)("typescript") as Compiler;
+    const found: unknown = nodeModule ? nodeModule.createRequire(import.meta.url)("typescript") : null;
+    if (hasParser(found)) compilerModule = found;
   } catch {
     compilerModule = null;
   }
@@ -52,7 +64,8 @@ function compiler(): Compiler | null {
 
 /**
  * The parameter names of a JavaScript function, from its source text, or
- * `null` when they cannot be read (a native or bound function, no compiler).
+ * `null` when they cannot be read (a native or bound function, no compiler, a
+ * compiler whose parser throws).
  *
  * @param fn - The body function (an arrow, a `function`, or a method)
  * @returns The names in order — the block parameter included, at index 0; a
@@ -69,15 +82,21 @@ export function parameterNames(fn: unknown): string[] | null {
   } catch {
     return null;
   }
-  // an arrow or a `function` parses as an expression; a method (`name(a, b) { … }`) as an object literal's member
-  const node = functionNode(ts, `(${text})`) ?? functionNode(ts, `({${text}})`);
-  if (node === null) return null;
-  const names: string[] = [];
-  for (const p of node.parameters) {
-    if (p.dotDotDotToken !== undefined) break;
-    names.push(ts.isIdentifier(p.name) ? p.name.text : "");
+  try {
+    // an arrow or a `function` parses as an expression; a method (`name(a, b) { … }`) as an object literal's member
+    const node = functionNode(ts, `(${text})`) ?? functionNode(ts, `({${text}})`);
+    if (node === null) return null;
+    const names: string[] = [];
+    for (const p of node.parameters) {
+      if (p.dotDotDotToken !== undefined) break;
+      names.push(ts.isIdentifier(p.name) ? p.name.text : "");
+    }
+    return names;
+  } catch {
+    // A parser that throws names nothing, as no compiler does: the body
+    // still builds, its parameters `_N`.
+    return null;
   }
-  return names;
 }
 
 /** The outermost function-like node of `source`, or `null` when it does not parse cleanly. */

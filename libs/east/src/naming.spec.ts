@@ -12,6 +12,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +60,57 @@ describe("parameterNames", () => {
     assert.equal(parameterNames((($: unknown, a: unknown) => [$, a]).bind(null)), null);
     assert.equal(parameterNames(null), null);
     assert.equal(parameterNames("($, a) => a"), null);
+  });
+});
+
+describe("beside a TypeScript that gives no parser", () => {
+  /**
+   * Imports East in a process whose `require("typescript")` gives the module
+   * `source` defines — through a resolve hook, as a project's own
+   * `node_modules` would give it — and reports what a body's parameters were
+   * named, and the source the body prints as.
+   */
+  function besideTypeScript(source: string): { names: string[] | null; printed: string } {
+    const dir = mkdtempSync(join(tmpdir(), "east-naming-typescript-"));
+    const module = join(dir, "typescript.cjs");
+    writeFileSync(module, source);
+    const hooks = join(dir, "hooks.mjs");
+    writeFileSync(hooks, [
+      'import { registerHooks } from "node:module";',
+      `const typescript = ${JSON.stringify(pathToFileURL(module).href)};`,
+      "registerHooks({",
+      '  resolve: (specifier, context, next) => specifier === "typescript"',
+      '    ? { url: typescript, format: "commonjs", shortCircuit: true }',
+      "    : next(specifier, context),",
+      "});",
+    ].join("\n"));
+    const script = [
+      `const { East, IntegerType } = await import(${JSON.stringify(new URL("./index.js", import.meta.url).href)});`,
+      `const { parameterNames } = await import(${JSON.stringify(new URL("./naming.js", import.meta.url).href)});`,
+      "const fn = East.function([IntegerType], IntegerType, ($, count) => count);",
+      "console.log(JSON.stringify({ names: parameterNames(($, count) => count), printed: East.toSource(fn) }));",
+    ].join("\n");
+    const run = spawnSync(process.execPath, ["--import", pathToFileURL(hooks).href, "--input-type=module", "-e", script], { encoding: "utf8" });
+    assert.equal(run.status, 0, `East does not import:\n${run.stderr}`);
+    return JSON.parse(run.stdout) as { names: string[] | null; printed: string };
+  }
+
+  test("TypeScript 7's package, which exports its version alone, is no compiler: East imports, and names stay _N", () => {
+    const { names, printed } = besideTypeScript('module.exports = { version: "7.0.2", versionMajorMinor: "7.0" };');
+    assert.equal(names, null);
+    assert.doesNotMatch(printed, /count/);
+  });
+
+  test("a parser that throws names nothing, as no compiler does", () => {
+    const { names, printed } = besideTypeScript([
+      "module.exports = {",
+      '  version: "5.9.3", ScriptTarget: { Latest: 99 }, ScriptKind: { JS: 1, JSX: 2, TS: 3, TSX: 4 }, SyntaxKind: {},',
+      "  forEachChild() {},",
+      '  createSourceFile() { throw new Error("no parser here"); },',
+      "};",
+    ].join("\n"));
+    assert.equal(names, null);
+    assert.doesNotMatch(printed, /count/);
   });
 });
 

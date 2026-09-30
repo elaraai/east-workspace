@@ -11,12 +11,20 @@ LABEL org.opencontainers.image.source="https://github.com/elaraai/east-workspace
 LABEL org.opencontainers.image.description="East Node.js Runtime - AGPL-3.0"
 LABEL org.opencontainers.image.licenses="AGPL-3.0"
 
-# Build args for package versions (queried from npm in workflow)
+# Build args for package versions (queried from npm in workflow). The
+# install script's --node-only installs e3's node packages too, so they are
+# pinned with the rest.
 ARG EAST_VERSION
 ARG EAST_NODE_STD_VERSION
 ARG EAST_NODE_IO_VERSION
 ARG EAST_NODE_CLI_VERSION
 ARG EAST_UI_VERSION
+ARG E3_VERSION
+ARG E3_TYPES_VERSION
+ARG E3_CORE_VERSION
+ARG E3_CLI_VERSION
+ARG E3_API_CLIENT_VERSION
+ARG E3_API_SERVER_VERSION
 
 # Pass build args as environment variables for install script
 ENV EAST_VERSION=${EAST_VERSION:-latest}
@@ -24,6 +32,12 @@ ENV EAST_NODE_STD_VERSION=${EAST_NODE_STD_VERSION:-latest}
 ENV EAST_NODE_IO_VERSION=${EAST_NODE_IO_VERSION:-latest}
 ENV EAST_NODE_CLI_VERSION=${EAST_NODE_CLI_VERSION:-latest}
 ENV EAST_UI_VERSION=${EAST_UI_VERSION:-latest}
+ENV E3_VERSION=${E3_VERSION:-latest}
+ENV E3_TYPES_VERSION=${E3_TYPES_VERSION:-latest}
+ENV E3_CORE_VERSION=${E3_CORE_VERSION:-latest}
+ENV E3_CLI_VERSION=${E3_CLI_VERSION:-latest}
+ENV E3_API_CLIENT_VERSION=${E3_API_CLIENT_VERSION:-latest}
+ENV E3_API_SERVER_VERSION=${E3_API_SERVER_VERSION:-latest}
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
