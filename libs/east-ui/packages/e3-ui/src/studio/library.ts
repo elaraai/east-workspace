@@ -4,16 +4,17 @@
  */
 
 /**
- * `<Studio.PageLibrary>` (#997) — a project's templates and pages, and where
+ * `<Studio.Library>` (#997) — a project's templates and pages, and where
  * new pages start.
  *
- * The page library is a screen of the Studio, headerless with one toolbar:
+ * The library is a component of its own, apart from the builder, headerless
+ * with one toolbar:
  * the search over both rows, Sort · Name, the pages' Grid · List and the
  * primary "+ New page in <project>". Beside it the projects the record holds
  * and the project's pages; under it the Templates — Blank grid, then the
  * project's templates — and the Pages, each row a `<Library
  * variant="gallery">` whose cards' media are their layouts' wireframes. The
- * frame is the `StudioPageLibrary` renderer's, and the two galleries draw no
+ * frame is the `StudioLibrary` renderer's, and the two galleries draw no
  * toolbar of their own (`toolbar: false`).
  *
  * A new page — from the toolbar's button, the dashed last card or a template's
@@ -73,7 +74,7 @@ import { PalettePageType, builderKeys, palettePages } from "./palette.js";
  * @property live - Whether it is live: published, its draft its live layout
  * @property cells - Its draft's placements — its card's wireframe
  */
-export const PageLibraryPageType = StructType({
+export const StudioLibraryPageType = StructType({
     page: StringType,
     title: StringType,
     live: BooleanType,
@@ -81,7 +82,7 @@ export const PageLibraryPageType = StructType({
 });
 
 /** Type representing a page as the Pages row draws it. */
-export type PageLibraryPageType = typeof PageLibraryPageType;
+export type StudioLibraryPageType = typeof StudioLibraryPageType;
 
 /**
  * A template, as the page library's Templates row draws it.
@@ -91,7 +92,7 @@ export type PageLibraryPageType = typeof PageLibraryPageType;
  * @property summary - What it places — "KPI rail ×4 · Revenue trend"
  * @property cells - Its placements — its card's wireframe
  */
-export const PageLibraryTemplateType = StructType({
+export const StudioLibraryTemplateType = StructType({
     name: StringType,
     title: StringType,
     summary: StringType,
@@ -99,7 +100,7 @@ export const PageLibraryTemplateType = StructType({
 });
 
 /** Type representing a template as the Templates row draws it. */
-export type PageLibraryTemplateType = typeof PageLibraryTemplateType;
+export type StudioLibraryTemplateType = typeof StudioLibraryTemplateType;
 
 /**
  * How the page library orders its templates and pages — by name.
@@ -107,13 +108,13 @@ export type PageLibraryTemplateType = typeof PageLibraryTemplateType;
  * @property az - A to Z, the record's key order
  * @property za - Z to A
  */
-export const PageLibrarySortType = VariantType({
+export const StudioLibrarySortType = VariantType({
     az: NullType,
     za: NullType,
 });
 
 /** Type representing how the page library orders its rows. */
-export type PageLibrarySortType = typeof PageLibrarySortType;
+export type StudioLibrarySortType = typeof StudioLibrarySortType;
 
 /**
  * The New page popover, which hangs from the toolbar's New page button however
@@ -122,13 +123,13 @@ export type PageLibrarySortType = typeof PageLibrarySortType;
  * @property closed - Not open
  * @property open - Open, starting from a template — its name; `""` for Blank grid
  */
-export const PageLibraryPopoverType = VariantType({
+export const StudioLibraryPopoverType = VariantType({
     closed: NullType,
     open: StringType,
 });
 
 /** Type representing the New page popover. */
-export type PageLibraryPopoverType = typeof PageLibraryPopoverType;
+export type StudioLibraryPopoverType = typeof StudioLibraryPopoverType;
 
 /**
  * A new page, as the popover asks for it.
@@ -136,16 +137,16 @@ export type PageLibraryPopoverType = typeof PageLibraryPopoverType;
  * @property name - Its name in the project, which is its title too
  * @property template - The template it starts from; `none` for Blank grid
  */
-export const PageLibraryNewPageType = StructType({
+export const StudioLibraryNewPageType = StructType({
     name: StringType,
     template: OptionType(StringType),
 });
 
 /** Type representing a new page as the popover asks for it. */
-export type PageLibraryNewPageType = typeof PageLibraryNewPageType;
+export type StudioLibraryNewPageType = typeof StudioLibraryNewPageType;
 
 /**
- * The `StudioPageLibrary` renderer's payload.
+ * The `StudioLibrary` renderer's payload.
  *
  * @property project - The project it shows
  * @property projects - The projects the record holds, and the surface's own, in name order
@@ -168,7 +169,7 @@ export type PageLibraryNewPageType = typeof PageLibraryNewPageType;
  * @property onPopover - Opens or closes the New page popover
  * @property onCreate - Makes a new page, one commit; `none` when it was made, else what refused it
  */
-export const StudioPageLibraryPayloadType = StructType({
+export const StudioLibraryPayloadType = StructType({
     project: StringType,
     projects: ArrayType(StringType),
     pages: ArrayType(PalettePageType),
@@ -177,22 +178,22 @@ export const StudioPageLibraryPayloadType = StructType({
     taken: SetType(StringType),
     counts: StructType({ pages: IntegerType, templates: IntegerType, shownPages: IntegerType }),
     query: StringType,
-    sort: PageLibrarySortType,
+    sort: StudioLibrarySortType,
     layout: Library.Types.Layout,
-    popover: PageLibraryPopoverType,
+    popover: StudioLibraryPopoverType,
     templatesView: FunctionType([], UIComponentType),
     pagesView: FunctionType([], UIComponentType),
     onQuery: FunctionType([StringType], NullType),
-    onSort: FunctionType([PageLibrarySortType], NullType),
+    onSort: FunctionType([StudioLibrarySortType], NullType),
     onLayout: FunctionType([Library.Types.Layout], NullType),
     onProject: FunctionType([StringType], NullType),
     onOpen: FunctionType([StringType], NullType),
-    onPopover: FunctionType([PageLibraryPopoverType], NullType),
-    onCreate: AsyncFunctionType([PageLibraryNewPageType], OptionType(StringType)),
+    onPopover: FunctionType([StudioLibraryPopoverType], NullType),
+    onCreate: AsyncFunctionType([StudioLibraryNewPageType], OptionType(StringType)),
 });
 
-/** Type representing the `StudioPageLibrary` renderer's payload. */
-export type StudioPageLibraryPayloadType = typeof StudioPageLibraryPayloadType;
+/** Type representing the `StudioLibrary` renderer's payload. */
+export type StudioLibraryPayloadType = typeof StudioLibraryPayloadType;
 
 // ============================================================================
 // What the page library shows
@@ -256,9 +257,9 @@ export const layoutSummary = East.function(
 /** A project's pages, in name order: each one's name, title, whether it is live, and its draft's placements. */
 export const libraryPages = East.function(
     [StudioPagesType, StringType],
-    ArrayType(PageLibraryPageType),
+    ArrayType(StudioLibraryPageType),
     ($, pages, project) => {
-        const listed = $.let([], ArrayType(PageLibraryPageType));
+        const listed = $.let([], ArrayType(StudioLibraryPageType));
         $.for(pages, ($2, entry, key) => {
             $2.if(key.project.equal(project), ($3) => {
                 $3.match(entry, {
@@ -280,9 +281,9 @@ export const libraryPages = East.function(
 /** A project's templates, in name order, each with what it places. */
 export const libraryTemplates = East.function(
     [StudioPagesType, StringType, ArrayType(StudioComponentType)],
-    ArrayType(PageLibraryTemplateType),
+    ArrayType(StudioLibraryTemplateType),
     ($, pages, project, components) => {
-        const listed = $.let([], ArrayType(PageLibraryTemplateType));
+        const listed = $.let([], ArrayType(StudioLibraryTemplateType));
         $.for(pages, ($2, entry, key) => {
             $2.if(key.project.equal(project), ($3) => {
                 $3.match(entry, {
@@ -330,10 +331,10 @@ export const nameWriteRefusal = East.function(
  * Internal {@link EastUI.component} carrier. The React renderer registers
  * against this in `@elaraai/e3-ui-components` via `implementUIComponent`.
  */
-export const StudioPageLibraryComponent = EastUI.component("StudioPageLibrary", StudioPageLibraryPayloadType, { optional: true });
+export const StudioLibraryComponent = EastUI.component("StudioLibrary", StudioLibraryPayloadType, { optional: true });
 
 // ============================================================================
-// <Studio.PageLibrary>
+// <Studio.Library>
 // ============================================================================
 
 /** The pages record, bound with its patch mutation — what the page library reads and a new page commits through. */
@@ -343,7 +344,7 @@ type StudioPagesHandle = ExprType<StructType<{
 }>>;
 
 /**
- * `<Studio.PageLibrary>` options.
+ * `<Studio.Library>` options.
  *
  * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`
  * @property components - The components the surface lists — what a layout's summary names
@@ -351,7 +352,7 @@ type StudioPagesHandle = ExprType<StructType<{
  * @property id - Names the builder whose open page it writes, when a surface holds two
  * @property onOpen - Told when a page opens in the builder, with its key — the host shows the builder
  */
-export interface StudioPageLibraryOptions {
+export interface StudioLibraryOptions {
     /** The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`. */
     pages: StudioPagesHandle;
     /** The components the surface lists — what a layout's summary names. */
@@ -392,7 +393,7 @@ export interface StudioPageLibraryOptions {
  * popover are the page library's own State; the page it opens is the
  * builder's, shared by `id` with the builder's screens.
  *
- * @param options - The bound record, the listed components and the project ({@link StudioPageLibraryOptions})
+ * @param options - The bound record, the listed components and the project ({@link StudioLibraryOptions})
  * @returns An East expression of type `UIComponentType`
  *
  * @example
@@ -405,12 +406,12 @@ export interface StudioPageLibraryOptions {
  *     <Reactive>{$ => {
  *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
  *         const record     = $.let(Record.bind(pages, [pagesPatch]));
- *         return <Studio.PageLibrary pages={record} components={components} project="Ops console" />;
+ *         return <Studio.Library pages={record} components={components} project="Ops console" />;
  *     }}</Reactive>
  * )));
  * ```
  */
-function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UIComponentType> {
+function createLibrary(options: StudioLibraryOptions): ExprType<UIComponentType> {
     const keys = builderKeys(options.id);
     const own = options.id === undefined ? "studio.library" : `studio.library.${options.id}`;
     const hostOpen = options.onOpen === undefined
@@ -430,11 +431,11 @@ function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UICompon
         const searched = $.let(State.bind([StringType], `${own}.query`, ""));
         const query = $.let(searched.read());
         const needle = $.let(query.lowerCase());
-        const ordered = $.let(State.bind([PageLibrarySortType], `${own}.sort`, East.value(variant("az", null), PageLibrarySortType)));
+        const ordered = $.let(State.bind([StudioLibrarySortType], `${own}.sort`, East.value(variant("az", null), StudioLibrarySortType)));
         const sort = $.let(ordered.read());
         const laid = $.let(State.bind([Library.Types.Layout], `${own}.layout`, East.value(variant("grid", null), Library.Types.Layout)));
         const layout = $.let(laid.read());
-        const popover = $.let(State.bind([PageLibraryPopoverType], `${own}.popover`, East.value(variant("closed", null), PageLibraryPopoverType)));
+        const popover = $.let(State.bind([StudioLibraryPopoverType], `${own}.popover`, East.value(variant("closed", null), StudioLibraryPopoverType)));
 
         // The builder's open page and its selection, as its screens share
         // them — the open page the project's first to begin with.
@@ -460,9 +461,9 @@ function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UICompon
         const matchingTemplates = $.let(everyTemplate.filter((_$2, t) => t.title.lowerCase().contains(needle)));
         const orderedTemplates = $.let(za.ifElse(() => matchingTemplates.reverse(), () => matchingTemplates));
         // Blank grid is built in, first; its name is none a template can have.
-        const blank = $.let(East.value({ name: "", title: "Blank grid", summary: "12-col · empty", cells: [] }, PageLibraryTemplateType));
+        const blank = $.let(East.value({ name: "", title: "Blank grid", summary: "12-col · empty", cells: [] }, StudioLibraryTemplateType));
         const templateRows = $.let(East.value("blank grid").contains(needle).ifElse(
-            () => East.value([blank], ArrayType(PageLibraryTemplateType)).concat(orderedTemplates),
+            () => East.value([blank], ArrayType(StudioLibraryTemplateType)).concat(orderedTemplates),
             () => orderedTemplates,
         ));
         const taken = $.let(new Set<string>(), SetType(StringType));
@@ -475,7 +476,7 @@ function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UICompon
         const onQuery = $.const(East.function([StringType], NullType, ($2, text) => {
             $2(searched.write(text));
         }));
-        const onSort = $.const(East.function([PageLibrarySortType], NullType, ($2, next) => {
+        const onSort = $.const(East.function([StudioLibrarySortType], NullType, ($2, next) => {
             $2(ordered.write(next));
         }));
         const onLayout = $.const(East.function([Library.Types.Layout], NullType, ($2, next) => {
@@ -484,7 +485,7 @@ function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UICompon
         const onProject = $.const(East.function([StringType], NullType, ($2, next) => {
             $2(shown.write(next));
         }));
-        const onPopover = $.const(East.function([PageLibraryPopoverType], NullType, ($2, next) => {
+        const onPopover = $.const(East.function([StudioLibraryPopoverType], NullType, ($2, next) => {
             $2(popover.write(next));
         }));
         // A page opens in the builder, with nothing selected, and the host is told.
@@ -504,7 +505,7 @@ function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UICompon
             $2(popover.write(variant("open", "")));
         }));
         // A new page: one commit inserting it, its draft the template's placements.
-        const onCreate = $.const(East.asyncFunction([PageLibraryNewPageType], OptionType(StringType), ($2, request) => {
+        const onCreate = $.const(East.asyncFunction([StudioLibraryNewPageType], OptionType(StringType), ($2, request) => {
             const key = $2.let({ project, page: request.name }, StudioKeyType);
             const from = $2.let(request.template.match({
                 some: (_$3, name) => East.value(some({ project, page: name }), OptionType(StudioKeyType)),
@@ -569,7 +570,7 @@ function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UICompon
             style: { columns: 2n, mediaPlacement: "start", mediaSize: "156px" },
         })));
 
-        return StudioPageLibraryComponent.Root({
+        return StudioLibraryComponent.Root({
             project,
             projects: libraryProjects(pages, home),
             pages: paneRows,
@@ -599,7 +600,7 @@ function createPageLibrary(options: StudioPageLibraryOptions): ExprType<UICompon
 // ============================================================================
 
 /**
- * `<Studio.PageLibrary>` — a project's templates and pages, and where new
- * pages start. See {@link createPageLibrary}.
+ * `<Studio.Library>` — a project's templates and pages, and where new
+ * pages start. See {@link createLibrary}.
  */
-export const StudioPageLibrary: JsxTag<OptionsProps<typeof createPageLibrary>> = optionsTag(createPageLibrary);
+export const StudioLibrary: JsxTag<OptionsProps<typeof createLibrary>> = optionsTag(createLibrary);

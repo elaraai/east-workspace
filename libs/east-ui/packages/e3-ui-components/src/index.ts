@@ -18,7 +18,7 @@ import './experiment/index.js';           // → implementUIComponent(Experiment
 import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
 import './decision/journal.js';           // → implementUIComponent(DecisionJournal.Component, EastChakraDecisionJournal)
 import './studio/inspector.js';           // → implementUIComponent(StudioInspectorComponent, EastChakraStudioInspector)
-import './studio/library.js';             // → implementUIComponent(StudioPageLibraryComponent, EastChakraStudioPageLibrary)
+import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
 import './studio/save-template.js';       // → implementUIComponent(StudioSaveTemplateComponent, EastChakraStudioSaveTemplate)
 import './studio/publish.js';             // → implementUIComponent(StudioPublishComponent, EastChakraStudioPublish)
 
@@ -48,7 +48,7 @@ export { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleVal
 // body, the page library's frame, the builder toolbar's Save as template and the publish
 // preview — and the Studio's words.
 export { EastChakraStudioInspector, type EastChakraStudioInspectorProps } from './studio/inspector.js';
-export { EastChakraStudioPageLibrary, type EastChakraStudioPageLibraryProps } from './studio/library.js';
+export { EastChakraStudioLibrary, type EastChakraStudioLibraryProps } from './studio/library.js';
 export { EastChakraStudioSaveTemplate, type EastChakraStudioSaveTemplateProps } from './studio/save-template.js';
 export { EastChakraStudioPublish, type EastChakraStudioPublishProps } from './studio/publish.js';
 export {

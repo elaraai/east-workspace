@@ -32,7 +32,7 @@ import { StudioPage, StudioSite, StudioVersionType } from "./surfaces.js";
 import { StudioPalette } from "./palette.js";
 import { StudioCanvas } from "./canvas.js";
 import { StudioInspector } from "./inspector.js";
-import { StudioPageLibrary } from "./library.js";
+import { StudioLibrary } from "./library.js";
 import { StudioPublish } from "./publish.js";
 
 export {
@@ -81,20 +81,20 @@ export {
     type StudioCanvasOptions,
 } from "./canvas.js";
 export {
-    StudioPageLibrary,
-    StudioPageLibraryComponent,
-    StudioPageLibraryPayloadType,
-    PageLibraryPageType,
-    PageLibraryTemplateType,
-    PageLibrarySortType,
-    PageLibraryPopoverType,
-    PageLibraryNewPageType,
+    StudioLibrary,
+    StudioLibraryComponent,
+    StudioLibraryPayloadType,
+    StudioLibraryPageType,
+    StudioLibraryTemplateType,
+    StudioLibrarySortType,
+    StudioLibraryPopoverType,
+    StudioLibraryNewPageType,
     libraryProjects,
     libraryPages,
     libraryTemplates,
     layoutSummary,
     nameWriteRefusal,
-    type StudioPageLibraryOptions,
+    type StudioLibraryOptions,
 } from "./library.js";
 export {
     StudioPublish,
@@ -149,8 +149,8 @@ export interface StudioNamespace {
     Canvas: typeof StudioCanvas;
     /** `<Studio.Inspector>` — the builder's inspector: the selected placement's component, what it reads, its description and its layout. */
     Inspector: typeof StudioInspector;
-    /** `<Studio.PageLibrary>` — a project's templates and pages, and where new pages start. */
-    PageLibrary: typeof StudioPageLibrary;
+    /** `<Studio.Library>` — a project's templates and pages, and where new pages start. */
+    Library: typeof StudioLibrary;
     /** `<Studio.Publish>` — the publish preview: the open page as it will publish, what changed, and the actions that publish it. */
     Publish: typeof StudioPublish;
     /** The Studio's East types. */
@@ -190,7 +190,7 @@ export interface StudioNamespace {
  * operators build (`Studio.Types.Pages`, its writes and the change list), the
  * surfaces that read it (`<Studio.Page>` and `<Studio.Site>`), the builder's
  * screens (`<Studio.Palette>`, `<Studio.Canvas>`, `<Studio.Inspector>`), the
- * page library (`<Studio.PageLibrary>`), and the publish preview
+ * page library (`<Studio.Library>`), and the publish preview
  * (`<Studio.Publish>`).
  */
 export const Studio: StudioNamespace = {
@@ -209,7 +209,7 @@ export const Studio: StudioNamespace = {
     Palette: StudioPalette,
     Canvas: StudioCanvas,
     Inspector: StudioInspector,
-    PageLibrary: StudioPageLibrary,
+    Library: StudioLibrary,
     Publish: StudioPublish,
     Types: {
         Component: StudioComponentType,

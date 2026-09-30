@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 
 /**
- * `<Studio.PageLibrary>` (#997) — a project's templates and pages over the
+ * `<Studio.Library>` (#997) — a project's templates and pages over the
  * pages record, and where new pages start.
  */
 
@@ -132,9 +132,9 @@ export const studioLibraryPages = e3.record("studio_library_pages", Studio.Types
 /** The record's one write. */
 export const studioLibraryPagesPatch = e3.mutation.patch(studioLibraryPages);
 
-export const studioPageLibrary = example({
+export const studioLibrary = example({
     keywords: [
-        "Studio", "Studio.PageLibrary", "page library", "pages", "templates", "Blank grid", "new page", "Studio.newPage", "project",
+        "Studio", "Studio.Library", "page library", "pages", "templates", "Blank grid", "new page", "Studio.newPage", "project",
         "Library", "gallery", "wireframe", "SnapGrid", "search", "sort", "grid", "list", "Record.bind", "patch", "e3.record",
         "Open in builder", "status", "Live", "Draft",
     ],
@@ -221,7 +221,7 @@ export const studioPageLibrary = example({
             const record = $.let(Record.bind(studioLibraryPages, [studioLibraryPagesPatch]));
             return (
                 <Box height="764px">
-                    <Studio.PageLibrary pages={record} components={components} project="Ops console" id="library" />
+                    <Studio.Library pages={record} components={components} project="Ops console" id="library" />
                 </Box>
             );
         }}</Reactive>

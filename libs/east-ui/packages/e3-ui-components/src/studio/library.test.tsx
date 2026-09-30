@@ -4,7 +4,7 @@
  *
  * @vitest-environment jsdom
  *
- * `<Studio.PageLibrary>` rendered over a pages record in memory, whose patch
+ * `<Studio.Library>` rendered over a pages record in memory, whose patch
  * door applies each patch with East's own checks (#997): headerless, with one
  * toolbar (D1); the pane of projects and pages with its legend (D2); the
  * Templates row, Blank grid first (D3); the Pages row, "Open in builder →"
@@ -154,7 +154,7 @@ async function mountLibrary() {
         const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(told.write(East.str`${key.project}/${key.page}`)); }));
         return Stack.VStack([
             Text.Root(East.str`told ${told.read()}`),
-            Studio.PageLibrary({ pages: record as never, components: listed, project: "ops", onOpen }),
+            Studio.Library({ pages: record as never, components: listed, project: "ops", onOpen }),
         ]);
     }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
     const utils = render(
@@ -208,7 +208,7 @@ async function pickFromMenu(trigger: HTMLElement, name: string) {
     await settle();
 }
 
-describe("<Studio.PageLibrary> (#997)", () => {
+describe("<Studio.Library> (#997)", () => {
     test("D1: headerless, with one toolbar row — the search counting the pages and templates, Sort · Name, Grid · List, a rule and the primary action", async () => {
         const { container } = await mountLibrary();
         const root = container.querySelector<HTMLElement>("[data-studio-page-library]")!;
@@ -320,7 +320,7 @@ describe("<Studio.PageLibrary> (#997)", () => {
     }, 30_000);
 });
 
-describe("<Studio.PageLibrary> — a new page (#997)", () => {
+describe("<Studio.Library> — a new page (#997)", () => {
     /** The New page popover. */
     const popover = () => within(screen.getByRole("dialog"));
     /** The New page button's popover trigger — what the popover hangs from. */

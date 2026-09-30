@@ -94,7 +94,7 @@ export {
     type StudioPaletteOptions,
     type StudioCanvasOptions,
     type StudioInspectorOptions,
-    type StudioPageLibraryOptions,
+    type StudioLibraryOptions,
     type StudioPublishOptions,
 } from './studio/index.js';
 

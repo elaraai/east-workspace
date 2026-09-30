@@ -23,9 +23,9 @@ import { settled } from "./settle";
 
 /** Open the page library example and return its frame, at rest, as wide as the mock's (1240px). */
 async function openLibrary(page: Page): Promise<Locator> {
-    await page.goto("/?theme=light#e3/studio/library/studioPageLibrary");
+    await page.goto("/?theme=light#e3/studio/library/studioLibrary");
     await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/studio/library/studioPageLibrary"]') });
+    const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/studio/library/studioLibrary"]') });
     await entry.scrollIntoViewIfNeeded();
     const frame = entry.locator("[data-studio-page-library]").first();
     await expect(frame.locator("[data-library-card]").first()).toBeVisible({ timeout: 20_000 });

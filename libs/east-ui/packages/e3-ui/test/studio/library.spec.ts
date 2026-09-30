@@ -4,7 +4,7 @@
  */
 
 /**
- * `<Studio.PageLibrary>` (#997): what it shows, computed in East over the
+ * `<Studio.Library>` (#997): what it shows, computed in East over the
  * record — the projects (D2), a layout's summary and the project's templates
  * (D3), the project's pages (D4) — what a refused name write says (D5, D7),
  * and the surface's manifest.
@@ -92,7 +92,7 @@ const PAGES = new SortedMap<Key, Entry>([
     })],
 ], compareFor(StudioKeyType));
 
-describeEast("<Studio.PageLibrary> — what it shows (#997)", (test) => {
+describeEast("<Studio.Library> — what it shows (#997)", (test) => {
     test("D2: the projects are the record's and the surface's own, in name order, each once", $ => {
         const pages = $.let(East.value(PAGES, StudioPagesType));
         $(Assert.equal(libraryProjects(pages, "ops"), ["ops", "retail"]));
@@ -144,14 +144,14 @@ describeEast("<Studio.PageLibrary> — what it shows (#997)", (test) => {
     });
 }, { platformFns: TestImpl });
 
-describe("<Studio.PageLibrary> — the surface (#997)", () => {
+describe("<Studio.Library> — the surface (#997)", () => {
     test("its manifest holds the record it writes, and what its components read", () => {
         const pages = e3.record("library_pages", StudioPagesType, new SortedMap<Key, Entry>([], compareFor(StudioKeyType)));
         const pagesPatch = e3.mutation.patch(pages);
         const surface = ui("library_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
             const record = $.let(Record.bind(pages, [pagesPatch]));
-            return Studio.PageLibrary({ pages: record, components, project: "ops" });
+            return Studio.Library({ pages: record, components, project: "ops" });
         }))));
         const manifest = surface.role.value!;
         assert.deepEqual(manifest.records, ["library_pages"]);
