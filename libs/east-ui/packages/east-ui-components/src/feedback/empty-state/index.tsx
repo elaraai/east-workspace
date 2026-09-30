@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { EmptyState as ChakraEmptyState, Box as ChakraBox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
@@ -22,25 +22,66 @@ export interface EastChakraEmptyStateProps {
 }
 
 /**
- * Renders an East UI EmptyState using Chakra v3's EmptyState compound.
- *
- * @remarks
- * Leading `icon` renders via FontAwesome. `title` / `description` / `actions`
- * are UIComp slots dispatched through `EastChakraComponent`.
+ * Renders an East UI EmptyState — {@link EmptyStateView}, its `title`,
+ * `description` and `actions` UIComponent slots dispatched through
+ * `EastChakraComponent`.
  */
 export const EastChakraEmptyState = memo(function EastChakraEmptyState({ value, storageKey }: EastChakraEmptyStateProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const icon = useMemo(() => getSomeorUndefined(value.icon), [value.icon]);
-    const glyph = useMemo(() => getSomeorUndefined(value.glyph), [value.glyph]);
     const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
     const actions = useMemo(() => getSomeorUndefined(value.actions), [value.actions]);
+    return (
+        <EmptyStateView
+            icon={icon}
+            glyph={getSomeorUndefined(value.glyph)}
+            size={style ? (getSomeorUndefined(style.size)?.type as "sm" | "md" | "lg" | undefined) : undefined}
+            color={style ? getSomeorUndefined(style.color) : undefined}
+            background={style ? getSomeorUndefined(style.background) : undefined}
+            borderColor={style ? getSomeorUndefined(style.borderColor) : undefined}
+            iconColor={style ? getSomeorUndefined(style.iconColor) : undefined}
+            title={<EastChakraComponent value={value.title} storageKey={`${storageKey ?? ""}.title`} />}
+            description={description ? <EastChakraComponent value={description} storageKey={`${storageKey ?? ""}.description`} /> : undefined}
+            actions={actions ? <EastChakraComponent value={actions} storageKey={`${storageKey ?? ""}.actions`} /> : undefined}
+        />
+    );
+}, (prev, next) => emptyStateEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
-    const size = style ? (getSomeorUndefined(style.size)?.type as "sm" | "md" | "lg" | undefined) : undefined;
-    const color = style ? getSomeorUndefined(style.color) : undefined;
-    const background = style ? getSomeorUndefined(style.background) : undefined;
-    const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
-    const iconColor = style ? getSomeorUndefined(style.iconColor) : undefined;
+/** Props of {@link EmptyStateView}. */
+export interface EmptyStateViewProps {
+    /** Its title. */
+    title: ReactNode;
+    /** Its body, under the title. */
+    description?: ReactNode;
+    /** Its actions, under the body. */
+    actions?: ReactNode;
+    /** A Font Awesome icon, above the title. */
+    icon?: { prefix: string; name: string } | undefined;
+    /** A mono glyph above the title, in place of an icon. */
+    glyph?: string | undefined;
+    /** Its size preset. */
+    size?: "sm" | "md" | "lg" | undefined;
+    /** Its text colour. */
+    color?: string | undefined;
+    /** Its background. */
+    background?: string | undefined;
+    /** Its border colour, which draws its border. */
+    borderColor?: string | undefined;
+    /** The icon's or the glyph's colour. */
+    iconColor?: string | undefined;
+}
 
+/**
+ * The empty state as React — the EmptyState's renderer, and the empty state a
+ * host renderer draws with words of its own: an icon or a glyph, a title, a
+ * body and actions, on Chakra v3's EmptyState compound.
+ *
+ * @param props - What it says, and how ({@link EmptyStateViewProps})
+ * @returns The empty state
+ */
+export function EmptyStateView({
+    title, description, actions, icon, glyph, size, color, background, borderColor, iconColor,
+}: EmptyStateViewProps) {
     return (
         <ChakraEmptyState.Root
             {...(size !== undefined ? { size } : {})}
@@ -74,31 +115,20 @@ export const EastChakraEmptyState = memo(function EastChakraEmptyState({ value, 
                 ) : null}
                 <ChakraBox>
                     <ChakraEmptyState.Title fontSize="15px" fontWeight="semibold">
-                        <EastChakraComponent
-                            value={value.title}
-                            storageKey={`${storageKey ?? ""}.title`}
-                        />
+                        {title}
                     </ChakraEmptyState.Title>
-                    {description ? (
+                    {description !== undefined ? (
                         // A block, not Chakra's paragraph: the description is a
                         // component, and a Text is a paragraph of its own.
                         <ChakraEmptyState.Description as="div" fontSize="13.5px" color="fg.subtle">
-                            <EastChakraComponent
-                                value={description}
-                                storageKey={`${storageKey ?? ""}.description`}
-                            />
+                            {description}
                         </ChakraEmptyState.Description>
                     ) : null}
                 </ChakraBox>
-                {actions ? (
-                    <ChakraBox mt="4">
-                        <EastChakraComponent
-                            value={actions}
-                            storageKey={`${storageKey ?? ""}.actions`}
-                        />
-                    </ChakraBox>
+                {actions !== undefined ? (
+                    <ChakraBox mt="4">{actions}</ChakraBox>
                 ) : null}
             </ChakraEmptyState.Content>
         </ChakraEmptyState.Root>
     );
-}, (prev, next) => emptyStateEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}

@@ -23,9 +23,9 @@ import { settled } from "./settle";
 
 /** Open the page library example and return its frame, at rest, as wide as the mock's (1240px). */
 async function openLibrary(page: Page): Promise<Locator> {
-    await page.goto("/?theme=light#e3/studio/library/studioLibrary");
+    await page.goto("/?theme=light#e3/studio/studio/studioLibrary");
     await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/studio/library/studioLibrary"]') });
+    const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/studio/studio/studioLibrary"]') });
     await entry.scrollIntoViewIfNeeded();
     const frame = entry.locator("[data-studio-page-library]").first();
     await expect(frame.locator("[data-library-card]").first()).toBeVisible({ timeout: 20_000 });
@@ -92,7 +92,7 @@ test.describe("Studio page library (#997)", () => {
                 keys: b.map((c) => c.key), line: new Set(b.map((c) => c.y)).size, widths: new Set(b.map((c) => c.w)).size,
                 gaps: b.slice(1).map((c, i) => Math.round(c.x - (b[i]!.x + b[i]!.w))),
             };
-        }).toEqual({ keys: ["", "ops-board", "report-brief", "summary"], line: 1, widths: 1, gaps: [12, 12, 12] });
+        }).toEqual({ keys: ["", "Ops board", "Report brief", "Summary"], line: 1, widths: 1, gaps: [12, 12, 12] });
         await expect.poll(() => frame.evaluate((root) => {
             const card = root.querySelector('[data-library$=".templates"] [data-library-card=""]')!;
             const media = card.querySelector("[data-library-media]")!.getBoundingClientRect();
@@ -116,9 +116,9 @@ test.describe("Studio page library (#997)", () => {
                 gapX: Math.round(b[1]!.x - (b[0]!.x + b[0]!.w)), gapY: Math.round(b[2]!.y - (b[0]!.y + b[0]!.h)),
                 tall: b.every((c) => c.h >= 140),
             };
-        }).toEqual({ keys: ["account-detail", "overview", "regional-rollup", "weekly-export", "+"], columns: 2, gapX: 14, gapY: 14, tall: true });
+        }).toEqual({ keys: ["Account detail", "Overview", "Regional rollup", "Weekly export", "+"], columns: 2, gapX: 14, gapY: 14, tall: true });
         await expect.poll(() => frame.evaluate((root) => {
-            const card = root.querySelector('[data-library$=".pages"] [data-library-card="overview"]')!;
+            const card = root.querySelector('[data-library$=".pages"] [data-library-card="Overview"]')!;
             const media = card.querySelector("[data-library-media]")!.getBoundingClientRect();
             const c = card.getBoundingClientRect();
             const cells = [...card.querySelectorAll("[data-snap-grid-cell]")].map((cell) => cell.getBoundingClientRect());

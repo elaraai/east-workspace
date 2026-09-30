@@ -27,6 +27,7 @@
 
 import {
     ArrayType,
+    AsyncFunctionType,
     DictType,
     East,
     FunctionType,
@@ -42,10 +43,10 @@ import {
     some,
     variant,
     type ExprType,
-    type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { SnapGrid } from "@elaraai/east-ui/internal";
-import { Record } from "../bind/record.js";
+import { Editing, SnapGrid } from "@elaraai/east-ui/internal";
+import { RecordCommitInfoType } from "@elaraai/e3-types";
+import { Record, RecordOutcomeType } from "../bind/record.js";
 import { StudioComponentType } from "./component.js";
 
 // ============================================================================
@@ -172,6 +173,38 @@ export const StudioPagesPatchType = PatchType(StudioPagesType);
 export type StudioPagesPatchType = typeof StudioPagesPatchType;
 
 /**
+ * The pages record, bound with its patch — what the builder and the page
+ * library read and write through: the bound record's `read`, its `history`,
+ * and its patch write awaited. Their factories take these from
+ * `Record.bind(pages, [pagesPatch])`.
+ *
+ * @property read - The record's current state
+ * @property history - Its commit chain, newest first — who changed a page last, for a conflict's words
+ * @property commit - Its patch write, awaited: a request id and the patch, answered by the outcome
+ */
+export const StudioPagesHandleType = StructType({
+    read: FunctionType([], StudioPagesType),
+    history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
+    commit: StructType({
+        patch: AsyncFunctionType([StringType, StudioPagesPatchType], RecordOutcomeType),
+    }),
+});
+
+/** Type representing the bound pages record. */
+export type StudioPagesHandleType = typeof StudioPagesHandleType;
+
+/**
+ * The pages record as the Studio's factories take it — a `Record.bind(pages,
+ * [pagesPatch])` handle, whose `read`, `history` and patch write they pass on
+ * ({@link StudioPagesHandleType}).
+ */
+export type StudioPagesHandle = ExprType<StructType<{
+    read: FunctionType<[], StudioPagesType>;
+    history: FunctionType<[], OptionType<ArrayType<typeof RecordCommitInfoType>>>;
+    commit: StructType<{ patch: AsyncFunctionType<[typeof StringType, StudioPagesPatchType], RecordOutcomeType> }>;
+}>>;
+
+/**
  * One change to a placement.
  *
  * @property cell - The placement's key
@@ -243,17 +276,6 @@ export type StudioStatusType = typeof StudioStatusType;
  * and the fingerprints it restamps, and carries both as they were: a publish
  * drafted before another one landed is a conflict naming the page, and so is
  * one drafted before a save that removed or reordered placements it restamps.
- *
- * @example
- * ```ts
- * import { East, NullType } from "@elaraai/east";
- * import { Studio } from "@elaraai/e3-ui";
- *
- * // In the builder: the publish button commits the patch.
- * const publish = $.const(East.function([], NullType, $ => {
- *     $(record.mutate.patch(Studio.publish(record.read(), open, components)));
- * }));
- * ```
  */
 export const publishPage = East.function(
     [StudioPagesType, StudioKeyType, ArrayType(StudioComponentType)],
@@ -406,39 +428,23 @@ const withDraftCells = East.function([StudioEntryType, ArrayType(StudioCellType)
     template: (_$2, layout) => East.value(variant("template", { title: layout.title, cells }), StudioEntryType),
 }));
 
-/** The pages record, bound — what a save commits through. */
-type StudioPagesHandle = ExprType<StructType<{ read: FunctionType<[], StudioPagesType> }>>;
-
 /**
- * Saves the page open in the builder: the canvas's Apply, which commits its
+ * Saves a page's placements: the builder canvas's Apply, which commits its
  * batch of placements to the page's draft as one patch.
  *
  * @remarks
  * `Record.onApply`'s form over a collection inside one entry — the draft's
  * cells, identified by `key`. The patch reaches the cells and nothing else,
  * and cells another write moved since the edit began are a conflict.
- *
- * @param handle - The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`
- * @param key - The open page's key
- * @returns The canvas's `editing.onApply`, an async East function over `Editing.Types.ChangeSet(Studio.Types.Cell)`
- *
- * @example
- * ```tsx
- * import { Reactive, SnapGrid } from "@elaraai/east-ui";
- * import { Record, Studio } from "@elaraai/e3-ui";
- *
- * <Reactive>{$ => {
- *     const record = $.let(Record.bind(pages, [pagesPatch]));
- *     const cells  = $.let(record.read().get(open).match({ page: (_$, p) => p.draft.cells, template: (_$, t) => t.cells }));
- *     return <SnapGrid data={cells} cell={c => SnapGrid.cell({ key: c.key, row: c.row, span: c.span, content: Studio.dispatch(components, c.component) })}
- *         edit={{ key: "key", row: "row", span: "span", height: "height" }}
- *         editing={{ onApply: Studio.save(record, open) }} />;
- * }}</Reactive>
- * ```
  */
-function savePage(handle: StudioPagesHandle, key: SubtypeExprOrValue<StudioKeyType>) {
-    return Record.onApply(handle, { entry: key, get: draftCellsOf, set: withDraftCells, idField: "key" });
-}
+export const saveCells = East.asyncFunction(
+    [StudioPagesHandleType, StudioKeyType, Editing.Types.ChangeSet(StudioCellType)],
+    Editing.Types.ApplyResult,
+    ($, handle, key, batch) => {
+        const apply = $.const(Record.onApply(handle, { entry: key, get: draftCellsOf, set: withDraftCells, idField: "key" }));
+        return apply(batch);
+    },
+);
 
 // ============================================================================
 // The reads
@@ -491,18 +497,6 @@ const layoutOf = East.function([StudioPageType], LayoutType, ($, page) => {
  * placements that swapped places moved is ambiguous, and one is reported. A
  * change to a placement's component's fingerprint is not a layout change and
  * is not listed.
- *
- * @example
- * ```ts
- * import { East } from "@elaraai/east";
- * import { Studio } from "@elaraai/e3-ui";
- *
- * // "N changes since vN": the draft against the live version.
- * const count = page.live.match({
- *     some: (_$, live) => Studio.changes(live.page, page.draft).size(),
- *     none: (_$) => East.value(0n),
- * });
- * ```
  */
 export const pageChanges = East.function(
     [StudioPageType, StudioPageType],
@@ -621,40 +615,6 @@ export const pageChanges = East.function(
 );
 
 /**
- * How many pages place each component — "Used in N" — counting a page once
- * whether its draft, its live version or both place it. Templates are not
- * pages and are not counted.
- */
-export const componentUsage = East.function(
-    [StudioPagesType],
-    DictType(StringType, IntegerType),
-    ($, pages) => {
-        const counts = $.let(new Map(), DictType(StringType, IntegerType));
-        $.for(pages, ($2, entry) => {
-            $2.match(entry, {
-                page: ($3, page) => {
-                    const placed = $3.let(new Set<string>(), SetType(StringType));
-                    $3.for(page.draft.cells, ($4, cell) => {
-                        $4(placed.tryInsert(cell.component));
-                    });
-                    $3.match(page.live, {
-                        some: ($4, live) => {
-                            $4.for(live.page.cells, ($5, cell) => {
-                                $5(placed.tryInsert(cell.component));
-                            });
-                        },
-                    });
-                    $3.for(placed, ($4, component) => {
-                        $4(counts.insertOrUpdate(component, 1n, (_$5, existing) => existing.add(1n)));
-                    });
-                },
-            });
-        });
-        return counts;
-    },
-);
-
-/**
  * A page's status: live when it is published and its draft is the published
  * layout, and draft otherwise.
  */
@@ -670,10 +630,10 @@ export const pageStatus = East.function(
     }),
 );
 
-/** What the page functions are, on the `Studio` namespace. */
+/** What the page functions are, on the internal `Studio` namespace — the builder's and the page library's, not a solution's. */
 export interface StudioPagesNamespace {
-    /** Saves the page open in the builder — the canvas's Apply ({@link savePage}). */
-    save: typeof savePage;
+    /** Saves a page's placements — the builder canvas's Apply ({@link saveCells}). */
+    save: typeof saveCells;
     /** Publishes a page, stamping the code it goes live with ({@link publishPage}). */
     publish: typeof publishPage;
     /** Reverts a page to its live version ({@link revertPage}). */
@@ -684,20 +644,17 @@ export interface StudioPagesNamespace {
     saveTemplate: typeof saveTemplate;
     /** The changes from one layout of a page to another ({@link pageChanges}). */
     changes: typeof pageChanges;
-    /** How many pages place each component ({@link componentUsage}). */
-    usage: typeof componentUsage;
     /** A page's status ({@link pageStatus}). */
     status: typeof pageStatus;
 }
 
-/** The page half of the `Studio` namespace. */
+/** The page half of the internal `Studio` namespace. */
 export const StudioPages: StudioPagesNamespace = {
-    save: savePage,
+    save: saveCells,
     publish: publishPage,
     revert: revertPage,
     newPage,
     saveTemplate,
     changes: pageChanges,
-    usage: componentUsage,
     status: pageStatus,
 };

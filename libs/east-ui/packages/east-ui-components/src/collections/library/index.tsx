@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
     Avatar as ChakraAvatar, Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
@@ -46,6 +46,11 @@ type SliceBindValue = ValueTypeOf<typeof SliceInternal.Types.Bind>;
 export interface EastChakraLibraryProps {
     value: LibraryValue;
     storageKey: string;
+    /**
+     * Draws a gallery card's media, as React — a host renderer's thumbnail,
+     * in place of the item's East `media`; every card of the gallery shows it.
+     */
+    renderMedia?: ((item: LibraryItemValue) => ReactNode) | undefined;
 }
 
 type SlotStyles = Record<string, SystemStyleObject>;
@@ -268,6 +273,8 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, 
 interface LibraryGalleryCardProps extends LibraryCardProps {
     /** Where the card's media keeps its state. */
     storageKey: string;
+    /** Draws the card's media, when the host does. */
+    renderMedia: ((item: LibraryItemValue) => ReactNode) | undefined;
 }
 
 /**
@@ -277,7 +284,7 @@ interface LibraryGalleryCardProps extends LibraryCardProps {
  * anywhere on it — the action it names included — is its click. The media is
  * a thumbnail, so nothing in it takes the pointer or the focus.
  */
-function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, storageKey }: LibraryGalleryCardProps) {
+function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, storageKey, renderMedia }: LibraryGalleryCardProps) {
     const status = getSomeorUndefined(item.status);
     const statusStyles = useSlotRecipe({ key: "status" })({
         status: status?.tone.type ?? "neutral",
@@ -323,9 +330,10 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
             {...(draggable && drag ? { "data-draggable": "" } : {})}
             {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
         >
-            {media !== undefined && (
+            {(renderMedia !== undefined || media !== undefined) && (
                 <Box css={styles.galleryMedia} data-library-media="" aria-hidden inert>
-                    <EastChakraComponent value={media} storageKey={`${storageKey}.media.${item.key}`} />
+                    {renderMedia !== undefined ? renderMedia(item)
+                        : media !== undefined && <EastChakraComponent value={media} storageKey={`${storageKey}.media.${item.key}`} />}
                 </Box>
             )}
             <Box css={styles.galleryFace}>
@@ -599,7 +607,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
@@ -952,6 +960,7 @@ function LibraryCore({ value, storageKey, rail }: LibraryCoreProps) {
                             styles={styles}
                             onCardClick={onCardClickFn ? handleCardClick : undefined}
                             storageKey={storageKey}
+                            renderMedia={renderMedia}
                         />
                     ))}
                     {i === groups.length - 1 && addCard}
@@ -1110,4 +1119,4 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
             </Box>
         </Box>
     );
-}, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia);

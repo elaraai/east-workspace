@@ -31,7 +31,7 @@ import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
 } from "../platform/index.js";
-// The page library's frame is an extension: its renderer registers as it loads.
+// The page library is an extension: its renderer registers as it loads.
 import "./library.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
@@ -191,7 +191,7 @@ async function readRecord(): Promise<Pages> {
 /** The pane beside the rows. */
 const pane = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-page-library-pane]")!;
 /** A row's gallery: the templates' or the pages'. */
-const gallery = (c: HTMLElement, row: "templates" | "pages") => c.querySelector<HTMLElement>(`[data-library="studio.library.${row}"]`)!;
+const gallery = (c: HTMLElement, row: "templates" | "pages") => c.querySelector<HTMLElement>(`[data-section="${row}"] [data-library]`)!;
 /** A gallery's card titles, in their order. */
 const titles = (g: HTMLElement) => [...g.querySelectorAll("[data-library-card]")].map((card) => card.getAttribute("data-library-card"));
 /** The pane's pages, by name, in their order. */
@@ -244,7 +244,7 @@ describe("<Studio.Library> (#997)", () => {
         expect(container.querySelector("[data-page-library-legend]")!.textContent).toBe("LiveDraft");
     }, 30_000);
 
-    test("D2: a project's click shows its pages; a page's click opens it in the builder, with nothing selected, and tells the host", async () => {
+    test("D2: a project's click shows its pages; a page's click opens it in the builder and tells the host", async () => {
         const { container } = await mountLibrary();
         await act(async () => { fireEvent.click(pane(container).querySelector("[data-page-library-page=\"b-overview\"]")!); });
         await settle();

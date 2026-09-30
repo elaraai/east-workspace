@@ -4,15 +4,14 @@
  */
 
 /**
- * `EastChakraStudioPublish` — the renderer of the `StudioPublish` extension
- * declared in `@elaraai/e3-ui` (#998): the publish preview.
+ * `StudioPublishPreview` — the builder's publish preview (#998), in the
+ * canvas's place while it shows.
  *
  * - **The bar**, headerless, on the inverse ground: "● Preview"; Desktop ·
  *   Tablet · Mobile, which draw the page 1440, 1024 or 390 px wide at most;
- *   the Env pill; and Exit, back to the builder.
+ *   the Env pill; and Exit, back to the canvas.
  * - **The page**: its project, its title, and the page as it will publish —
- *   the payload's own East function draws it — together at most the
- *   device's width.
+ *   which the builder draws — together at most the device's width.
  * - **The aside**: where the page stands, the version it replaces and the one
  *   it becomes, the change list, the banner, the Audience and Rollout rows,
  *   and what refused a write.
@@ -20,9 +19,10 @@
  *   for one when the canvas has drafts, waits for the canvas's answer, then
  *   commits the publish.
  *
- * The canvas answers an Apply through the builder's shared State, under the id
- * asked, so the answer to another screen's ask is never taken for this one's.
- * Every word is the Studio's message table's; numbers print in the locale.
+ * The canvas answers an Apply under the id asked, so the answer to another
+ * ask is never taken for this one's. Every word is the Studio's message
+ * table's; numbers print in the locale. The preview draws no border around
+ * itself.
  *
  * Its layout, its bar and its banner are the `studioPublish` recipe's — the
  * banner the design system's, on the theme's banner layer styles — and its
@@ -31,20 +31,20 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faDesktop, faMobileScreen, faTabletScreenButton } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
-import { StudioPublishComponent } from "@elaraai/e3-ui/internal";
-import { EastChakraComponent, implementUIComponent, useFormatters } from "@elaraai/east-ui-components";
+import { StudioPublishPayloadType } from "@elaraai/e3-ui/internal";
+import { useFormatters } from "@elaraai/east-ui-components";
 
 import { useStudioMessages } from "./messages.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
-/** The renderer's payload, decoded. */
-type StudioPublishValue = ValueTypeOf<typeof StudioPublishComponent.schema>;
+/** The publish preview, as the builder draws it. */
+type StudioPublishValue = ValueTypeOf<typeof StudioPublishPayloadType>;
 
 /** The devices the bar offers, and the most each draws the page wide, in px. */
 const DEVICES = [
@@ -67,21 +67,21 @@ type Phase =
     | { kind: "publishing" }
     | { kind: "refused"; reason: string };
 
-/** Props of {@link EastChakraStudioPublish}. */
-export interface EastChakraStudioPublishProps {
-    /** The payload, decoded. */
+/** Props of {@link StudioPublishPreview}. */
+export interface StudioPublishPreviewProps {
+    /** Where the page stands, what changed, the words the aside shows, and the actions. */
     value: StudioPublishValue;
-    /** The structural storage key. */
-    storageKey: string;
+    /** The page as it will publish. */
+    page: ReactNode;
 }
 
 /**
  * Renders the publish preview — see the module docs.
  *
- * @param props - The payload and its storage key
+ * @param props - What the preview shows and does, and the page as it will publish
  * @returns The publish preview
  */
-export const EastChakraStudioPublish = memo(function EastChakraStudioPublish({ value, storageKey }: EastChakraStudioPublishProps) {
+export const StudioPublishPreview = memo(function StudioPublishPreview({ value, page }: StudioPublishPreviewProps) {
     const styles = useSlotRecipe({ key: "studioPublish" })() as Styles;
     const m = useStudioMessages();
     const words = useFormatters();
@@ -90,9 +90,6 @@ export const EastChakraStudioPublish = memo(function EastChakraStudioPublish({ v
     // What the writes read when they run — this render's payload.
     const latest = useRef(value);
     latest.current = value;
-
-    const pageView = value.page;
-    const page = useMemo(() => pageView(), [pageView]);
 
     const summary = value.summary;
     const standing = summary.standing.type;
@@ -188,7 +185,7 @@ export const EastChakraStudioPublish = memo(function EastChakraStudioPublish({ v
                             <Box as="span" css={styles.eyebrow}>{value.project}</Box>
                             <Box as="h2" css={styles.title}>{value.title}</Box>
                         </Box>
-                        <EastChakraComponent value={page} storageKey={`${storageKey}.page`} />
+                        {page}
                     </Box>
                 </Box>
                 <Box as="aside" css={styles.aside} aria-label={head} data-publish-aside="">
@@ -276,5 +273,3 @@ export const EastChakraStudioPublish = memo(function EastChakraStudioPublish({ v
         </Box>
     );
 });
-
-implementUIComponent(StudioPublishComponent, EastChakraStudioPublish);

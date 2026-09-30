@@ -7,20 +7,25 @@
  * `<Studio.Library>` (#997): what it shows, computed in East over the
  * record — the projects (D2), a layout's summary and the project's templates
  * (D3), the project's pages (D4) — what a refused name write says (D5, D7),
- * and the surface's manifest.
+ * the surface's manifest (R4), and the interface the browser draws.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ArrayType, East, FloatType, SortedMap, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, East, FloatType, OptionType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, none, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
-import { TreePathType } from "@elaraai/e3-types";
+import { RecordCommitInfoType, TreePathType } from "@elaraai/e3-types";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
 import { Data, Record, RecordOutcomeType, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
-import { layoutSummary, libraryPages, libraryProjects, libraryTemplates, nameWriteRefusal } from "@elaraai/e3-ui/internal";
+import {
+    StudioLibraryPayloadType, StudioPagesHandleType, layoutSummary, libraryPages, libraryProjects, libraryTemplates, nameWriteRefusal,
+} from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -145,7 +150,7 @@ describeEast("<Studio.Library> — what it shows (#997)", (test) => {
 }, { platformFns: TestImpl });
 
 describe("<Studio.Library> — the surface (#997)", () => {
-    test("its manifest holds the record it writes, and what its components read", () => {
+    test("R4: its manifest holds the record it writes, and what its components read", () => {
         const pages = e3.record("library_pages", StudioPagesType, new SortedMap<Key, Entry>([], compareFor(StudioKeyType)));
         const pagesPatch = e3.mutation.patch(pages);
         const surface = ui("library_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -159,5 +164,26 @@ describe("<Studio.Library> — the surface (#997)", () => {
             "field:inputs/field:library_sales_daily",
             "field:records/field:library_pages",
         ]);
+    });
+
+    test("it is an interface the browser draws — the StudioLibrary carrier, holding the bound record, the components, the project and the builder it opens pages in", () => {
+        const value = East.compile(East.function([], UIComponentType, ($) => {
+            const components = $.let([revenueTrend, kpiRail]);
+            const record = $.let({
+                read: East.function([], StudioPagesType, (_$2) => PAGES),
+                history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
+                commit: {
+                    patch: East.asyncFunction([StringType, PatchType(StudioPagesType)], RecordOutcomeType,
+                        (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })),
+                },
+            }, StudioPagesHandleType);
+            return Studio.Library({ pages: record, components, project: "ops", id: "north" });
+        }), [])();
+        if (value.type !== "Extension") assert.fail(`expected the StudioLibrary carrier, got ${value.type}`);
+        assert.equal(value.value.kind, "StudioLibrary");
+        const payload = decodeBeast2For(StudioLibraryPayloadType)(value.value.payload);
+        assert.deepEqual([payload.project, payload.id, payload.onOpen], ["ops", some("north"), none]);
+        assert.deepEqual(payload.components.map((component) => component.key), ["revenue_trend", "kpi_rail"]);
+        assert.equal(payload.pages.read().size, PAGES.size);
     });
 });

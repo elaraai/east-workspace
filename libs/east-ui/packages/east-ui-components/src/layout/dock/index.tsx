@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box as ChakraBox, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
@@ -31,7 +31,96 @@ export interface EastChakraDockProps {
 /**
  * Renders an East UI Dock — an inline pane that collapses along an axis to a
  * compact icon rail and stays in the document flow (an ordinary flex child; it
- * never overlays, so a stacked drop-target is never covered).
+ * never overlays, so a stacked drop-target is never covered). The pane is
+ * {@link DockPane}'s; this renderer hands it the East value's bodies.
+ */
+export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }: EastChakraDockProps) {
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const onCollapsedChange = useMemo(() => getSomeorUndefined(value.onCollapsedChange), [value.onCollapsedChange]);
+    const tabs = useMemo(() => value.tabs.map((tab) => ({
+        key: tab.key,
+        label: tab.label,
+        body: tab.body.map((child, i) => (
+            <EastChakraComponent key={i} value={child} storageKey={`${storageKey}.tab.${tab.key}.${i}`} />
+        )),
+    })), [value.tabs, storageKey]);
+    const body = useMemo(() => value.body.map((child, i) => (
+        <EastChakraComponent key={i} value={child} storageKey={`${storageKey}.body.${i}`} />
+    )), [value.body, storageKey]);
+    return (
+        <DockPane
+            storageKey={storageKey}
+            tabs={tabs}
+            body={body}
+            collapsed={getSomeorUndefined(value.collapsed)}
+            defaultCollapsed={getSomeorUndefined(value.defaultCollapsed)}
+            onCollapsedChange={onCollapsedChange}
+            orientation={style ? getSomeorUndefined(style.orientation)?.type : undefined}
+            side={style ? getSomeorUndefined(style.side)?.type : undefined}
+            persist={style ? getSomeorUndefined(style.persist)?.type : undefined}
+            surface={style ? getSomeorUndefined(style.surface)?.type : undefined}
+            expandedSize={style ? getSomeorUndefined(style.expandedSize) : undefined}
+            railSize={style ? getSomeorUndefined(style.railSize) : undefined}
+            icon={style ? getSomeorUndefined(style.icon) : undefined}
+            label={style ? getSomeorUndefined(style.label) : undefined}
+            badge={style ? getSomeorUndefined(style.badge) : undefined}
+            active={style ? getSomeorUndefined(style.active) : undefined}
+            detail={style ? getSomeorUndefined(style.detail) : undefined}
+            keepMounted={style ? getSomeorUndefined(style.keepMounted) : undefined}
+            lazy={style ? getSomeorUndefined(style.lazy) : undefined}
+            animated={style ? getSomeorUndefined(style.animated) : undefined}
+        />
+    );
+}, (prev, next) => dockEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+/** Props of {@link DockPane}. */
+export interface DockPaneProps {
+    /** Where the pane keeps its open tab, and its collapsed state when persisted. */
+    storageKey: string;
+    /** The tabs, each with its body; with none, `body` is the pane's one body under its label. */
+    tabs?: ReadonlyArray<{ key: string; label: string; body: ReactNode }> | undefined;
+    /** The body, when the pane has no tabs. */
+    body?: ReactNode;
+    /** Collapsed, driven by the host; omitted, the pane keeps its own state. */
+    collapsed?: boolean | undefined;
+    /** Collapsed at first, when the pane keeps its own state. */
+    defaultCollapsed?: boolean | undefined;
+    /** Told each time the pane collapses or expands. */
+    onCollapsedChange?: ((collapsed: boolean) => unknown) | undefined;
+    /** The axis it collapses along; `horizontal` by default. */
+    orientation?: "horizontal" | "vertical" | undefined;
+    /** The edge it pins to; `start` by default. */
+    side?: "start" | "end" | undefined;
+    /** Where its own collapsed state persists; `none` by default. */
+    persist?: "none" | "local" | "session" | undefined;
+    /** `card` (its own frame, the default) or `shell` (a host's frame). */
+    surface?: "card" | "shell" | undefined;
+    /** Its size along the axis, expanded — a CSS length. */
+    expandedSize?: string | undefined;
+    /** Its size along the axis, collapsed to its rail — a CSS length. */
+    railSize?: string | undefined;
+    /** A Font Awesome solid icon name, on the rail. */
+    icon?: string | undefined;
+    /** Its name: the only tab without tabs, the rail's label, the control's words. */
+    label?: string | undefined;
+    /** A badge on the rail. */
+    badge?: string | undefined;
+    /** Whether the rail's tile and badge are the brand's — what the pane shows is live. */
+    active?: boolean | undefined;
+    /** A line on the rail under its label. */
+    detail?: string | undefined;
+    /** Keep the body mounted while collapsed; `true` by default. */
+    keepMounted?: boolean | undefined;
+    /** Mount the body only once first expanded. */
+    lazy?: boolean | undefined;
+    /** Animate the size along the axis. */
+    animated?: boolean | undefined;
+}
+
+/**
+ * The Dock's pane as React — an inline pane that collapses along an axis to a
+ * compact icon rail and stays in the document flow; the Dock's renderer, and
+ * the pane a host renderer holds its own React in.
  *
  * Expanded, the pane's one row is its tab row — its tabs, or its label as the
  * only tab — with the collapse control at the row's end. Collapsed, the rail
@@ -39,33 +128,32 @@ export interface EastChakraDockProps {
  * detail; while the pane is active the tile and the badge are the brand's.
  *
  * Collapsed state follows the interactive-state pattern: local state seeded
- * from the East value, synced when a `collapsed` prop drives it, else toggled
- * by the controls and optionally persisted (keyed by the structural storage
+ * from `collapsed` / `defaultCollapsed`, synced when `collapsed` drives it,
+ * else toggled by the controls and optionally persisted (keyed by the storage
  * key). Every body is kept mounted (hidden) while the pane is collapsed, and
  * every tab's while another is open, so a child's scroll / drag / search state
  * survives; `lazy` defers first mount.
+ *
+ * @param props - The pane's tabs or body, and its options ({@link DockPaneProps})
+ * @returns The pane
  */
-export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }: EastChakraDockProps) {
-    const collapsedProp = getSomeorUndefined(value.collapsed);
-    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+export function DockPane(props: DockPaneProps) {
+    const { storageKey } = props;
+    const collapsedProp = props.collapsed;
+    const orientation = props.orientation ?? "horizontal";
+    const side = props.side ?? "start";
+    const persist = props.persist ?? "none";
+    const surface = props.surface ?? "card";
+    const expandedSize = props.expandedSize ?? "280px";
+    const railSize = props.railSize ?? "44px";
+    const { icon, label, badge, detail } = props;
+    const active = props.active ?? false;
+    const keepMounted = props.keepMounted ?? true;
+    const lazy = props.lazy ?? false;
+    const animated = props.animated ?? false;
+    const onCollapsedChangeFn = props.onCollapsedChange;
 
-    const orientation = (style ? getSomeorUndefined(style.orientation)?.type : undefined) ?? "horizontal";
-    const side = (style ? getSomeorUndefined(style.side)?.type : undefined) ?? "start";
-    const persist = (style ? getSomeorUndefined(style.persist)?.type : undefined) ?? "none";
-    const surface = (style ? getSomeorUndefined(style.surface)?.type : undefined) ?? "card";
-    const expandedSize = (style ? getSomeorUndefined(style.expandedSize) : undefined) ?? "280px";
-    const railSize = (style ? getSomeorUndefined(style.railSize) : undefined) ?? "44px";
-    const icon = style ? getSomeorUndefined(style.icon) : undefined;
-    const label = style ? getSomeorUndefined(style.label) : undefined;
-    const badge = style ? getSomeorUndefined(style.badge) : undefined;
-    const active = (style ? getSomeorUndefined(style.active) : undefined) ?? false;
-    const detail = style ? getSomeorUndefined(style.detail) : undefined;
-    const keepMounted = (style ? getSomeorUndefined(style.keepMounted) : undefined) ?? true;
-    const lazy = (style ? getSomeorUndefined(style.lazy) : undefined) ?? false;
-    const animated = (style ? getSomeorUndefined(style.animated) : undefined) ?? false;
-    const onCollapsedChangeFn = useMemo(() => getSomeorUndefined(value.onCollapsedChange), [value.onCollapsedChange]);
-
-    const defaultCollapsed = getSomeorUndefined(value.defaultCollapsed) ?? false;
+    const defaultCollapsed = props.defaultCollapsed ?? false;
     const horizontal = orientation === "horizontal";
     const persistKey = `${storageKey}.dock.collapsed`;
 
@@ -103,7 +191,8 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
     const handleToggle = useCallback(() => { setCollapsedState(!collapsed); }, [collapsed, setCollapsedState]);
 
     // The open tab, kept by the structural storage key; the first when none is.
-    const tabs = value.tabs;
+    const tabsProp = props.tabs;
+    const tabs = useMemo(() => tabsProp ?? [], [tabsProp]);
     const { state: tabState, setState: setTabState } = usePersistedState<{ key: string | undefined }>(
         `${storageKey}.dock.tab`,
         { key: tabs[0]?.key },
@@ -179,16 +268,12 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
                 aria-labelledby={`${ids}-tab-${index}`}
                 hidden={collapsed || tab.key !== openTab?.key}
             >
-                {tab.body.map((child, i) => (
-                    <EastChakraComponent key={i} value={child} storageKey={`${storageKey}.tab.${tab.key}.${i}`} />
-                ))}
+                {tab.body}
             </ChakraBox>
         ))
         : (
             <ChakraBox css={styles.body} hidden={collapsed}>
-                {value.body.map((child, i) => (
-                    <EastChakraComponent key={i} value={child} storageKey={`${storageKey}.body.${i}`} />
-                ))}
+                {props.body}
             </ChakraBox>
         );
 
@@ -246,4 +331,4 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
             <Fragment key="panels">{panels}</Fragment>
         </ChakraBox>
     );
-}, (prev, next) => dockEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}

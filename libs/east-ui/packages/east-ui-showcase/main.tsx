@@ -55,11 +55,11 @@ const FALLBACK_FUNCTIONS: InMemoryFunctionDef[] = [
     { name: "rebalance", inputTypes: [FloatType], outputType: FloatType, fn: (x) => 1 - (x as number) },
 ];
 
-/** An export is a seedable input iff it's a `DatasetDef` with a default. */
-function isSeedableInput(x: unknown): x is DatasetDef & { default: NonNullable<DatasetDef["default"]> } {
+/** An export is a seedable input iff it's an `e3.input` whose initial value is inline — a `value` source. */
+function isSeedableInput(x: unknown): x is DatasetDef & { source: Extract<NonNullable<DatasetDef["source"]>, { type: "value" }> } {
     return typeof x === "object" && x !== null
         && (x as DatasetDef).kind === "dataset"
-        && (x as DatasetDef).default !== undefined;
+        && (x as DatasetDef).source?.type === "value";
 }
 
 /** An export is a seedable function iff it's an `e3.function` def. */
@@ -142,7 +142,7 @@ function exampleFunctionApi() {
 }
 
 /** Seed an in-memory reactive-dataset cache from every e3 example module's
- *  exported `e3.input` defaults, so `Data.bind` reads resolve offline —
+ *  exported `e3.input`s' inline values, so `Data.bind` reads resolve offline —
  *  the browser-side mirror of the e3-ui-components snapshot harness, seeded
  *  once for the union of all examples instead of per-module. */
 async function seedE3DatasetCache(): Promise<void> {
@@ -156,7 +156,7 @@ async function seedE3DatasetCache(): Promise<void> {
     for (const mod of e3ExampleModules) {
         for (const value of Object.values(mod)) {
             if (!isSeedableInput(value)) continue;
-            seed.set(datasetCacheKey(WORKSPACE, value.path), encodeBeast2For(value.type)(value.default));
+            seed.set(datasetCacheKey(WORKSPACE, value.path), encodeBeast2For(value.type)(value.source.value));
             inputPaths.push(value.path);
         }
     }

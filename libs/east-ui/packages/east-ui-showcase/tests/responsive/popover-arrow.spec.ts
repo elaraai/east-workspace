@@ -86,7 +86,7 @@ test.describe("the popover arrow (#1037)", () => {
     });
 
     test("PA3: the edit popover's arrow shows, the same — the Studio's New page", async ({ page }) => {
-        await pressIn(page, "e3/studio/library/studioLibrary", /^New page/);
+        await pressIn(page, "e3/studio/studio/studioLibrary", /^New page/);
         await expect.poll(async () => {
             const a = await arrow(page);
             return a && { width: a.width, depth: a.depth, tip: a.tip, shown: a.shown, paper: a.paper, edge: a.edge };
@@ -103,7 +103,7 @@ test.describe("the popover arrow (#1037)", () => {
     });
 
     test("PA5: the edit popover's foot keeps the content's rounded corners", async ({ page }) => {
-        await pressIn(page, "e3/studio/library/studioLibrary", /^New page/);
+        await pressIn(page, "e3/studio/studio/studioLibrary", /^New page/);
         await expect.poll(() => page.evaluate(() => {
             const content = document.querySelector('[data-scope="popover"][data-part="content"][data-state="open"]');
             if (content === null) return null;

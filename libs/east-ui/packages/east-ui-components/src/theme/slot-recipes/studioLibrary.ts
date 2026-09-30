@@ -42,16 +42,14 @@ export const studioLibrarySlotRecipe = defineSlotRecipe({
         "main", "section", "sectionHead", "sectionTitle", "sectionSub",
     ],
     base: {
-        /* The page library's own panel, as tall as its host lets it be. */
+        /* The page library's own panel, as tall as its host lets it be — and
+           unframed, so a host can frame it or place it bare. */
         root: {
             display: "flex",
             flexDirection: "column",
             height: "100%",
             minHeight: "0",
             background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "10px",
             overflow: "hidden",
         },
         /* The one toolbar band: the shared toolbar's row. */

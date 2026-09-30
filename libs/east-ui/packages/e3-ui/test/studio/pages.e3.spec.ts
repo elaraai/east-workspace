@@ -33,10 +33,10 @@ import {
     type TaskRunner,
 } from "@elaraai/e3-core";
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from "@elaraai/e3-core/test";
-import { Editing, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Editing, Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { RecordOutcomeType, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
-import { RecordBindHandleType, fingerprintOf, nameWriteRefusal, publishRefusal } from "@elaraai/e3-ui/internal";
+import { Record, RecordOutcomeType, ui } from "@elaraai/e3-ui";
+import { Studio, StudioKeyType, StudioPagesType, fingerprintOf, nameWriteRefusal, publishRefusal } from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -46,8 +46,6 @@ const keys = compareFor(StudioKeyType);
 const diffPages = diffFor(StudioPagesType);
 const encodePatch = encodeBeast2For(PatchType(StudioPagesType));
 const pagesPath = [variant("field", "records"), variant("field", "pages")];
-/** The pages record, bound with its patch door — what the builder's canvas commits through. */
-const HandleType = RecordBindHandleType(StudioPagesType, { patch: [PatchType(StudioPagesType)] });
 /** The pages record as the page library and the builder's Save as template hold it: its read, and its patch awaited. */
 const WriterType = StructType({
     read: FunctionType([], StudioPagesType),
@@ -96,10 +94,11 @@ describe("the pages record in e3 (#992)", () => {
         repo = createTestRepo();
         tempDir = createTempDir();
         storage = new LocalStorage(dirname(repo));
-        const surface = ui("studio", [], East.function([], UIComponentType, ($) => {
+        const surface = ui("studio", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([kpiRail]);
-            return Studio.dispatch(components, "kpi_rail");
-        }));
+            const record = $.let(Record.bind(pages, [pagesPatch]));
+            return Studio.Builder({ pages: record, components, project: "ops" });
+        }))));
         const zip = join(tempDir, "studio-1.0.0.zip");
         await e3.export(e3.package("studio", "1.0.0", pages, pagesPatch, surface), zip);
         await packageImport(storage, repo, zip);
@@ -187,23 +186,19 @@ describe("the pages record in e3 (#992)", () => {
     });
 
     it("B12 (#995): the canvas's Apply — Studio.save — is one patch commit on the page, and one drafted before another landed is a conflict that leaves the first standing", async () => {
-        const Cell = Studio.Types.Cell;
-        const entryPatch = diffFor(OptionType(Cell));
-        const save = East.compileAsync(East.asyncFunction([HandleType, Editing.Types.ChangeSet(Cell)], Editing.Types.ApplyResult, ($, record, batch) => {
-            const apply = $.const(Studio.save(record, OVERVIEW_KEY));
-            return apply(batch);
-        }), []) as unknown as (handle: unknown, batch: unknown) => Promise<ValueTypeOf<typeof Editing.Types.ApplyResult>>;
+        const entryPatch = diffFor(OptionType(Studio.Types.Cell));
+        const save = East.compileAsync(Studio.save, []) as unknown as
+            (handle: unknown, key: Key, batch: unknown) => Promise<ValueTypeOf<typeof Editing.Types.ApplyResult>>;
         const read = await current();
         const overview = read.get(OVERVIEW_KEY)!;
         if (overview.type !== "page") assert.fail("expected a page");
         const cells = overview.value.draft.cells;
-        // The bound record over the repository: its read is what the canvas
-        // read, and its patch door commits through e3, as the ui task's would.
+        // The bound record over the repository, as the builder holds it: its
+        // read is what the canvas read, and its patch door commits through e3,
+        // as the ui task's would.
         const handle = {
             read: () => read,
-            status: () => variant("up-to-date", null),
             history: () => none,
-            mutate: { pending: () => false, status: () => variant("idle", null), error: () => none, cancel: () => null, patch: () => null },
             commit: {
                 patch: async (_requestId: string, patch: unknown) => {
                     const outcome = await commit(patch, "ana");
@@ -216,12 +211,10 @@ describe("the pages record in e3 (#992)", () => {
                     }
                 },
             },
-            start: () => null,
-            binding: { name: "pages", mutations: ["patch"] },
         };
 
         // The trend resized to 6 over the cells the canvas read: one commit.
-        const applied = await save(handle, {
+        const applied = await save(handle, OVERVIEW_KEY, {
             requestId: "resize-6", base: variant("snapshot", [...cells]), label: "Resize Revenue trend",
             changes: [{ id: "c-trend", patch: entryPatch(some(cells[1]!), some({ ...cells[1]!, span: 6n })), place: none }],
         });
@@ -235,7 +228,7 @@ describe("the pages record in e3 (#992)", () => {
         // A canvas still holding the cells it read before that save resizes
         // the trend to 10: its Apply reaches e3, which refuses it, and the
         // first save stands.
-        const stale = await save(handle, {
+        const stale = await save(handle, OVERVIEW_KEY, {
             requestId: "resize-10", base: variant("snapshot", [...cells]), label: "Resize Revenue trend",
             changes: [{ id: "c-trend", patch: entryPatch(some(cells[1]!), some({ ...cells[1]!, span: 10n })), place: none }],
         });
@@ -360,10 +353,11 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal((await commit(publish(await current(), OVERVIEW_KEY, listed), "ana")).kind, "committed");
         const before = await recordHistory(storage, repo, "main", "pages");
 
-        const surface = ui("studio", [], East.function([], UIComponentType, ($) => {
+        const surface = ui("studio", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([kpiRail, revenueTrend]);
-            return Studio.dispatch(components, "kpi_rail");
-        }));
+            const record = $.let(Record.bind(pages, [pagesPatch]));
+            return Studio.Builder({ pages: record, components, project: "ops" });
+        }))));
         const zip = join(tempDir, "studio-1.0.1.zip");
         await e3.export(e3.package("studio", "1.0.1", pages, pagesPatch, surface), zip);
         await packageImport(storage, repo, zip);

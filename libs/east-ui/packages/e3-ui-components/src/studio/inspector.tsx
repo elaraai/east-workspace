@@ -4,15 +4,13 @@
  */
 
 /**
- * `EastChakraStudioInspector` — the renderer of the `StudioInspector`
- * extension declared in `@elaraai/e3-ui` (#996): the body of the builder's
- * inspector pane, under the Dock's tab row. It draws the selected placement
+ * `StudioInspector` — the builder's inspector (#996), the body of its pane
+ * after the canvas, under the pane's tab row. It draws the selected placement
  * East computed — its name and key, what it reads (each path printed as e3
  * prints a keypath), its description, its layout — and sends every layout
- * edit through the payload's `onRequest`,
- * which asks the canvas for it on the builder's shared selection; the canvas
- * takes it as one gesture of the page's session, and the placement comes
- * back drawn anew.
+ * edit through `onRequest`, which asks the canvas for it; the canvas takes it
+ * as one gesture of the page's session, and the placement comes back drawn
+ * anew.
  *
  * Its layout is the `studioInspector` recipe's; its controls are the theme's
  * shared ones — the brand `stepper` for the span, the numeric `input` for the
@@ -31,15 +29,15 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { pathToString } from "@elaraai/e3-types";
-import { StudioInspectorComponent } from "@elaraai/e3-ui/internal";
-import { implementUIComponent, useFormatters } from "@elaraai/east-ui-components";
+import { StudioInspectorPayloadType } from "@elaraai/e3-ui/internal";
+import { useFormatters } from "@elaraai/east-ui-components";
 
 import { useStudioMessages, type StudioMessages } from "./messages.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
-/** The renderer's payload, decoded. */
-type StudioInspectorValue = ValueTypeOf<typeof StudioInspectorComponent.schema>;
+/** The inspector, as the builder draws it. */
+type StudioInspectorValue = ValueTypeOf<typeof StudioInspectorPayloadType>;
 /** The selected placement, as East computed it. */
 type Selection = Extract<StudioInspectorValue["selection"], { type: "some" }>["value"];
 /** A change asked of the canvas. */
@@ -58,12 +56,10 @@ const ALIGNS = [
     { align: "stretch", icon: faArrowsUpDown, name: (m: StudioMessages) => m.alignStretch() },
 ] as const;
 
-/** Props of {@link EastChakraStudioInspector}. */
-export interface EastChakraStudioInspectorProps {
-    /** The payload, decoded. */
+/** Props of {@link StudioInspector}. */
+export interface StudioInspectorProps {
+    /** The selected placement, and where a layout edit goes. */
     value: StudioInspectorValue;
-    /** The structural storage key. */
-    storageKey: string;
 }
 
 /**
@@ -114,10 +110,10 @@ function RowField({ row, onRow, css, id }: { row: number; onRow: (row: number) =
 /**
  * Renders the builder's inspector body — see the module docs.
  *
- * @param props - The payload and its storage key
+ * @param props - The selected placement, and where a layout edit goes
  * @returns The inspector's body
  */
-export const EastChakraStudioInspector = memo(function EastChakraStudioInspector({ value }: EastChakraStudioInspectorProps) {
+export const StudioInspector = memo(function StudioInspector({ value }: StudioInspectorProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const stepper = useSlotRecipe({ key: "stepper" })({ tone: "brand", size: "md" }) as Styles;
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
@@ -133,7 +129,7 @@ export const EastChakraStudioInspector = memo(function EastChakraStudioInspector
         try {
             onRequest({ key, change });
         } catch (err) {
-            console.error("[Studio.Inspector] the layout request failed:", err);
+            console.error("[Studio.Builder] the inspector's layout request failed:", err);
         }
     }, [key, onRequest]);
 
@@ -282,5 +278,3 @@ export const EastChakraStudioInspector = memo(function EastChakraStudioInspector
         </Box>
     );
 });
-
-implementUIComponent(StudioInspectorComponent, EastChakraStudioInspector);

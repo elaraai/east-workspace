@@ -67,7 +67,7 @@ import {
     MAX_HEIGHT, MAX_TILES, SNAP_GRID_COLUMNS, dropAt, heightAt, heldSpan, joinStops, landingOf, neighbourOf, rowsOf, spanAt, startColumn,
     type SnapGridBox, type SnapGridDrop, type SnapGridRowModel, type SnapGridTile,
 } from "./model.js";
-import type { SnapGridCellValue, SnapGridValue } from "./index.js";
+import type { SnapGridEditorCell, SnapGridEditorValue } from "./index.js";
 
 // A tile's and a design width's icons are Font Awesome names from the data;
 // register the free-solid set so they resolve by name (idempotent).
@@ -180,7 +180,7 @@ function InsertLine({ css, styles, attr }: { css: SystemStyleObject | undefined;
 
 interface TileProps {
     tile: SnapGridTile;
-    cell: SnapGridCellValue;
+    cell: SnapGridEditorCell;
     surface: string;
     /** Its first column — the drag grammar's `from.slot`. */
     start: number;
@@ -202,6 +202,8 @@ interface TileProps {
     onResizeStart: (e: ReactPointerEvent, key: string, kind: ResizeKind) => void;
     onRemove: (key: string) => void;
     register: (key: string, el: HTMLElement | null) => void;
+    /** Draws the tile's content, when the host does — else its East content. */
+    renderContent: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
 }
 
 const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
@@ -240,7 +242,9 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
             onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onSelect(key); }}
         >
             <Box css={styles.frame} style={frameStyle} data-frame={cell.frame ? "" : undefined}>
-                <EastChakraComponent value={cell.content} storageKey={`${p.storageKey}.${cell.key}`} />
+                {p.renderContent !== undefined ? p.renderContent(cell)
+                    : cell.content !== undefined ? <EastChakraComponent value={cell.content} storageKey={`${p.storageKey}.${cell.key}`} />
+                        : null}
             </Box>
             {p.selected && (
                 <>
@@ -395,12 +399,24 @@ const SnapGridGapCell = memo(function SnapGridGapCell(p: GapProps) {
 
 /** Props of {@link SnapGridEditor}. */
 export interface SnapGridEditorProps {
-    /** The SnapGrid's value, its `editing` declared. */
-    value: SnapGridValue;
+    /** The canvas's value, its `editing` declared — a SnapGrid's, or one a host renderer builds. */
+    value: SnapGridEditorValue;
     /** Storage key prefix for the session and the cells' content state. */
     storageKey: string;
     /** Items a host adds to the canvas's toolbar, before the history item. */
     toolbarItems?: ReadonlyArray<ToolbarItem | false | null | undefined> | undefined;
+    /**
+     * The host's own toolbar items, as React: `start` after the value's start
+     * items, leading the row; `end` after the value's end items, closing it.
+     */
+    toolbar?: {
+        start?: ReadonlyArray<ToolbarItem | false | null | undefined> | undefined;
+        end?: ReadonlyArray<ToolbarItem | false | null | undefined> | undefined;
+    } | undefined;
+    /** The panes beside the canvas, as React — in place of the value's. */
+    panes?: { start?: ReactNode; end?: ReactNode } | undefined;
+    /** Draws a tile's content, as React — in place of its East content. */
+    renderContent?: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
 }
 
 /**
@@ -410,7 +426,7 @@ export interface SnapGridEditorProps {
  * @param props - The value, its storage key and any host toolbar items
  * @returns The canvas
  */
-export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems }: SnapGridEditorProps) {
+export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent }: SnapGridEditorProps) {
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
@@ -876,6 +892,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             key: `start-${i}`, side: "start",
             forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.start.${i}`} />],
         })),
+        ...(toolbar?.start ?? []),
         { key: "grid", side: "start", forms: [<Box as="span" css={styles.chip} data-snap-grid-chip="">{m.gridChip()}</Box>, null], rank: RANK_GRID },
         savedAt !== undefined && {
             key: "saved", side: "start", rank: RANK_SAVED, version: savedAt.getTime(),
@@ -894,14 +911,19 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             key: `end-${i}`, side: "end",
             forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.end.${i}`} />],
         })),
+        ...(toolbar?.end ?? []),
     ];
 
     // ── The selection bar: the selected tile's icon, name and meta ──────
     const selectedCell = selected !== null ? cellOf.get(selected) : undefined;
     const selectedIcon = selectedCell !== undefined ? getSomeorUndefined(selectedCell.icon) : undefined;
     const selectedMeta = selectedCell !== undefined ? getSomeorUndefined(selectedCell.meta) : undefined;
-    const paneStart = getSomeorUndefined(value.panes.start);
-    const paneEnd = getSomeorUndefined(value.panes.end);
+    const eastPaneStart = getSomeorUndefined(value.panes.start);
+    const eastPaneEnd = getSomeorUndefined(value.panes.end);
+    const paneStart = panes?.start ?? (eastPaneStart !== undefined
+        ? <EastChakraComponent value={eastPaneStart} storageKey={`${storageKey}.pane.start`} /> : undefined);
+    const paneEnd = panes?.end ?? (eastPaneEnd !== undefined
+        ? <EastChakraComponent value={eastPaneEnd} storageKey={`${storageKey}.pane.end`} /> : undefined);
 
     return (
         <Box
@@ -918,9 +940,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             </Box>
             <Box css={styles.body}>
                 {paneStart !== undefined && (
-                    <Box css={styles.pane} data-snap-grid-pane="start">
-                        <EastChakraComponent value={paneStart} storageKey={`${storageKey}.pane.start`} />
-                    </Box>
+                    <Box css={styles.pane} data-snap-grid-pane="start">{paneStart}</Box>
                 )}
                 <Box css={styles.main} data-snap-grid-main="">
                     <Box css={styles.selectionBar} data-snap-grid-selection="">
@@ -982,6 +1002,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                                     onResizeStart={onResizeStart}
                                                     onRemove={onRemove}
                                                     register={register}
+                                                    renderContent={renderContent}
                                                 />
                                             ))}
                                         </SnapGridRowCell>
@@ -993,9 +1014,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                     </Box>
                 </Box>
                 {paneEnd !== undefined && (
-                    <Box css={styles.pane} data-snap-grid-pane="end">
-                        <EastChakraComponent value={paneEnd} storageKey={`${storageKey}.pane.end`} />
-                    </Box>
+                    <Box css={styles.pane} data-snap-grid-pane="end">{paneEnd}</Box>
                 )}
             </Box>
             <VisuallyHidden role="status" aria-live="polite" aria-atomic="true" data-snap-grid-announce="">{said}</VisuallyHidden>

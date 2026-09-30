@@ -42,16 +42,14 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         "banner", "bannerGlyph", "bannerText", "facts", "fact", "factLabel", "factValue", "refusal", "foot",
     ],
     base: {
-        /* The preview's own panel, as tall as its host lets it be. */
+        /* The preview's own panel, as tall as its host lets it be — no border
+           of its own: a host frames it, or places it bare. */
         root: {
             display: "flex",
             flexDirection: "column",
             height: "100%",
             minHeight: "0",
             background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "10px",
             overflow: "hidden",
         },
         /* The bar, headerless, on the inverse ground. */
