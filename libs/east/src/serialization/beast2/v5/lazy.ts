@@ -192,6 +192,9 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   /** What reading the map whole added to resident memory, once an operation
    *  the pager cannot serve has; `undefined` until then. */
   private wholeBytes: number | undefined;
+  /** The greatest key, once {@link maxKey} has read it from the last segment:
+   *  the map cannot change unread, so the segment is decoded once. */
+  private greatest: K | undefined;
 
   // A frozen lazy map cannot be Object.freeze'd — hydration writes through
   // its own internals — so the flag guards the mutators and the frozen
@@ -299,9 +302,10 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     if (this.hydrated) return super.maxKey();
     const n = this.pages.segmentCount;
     if (n === 0) return undefined;
-    let last: K | undefined;
-    for (const k of (served(() => this.pages.segment(n - 1)) as Map<K, V>).keys()) last = k;
-    return last;
+    if (this.greatest === undefined) {
+      for (const k of (served(() => this.pages.segment(n - 1)) as Map<K, V>).keys()) this.greatest = k;
+    }
+    return this.greatest;
   }
 
   override keys(firstKey?: K): MapIterator<K> {
@@ -351,6 +355,9 @@ class LazySortedSet<K> extends SortedSet<K> {
   /** What reading the set whole added to resident memory, once an operation
    *  the pager cannot serve has; `undefined` until then. */
   private wholeBytes: number | undefined;
+  /** The greatest element, once {@link maxKey} has read it from the last
+   *  segment: the set cannot change unread, so the segment is decoded once. */
+  private greatest: K | undefined;
 
   // A frozen lazy set cannot be Object.freeze'd — hydration writes through
   // its own internals — so the flag guards the mutators and the frozen
@@ -489,9 +496,10 @@ class LazySortedSet<K> extends SortedSet<K> {
     if (this.hydrated) return super.maxKey();
     const n = this.pages.segmentCount;
     if (n === 0) return undefined;
-    let last: K | undefined;
-    for (const k of served(() => this.pages.segment(n - 1)) as Set<K>) last = k;
-    return last;
+    if (this.greatest === undefined) {
+      for (const k of served(() => this.pages.segment(n - 1)) as Set<K>) this.greatest = k;
+    }
+    return this.greatest;
   }
 
   override keys(firstKey?: K): SetIterator<K> {

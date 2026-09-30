@@ -17,7 +17,8 @@
  *  - each runner, with `-v`, prints the exact canonical block (and still runs);
  *  - each runner, without `-v`, prints none of it (control: `-v` is the trigger);
  *  - every available runner's verbose output is byte-identical once the
- *    runtime-variable values (paths, sizes, counts, timings) are masked.
+ *    runtime-variable values (paths, sizes, counts, timings, and the resident
+ *    memory decoding an input whole added) are masked.
  *
  * Self-contained like error-locations.spec.ts: it locates the built runner
  * binaries and symlinks the built `@elaraai/east` + `@elaraai/east-node-std`
@@ -85,6 +86,9 @@ const CANON: Array<[string, RegExp]> = [
   ['Running header', /^Running: .+\(.+\)$/m],
   ['Platform line', /^Platform: \d+ package\(s\), \d+ function\(s\)$/m],
   ['Function line', /^Function: \d+ inputs, (sync|async)$/m],
+  // The input is an Integer, which no runner opens lazily: each decodes it
+  // whole and says what that added to resident memory.
+  ['Input read', /^ {2}input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident$/m],
   ['Timing header', /^Timing:$/m],
   ['Load timing', /^ {2}Load: +\d+\.\d ms$/m],
   ['Compile timing', /^ {2}Compile: +\d+\.\d ms$/m],
@@ -129,6 +133,7 @@ const CASES: RunnerCase[] = [
 /** Replace the runtime-variable parts so only the shared FORMAT remains. */
 function maskVariable(s: string): string {
   return s
+    .replace(/\+[0-9.]+ (B|KB|MB) resident/g, '+<NUM> resident')  // what a whole decode added, measured
     .replace(/ +[0-9.]+ (ms|MB|KB)/g, ' <NUM> $1')                 // right-justified timing/mem values
     .replace(/\d+ (package|function|inputs)/g, 'N $1')             // platform/function/input counts
     .replace(/east-c-std|@elaraai\/east-node-std|east-py-std/g, '<PLATFORM>');

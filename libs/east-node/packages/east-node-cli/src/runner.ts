@@ -68,6 +68,19 @@ export function reportInputLazy(i: number): void {
 }
 
 /**
+ * What a whole decode added to resident memory, as the verbose account says
+ * it: `+X resident`, never below 0 B, since memory freed across the decode can
+ * leave the process smaller after it. The load-time and the mid-run
+ * whole-decode accounts both say it through here.
+ *
+ * @param bytes - the growth in resident memory, in bytes
+ * @returns the account's words for it
+ */
+function formatResident(bytes: number): string {
+    return `+${formatSize(Math.max(0, bytes))} resident`;
+}
+
+/**
  * Prints the verbose account of an input decoded whole as it loaded: the
  * growth in resident memory across its decode — what it holds in memory, as a
  * runner that loads its inputs first sees it — beside what it weighs on disk,
@@ -78,7 +91,7 @@ export function reportInputLazy(i: number): void {
  * @internal
  */
 export function reportInputWhole(i: number, bytes: number): void {
-    console.error(`  input ${i}: decoded whole — +${formatSize(Math.max(0, bytes))} resident`);
+    console.error(`  input ${i}: decoded whole — ${formatResident(bytes)}`);
 }
 
 /**
@@ -137,7 +150,7 @@ export function reportInputReads(i: number, path: string, value: unknown): void 
     const stats = beast2LazyStats(value);
     if (read === undefined || stats === undefined) return;
     if (stats.hydrated) {
-        console.error(`  input ${i}: decoded whole (an operation the pager cannot serve) — +${formatSize(stats.hydratedBytes)} resident`);
+        console.error(`  input ${i}: decoded whole (an operation the pager cannot serve) — ${formatResident(stats.hydratedBytes)}`);
     } else if (stats.segmentsDecoded > stats.segments) {
         console.error(`  input ${i}: ${stats.segmentsDecoded} segment decodes of its ${stats.segments} segments, ` +
             `${stats.fencesProbed} fences probed — its reads land at random beyond the segments kept, so decoding it ` +

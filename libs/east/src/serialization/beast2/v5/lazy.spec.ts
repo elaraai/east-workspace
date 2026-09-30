@@ -423,8 +423,21 @@ describe("Beast2 v5 — pages segment cache", () => {
     table.get(43n);
     assert.equal(table.fencesProbed, 4, "the first keyed read verifies every fence, once");
     assert.equal(table.segmentsDecoded, 1);
-    table.fence(3);
-    assert.equal(table.fencesProbed, 5, "a fence probe is one more");
+    assert.equal(table.fence(3), 300n);
+    assert.equal(table.fencesProbed, 4, "a fence the keyed read probed is kept: asking for it again probes nothing");
+
+    const fresh = openBeast2PagesFor(TableType)(paged(TableType, makeTable(350)));
+    assert.equal(fresh.fence(2), 200n);
+    assert.equal(fresh.fence(2), 200n);
+    assert.equal(fresh.fencesProbed, 1, "a Dict fence is probed once and kept");
+    assert.equal(fresh.get(42n)?.name, "row-42");
+    assert.equal(fresh.fencesProbed, 4, "a keyed read probes only the fences not yet kept");
+
+    // An Array's first element may be a container its caller changes, so it
+    // is never kept.
+    rows.fence(1);
+    rows.fence(1);
+    assert.equal(rows.fencesProbed, 2, "an Array's fence is probed afresh each time");
   });
 });
 
@@ -475,6 +488,25 @@ describe("Beast2 v5 — what a lazy value's reads came to (beast2LazyStats)", ()
     cleared.clear();
     assert.equal(cleared.size, 0);
     assert.deepEqual(beast2LazyStats(cleared), { segments: 2, segmentsDecoded: 0, fencesProbed: 0, hydrated: false, hydratedBytes: 0 });
+  });
+
+  test("reads a Dict's and a Set's least and greatest keys once, however often they are asked for", () => {
+    const table = openBeast2LazyFor(TableType)(paged(TableType, makeTable(500))) as SortedMap<bigint, { id: bigint; name: string }>;
+    const Tags = SetType(StringType);
+    const tags = openBeast2LazyFor(Tags)(paged(Tags, new SortedSet(
+      Array.from({ length: 250 }, (_, i) => `tag-${String(i).padStart(4, "0")}`),
+      compareFor(StringType),
+    ))) as SortedSet<string>;
+    for (let i = 0; i < 3; i++) {
+      assert.equal(table.minKey(), 0n);
+      assert.equal(table.maxKey(), 499n);
+      assert.equal(tags.minKey(), "tag-0000");
+      assert.equal(tags.maxKey(), "tag-0249");
+    }
+    // The least is the first fence, probed once; the greatest is the last
+    // segment's last, decoded once.
+    assert.deepEqual(beast2LazyStats(table), { segments: 5, segmentsDecoded: 1, fencesProbed: 1, hydrated: false, hydratedBytes: 0 });
+    assert.deepEqual(beast2LazyStats(tags), { segments: 3, segmentsDecoded: 1, fencesProbed: 1, hydrated: false, hydratedBytes: 0 });
   });
 
   test("says nothing of a value not opened lazily", () => {

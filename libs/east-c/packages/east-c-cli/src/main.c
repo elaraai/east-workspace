@@ -435,14 +435,25 @@ static void report_input_lazy(size_t i)
     fprintf(stderr, "  input %zu: opened lazily — mapped from the file\n", i);
 }
 
+/* What a whole decode added to resident memory, `kb` KB, as the -v account
+ * says it: "+X resident", never below 0 B, since memory freed across the
+ * decode can leave the process smaller after it. The load-time and the mid-run
+ * whole-decode accounts both say it through here. */
+static void format_resident_kb(long kb, char *buf, size_t buflen)
+{
+    char size[32];
+    format_size((uint64_t)(kb > 0 ? kb : 0) * 1024u, size, sizeof(size));
+    snprintf(buf, buflen, "+%s resident", size);
+}
+
 /* The -v account of an input decoded whole as it was loaded: the growth in
  * resident memory across its decode — what it holds in memory, as a runner
  * that loads its inputs first sees it — beside what it weighs on disk. */
 static void report_input_whole(size_t i, long kb)
 {
-    char size[32];
-    format_size((uint64_t)(kb > 0 ? kb : 0) * 1024u, size, sizeof(size));
-    fprintf(stderr, "  input %zu: decoded whole — +%s resident\n", i, size);
+    char grown[48];
+    format_resident_kb(kb, grown, sizeof(grown));
+    fprintf(stderr, "  input %zu: decoded whole — %s\n", i, grown);
 }
 
 /* The -v account of what reading a lazily opened input came to — the account
@@ -457,12 +468,10 @@ static void report_input_reads(size_t i, EastValue *input)
     bool hydrated = false;
     if (!east_paged_stats(input, &segments, &decoded, &fences, &hydrated)) return;
     if (hydrated) {
-        char size[32];
-        long kb = east_paged_hydrated_kb(input);
-        format_size((uint64_t)(kb > 0 ? kb : 0) * 1024u, size, sizeof(size));
-        fprintf(stderr,
-                "  input %zu: decoded whole (an operation the pager cannot serve) — +%s resident\n",
-                i, size);
+        char grown[48];
+        format_resident_kb(east_paged_hydrated_kb(input), grown, sizeof(grown));
+        fprintf(stderr, "  input %zu: decoded whole (an operation the pager cannot serve) — %s\n",
+                i, grown);
     } else if (decoded > segments) {
         fprintf(stderr,
                 "  input %zu: %zu segment decodes of its %zu segments, %zu fences probed — its "
