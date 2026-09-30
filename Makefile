@@ -251,7 +251,7 @@ server-e3-logs:
 
 # ── Test IR Export ────────────────────────────────────────────────────
 
-## Export all test IR (required before east-py and east-c compliance tests)
+## Export all test IR (required before the east-py, east-c and east-web compliance tests)
 test-export:
 	@echo "Exporting test IR..."
 	@EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east test-export 2>&1 | tail -1
@@ -269,6 +269,9 @@ test-all: services-up test-export
 	echo "=== TypeScript ==="; \
 	EAST_QUIET=1 pnpm -r --no-bail run test > /tmp/east-ts-test.log 2>&1 || exit_code=1; \
 	tail -12 /tmp/east-ts-test.log; \
+	echo ""; \
+	echo "=== east-web ==="; \
+	EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-web test-compliance || exit_code=1; \
 	echo ""; \
 	echo "=== east-c ==="; \
 	EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-c test-all || exit_code=1; \
@@ -302,6 +305,7 @@ check-version:
 clean:
 	rm -rf libs/east/dist
 	rm -rf libs/east-node/packages/*/dist
+	rm -rf libs/east-web/packages/*/dist
 	rm -rf libs/e3/packages/*/dist libs/e3/test/*/dist
 	rm -rf libs/east-ui/packages/*/dist
 	rm -rf libs/east-c/build
@@ -339,7 +343,7 @@ help:
 	@echo ""
 	@echo "Full test run:"
 	@echo "  test-export      - Export all test IR"
-	@echo "  test-all         - services + export + TS + C + Python (quiet mode)"
+	@echo "  test-all         - services + export + TS + east-web + C + Python (quiet mode)"
 	@echo ""
 	@echo "Environment:"
 	@echo "  EAST_QUIET=1     - Only show failures + summaries (default in test-all)"

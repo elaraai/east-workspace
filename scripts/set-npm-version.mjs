@@ -50,6 +50,7 @@ const PKGS = [
   'libs/east-node/packages/east-node-std/package.json',
   'libs/east-node/packages/east-node-io/package.json',
   'libs/east-node/packages/east-node-cli/package.json',
+  'libs/east-web/packages/east-web-std/package.json',
   'libs/east-c/packages/east-c-cli/package.json',
   'libs/east-py/packages/east-py-datascience/package.json',
   'libs/e3/packages/e3-types/package.json',

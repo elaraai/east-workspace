@@ -6,6 +6,10 @@ packages:
   - "libs/east-node"
   - "libs/east-node/packages/*"
 
+  # east-web — the browser's platform (east-web-std)
+  - "libs/east-web"
+  - "libs/east-web/packages/*"
+
   # east-c — C runtime (npm launcher for the native binary; the C-only
   # packages under the same dir have no package.json and are skipped).
   - "libs/east-c/packages/*"

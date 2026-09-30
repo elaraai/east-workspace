@@ -1,0 +1,73 @@
+name: Test east-web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - "libs/east-web/**"
+      # east-web-std runs east-node-std's exported compliance suite, and its
+      # specs compare it with east-node-std, so a change there tests it too
+      - "libs/east-node/**"
+      - "docker/services/**"
+      - ".github/workflows/test-east-web.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - "libs/east-web/**"
+      - "libs/east-node/**"
+      - "docker/services/**"
+      - ".github/workflows/test-east-web.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      # The specs compare east-web-std with east-node-std, the platform it mirrors
+      - name: Build east-node-std (dependency)
+        run: pnpm --filter @elaraai/east-node-std run build
+
+      - name: Build east-web packages
+        working-directory: libs/east-web
+        run: make build
+
+      - name: Lint
+        working-directory: libs/east-web
+        run: make lint
+
+      # The compliance suite's Fetch tests call httpbin on :8085
+      - name: Start httpbin
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait httpbin
+
+      # The specs, then east-node-std's compliance suite, exported and run over
+      # east-web-std in Node. Its Chromium leg comes with e3-web's browser pass.
+      - name: Run tests
+        working-directory: libs/east-web
+        run: make test
+
+      - name: Stop httpbin
+        if: always()
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
