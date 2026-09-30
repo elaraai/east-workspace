@@ -20,7 +20,10 @@
  *
  * The types live here, beside the collection layer, because every runner and
  * the platform that schedules them read them; east-c declares the same types
- * in C, and the conformance corpus pins that all three runners agree.
+ * in C, and the conformance corpus pins that all three runners agree. The
+ * TypeScript runner is `executeUnit` (`runner_exec.ts`), which does a unit's
+ * work over whatever holds its files (`UnitIO`): east-node's `exec` is its
+ * file wrapper, and a browser runs it over the files in memory.
  *
  * A run unit says how its collection inputs are read (`decode`): lazily, a
  * segment at a time as the program reads them, or decoded whole before it
@@ -230,7 +233,8 @@ export const UnitResultType = StructType({
   /** How the unit ended. */
   outcome: UnitOutcomeType,
   /** The process's peak resident memory: VmHWM on Linux, `ru_maxrss`
-   *  elsewhere. */
+   *  elsewhere; 0 from a host that does not measure memory, as a browser
+   *  does not. */
   peakBytes: IntegerType,
   /** Where the time went. */
   timings: UnitTimingsType,

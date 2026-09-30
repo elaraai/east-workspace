@@ -12,15 +12,17 @@ import {
     encodeBeast2PagedFor,
     encodeEastFor,
     encodeJSONFor,
-    isTypeValueEqual,
     printFor,
     variant,
+    type Beast2LazyStats,
     type UnitDecode,
+    type UnitInputReport,
     type UnitResult,
+    type UnitRunReport,
 } from '@elaraai/east';
 import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
-import { printTypeValue } from '@elaraai/east/internal';
-import { inputBytes, lazyInputBytesRead, loadEastIR, loadInput, loadInputLazy } from './loader.js';
+import { openUnitInputs, printTypeValue } from '@elaraai/east/internal';
+import { fetchingSegments, inputBytes, lazyInputBytesRead, loadEastIR, nodeUnitIO, residentBytes } from './loader.js';
 
 function now(): bigint { return process.hrtime.bigint(); }
 function elapsed(start: bigint, end: bigint): number { return Number(end - start) / 1e6; }
@@ -94,6 +96,9 @@ export function reportInputWhole(i: number, bytes: number): void {
     console.error(`  input ${i}: decoded whole — ${formatResident(bytes)}`);
 }
 
+/** The verbose account of how each input opened, as it opens. */
+const INPUT_REPORT: UnitInputReport = { openedLazily: reportInputLazy, decodedWhole: reportInputWhole };
+
 /**
  * Opens a program's inputs, always frozen: task inputs are immutable, and
  * mutating one throws the uniform copy-first error.
@@ -105,7 +110,9 @@ export function reportInputWhole(i: number, bytes: number): void {
  * too. With `whole`, every input is decoded before the program runs. An input
  * that cannot open lazily — another format, an index-less blob, an element
  * shape holding a Ref or a function — is decoded whole either way. A manifest
- * is the collection it names, its segments the files beside it.
+ * is the collection it names, its segments the files beside it. It is east's
+ * `openUnitInputs` — what `exec` opens a run unit's inputs by — over this
+ * machine's files.
  *
  * @param paths - the input files, in parameter order
  * @param types - the parameters' types
@@ -116,22 +123,30 @@ export function reportInputWhole(i: number, bytes: number): void {
  * @internal
  */
 export function openInputs(paths: readonly string[], types: readonly EastTypeValue[], decode: UnitDecode, verbose: boolean): unknown[] {
-    return paths.map((path, i) => {
-        const lazy = decode.type === 'lazy' ? loadInputLazy(path) : undefined;
-        if (lazy !== undefined) {
-            if (verbose) reportInputLazy(i);
-            return lazy;
-        }
-        const before = verbose ? process.memoryUsage.rss() : 0;
-        const value = loadInput(path, types[i]!);
-        if (verbose) reportInputWhole(i, process.memoryUsage.rss() - before);
-        return value;
+    return openUnitInputs(nodeUnitIO, paths, types, decode, {
+        fetch: fetchingSegments(),
+        resident: residentBytes,
+        ...(verbose && { report: INPUT_REPORT }),
     });
 }
 
 /**
  * Prints what reading a lazily opened input came to; nothing for an input
- * decoded whole as it loaded.
+ * decoded whole as it loaded ({@link reportLazyReads}).
+ *
+ * @param i - the input's position
+ * @param path - its file
+ * @param value - the input's value
+ * @internal
+ */
+export function reportInputReads(i: number, path: string, value: unknown): void {
+    const read = lazyInputBytesRead(value);
+    const stats = beast2LazyStats(value);
+    if (read !== undefined && stats !== undefined) reportLazyReads(i, path, stats, read);
+}
+
+/**
+ * Prints what reading a lazily opened input came to.
  *
  * An operation the pager cannot serve decoded the input whole, and says what
  * that added to resident memory; reads that decoded segments again, beyond the
@@ -142,13 +157,12 @@ export function openInputs(paths: readonly string[], types: readonly EastTypeVal
  *
  * @param i - the input's position
  * @param path - its file
- * @param value - the input's value
+ * @param stats - its segment decodes and fence probes, and whether it was read
+ *   whole
+ * @param read - the bytes its reads read from its files
  * @internal
  */
-export function reportInputReads(i: number, path: string, value: unknown): void {
-    const read = lazyInputBytesRead(value);
-    const stats = beast2LazyStats(value);
-    if (read === undefined || stats === undefined) return;
+export function reportLazyReads(i: number, path: string, stats: Beast2LazyStats, read: number): void {
     if (stats.hydrated) {
         console.error(`  input ${i}: decoded whole (an operation the pager cannot serve) — ${formatResident(stats.hydratedBytes)}`);
     } else if (stats.segmentsDecoded > stats.segments) {
@@ -160,6 +174,24 @@ export function reportInputReads(i: number, path: string, value: unknown): void 
             `${formatSize(read)} read of ${formatInputSize(path)}`);
     }
 }
+
+/**
+ * The account `exec -v` gives of a run unit's inputs, on stderr: the program
+ * and what its file weighs, then each input as `run -v` gives it — its file,
+ * what it weighs and its type, whether it opened lazily or was decoded whole,
+ * and what reading it came to. It is what reaches a task's log.
+ *
+ * @internal
+ */
+export const unitRunReport: UnitRunReport = {
+    running: (program, inputs) => {
+        console.error(`Running: ${program}  (${formatFileSize(program)})`);
+        inputs.forEach((input, i) => reportInput(i, input.path, input.type));
+    },
+    openedLazily: reportInputLazy,
+    decodedWhole: reportInputWhole,
+    lazyReads: reportLazyReads,
+};
 
 /**
  * A refusal of the command line itself — a function the inputs given do not
@@ -290,41 +322,6 @@ export async function runProgram(
     }
 
     return outputPath ? undefined : result;
-}
-
-/** A compiled `(K, V, V) -> V` fold of equal keys. */
-export type MergeFunction = (key: unknown, acc: unknown, value: unknown) => unknown;
-
-/**
- * Loads a merge function: an IR file holding a `(K, V, V) -> V` East function
- * over the given key and value types, compiled with the unit's platforms.
- * Shared by `exec`'s dict output and the blob merge.
- *
- * @param path - the IR file (any format the IR positional accepts)
- * @param keyType - the key type
- * @param valueType - the value type
- * @param platformFns - the unit's platforms
- * @param subject - what the function must match, for the message: `the emit
- *   parameter` or `the inputs`
- * @returns the compiled merge function
- * @throws {Error} When the IR is not a function of that shape, naming the
- *   expected and the actual types.
- */
-export function loadMergeFunction(path: string, keyType: EastTypeValue, valueType: EastTypeValue, platformFns: PlatformFunction[], subject: string): MergeFunction {
-    const bundle = loadEastIR(path);
-    const fnType = (bundle.ir as any).value.type as EastTypeValue;
-    const shape = fnType.type === 'Function' ? fnType.value as { inputs: EastTypeValue[]; output: EastTypeValue } : null;
-    if (shape === null || shape.inputs.length !== 3 ||
-        !isTypeValueEqual(shape.inputs[0]!, keyType) ||
-        !isTypeValueEqual(shape.inputs[1]!, valueType) ||
-        !isTypeValueEqual(shape.inputs[2]!, valueType) ||
-        !isTypeValueEqual(shape.output, valueType)) {
-        throw new Error(
-            `merge function: expected a function (K, V, V) -> V matching ${subject} ` +
-            `(K = ${printTypeValue(keyType)}, V = ${printTypeValue(valueType)}), got ${printTypeValue(fnType)}`,
-        );
-    }
-    return (bundle as EastIR<any, any>).compile(platformFns) as MergeFunction;
 }
 
 function maybeWriteOutput(outputPath: string | undefined, result: unknown, outputType: EastTypeValue | null, verbose: boolean): bigint {

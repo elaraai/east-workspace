@@ -8,8 +8,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
-    East, EastError, EastTypeValueType, SortedMap, SortedSet, compareFor, none, some, toEastTypeValue, variant,
-    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_BYTES, UnitOutcomeType, UnitType,
+    East, EastError, EastTypeValueType, SortedMap, SortedSet, compareFor, equalFor, none, printFor, some, toEastTypeValue, variant,
+    Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_BYTES, UnitOutcomeType, UnitType, InMemoryUnitIO, executeUnit,
     decodeBeast2For, decodeCollectionManifest, encodeBeast2FenceFor, encodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR,
     intakeBeast2For, mergeBeast2For, openBeast2LazyFor, readBeast2Extents, spliceBeast2, spliceBeast2Tail,
     type Beast2ManifestSource, type Beast2RunSorterOptions, type EastIR, type EastType, type UnitDecode, type ValueTypeOf,
@@ -27,7 +27,9 @@ import {
  * oracle the three runners are held to.
  * Under EXPORT_TEST_IR (`make test-export`) the cases are written to
  * <dir>/runner_corpus/<case>/, with their names in <dir>/runner_corpus/
- * index.beast2, where each runner's tests execute every case with `exec`. */
+ * index.beast2, where each runner's tests execute every case with `exec`.
+ * Here every case is also executed by the TypeScript runner, `executeUnit`,
+ * over its files held in memory, as a browser holds them. */
 
 /** What executing a case's unit must come to. How its inputs are read is the
  *  unit's own `decode`. */
@@ -122,6 +124,16 @@ const CorruptInputType = DictType(IntegerType, StringType);
 function corruptInput(): Uint8Array {
     return spliceBeast2([1000, 0].map((from) => encodeBeast2PagedFor(CorruptInputType)(
         new SortedMap(Array.from({ length: 6 }, (_, i) => [BigInt(from + i), `row-${from + i}`] as [bigint, string]), compareFor(IntegerType)))));
+}
+
+/** An in-memory IO that records every segment a unit asks it to make there. */
+class AskedIO extends InMemoryUnitIO {
+    readonly asked: [path: string, fetch: boolean][] = [];
+
+    override segment(path: string, fetch: boolean): void {
+        this.asked.push([path, fetch]);
+        super.segment(path, fetch);
+    }
 }
 
 /** How a run unit reads its inputs: lazily, and decoded whole. A case over a
@@ -932,6 +944,40 @@ describe("runner protocol corpus", () => {
                 "intake: a delivery is an Array, Set or Dict, not Integer");
             refused("intake-type-file", "a type file that holds no type", null, delivery,
                 "exec: intake: its type file does not hold a type", null, encodeBeast2For(StringType)("not a type"));
+        });
+    });
+
+    describe("over the in-memory UnitIO", () => {
+        // Every case above, executed by `executeUnit` over the files it stages
+        // held in memory: the outputs east-node's `exec` writes to disk, byte
+        // for byte, and the same outcome. An in-memory IO holds every segment,
+        // so a unit whose host places segments as they are read (`fetch`)
+        // asks it only for segments it holds, and never waits on a host.
+        test("every case comes to its outputs and its outcome", async () => {
+            assert.ok(cases.length > 0, "the corpus holds cases");
+            const equalOutcome = equalFor(UnitOutcomeType);
+            const printOutcome = printFor(UnitOutcomeType);
+            let fetching = 0;
+            for (const c of cases) {
+                const io = new AskedIO(c.files);
+                const unit = decodeBeast2For(UnitType)(c.files.get("unit.beast2")!);
+                const result = await executeUnit(unit, io, {
+                    platforms: (name) => { throw new Error(`the corpus names no platform package, not ${name}`); },
+                });
+                assert.ok(equalOutcome(result.outcome, c.expected.outcome), `${c.dir}: the outcome ${printOutcome(result.outcome)}`);
+                assert.equal(result.peakBytes, 0n, `${c.dir}: an IO that measures nothing reports no peak`);
+                for (const output of c.expected.outputs) assert.deepEqual(io.files.get(output.path), output.bytes, `${c.dir}: ${output.path}`);
+                for (const path of c.expected.absent) assert.ok(!io.files.has(path), `${c.dir}: ${path} is not written`);
+                for (const [path, fetch] of io.asked) {
+                    assert.equal(fetch, unit.fetch, `${c.dir}: ${path} is asked for as the unit says`);
+                    assert.ok(c.files.has(path), `${c.dir}: ${path} is staged, so no host is asked for it`);
+                }
+                if (unit.fetch) {
+                    fetching++;
+                    assert.ok(io.asked.length > 0, `${c.dir}: the unit reads segments its host would place`);
+                }
+            }
+            assert.ok(fetching > 0, "the corpus holds a unit whose host places segments as they are read");
         });
     });
 });

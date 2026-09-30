@@ -8,13 +8,15 @@
  * through this runner, writes the corpus's bytes and comes to its outcome, as
  * east-c's and east-py's runners must. The corpus is `east`'s
  * (`test/runner_corpus.spec.ts`): read from `EAST_RUNNER_CORPUS` when that
- * names one, and written afresh for this run otherwise.
+ * names one, and written afresh for this run otherwise. `exec` is the file
+ * wrapper of east's `executeUnit`, so every case also runs over the in-memory
+ * UnitIO a browser gives it, which must write the very files `exec` writes.
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +26,8 @@ import {
     BooleanType,
     DictType,
     East,
+    FETCH_SEGMENTS_ENV,
+    InMemoryUnitIO,
     IntegerType,
     NullType,
     StringType,
@@ -32,15 +36,54 @@ import {
     UnitType,
     decodeBeast2,
     decodeBeast2For,
+    decodeCollectionManifest,
     encodeBeast2For,
     encodeEastIR,
     equalFor,
+    executeUnit,
+    printFor,
     variant,
     type UnitOutcome,
 } from '@elaraai/east';
-import { inputBytes } from './loader.js';
+import { execUnit, readUnit } from './exec.js';
+import { inputBytes, loadPlatform } from './loader.js';
 
 const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+
+/** An outcome as a message shows it. */
+const printOutcome = printFor(UnitOutcomeType);
+
+/** Every file under `root`, by its path relative to `root`, forward-slashed —
+ *  the paths a unit names them by. */
+function filesUnder(root: string): [string, Uint8Array][] {
+    const files: [string, Uint8Array][] = [];
+    const walk = (rel: string): void => {
+        for (const name of readdirSync(join(root, rel))) {
+            const path = rel === '' ? name : `${rel}/${name}`;
+            if (statSync(join(root, path)).isDirectory()) walk(path);
+            else files.push([path, new Uint8Array(readFileSync(join(root, path)))]);
+        }
+    };
+    walk('');
+    return files;
+}
+
+/**
+ * Asserts an in-memory UnitIO holds the tree at `root`, and nothing else: each
+ * directory's entries, and every file's bytes.
+ */
+function assertHoldsTree(io: InMemoryUnitIO, root: string, label: string): void {
+    const walk = (rel: string): void => {
+        const names = readdirSync(join(root, rel)).sort();
+        assert.deepEqual(io.list(rel), names, `${label}: the entries of ${rel || '.'}`);
+        for (const name of names) {
+            const path = rel === '' ? name : `${rel}/${name}`;
+            if (statSync(join(root, path)).isDirectory()) walk(path);
+            else assert.deepEqual(io.read(path), new Uint8Array(readFileSync(join(root, path))), `${label}: ${path}`);
+        }
+    };
+    walk('');
+}
 
 /** What a corpus case's `case.beast2` holds. How its inputs are read is the
  *  unit's own `decode`. */
@@ -102,6 +145,40 @@ describe('exec: the runner protocol corpus', () => {
                 assert.deepEqual(new Uint8Array(readFileSync(path)), new Uint8Array(output.bytes), `${name}: ${output.path}`);
             }
             for (const path of expected.absent) assert.ok(!existsSync(join(dir, path)), `${name}: ${path} is not written`);
+        }
+    });
+
+    it('writes, over the in-memory UnitIO, the very files its file wrapper writes on disk, and comes to the same outcome', async () => {
+        const names = decodeBeast2For(ArrayType(StringType))(readFileSync(join(corpus, 'index.beast2')));
+        const equalOutcome = equalFor(UnitOutcomeType);
+        // The file wrapper turns the fetch variable on or off for its process,
+        // as its unit says: this one's is put back after.
+        const fetching = process.env[FETCH_SEGMENTS_ENV];
+        try {
+            for (const name of names) {
+                const expected = decodeBeast2(readFileSync(join(corpus, name, 'case.beast2'))).value as RunnerCase;
+                // On disk: a copy of the case, executed by `exec`'s file
+                // wrapper in this process — all of `exec` but the result file
+                // it records and the exit status, which the case above holds.
+                const dir = join(scratch, 'in-memory', name);
+                cpSync(join(corpus, name), dir, { recursive: true });
+                const onDisk = await execUnit(readUnit(join(dir, 'unit.beast2')));
+
+                // In memory: the case's files as the corpus holds them, the
+                // platforms resolved as the file wrapper resolves them.
+                const io = new InMemoryUnitIO(filesUnder(join(corpus, name)));
+                const unit = decodeBeast2For(UnitType)(io.read('unit.beast2'));
+                const inMemory = await executeUnit(unit, io, { platforms: loadPlatform });
+                assert.ok(equalOutcome(inMemory.outcome, onDisk.outcome), `${name}: in memory ${printOutcome(inMemory.outcome)}, on disk ${printOutcome(onDisk.outcome)}`);
+                assert.ok(equalOutcome(inMemory.outcome, expected.outcome), `${name}: ${printOutcome(inMemory.outcome)}`);
+                assert.ok(onDisk.peakBytes > 0n, `${name}: the process's peak is measured`);
+                assert.equal(inMemory.peakBytes, 0n, `${name}: a host that measures no memory reports no peak`);
+                // Every directory and file, byte for byte.
+                assertHoldsTree(io, dir, name);
+            }
+        } finally {
+            if (fetching === undefined) delete process.env[FETCH_SEGMENTS_ENV];
+            else process.env[FETCH_SEGMENTS_ENV] = fetching;
         }
     });
 });
@@ -173,6 +250,150 @@ describe('exec -v: the account of each input', () => {
         const whole = exec('-v');
         assert.ok(!whole.includes('opened lazily'), `a whole unit opened its input lazily:\n${whole}`);
         assert.match(whole, /input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident/);
+    });
+});
+
+describe('exec: a unit whose host places segments as they are read', () => {
+    // A host whose store is elsewhere stages a manifest without its segments
+    // and places each as the runner asks for it: `<segment>.want`, answered
+    // with the file or with `<segment>.error`. Only a unit that says `fetch`
+    // asks.
+    const DT = DictType(IntegerType, StringType);
+    let dir: string;
+    let input: string;
+    let segmentDir: string;
+    let store: string;
+    let segments: string[];
+
+    before(() => {
+        dir = mkdtempSync(join(tmpdir(), 'east-node-exec-fetch-'));
+        input = join(dir, 'table.beast2');
+        segmentDir = `${input}.segments`;
+        store = join(dir, 'store');
+        mkdirSync(segmentDir);
+        mkdirSync(store);
+        // Staged as e3 stages it, and every segment moved to the host's store.
+        const writer = new Beast2ManifestWriter(DT, {
+            object: (hash, bytes) => writeFileSync(join(store, `${hash}.beast2`), bytes),
+            manifest: (bytes) => writeFileSync(input, bytes),
+        });
+        for (let i = 0; i < 20_000; i++) writer.add([BigInt(i), `row-${i}`]);
+        writer.finish();
+        segments = decodeCollectionManifest(new Uint8Array(readFileSync(input))).entries.map((entry) => `${entry.hash}.beast2`);
+        assert.ok(segments.length > 4, `several segments, got ${segments.length}`);
+        writeFileSync(join(dir, 'program.beast2'), encodeEastIR(East.function([DT], StringType, ($, table) => table.get(9_999n)).toIR()));
+    });
+
+    after(() => {
+        rmSync(dir, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+        // Each run starts with no segment placed, and nothing asked for.
+        for (const name of readdirSync(segmentDir)) rmSync(join(segmentDir, name));
+        rmSync(join(dir, 'out.beast2'), { force: true });
+        rmSync(join(dir, 'result.beast2'), { force: true });
+    });
+
+    /** Writes the unit: the program on the table, fetching or not, lazily or
+     *  whole. */
+    function writeUnit(fetch: boolean, decode: 'lazy' | 'whole'): string {
+        const unitPath = join(dir, 'unit.beast2');
+        writeFileSync(unitPath, encodeBeast2For(UnitType)({
+            work: variant('run', {
+                program: 'program.beast2',
+                inputs: ['table.beast2'],
+                output: variant('value', 'out.beast2'),
+                decode: decode === 'lazy' ? variant('lazy', null) : variant('whole', null),
+            }),
+            platforms: [],
+            threads: 1n,
+            fetch,
+            result: 'result.beast2',
+        }));
+        return unitPath;
+    }
+
+    /**
+     * Executes a unit while this process is its host, placing each segment it
+     * asks for from the store — or, given a refusal, answering each ask with
+     * it — within a bounded wait.
+     *
+     * @returns the exit status, stderr, and the segments asked for, in order
+     */
+    async function execHosted(unitPath: string, refusal?: string): Promise<{ status: number | null; stderr: string; asked: string[] }> {
+        const child = spawn(process.execPath, [bin, 'exec', unitPath], { stdio: ['ignore', 'ignore', 'pipe'] });
+        let stderr = '';
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+        const closed = new Promise<number | null>((resolve) => child.on('close', (code) => resolve(code)));
+        const asked: string[] = [];
+        const host = setInterval(() => {
+            for (const name of readdirSync(segmentDir)) {
+                if (!name.endsWith('.want')) continue;
+                const segment = name.slice(0, -'.want'.length);
+                if (asked.includes(segment)) continue;
+                asked.push(segment);
+                const file = join(segmentDir, segment);
+                // Whole, or not at all: the runner reads either file the moment
+                // it is there, so each is written under a name of its own and
+                // renamed into place, as e3's host writes them.
+                if (refusal !== undefined) {
+                    writeFileSync(`${file}.error.partial`, refusal);
+                    renameSync(`${file}.error.partial`, `${file}.error`);
+                } else {
+                    copyFileSync(join(store, segment), `${file}.placing`);
+                    renameSync(`${file}.placing`, file);
+                }
+            }
+        }, 2);
+        let timer: NodeJS.Timeout | undefined;
+        try {
+            const status = await Promise.race([closed, new Promise<'late'>((resolve) => { timer = setTimeout(() => resolve('late'), 60_000); })]);
+            assert.notEqual(status, 'late', `the runner did not finish within 60 s:\n${stderr}`);
+            return { status: status as number | null, stderr, asked };
+        } finally {
+            clearInterval(host);
+            clearTimeout(timer);
+            if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        }
+    }
+
+    /** The unit's recorded outcome. */
+    const outcome = (): UnitOutcome => decodeBeast2For(UnitResultType)(readFileSync(join(dir, 'result.beast2'))).outcome;
+
+    it('asks for the one segment a lazy read reads, and for every segment a whole decode reads', async () => {
+        const lazy = await execHosted(writeUnit(true, 'lazy'));
+        assert.equal(lazy.status, 0, lazy.stderr);
+        assert.equal(decodeBeast2For(StringType)(readFileSync(join(dir, 'out.beast2'))), 'row-9999');
+        assert.equal(lazy.asked.length, 1, `one segment asked for, of ${segments.length}: ${lazy.asked.join(', ')}`);
+        assert.ok(segments.includes(lazy.asked[0]!), 'a segment the manifest names');
+
+        for (const name of readdirSync(segmentDir)) rmSync(join(segmentDir, name));
+        const whole = await execHosted(writeUnit(true, 'whole'));
+        assert.equal(whole.status, 0, whole.stderr);
+        assert.equal(decodeBeast2For(StringType)(readFileSync(join(dir, 'out.beast2'))), 'row-9999');
+        assert.deepEqual(whole.asked, segments, 'every segment, in the manifest\'s order');
+    });
+
+    it('fails in the host\'s words when the host cannot place a segment', async () => {
+        const refused = await execHosted(writeUnit(true, 'lazy'), 'the store is throttling');
+        assert.equal(refused.status, 1, refused.stderr);
+        const failed = outcome();
+        if (failed.type !== 'failed') assert.fail(`the outcome is ${failed.type}`);
+        // The segment as every runner names it: `<input>.segments/<hash>.beast2`.
+        assert.equal(failed.value.message, `beast2 v5: manifest segment ${input}.segments/${refused.asked[0]} cannot be placed: the store is throttling`);
+        assert.ok(!existsSync(join(dir, 'out.beast2')), 'nothing is written');
+    });
+
+    it('asks for nothing for a unit that does not say fetch, and fails on the absent segment at once', async () => {
+        const unasked = await execHosted(writeUnit(false, 'lazy'));
+        assert.equal(unasked.status, 1, unasked.stderr);
+        assert.deepEqual(unasked.asked, []);
+        assert.deepEqual(readdirSync(segmentDir), [], 'no segment asked for');
+        const failed = outcome();
+        if (failed.type !== 'failed') assert.fail(`the outcome is ${failed.type}`);
+        assert.match(failed.value.message, /^ENOENT: no such file or directory, open '.*\.beast2'$/);
     });
 });
 

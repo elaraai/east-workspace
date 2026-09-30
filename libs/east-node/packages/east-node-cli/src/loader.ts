@@ -3,35 +3,30 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from 'fs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'path';
-import { extname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import {
     IRType,
     FETCH_SEGMENTS_ENV,
     decodeBeast2For,
-    decodeBeast2,
     decodeEastFor,
     decodeJSONFor,
-    decodeEastIR,
-    decodeAsyncEastIR,
-    readBeast2Extents,
-    readBeast2Manifest,
-    spliceBeast2,
-    encodeBeast2SegmentsFor,
-    openBeast2LazyFor,
-    isBeast2LazySafe,
-    type Beast2LazyOptions,
-    type Beast2ManifestSource,
-    type CollectionManifest,
-    EastIR,
-    AsyncEastIR,
+    type AsyncEastIR,
+    type EastIR,
     type EastTypeValue,
-    type Beast2SyncRangeReader,
+    type UnitIO,
 } from '@elaraai/east';
 import type { PlatformFunction, IR, ValueTypeOf } from '@elaraai/east/internal';
+import {
+    lazyInputBytesRead as lazyUnitInputBytesRead,
+    loadUnitInput,
+    loadUnitProgram,
+    openUnitInputLazy,
+    unitFileFormat,
+    unitInputBytes,
+} from '@elaraai/east/internal';
 
 // Decoder for IR from beast2 format (self-describing)
 const decodeIRFromBeast2 = decodeBeast2For(IRType);
@@ -233,27 +228,111 @@ function isValidPlatformFunction(value: unknown): value is PlatformFunction {
     return true;
 }
 
-/**
- * Determines the file format from extension.
- */
-function getFileFormat(filePath: string): 'beast2' | 'east' | 'json' {
-    const ext = extname(filePath).toLowerCase();
+/** The longest a runner waits between looks for a segment it asked for. */
+const FETCH_WAIT_MAX_MS = 50;
 
-    switch (ext) {
-        case '.beast2':
-        case '.beast':
-            return 'beast2';
-        case '.east':
-            return 'east';
-        case '.json':
-            return 'json';
-        default:
-            throw new Error(
-                `Unsupported file extension "${ext}". ` +
-                `Supported extensions: .beast2, .beast, .east, .json`
-            );
+/**
+ * A staged manifest's segment file, present: asked of the host when it is
+ * absent and the host places segments as they are read (`fetch`), by creating
+ * `<file>.want` and waiting for the host to place the file or to write
+ * `<file>.error`, why it cannot — each whole, renamed into place, since this
+ * reads either the moment it is there. Without `fetch`, an absent file is
+ * returned as it is, for its read to fail as ever.
+ *
+ * @param file - the segment's file, `<input>.segments/<hash>.beast2`
+ * @param fetch - whether the unit's host places segments as they are read
+ * @returns the file
+ * @throws {Error} When the host writes why it cannot place the segment.
+ */
+export function segmentFile(file: string, fetch: boolean): string {
+    if (!fetch || existsSync(file)) return file;
+    const error = `${file}.error`;
+    closeSync(openSync(`${file}.want`, 'a'));
+    // The runner has nothing else to do while it waits: it sleeps between
+    // looks, a little longer each time.
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    for (let wait = 1; !existsSync(file); wait = Math.min(2 * wait, FETCH_WAIT_MAX_MS)) {
+        if (existsSync(error)) {
+            throw new Error(`beast2 v5: manifest segment ${file} cannot be placed: ${readFileSync(error, 'utf8')}`);
+        }
+        Atomics.wait(pause, 0, 0, wait);
     }
+    return file;
 }
+
+/**
+ * Whether this process's units' hosts place segments as they are read:
+ * {@link FETCH_SEGMENTS_ENV} is `1`, which `exec` sets from its unit's
+ * `fetch`, and which a host never sets for a runner.
+ *
+ * @returns whether an absent segment of a staged manifest is asked for
+ */
+export function fetchingSegments(): boolean {
+    return process.env[FETCH_SEGMENTS_ENV] === '1';
+}
+
+/**
+ * The process's resident memory now, in bytes: the gauge a lazily opened
+ * input weighs a read of it whole by, and the verbose account weighs an input
+ * decoded whole by.
+ *
+ * @returns the resident set size
+ */
+export function residentBytes(): number {
+    return process.memoryUsage.rss();
+}
+
+/**
+ * The {@link UnitIO} over this machine's files, by the paths it is given — a
+ * relative one taken against the working directory, as every `fs` call takes
+ * it. `exec` hands it a unit whose paths it resolved against the unit file's
+ * directory first.
+ *
+ * @remarks
+ * A file's size and each ranged read open the file and close it after, so a
+ * lazily opened input holds no descriptor for its life, and a body that
+ * iterates every segment of a large manifest runs out of none. A missing file
+ * fails as opening it fails, and a directory is no file. A segment asked for
+ * is asked of the host through `<file>.want` ({@link segmentFile}).
+ */
+export const nodeUnitIO: UnitIO = {
+    read: (file) => readFileSync(file),
+    size: (file) => {
+        const fd = openSync(file, 'r');
+        try {
+            const stat = fstatSync(fd);
+            if (!stat.isFile()) throw new Error(`${file} is not a file`);
+            return stat.size;
+        } finally {
+            closeSync(fd);
+        }
+    },
+    readRange: (file, offset, length) => {
+        const fd = openSync(file, 'r');
+        try {
+            const out = new Uint8Array(length);
+            let done = 0;
+            while (done < length) {
+                const got = readSync(fd, out, done, length - done, offset + done);
+                if (got === 0) break;
+                done += got;
+            }
+            return done === length ? out : out.subarray(0, done);
+        } finally {
+            closeSync(fd);
+        }
+    },
+    segment: (file, fetch) => {
+        segmentFile(file, fetch);
+    },
+    list: (dir) => readdirSync(dir),
+    makeDirectory: (dir) => {
+        mkdirSync(dir, { recursive: true });
+    },
+    write: (file, bytes) => {
+        writeFileSync(file, bytes);
+    },
+};
 
 /**
  * Loads an IR file and returns the parsed IR.
@@ -270,7 +349,7 @@ function getFileFormat(filePath: string): 'beast2' | 'east' | 'json' {
  * @returns Parsed IR (FunctionIR or AsyncFunctionIR)
  */
 export function loadIR(filePath: string): ValueTypeOf<IR> {
-    const format = getFileFormat(filePath);
+    const format = unitFileFormat(filePath);
     const data = readFileSync(filePath);
 
     let ir: ValueTypeOf<IR>;
@@ -308,104 +387,30 @@ export function loadIR(filePath: string): ValueTypeOf<IR> {
  * map). Prefer this over {@link loadIR} when the caller will compile + run
  * the IR, so that error locations resolve end-to-end.
  *
- * Supports `.beast2` / `.beast` (source map read from the blob), `.json`
- * (source map read from the `{ir, source_map}` wrapper format), and `.east`
- * (no source map available — field stays null).
+ * Supports `.beast2` / `.beast` (source map read from the blob), `.json` and
+ * `.east` (no source map available — field stays null): east's
+ * `loadUnitProgram` over this machine's files.
  */
 export function loadEastIR(filePath: string): EastIR<any, any> | AsyncEastIR<any, any> {
-    const format = getFileFormat(filePath);
-    const data = readFileSync(filePath);
-
-    if (format === 'beast2') {
-        // Peek at the root variant to pick sync/async decoder.
-        const probe = decodeIRFromBeast2(data);
-        if (probe.type === 'Function') {
-            return decodeEastIR(data);
-        }
-        if (probe.type === 'AsyncFunction') {
-            return decodeAsyncEastIR(data);
-        }
-        throw new Error(`IR file must contain a function or async function, got "${probe.type}"`);
-    }
-
-    // For east / json formats we fall back to the IR-only path (no source map).
-    // JSON wrapper parsing for {ir, source_map} can be added here if needed.
-    const ir = loadIR(filePath);
-    if (ir.type === 'Function') {
-        return new EastIR<any, any>(ir as any);
-    }
-    return new AsyncEastIR<any, any>(ir as any);
+    return loadUnitProgram(nodeUnitIO, filePath);
 }
 
 /**
- * Loads input data from a file.
- *
- * The type of the input must be provided to decode correctly.
+ * Loads input data from a file, decoded whole.
  *
  * Task inputs decode **frozen**: deeply immutable from construction, with
  * mutating builtins throwing the uniform runtime error naming the copy-first
- * remedy. Frozen collections compare by value under East `Is`.
+ * remedy. Frozen collections compare by value under East `Is`. A manifest is
+ * the collection it names, its segments spliced from the files beside it, each
+ * asked of the host when it places segments as they are read.
  *
  * @param filePath - Path to the input file
  * @param type - The expected East type of the input
  * @returns Decoded value
  */
 export function loadInput(filePath: string, type: EastTypeValue): unknown {
-    const format = getFileFormat(filePath);
-    const data = readFileSync(filePath);
-
-    switch (format) {
-        case 'beast2': {
-            // A manifest-rooted file is the collection it describes: splice
-            // its segment files back under their shared header and decode
-            // that, which is the same value the lazy opener serves.
-            const manifest = readBeast2Manifest(data);
-            if (manifest !== null) {
-                return decodeBeast2(spliceManifestFiles(filePath, manifest), { frozen: true }).value;
-            }
-            // For inputs, we use decodeBeast2 which is self-describing
-            // This allows loading data without knowing the exact type
-            const result = decodeBeast2(data, { frozen: true });
-            return result.value;
-        }
-        case 'east': {
-            const decoder = decodeEastFor(type, true);
-            return decoder(data);
-        }
-        case 'json': {
-            const decoder = decodeJSONFor(type, true);
-            return decoder(data);
-        }
-    }
+    return loadUnitInput(nodeUnitIO, filePath, type, fetchingSegments());
 }
-
-/**
- * One blob out of a manifest-rooted input's segment files — the whole-value
- * form, for a decode that is not going to be lazy.
- *
- * @remarks
- * The segments are standalone blobs sharing one header, so the splice is a
- * concatenation of their frame bytes under it: nothing is decoded, and the
- * result is byte-identical to the blob the value was cut from.
- *
- * @param filePath - the manifest file
- * @param manifest - its decoded manifest
- * @returns the spliced blob
- * @throws {Error} When a segment the manifest names is missing.
- */
-function spliceManifestFiles(filePath: string, manifest: CollectionManifest): Uint8Array {
-    const type = manifest.type as EastTypeValue;
-    // An empty collection names no segment, so there is nothing to splice:
-    // the writer's own empty blob is what it was cut from.
-    if (manifest.entries.length === 0) return encodeBeast2SegmentsFor(type)([]);
-    const dir = segmentDirFor(filePath);
-    return spliceBeast2(manifest.entries.map((entry) =>
-        new Uint8Array(readFileSync(segmentFile(path.join(dir, `${entry.hash}.beast2`))))));
-}
-
-/** Bytes each lazily opened input has read from its descriptor so far —
- *  what "paged from the file" came to, for the runner's verbose summary. */
-const lazyInputReads = new WeakMap<object, () => number>();
 
 /**
  * Bytes a value from {@link loadInputLazy} has read so far: the geometry
@@ -417,42 +422,23 @@ const lazyInputReads = new WeakMap<object, () => number>();
  * @returns the byte count, or `undefined` when the value was not opened lazily
  */
 export function lazyInputBytesRead(value: unknown): number | undefined {
-    return typeof value === 'object' && value !== null ? lazyInputReads.get(value)?.() : undefined;
+    return lazyUnitInputBytesRead(value);
 }
-
-/** How an input opens lazily: frozen, like every task input, and weighing a
- *  read of it whole — which an operation the pager cannot serve makes — by
- *  the growth in the process's resident memory, for the runner's verbose
- *  account (`beast2LazyStats`). */
-const LAZY_INPUT_OPTIONS: Beast2LazyOptions = { frozen: true, resident: () => process.memoryUsage.rss() };
-
-/** The descriptors behind lazily opened inputs, closed when their value is
- *  collected: the value reads segment frames from the descriptor for its
- *  whole life. A runner holds one per lazy input. */
-const lazyInputFiles = new FinalizationRegistry<number[]>((handles) => {
-    for (const fd of handles) {
-        try {
-            closeSync(fd);
-        } catch {
-            // Already closed — nothing else to release.
-        }
-    }
-});
 
 /**
  * Opens an input file as a lazy pager-backed collection value, when it can
- * be: a beast2 v5 collection blob carrying a segment index. Size, iteration
- * and keyed reads are then served from the index with O(segment) decoded
- * memory; any other operation hydrates transparently to the eager value's
- * exact semantics, and what that added to the process's resident memory is
- * kept for the runner's verbose account.
+ * be: a beast2 v5 collection blob carrying a segment index, or a manifest over
+ * its segment files. Size, iteration and keyed reads are then served from the
+ * index with O(segment) decoded memory; any other operation hydrates
+ * transparently to the eager value's exact semantics, and what that added to
+ * the process's resident memory is kept for the runner's verbose account.
  *
- * The file is never buffered whole: the value pages segment frames from an
- * open descriptor through positioned reads (a Set or Dict input's first
- * keyed read probes every segment's fence once), so its residency is the
- * page cache and the process heap holds one decoded segment at a time — the
- * difference between an out-of-memory kill and graceful eviction for an
- * input near the runner's memory limit.
+ * The file is never buffered whole: the value pages segment frames from it
+ * through positioned reads (a Set or Dict input's first keyed read probes
+ * every segment's fence once), so its residency is the page cache and the
+ * process heap holds one decoded segment at a time — the difference between an
+ * out-of-memory kill and graceful eviction for an input near the runner's
+ * memory limit.
  *
  * Returns `undefined` when the file cannot be served lazily (a non-beast2
  * format, a v4 or index-less blob, a non-collection root, cross-segment
@@ -464,74 +450,12 @@ const lazyInputFiles = new FinalizationRegistry<number[]>((handles) => {
  * mutated (no write through a freshly decoded element to drop) and frozen
  * collections compare by value. Only `Ref` (an identity cell even when
  * frozen) and function shapes fall back to the eager (frozen) decode.
- * {@link isBeast2LazySafe} is the gate.
  *
  * @param filePath - Path to the input file
  * @returns The lazy collection value, or `undefined` to fall back
  */
 export function loadInputLazy(filePath: string): unknown | undefined {
-    if (getFileFormat(filePath) !== 'beast2') return undefined;
-    const open = openCounted();
-    try {
-        const reader = open.reader(filePath);
-        // A file whose value is a manifest is the collection it describes,
-        // its segments the sibling files it names — so the input was staged
-        // by linking rather than by splicing, and nothing here reads a
-        // segment the body does not touch.
-        const manifest = readBeast2Manifest(reader);
-        if (manifest !== null) return openManifestLazy(filePath, manifest, open);
-
-        const extents = readBeast2Extents(reader);
-        if (!extents.selfContained || !isBeast2LazySafe(extents.typeValue, { frozen: true })) {
-            open.closeAll();
-            return undefined;
-        }
-        const value = openBeast2LazyFor(extents.typeValue, LAZY_INPUT_OPTIONS)(reader) as object;
-        open.own(value);
-        return value;
-    } catch {
-        open.closeAll();
-        return undefined;
-    }
-}
-
-/** The directory a manifest-rooted input's segment files sit in, beside the
- *  file itself: `<input>.segments/<hash>.beast2`. The convention is shared
- *  with e3-core's staging and with the other runtimes. */
-export function segmentDirFor(filePath: string): string {
-    return `${filePath}.segments`;
-}
-
-/** The longest a runner waits between looks for a segment it asked for. */
-const FETCH_WAIT_MAX_MS = 50;
-
-/**
- * A staged manifest's segment file, present: asked of the host when it is
- * absent and the host places segments as they are read ({@link
- * FETCH_SEGMENTS_ENV} is `1`), by creating `<file>.want` and waiting for the
- * host to place the file or to write `<file>.error`, why it cannot — each
- * whole, renamed into place, since this reads either the moment it is there.
- * Without the variable, an absent file is returned as it is, for its read to
- * fail as ever.
- *
- * @param file - the segment's file, `<input>.segments/<hash>.beast2`
- * @returns the file
- * @throws {Error} When the host writes why it cannot place the segment.
- */
-export function segmentFile(file: string): string {
-    if (existsSync(file) || process.env[FETCH_SEGMENTS_ENV] !== '1') return file;
-    const error = `${file}.error`;
-    closeSync(openSync(`${file}.want`, 'a'));
-    // The runner has nothing else to do while it waits: it sleeps between
-    // looks, a little longer each time.
-    const pause = new Int32Array(new SharedArrayBuffer(4));
-    for (let wait = 1; !existsSync(file); wait = Math.min(2 * wait, FETCH_WAIT_MAX_MS)) {
-        if (existsSync(error)) {
-            throw new Error(`beast2 v5: manifest segment ${file} cannot be placed: ${readFileSync(error, 'utf8')}`);
-        }
-        Atomics.wait(pause, 0, 0, wait);
-    }
-    return file;
+    return openUnitInputLazy(nodeUnitIO, filePath, { fetch: fetchingSegments(), resident: residentBytes });
 }
 
 /**
@@ -549,129 +473,5 @@ export function segmentFile(file: string): string {
  * @returns the byte count
  */
 export function inputBytes(filePath: string): number {
-    if (getFileFormat(filePath) !== 'beast2') return statSync(filePath).size;
-    const open = openCounted();
-    try {
-        const reader = open.reader(filePath);
-        const manifest = readBeast2Manifest(reader);
-        if (manifest === null) return reader.size;
-        return manifest.entries.reduce((sum, entry) => sum + Number(entry.bytes), reader.size);
-    } catch {
-        return statSync(filePath).size;
-    } finally {
-        open.closeAll();
-    }
-}
-
-/** Opens a manifest-rooted input as a lazy collection over its segment files.
- *  Returns `undefined` when the element shape is not lazy-safe or a segment
- *  the manifest names is missing — the caller falls back to the eager load,
- *  which splices the same files. A segment the host places as it is read is
- *  asked for when it is first read, and not missed. */
-function openManifestLazy(filePath: string, manifest: CollectionManifest, open: CountedOpener): unknown | undefined {
-    const typeValue = manifest.type as EastTypeValue;
-    if (!isBeast2LazySafe(typeValue, { frozen: true })) {
-        open.closeAll();
-        return undefined;
-    }
-    const dir = segmentDirFor(filePath);
-    const entries = manifest.entries;
-    if (process.env[FETCH_SEGMENTS_ENV] !== '1') {
-        for (const entry of entries) {
-            if (!existsSync(path.join(dir, `${entry.hash}.beast2`))) {
-                open.closeAll();
-                return undefined;
-            }
-        }
-    }
-    const readers: (Beast2SyncRangeReader | undefined)[] = new Array(entries.length);
-    const source: Beast2ManifestSource = {
-        manifest,
-        segment(i) {
-            // A segment file is opened for each read and closed after it: a
-            // body that iterates every segment of a large record would
-            // otherwise hold a descriptor per segment for the value's life,
-            // and run out of them.
-            return readers[i] ??= open.segment(segmentFile(path.join(dir, `${entries[i]!.hash}.beast2`)));
-        },
-    };
-    const value = openBeast2LazyFor(typeValue, LAZY_INPUT_OPTIONS)(source) as object;
-    open.own(value);
-    return value;
-}
-
-/** Descriptors opened for one lazy input, the bytes they have served, and
- *  who closes them. */
-interface CountedOpener {
-    /** A positioned reader over `file`, counting every byte it serves. */
-    reader(file: string): Beast2SyncRangeReader;
-    /** A positioned reader over one of a manifest's segment files, counting
-     *  every byte it serves and holding no descriptor between reads. */
-    segment(file: string): Beast2SyncRangeReader;
-    /** Hands the descriptors to `value`, closed when it is collected. */
-    own(value: object): void;
-    /** Closes everything — the open did not produce a value. */
-    closeAll(): void;
-}
-
-/** Exactly `length` bytes of `handle` from `offset`. */
-function readRange(handle: number, offset: number, length: number): Uint8Array {
-    const out = new Uint8Array(length);
-    let done = 0;
-    while (done < length) {
-        const n = readSync(handle, out, done, length - done, offset + done);
-        if (n === 0) throw new Error(`beast2: short read at offset ${offset + done}`);
-        done += n;
-    }
-    return out;
-}
-
-/** The descriptors and the byte counter a lazy input shares across its
- *  file and, for a manifest, every segment file it reads. */
-function openCounted(): CountedOpener {
-    const handles: number[] = [];
-    let bytesRead = 0;
-    return {
-        reader(file) {
-            const handle = openSync(file, 'r');
-            handles.push(handle);
-            return {
-                size: fstatSync(handle).size,
-                read(offset, length) {
-                    const out = readRange(handle, offset, length);
-                    bytesRead += length;
-                    return out;
-                },
-            };
-        },
-        segment(file) {
-            return {
-                size: statSync(file).size,
-                read(offset, length) {
-                    const handle = openSync(file, 'r');
-                    try {
-                        const out = readRange(handle, offset, length);
-                        bytesRead += length;
-                        return out;
-                    } finally {
-                        closeSync(handle);
-                    }
-                },
-            };
-        },
-        own(value) {
-            lazyInputFiles.register(value, handles);
-            lazyInputReads.set(value, () => bytesRead);
-        },
-        closeAll() {
-            for (const handle of handles) {
-                try {
-                    closeSync(handle);
-                } catch {
-                    // Already closed — nothing else to release.
-                }
-            }
-            handles.length = 0;
-        },
-    };
+    return unitInputBytes(nodeUnitIO, filePath);
 }

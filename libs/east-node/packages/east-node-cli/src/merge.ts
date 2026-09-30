@@ -4,59 +4,24 @@
  */
 
 /**
- * The blob merge behind an `exec` merge unit (issue #770).
+ * The blob merge behind an `exec` merge unit (issue #770), over this
+ * machine's files.
  *
- * Canonical Set or Dict collections of one type in — sorted, indexed beast2 v5
- * blobs, or manifest directories, as a unit's parts are staged — and one
- * canonical collection out, merged by the library's `mergeBeast2For`: every
- * input is read segment by segment through positioned reads, and the output is
- * written through the canonical element writer, so it is byte-identical to
- * what that writer writes for the merged value. Memory is one decoded segment
- * per input plus one open output segment; no temporary file is ever written.
- * This module opens and checks the inputs, reads the key range and loads the
- * fold, refusing each in the words east-c and east-py use.
- *
- * Equal keys across inputs fold in input order: with a merge function (Dict
- * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the
- * first element stands. Without a fold, an equal key is the library's
- * duplicate error. An input whose keys do not ascend, an input whose type is
- * not input 0's, and an Array input are refused.
- *
- * With a key range (a blob of `Struct{from: Option<K>, to: Option<K>}` over
- * the inputs' key type) only the keys in `[from, to)` merge: every input is
- * sought to the segment owning `from` through its fences and read up to the
- * first key at or past `to`, so a unit over a range of a large output reads
- * that range's share of each input, plus at most one segment. An absent bound
- * is open; both absent is the whole merge.
- *
- * This is the fan-in of a split task's set and dict parts: e3 runs it as a
- * merge unit on the task's runner, one per key range of a group of parts, and
- * never decodes a part itself. east-c and east-py merge through the same
- * contract, so the three runners write the same bytes.
+ * The merge is east's `mergeUnitParts`, which `executeUnit` runs for a merge
+ * unit's set and dict parts: canonical Set or Dict collections of one type in —
+ * sorted, indexed beast2 v5 blobs, or manifest directories, as a unit's parts
+ * are staged — and one canonical collection out, byte-identical to what the
+ * canonical element writer writes for the merged value, read segment by
+ * segment and refused in the words east-c and east-py use. This is its file
+ * wrapper: the parts are files, and the output a blob file or a manifest
+ * directory's sink.
  */
 
-import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync, writeSync } from 'fs';
-import {
-    OptionType,
-    StructType,
-    decodeBeast2For,
-    fromEastTypeValue,
-    isTypeValueEqual,
-    mergeBeast2For,
-    readBeast2Extents,
-    readBeast2HeaderType,
-    readBeast2Manifest,
-    readBeast2Type,
-    toEastTypeValue,
-    type Beast2ManifestSink,
-    type Beast2ManifestSource,
-    type Beast2SyncRangeReader,
-    type CollectionManifest,
-} from '@elaraai/east';
-import type { EastTypeValue, PlatformFunction } from '@elaraai/east/internal';
-import { printTypeValue } from '@elaraai/east/internal';
-import { segmentDirFor, segmentFile } from './loader.js';
-import { loadMergeFunction } from './runner.js';
+import { closeSync, openSync, writeSync } from 'fs';
+import type { Beast2ManifestSink } from '@elaraai/east';
+import type { PlatformFunction } from '@elaraai/east/internal';
+import { mergeUnitParts } from '@elaraai/east/internal';
+import { fetchingSegments, nodeUnitIO } from './loader.js';
 
 /** Options accepted by {@link mergeBlobs}. */
 export interface MergeBlobsOptions {
@@ -84,22 +49,6 @@ export interface MergeBlobsStats {
     folds: number;
 }
 
-/** The keys a merge covers: `[from, to)`, a bound `undefined` when open —
- *  East values are never `undefined`. */
-interface KeyRange {
-    from: unknown;
-    to: unknown;
-}
-
-/** An input opened and checked: its type, and what the merge reads it
- *  through — positioned reads on its descriptor, which `close` releases, or
- *  the segments of a manifest directory. */
-interface OpenedInput {
-    type: EastTypeValue;
-    source: Beast2SyncRangeReader | Beast2ManifestSource;
-    close: () => void;
-}
-
 /** Writes all of `bytes` to `fd` — `writeSync` may write fewer bytes than
  *  asked, and a silently short write would corrupt the file. */
 function writeAll(fd: number, bytes: Uint8Array): void {
@@ -109,173 +58,13 @@ function writeAll(fd: number, bytes: Uint8Array): void {
     }
 }
 
-/** Exactly `length` bytes of the file open as `fd`, from `offset`. */
-function readExactly(fd: number, offset: number, length: number): Uint8Array {
-    const out = new Uint8Array(length);
-    let done = 0;
-    while (done < length) {
-        const n = readSync(fd, out, done, length - done, offset + done);
-        if (n === 0) throw new Error(`beast2: short read at offset ${offset + done}`);
-        done += n;
-    }
-    return out;
-}
-
-/**
- * The segments of the manifest directory at `path`, each read through
- * positioned reads on its file in `<path>.segments/`, the convention e3 stages
- * inputs in. A segment's file is opened for each read and closed after it, so
- * a merge of a large manifest holds no descriptor per segment; one the host
- * places as it is read is asked for when it is first read.
- *
- * @param path - the manifest's file
- * @param manifest - its decoded manifest
- * @returns the source the merge reads the input through
- */
-function manifestSource(path: string, manifest: CollectionManifest): Beast2ManifestSource {
-    const dir = segmentDirFor(path);
-    return {
-        manifest,
-        segment(i) {
-            const file = segmentFile(`${dir}/${manifest.entries[i]!.hash}.beast2`);
-            let size: number;
-            try {
-                size = statSync(file).size;
-            } catch {
-                throw new Error(`beast2 v5: manifest segment ${file} cannot be read`);
-            }
-            return {
-                size,
-                read(offset, length) {
-                    const fd = openSync(file, 'r');
-                    try {
-                        return readExactly(fd, offset, length);
-                    } finally {
-                        closeSync(fd);
-                    }
-                },
-            };
-        },
-    };
-}
-
-/**
- * Opens input `index` at `path` and checks it is a canonical Set or Dict
- * collection of `expected`'s type: a blob, read through positioned reads on
- * its descriptor, or a manifest directory, read through its segment files.
- *
- * @param path - the blob, or the manifest's file
- * @param index - the input's position, for messages
- * @param expected - input 0's type, or `null` for input 0 itself
- * @returns the opened input and its type
- * @throws {Error} When the file cannot be opened (missing, unreadable, not
- *   a regular file), is not a blob (too short, or without the magic — the
- *   reader's own words), cannot be read as a canonical collection blob or a
- *   manifest, or its type is not `expected`.
- */
-function openInput(path: string, index: number, expected: EastTypeValue | null): OpenedInput {
-    let fd: number;
-    let size: number;
-    try {
-        fd = openSync(path, 'r');
-    } catch {
-        throw new Error(`merge: input ${index} (${path}): cannot open the file`);
-    }
-    try {
-        const stat = fstatSync(fd);
-        if (!stat.isFile()) throw new Error('not a regular file');
-        size = stat.size;
-    } catch {
-        closeSync(fd);
-        throw new Error(`merge: input ${index} (${path}): cannot open the file`);
-    }
-    const reader: Beast2SyncRangeReader = { size, read: (offset, length) => readExactly(fd, offset, length) };
-    let manifest: CollectionManifest | null;
-    let type: EastTypeValue;
-    let selfContained: boolean;
-    try {
-        // The header first: a file too short for a blob, or one without the
-        // magic, is refused in the reader's words — the sentence east-c and
-        // east-py give for the same bytes — before the index is looked for.
-        readBeast2HeaderType(reader);
-        // A manifest directory is the collection its manifest names, its
-        // segments standalone blobs, each self-contained.
-        manifest = readBeast2Manifest(reader);
-        if (manifest !== null) {
-            type = manifest.type;
-            selfContained = true;
-        } else {
-            const extents = readBeast2Extents(reader);
-            type = extents.typeValue;
-            selfContained = extents.selfContained;
-        }
-    } catch (err) {
-        closeSync(fd);
-        throw new Error(`merge: input ${index} (${path}): ${(err as Error).message ?? String(err)}`);
-    }
-    let refusal: string | null = null;
-    if (expected !== null && !isTypeValueEqual(type, expected)) {
-        refusal = `merge: input ${index} (${path}) has type ${printTypeValue(type)}, expected ${printTypeValue(expected)} (input 0)`;
-    } else if (type.type !== 'Set' && type.type !== 'Dict') {
-        refusal = `merge: inputs must be Set or Dict blobs, got ${type.type}`;
-    } else if (!selfContained) {
-        refusal = `merge: input ${index} (${path}): the blob is not self-contained`;
-    }
-    if (refusal !== null) {
-        closeSync(fd);
-        throw new Error(refusal);
-    }
-    if (manifest === null) return { type, source: reader, close: () => closeSync(fd) };
-    // The manifest is read; the segments are read from their own files.
-    closeSync(fd);
-    return { type, source: manifestSource(path, manifest), close: () => {} };
-}
-
-/**
- * Reads a range blob: `Struct{from: Option<K>, to: Option<K>}` over the
- * inputs' key type, self-describing, checked against that type.
- *
- * @param path - the blob
- * @param keyType - the inputs' key (Dict) or element (Set) type
- * @returns the bounds, an absent one `undefined`
- * @throws {Error} When the file cannot be opened or read as a beast2 blob,
- *   or its type is not the bounds struct over the inputs' key type.
- */
-function readRange(path: string, keyType: EastTypeValue): KeyRange {
-    let bytes: Uint8Array;
-    try {
-        bytes = new Uint8Array(readFileSync(path));
-    } catch {
-        throw new Error(`merge: range (${path}): cannot open the file`);
-    }
-    // The same shape east-c builds (merge.c) and e3-core writes
-    // (execution/steps.ts): the bounds struct over the key type.
-    const key = fromEastTypeValue(keyType);
-    const rangeType = toEastTypeValue(StructType({ from: OptionType(key), to: OptionType(key) }));
-    let type: EastTypeValue;
-    try {
-        type = readBeast2Type(bytes);
-    } catch (err) {
-        throw new Error(`merge: range (${path}): ${(err as Error).message ?? String(err)}`);
-    }
-    if (!isTypeValueEqual(type, rangeType)) {
-        throw new Error(`merge: range (${path}) has type ${printTypeValue(type)}, expected ${printTypeValue(rangeType)} (bounds over the inputs' key type)`);
-    }
-    let bounds: { from: { type: string; value: unknown }; to: { type: string; value: unknown } };
-    try {
-        bounds = decodeBeast2For(rangeType)(bytes) as typeof bounds;
-    } catch (err) {
-        throw new Error(`merge: range (${path}): ${(err as Error).message ?? String(err)}`);
-    }
-    return {
-        from: bounds.from.type === 'some' ? bounds.from.value : undefined,
-        to: bounds.to.type === 'some' ? bounds.to.value : undefined,
-    };
-}
-
 /**
  * Merges sorted Set or Dict blobs of one type into one canonical collection —
  * an `exec` merge unit's set or dict parts.
+ *
+ * @remarks
+ * A manifest input's segment the process's host places as it is read
+ * ({@link fetchingSegments}) is asked for when the merge first reads it.
  *
  * @param inputPaths - the inputs, in the order equal keys fold; at least one
  * @param output - the output blob's path, or the sink a manifest directory is
@@ -290,45 +79,22 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
  *   terminator or index, or no manifest).
  */
 export function mergeBlobs(inputPaths: readonly string[], output: string | Beast2ManifestSink, options: MergeBlobsOptions = {}): MergeBlobsStats {
-    if (inputPaths.length === 0) throw new Error('merge: at least one input is needed');
-    if (options.mergePath !== undefined && options.union) {
-        throw new Error('merge: a merge function and union are two folds — give one');
-    }
-    const opened: OpenedInput[] = [];
     let fd = -1;
-    let stats: MergeBlobsStats;
     try {
-        const first = openInput(inputPaths[0]!, 0, null);
-        opened.push(first);
-        const type = first.type;
-        const dict = type.type === 'Dict';
-        if (options.mergePath !== undefined && !dict) throw new Error('merge: a merge function applies to Dict inputs only');
-        if (options.union && dict) throw new Error('merge: union applies to Set inputs only');
-        const keyType = (dict ? (type as any).value.key : (type as any).value) as EastTypeValue;
-        const merge = options.mergePath !== undefined
-            ? loadMergeFunction(options.mergePath, keyType, (type as any).value.value as EastTypeValue, options.platformFns ?? [], 'the inputs')
-            : undefined;
-        const range = options.rangePath !== undefined ? readRange(options.rangePath, keyType) : { from: undefined, to: undefined };
-        for (let i = 1; i < inputPaths.length; i++) opened.push(openInput(inputPaths[i]!, i, type));
-
-        stats = mergeBeast2For(type, {
-            ...(merge !== undefined && { merge }),
-            union: options.union ?? false,
-            from: range.from,
-            to: range.to,
-            labels: inputPaths,
-            // Frames deflate on worker threads (#763).
-            parallel: true,
-        })(opened.map((input) => input.source), typeof output !== 'string' ? output : (bytes) => {
+        return mergeUnitParts(nodeUnitIO, inputPaths, typeof output !== 'string' ? output : (bytes) => {
             // The output is created with its first bytes, which the merge
             // writes once every input has opened, so a refused input leaves
             // no file behind.
             if (fd < 0) fd = openSync(output, 'w');
             writeAll(fd, bytes);
+        }, {
+            ...(options.mergePath !== undefined && { merge: options.mergePath }),
+            ...(options.union !== undefined && { union: options.union }),
+            ...(options.rangePath !== undefined && { range: options.rangePath }),
+            ...(options.platformFns !== undefined && { platforms: options.platformFns }),
+            fetch: fetchingSegments(),
         });
     } finally {
-        for (const input of opened) input.close();
         if (fd >= 0) closeSync(fd);
     }
-    return stats;
 }
