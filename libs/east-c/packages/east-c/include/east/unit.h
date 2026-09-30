@@ -80,6 +80,8 @@ typedef struct {
     char **platforms;      /* the platform packages, as the runner names them */
     size_t num_platforms;
     int64_t threads; /* the threads the runner may use, its own pools included */
+    bool fetch;      /* the host places the segments of the collections the unit reads as the
+                        runner asks for them: the runner protocol's segments on demand */
     char *result;    /* where the result goes */
 } EastUnit;
 

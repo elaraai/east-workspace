@@ -164,9 +164,12 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
 /**
  * Start dataflow execution (non-blocking).
  *
- * Returns 202 Accepted immediately and runs execution in background.
- * The run's state, which the orchestrator keeps in its state store, is what
- * getDataflowExecution() polls.
+ * Returns 202 Accepted once the orchestrator has started the run, and leaves
+ * nothing of the run in the request's host: the orchestrator runs it where it
+ * runs its runs, and keeps its state in its state store, which
+ * getDataflowExecution() polls. A run's end is the orchestrator's to handle
+ * where it starts the run — a local one in its own process — so this never
+ * waits on it.
  *
  * @param storage - Storage backend
  * @param orchestrator - The orchestrator that runs the repository's dataflows
@@ -189,7 +192,7 @@ export async function startDataflow(
     // Start execution via orchestrator (acquires lock internally). The loop
     // keeps `width` tasks and units in flight, and the runner decides which
     // of them spawn.
-    const handle = await orchestrator.start(storage, repoPath, workspace, {
+    await orchestrator.start(storage, repoPath, workspace, {
       runner: options.runner,
       ...(options.width !== undefined && { width: options.width }),
       force: options.force,
@@ -197,11 +200,7 @@ export async function startDataflow(
       verbose: options.verbose,
     });
 
-    // How the run ends is in its state, which a poll reads: its end is
-    // awaited only so that a failure is never an unhandled rejection.
-    void orchestrator.wait(handle).catch(() => {});
-
-    // Return immediately with 202 Accepted
+    // How the run ends is in its state, which a poll reads.
     return sendSuccessWithStatus(NullType, null, 202);
   } catch (err) {
     return sendError(NullType, errorToVariant(err));

@@ -19,6 +19,9 @@ import {
   packageList,
   packageImport,
   packageExport,
+  pollExport,
+  repoCreate,
+  repoRemove,
   workspaceExport,
   ApiError,
   ApiTypes,
@@ -27,6 +30,7 @@ import {
 } from '@elaraai/e3-api-client';
 import { encodeBeast2For, decodeBeast2For, NullType } from '@elaraai/east';
 import {
+  PackageJobResponseType,
   PackageTransferInitRequestType,
   PackageTransferInitResponseType,
   PackageImportStatusType,
@@ -285,6 +289,71 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
       const decode = decodeBeast2For(ApiTypes.ResponseType(PackageImportStatusType));
       const result = decode(buffer) as Response<PackageImportStatus>;
       assert.strictEqual(result.type, 'error', 'Expected error variant for non-existent job');
+    });
+
+    it('answers an import and an export only through the repository that started them', async (t) => {
+      const ctx = await withPackageZip(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      const other = `pkg-jobs-other-${Date.now()}`;
+      await repoCreate(base, other, opts);
+      t.after(async () => {
+        try {
+          await repoRemove(base, other, opts);
+        } catch {
+          // Ignore cleanup errors
+        }
+      });
+      const repoUrl = (repo: string) => `${base}/api/repos/${encodeURIComponent(repo)}`;
+      const BEAST2 = 'application/beast2';
+      const decodeJob = decodeBeast2For(ApiTypes.ResponseType(PackageJobResponseType));
+      const decodeImport = decodeBeast2For(ApiTypes.ResponseType(PackageImportStatusType));
+      /** The message a refusal names, as a job route answers it. */
+      const refusal = (answer: Response<unknown>): string => {
+        if (answer.type !== 'error') assert.fail('a job route answered for a job another repository started');
+        if (answer.value.type !== 'internal') assert.fail(`a job route refused with ${answer.value.type}, not internal`);
+        return answer.value.value.message;
+      };
+
+      // An export and an import, each started in the test's repository.
+      await packageImport(base, ctx.repoName, ctx.packageZip, opts);
+      const started = await fetchWithAuth(`${repoUrl(ctx.repoName)}/packages/transfer-pkg/1.0.0/export`, {
+        method: 'POST', headers: { 'Accept': BEAST2 },
+      }, opts);
+      const exportJob = decodeJob(new Uint8Array(await started.arrayBuffer())) as Response<{ id: string }>;
+      assert.strictEqual(exportJob.type, 'success');
+      const exportId = exportJob.value.id;
+      const init = await fetchWithAuth(`${repoUrl(ctx.repoName)}/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': BEAST2, 'Accept': BEAST2 },
+        body: encodeBeast2For(PackageTransferInitRequestType)({ size: BigInt(ctx.packageZip.length) }),
+      }, opts);
+      const importJob = decodeBeast2For(ApiTypes.ResponseType(PackageTransferInitResponseType))(new Uint8Array(await init.arrayBuffer())) as Response<{ id: string; uploadUrl: string }>;
+      assert.strictEqual(importJob.type, 'success');
+      const importId = importJob.value.id;
+
+      // Through another repository each is a job that does not exist: the
+      // export's status and download, the import's status and its processing.
+      await assert.rejects(pollExport(base, encodeURIComponent(other), exportId, opts), (err: unknown) => {
+        assert.ok(err instanceof ApiError, `Expected ApiError, got ${err}`);
+        assert.strictEqual(err.code, 'internal');
+        assert.strictEqual((err.details as { message: string }).message, `repository '${other}' has no export job '${exportId}'`);
+        return true;
+      });
+      const polled = await fetchWithAuth(`${repoUrl(other)}/import/${importId}`, { method: 'GET', headers: { 'Accept': BEAST2 } }, opts);
+      assert.strictEqual(refusal(decodeImport(new Uint8Array(await polled.arrayBuffer())) as Response<unknown>),
+        `repository '${other}' has no import job '${importId}'`);
+      const triggered = await fetchWithAuth(`${repoUrl(other)}/import/${importId}`, { method: 'POST', headers: { 'Accept': BEAST2 } }, opts);
+      assert.strictEqual(refusal(decodeJob(new Uint8Array(await triggered.arrayBuffer())) as Response<unknown>),
+        `repository '${other}' has no import job '${importId}'`);
+
+      // Through its own repository each answers.
+      const exported = await pollExport(base, encodeURIComponent(ctx.repoName), exportId, opts);
+      assert.strictEqual(exported.type, 'completed');
+      const own = await fetchWithAuth(`${repoUrl(ctx.repoName)}/import/${importId}`, { method: 'GET', headers: { 'Accept': BEAST2 } }, opts);
+      const pending = decodeImport(new Uint8Array(await own.arrayBuffer())) as Response<PackageImportStatus>;
+      assert.strictEqual(pending.type, 'success');
+      assert.strictEqual(pending.value.type, 'processing', 'the import waits for its upload');
     });
   });
 }

@@ -17,9 +17,8 @@
  * and its dataset refs at `workspaces/<ws>/data/<path>.beast2`.
  */
 
-import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
-import yazl from 'yazl';
+import type { Writable } from 'node:stream';
 import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import {
@@ -31,7 +30,8 @@ import type {
 } from '@elaraai/e3-types';
 import { objectAdoptFile, type DatasetTaken } from './dataset-adopt.js';
 import { eachAtMost } from './concurrency.js';
-import { ZIP_RELEASE_ENTRY, packageResolve, packageRead, walkPackageObjects } from './packages.js';
+import { ZIP_RELEASE_ENTRY, addPackageObjects, packageResolve, packageRead, writePackageZip } from './packages.js';
+import type { PackageZipCheckpoint } from './transfer/types.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import { workspaceSetDatasetByHash } from './trees.js';
 import {
@@ -873,22 +873,33 @@ export interface WorkspaceExportResult {
   objectCount: number;
   name: string;
   version: string;
+  /** The zip's size in bytes. */
+  bytes: number;
 }
 
 /**
  * Options for workspace export
  */
 export interface WorkspaceExportOptions {
-  /** Called after each object is added. Can be used for progress reporting. */
+  /** Called after each object is added, or found in the zip already. Can be
+   *  used for progress reporting. */
   onProgress?: (progress: { objectsProcessed: number }) => Promise<void>;
   /** External workspace lock. If not provided, an exclusive lock will be acquired internally. */
   lock?: LockHandle;
+  /**
+   * Aborting it stops the export once the entry it is writing is written: it
+   * throws an `ExportStoppedError` holding the checkpoint it resumes from. A
+   * file destination keeps the zip so far at `<path>.partial`.
+   */
+  signal?: AbortSignal;
+  /**
+   * The checkpoint a stopped export of the workspace handed over: the export
+   * writes the entries after it, to a destination that holds the zip's bytes
+   * up to it. The export names the version the one it resumes named, and is
+   * refused when the workspace changed since.
+   */
+  resume?: PackageZipCheckpoint;
 }
-
-/**
- * Fixed mtime for deterministic zip output (Unix epoch)
- */
-const DETERMINISTIC_MTIME = new Date(0);
 
 /**
  * Export a workspace as a package.
@@ -901,26 +912,60 @@ const DETERMINISTIC_MTIME = new Date(0);
  *    executions the current run used to the .zip — not the run's record,
  *    which names this repository's workspace
  *
+ * The zip is written an entry at a time, to a file or to a stream, as a
+ * package's export writes it (`packageExport`), reading its segments ahead of
+ * the entry it writes, and an export stopped at its signal is resumed from its
+ * checkpoint.
+ *
+ * It writes a package object that nothing in the repository names, and reads
+ * what the workspace named as it started, which a write may leave unnamed
+ * since: so it holds the repository's running work ({@link withRunningWork}),
+ * as a package's export does, and gc holding the repository still sweeps none
+ * of it, and an upgrade waits for it.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param name - Workspace name
- * @param zipPath - Path to write the .zip file
+ * @param destination - The path to write the .zip file to, or the stream to
+ *   write its bytes to
  * @param outputName - Package name (default: deployed package name)
  * @param version - Package version (default: <pkgVersion>-<short hash>)
- * @returns Export result with package info
+ * @param options - Progress, the workspace lock, and the signal that stops the
+ *   export and the checkpoint it resumes from
+ * @returns Export result with package info and the zip's size
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ * @throws {ExportStoppedError} When `options.signal` stopped the export.
+ * @throws {Error} When `options.resume` is given without the version, or is a
+ *   checkpoint of the workspace as it was before it changed; and when a
+ *   garbage collection or an upgrade holds the repository.
  */
 export async function workspaceExport(
   storage: StorageBackend,
   repo: string,
   name: string,
-  zipPath: string,
+  destination: string | Writable,
   outputName?: string,
   version?: string,
   options?: WorkspaceExportOptions,
 ): Promise<WorkspaceExportResult> {
-  const partialPath = `${zipPath}.partial`;
+  return withRunningWork(storage, repo, () => exportWorkspace(storage, repo, name, destination, outputName, version, options));
+}
+
+/** The export of {@link workspaceExport}, holding the repository's running
+ *  work. */
+async function exportWorkspace(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+  destination: string | Writable,
+  outputName: string | undefined,
+  version: string | undefined,
+  options: WorkspaceExportOptions | undefined,
+): Promise<WorkspaceExportResult> {
+  if (options?.resume !== undefined && version === undefined) {
+    throw new Error('a resumed export of a workspace names the version the export it resumes named');
+  }
 
   // Acquire workspace lock for snapshot consistency
   const externalLock = options?.lock;
@@ -981,73 +1026,57 @@ export async function workspaceExport(
   const pkgData = encoder(newPkgObject);
   const packageHash = await storage.objects.write(repo, pkgData);
 
-  const zipfile = new yazl.ZipFile();
-  // The release exporting it, first, so an import meets it before anything
-  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(E3_RELEASE)), ZIP_RELEASE_ENTRY, { mtime: DETERMINISTIC_MTIME });
-  let objectCount = 0;
-  await walkPackageObjects(storage, repo, packageHash, newPkgObject, async (hash) => {
-    const data = await storage.objects.read(repo, hash);
-    zipfile.addBuffer(Buffer.from(data), `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`, { mtime: DETERMINISTIC_MTIME });
-    objectCount++;
-    if (options?.onProgress) await options.onProgress({ objectsProcessed: objectCount });
-  });
+  const { objectCount, bytes } = await writePackageZip(destination, packageHash, options ?? {}, async (zip) => {
+    // The release exporting it, first, so an import meets it before anything
+    await zip.add(ZIP_RELEASE_ENTRY, encodeBeast2For(StringType)(E3_RELEASE));
+    const objectCount = await addPackageObjects(zip, storage, repo, packageHash, newPkgObject, options?.onProgress);
 
-  // The package ref, as a repository keeps one
-  zipfile.addBuffer(Buffer.from(encodeBeast2For(StringType)(packageHash)), `packages/${finalName}/${finalVersion}.beast2`, { mtime: DETERMINISTIC_MTIME });
+    // The package ref, as a repository keeps one
+    await zip.add(`packages/${finalName}/${finalVersion}.beast2`, encodeBeast2For(StringType)(packageHash));
 
-  // Include the executions and logs of the current run. The run's own record
-  // stays here: it names this repository's workspace, and a run's history
-  // belongs to the repository the run ran in. The executions travel so the
-  // importing repository's cache serves the outputs they made.
-  if (state.currentRunId.type === 'some') {
-    const currentRunId = state.currentRunId.value;
-    const dataflowRun = await storage.refs.dataflowRunGet(repo, name, currentRunId);
-    if (dataflowRun) {
-      // Include the execution each task used, which the run's record names
-      // whole: its inputs may have changed in the workspace since.
-      const statusEncoder = encodeBeast2For(ExecutionStatusType);
-      for (const { taskHash, inputsHash: inHash, executionId } of dataflowRun.taskExecutions.values()) {
-        // Read and add execution status
-        const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
-        if (execStatus) {
-          const statusPath = `executions/${taskHash}/${inHash}/${executionId}/status.beast2`;
-          zipfile.addBuffer(Buffer.from(statusEncoder(execStatus)), statusPath, { mtime: DETERMINISTIC_MTIME });
-        }
+    // Include the executions and logs of the current run. The run's own record
+    // stays here: it names this repository's workspace, and a run's history
+    // belongs to the repository the run ran in. The executions travel so the
+    // importing repository's cache serves the outputs they made.
+    if (state.currentRunId.type === 'some') {
+      const currentRunId = state.currentRunId.value;
+      const dataflowRun = await storage.refs.dataflowRunGet(repo, name, currentRunId);
+      if (dataflowRun) {
+        // Include the execution each task used, which the run's record names
+        // whole: its inputs may have changed in the workspace since.
+        const statusEncoder = encodeBeast2For(ExecutionStatusType);
+        for (const { taskHash, inputsHash: inHash, executionId } of dataflowRun.taskExecutions.values()) {
+          // Read and add execution status
+          const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
+          if (execStatus) {
+            await zip.add(`executions/${taskHash}/${inHash}/${executionId}/status.beast2`, statusEncoder(execStatus));
+          }
 
-        // Read and add logs (stdout/stderr)
-        for (const stream of ['stdout', 'stderr'] as const) {
-          try {
-            const logChunk = await storage.logs.read(repo, taskHash, inHash, executionId, stream, { limit: 100 * 1024 * 1024 });
-            if (logChunk.data && logChunk.data.length > 0) {
-              const logPath = `executions/${taskHash}/${inHash}/${executionId}/${stream}.txt`;
-              zipfile.addBuffer(Buffer.from(logChunk.data), logPath, { mtime: DETERMINISTIC_MTIME });
+          // Read and add logs (stdout/stderr)
+          for (const stream of ['stdout', 'stderr'] as const) {
+            let log: string;
+            try {
+              log = (await storage.logs.read(repo, taskHash, inHash, executionId, stream, { limit: 100 * 1024 * 1024 })).data;
+            } catch {
+              // Skip if log not available
+              continue;
             }
-          } catch {
-            // Skip if log not available
+            if (log.length > 0) {
+              await zip.add(`executions/${taskHash}/${inHash}/${executionId}/${stream}.txt`, Buffer.from(log));
+            }
           }
         }
       }
     }
-  }
-
-  // Finalize and write zip to disk
-  await new Promise<void>((resolve, reject) => {
-    const writeStream = createWriteStream(partialPath);
-    zipfile.outputStream.pipe(writeStream);
-    zipfile.outputStream.on('error', reject);
-    writeStream.on('error', reject);
-    writeStream.on('close', resolve);
-    zipfile.end();
+    return { objectCount };
   });
-
-  // Atomic rename to final path
-  await fs.rename(partialPath, zipPath);
 
   return {
     packageHash,
     objectCount,
     name: finalName,
     version: finalVersion,
+    bytes,
   };
 
   } finally {

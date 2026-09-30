@@ -15,6 +15,29 @@ export interface BackendContext {
   /** A repository the backend created, as it creates one, by the identifier
    *  its stores take */
   readonly repo: string;
+  /**
+   * Leaves what the backend holds in bytes that do not read, as a crash, a
+   * failing disk or a hand edit leaves them: what the cases of a record that
+   * does not decode need. A backend whose records can be left so gives it,
+   * since those cases are what hold it to answering such a record with
+   * `ExecutionCorruptError`. One that cannot omits it, and they are skipped.
+   */
+  readonly damage?: BackendDamage;
+}
+
+/**
+ * The records a {@link BackendContext} can leave in bytes that do not decode.
+ */
+export interface BackendDamage {
+  /**
+   * Leaves an execution attempt's record there, in bytes that do not decode
+   * as one.
+   *
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - The attempt's id, a UUIDv7
+   */
+  execution(taskHash: string, inputsHash: string, executionId: string): Promise<void>;
 }
 
 /**

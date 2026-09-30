@@ -5,19 +5,19 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
 import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
 
-import { LocalTaskRunner, probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
+import { LocalTaskRunner, probeExecutionCache, taskExecute, taskExecuteUnit } from './LocalTaskRunner.js';
 import { collectNodeModulesBins } from './processExec.js';
 import { Budget } from './budget.js';
 import type { MemorySampler } from './memory.js';
 import type { UnitRequeue } from './interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
-import { uuidv7 } from '../uuid.js';
+import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import { inputsHash } from '../executions.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -313,6 +313,42 @@ describe('stopped executions', () => {
       await probeExecutionCache(storage, repo, taskHash, inHash);
       assert.equal((await storage.refs.executionGet(repo, taskHash, inHash, noOwner))?.type, 'running');
     });
+
+    it('judges by the liveness its caller gives in place of this host\'s processes', async () => {
+      // Its runner and its owner are gone here, as a unit running on another
+      // host's are: the caller's liveness says whether it can still finish.
+      const elsewhere = await writeRunning(await deadProcess(), await deadProcess());
+      await probeExecutionCache(storage, repo, taskHash, inHash, async () => true);
+      assert.equal((await storage.refs.executionGet(repo, taskHash, inHash, elsewhere))?.type, 'running');
+
+      // And one with no owner is repaired once the caller's liveness says it
+      // cannot finish.
+      const noOwner = await writeRunning(await liveProcess(), null);
+      await probeExecutionCache(storage, repo, taskHash, inHash, async () => false);
+      assert.equal((await storage.refs.executionGet(repo, taskHash, inHash, noOwner))?.type, 'interrupted');
+    });
+
+    it('probes a unit with the liveness its caller gives', async () => {
+      const { taskHash: unitTask, inputHashes } = await bashTask('cp "$1" "$2"');
+      const unitHash = inputsHash(inputHashes);
+      const executionId = uuidv7();
+      const dead = await deadProcess();
+      await storage.refs.executionOwnerWrite(repo, unitTask, unitHash, executionId, dead);
+      await storage.refs.executionWrite(repo, unitTask, unitHash, executionId, variant('running', {
+        executionId, inputHashes, startedAt: new Date(), pid: dead.pid, pidStartTime: dead.pidStartTime, bootId: dead.bootId, unit: true,
+      }));
+      const asked: string[] = [];
+
+      const result = await taskExecuteUnit(storage, repo, unitTask, { inputs: inputHashes, merge: null, own: false }, {
+        executionAlive: async (_storage, _task, inputs) => {
+          asked.push(inputs);
+          return true;
+        },
+      });
+      assert.equal(result.state, 'success', result.error ?? '');
+      assert.deepEqual(asked, [unitHash]);
+      assert.equal((await storage.refs.executionGet(repo, unitTask, unitHash, executionId))?.type, 'running', 'the attempt the caller says still runs is left as it is');
+    });
   });
 
   it('serves the latest attempt only when it succeeded: a success behind a failed attempt is not served', async () => {
@@ -326,8 +362,10 @@ describe('stopped executions', () => {
     }));
     assert.equal((await probeExecutionCache(storage, repo, taskHash, inHash))?.executionId, succeeded, 'the latest attempt, a success, is served');
 
-    // A later millisecond, so the failed attempt's id sorts after the success's.
-    await new Promise((resolve) => setTimeout(resolve, 2));
+    // A later millisecond, so the failed attempt's id sorts after the
+    // success's: waited for by the clock the id reads, which a timer's delay
+    // does not promise to have moved
+    while (Date.now() <= uuidv7Timestamp(succeeded).getTime()) await new Promise((resolve) => setTimeout(resolve, 1));
     const failed = uuidv7();
     await storage.refs.executionWrite(repo, taskHash, inHash, failed, variant('failed', {
       executionId: failed, inputHashes: [], startedAt: now, completedAt: now, exitCode: 1n, peakBytes: none, unit: false,
@@ -396,6 +434,18 @@ describe('stopped executions', () => {
     assert.equal(result.state, 'success', result.error ?? '');
     assert.deepEqual(ownerAtRunning, [{ pid: BigInt(process.pid), pidStartTime: BigInt(await getPidStartTime(process.pid)), bootId: await getBootId() }]);
   });
+
+  it('records the owner its caller names, or none', async () => {
+    // A host that runs an execution on another's behalf, and judges its
+    // liveness itself.
+    const named: ExecutionOwner = { pid: 77n, pidStartTime: 7n, bootId: 'a-host-that-launched-it' };
+    for (const [owner, salt] of [[named, 'named'], [null, 'none']] as const) {
+      const { taskHash, inputHashes } = await bashTask(`cp "$1" "$2" # ${salt}`);
+      const result = await taskExecute(storage, repo, taskHash, inputHashes, { owner });
+      assert.equal(result.state, 'success', result.error ?? '');
+      assert.deepEqual(await storage.refs.executionOwnerRead(repo, taskHash, result.inputsHash, result.executionId), owner);
+    }
+  });
 });
 
 describe('the budget', () => {
@@ -436,22 +486,30 @@ describe('the budget', () => {
 
   it('keeps at most the budget\'s cores of runners in flight across the executions of a runner holding it', async () => {
     // Six executions started at once under a budget of two cores: each runner
-    // marks itself running while it sleeps, so the most marks present at
-    // once is the most runners in flight.
+    // marks itself running until the test lets it go, so the most marks
+    // present at once is the most runners in flight. The test lets them go
+    // once two hold the budget, however long either took to start.
     const marks = mkdtempSync(path.join(tmpdir(), 'e3-budget-'));
+    const go = `${marks}-go`;
     try {
       const budget = new Budget({ cores: 2, memory: 1024 ** 3 });
       const runner = new LocalTaskRunner(repo, budget);
       // Forward slashes, as e3 hands a custom runner its own paths: bash takes
       // a Windows backslash for an escape.
       const marksDir = marks.split(path.sep).join('/');
-      const script = `touch "${marksDir}/$0"; sleep 0.3; rm "${marksDir}/$0"; cp "$1" "$2"`;
+      const goFile = go.split(path.sep).join('/');
+      const script = `touch "${marksDir}/$0"; while [ ! -e "${goFile}" ]; do sleep 0.05; done; rm "${marksDir}/$0"; cp "$1" "$2"`;
       let peakMarks = 0;
       const watcher = setInterval(() => { peakMarks = Math.max(peakMarks, readdirSync(marks).length); }, 10);
-      const results = await Promise.all(Array.from({ length: 6 }, async (_, i) => {
+      const running = Promise.all(Array.from({ length: 6 }, async (_, i) => {
         const { taskHash, inputHashes } = await bashTask(script, `run-${i}`);
         return runner.execute(storage, taskHash, inputHashes);
       }));
+      await new Promise<void>((resolve) => {
+        const poll = setInterval(() => { if (budget.inFlight === 2) { clearInterval(poll); resolve(); } }, 10);
+      });
+      writeFileSync(go, '');
+      const results = await running;
       clearInterval(watcher);
       for (const result of results) assert.equal(result.state, 'success', result.error ?? '');
       assert.equal(budget.peak, 2, 'the budget was used in full');
@@ -459,12 +517,12 @@ describe('the budget', () => {
       assert.equal(budget.inFlight, 0);
     } finally {
       rmSync(marks, { recursive: true, force: true });
+      rmSync(go, { force: true });
     }
   });
 
   it('reserves the memory a unit is expected to need, so units that do not fit together run one at a time', async () => {
-    const script = 'sleep 0.3; cp "$1" "$2"';
-    const runUnits = async (budget: Budget, expectedPeakBytes: number, salt: string) => {
+    const runUnits = async (budget: Budget, expectedPeakBytes: number, salt: string, script: string) => {
       const runner = new LocalTaskRunner(repo, budget);
       const results = await Promise.all(['a', 'b'].map(async (name) => {
         const { taskHash, inputHashes } = await bashTask(script, `${salt}-${name}`);
@@ -476,12 +534,23 @@ describe('the budget', () => {
     };
 
     const apart = new Budget({ cores: 2, memory: 1024 ** 3 });
-    await runUnits(apart, 0.6 * 1024 ** 3, 'apart');
+    await runUnits(apart, 0.6 * 1024 ** 3, 'apart', 'cp "$1" "$2"');
     assert.equal(apart.peak, 1, 'two units expecting 60% of the memory each ran one at a time');
 
-    const together = new Budget({ cores: 2, memory: 1024 ** 3 });
-    await runUnits(together, 0.4 * 1024 ** 3, 'together');
-    assert.equal(together.peak, 2, 'two expecting 40% each ran at once');
+    // Each runner marks itself up and waits until both are, so the two are in
+    // flight together however long either takes to start; were they never
+    // granted together, each would go on after a long while, and the peak
+    // below fail
+    const marks = mkdtempSync(path.join(tmpdir(), 'e3-together-'));
+    try {
+      const marksDir = marks.split(path.sep).join('/');
+      const bothUp = `touch "${marksDir}/$0"; for i in $(seq 200); do [ "$(ls "${marksDir}" | wc -l)" -ge 2 ] && break; sleep 0.05; done; cp "$1" "$2"`;
+      const together = new Budget({ cores: 2, memory: 1024 ** 3 });
+      await runUnits(together, 0.4 * 1024 ** 3, 'together', bothUp);
+      assert.equal(together.peak, 2, 'two expecting 40% each ran at once');
+    } finally {
+      rmSync(marks, { recursive: true, force: true });
+    }
   });
 
   it('tells its caller while an execution waits for room, with what it waits to reserve, and when it no longer waits', async () => {
@@ -575,11 +644,14 @@ describe('the guard', () => {
 
   const MiB = 1024 ** 2;
 
-  /** A custom bash task that marks each attempt, holds on for `seconds`, and
-   *  copies its input to its output. */
-  async function markingTask(seconds: number, salt: string): Promise<{ taskHash: string; inputHashes: string[] }> {
+  /** A custom bash task that marks each attempt, holds on for `seconds` — its
+   *  first attempt alone, given `firstOnly` — and copies its input to its
+   *  output. */
+  async function markingTask(seconds: number, salt: string, firstOnly = false): Promise<{ taskHash: string; inputHashes: string[] }> {
     // Forward slashes, as e3 hands a custom runner its own paths.
-    const script = `echo x >> "${marks.split(path.sep).join('/')}/attempts"; sleep ${seconds}; cp "$1" "$2"`;
+    const attemptsFile = `${marks.split(path.sep).join('/')}/attempts`;
+    const hold = firstOnly ? `[ "$(wc -l < "${attemptsFile}")" -ge 2 ] || sleep ${seconds}` : `sleep ${seconds}`;
+    const script = `echo x >> "${attemptsFile}"; ${hold}; cp "$1" "$2"`;
     const commandFn = East.function(
       [ArrayType(StringType), StringType],
       ArrayType(StringType),
@@ -617,7 +689,9 @@ describe('the guard', () => {
       machine: async () => null,
     };
     const budget = new Budget({ cores: 2, memory: 100 * MiB }, { sampler, sampleMs: 10 });
-    const { taskHash, inputHashes } = await markingTask(0.5, 'past the budget');
+    // The first attempt holds on until the guard stops it, however long the
+    // guard takes to sample it; the attempt the guard runs again copies at once
+    const { taskHash, inputHashes } = await markingTask(30, 'past the budget', true);
     const requeues: UnitRequeue[] = [];
     const result = await new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null, own: false },
       { expectedPeakBytes: 10 * MiB, onRequeued: (requeue) => requeues.push(requeue) });
@@ -749,7 +823,7 @@ describe('the caller\'s environment', () => {
 
   it('refuses a variable e3 sets itself', async () => {
     const { taskHash, inputHashes } = await printingTask();
-    for (const name of ['PATH', 'E3_RUNNER_SEARCH_DIRS']) {
+    for (const name of ['PATH', 'E3_RUNNER_SEARCH_DIRS', 'E3_FETCH_SEGMENTS']) {
       await assert.rejects(
         new LocalTaskRunner(repo).execute(storage, taskHash, inputHashes, { extraEnv: { [name]: '/nowhere' } }),
         { message: `a runner's environment may not set ${name}, which e3 sets itself` },

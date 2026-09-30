@@ -6,21 +6,26 @@
 /**
  * The repository's tasks lock, and what holds it.
  *
- * Work that writes objects before a ref names them holds the lock shared, and
- * what must find the repository still while it decides — gc, and an upgrade —
- * holds it exclusive, with every workspace's dataflow lock. Both go through
- * the lock service, so they hold any backend's repository.
+ * Work that writes objects before a ref names them, or reads what a sweep or
+ * an upgrade would change under it, holds the lock shared, and what must find
+ * the repository still while it decides — gc, and an upgrade — holds it
+ * exclusive, with every workspace's dataflow lock. Both go through the lock
+ * service, so they hold any backend's repository.
  */
 
 import { variant } from '@elaraai/east';
+import { RepositoryBusyError } from './errors.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
 /**
  * The lock gc takes exclusive, and every write that stores objects before a
  * ref names them holds shared, so the two never overlap: an ad-hoc task run
  * (`e3 run`), which has no dataflow lock, a record write, a dataset write
- * through the store's door, and a deploy. Each writes objects it has not yet
- * rooted, which a concurrent sweep would delete.
+ * through the store's door, a deploy, and a package import. Each writes
+ * objects it has not yet rooted, which a concurrent sweep would delete. A
+ * package's or a workspace's export holds it too, since what it reads may be
+ * named by nothing by the time it reads it, and an upgrade must not rewrite
+ * it meanwhile.
  */
 export const TASKS_LOCK = '#tasks';
 
@@ -76,8 +81,8 @@ export interface RepositoryHoldOptions {
  * @param options - What holds the repository, and how long to wait for it
  * @param fn - the work
  * @returns what `fn` returns
- * @throws {Error} When a task is running in the repository, or a dataflow in
- *   one of its workspaces, beginning with `options.doing`.
+ * @throws {RepositoryBusyError} When a task is running in the repository, or
+ *   a dataflow in one of its workspaces, beginning with `options.doing`.
  */
 export async function withRepositoryHeld<T>(
   storage: StorageBackend,
@@ -90,13 +95,13 @@ export async function withRepositoryHeld<T>(
   try {
     const tasks = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), acquire);
     if (tasks === null) {
-      throw new Error(`${options.doing}: a task is running — retry when it finishes`);
+      throw new RepositoryBusyError(options.doing, null);
     }
     locks.push(tasks);
     for (const ws of await storage.refs.workspaceList(repo)) {
       const lock = await storage.locks.acquire(repo, `${ws}#dataflow`, variant('dataflow', null), acquire);
       if (lock === null) {
-        throw new Error(`${options.doing}: a dataflow is running in workspace '${ws}' — retry when it finishes`);
+        throw new RepositoryBusyError(options.doing, ws);
       }
       locks.push(lock);
     }

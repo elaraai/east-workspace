@@ -42,6 +42,14 @@ export interface TestConfig {
   /** Function that returns an auth token */
   getToken: () => Promise<string>;
 
+  /**
+   * The token of a caller who may read `repo`, and whose one-shot grant there
+   * is `platform_free`: a reader, with no elevated role. If the server needs
+   * it, the harness first grants that caller access to `repo`. A server with
+   * no auth answers any token, and a reader's is then the admin's.
+   */
+  getReaderToken: (repo: string) => Promise<string>;
+
   /** Optional: use an existing repo instead of creating one */
   repoName?: string;
 
@@ -64,6 +72,10 @@ export interface TestContext {
 
   /** Get request options with current token */
   opts: () => Promise<RequestOptions>;
+
+  /** Get request options with a reader's token for this repository
+   *  ({@link TestConfig.getReaderToken}) */
+  readerOpts: () => Promise<RequestOptions>;
 
   /** Create a test package and return path to zip file */
   createPackage: (name: string, version: string) => Promise<string>;
@@ -170,6 +182,8 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
     tempDir,
 
     opts: async () => ({ token: await config.getToken() }),
+
+    readerOpts: async () => ({ token: await config.getReaderToken(repoName) }),
 
     createPackage: async (name: string, version: string) => {
       const zipPath = await createPackageZip(tempDir, name, version);

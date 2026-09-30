@@ -33,6 +33,7 @@ from east.utils.ordering import equal_for
 
 CORPUS_DIR = Path(os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")) / "runner_corpus"
 REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
+FIXTURES = Path(__file__).parent / "fixtures"
 
 if REQUIRED and not (CORPUS_DIR / "index.beast2").exists():
     raise RuntimeError(
@@ -87,3 +88,22 @@ def test_a_unit_that_cannot_be_read_leaves_no_result_and_exits_2(tmp_path):
     )
     assert proc.returncode == 2
     assert proc.stderr.startswith(f"Error: exec {garbage}: ")
+
+
+def test_a_unit_given_no_platform_fails_a_program_calling_one_naming_it(tmp_path):
+    # A unit whose platforms are empty loads none, so a program calling one
+    # fails, naming it: e3 lets a reader run a one-shot on such a unit. The
+    # program and its unit are the TypeScript-written fixtures east-c's exec
+    # gate runs too; the unit's paths are relative.
+    for name in ("platform_call_unit.beast2", "platform_call.beast2"):
+        shutil.copy(FIXTURES / name, tmp_path / name)
+    proc = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "exec", str(tmp_path / "platform_call_unit.beast2")],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 1, proc.stderr
+    _, result = _decode(tmp_path / "platform_call_result.beast2")
+    outcome = result["outcome"]
+    assert outcome.type == "failed", f"the outcome {outcome!r}"
+    assert "console_log" in outcome.value["message"], outcome.value["message"]
+    assert not (tmp_path / "platform_call_output.beast2").exists(), "nothing is written"

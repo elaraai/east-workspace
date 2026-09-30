@@ -37,6 +37,9 @@ export interface JwtPayload {
   nbf: number;
   /** Token type (access or refresh) */
   token_type?: 'access' | 'refresh';
+  /** The caller's roles, which the auth middleware puts on its identity: an
+   *  elevated one runs any one-shot (`oneShotAccessByRoles`) */
+  roles?: string[];
 }
 
 /**

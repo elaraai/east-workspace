@@ -9,11 +9,19 @@
  * Uses mark-and-sweep:
  * 1. collectAllRoots: Collect root hashes from all root scan methods
  * 2. markReachable: DFS through object graph via BEAST2 schema-aware traversal
+ *    (gc-graph.ts)
  * 3. sweepBatch: Pure decision function — identify unreachable objects to delete
  * 4. repoGc: Driver that calls all phases in sequence, after pruning the
  *    history of runs and executions it does not keep (history.ts), then drops
  *    the adoption memo's entries whose manifest is gone, and then the
  *    backend's own sweep
+ *
+ * gc runs one of two ways. By default it holds the repository still, so
+ * nothing writes while it decides. Given a retention window it runs beside
+ * running work instead, in steps a host may spread over several invocations
+ * ({@link repoGcStep}), its mark among them: an object goes only once it has
+ * stayed unreachable for the window, measured from the first sweep that saw it
+ * so, and only if nothing wrote or re-referenced it since.
  *
  * These functions work with any StorageBackend, through its interfaces. What a
  * backend keeps beside its objects and records — a local repository's staging
@@ -21,11 +29,17 @@
  * (`gcSweepBackend`).
  */
 
-import { decodeBeast2, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
+import { ArrayType, BooleanType, IntegerType, OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from '@elaraai/east';
+import { GcResultType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from './storage/interfaces.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
+import { gcObjectReaders, markFrom, markReachable } from './gc-graph.js';
 import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from './history.js';
+import { isObjectHash } from './objects.js';
 import { withRepositoryHeld } from './running-work.js';
+import { uuidv7, uuidv7Timestamp } from './uuid.js';
+
+export { gcObjectReaders, markReachable, touchReachable, type GcChildKind, type MarkReachableOptions } from './gc-graph.js';
 
 /**
  * Options for garbage collection
@@ -56,6 +70,25 @@ export interface GcOptions {
    * Default: {@link DEFAULT_KEEP_DAYS}
    */
   keepDays?: number;
+
+  /**
+   * Run beside running work, behind a retention window, instead of holding the
+   * repository still: the steps of {@link repoGcStep}, one after another.
+   * Default: none — gc holds the repository still
+   */
+  retention?: GcRetention;
+}
+
+/**
+ * How gc runs beside running work.
+ */
+export interface GcRetention {
+  /**
+   * How long an object stays unreachable before gc deletes it, in
+   * milliseconds, measured from the first sweep that saw it so: a whole number
+   * greater than zero, and longer than any write takes to root what it stores.
+   */
+  windowMs: number;
 }
 
 /**
@@ -68,7 +101,8 @@ export interface GcResult {
   deletedPartials: number;
   /** Number of objects retained */
   retainedObjects: number;
-  /** Number of files skipped due to being too young */
+  /** Number of files skipped due to being too young: beside running work,
+   *  unreachable objects still inside the retention window too */
   skippedYoung: number;
   /** Total bytes freed */
   bytesFreed: number;
@@ -91,6 +125,9 @@ export interface SweepBatchResult {
   /** Total bytes that would be freed */
   bytesFreed: number;
 }
+
+/** The age gate's default: a minute. */
+const DEFAULT_MIN_AGE_MS = 60_000;
 
 // =============================================================================
 // Shared Algorithm Functions
@@ -134,498 +171,6 @@ export async function collectAllRoots(store: RepoStore, repo: string, executionR
   return roots;
 }
 
-/** Head read sizes the header-first mark tries, in order — the sequence
- *  `readBeast2HeaderType` uses. */
-const HEAD_PROBE_BYTES = [64 * 1024, 1024 * 1024, 16 * 1024 * 1024];
-
-/**
- * Options for {@link markReachable}.
- */
-export interface MarkReachableOptions {
-  /**
-   * Reads the first `length` bytes of an object (fewer when the object is
-   * shorter), or returns null when it does not exist. With it the mark is
-   * header-first: an object's type is read from its head, and only an object
-   * of a structural shape — one that names other objects — is read whole;
-   * every other object is marked without being read. Without it every object
-   * the mark visits is read whole, so a sweep reads every dataset it reaches
-   * — still classified by its type before anything is decoded.
-   */
-  readHead?: (hash: string, length: number) => Promise<Uint8Array | null>;
-}
-
-/**
- * How a child hash found inside an object must be treated.
- */
-export type GcChildKind =
-  /** Marked reachable without ever being read — an IR blob, an args tuple, a
-   *  segment object. Nothing inside it names another object. */
-  | 'leaf'
-  /** Read and traversed: it names other objects, and one that cannot be read
-   *  keeps nothing alive. */
-  | 'node'
-  /**
-   * A dataset value: marked reachable **unconditionally**, so a ref whose
-   * object is missing or unreadable is never swept out from under itself, and
-   * then visited, because a collection manifest names segment objects that
-   * nothing else keeps alive.
-   *
-   * @remarks
-   * Marking blind is what keeps a partially transferred repository sound.
-   * Visiting is what keeps a manifest's header and segments: marked and not
-   * walked, the manifest would survive a sweep that took everything it names.
-   * With `readHead` a value is classified from its head and read no further
-   * unless it is a manifest; without, it is read whole to learn its type,
-   * which costs the sweep I/O but never an object.
-   */
-  | 'value';
-
-/**
- * Trace the object graph from roots using iterative DFS with schema-aware traversal.
- *
- * Decodes each object using BEAST2 self-describing format and extracts child
- * hashes by what the object is: a kind-tagged object by its tag (a manifest, a
- * record state, a task object or a unit plan), any other by its shape (a
- * package, a tree, a commit…). Objects known to be leaves (IR blobs, segment
- * objects) are marked reachable without reading; see {@link GcChildKind} for
- * how a dataset value is treated.
- *
- * With `options.readHead`, a root or child whose kind is not known in advance
- * is classified by its header first: 64 KiB of head, growing to 1 MiB and then
- * 16 MiB while its type section does not fit. Only a structural shape is read
- * whole; a dataset, whatever its size, is marked without being read, and so is
- * an object whose head yields no type. Without it such an object is read whole
- * and classified the same way, by its type, before anything is decoded.
- *
- * @param readObject - Function to read an object by hash (returns null if missing)
- * @param roots - Set of root hashes to start from
- * @param options - Header-first classification
- * @returns Set of all reachable hashes
- */
-export async function markReachable(
-  readObject: (hash: string) => Promise<Uint8Array | null>,
-  roots: Set<string>,
-  options: MarkReachableOptions = {}
-): Promise<Set<string>> {
-  const reachable = new Set<string>();
-  // Marking and visiting are separate: a dataset value is marked the moment
-  // its ref names it, and may still be visited afterwards to find the segment
-  // objects a manifest names.
-  const visited = new Set<string>();
-  const stack = [...roots];
-
-  while (stack.length > 0) {
-    const hash = stack.pop()!;
-    if (visited.has(hash)) continue;
-    visited.add(hash);
-
-    if (options.readHead) {
-      const type = await readHeadType(options.readHead, hash);
-      if (type === 'missing') continue;
-      if (type === null || !isStructuralShape(type)) {
-        reachable.add(hash); // a leaf: marked without being read
-        continue;
-      }
-    }
-
-    const data = await readObject(hash);
-    if (!data) continue;
-    reachable.add(hash);
-
-    // Without head reads the object had to be read whole to be classified,
-    // but it is classified all the same before it is decoded: a dataset of any
-    // size is decoded only when it is a shape that names other objects.
-    if (!options.readHead) {
-      let type: EastTypeValue;
-      try {
-        type = readBeast2Type(data);
-      } catch {
-        continue; // Not valid BEAST2 or unknown format — a leaf
-      }
-      if (!isStructuralShape(type)) continue;
-    }
-
-    // Schema-aware child extraction
-    let children: { hash: string; kind: GcChildKind }[];
-    try {
-      const decoded = decodeBeast2(Buffer.from(data));
-      children = extractChildren(decoded.type, decoded.value);
-    } catch {
-      continue; // Not valid BEAST2 or unknown format — treat as leaf
-    }
-
-    for (const child of children) {
-      if (child.kind === 'leaf') {
-        reachable.add(child.hash); // Mark without reading
-        continue;
-      }
-      if (child.kind === 'value') {
-        reachable.add(child.hash);
-        stack.push(child.hash);
-        continue;
-      }
-      if (!visited.has(child.hash)) stack.push(child.hash);
-    }
-  }
-
-  return reachable;
-}
-
-/**
- * The root type an object's header declares, read through growing head
- * probes; `null` when no probe yields one (not beast2, or a malformed or
- * implausibly large type section — a leaf), or `'missing'` when the object
- * does not exist.
- */
-async function readHeadType(
-  readHead: (hash: string, length: number) => Promise<Uint8Array | null>,
-  hash: string
-): Promise<EastTypeValue | null | 'missing'> {
-  for (const probe of HEAD_PROBE_BYTES) {
-    const head = await readHead(hash, probe);
-    if (head === null) return 'missing';
-    try {
-      return readBeast2Type(head);
-    } catch {
-      // A short head fails like a malformed one: grow, unless this head was
-      // already the whole object.
-      if (head.length < probe) return null;
-    }
-  }
-  return null;
-}
-
-// =============================================================================
-// Type Detection Helpers
-// =============================================================================
-
-// EastTypeValue is a variant object: { type: string, value: any }
-// For Struct: type.type === "Struct", type.value is Array<{ name: string, type: EastTypeValue }>
-// For Variant: type.type === "Variant", type.value is Array<{ name: string, type: EastTypeValue }>
-
-/** A type's struct field names or variant case names, in wire order. */
-function namesOf(type: EastType): readonly string[] {
-  return (toEastTypeValue(type).value as { name: string }[]).map((f) => f.name);
-}
-
-/**
- * Whether a decoded type is a struct whose fields are exactly `fields`, in
- * order: how an object without a kind tag is recognised, by its current shape
- * alone.
- */
-function isStructOf(type: any, fields: readonly string[]): boolean {
-  if (type.type !== 'Struct') return false;
-  const names = (type.value as { name: string }[]).map((f) => f.name);
-  return names.length === fields.length && names.every((name, i) => name === fields[i]);
-}
-
-const PACKAGE_OBJECT_FIELDS = namesOf(PackageObjectType);
-const FUNCTION_OBJECT_FIELDS = namesOf(FunctionObjectType);
-const RECORD_OBJECT_FIELDS = namesOf(RecordObjectType);
-const RECORD_INDEX_OBJECT_FIELDS = namesOf(RecordIndexObjectType);
-const MUTATION_OBJECT_FIELDS = namesOf(MutationObjectType);
-const MIGRATION_OBJECT_FIELDS = namesOf(MigrationObjectType);
-const RECORD_COMMIT_FIELDS = namesOf(RecordCommitType);
-const ENVIRONMENT_SPEC_CASES = namesOf(EnvironmentSpecType);
-
-/** Whether a decoded type is an EnvironmentSpec: a variant of exactly its
- *  cases, in order. */
-function isEnvironmentSpecShape(type: any): boolean {
-  if (type?.type !== 'Variant' || !Array.isArray(type.value)) return false;
-  const names = (type.value as { name: string }[]).map((c) => c.name);
-  return names.length === ENVIRONMENT_SPEC_CASES.length && names.every((name, i) => name === ENVIRONMENT_SPEC_CASES[i]);
-}
-
-/** A kind of object that names other objects and carries a `kind` tag. */
-interface TaggedKind {
-  /** The kind's field names, in wire order. A later version appends fields,
-   *  so its names begin with these. */
-  readonly fields: readonly string[];
-  /** The objects a value of the kind names, and how each is treated. */
-  readonly children: (value: any) => { hash: string; kind: GcChildKind }[];
-}
-
-/**
- * Every kind-tagged object, by its tag: the mark dispatches on the tag.
- *
- * @remarks
- * An object is walked as a kind when its fields begin with the kind's and its
- * `kind` is the kind's tag. A struct of that shape carrying another tag is a
- * user value, and a leaf. A later version appends fields, so it is walked for
- * the fields this build knows. A new kind is one more entry here, with its
- * tests.
- *
- * A tagged object this does not recognise is a leaf: what it names goes
- * unmarked, and the next sweep deletes it.
- */
-const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind>([
-  [COLLECTION_MANIFEST_KIND, {
-    fields: namesOf(CollectionManifestType),
-    children: (manifest: CollectionManifest) => [
-      // The header bytes every segment is written under — what makes a splice
-      // possible, and the one object an empty collection still names.
-      { hash: manifest.header, kind: 'leaf' },
-      // Level 0 entries are segment objects; above it they are child
-      // manifests, which name objects of their own.
-      ...manifest.entries.map((entry): { hash: string; kind: GcChildKind } => ({ hash: entry.hash, kind: manifest.level === 0n ? 'leaf' : 'node' })),
-    ],
-  }],
-  [RECORD_STATE_KIND, {
-    fields: namesOf(RecordStateType),
-    children: (state: RecordState) => [
-      { hash: state.primary, kind: 'value' },
-      // The declaration an index was built under must outlive the package
-      // that declared it: a state read at an older commit names it.
-      ...[...state.indexes.values()].flatMap((entry): { hash: string; kind: GcChildKind }[] => [
-        { hash: entry.manifest, kind: 'value' },
-        { hash: entry.index, kind: 'node' },
-      ]),
-    ],
-  }],
-  [TASK_OBJECT_KIND, {
-    fields: namesOf(TaskObjectType),
-    children: (task: TaskObject) => {
-      // The program or the command IR, and what the output folds with: every
-      // one an IR blob or a value, which name nothing.
-      const children: { hash: string; kind: GcChildKind }[] = [
-        { hash: task.body.type === 'east' ? task.body.value.program : task.body.value.commandIr, kind: 'leaf' },
-      ];
-      const kind = task.output.kind;
-      if (kind.type === 'dict' && kind.value.merge.type === 'some') {
-        children.push({ hash: kind.value.merge.value, kind: 'leaf' });
-      }
-      if (kind.type === 'fold') {
-        children.push({ hash: kind.value.zero, kind: 'leaf' }, { hash: kind.value.combine, kind: 'leaf' });
-      }
-      if (task.environment.type === 'some') {
-        children.push({ hash: task.environment.value, kind: 'node' }); // walk the spec's blobs
-      }
-      return children;
-    },
-  }],
-  [UNIT_PLAN_KIND, {
-    fields: namesOf(UnitPlanType),
-    children: (plan: UnitPlan) => {
-      // The task, whose program the units run. A piece's inputs and a merge's
-      // parts are dataset values, which may be manifests naming segment
-      // objects; a merge's key range is a small value that names nothing. The
-      // plan of the stage before is walked too: a success names only its last,
-      // and gc finds the task's units through the plans it names.
-      const children: { hash: string; kind: GcChildKind }[] = [{ hash: plan.task, kind: 'node' }];
-      if (plan.previous.type === 'some') children.push({ hash: plan.previous.value, kind: 'node' });
-      if (plan.stage.type === 'pieces') {
-        for (const inputs of plan.stage.value) {
-          for (const input of inputs) children.push({ hash: input, kind: 'value' });
-        }
-      } else {
-        for (const group of plan.stage.value.groups) {
-          if (group.range.type === 'some') children.push({ hash: group.range.value, kind: 'leaf' });
-          for (const entry of group.entries) children.push({ hash: entry, kind: 'value' });
-        }
-      }
-      return children;
-    },
-  }],
-]);
-
-/**
- * The tag of the kind an object of this type may be: the kind whose fields
- * its fields begin with. Only the `kind` the object carries, read once it is
- * decoded, makes it one.
- *
- * @param type - The object's root type
- * @returns The tag, or `null` when the type is no tagged kind's
- */
-function taggedKindOf(type: any): string | null {
-  if (type.type !== 'Struct') return null;
-  const names = (type.value as { name: string }[]).map(f => f.name);
-  for (const [tag, kind] of TAGGED_KINDS) {
-    if (kind.fields.length <= names.length && kind.fields.every((name, i) => name === names[i])) return tag;
-  }
-  return null;
-}
-
-/**
- * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
- */
-function isDataRefFieldType(fieldType: any): boolean {
-  if (fieldType.type !== 'Variant') return false;
-  const cases = fieldType.value as { name: string; type: any }[];
-  const names = new Set(cases.map(c => c.name));
-  return names.has('tree') && names.has('value') && names.has('unassigned') && names.has('null');
-}
-
-/**
- * Check if a decoded EastTypeValue represents a TreeObject.
- * A tree is a Struct where every field is a DataRef variant.
- */
-function isTreeObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const fields = type.value as { name: string; type: any }[];
-  return fields.length > 0 && fields.every(f => isDataRefFieldType(f.type));
-}
-
-/**
- * Whether an object of this type names other objects, so the mark must read
- * it whole: every shape {@link extractChildren} traverses.
- */
-function isStructuralShape(type: EastTypeValue): boolean {
-  const t = type as any;
-  return taggedKindOf(t) !== null || isStructOf(t, PACKAGE_OBJECT_FIELDS) || isStructOf(t, FUNCTION_OBJECT_FIELDS)
-    || isStructOf(t, RECORD_OBJECT_FIELDS) || isStructOf(t, MUTATION_OBJECT_FIELDS) || isEnvironmentSpecShape(t)
-    || isStructOf(t, RECORD_COMMIT_FIELDS) || isTreeObjectShape(t) || isStructOf(t, RECORD_INDEX_OBJECT_FIELDS)
-    || isStructOf(t, MIGRATION_OBJECT_FIELDS);
-}
-
-/**
- * Extract child hashes from a decoded BEAST2 object based on its type.
- * Returns each child with the {@link GcChildKind} that decides whether it is
- * marked, read, or both.
- */
-function extractChildren(
-  type: unknown,
-  value: unknown
-): { hash: string; kind: GcChildKind }[] {
-  const t = type as any;
-  const children: { hash: string; kind: GcChildKind }[] = [];
-
-  // A kind-tagged object dispatches on its tag. A struct of a tagged kind's
-  // shape carrying another tag is a user value, and a leaf.
-  const tag = taggedKindOf(t);
-  if (tag !== null) {
-    return (value as { kind?: unknown }).kind === tag ? TAGGED_KINDS.get(tag)!.children(value) : children;
-  }
-
-  if (isStructOf(t, PACKAGE_OBJECT_FIELDS)) {
-    const pkg = value as PackageObject;
-    for (const taskHash of pkg.tasks.values()) {
-      children.push({ hash: taskHash, kind: 'node' });
-    }
-    for (const fnHash of pkg.functions.values()) {
-      children.push({ hash: fnHash, kind: 'node' });
-    }
-    for (const recHash of pkg.records.values()) {
-      children.push({ hash: recHash, kind: 'node' });
-    }
-    // Extract value hashes from inline per-dataset refs. A collection's value
-    // is a manifest naming other objects, so the ref's root is a `value`: it
-    // is marked whatever happens to it, and walked only far enough to find
-    // the segments it names.
-    for (const ref of pkg.data.refs.values()) {
-      if (ref.type === 'value') children.push({ hash: ref.value.hash, kind: 'value' });
-    }
-    return children;
-  }
-
-  if (isStructOf(t, FUNCTION_OBJECT_FIELDS)) {
-    const fn = value as FunctionObject;
-    children.push({ hash: fn.bodyIr, kind: 'leaf' }); // IR is a leaf
-    if (fn.environment.type === 'some') {
-      children.push({ hash: fn.environment.value, kind: 'node' }); // walk the spec's blobs
-    }
-    return children;
-  }
-
-  if (isStructOf(t, RECORD_OBJECT_FIELDS)) {
-    const rec = value as RecordObject;
-    for (const mutHash of rec.mutations.values()) {
-      children.push({ hash: mutHash, kind: 'node' });
-    }
-    for (const indexHash of rec.indexes.values()) {
-      children.push({ hash: indexHash, kind: 'node' });
-    }
-    for (const step of rec.migrations) {
-      children.push({ hash: step.migration, kind: 'node' });
-    }
-    return children;
-  }
-
-  if (isStructOf(t, RECORD_INDEX_OBJECT_FIELDS)) {
-    const index = value as RecordIndexObject;
-    children.push(
-      { hash: index.keyIr, kind: 'leaf' },
-      { hash: index.buildIr, kind: 'leaf' },
-    );
-    if (index.valueIr.type === 'some') children.push({ hash: index.valueIr.value, kind: 'leaf' });
-    return children;
-  }
-
-  if (isStructOf(t, MUTATION_OBJECT_FIELDS)) {
-    const mut = value as MutationObject;
-    children.push({ hash: mut.bodyIr, kind: 'leaf' }, { hash: mut.programIr, kind: 'leaf' }); // IR is a leaf
-    return children;
-  }
-
-  if (isStructOf(t, MIGRATION_OBJECT_FIELDS)) {
-    const step = value as MigrationObject;
-    children.push({ hash: step.bodyIr, kind: 'leaf' }); // IR is a leaf
-    // A value step runs its own function, and names no program.
-    if (step.programIr !== '') children.push({ hash: step.programIr, kind: 'leaf' });
-    return children;
-  }
-
-  if (isEnvironmentSpecShape(t)) {
-    const spec = value as { type: string; value: Record<string, unknown> };
-    if (spec.type === 'python') {
-      const env = spec.value as { pyproject: string; lock: string; sdists: { filename: string; hash: string }[] };
-      children.push({ hash: env.pyproject, kind: 'leaf' }, { hash: env.lock, kind: 'leaf' });
-      for (const sdist of env.sdists) children.push({ hash: sdist.hash, kind: 'leaf' });
-    } else if (spec.type === 'node') {
-      const env = spec.value as { packageJson: string; lock: string; tarballs: string[] };
-      children.push({ hash: env.packageJson, kind: 'leaf' }, { hash: env.lock, kind: 'leaf' });
-      for (const tarball of env.tarballs) children.push({ hash: tarball, kind: 'leaf' });
-    } else if (spec.type === 'tools') {
-      const env = spec.value as { files: { path: string; hash: string }[] };
-      for (const file of env.files) children.push({ hash: file.hash, kind: 'leaf' });
-    } else if (spec.type === 'workspace_node') {
-      const env = spec.value as {
-        packageJson: string; lock: string;
-        config: { type: string; value: string };
-        members: { path: string; name: string; tarball: string }[];
-      };
-      children.push({ hash: env.packageJson, kind: 'leaf' }, { hash: env.lock, kind: 'leaf' });
-      if (env.config?.type === 'some') children.push({ hash: env.config.value, kind: 'leaf' });
-      for (const member of env.members) children.push({ hash: member.tarball, kind: 'leaf' });
-    }
-    // image: no object-store references
-    return children;
-  }
-
-  if (isStructOf(t, RECORD_COMMIT_FIELDS)) {
-    const commit = value as RecordCommit;
-    // The state may be a manifest naming segment objects, so it is marked and
-    // then classified; a plain value blob is never read.
-    children.push({ hash: commit.state, kind: 'value' });
-    if (commit.parent.type === 'some') {
-      children.push({ hash: commit.parent.value, kind: 'node' }); // walk the chain
-    }
-    if (commit.args.type === 'some') {
-      children.push({ hash: commit.args.value, kind: 'leaf' }); // args tuple is a leaf
-    }
-    // The delta is a collection like any other, so it may be a manifest naming
-    // segment objects: marked, then classified, never read as a value.
-    if (commit.delta.type === 'some') {
-      children.push({ hash: commit.delta.value, kind: 'value' });
-    }
-    return children;
-  }
-
-  if (isTreeObjectShape(t)) {
-    const tree = value as Record<string, { type: string; value: any }>;
-    for (const ref of Object.values(tree)) {
-      if (ref.type === 'tree') {
-        children.push({ hash: ref.value as string, kind: 'node' }); // subtree needs traversal
-      } else if (ref.type === 'value') {
-        children.push({ hash: ref.value as string, kind: 'value' }); // may be a manifest
-      }
-      // 'unassigned' and 'null': no hash to follow
-    }
-    return children;
-  }
-
-  return []; // Unknown type: leaf, no children
-}
-
 /**
  * Pure decision function: determine which objects to delete.
  *
@@ -665,6 +210,42 @@ export function sweepBatch(
   return { toDelete, retained, skippedYoung, bytesFreed };
 }
 
+/**
+ * Refuses options gc cannot run by.
+ *
+ * @throws {RangeError} When `keepRuns`, `keepDays` or `markMs` is not a whole
+ *   number of zero or more, `concurrency` is not a whole number greater than
+ *   zero, or `windowMs` is not a whole number greater than zero.
+ */
+function checkOptions(
+  options: { keepRuns?: number; keepDays?: number; markMs?: number; concurrency?: number },
+  windowMs: number | undefined,
+): void {
+  for (const [name, value] of [['keepRuns', options.keepRuns], ['keepDays', options.keepDays], ['markMs', options.markMs]] as const) {
+    if (value !== undefined && !(Number.isInteger(value) && value >= 0)) {
+      throw new RangeError(`gc: ${name} must be a whole number of zero or more, got ${value}`);
+    }
+  }
+  if (options.concurrency !== undefined && !(Number.isInteger(options.concurrency) && options.concurrency > 0)) {
+    throw new RangeError(`gc: concurrency must be a whole number greater than zero, got ${options.concurrency}`);
+  }
+  if (windowMs !== undefined && !(Number.isInteger(windowMs) && windowMs > 0)) {
+    throw new RangeError(`gc: the retention window must be a whole number of milliseconds greater than zero, got ${windowMs}`);
+  }
+}
+
+/**
+ * Drops the adoption memo's entries whose manifest is gone. The memo roots
+ * nothing, so such an entry — its manifest taken by this sweep or an earlier
+ * one — would only ever miss. One whose manifest a gate kept stays with it.
+ */
+async function forgetCollectedAdoptions(storage: StorageBackend, repo: string): Promise<void> {
+  for (const { sourceHash, manifestHash } of await storage.refs.adoptionList(repo)) {
+    if (manifestHash !== null && await storage.objects.exists(repo, manifestHash)) continue;
+    await storage.refs.adoptionDelete(repo, sourceHash);
+  }
+}
+
 // =============================================================================
 // Driver
 // =============================================================================
@@ -674,38 +255,74 @@ export function sweepBatch(
  *
  * Works with any StorageBackend — no instanceof checks.
  *
- * gc holds the repository still ({@link withRepositoryHeld}): the tasks lock
- * exclusively and every workspace's dataflow lock, from before the history's
- * prune until the sweep is done, so it never overlaps a write holding the
- * tasks lock or a dataflow run: the objects either writes before it roots them
- * need no rooting, and no record is written while it decides which to keep. It
- * prunes the history first (history.ts), and then marks from what it kept, so
- * the outputs only the deleted records kept go in the same sweep. Marking is
- * header-first, so a dataset is never read whole. The adoption memo's entries
- * whose manifest is gone are dropped then, since the memo roots nothing. Last,
- * the backend sweeps what it keeps beside its objects and records
- * ({@link RepoStore.gcSweepBackend}).
+ * By default gc holds the repository still ({@link withRepositoryHeld}): the
+ * tasks lock exclusively and every workspace's dataflow lock, from before the
+ * history's prune until the sweep is done, so it never overlaps a write
+ * holding the tasks lock or a dataflow run: the objects either writes before
+ * it roots them need no rooting, and no record is written while it decides
+ * which to keep. It prunes the history first (history.ts), and then marks from
+ * what it kept, so the outputs only the deleted records kept go in the same
+ * sweep. Marking is header-first, so a dataset is never read whole. The
+ * adoption memo's entries whose manifest is gone are dropped then, since the
+ * memo roots nothing. Last, the backend sweeps what it keeps beside its
+ * objects and records ({@link RepoStore.gcSweepBackend}).
+ *
+ * Given `options.retention`, gc holds nothing: it runs the steps of
+ * {@link repoGcStep} one after another, beside whatever runs, and deletes
+ * only objects unreachable for the retention window. A run it gives up on, at
+ * an error, keeps nothing.
+ *
+ * gc never decides on a read that failed. Only an object's absence
+ * (`ObjectNotFoundError`) says an object names nothing: any other read
+ * failure, and an object that names other objects but does not decode, stops
+ * gc with an error naming the object, before the sweep deletes anything. The
+ * history prune decides everything before it deletes anything, and stops the
+ * same way on a record or a plan it cannot read.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param options - GC options
  * @returns GC result with statistics
  * @throws {RangeError} When `keepRuns` or `keepDays` is not a whole number of
- *   zero or more.
- * @throws {Error} When a task is running in the repository, or a dataflow is
- *   running in one of its workspaces.
+ *   zero or more, or the retention window is not a whole number of
+ *   milliseconds greater than zero.
+ * @throws {GcReadError} When an object the mark or the history prune reached
+ *   cannot be read for a reason other than its absence, or names other
+ *   objects and does not decode: nothing is swept.
+ * @throws {RepositoryBusyError} When gc holds the repository still, and a task
+ *   is running in it, or a dataflow in one of its workspaces.
+ * @throws {Error} When a record the history prune or the root scans read
+ *   cannot be read.
  */
 export async function repoGc(
   storage: StorageBackend,
   repo: string,
   options: GcOptions = {}
 ): Promise<GcResult> {
-  for (const [name, value] of [['keepRuns', options.keepRuns], ['keepDays', options.keepDays]] as const) {
-    if (value !== undefined && !(Number.isInteger(value) && value >= 0)) {
-      throw new RangeError(`gc: ${name} must be a whole number of zero or more, got ${value}`);
-    }
+  checkOptions(options, options.retention?.windowMs);
+  if (options.retention === undefined) {
+    return withRepositoryHeld(storage, repo, { doing: 'gc' }, () => collectGarbage(storage, repo, options));
   }
-  return withRepositoryHeld(storage, repo, { doing: 'gc' }, () => collectGarbage(storage, repo, options));
+  const stepOptions: GcStepOptions = {
+    windowMs: options.retention.windowMs,
+    ...(options.minAge !== undefined && { minAge: options.minAge }),
+    ...(options.dryRun !== undefined && { dryRun: options.dryRun }),
+    ...(options.keepRuns !== undefined && { keepRuns: options.keepRuns }),
+    ...(options.keepDays !== undefined && { keepDays: options.keepDays }),
+  };
+  let step: GcStep | null = null;
+  try {
+    for (;;) {
+      const next = await repoGcStep(storage, repo, step, stepOptions);
+      if (next.step === null) return next.result;
+      step = next.step;
+    }
+  } catch (err) {
+    if (step !== null) {
+      await storage.repos.gcRunDelete(repo, step.value.run).catch(() => { /* the step's own failure is the one raised */ });
+    }
+    throw err;
+  }
 }
 
 /** The mark and sweep of {@link repoGc}, run under its locks. */
@@ -714,7 +331,7 @@ async function collectGarbage(
   repo: string,
   options: GcOptions
 ): Promise<GcResult> {
-  const minAge = options.minAge ?? 60000;
+  const minAge = options.minAge ?? DEFAULT_MIN_AGE_MS;
   const dryRun = options.dryRun ?? false;
 
   // Step 0: Prune the history: the runs and executions gc does not keep go,
@@ -728,21 +345,9 @@ async function collectGarbage(
   // Step 1: Collect all root hashes: the executions' from what the prune kept
   const roots = await collectAllRoots(storage.repos, repo, history.roots);
 
-  // Step 2: Mark all reachable objects, header-first
-  const readObject = async (hash: string): Promise<Uint8Array | null> => {
-    try {
-      return await storage.objects.read(repo, hash);
-    } catch {
-      return null;
-    }
-  };
-  const readHead = async (hash: string, length: number): Promise<Uint8Array | null> => {
-    try {
-      return await storage.objects.readRange(repo, hash, 0, length);
-    } catch {
-      return null;
-    }
-  };
+  // Step 2: Mark all reachable objects, header-first. Only an object's absence
+  // reads as `null`: any other failure stops the mark, and the sweep after it
+  const { readObject, readHead } = gcObjectReaders(storage, repo);
   const reachable = await markReachable(readObject, roots, { readHead });
 
   // Step 3: Scan and sweep objects
@@ -750,7 +355,7 @@ async function collectGarbage(
   let totalRetained = 0;
   let totalSkippedYoung = 0;
   let totalBytesFreed = 0;
-  let cursor: unknown;
+  let cursor: string | undefined;
 
   do {
     const scan = await storage.repos.gcScanObjects(repo, cursor);
@@ -768,18 +373,11 @@ async function collectGarbage(
     cursor = scan.cursor;
   } while (cursor !== undefined);
 
-  // Step 4: The adoption memo roots nothing, so an entry whose manifest is
-  // gone — taken by this sweep or an earlier one — would only ever miss: it
-  // is dropped. One whose manifest the age gate kept stays with it.
-  if (!dryRun) {
-    for (const { sourceHash, manifestHash } of await storage.refs.adoptionList(repo)) {
-      if (manifestHash !== null && await storage.objects.exists(repo, manifestHash)) continue;
-      await storage.refs.adoptionDelete(repo, sourceHash);
-    }
-  }
+  // Step 4: The adoption memo's entries whose manifest is gone
+  if (!dryRun) await forgetCollectedAdoptions(storage, repo);
 
   // Step 5: The backend sweeps what it keeps beside its objects and records
-  const backend = await storage.repos.gcSweepBackend(repo, reachable, { minAge, dryRun });
+  const backend = await storage.repos.gcSweepBackend(repo, reachable, { minAge, dryRun, held: true });
 
   return {
     deletedObjects: totalDeleted,
@@ -790,4 +388,451 @@ async function collectGarbage(
     deletedRuns: history.deletedRuns,
     deletedExecutions: history.deletedExecutions,
   };
+}
+
+// =============================================================================
+// Beside running work, in steps
+// =============================================================================
+
+/**
+ * A gc run beside running work, as far as its steps have got: the run whose
+ * parts its `RepoStore` keeps between steps, whether it is a dry run, and what
+ * it has counted so far.
+ */
+const GcRunFields = {
+  /** The run's id, a UUIDv7: its parts are kept under it */
+  run: StringType,
+  /** Whether the run deletes nothing, and notes nothing */
+  dryRun: BooleanType,
+  /** What the run has counted so far */
+  result: GcResultType,
+};
+
+/**
+ * The next step of a gc run beside running work ({@link repoGcStep}), which a
+ * host keeps between invocations as beast2.
+ *
+ * - `mark`: the history is pruned and the roots it kept are kept: the mark is
+ *   next.
+ * - `marking`: the mark is under way, spread over steps: what it has reached
+ *   so far, and what it has still to visit, are kept as the `generation` of
+ *   the run's parts that names them; it goes on.
+ * - `sweep`: the mark's reachable set is kept: the sweep goes on at the page
+ *   of the object scan `cursor` names — `none` for the first.
+ * - `finish`: every page is swept: the adoption memo and the backend's own
+ *   sweep are left.
+ */
+export const GcStepType = VariantType({
+  mark: StructType(GcRunFields),
+  marking: StructType({ ...GcRunFields, generation: IntegerType }),
+  sweep: StructType({ ...GcRunFields, cursor: OptionType(StringType) }),
+  finish: StructType(GcRunFields),
+});
+
+/** The next step of a gc run beside running work. */
+export type GcStep = ValueTypeOf<typeof GcStepType>;
+
+/** What a gc run beside running work has counted, as its step keeps it. */
+type GcCounts = ValueTypeOf<typeof GcResultType>;
+
+/** A run at one kind of step. */
+type GcRunAt<K extends GcStep['type']> = Extract<GcStep, { type: K }>['value'];
+
+/** Nothing counted yet. */
+const ZERO_COUNTS: GcCounts = {
+  deletedObjects: 0n, deletedPartials: 0n, retainedObjects: 0n, skippedYoung: 0n, bytesFreed: 0n, deletedRuns: 0n, deletedExecutions: 0n,
+};
+
+/**
+ * Options for {@link repoGcStep}: a host passes the same ones to every step of
+ * a run.
+ */
+export interface GcStepOptions {
+  /**
+   * How long an object stays unreachable before gc deletes it, in
+   * milliseconds, measured from the first sweep that saw it so: a whole number
+   * greater than zero, and longer than any write takes to root what it stores.
+   */
+  windowMs: number;
+  /**
+   * The age gate: an object written more recently than this many milliseconds
+   * ago is not deleted, whatever its note says, and nor is a staging file.
+   * Default: 60000 (1 minute)
+   */
+  minAge?: number;
+  /**
+   * Whether the run only reports what it would delete: it deletes nothing,
+   * prunes no history and notes nothing. Read by the first step; the run keeps
+   * it. Default: false
+   */
+  dryRun?: boolean;
+  /** The runs of each workspace the history keeps however old. Default:
+   *  {@link DEFAULT_KEEP_RUNS} */
+  keepRuns?: number;
+  /** The days of runs and executions the history keeps however many.
+   *  Default: {@link DEFAULT_KEEP_DAYS} */
+  keepDays?: number;
+  /**
+   * How long one mark step reads, in milliseconds, before it hands what it
+   * has still to visit to the next step (`marking`): a host whose steps run on
+   * compute with a time limit sets it under that limit, with room to keep
+   * what the step reached. Default: no limit — one step marks everything.
+   */
+  markMs?: number;
+  /** How many objects the mark reads at once. Default:
+   *  {@link OBJECT_CONCURRENCY} */
+  concurrency?: number;
+  /** When the step runs, in epoch milliseconds. Default: now */
+  now?: number;
+}
+
+/** What a step of a gc run beside running work returns. */
+export interface GcStepResult {
+  /** The next step, or `null` once the run is done */
+  step: GcStep | null;
+  /** What the run has counted so far: once it is done, its result */
+  result: GcResult;
+}
+
+/** The part of a run that keeps the roots the history kept. */
+const ROOTS_PART = 'roots';
+
+/** The part of a run that lists the shards of the mark's reachable set, once
+ *  the mark is whole: what the sweep reads it by. */
+const REACHABLE_PART = 'reachable';
+
+/**
+ * The part of a run that keeps a shard of the mark's reachable set: the
+ * reached objects whose hash begins with a prefix, as a generation of the mark
+ * wrote them.
+ *
+ * @param shard - The shard's id: `<generation>.<prefix>`
+ */
+const shardPart = (shard: string): string => `reachable.${shard}`;
+
+/** The part of a run that lists the shards a generation of the mark kept,
+ *  while the mark goes on over steps. */
+const markingPart = (generation: number): string => `marking.${generation}`;
+
+/** The part of a run that keeps what a generation of the mark had still to
+ *  visit. */
+const frontierPart = (generation: number): string => `frontier.${generation}`;
+
+/** The prefix a shard's id names: its last two hex digits. */
+const prefixOf = (shard: string): string => shard.slice(-2);
+
+const encodeHashes = encodeBeast2For(ArrayType(StringType));
+const decodeHashes = decodeBeast2For(ArrayType(StringType));
+
+/**
+ * Run one step of garbage collection beside running work.
+ *
+ * @remarks
+ * gc holds nothing here. Its safety is the retention window: an object is
+ * deleted only once it has stayed unreachable for `options.windowMs`,
+ * measured from the first sweep that saw it so
+ * ({@link RepoStore.gcNoteUnreachable}), and only if nothing wrote or
+ * re-referenced it since ({@link RepoStore.gcDeleteUnreachable}). A write in
+ * flight stores objects it has not yet rooted; they are younger than the
+ * window, so no sweep reaches them. A caller that roots an object it did not
+ * write touches it first (`ObjectStore.touch`, {@link touchReachable}).
+ *
+ * A run is five kinds of step, each bounded so a host with bounded compute
+ * spreads them over invocations, keeping the {@link GcStep} each returns — an
+ * East value, as beast2 — until the next:
+ * 1. `null` starts a run: it prunes the history, as {@link repoGc} does, and
+ *    keeps the roots the history kept;
+ * 2. `mark` marks from every root, header-first, `options.concurrency` reads
+ *    at once, and keeps the reachable set in shards. Given `options.markMs`,
+ *    it stops once that has passed, and keeps what it has reached and what it
+ *    has still to visit;
+ * 3. `marking` goes on with a mark so stopped, until the mark is whole. Each
+ *    step keeps a generation of the run's parts of its own, so a step that
+ *    fails, run again, starts from the parts it started from;
+ * 4. `sweep` sweeps one page of the object scan: it clears the notes of what
+ *    the mark reached, notes what it did not — unless it was written after the
+ *    run began, so its mark may have missed what roots it: a later run notes
+ *    it, if it is unreachable then — and deletes what has stayed unreachable
+ *    for the window; the next page is the next step;
+ * 5. `finish` drops the adoption memo's entries whose manifest is gone, runs
+ *    the backend's own sweep beside running work, and deletes the run.
+ *
+ * A step that fails can be run again. A run given up keeps its parts until the
+ * host deletes them (`RepoStore.gcRunDelete`).
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param step - The step a previous call returned, or `null` to start a run
+ * @param options - The retention window, the age gate, the history kept, and
+ *   how long a mark step reads and how many objects at once: the same for
+ *   every step of a run
+ * @returns The next step — `null` once the run is done — and what the run has
+ *   counted so far
+ * @throws {RangeError} When `keepRuns`, `keepDays` or `markMs` is not a whole
+ *   number of zero or more, `concurrency` is not a whole number greater than
+ *   zero, or `windowMs` is not a whole number greater than zero.
+ * @throws {GcReadError} When an object the mark or the history prune reached
+ *   cannot be read for a reason other than its absence, or names other
+ *   objects and does not decode: nothing is swept.
+ * @throws {Error} When a record the history prune or the root scans read
+ *   cannot be read, or a part of the run is gone.
+ */
+export async function repoGcStep(
+  storage: StorageBackend,
+  repo: string,
+  step: GcStep | null,
+  options: GcStepOptions,
+): Promise<GcStepResult> {
+  checkOptions(options, options.windowMs);
+  const now = options.now ?? Date.now();
+  if (step === null) return startRun(storage, repo, options, now);
+  switch (step.type) {
+    case 'mark': return markRun(storage, repo, step.value, options);
+    case 'marking': return markingRun(storage, repo, step.value, options);
+    case 'sweep': return sweepPage(storage, repo, step.value, options, now);
+    case 'finish': return finishRun(storage, repo, step.value, options);
+  }
+}
+
+/** A step to return, with what its run has counted so far. */
+function stepped(step: GcStep): GcStepResult {
+  return { step, result: resultOf(step.value.result) };
+}
+
+/** What a run has counted, as {@link repoGc} reports it. */
+function resultOf(counts: GcCounts): GcResult {
+  return {
+    deletedObjects: Number(counts.deletedObjects),
+    deletedPartials: Number(counts.deletedPartials),
+    retainedObjects: Number(counts.retainedObjects),
+    skippedYoung: Number(counts.skippedYoung),
+    bytesFreed: Number(counts.bytesFreed),
+    deletedRuns: Number(counts.deletedRuns),
+    deletedExecutions: Number(counts.deletedExecutions),
+  };
+}
+
+/** A run's counts, with a step's added. */
+function counted(counts: GcCounts, added: Partial<GcResult>): GcCounts {
+  const add = (key: keyof GcResult): bigint => counts[key] + BigInt(added[key] ?? 0);
+  return {
+    deletedObjects: add('deletedObjects'),
+    deletedPartials: add('deletedPartials'),
+    retainedObjects: add('retainedObjects'),
+    skippedYoung: add('skippedYoung'),
+    bytesFreed: add('bytesFreed'),
+    deletedRuns: add('deletedRuns'),
+    deletedExecutions: add('deletedExecutions'),
+  };
+}
+
+/**
+ * Reads a part of a run: a list of hashes, or of shards.
+ *
+ * @throws {Error} When the part is gone: the run was deleted, or given up.
+ */
+async function readRunPart(storage: StorageBackend, repo: string, run: string, name: string): Promise<string[]> {
+  const data = await storage.repos.gcRunRead(repo, run, name);
+  if (data === null) throw new Error(`gc run ${run} has lost its ${name}: start gc again`);
+  return decodeHashes(data);
+}
+
+/** The first step: the history pruned, and the roots it kept kept. */
+async function startRun(storage: StorageBackend, repo: string, options: GcStepOptions, now: number): Promise<GcStepResult> {
+  const dryRun = options.dryRun ?? false;
+  const history = await pruneHistory(storage, repo, {
+    keepRuns: options.keepRuns ?? DEFAULT_KEEP_RUNS,
+    keepDays: options.keepDays ?? DEFAULT_KEEP_DAYS,
+    dryRun,
+  }, now);
+  const run = uuidv7();
+  await storage.repos.gcRunWrite(repo, run, ROOTS_PART, encodeHashes([...history.roots]));
+  const result = counted(ZERO_COUNTS, { deletedRuns: history.deletedRuns, deletedExecutions: history.deletedExecutions });
+  return stepped(variant('mark', { run, dryRun, result }));
+}
+
+/** The reached objects, in shards by the first two hex digits of each hash:
+ *  those a store holds. */
+function shardsOf(reachable: ReadonlySet<string>): Map<string, string[]> {
+  const shards = new Map<string, string[]>();
+  for (const hash of reachable) {
+    if (!isObjectHash(hash)) continue; // names no object a store holds
+    const prefix = hash.slice(0, 2);
+    const shard = shards.get(prefix);
+    if (shard === undefined) shards.set(prefix, [hash]);
+    else shard.push(hash);
+  }
+  return shards;
+}
+
+/** The first mark step: from every root the run kept. */
+async function markRun(storage: StorageBackend, repo: string, fields: GcRunAt<'mark'>, options: GcStepOptions): Promise<GcStepResult> {
+  const roots = await collectAllRoots(storage.repos, repo, await readRunPart(storage, repo, fields.run, ROOTS_PART));
+  return markOn(storage, repo, fields, 0, new Map(), new Set(), [...roots], options);
+}
+
+/** A mark step that goes on from what the generation its step names kept. */
+async function markingRun(
+  storage: StorageBackend,
+  repo: string,
+  { run, dryRun, result, generation }: GcRunAt<'marking'>,
+  options: GcStepOptions,
+): Promise<GcStepResult> {
+  const kept = Number(generation);
+  const shards = new Map<string, string>();
+  const reachable = new Set<string>();
+  for (const shard of await readRunPart(storage, repo, run, markingPart(kept))) shards.set(prefixOf(shard), shard);
+  await eachAtMost([...shards.values()], OBJECT_CONCURRENCY, async (shard) => {
+    for (const hash of await readRunPart(storage, repo, run, shardPart(shard))) reachable.add(hash);
+  });
+  const pending = await readRunPart(storage, repo, run, frontierPart(kept));
+  return markOn(storage, repo, { run, dryRun, result }, kept, shards, reachable, pending, options);
+}
+
+/**
+ * Marks, header-first, from what is left to visit, for as long as the step
+ * may, and keeps what it reached as a generation of the run's parts of its
+ * own: the shards that changed, and, while the mark is not whole, what it has
+ * still to visit and the list of every shard. Once the mark is whole, the
+ * shards' list is kept last, so a sweep finds the mark whole or refuses.
+ *
+ * @param generation - The generation the step starts from: 0 for the first
+ * @param shards - Each prefix's shard as that generation kept it, by id
+ */
+async function markOn(
+  storage: StorageBackend,
+  repo: string,
+  { run, dryRun, result }: GcRunAt<'mark'>,
+  generation: number,
+  shards: ReadonlyMap<string, string>,
+  reachable: Set<string>,
+  pending: string[],
+  options: GcStepOptions,
+): Promise<GcStepResult> {
+  const began = Date.now();
+  const markMs = options.markMs;
+  const before = new Map([...shardsOf(reachable)].map(([prefix, hashes]) => [prefix, hashes.length]));
+  const { readObject, readHead } = gcObjectReaders(storage, repo);
+  const whole = await markFrom(readObject, reachable, pending, {
+    readHead,
+    ...(options.concurrency !== undefined && { concurrency: options.concurrency }),
+    ...(markMs !== undefined && { until: () => Date.now() - began >= markMs }),
+  });
+
+  // Written under names of this generation's own, beside the last's
+  const next = generation + 1;
+  const kept = new Map(shards);
+  const changed = [...shardsOf(reachable)].filter(([prefix, hashes]) => before.get(prefix) !== hashes.length);
+  await eachAtMost(changed, OBJECT_CONCURRENCY, ([prefix, hashes]) =>
+    storage.repos.gcRunWrite(repo, run, shardPart(`${next}.${prefix}`), encodeHashes(hashes)));
+  for (const [prefix] of changed) kept.set(prefix, `${next}.${prefix}`);
+  if (whole) {
+    await storage.repos.gcRunWrite(repo, run, REACHABLE_PART, encodeHashes([...kept.values()]));
+    return stepped(variant('sweep', { run, dryRun, result, cursor: none }));
+  }
+  await storage.repos.gcRunWrite(repo, run, frontierPart(next), encodeHashes(pending));
+  await storage.repos.gcRunWrite(repo, run, markingPart(next), encodeHashes([...kept.values()]));
+  return stepped(variant('marking', { run, dryRun, result, generation: BigInt(next) }));
+}
+
+/**
+ * A page of the sweep: what the mark reached keeps, and has its note cleared;
+ * what it did not is noted, unless it was written after the run began; and
+ * what has stayed unreachable for the window is deleted, while nothing has
+ * written or re-referenced it since.
+ */
+async function sweepPage(
+  storage: StorageBackend,
+  repo: string,
+  { run, dryRun, result, cursor }: GcRunAt<'sweep'>,
+  options: GcStepOptions,
+  now: number,
+): Promise<GcStepResult> {
+  const minAge = options.minAge ?? DEFAULT_MIN_AGE_MS;
+  // The run's id was minted as it began, before its mark read any root, and
+  // names the millisecond it began in: what is written in a later one was
+  // written after the run began
+  const after = uuidv7Timestamp(run).getTime() + 1;
+  const marked = new Map((await readRunPart(storage, repo, run, REACHABLE_PART)).map((shard) => [prefixOf(shard), shard]));
+  const shards = new Map<string, Set<string>>();
+  const reached = async (hash: string): Promise<boolean> => {
+    const prefix = hash.slice(0, 2);
+    const shard = marked.get(prefix);
+    if (shard === undefined) return false;
+    let hashes = shards.get(prefix);
+    if (hashes === undefined) {
+      hashes = new Set(await readRunPart(storage, repo, run, shardPart(shard)));
+      shards.set(prefix, hashes);
+    }
+    return hashes.has(hash);
+  };
+
+  const scan = await storage.repos.gcScanObjects(repo, cursor.type === 'some' ? cursor.value : undefined);
+  let retainedObjects = 0;
+  let skippedYoung = 0;
+  let deletedObjects = 0;
+  let bytesFreed = 0;
+  const cleared: string[] = [];
+  const unnoted: GcObjectEntry[] = [];
+  const expired: { object: GcObjectEntry; since: number }[] = [];
+  // Inside the window, or written more recently than the age gate: kept for now
+  const decide = (object: GcObjectEntry, since: number): void => {
+    if (now - since < options.windowMs || (minAge > 0 && now - object.lastModified < minAge)) skippedYoung++;
+    else expired.push({ object, since });
+  };
+  for (const object of scan.objects) {
+    if (await reached(object.hash)) {
+      retainedObjects++;
+      if (object.unreachableSince !== null) cleared.push(object.hash);
+    } else if (object.unreachableSince === null) {
+      // Written after the run began, its mark may have missed what roots it:
+      // left unnoted, for a later run to note if it is unreachable then, rather
+      // than noted now and cleared by the next mark.
+      if (object.lastModified >= after) skippedYoung++;
+      else unnoted.push(object);
+    } else {
+      decide(object, object.unreachableSince);
+    }
+  }
+  if (dryRun) {
+    // Noted by no dry run: each is inside its window
+    skippedYoung += unnoted.length;
+  } else {
+    if (cleared.length > 0) await storage.repos.gcClearUnreachable(repo, cleared);
+    if (unnoted.length > 0) {
+      const sinces = await storage.repos.gcNoteUnreachable(repo, unnoted.map(({ hash }) => hash), now);
+      unnoted.forEach((object, i) => decide(object, sinces[i] ?? now));
+    }
+  }
+  await eachAtMost(expired, OBJECT_CONCURRENCY, async ({ object, since }) => {
+    if (dryRun || await storage.repos.gcDeleteUnreachable(repo, object.hash, since)) {
+      deletedObjects++;
+      bytesFreed += object.size;
+    } else {
+      retainedObjects++; // written or re-referenced since it was noted
+    }
+  });
+
+  const counts = counted(result, { deletedObjects, retainedObjects, skippedYoung, bytesFreed });
+  return stepped(scan.cursor === undefined
+    ? variant('finish', { run, dryRun, result: counts })
+    : variant('sweep', { run, dryRun, result: counts, cursor: some(scan.cursor) }));
+}
+
+/** The last step: the adoption memo, the backend's own sweep beside running
+ *  work, and the run deleted. */
+async function finishRun(
+  storage: StorageBackend,
+  repo: string,
+  { run, dryRun, result }: GcRunAt<'finish'>,
+  options: GcStepOptions,
+): Promise<GcStepResult> {
+  if (!dryRun) await forgetCollectedAdoptions(storage, repo);
+  const reachable = new Set<string>();
+  for (const shard of await readRunPart(storage, repo, run, REACHABLE_PART)) {
+    for (const hash of await readRunPart(storage, repo, run, shardPart(shard))) reachable.add(hash);
+  }
+  const backend = await storage.repos.gcSweepBackend(repo, reachable, { minAge: options.minAge ?? DEFAULT_MIN_AGE_MS, dryRun, held: false });
+  await storage.repos.gcRunDelete(repo, run);
+  return { step: null, result: resultOf(counted(result, { deletedPartials: backend.deletedPartials, skippedYoung: backend.skippedYoung })) };
 }

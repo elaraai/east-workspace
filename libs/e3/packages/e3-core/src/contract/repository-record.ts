@@ -13,10 +13,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IntegerType } from '@elaraai/east';
+import { IntegerType, encodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { E3_RELEASE } from '@elaraai/e3-types';
-import { RepoLayoutError } from '../errors.js';
+import { E3_RELEASE, WorkspaceRecordType } from '@elaraai/e3-types';
+import { RepoLayoutError, RepositoryUpgradePendingError } from '../errors.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageImport } from '../packages.js';
 import { recordHistory, recordSystemCommit } from '../records.js';
@@ -174,6 +174,56 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       await working;
       assert.deepEqual((await opened).upgrades.at(-1), { name: 'contract-waits', release: E3_RELEASE });
       assert.deepEqual(ran, ['contract-waits']);
+    });
+
+    it('refuses at once an open that may not wait while a dataflow holds the repository, naming the steps and the run, and applies nothing', async (t) => {
+      const { storage, repo } = await setup(t);
+      await storage.refs.workspaceWrite(repo, 'main', encodeBeast2For(WorkspaceRecordType)(none));
+      const ran: string[] = [];
+      register(t, 'contract-owed', ran);
+      const run = await storage.locks.acquire(repo, 'main#dataflow', variant('dataflow', null));
+      assert.ok(run, 'a dataflow holds its workspace');
+      try {
+        const started = Date.now();
+        await assert.rejects(repositoryOpen(storage, repo, { waitMs: 0 }), (err: unknown) => {
+          assert.ok(err instanceof RepositoryUpgradePendingError, `expected a RepositoryUpgradePendingError, got ${err}`);
+          assert.deepEqual([err.upgrades, err.workspace], [['contract-owed'], 'main']);
+          assert.equal(err.message, `the repository ${repo} owes the upgrade "contract-owed", which applies once nothing runs in it, ` +
+            'and a dataflow is running in workspace \'main\' — retry when it finishes, or cancel it');
+          return true;
+        });
+        assert.ok(Date.now() - started < 5_000, 'it did not wait for the run');
+        assert.deepEqual(ran, []);
+      } finally {
+        await run.release();
+      }
+
+      await repositoryOpen(storage, repo, { waitMs: 0 });
+      assert.deepEqual(ran, ['contract-owed'], 'the step applies once nothing runs');
+    });
+
+    it('refuses at once an open that leaves the upgrades to a job, naming them, and the job\'s open applies them', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ran: string[] = [];
+      register(t, 'contract-first', ran);
+      register(t, 'contract-second', ran);
+
+      // Nothing runs in the repository, and the open applies nothing all the
+      // same.
+      await assert.rejects(repositoryOpen(storage, repo, { apply: false }), (err: unknown) => {
+        assert.ok(err instanceof RepositoryUpgradePendingError, `expected a RepositoryUpgradePendingError, got ${err}`);
+        assert.deepEqual([err.upgrades, err.workspace, err.job], [['contract-first', 'contract-second'], null, true]);
+        assert.equal(err.message, `the repository ${repo} owes the upgrades "contract-first", "contract-second", ` +
+          'which a job applies before the repository is read — retry once it has');
+        return true;
+      });
+      assert.deepEqual(ran, []);
+
+      // The host's job opens it, applying them, and an open that leaves them to
+      // a job finds none owed.
+      const record = await repositoryOpen(storage, repo);
+      assert.deepEqual(ran, ['contract-first', 'contract-second']);
+      assert.deepEqual(await repositoryOpen(storage, repo, { apply: false }), record);
     });
 
     it('leaves a workspace\'s records their states and histories across an upgrade, and they take commits after it', async (t) => {

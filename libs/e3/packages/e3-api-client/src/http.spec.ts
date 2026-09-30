@@ -195,16 +195,26 @@ describe('fetchWithRetry: transient statuses', () => {
 });
 
 describe('fetchWithRetry: Retry-After wiring', () => {
-  it('reads the Retry-After header and lets it drive the backoff delay (end-to-end)', async () => {
-    // baseDelayMs:0 means a working wiring waits ~50ms (the header), while a
-    // regression that ignored/misread the header would back off ~0ms.
+  it('reads the Retry-After header and lets it drive the backoff delay (end-to-end)', async (t) => {
+    // baseDelayMs:0 means a working wiring waits 50ms (the header), while a
+    // regression that ignored/misread the header would back off ~0ms. The
+    // clock moves only as the test moves it, a millisecond at a time, until
+    // the retry goes out.
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
     const m = mockFetch([() => status(503, { 'retry-after': '0.05' }), ok]);
-    const t0 = Date.now();
-    const res = await fetchWithRetry(URL, { method: 'GET' }, { idempotent: true, retry: { baseDelayMs: 0, maxDelayMs: 10_000 } });
-    const elapsed = Date.now() - t0;
+    const retrying = fetchWithRetry(URL, { method: 'GET' }, { idempotent: true, retry: { baseDelayMs: 0, maxDelayMs: 10_000 } });
+    await settle();
+    let waited = 0;
+    while (m.calls < 2 && waited < 10_000) {
+      t.mock.timers.tick(1);
+      waited++;
+      await settle();
+    }
+    const res = await retrying;
     assert.equal(res.status, 200);
     assert.equal(m.calls, 2);
-    assert.ok(elapsed >= 40, `expected the Retry-After (~50ms) to drive the delay, waited ${elapsed}ms`);
+    assert.equal(waited, 50, 'the Retry-After (50ms) drove the delay');
   });
 });
 

@@ -584,7 +584,7 @@ input definition's `.path`, for one.
 | Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
 | Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream(url, repo, ws, path, { size, hash, slice }, opts, { onCommitProgress? })` — a file of any size, the server's commit saying how far it has taken it in, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
 | Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`), `dataflowCancel`, `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList`, `taskLogs(url, repo, ws, task, { stream?, offset?, limit? }, opts)` |
-| Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)`; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)`; `oneShotExecute` |
+| Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)` — the function runs on its own runner for any caller (`runner: none`); a runner the call names is never `custom`, and loads a platform package the function's does not only for an elevated caller; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)`; `oneShotExecute` — a reader runs a platform-free one (stock runner, `platforms: []`, no platform call), and its result names the datasets it read (`inputs`); `splitCall(url, repo, ws, { bodyIr, args, output, then, runner, limits }, opts, { onProgress? })` — a program over a dataset's pieces, as a job it polls, under the same rule (or `splitCallLaunch`, `splitCallStatus` and `splitCallExplain`) |
 | Records | `workspaceRecordDescribe`, `workspaceRecordMutate(url, repo, ws, record, mutation, { args, actor, limits }, opts, idempotencyKey?)`, `workspaceRecordHistory(url, repo, ws, record, limit, opts, from?)`, `workspaceRecordCompact` |
 | From East | `Platform` and the `platform_*` functions (`platform_dataset_get`, `platform_dataflow_execute`, …): the same calls as platform functions, for an East program that drives a server |
 
@@ -594,7 +594,7 @@ takes a runner, `new LocalTaskRunner(repo)`.
 
 | Area | Functions |
 |---|---|
-| Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays? })` |
+| Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; `repoGcStep(storage, repo, step, { windowMs, … })` runs that one step at a time, each returning the next (`GcStepType`) |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
 | Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
 | Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named) |
@@ -626,6 +626,7 @@ repo/
 ├── executions/        # execution attempts: status, owner, logs
 ├── adoptions/         # the manifest each delivered file, or piece of one, became
 ├── locks/             # locks, their holders, and how far each says it has got
+├── gc/                # gc beside running work: unreachable notes, a stepped run's parts
 ├── envs/              # built execution environments
 └── tmp/               # scratch and staged uploads
 ```

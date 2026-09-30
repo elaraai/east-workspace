@@ -109,9 +109,18 @@ void east_compiled_fn_free(EastCompiledFn *fn);
  * catchable East error everywhere rather than a crash (#948). */
 #define EAST_CALL_DEPTH_MSG "call stack exhausted: East calls nested too deeply"
 
+/* The most of a thread's stack East calls use: a thread with a larger stack
+ * gives them only what an 8 MiB stack (a POSIX main thread's) does, so runaway
+ * recursion is refused at the same depth on every platform. east-c's Windows
+ * executables reserve 1 GiB (the top-level CMakeLists.txt) for the builtins
+ * that recurse over deep values; East calls given all of it ran a runaway
+ * recursion a gigabyte deep before refusing it. */
+#define EAST_STACK_BUDGET (8u * 1024u * 1024u)
+
 /* Whether this thread's stack is too far used for another East call: the
- * stack pointer is within the headroom kept above the thread's stack limit.
- * Always false on a stack whose bounds are unknown or that is not the
+ * stack pointer is within the headroom kept above the thread's stack limit,
+ * or a stack larger than EAST_STACK_BUDGET is used beyond what the budget
+ * allows. Always false on a stack whose bounds are unknown or that is not the
  * thread's own (a fiber). Checked at every East call (stack_guard.c). */
 bool east_stack_exhausted(void);
 

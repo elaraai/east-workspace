@@ -414,6 +414,16 @@ add_executable(test_paged_value tests/test_paged_value.c)
 target_link_libraries(test_paged_value east-c)
 add_test(NAME paged_value COMMAND test_paged_value)
 
+# Stack guard budget gate (#986): a thread with a stack larger than
+# EAST_STACK_BUDGET gives East calls only what an 8 MiB stack does, so a
+# runaway recursion is refused at the same depth on every platform — before
+# the budget, the 1 GiB stack Windows executables reserve let one run a
+# gigabyte deep (17 minutes on the CI runner). Probes the guard on an 8 MiB and
+# a 256 MiB thread (the 1 GiB main thread on Windows).
+add_executable(test_stack_guard tests/test_stack_guard.c)
+target_link_libraries(test_stack_guard east-c)
+add_test(NAME stack_guard COMMAND test_stack_guard)
+
 # IR normalization gate (#627): east_ir_normalize is the round-trip equality
 # contract — loc_ids stripped, variables/labels renamed in the TypeScript
 # lowering's order, captures recomputed, recursive type ids renumbered. Pins

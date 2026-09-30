@@ -2547,7 +2547,8 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       let openGate!: () => void;
       const gate = new Promise<void>((resolve) => { openGate = resolve; });
-      let workspaceReleaseStarted = false;
+      let releaseStarted!: () => void;
+      const started = new Promise<void>((resolve) => { releaseStarted = resolve; });
 
       // Wrap the shared workspace lock's release so it blocks on the gate.
       const realAcquire = storage.locks.acquire.bind(storage.locks);
@@ -2560,7 +2561,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           const realRelease = handle.release.bind(handle);
           return {
             ...handle,
-            release: async () => { workspaceReleaseStarted = true; await gate; await realRelease(); },
+            release: async () => { releaseStarted(); await gate; await realRelease(); },
           };
         }
         return handle;
@@ -2572,12 +2573,9 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         const handle = await orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner });
         const waitPromise = orchestrator.wait(handle).then((r) => { resolved = true; return r; });
 
-        // Let the loop run to completion; its finally calls the gated release.
-        const deadline = Date.now() + 5000;
-        while (!workspaceReleaseStarted && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 5));
-        }
-        assert.ok(workspaceReleaseStarted, 'workspace lock release should have started');
+        // The loop runs to completion, and its finally calls the gated
+        // release: waited for as it happens, however long the run takes.
+        await started;
 
         // The release is in flight (blocked on the gate). wait() MUST NOT have
         // resolved yet — pre-fix it resolved before release and this flips.

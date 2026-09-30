@@ -12,9 +12,12 @@
  * it. A delivery with an index is cut into pieces, runs of its segments of
  * about the pieces' middle size ({@link pieceSizes}), each taken in by a unit
  * of its own, as many at once as the runner admits; one without an index is
- * taken in whole, by one unit. The pieces are concatenated through the store's
- * door, which re-cuts the seams between them, so the delivery is stored as the
- * manifest the Writer writes for its rows whichever way it was cut. A Set's
+ * taken in whole, by one unit — or refused, before any unit runs, when it is
+ * larger than the runner says it takes in whole
+ * ({@link TaskRunner.wholeIntakeLimit}). The pieces are concatenated through
+ * the store's door, which re-cuts the seams between them, so the delivery is
+ * stored as the manifest the Writer writes for its rows whichever way it was
+ * cut. A Set's
  * elements or a Dict's keys must ascend across each seam too, which no piece
  * sees, so that is checked here: each piece's last key against the next one's
  * first.
@@ -26,7 +29,8 @@
  * its own entry answers for it and its pieces' are forgotten
  * ({@link rememberDelivery}). A memo entry roots nothing: gc collects a piece
  * nothing names and drops the entry, and an entry whose objects are gone is a
- * miss, as is one cut under another rule or header.
+ * miss, as is one cut under another rule or header. An entry that answers is
+ * re-referenced whole, since its caller is about to root it.
  *
  * @packageDocumentation
  */
@@ -47,6 +51,7 @@ import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { DatasetSegments, readManifest } from './dataset-open.js';
 import { DeliveryRefusedError, ObjectNotFoundError } from './errors.js';
 import { pieceSizes } from './execution/pieces.js';
+import { touchReachable } from './gc-graph.js';
 import type { IntakeSource, TaskRunner } from './execution/interfaces.js';
 import { computeHash } from './objects.js';
 import { storeCollection } from './store-collection.js';
@@ -104,6 +109,15 @@ interface Piece {
   readonly bytes: number;
 }
 
+/** The pieces a delivery is taken in as. */
+interface PiecePlan {
+  readonly pieces: Piece[];
+  /** Why the delivery cannot be cut into pieces, in a refusal's words, when it
+   *  cannot: it is taken in whole, by one unit. `null` when it can be, or is
+   *  small enough to be taken in whole anyway. */
+  readonly uncut: string | null;
+}
+
 /**
  * Takes a delivered collection into the store through intake units, and
  * returns the manifest it became.
@@ -120,9 +134,11 @@ interface Piece {
  * @param options - Progress, cancellation, and the check that the delivery is
  *   unchanged
  * @returns The manifest, and the runners that took it in
- * @throws {DeliveryRefusedError} When a runner refuses a piece, or a Set's or a
- *   Dict's keys do not ascend where two pieces meet.
- * @throws {Error} When a runner cannot take a piece in, or `verify` throws.
+ * @throws {DeliveryRefusedError} When a runner refuses a piece, a Set's or a
+ *   Dict's keys do not ascend where two pieces meet, or the delivery cannot be
+ *   cut into pieces and is larger than the runner takes in whole.
+ * @throws {Error} When a runner cannot take a piece in, the delivery's tail
+ *   cannot be read, or `verify` throws.
  */
 export async function intakeDelivery(
   storage: StorageBackend,
@@ -134,7 +150,16 @@ export async function intakeDelivery(
   size: number,
   options: DeliveryIntakeOptions = {},
 ): Promise<DeliveryIntake> {
-  const pieces = await planPieces(storage, repo, source, size);
+  const { pieces, uncut } = await planPieces(storage, repo, source, size);
+  // A runner on compute of a bounded size says how large a delivery it takes
+  // in whole: one that cannot be cut, and is larger, is refused before any
+  // unit runs, rather than failing on the runner part way through.
+  const limit = runner.wholeIntakeLimit;
+  if (uncut !== null && typeof limit === 'number' && size > limit) {
+    throw new DeliveryRefusedError('e3',
+      `intake: ${uncut}, so it is taken in whole, by one unit, and at ${size} bytes it is more than the ${limit} ` +
+      'a unit of this runner takes in whole — write it again with a current Writer, which indexes it', '');
+  }
   const keys = pieces.map((piece) => (piece.segments === null ? null : pieceKey(sourceHash, piece.segments)));
   const hashes: string[] = new Array(pieces.length);
   const runners: string[] = [];
@@ -196,6 +221,12 @@ export async function rememberDelivery(storage: StorageBackend, repo: string, so
  * store can use: every object it names is there, and it was cut by the current
  * rule under the Writer's header. `null` otherwise.
  *
+ * @remarks
+ * A manifest it answers with is re-referenced, with every object it names
+ * (`touchReachable`), as a write of them would be: the caller is about to
+ * root it, and gc beside running work leaves it meanwhile, however long
+ * nothing named it.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param key - The memo key: a delivery's SHA-256, or a piece's key
@@ -220,10 +251,8 @@ export async function rememberedManifest(
   const header = new Beast2ElementWriter(manifest.type, { segment: () => {} }).header;
   if (manifest.rule !== segmentRuleFor(manifest.type) || manifest.header !== computeHash(header)) return null;
   // The memo is not a root: a collection gc took is a miss, whichever of its
-  // objects went first.
-  for (const object of [manifest.header, ...manifest.entries.map((entry) => entry.hash)]) {
-    if (!await storage.objects.exists(repo, object)) return null;
-  }
+  // objects went first. One found whole is re-referenced whole.
+  if (!await touchReachable(storage, repo, [hash])) return null;
   return { hash, manifest };
 }
 
@@ -238,18 +267,18 @@ function pieceKey(sourceHash: string, segments: { from: number; to: number }): s
  * each closed once it holds the pieces' middle size, so the same delivery is
  * always cut the same way. A delivery with no index, one whose segments alias
  * one another, or one small enough for one piece is taken in whole, by one
- * unit, which refuses it when it must.
+ * unit, which refuses it when it must; the plan says why one that cannot be
+ * cut is not.
+ *
+ * @throws {Error} When the delivery's tail or head cannot be read.
  */
-async function planPieces(storage: StorageBackend, repo: string, source: IntakeSource, size: number): Promise<Piece[]> {
-  const whole: Piece[] = [{ segments: null, bytes: size }];
-  let extents: Beast2RangedExtents;
-  try {
-    extents = await readExtents(storage, repo, source, size);
-  } catch {
-    return whole;
-  }
+async function planPieces(storage: StorageBackend, repo: string, source: IntakeSource, size: number): Promise<PiecePlan> {
+  const whole = (uncut: string | null): PiecePlan => ({ pieces: [{ segments: null, bytes: size }], uncut });
+  const extents = await readExtents(storage, repo, source, size);
+  if (extents === null) return whole('the delivery has no index that reads');
   const { offsets, segmentsEnd } = extents;
-  if (!extents.selfContained || offsets.length < 2) return whole;
+  if (offsets.length < 2) return whole(null);
+  if (!extents.selfContained) return whole("the delivery's segments alias one another");
   const target = pieceSizes().target;
   const pieces: Piece[] = [];
   let from = 0;
@@ -264,17 +293,38 @@ async function planPieces(storage: StorageBackend, repo: string, source: IntakeS
     covered = to;
     from = i + 1;
   }
-  return pieces.length === 1 ? whole : pieces;
+  return pieces.length === 1 ? whole(null) : { pieces, uncut: null };
 }
 
-/** A delivery's extents, by ranged reads of its tail and its head. */
-async function readExtents(storage: StorageBackend, repo: string, source: IntakeSource, size: number): Promise<Beast2RangedExtents> {
-  if ('object' in source) {
-    return readBeast2ExtentsRanged({ size, read: (offset, length) => storage.objects.readRange(repo, source.object, offset, length) });
-  }
+/**
+ * A delivery's extents, by ranged reads of its tail and its head; `null` when
+ * it has none that read: no index, or not a collection of beast2 version 5.
+ *
+ * @throws {Error} When the store or the filesystem fails a read: that is not a
+ *   delivery without an index.
+ */
+async function readExtents(storage: StorageBackend, repo: string, source: IntakeSource, size: number): Promise<Beast2RangedExtents | null> {
+  let failed: { err: unknown } | null = null;
+  const reading = (read: (offset: number, length: number) => Promise<Uint8Array>) => async (offset: number, length: number): Promise<Uint8Array> => {
+    try {
+      return await read(offset, length);
+    } catch (err) {
+      failed = { err };
+      throw err;
+    }
+  };
+  const extentsOf = async (read: (offset: number, length: number) => Promise<Uint8Array>): Promise<Beast2RangedExtents | null> => {
+    try {
+      return await readBeast2ExtentsRanged({ size, read: reading(read) });
+    } catch {
+      if (failed !== null) throw failed.err;
+      return null;
+    }
+  };
+  if ('object' in source) return extentsOf((offset, length) => storage.objects.readRange(repo, source.object, offset, length));
   const handle = await open(source.file, 'r');
   try {
-    return await readBeast2ExtentsRanged({ size, read: (offset, length) => readRange(handle, offset, length) });
+    return await extentsOf((offset, length) => readRange(handle, offset, length));
   } finally {
     await handle.close();
   }

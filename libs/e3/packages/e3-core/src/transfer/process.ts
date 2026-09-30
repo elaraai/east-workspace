@@ -4,8 +4,8 @@
  */
 
 /**
- * Shared processing handlers for package import/export, workspace deploy and
- * repository gc.
+ * Shared processing handlers for package import/export, workspace deploy,
+ * repository gc and split calls.
  *
  * These are cloud-agnostic handlers that perform the actual work of each job.
  * Used by both the local InMemoryTransferBackend and cloud backends
@@ -13,16 +13,22 @@
  */
 
 import { stat, unlink } from 'node:fs/promises';
+import type { Writable } from 'node:stream';
 import { none, some, variant } from '@elaraai/east';
 import type { RecordIndexPlan, RecordPlan } from '@elaraai/e3-types';
 
+import { ExportStoppedError } from '../errors.js';
 import { repoGc } from '../gc.js';
 import { packageExport } from '../packages.js';
 import { workspaceDeploy, workspaceExport } from '../workspaces.js';
 import { packageImport } from '../packages.js';
+import { withRunningWork } from '../running-work.js';
 import type { LockHandle, StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
-import type { PackageExportStore, PackageImportStore, RepoGcStore, WorkspaceDeployStore } from './interfaces.js';
+import { splitCallExplain, splitCallReference, splitCallRun, type SplitCallTask } from '../execution/splitCall.js';
+import type { ZipSource } from '../zip.js';
+import type { PackageExportStore, PackageImportStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
+import type { PackageZipCheckpoint } from './types.js';
 
 // =============================================================================
 // Throttled progress callback
@@ -71,13 +77,35 @@ function throttledProgress(
 export interface ProcessExportDeps {
   storage: StorageBackend;
   exportStore: PackageExportStore;
+  /**
+   * The workspace lock, when the caller holds it, for a workspace's export.
+   * The export takes none of its own and leaves this one held, so a caller
+   * that runs one job over several calls holds the workspace from the first
+   * to the last: nothing changes it in between, and so the export's resume is
+   * never refused for a workspace that changed. A package's export takes no
+   * lock, and leaves it alone.
+   */
+  lock?: LockHandle;
+  /**
+   * Aborted when the caller stops this call to run the job again, as compute
+   * with a time limit does before a large export has finished. The export
+   * stops once the entry it is writing is written, and the call throws an
+   * {@link ExportStoppedError} whose checkpoint the next call resumes from,
+   * with the job left `processing`.
+   */
+  signal?: AbortSignal;
 }
 
 /** Input for handleProcessExport. */
 export interface ProcessExportInput {
   id: string;
   repo: string;
-  zipPath: string;
+  /** Where the zip is written: its path, or a stream, such as a multipart
+   *  upload, which the export ends once the zip is whole. */
+  zip: string | Writable;
+  /** The checkpoint a call of this job that was stopped handed over: the
+   *  export goes on from it, and `zip` holds the bytes it counts. */
+  resume?: PackageZipCheckpoint;
 }
 
 /**
@@ -87,17 +115,21 @@ export interface ProcessExportInput {
  * export (based on the `workspace` field), runs the appropriate export
  * function, and updates the status to completed or failed.
  *
- * @param deps - Storage backend and export store
- * @param input - Job ID, repository path, and output zip path
+ * @param deps - Storage backend, export store, and the caller's workspace lock
+ *   and the signal that stops the call
+ * @param input - Job ID, repository path, where the zip is written, and the
+ *   checkpoint it resumes from
  *
+ * @throws {ExportStoppedError} When `deps.signal` stopped the export, with the
+ *   job left `processing`.
  * @throws Re-throws errors after updating status to failed and cleaning up
  */
 export async function handleProcessExport(
   deps: ProcessExportDeps,
   input: ProcessExportInput,
 ): Promise<void> {
-  const { storage, exportStore } = deps;
-  const { id, repo, zipPath } = input;
+  const { storage, exportStore, lock, signal } = deps;
+  const { id, repo, zip, resume } = input;
 
   const record = await exportStore.get(id);
   if (!record) throw new Error(`Export record ${id} not found`);
@@ -108,22 +140,17 @@ export async function handleProcessExport(
   });
 
   try {
-    if (record.workspace.type === 'some') {
-      await workspaceExport(storage, repo, record.workspace.value, zipPath, record.name, record.version, {
-        onProgress,
-      });
-    } else {
-      await packageExport(storage, repo, record.name, record.version, zipPath, {
-        onProgress,
-      });
-    }
+    const result = record.workspace.type === 'some'
+      ? await workspaceExport(storage, repo, record.workspace.value, zip, record.name, record.version, { onProgress, lock, signal, resume })
+      : await packageExport(storage, repo, record.name, record.version, zip, { onProgress, signal, resume });
     await onProgress.flush();
-    const fileStat = await stat(zipPath);
     await exportStore.updateStatus(id, variant('completed', {
-      size: BigInt(fileStat.size),
+      size: BigInt(result.bytes),
     }));
   } catch (err) {
-    await unlink(zipPath).catch(() => {});
+    // A call its caller stopped hands over, and the job goes on.
+    if (err instanceof ExportStoppedError) throw err;
+    if (typeof zip === 'string') await unlink(zip).catch(() => {});
     const message = err instanceof Error ? err.message : String(err);
     await exportStore.updateStatus(id, variant('failed', { message }));
     throw err;
@@ -138,55 +165,65 @@ export async function handleProcessExport(
 export interface ProcessImportDeps {
   storage: StorageBackend;
   importStore: PackageImportStore;
+  /**
+   * Aborted when the caller stops this call to run the job again, as compute
+   * with a time limit does before a large import has finished. The import
+   * stops between entries, and the job is left `processing` with its zip where
+   * it lies: the next call reads only the objects the store does not hold.
+   */
+  signal?: AbortSignal;
 }
 
 /** Input for handleProcessImport. */
 export interface ProcessImportInput {
   id: string;
   repo: string;
-  zipPath: string;
+  /** The staged zip: its path, removed once the job ends, or a source read by
+   *  ranges where it lies, which its owner removes. */
+  zip: string | ZipSource;
 }
 
 /**
  * Processes a package import job.
  *
- * Gets the import record, verifies the file size matches, runs packageImport,
- * and updates the status to completed or failed. Cleans up the staging zip
- * file in all cases.
+ * Gets the import record, verifies the zip's size matches, runs packageImport,
+ * and updates the status to completed or failed. A staged zip file is removed
+ * once the job ends.
  *
- * @param deps - Storage backend and import store
- * @param input - Job ID, repository path, and staging zip path
+ * @param deps - Storage backend, import store, and the signal that stops the
+ *   call
+ * @param input - Job ID, repository path, and the staged zip
  *
- * @throws Re-throws errors after updating status to failed
+ * @throws Re-throws errors after updating status to failed; or, when
+ *   `deps.signal` has aborted, with the job left `processing`
  */
 export async function handleProcessImport(
   deps: ProcessImportDeps,
   input: ProcessImportInput,
 ): Promise<void> {
-  const { storage, importStore } = deps;
-  const { id, repo, zipPath } = input;
+  const { storage, importStore, signal } = deps;
+  const { id, repo, zip } = input;
 
   const record = await importStore.get(id);
   if (!record) throw new Error(`Import record ${id} not found`);
 
-  // Verify file size matches
-  const fileStat = await stat(zipPath);
-  if (BigInt(fileStat.size) !== record.size) {
-    const message = `size mismatch: expected ${record.size}, got ${fileStat.size}`;
+  // Verify the zip's size matches
+  const size = typeof zip === 'string' ? (await stat(zip)).size : zip.size;
+  if (BigInt(size) !== record.size) {
+    const message = `size mismatch: expected ${record.size}, got ${size}`;
     await importStore.updateStatus(id, variant('failed', { message }));
-    await unlink(zipPath).catch(() => {});
+    if (typeof zip === 'string') await unlink(zip).catch(() => {});
     throw new Error(message);
   }
 
+  let handedOver = false;
   try {
     const onProgress = throttledProgress(async ({ objectsProcessed }) => {
       await importStore.updateStatus(id,
         variant('processing', variant('importing', { objectsProcessed: BigInt(objectsProcessed) })));
     });
 
-    const result = await packageImport(storage, repo, zipPath, {
-      onProgress,
-    });
+    const result = await packageImport(storage, repo, zip, { onProgress, signal });
 
     await onProgress.flush();
     await importStore.updateStatus(id, variant('completed', {
@@ -196,11 +233,16 @@ export async function handleProcessImport(
       objectCount: BigInt(result.objectCount),
     }));
   } catch (err) {
+    // A call its caller stopped hands over: the job goes on, from the zip.
+    if (signal?.aborted === true) {
+      handedOver = true;
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     await importStore.updateStatus(id, variant('failed', { message }));
     throw err;
   } finally {
-    await unlink(zipPath).catch(() => {});
+    if (typeof zip === 'string' && !handedOver) await unlink(zip).catch(() => {});
   }
 }
 
@@ -354,6 +396,117 @@ export async function handleProcessGc(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await gcStore.updateStatus(id, { status: variant('failed', null), stats: none, error: some(message) });
+    throw err;
+  }
+}
+
+// =============================================================================
+// Process Split Call
+// =============================================================================
+
+/** Dependencies for handleProcessSplitCall. */
+export interface ProcessSplitCallDeps {
+  storage: StorageBackend;
+  splitCallStore: SplitCallStore;
+  /** Runs the call's units, and its `then`. */
+  runner: TaskRunner;
+  /**
+   * Aborted when the caller stops this call to run the job again, as compute
+   * with a time limit does before a large split call has finished. The job is
+   * left `processing`, and the call that runs it again is served the units
+   * that finished from the execution cache, within what is left of the job's
+   * timeout.
+   */
+  signal?: AbortSignal;
+}
+
+/** Input for handleProcessSplitCall. */
+export interface ProcessSplitCallInput {
+  id: string;
+  repo: string;
+}
+
+/** The least time between two writes of a split call's progress to its store. */
+const SPLIT_PROGRESS_INTERVAL_MS = 500;
+
+/**
+ * Processes a split call job.
+ *
+ * Gets the job, runs its task over its pieces and then its `then`
+ * (`splitCallRun`) holding the repository's running work, and updates the
+ * status to what the call came to, or to why e3 could not run it. A client
+ * polling the job reads how far it has got, written as the units go. The
+ * job's timeout counts from its launch (`createdAt`), so a call that goes on
+ * with a job handed over gets what is left of it.
+ *
+ * An explain's job plans the call's pieces instead (`splitCallExplain`), which
+ * stores them for the run to take up, runs no unit, and ends `planned`. Either
+ * re-references what the call's `object` arguments name first
+ * (`splitCallReference`), and ends `completed`, `invalid`, when the store no
+ * longer holds one whole.
+ *
+ * @param deps - Storage backend, split call store, the runner the call's units
+ *   run on, and the caller's signal
+ * @param input - Job ID and repository identifier
+ *
+ * @throws Re-throws the error that stopped the call once the job is recorded
+ *   `failed`, or, when `deps.signal` has aborted, with the job left
+ *   `processing`
+ */
+export async function handleProcessSplitCall(
+  deps: ProcessSplitCallDeps,
+  input: ProcessSplitCallInput,
+): Promise<void> {
+  const { storage, splitCallStore, runner, signal } = deps;
+  const { id, repo } = input;
+
+  const record = await splitCallStore.get(id);
+  if (!record) throw new Error(`Split call ${id} not found`);
+  const call: SplitCallTask = {
+    task: record.task,
+    inputs: record.inputs,
+    objects: record.objects.map(Number),
+    then: record.then.type === 'some' ? record.then.value : null,
+    limits: {
+      timeoutMs: Number(record.limits.timeoutMs),
+      maxResultBytes: Number(record.limits.maxResultBytes),
+      maxLogBytes: Number(record.limits.maxLogBytes),
+    },
+    read: record.read,
+  };
+
+  // Progress is written one write at a time, and the last before the outcome.
+  let reported = 0;
+  let writes: Promise<void> = Promise.resolve();
+  try {
+    if (record.explain) {
+      const status = await withRunningWork(storage, repo, async () => {
+        const unheld = await splitCallReference(storage, repo, call);
+        return unheld === null ? variant('planned', await splitCallExplain(storage, repo, call)) : variant('completed', unheld);
+      });
+      await splitCallStore.updateStatus(id, status);
+      return;
+    }
+    const outcome = await withRunningWork(storage, repo, () => splitCallRun(storage, runner, repo, call, {
+      ...(signal !== undefined && { signal }),
+      launchedAt: record.createdAt,
+      onProgress: (progress) => {
+        const now = Date.now();
+        if (now - reported < SPLIT_PROGRESS_INTERVAL_MS) return;
+        reported = now;
+        writes = writes.then(() => splitCallStore.updateStatus(id, variant('processing', some(progress)))).catch(() => {
+          // A progress write that fails leaves the last one standing.
+        });
+      },
+    }));
+    await writes;
+    await splitCallStore.updateStatus(id, variant('completed', outcome));
+  } catch (err) {
+    await writes;
+    // A call its caller stopped is handed over, not failed.
+    if (signal?.aborted === true) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    await splitCallStore.updateStatus(id, variant('failed', { message }));
     throw err;
   }
 }

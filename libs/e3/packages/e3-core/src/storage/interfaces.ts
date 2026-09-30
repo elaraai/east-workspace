@@ -66,6 +66,13 @@ export interface GcObjectEntry {
   lastModified: number;
   /** Size of the object in bytes */
   size: number;
+  /**
+   * When a sweep beside running work first saw the object unreachable (epoch
+   * ms), as {@link RepoStore.gcNoteUnreachable} noted it; `null` while no
+   * note stands: none was made, or a write or a re-reference of the object
+   * cleared it.
+   */
+  unreachableSince: number | null;
 }
 
 /**
@@ -84,8 +91,11 @@ export interface GcRootScanResult {
 export interface GcObjectScanResult {
   /** Object entries in this batch */
   objects: GcObjectEntry[];
-  /** Opaque cursor for next batch; undefined means scan is complete */
-  cursor?: unknown;
+  /**
+   * Opaque cursor for next batch; undefined means scan is complete. A string,
+   * so a gc run in steps keeps it between them.
+   */
+  cursor?: string;
 }
 
 /**
@@ -97,6 +107,14 @@ export interface GcBackendSweepOptions {
   minAge: number;
   /** Whether to count what it would remove, and remove nothing */
   dryRun: boolean;
+  /**
+   * Whether gc holds the repository still, as `repoGc` does unless it is
+   * given a retention window. When it does not, work runs beside the sweep,
+   * so the backend removes nothing a running task may be using — a local
+   * repository's built environments, say — and only what the age gate proves
+   * abandoned.
+   */
+  held: boolean;
 }
 
 /**
@@ -122,6 +140,9 @@ export interface GcBackendSweepResult {
  * All methods take `repo` as first parameter to identify the repository.
  * For local storage, `repo` is the path to the e3 repository directory.
  * For cloud storage, `repo` is a repository identifier used as a key prefix.
+ *
+ * Every write re-references the object it stores, as {@link touch} does,
+ * whether it stores the bytes or finds them stored already.
  */
 export interface ObjectStore {
   /**
@@ -139,6 +160,38 @@ export interface ObjectStore {
    * @returns SHA256 hash of the data
    */
   writeStream(repo: string, stream: AsyncIterable<Uint8Array>): Promise<string>;
+
+  /**
+   * Re-reference objects the store holds, as a write of their bytes would,
+   * without sending them: what a caller does before it roots objects it did
+   * not write.
+   *
+   * @remarks
+   * A package import skipping objects the store holds, an adoption the memo
+   * answers, and a call naming an object by its hash each root objects
+   * nothing may have named for a while. gc beside running work deletes an
+   * object only if nothing wrote or re-referenced it since a sweep first saw
+   * it unreachable ({@link RepoStore.gcDeleteUnreachable}), so an object
+   * touched and then rooted within gc's retention window is never lost: the
+   * touch clears the object's unreachable note, as every write does. It
+   * answers true only for an object a racing delete leaves in place.
+   *
+   * It takes objects by the batch — a collection's segments, a zip's objects —
+   * so a store whose re-references are requests makes them a batch at a time:
+   * a caller re-referencing a large collection inside a request pays a request
+   * per batch, not per segment. Each object is re-referenced on its own, and
+   * the answers are in the order given.
+   *
+   * A touch re-references the objects alone. A caller rooting an object that
+   * names others — a manifest, a record's state — touches what it names too:
+   * `touchReachable` does both.
+   *
+   * @param repo - Repository identifier
+   * @param hashes - SHA256 hashes of the objects
+   * @returns For each object, in the order given, true when the store holds
+   *   it, and false when it does not
+   */
+  touch(repo: string, hashes: readonly string[]): Promise<boolean[]>;
 
   /**
    * Read an object by hash.
@@ -211,6 +264,20 @@ export interface ObjectStore {
    * @throws {ObjectNotFoundError} If object doesn't exist
    */
   materialize(repo: string, hash: string, destPath: string, options?: { link?: boolean }): Promise<void>;
+
+  /**
+   * How {@link materialize} places an object: `link` where objects are files
+   * on this machine, which it links or copies in the kernel, so placing one
+   * transfers nothing; `download` where they are elsewhere, so placing one
+   * transfers its bytes.
+   *
+   * @remarks
+   * A unit's staging goes by it. Where placing is a link, every object a unit
+   * may read is placed whole, since nothing is saved by placing less. Where it
+   * is a download, only what the unit reads is placed: a run of a stored
+   * delivery's segments, for an intake, as a blob of its own by ranged reads.
+   */
+  readonly placement: 'link' | 'download';
 
   /**
    * Check if an object exists.
@@ -360,11 +427,21 @@ export interface RefStore {
 
   /**
    * Get execution status for a specific execution.
+   *
+   * @remarks
+   * A record that is there and does not decode — a crash or a failing disk
+   * left it so — is `ExecutionCorruptError`, which gc takes for an attempt that
+   * keeps nothing. Any other failure is a failure to read, and gc decides
+   * nothing without the record, so a backend throws that error for a record
+   * that does not decode, and for nothing else.
+   *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
    * @param executionId - Execution ID (UUIDv7)
    * @returns ExecutionStatus or null if not found
+   * @throws {ExecutionCorruptError} When the record is there and does not
+   *   decode
    */
   executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null>;
 
@@ -879,31 +956,120 @@ export interface RepoStore {
   gcScanExecutionRoots(repo: string, cursor?: unknown): Promise<GcRootScanResult>;
 
   /**
-   * Scan object catalogue entries for GC.
+   * Scan object catalogue entries for GC, a page at a time, each with the
+   * unreachable note that stands for it. It changes nothing, so a dry run
+   * scans as any run does.
    * @param repo - Repository name
    * @param cursor - Opaque cursor from previous call (undefined for first call)
    * @returns Object entries and optional cursor for next batch
    */
-  gcScanObjects(repo: string, cursor?: unknown): Promise<GcObjectScanResult>;
+  gcScanObjects(repo: string, cursor?: string): Promise<GcObjectScanResult>;
 
   /**
-   * Delete objects by hash. Idempotent — safe to retry on failure.
+   * Delete objects by hash, unconditionally: gc holding the repository still
+   * deletes so, since nothing writes while it runs. Their unreachable notes go
+   * with them. Idempotent — safe to retry on failure.
    * @param repo - Repository name
    * @param hashes - Object hashes to delete
    */
   gcDeleteObjects(repo: string, hashes: string[]): Promise<void>;
 
   /**
+   * Note when a sweep beside running work first saw objects unreachable: gc
+   * deletes such an object only once it has stayed unreachable for its
+   * retention window, measured from this note.
+   *
+   * @remarks
+   * A note that stands is kept, so the window runs from the first sweep that
+   * saw the object unreachable. A write or a re-reference of the object
+   * ({@link ObjectStore.touch}) clears its note, and so does
+   * {@link gcClearUnreachable} once a mark reaches the object again.
+   *
+   * @param repo - Repository identifier
+   * @param hashes - The objects the sweep found unreachable
+   * @param at - When the sweep saw them (epoch ms)
+   * @returns The time each object's note stands at, in the order given: `at`,
+   *   or an earlier sweep's
+   */
+  gcNoteUnreachable(repo: string, hashes: readonly string[], at: number): Promise<number[]>;
+
+  /**
+   * Clear the unreachable notes of objects a mark reached. Clearing an object
+   * with no note does nothing.
+   *
+   * @param repo - Repository identifier
+   * @param hashes - The objects the mark reached
+   */
+  gcClearUnreachable(repo: string, hashes: readonly string[]): Promise<void>;
+
+  /**
+   * Delete an object a sweep beside running work found unreachable for gc's
+   * retention window, while its note still stands at `since`: unless nothing
+   * wrote or re-referenced it since. Its note goes with it.
+   *
+   * @remarks
+   * The delete is conditional on the note, never on the scan that found the
+   * object: a write, or a {@link ObjectStore.touch}, clears the note, so a
+   * delete that races a re-reference leaves the object, and a touch answers
+   * true only for an object the delete leaves.
+   *
+   * A store that keeps versions of an object deletes the one the note stood
+   * over, and any older, never one written after the conditional delete: a
+   * write that lands after it stores its bytes anew, and that version stays.
+   *
+   * @param repo - Repository identifier
+   * @param hash - The object
+   * @param since - The time its note stood at when the sweep decided
+   * @returns true when it deleted the object; false when its note no longer
+   *   stands at `since`, or the object is gone
+   */
+  gcDeleteUnreachable(repo: string, hash: string, since: number): Promise<boolean>;
+
+  /**
+   * Keep a part of a gc run in steps between its steps: the roots the history
+   * kept, and the mark's reachable set, in shards. A part written again
+   * replaces the last.
+   *
+   * @param repo - Repository identifier
+   * @param run - The run's id, a UUIDv7
+   * @param name - The part's name: lowercase letters, digits and dots
+   * @param data - Its bytes: an East value, as beast2
+   */
+  gcRunWrite(repo: string, run: string, name: string, data: Uint8Array): Promise<void>;
+
+  /**
+   * Read a part of a gc run in steps.
+   *
+   * @param repo - Repository identifier
+   * @param run - The run's id, a UUIDv7
+   * @param name - The part's name
+   * @returns Its bytes, or null when the run has no such part
+   */
+  gcRunRead(repo: string, run: string, name: string): Promise<Uint8Array | null>;
+
+  /**
+   * Delete a gc run in steps, every part of it: once it is done, or given up.
+   * Deleting a run that is not there does nothing.
+   *
+   * @param repo - Repository identifier
+   * @param run - The run's id, a UUIDv7
+   */
+  gcRunDelete(repo: string, run: string): Promise<void>;
+
+  /**
    * Sweep what the backend keeps beside a repository's objects and records,
    * which gc's mark does not reach: a local repository's staging files of
    * writes and transfers that never finished, the scratch directories of
-   * orchestrators that have exited, and the built environments no kept object
-   * names. A backend that keeps nothing of the kind sweeps nothing. gc calls
-   * it last, holding the repository still.
+   * orchestrators that have exited, the built environments no kept object
+   * names, and the unreachable notes a delete cut short left of objects
+   * already gone. A backend that keeps nothing of the kind sweeps nothing. gc
+   * calls it last: holding the repository still, or beside running work, as
+   * `options.held` says.
    *
    * @param repo - Repository identifier
    * @param reachable - The objects gc's mark reached
-   * @param options - The age gate, and whether this is a dry run
+   * @param options - The age gate, whether this is a dry run, and whether gc
+   *   holds the repository still
    * @returns What it removed, or in a dry run would
    */
   gcSweepBackend(repo: string, reachable: ReadonlySet<string>, options: GcBackendSweepOptions): Promise<GcBackendSweepResult>;

@@ -350,12 +350,13 @@ static bool write_run_unit(const char *path, const char *program, const char *in
     east_value_release(out);
     EastValue *run = east_struct_new_owned((const char *[]){"program", "inputs", "output"},
                                            run_fields, 3, run_t);
-    EastValue *unit_fields[4] = {east_variant_new("run", run, work_t),
+    EastValue *unit_fields[5] = {east_variant_new("run", run, work_t),
                                  east_array_new(&east_string_type), east_integer(1),
-                                 east_string(result)};
+                                 east_boolean(false), east_string(result)};
     east_value_release(run);
-    EastValue *unit = east_struct_new_owned(
-        (const char *[]){"work", "platforms", "threads", "result"}, unit_fields, 4, unit_t);
+    EastValue *unit =
+        east_struct_new_owned((const char *[]){"work", "platforms", "threads", "fetch", "result"},
+                              unit_fields, 5, unit_t);
     ByteBuffer *bytes = unit ? east_beast2_encode_full(unit, unit_t) : NULL;
     if (unit) east_value_release(unit);
     FILE *f = bytes ? fopen(path, "wb") : NULL;

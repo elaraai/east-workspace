@@ -55,7 +55,9 @@ export {
   listPackageFunctions,
   describePackageFunction,
   callFunctionSync,
-  callOneShotSync,
+  startSplitCall,
+  getSplitCallStatus,
+  type StartSplitCallOptions,
 } from './functions.js';
 
 export {

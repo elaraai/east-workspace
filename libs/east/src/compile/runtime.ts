@@ -67,9 +67,12 @@ export const CALL_DEPTH_MESSAGE = "call stack exhausted: East calls nested too d
  * call's location, which a program can catch; anything else is thrown as it
  * is. Converting where the overflow is caught may itself overflow — the new
  * `RangeError` then reaches the next call site out, which tries again with
- * more stack. */
+ * more stack. So the conversion runs nothing that fails otherwise there: the
+ * message is searched as a string, never by a regular expression, which V8
+ * compiles the first time it runs and which, compiled with no stack left,
+ * throws a `SyntaxError` no call site converts. */
 export function callDepthErrorAt(e: unknown, loc_id: bigint, source_map: SourceMap | null): unknown {
-  return e instanceof RangeError && /call stack/i.test(e.message)
+  return e instanceof RangeError && e.message.toLowerCase().includes("call stack")
     ? new EastError(CALL_DEPTH_MESSAGE, { location: (source_map?.resolve(loc_id) ?? []) as Location[] })
     : e;
 }

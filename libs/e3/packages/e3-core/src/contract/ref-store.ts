@@ -16,6 +16,7 @@ import {
   DataflowRunType, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType,
   type DataflowRun, type ExecutionOwner, type ExecutionStatus,
 } from '@elaraai/e3-types';
+import { ExecutionCorruptError } from '../errors.js';
 import { uuidv7 } from '../uuid.js';
 import type { BackendSetup } from './setup.js';
 
@@ -114,6 +115,20 @@ export function refStoreTests(setup: BackendSetup): void {
       const listed = await storage.refs.executionListLatest(repo, TASK);
       assert.deepEqual(listed.map(({ inputsHash }) => inputsHash), [INPUTS]);
       assert.ok(equal(listed[0]!.status, succeeded));
+    });
+
+    it('answers ExecutionCorruptError for an attempt whose record does not decode, which it still lists', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record that does not decode');
+      const id = uuidv7();
+      await storage.refs.executionWrite(repo, TASK, INPUTS, id, variant('failed', {
+        executionId: id, inputHashes: [HASH], startedAt: AT, completedAt: AT, exitCode: 1n, peakBytes: none, unit: false,
+      }));
+      await damage.execution(TASK, INPUTS, id);
+      // gc counts such an attempt as keeping nothing, where any other failure
+      // to read one stops it.
+      await assert.rejects(storage.refs.executionGet(repo, TASK, INPUTS, id), ExecutionCorruptError);
+      assert.deepEqual(await storage.refs.executionListIds(repo, TASK, INPUTS), [id]);
     });
 
     it('keeps an attempt\'s owner, and deletes it with the attempt', async (t) => {

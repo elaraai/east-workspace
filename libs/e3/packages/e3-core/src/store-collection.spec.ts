@@ -101,17 +101,23 @@ describe("the store's door", () => {
     writer.finish();
     assert.ok(writer.segments > 16, `more segments than are adopted at once: ${writer.segments}`);
 
-    // Each adoption held a moment, as a remote store's request is.
+    // Each adoption held until sixteen are, as a remote store holds its
+    // requests, and then all go on: so the most adopted at once is what the
+    // door starts, never a race against a timer. Were sixteen never adopted at
+    // once, each would go on after a long while, and the count below fail.
     const objects = storage.objects;
     const adoptFile = objects.adoptFile.bind(objects);
     const write = objects.write.bind(objects);
     let adopting = 0;
     let peak = 0;
     let writesWhileAdopting = 0;
+    let sixteen = (): void => {};
+    const together = new Promise<void>((resolve) => { sixteen = resolve; });
     objects.adoptFile = async (r: string, file: string, hash?: string) => {
       adopting++;
       peak = Math.max(peak, adopting);
-      await new Promise((resolve) => setTimeout(resolve, 2));
+      if (adopting >= 16) sixteen();
+      await Promise.race([together, new Promise((resolve) => setTimeout(resolve, 10_000).unref())]);
       try {
         return await adoptFile(r, file, hash);
       } finally {

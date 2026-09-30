@@ -27,7 +27,6 @@ import {
   fromJSONFor,
   parseFor,
   printFor,
-  variant,
   none,
   type EastTypeValue,
   type EastType,
@@ -36,6 +35,7 @@ import {
   packageRead,
   packageGetLatestVersion,
   workspaceGetPackage,
+  detachedToExecuteResult,
   LocalStorage,
   LocalTaskRunner,
   type Budget,
@@ -234,29 +234,8 @@ async function callLocal(
     environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
   }, { storage, verbose });
 
-  // Reuse the wire shape for rendering
-  const streams = {
-    stdout: detached.stdout,
-    stderr: detached.stderr,
-    stdoutTruncated: detached.stdoutTruncated,
-    stderrTruncated: detached.stderrTruncated,
-  };
-  let result: ExecuteResult;
-  switch (detached.kind) {
-    case 'success':
-      result = { outcome: variant('success', { value: detached.value }), ...streams };
-      break;
-    case 'failed':
-      result = { outcome: variant('failed', { exitCode: BigInt(detached.exitCode) }), ...streams };
-      break;
-    case 'too_large':
-      result = { outcome: variant('too_large', { bytes: BigInt(detached.bytes), limit: BigInt(detached.limit) }), ...streams };
-      break;
-    case 'timed_out':
-      result = { outcome: variant('timed_out', { ms: BigInt(detached.ms) }), ...streams };
-      break;
-  }
-  await renderResult(result, signature.outputType, outputPath);
+  // The wire shape a server answers, rendered the same way
+  await renderResult(detachedToExecuteResult(detached), signature.outputType, outputPath);
 }
 
 /**

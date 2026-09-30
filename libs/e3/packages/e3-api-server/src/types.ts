@@ -105,6 +105,12 @@ export {
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
+  // Split calls
+  SplitCallArgType,
+  SplitCallRequestType,
+  SplitCallProgressType,
+  SplitCallStatusType,
+  SplitCallPlanType,
   MutationCallRequestType,
   MutationResultType,
   RecordSignatureType,
@@ -167,6 +173,11 @@ export type {
   FunctionCallRequest,
   FunctionSignature,
   OneShotRequest,
+  SplitCallArg,
+  SplitCallRequest,
+  SplitCallProgress,
+  SplitCallStatus,
+  SplitCallPlan,
   MutationCallRequest,
   MutationResult,
   RecordSignature,
@@ -262,6 +273,11 @@ import {
   FunctionCallRequestType as _FunctionCallRequestType,
   FunctionSignatureType as _FunctionSignatureType,
   OneShotRequestType as _OneShotRequestType,
+  SplitCallArgType as _SplitCallArgType,
+  SplitCallRequestType as _SplitCallRequestType,
+  SplitCallProgressType as _SplitCallProgressType,
+  SplitCallStatusType as _SplitCallStatusType,
+  SplitCallPlanType as _SplitCallPlanType,
 } from '@elaraai/e3-types';
 
 export const ApiTypes = {
@@ -375,4 +391,11 @@ export const ApiTypes = {
   FunctionCallRequestType: _FunctionCallRequestType,
   FunctionSignatureType: _FunctionSignatureType,
   OneShotRequestType: _OneShotRequestType,
+
+  // Split calls
+  SplitCallArgType: _SplitCallArgType,
+  SplitCallRequestType: _SplitCallRequestType,
+  SplitCallProgressType: _SplitCallProgressType,
+  SplitCallStatusType: _SplitCallStatusType,
+  SplitCallPlanType: _SplitCallPlanType,
 } as const;

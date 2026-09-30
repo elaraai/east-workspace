@@ -223,6 +223,7 @@ def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
         OSError: If the result cannot be written.
     """
     from east.serialization._beast2_eastc import (
+        _FETCH_SEGMENTS_ENV,
         _peak_bytes,
         _read_unit,
         _set_thread_limit,
@@ -233,6 +234,12 @@ def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
     # The grant caps every pool east-c starts; one thread frames every output
     # inline.
     _set_thread_limit(min(max(unit["threads"], 1), 1024))
+    # A unit whose host places segments as they are read turns east-c's
+    # manifest openers' asking on for this process, and only such a unit does.
+    if unit["fetch"]:
+        os.environ[_FETCH_SEGMENTS_ENV] = "1"
+    else:
+        os.environ.pop(_FETCH_SEGMENTS_ENV, None)
     timings = {"load": 0.0, "compile": 0.0, "execute": 0.0, "output": 0.0}
     mark = perf_counter()
 

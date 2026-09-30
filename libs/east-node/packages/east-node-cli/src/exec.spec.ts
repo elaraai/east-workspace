@@ -25,6 +25,7 @@ import {
     DictType,
     East,
     IntegerType,
+    NullType,
     StringType,
     UnitOutcomeType,
     UnitResultType,
@@ -139,6 +140,7 @@ describe('exec -v: the account of each input', () => {
             work: variant('run', { program: 'program.beast2', inputs: ['table.beast2'], output: variant('value', 'out.beast2') }),
             platforms: [],
             threads: 1n,
+            fetch: false,
             result: 'result.beast2',
         }));
 
@@ -159,6 +161,45 @@ describe('exec -v: the account of each input', () => {
         assert.ok(verbose.includes('input 0: opened lazily'), `the input opened lazily:\n${verbose}`);
         assert.ok(/input 0: [\d.]+ (B|KB|MB) read of /.test(verbose), `what reading it came to:\n${verbose}`);
         assert.ok(!exec().includes('input 0:'), 'without -v the inputs are not reported');
+    });
+});
+
+describe('exec: a unit given no platform', () => {
+    // A unit whose platforms are empty loads none, so a program calling one
+    // fails, naming it: e3 lets a reader run a one-shot on such a unit.
+    let dir: string;
+
+    before(() => {
+        dir = mkdtempSync(join(tmpdir(), 'east-node-exec-platforms-'));
+    });
+
+    after(() => {
+        rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('fails a program that calls a platform function, naming it', () => {
+        // east-node-std's, by the name it declares it under
+        const consoleLog = East.platform('console_log', [StringType], NullType);
+        const program = East.function([IntegerType], IntegerType, ($, x) => {
+            $(consoleLog(East.print(x)));
+            return x;
+        });
+        writeFileSync(join(dir, 'program.beast2'), encodeEastIR(program.toIR()));
+        writeFileSync(join(dir, 'x.beast2'), encodeBeast2For(IntegerType)(7n));
+        writeFileSync(join(dir, 'unit.beast2'), encodeBeast2For(UnitType)({
+            work: variant('run', { program: 'program.beast2', inputs: ['x.beast2'], output: variant('value', 'out.beast2') }),
+            platforms: [],
+            threads: 1n,
+            fetch: false,
+            result: 'result.beast2',
+        }));
+
+        const run = spawnSync(process.execPath, [bin, 'exec', join(dir, 'unit.beast2')], { encoding: 'utf8' });
+        assert.equal(run.status, 1, run.stderr);
+        const { outcome } = decodeBeast2For(UnitResultType)(readFileSync(join(dir, 'result.beast2')));
+        if (outcome.type !== 'failed') assert.fail(`the outcome is ${outcome.type}`);
+        assert.match(outcome.value.message, /console_log/);
+        assert.ok(!existsSync(join(dir, 'out.beast2')), 'nothing is written');
     });
 });
 

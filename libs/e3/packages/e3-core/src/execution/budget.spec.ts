@@ -30,6 +30,15 @@ const GiB = 1024 ** 3;
 
 const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+/** Whether `holds` comes true within `ms`: a bounded wait on a condition. */
+const until = async (holds: () => boolean, ms: number): Promise<boolean> => {
+  const deadline = Date.now() + ms;
+  while (!holds()) {
+    if (Date.now() >= deadline) return false;
+    await sleep(5);
+  }
+  return true;
+};
 
 describe('Budget', () => {
   it('hands out its cores first come first served', async () => {
@@ -177,12 +186,14 @@ describe('Budget', () => {
     assert.equal(budget.reserved, 80);
   });
 
-  it('holds the line once the first request that does not fit has waited the bypass time', async () => {
+  it('holds the line once the first request that does not fit has waited the bypass time', async (t) => {
+    // The clock moves only as the test moves it
+    t.mock.timers.enable({ apis: ['Date'] });
     const budget = new Budget({ cores: 4, memory: 100 }, { bypassMs: 20 });
     const a = await budget.acquire({ memory: 60 });
     const order: string[] = [];
     const b = budget.acquire({ memory: 60 }).then((grant) => { order.push('b'); return grant; });
-    await sleep(40);
+    t.mock.timers.tick(20);
     const c = budget.acquire({ memory: 10 }).then((grant) => { order.push('c'); return grant; });
     await settle();
     assert.deepEqual(order, [], 'c fits, but b has waited its time and holds the line');
@@ -193,13 +204,16 @@ describe('Budget', () => {
     assert.equal(budget.reserved, 70);
   });
 
-  it('runs a request larger than the whole budget alone', async () => {
+  it('runs a request larger than the whole budget alone', async (t) => {
+    // The clock moves only as the test moves it: b passes x, which has not
+    // waited its time, however slow the machine
+    t.mock.timers.enable({ apis: ['Date'] });
     const budget = new Budget({ cores: 4, memory: 100 }, { bypassMs: 20 });
     const a = await budget.acquire({ memory: 10 });
     const order: string[] = [];
     const x = budget.acquire({ memory: 150 }).then((grant) => { order.push('x'); return grant; });
     const b = await budget.acquire({ memory: 10 });
-    await sleep(40);
+    t.mock.timers.tick(20);
     const c = budget.acquire().then((grant) => { order.push('c'); return grant; });
     await settle();
     assert.deepEqual(order, [], 'x waits for the budget to empty, and c behind it once x has waited its time');
@@ -347,9 +361,8 @@ describe('the guard', () => {
     await sleep(30);
     assert.equal(fake.samples(), 0, 'a grant that watches no runner is not measured');
     grant.watch(runner(1));
-    await sleep(60);
-    const watching = fake.samples();
-    assert.ok(watching >= 2, `measured ${watching} times while it watched a runner`);
+    // However slow the machine, its timer measures again and again
+    assert.ok(await until(() => fake.samples() >= 2, 10_000), `measured ${fake.samples()} times in 10 s while it watched a runner`);
     grant.unwatch();
     await sleep(30);
     const after = fake.samples();

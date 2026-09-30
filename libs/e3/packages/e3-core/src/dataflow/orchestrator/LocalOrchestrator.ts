@@ -456,6 +456,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       resolveCompletion = resolve;
       rejectCompletion = reject;
     });
+    // The run is this orchestrator's, and so is its end: how it ended is in
+    // its state, which a poll reads, and a caller that starts a run and never
+    // waits on it — a server's route — leaves no rejection unhandled. wait()
+    // still rejects with the run's error.
+    completionPromise.catch(() => {});
 
     // Create running execution state
     const execution: RunningExecution = {
@@ -625,10 +630,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           workspaceName: state.workspace,
           packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
           startedAt: state.startedAt,
-          completedAt: variant('none', null),
+          completedAt: none,
           status: variant('running', {}),
           inputVersions: new Map(state.inputSnapshot),
-          outputVersions: variant('none', null),
+          outputVersions: none,
           taskExecutions: new Map(),
           summary: {
             total: BigInt(state.tasks.size),
@@ -880,10 +885,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             workspaceName: state.workspace,
             packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
             startedAt: state.startedAt,
-            completedAt: variant('some', new Date()),
+            completedAt: some(new Date()),
             status: variant('cancelled', {}),
             inputVersions: new Map(state.inputSnapshot),
-            outputVersions: variant('some', this.buildOutputVersions(state)),
+            outputVersions: some(this.buildOutputVersions(state)),
             taskExecutions: new Map(execution.taskExecutions),
             summary: {
               total: BigInt(state.tasks.size),
@@ -932,10 +937,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           workspaceName: state.workspace,
           packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
           startedAt: state.startedAt,
-          completedAt: variant('some', new Date()),
+          completedAt: some(new Date()),
           status: finalStatus,
           inputVersions: new Map(state.inputSnapshot),
-          outputVersions: variant('some', this.buildOutputVersions(state)),
+          outputVersions: some(this.buildOutputVersions(state)),
           taskExecutions: new Map(execution.taskExecutions),
           summary: {
             total: BigInt(state.tasks.size),

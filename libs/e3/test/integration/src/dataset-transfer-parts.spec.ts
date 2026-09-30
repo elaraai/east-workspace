@@ -55,7 +55,8 @@ function encodedDelivery(): Uint8Array {
 
 /** A fresh repository with the string package deployed to `ws`. */
 async function deployed(t: { after(fn: () => Promise<void>): void }): Promise<TestContext> {
-  const ctx = await createTestContext({ baseUrl, getToken: async () => '', cleanup: true });
+  // The server has no auth, so a reader's token is the admin's: none
+  const ctx = await createTestContext({ baseUrl, getToken: async () => '', getReaderToken: async () => '', cleanup: true });
   t.after(() => ctx.cleanup());
   const zip = await createStringPackageZip(ctx.tempDir, 'parts-pkg', '1.0.0');
   await packageImport(baseUrl, ctx.repoName, readFileSync(zip), { token: '' });

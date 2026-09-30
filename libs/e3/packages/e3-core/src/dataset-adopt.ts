@@ -40,16 +40,18 @@
  */
 
 import { stat } from 'node:fs/promises';
-import { checkDatasetType, isCollectionRoot, manifestByteSize, manifestElementCount, type TreePath } from '@elaraai/e3-types';
+import { checkDatasetType, isCollectionRoot, manifestByteSize, manifestElementCount, type IntakeFile, type TreePath } from '@elaraai/e3-types';
 import {
   readBeast2Type,
+  variant,
   type EastTypeValue,
 } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader, readDatasetFileType, sha256File } from '@elaraai/e3';
-import { DatasetTypeMismatchError, DeliveryRefusedError } from './errors.js';
+import { DatasetTypeMismatchError, DeliveryRefusedError, ObjectNotFoundError } from './errors.js';
 import { readManifest } from './dataset-open.js';
 import { intakeDelivery, rememberDelivery, rememberedManifest, type DeliveryIntake, type DeliveryIntakeOptions } from './delivery-intake.js';
-import { withDatasetWriteLock, workspaceSetDatasetByHash } from './trees.js';
+import { readTouched } from './gc-graph.js';
+import { withDatasetWriteLock, workspaceSetDatasetByHash, type DatasetLeaf } from './trees.js';
 import type { IntakeSource, TaskRunner } from './execution/interfaces.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
@@ -123,6 +125,47 @@ export interface DatasetAdoptOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Options accepted by {@link datasetAdoptObject}: those of
+ * {@link DatasetAdoptOptions} that apply to a delivery the store holds, whose
+ * name is its hash, so there is no digest to check and none to take.
+ */
+export interface DatasetAdoptObjectOptions {
+  /**
+   * A workspace lock the caller already holds; without one, the adopt takes
+   * the workspace lock shared for its own duration.
+   */
+  lock?: LockHandle;
+  /** Hears how far the adopt has got taking a collection in, as each piece
+   *  finishes: always the `take-in` phase. */
+  onProgress?: (progress: DatasetAdoptProgress) => void;
+  /**
+   * Aborting it stops the intake: the pieces it finished are remembered, so
+   * the next adopt of the delivery takes in only the rest.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * How far an adopt has got, as a dataset upload's commit reports it while it
+ * runs (`processing`), whichever way the store takes the upload in: hashing a
+ * staged file, then its pieces as intake units take them in.
+ *
+ * @param path - The dataset's path, as the upload names it
+ * @param progress - How far the adopt has got
+ * @returns The commit's progress, as the transfer protocol carries it
+ */
+export function adoptProgressToIntakeFile(path: string, progress: DatasetAdoptProgress): IntakeFile {
+  return {
+    path,
+    step: progress.phase === 'hash'
+      ? variant('hashing', null)
+      : variant('taking_in', { pieces: BigInt(progress.pieces?.total ?? 0), done: BigInt(progress.pieces?.done ?? 0) }),
+    bytes: BigInt(progress.bytes),
+    total: BigInt(progress.total),
+  };
+}
+
 /** What {@link objectAdoptFile} reports back. */
 export interface ObjectAdoptResult {
   /** The object the value is: the manifest, for a collection. */
@@ -136,24 +179,6 @@ export interface ObjectAdoptResult {
   runners?: readonly string[];
   /** When a runner fell back to another: why. */
   fallback?: string;
-}
-
-/**
- * Whether the store knows a delivery by its SHA-256: as the manifest it was
- * split into, or as an object of those bytes.
- *
- * @remarks
- * What a transfer init asks before it plans an upload: a delivery the store
- * knows is adopted with {@link datasetAdoptObject} for the cost of a round
- * trip.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param sourceHash - SHA-256 of the delivered bytes
- * @returns Whether {@link datasetAdoptObject} can adopt it without its bytes
- */
-export async function deliveryKnown(storage: StorageBackend, repo: string, sourceHash: string): Promise<boolean> {
-  return (await rememberedManifest(storage, repo, sourceHash)) !== null || await storage.objects.exists(repo, sourceHash);
 }
 
 /**
@@ -328,15 +353,7 @@ export async function datasetAdoptFile(
       }
       throw err;
     }
-    const { hash } = adopted;
-
-    // The self entry is what makes change detection exact: the ref's version
-    // vector names the value's hash, so a new delivery invalidates precisely
-    // this input's consumers.
-    const selfKeypath = treePath.map(s => `.${s.value}`).join('');
-    await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
-
-    return { ...adopted, ...await geometry(storage, repo, hash, leaf.type) };
+    return pointAt(storage, repo, ws, treePath, leaf, adopted);
   });
 }
 
@@ -345,24 +362,32 @@ export async function datasetAdoptFile(
  * its type first.
  *
  * @remarks
- * The dedup door. A transfer whose delivery the store knows skips the upload
- * entirely: the bytes were split before, and the memo names the manifest they
- * became; or they are an object in the store. Either may have been stored for
- * a different dataset with a different type, so this is the only place that
+ * The dedup door. A delivery the store knows skips the upload entirely: the
+ * bytes were split before, and the memo names the manifest they became; or
+ * they are an object in the store. Either may have been stored for a
+ * different dataset with a different type, so this is the only place that
  * pairing is ever checked. An object that is a collection is taken in by
- * intake units on `runner`, and remembered as the manifest it became.
+ * intake units on `runner`, in pieces, and remembered as the manifest it
+ * became: how far it has got goes to `options.onProgress` as each piece
+ * finishes, and aborting `options.signal` stops it with the pieces it finished
+ * remembered, so the next adopt of the delivery takes in only the rest.
  *
- * It holds the locks {@link datasetAdoptFile} does: a collection the store
- * holds whole is split into segments here, which for a large one takes a
- * while, and neither a deploy nor a removal may finish inside it, nor a sweep
- * delete its segments before the ref names them.
+ * It holds the locks {@link datasetAdoptFile} does, or the workspace lock its
+ * caller holds: a collection the store holds whole is split into segments
+ * here, which for a large one takes a while, and neither a deploy nor a
+ * removal may finish inside it, nor a sweep delete its segments before the ref
+ * names them.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
  * @param sourceHash - SHA-256 of the delivered bytes
- * @param runner - The runner that takes in a collection the store holds whole
+ * @param runner - The runner that takes in a collection the store holds whole:
+ *   needed unless the memo names the delivery's manifest, or it holds another
+ *   value
+ * @param options - A lock the caller already holds, a listener for how far the
+ *   intake has got, and a signal that stops it
  * @returns The dataset's new hash, the delivery's size, the stored geometry and
  *   how the delivery was taken in
  * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
@@ -371,7 +396,7 @@ export async function datasetAdoptFile(
  *   store holds whole
  * @throws {WorkspaceLockError} When the workspace is locked by another process
  * @throws If the dataset is not writable, the store does not know the
- *   delivery, or a garbage collection is running
+ *   delivery, the intake was aborted, or a garbage collection is running
  */
 export async function datasetAdoptObject(
   storage: StorageBackend,
@@ -379,37 +404,135 @@ export async function datasetAdoptObject(
   ws: string,
   treePath: TreePath,
   sourceHash: string,
-  runner: TaskRunner,
+  runner: TaskRunner | undefined,
+  options: DatasetAdoptObjectOptions = {},
 ): Promise<DatasetAdoptResult> {
-  return withDatasetWriteLock(storage, repo, ws, treePath, undefined, async (leaf) => {
-    const subject = `dataset '${leaf.address}'`;
-    const known = await rememberedManifest(storage, repo, sourceHash);
-    let adopted: ObjectAdoptResult;
-    if (known !== null) {
-      const mismatch = checkDatasetType(subject, `delivery ${sourceHash.slice(0, 8)}...`, leaf.type, known.manifest.type);
-      if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
-      adopted = { hash: known.hash, size: manifestByteSize(known.manifest), taken: 'known' };
-    } else {
-      const { size } = await storage.objects.stat(repo, sourceHash);
-      const mismatch = checkDatasetType(subject, `object ${sourceHash.slice(0, 8)}...`, leaf.type, await objectType(storage, repo, sourceHash, size));
-      if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
-      if (isCollectionRoot(leaf.type)) {
-        const taken = await takeIn(storage, repo, runner, { object: sourceHash }, leaf.type, sourceHash, size, `object ${sourceHash.slice(0, 8)}...`, {});
-        await rememberDelivery(storage, repo, sourceHash, taken);
-        adopted = { hash: taken.hash, size, taken: 'taken', runners: taken.runners, ...(taken.fallback !== undefined && { fallback: taken.fallback }) };
-      } else {
-        adopted = { hash: sourceHash, size, taken: 'carried' };
-      }
-    }
-    const selfKeypath = treePath.map(s => `.${s.value}`).join('');
-    await workspaceSetDatasetByHash(storage, repo, ws, treePath, adopted.hash, new Map([[selfKeypath, adopted.hash]]));
-    return { ...adopted, ...await geometry(storage, repo, adopted.hash, leaf.type) };
+  return withDatasetWriteLock(storage, repo, ws, treePath, options.lock, async (leaf) => {
+    const adopted = await adoptStored(storage, repo, ws, leaf, sourceHash, { runner, onProgress: options.onProgress, signal: options.signal });
+    if (adopted === null) throw new ObjectNotFoundError(sourceHash);
+    return pointAt(storage, repo, ws, treePath, leaf, adopted);
   });
+}
+
+/**
+ * Point a workspace dataset at a delivery the store already knows, when that
+ * takes nothing in: the manifest the adoption memo names for it, or an object
+ * of a value that is not a collection. Its type is checked first.
+ *
+ * @remarks
+ * What a transfer init asks before it plans an upload. An init answers at
+ * once, so it never takes a delivery in: a collection the store holds whole,
+ * but the memo does not name — one whose intake is still running, or stopped —
+ * is left for an upload's commit, which takes it in where commits run.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param treePath - Path to the dataset
+ * @param sourceHash - SHA-256 of the delivered bytes
+ * @param options - A lock the caller already holds
+ * @returns What was adopted; or `null`, with nothing written, when the store
+ *   holds no such object, or holds a collection whole that the memo does not
+ *   name
+ * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
+ *   type the dataset declares
+ * @throws {WorkspaceLockError} When the workspace is locked by another process
+ * @throws If the dataset is not writable, or a garbage collection is running
+ */
+export async function datasetAdoptKnown(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  treePath: TreePath,
+  sourceHash: string,
+  options: { lock?: LockHandle } = {},
+): Promise<DatasetAdoptResult | null> {
+  return withDatasetWriteLock(storage, repo, ws, treePath, options.lock, async (leaf) => {
+    const adopted = await adoptStored(storage, repo, ws, leaf, sourceHash, null);
+    return adopted === null ? null : pointAt(storage, repo, ws, treePath, leaf, adopted);
+  });
+}
+
+/**
+ * Adopts, for the dataset `leaf` declares, a delivery the store holds — as the
+ * manifest the memo names, or as an object — checking its type first, under
+ * the dataset's write lock its caller holds.
+ *
+ * @param intake - How a collection object the memo does not name is taken in;
+ *   `null` takes nothing in, and leaves one to its caller
+ * @returns What was adopted, or `null` when the store holds no such object, or
+ *   holds a collection whole and `intake` is `null`
+ * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
+ *   type the dataset declares
+ */
+async function adoptStored(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  leaf: DatasetLeaf,
+  sourceHash: string,
+  intake: { runner: TaskRunner | undefined; onProgress: ((progress: DatasetAdoptProgress) => void) | undefined; signal: AbortSignal | undefined } | null,
+): Promise<ObjectAdoptResult | null> {
+  const subject = `dataset '${leaf.address}'`;
+  const known = await rememberedManifest(storage, repo, sourceHash);
+  if (known !== null) {
+    const mismatch = checkDatasetType(subject, `delivery ${sourceHash.slice(0, 8)}...`, leaf.type, known.manifest.type);
+    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+    return { hash: known.hash, size: manifestByteSize(known.manifest), taken: 'known' };
+  }
+  // Re-referenced before it is rooted, as a write of it would be, and read
+  // once more should it read as gone: a delete that raced the touch has it
+  // aside for a moment
+  if ((await storage.objects.touch(repo, [sourceHash]))[0] !== true) return null;
+  const stored = await readTouched(() => storedValue(storage, repo, sourceHash), (read) => read === null);
+  if (stored === null) return null;
+  const { size } = stored;
+  const mismatch = checkDatasetType(subject, `object ${sourceHash.slice(0, 8)}...`, leaf.type, stored.type);
+  if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+  if (!isCollectionRoot(leaf.type)) return { hash: sourceHash, size, taken: 'carried' };
+  if (intake === null) return null;
+  const { onProgress, signal } = intake;
+  const taken = await takeIn(storage, repo, intake.runner, { object: sourceHash }, leaf.type, sourceHash, size, `object ${sourceHash.slice(0, 8)}...`, {
+    ...(onProgress !== undefined && { onProgress: (progress) => onProgress({ phase: 'take-in', total: size, ...progress }) }),
+    ...(signal !== undefined && { signal }),
+  });
+  await rememberDelivery(storage, repo, sourceHash, taken);
+  return { hash: taken.hash, size, taken: 'taken', runners: taken.runners, ...(taken.fallback !== undefined && { fallback: taken.fallback }) };
+}
+
+/** Points a dataset at what an adopt stored, with its version vector's self
+ *  entry, and reports it with its stored geometry. */
+async function pointAt(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  treePath: TreePath,
+  leaf: DatasetLeaf,
+  adopted: ObjectAdoptResult,
+): Promise<DatasetAdoptResult> {
+  // The self entry is what makes change detection exact: the ref's version
+  // vector names the value's hash, so a new delivery invalidates precisely
+  // this input's consumers.
+  const selfKeypath = treePath.map(s => `.${s.value}`).join('');
+  await workspaceSetDatasetByHash(storage, repo, ws, treePath, adopted.hash, new Map([[selfKeypath, adopted.hash]]));
+  return { ...adopted, ...await geometry(storage, repo, adopted.hash, leaf.type) };
 }
 
 /** The head reads {@link objectType} tries, in order — the first covers every
  *  type section anything realistic writes. */
 const OBJECT_HEAD_PROBE_BYTES = [64 * 1024, 1024 * 1024, 16 * 1024 * 1024];
+
+/** An object's size, and its wire type from ranged reads of its head: `null`
+ *  when the store does not hold it. */
+async function storedValue(storage: StorageBackend, repo: string, hash: string): Promise<{ size: number; type: EastTypeValue } | null> {
+  try {
+    const { size } = await storage.objects.stat(repo, hash);
+    return { size, type: await objectType(storage, repo, hash, size) };
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) return null;
+    throw err;
+  }
+}
 
 /** An object's wire type, from ranged reads of its head. */
 async function objectType(storage: StorageBackend, repo: string, hash: string, size: number): Promise<EastTypeValue> {

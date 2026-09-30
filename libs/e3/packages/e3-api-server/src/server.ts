@@ -26,7 +26,7 @@ import { createObjectRoutes } from './routes/objects.js';
 import { createTransferRoutes } from './routes/transfer.js';
 import { createPackageTransferRoutes } from './routes/package-transfer.js';
 import { createDataEndpoints } from './routes/data.js';
-import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes } from './routes/functions.js';
+import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, oneShotAccessByRoles } from './routes/functions.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
 import { localDataflow } from './local-dataflow.js';
 
@@ -207,7 +207,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Must be mounted BEFORE auth middleware so they bypass JWT validation.
   // In cloud deployments these URLs are S3 presigned URLs that reject auth headers.
   const pkgTransfer = createPackageTransferRoutes(storage, getRepoPath, transferBackend);
-  const dsTransfer = createTransferRoutes(storage, getRepoPath, transferBackend, getRunner, {
+  const dsTransfer = createTransferRoutes(storage, getRepoPath, transferBackend, {
     ...(transferCommitWaitMs !== undefined && { commitWaitMs: transferCommitWaitMs }),
   });
   const dataEndpoints = createDataEndpoints(transferBackend, storage, getRepoPath);
@@ -255,8 +255,15 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Package routes: /api/repos/:repo/packages/*
   app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath));
 
+  // Who may run what a caller supplies: with auth, an elevated role runs any
+  // one-shot, and gives a function's runner any platform package, and any
+  // other caller a platform-free one-shot, and a function on its own runner;
+  // without, the server is single-tenant — its author is its operator — and
+  // runs any.
+  const access = auth || oidcProvider ? oneShotAccessByRoles() : () => 'any' as const;
+
   // Package-scoped function routes: /api/repos/:repo/packages/:pkg/:version/functions/*
-  app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner));
+  app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner, { access }));
 
   // Workspace routes: /api/repos/:repo/workspaces/*
   app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend, getRunner));
@@ -273,10 +280,11 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));
 
   // Workspace-scoped function routes: /api/repos/:repo/workspaces/:ws/functions/*
-  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, getRunner));
+  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, getRunner, { access }));
 
-  // One-shot routes (role-gated): /api/repos/:repo/workspaces/:ws/one-shot/*
-  app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, getRunner));
+  // One-shot routes: /api/repos/:repo/workspaces/:ws/one-shot/*, and the split
+  // calls launched under the same grant, run as jobs on the transfer backend.
+  app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, { access }));
 
   // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));

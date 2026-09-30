@@ -21,12 +21,23 @@
  * unit, so the pieces of a large delivery that wait for room hold nothing but
  * their place in the budget's queue.
  *
+ * A delivery the store holds whole is placed whole where placing it is a link
+ * (`ObjectStore.placement`): a local store's. Where placing it is a download,
+ * a run of its segments is staged as a blob of its own — the delivery's
+ * header, the run's frames as they are stored, and an index of them — read by
+ * ranges, so the store serves a piece no byte of the delivery's other
+ * segments. A refusal of a staged run names its segments and offsets as the
+ * delivery numbers them, as it does for a delivery the runner reads where it
+ * lies.
+ *
  * @packageDocumentation
  */
 
 import * as fs from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
 import * as path from 'node:path';
-import { variant } from '@elaraai/east';
+import { pipeline } from 'node:stream/promises';
+import { readBeast2ExtentsRanged, spliceBeast2Tail, variant, type Beast2RangedExtents } from '@elaraai/east';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DeliveryRefusedError } from '../errors.js';
 import { storeDatasetFile } from '../store-collection.js';
@@ -128,15 +139,24 @@ async function stageAndRun(
   scratchDir: string,
   grant: Grant | undefined,
 ): Promise<IntakeResult> {
-  // A delivery the store holds whole is linked in: the runner only reads it.
+  // A delivery on a filesystem the runner reads is named where it lies. One
+  // the store holds whole is linked in where objects are files here, since the
+  // runner only reads it; where placing it is a download, a run of its
+  // segments is staged as a blob of its own.
   let input: string;
+  let segments = spec.segments ?? null;
+  let piece: StagedPiece | null = null;
   if ('file' in spec.source) {
     input = spec.source.file;
   } else {
     input = path.join(scratchDir, 'delivery.beast2');
-    await storage.objects.materialize(repo, spec.source.object, input, { link: true });
+    if (segments !== null && storage.objects.placement === 'download') {
+      piece = await stagePiece(storage, repo, spec.source.object, segments, input);
+    }
+    if (piece === null) await storage.objects.materialize(repo, spec.source.object, input, { link: true });
+    else segments = piece.segments;
   }
-  const unit = await stageIntakeUnit(scratchDir, input, spec.type, spec.segments ?? null, unitThreads(options.budget));
+  const unit = await stageIntakeUnit(scratchDir, input, spec.type, segments, unitThreads(options.budget));
   const searchDirs = [options.runnerSearchDir ?? path.dirname(repo), process.cwd()];
 
   let fallback: string | undefined;
@@ -163,7 +183,8 @@ async function stageAndRun(
       return { hash, runner: candidate.command, ...(fallback !== undefined && { fallback }), peakBytes: Number(recorded.peakBytes) };
     }
     if (recorded?.outcome.type === 'failed') {
-      throw new DeliveryRefusedError(candidate.command, recorded.outcome.value.message, result.stderrTail);
+      const refusal = recorded.outcome.value.message;
+      throw new DeliveryRefusedError(candidate.command, piece === null ? refusal : piece.inDelivery(refusal), result.stderrTail);
     }
     // No result that reads: the runner could not run the unit at all.
     const ended = result.exitCode !== null ? `exited ${result.exitCode}` : result.signal !== null ? `was ended by ${result.signal}` : 'did not start';
@@ -177,6 +198,105 @@ async function stageAndRun(
   }
   throw new Error(`e3 found no runner to take the delivery in${fallback === undefined ? '' : `, since ${fallback}`}: ` +
     'add @elaraai/east-node-cli (or east-c) to the project');
+}
+
+/** How many bytes of a stored delivery a piece's staging reads at once. */
+const PIECE_READ_BYTES = 8 * 1024 * 1024;
+
+/** A run of a stored delivery's segments, staged as a blob of its own. */
+interface StagedPiece {
+  /** The run, as the staged blob numbers its segments: all of them. */
+  readonly segments: { readonly from: number; readonly to: number };
+  /**
+   * A refusal of the staged blob, naming its segments and offsets as the
+   * delivery numbers them.
+   *
+   * @param refusal - The refusal, in the words every runner uses
+   * @returns The refusal of the delivery
+   */
+  inDelivery(refusal: string): string;
+}
+
+/**
+ * Stages segments `[from, to)` of a delivery the store holds as a blob of their
+ * own at `dest`: the delivery's header, the run's frames as they are stored,
+ * and a terminator, index and footer for them. That is what an intake of the
+ * run reads of the delivery, and all that is read of it, by ranges: its footer
+ * and index, its header, and then the run.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - The delivery's object
+ * @param segments - The run, by the delivery's index
+ * @param dest - Where the blob is written
+ * @returns The staged run; or `null` when the delivery has no index that
+ *   parses, the run is not a range of its segments, or they alias one another,
+ *   so the runner is given the whole delivery and refuses it in its own words
+ * @throws {ObjectNotFoundError} When the store holds no such object.
+ * @throws {Error} When the store fails a read of the delivery, as it failed —
+ *   a throttle stays a throttle, which a caller that runs the intake in rounds
+ *   retries, rather than staging the whole delivery for one piece — and when
+ *   the object ends inside the segments its index names.
+ */
+async function stagePiece(
+  storage: StorageBackend,
+  repo: string,
+  hash: string,
+  segments: { readonly from: number; readonly to: number },
+  dest: string,
+): Promise<StagedPiece | null> {
+  const { size } = await storage.objects.stat(repo, hash);
+  const store: { failure: { err: unknown } | null } = { failure: null };
+  let extents: Beast2RangedExtents;
+  try {
+    // A probe of the footer alone, so the read that follows is the index: a
+    // run that does not hold the last segments reads none of their bytes.
+    extents = await readBeast2ExtentsRanged(
+      {
+        size,
+        read: async (offset, length) => {
+          try {
+            return await storage.objects.readRange(repo, hash, offset, length);
+          } catch (err) {
+            store.failure = { err };
+            throw err;
+          }
+        },
+      },
+      { tailProbeBytes: 16 },
+    );
+  } catch {
+    // The store's failure is its own; extents that do not parse are the
+    // delivery's, which the runner refuses in its own words, given it whole.
+    if (store.failure !== null) throw store.failure.err;
+    return null;
+  }
+  const count = extents.offsets.length;
+  const { from, to } = segments;
+  if (!extents.selfContained || !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > count) return null;
+  const start = extents.offsets[from]!;
+  const end = to < count ? extents.offsets[to]! : extents.segmentsEnd;
+  // The run moves back to follow the header directly.
+  const shift = start - extents.prefixEnd;
+  const table = extents.offsets.slice(from, to).map((offset, i) => ({ offset: offset - shift, count: extents.counts[from + i]! }));
+  await pipeline(async function* () {
+    yield extents.head;
+    for (let at = start; at < end; at += PIECE_READ_BYTES) {
+      const length = Math.min(PIECE_READ_BYTES, end - at);
+      const bytes = await storage.objects.readRange(repo, hash, at, length);
+      if (bytes.length !== length) throw new Error(`object ${hash} ends at ${at + bytes.length}, inside the segments its index names`);
+      yield bytes;
+    }
+    yield spliceBeast2Tail(table, extents.prefixEnd + end - start);
+  }, createWriteStream(dest));
+  return {
+    segments: { from: 0, to: to - from },
+    inDelivery: (refusal) => refusal.replace(
+      /\bsegment (\d+) of the delivery(?:, at offset (\d+))?/g,
+      (_match, n: string, offset: string | undefined) =>
+        `segment ${Number(n) + from} of the delivery${offset === undefined ? '' : `, at offset ${Number(offset) + shift}`}`,
+    ),
+  };
 }
 
 /** Removes what a runner wrote for a unit, so another runs it from a clean

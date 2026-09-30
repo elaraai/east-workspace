@@ -11,6 +11,10 @@
  * exit status, the result's outcome and every output byte to the corpus, so
  * east-c writes what east-node and east-py write for every unit.
  *
+ * First, whatever the corpus, a unit given no platform: its program calls one,
+ * and fails naming it (#1031). The program and its unit are TypeScript-written
+ * fixtures (generate_fixtures.mjs) east-py-cli's tests run too.
+ *
  * Skips (exit 77) unless `make test-export` has produced the corpus. Run under
  * ASan/LSan the spawned CLI is itself instrumented, and its stderr is scanned
  * for sanitizer reports. The cases run in a fresh directory under the working
@@ -246,6 +250,40 @@ static void test_case(const char *bin, const char *corpus, const char *scratch, 
     east_value_release(expected);
 }
 
+/* A unit whose platforms are empty loads none, so a program calling one fails,
+ * naming it: e3 lets a reader run a one-shot on such a unit. The program calls
+ * east-node-std's console_log. */
+static void test_no_platform(const char *bin, const char *scratch)
+{
+    char dir[4096], unit[8192], err[8192], path[8192];
+    snprintf(dir, sizeof(dir), "%s/no_platform", scratch);
+    /* The unit's paths are relative: it runs beside its program. */
+    CHECK(copy_tree(EAST_CLI_FIXTURES, dir), "no platform: cannot copy the fixtures to %s", dir);
+    snprintf(unit, sizeof(unit), "%s/platform_call_unit.beast2", dir);
+    snprintf(err, sizeof(err), "%s.stderr.txt", dir);
+    int rc = run_exec(bin, unit, err);
+    CHECK(rc == 1, "no platform: exit %d, expected 1", rc);
+
+    snprintf(path, sizeof(path), "%s/platform_call_result.beast2", dir);
+    EastValue *result = load(path, east_unit_result_type());
+    CHECK(result != NULL, "no platform: no result");
+    if (result) {
+        EastValue *outcome = east_struct_get_field_idx(result, 0);
+        const char *tag = east_variant_case_name(outcome);
+        CHECK(strcmp(tag, "failed") == 0, "no platform: the outcome is %s, expected failed", tag);
+        if (strcmp(tag, "failed") == 0) {
+            const char *message =
+                east_struct_get_field_idx(outcome->data.variant.value, 0)->data.string.data;
+            CHECK(strstr(message, "console_log") != NULL,
+                  "no platform: the failure does not name console_log: %s", message);
+        }
+        east_value_release(result);
+    }
+    free(east_builtin_get_error());
+    snprintf(path, sizeof(path), "%s/platform_call_output.beast2", dir);
+    CHECK(!file_exists(path), "no platform: an output is written");
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2 || argc > 3) {
@@ -253,13 +291,6 @@ int main(int argc, char **argv)
         return 2;
     }
     const char *corpus = argc > 2 ? argv[2] : "/tmp/east-test-ir/runner_corpus";
-    char index[4096];
-    snprintf(index, sizeof(index), "%s/index.beast2", corpus);
-    if (!file_exists(index)) {
-        printf("cli exec gate: skipped (no runner corpus at %s — run `make test-export`)\n",
-               corpus);
-        return 77;
-    }
     east_type_of_type_init();
     /* A unit refuses an output directory that holds anything, so every run
      * starts from fresh copies. */
@@ -267,6 +298,20 @@ int main(int argc, char **argv)
     if (!mkdtemp(scratch)) {
         fprintf(stderr, "cannot create a scratch directory\n");
         return 2;
+    }
+    test_no_platform(argv[1], scratch);
+    char index[4096];
+    snprintf(index, sizeof(index), "%s/index.beast2", corpus);
+    if (!file_exists(index)) {
+        if (failures > 0) {
+            fprintf(stderr, "%d failure(s); the cases ran in %s\n", failures, scratch);
+            return 1;
+        }
+        remove_tree(scratch);
+        printf("cli exec gate: a unit given no platform fails naming it; the corpus is skipped "
+               "(no runner corpus at %s — run `make test-export`)\n",
+               corpus);
+        return 77;
     }
     EastValue *names = load(index, east_array_type(&east_string_type));
     if (!names) {
@@ -282,6 +327,8 @@ int main(int argc, char **argv)
         return 1;
     }
     remove_tree(scratch);
-    printf("cli exec gate: all %zu corpus cases pass\n", count);
+    printf("cli exec gate: a unit given no platform fails naming it, and all %zu corpus cases "
+           "pass\n",
+           count);
     return 0;
 }

@@ -28,9 +28,15 @@ import { decodeBeast2For } from '@elaraai/east';
 import { WorkspaceRecordType, decodeUnitPlan, executionStatusRoots, type ExecutionStatus, type UnitPlan } from '@elaraai/e3-types';
 import type { StorageBackend } from './storage/interfaces.js';
 import { dataflowGetGraph, dataflowResolveInputHashes, type DataflowGraph } from './dataflow.js';
+import { ExecutionCorruptError, GcReadError, ObjectNotFoundError } from './errors.js';
 import { inputsHash } from './executions.js';
 import { stageUnits } from './execution/engine.js';
 import { uuidv7Timestamp } from './uuid.js';
+
+/** An error's message. */
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 /** The runs of each workspace gc keeps however old: the latest ten. */
 export const DEFAULT_KEEP_RUNS = 10;
@@ -76,11 +82,27 @@ interface Identity {
  * Deletes the runs and executions gc does not keep (see the module's doc).
  *
  * @remarks
- * Run under gc's locks, so no run or task writes a record while it decides.
+ * gc holding the repository still runs it under its locks, so no run or task
+ * writes a record while it decides. gc beside running work runs it without
+ * them (`repoGcStep`'s first step), and what runs meanwhile comes to no harm:
+ * - a record written after the prune lists the records is not among them, and
+ *   stays;
+ * - a run that takes an attempt from the cache as the prune deletes it names
+ *   an execution that is gone, which the next prune and a workspace's export
+ *   pass over; the output it took is rooted by the dataset it writes, and the
+ *   retention window keeps it until then;
+ * - a split task's execution that begins meanwhile may have its plan pointer
+ *   cleared, which costs only a resume: an execution after a crash plans its
+ *   pieces again, rather than take up the stage.
+ *
  * Everything is decided before the first deletion, so a failure — a workspace
- * whose graph cannot be built — deletes nothing. An execution goes with its
- * owner record and its logs; a split task's plan pointer goes when nothing of
- * its execution is kept.
+ * whose graph cannot be built, a record or a plan that cannot be read — deletes
+ * nothing. Only a record's or a plan's absence means it keeps nothing; one
+ * that fails to read for any other reason may keep what it names, so the
+ * prune stops rather than decide without it. An execution record that reads
+ * but does not decode keeps nothing. An execution goes with its owner record
+ * and its logs; a split task's plan pointer goes when nothing of its execution
+ * is kept.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -88,6 +110,10 @@ interface Identity {
  * @param now - The time the ages are measured from, in epoch milliseconds
  * @returns What was deleted, or would be in a dry run, and the roots of what
  *   was kept
+ * @throws {GcReadError} When a plan a kept execution names cannot be read for
+ *   a reason other than its absence, or does not decode.
+ * @throws {Error} When a workspace's graph, or an execution's record, cannot
+ *   be read.
  */
 export async function pruneHistory(
   storage: StorageBackend,
@@ -107,8 +133,14 @@ export async function pruneHistory(
       let status: ExecutionStatus | null;
       try {
         status = await storage.refs.executionGet(repo, taskHash, inputs, executionId);
-      } catch {
-        status = null; // A record that does not read keeps nothing
+      } catch (err) {
+        // A record that does not decode keeps nothing. One the store failed
+        // to read may be a success whose output only it keeps: nothing is
+        // decided without it.
+        if (!(err instanceof ExecutionCorruptError)) {
+          throw new Error(`gc deletes nothing while it cannot read the execution ${taskHash}/${inputs}/${executionId}: ${messageOf(err)}`);
+        }
+        status = null;
       }
       attempts.push({ executionId, status });
     }
@@ -172,16 +204,25 @@ export async function pruneHistory(
   }
 
   // The units a split task's plans name, each plan once: the stage's, then
-  // each stage's before it.
+  // each stage's before it. A plan that is gone names no units to keep; one
+  // that cannot be read, or does not decode, names units that cannot be known,
+  // and nothing is decided without them.
   const expanded = new Set<string>();
   const keepUnits = async (planHash: string): Promise<void> => {
     for (let next: string | null = planHash; next !== null && !expanded.has(next);) {
       expanded.add(next);
+      let bytes: Uint8Array;
+      try {
+        bytes = await storage.objects.read(repo, next);
+      } catch (err) {
+        if (err instanceof ObjectNotFoundError) return;
+        throw new GcReadError(next, messageOf(err));
+      }
       let plan: UnitPlan;
       try {
-        plan = decodeUnitPlan(await storage.objects.read(repo, next));
-      } catch {
-        return; // A plan that does not read names no units to keep
+        plan = decodeUnitPlan(bytes);
+      } catch (err) {
+        throw new GcReadError(next, messageOf(err), true);
       }
       for (const unit of stageUnits(plan.stage)) keepIdentity(keyOf(plan.task, inputsHash(unit.inputs)));
       next = plan.previous.type === 'some' ? plan.previous.value : null;

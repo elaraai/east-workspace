@@ -14,5 +14,14 @@ export { createObjectRoutes } from './objects.js';
 export { createTransferRoutes, type TransferRouteOptions } from './transfer.js';
 export { createPackageTransferRoutes } from './package-transfer.js';
 export { createDataEndpoints } from './data.js';
-export { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, type GetRunner } from './functions.js';
+export {
+  createPackageFunctionRoutes,
+  createWorkspaceFunctionRoutes,
+  createOneShotRoutes,
+  oneShotAccessByRoles,
+  type GetRunner,
+  type OneShotAccess,
+  type OneShotRoutesOptions,
+  type FunctionRoutesOptions,
+} from './functions.js';
 export { createWorkspaceRecordRoutes } from './records.js';

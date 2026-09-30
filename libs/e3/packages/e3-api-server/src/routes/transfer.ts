@@ -9,8 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { none, variant } from '@elaraai/east';
 import { E3_RELEASE, TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
 import {
-  datasetAdoptObject,
-  deliveryKnown,
+  datasetAdoptKnown,
   type DatasetCommitStatus,
   type DatasetUpload,
   type StorageBackend,
@@ -18,7 +17,6 @@ import {
 } from '@elaraai/e3-core';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
-import type { GetRunner } from './functions.js';
 import {
   TransferUploadRequestType,
   TransferUploadResponseType,
@@ -112,20 +110,23 @@ function sendCommitStatus(transfer: DatasetUpload, status: DatasetCommitStatus):
  * whichever instance answers — so verifying a delivery of many gigabytes never
  * holds one request open for as long as its SHA-256 takes.
  *
- * The init's dedup takes a delivery the store holds whole in on the
- * repository's runner, as intake units, when it is a collection.
+ * The init answers at once. Its dedup adopts only what takes nothing in: the
+ * manifest the adoption memo names for the delivery, or an object of a value
+ * that is not a collection. A collection the store holds whole, and the memo
+ * does not name — its intake still running, or stopped — is uploaded and
+ * committed as any other, and the commit takes it in where commits run,
+ * resuming from the pieces an earlier intake finished.
  *
  * @param storage - Storage backend
  * @param getRepoPath - The repository a request names, as a path
- * @param transferBackend - The uploads, and where their commits run
- * @param getRunner - The runner a repository's intake units run on
+ * @param transferBackend - The uploads, and where their commits run: the
+ *   upload store takes a delivery in, on the runner it was given
  * @param options - How long a commit is waited for before it answers
  */
 export function createTransferRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
-  getRunner: GetRunner,
   options: TransferRouteOptions = {},
 ) {
   const api = new Hono();
@@ -223,14 +224,18 @@ export function createTransferRoutes(
     const pathStr = extractDatasetPath(c, '/upload');
     const { hash, size } = await decodeBody(c, TransferUploadRequestType);
 
-    // Dedup — the store knows these bytes, as the manifest they were split
-    // into or as an object, so no upload is needed. It may have stored them
-    // for another dataset, of another type, so the pairing is checked here: it
-    // is the only door that skips the commit.
-    if (await deliveryKnown(storage, repoPath, hash)) {
-      const treePath = urlPathToTreePath(pathStr);
-      await datasetAdoptObject(storage, repoPath, ws, treePath, hash, getRunner(repoPath));
-      return sendSuccess(TransferUploadResponseType, variant('completed', null));
+    // Dedup — the store knows these bytes as the manifest they were split
+    // into, or as an object of a value that is no collection, so no upload is
+    // needed. It may have stored them for another dataset, of another type, so
+    // the pairing is checked here: it is the only door that skips the commit.
+    // It takes nothing in, so the init answers at once: a collection the store
+    // holds whole is left for the commit.
+    try {
+      if (await datasetAdoptKnown(storage, repoPath, ws, urlPathToTreePath(pathStr), hash) !== null) {
+        return sendSuccess(TransferUploadResponseType, variant('completed', null));
+      }
+    } catch (err) {
+      return sendError(TransferUploadResponseType, errorToVariant(err));
     }
 
     // The upload's record, and its plan as parts, which the store makes ready

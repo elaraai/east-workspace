@@ -19,7 +19,7 @@ import { urlPathToTreePath, type IntakeFile } from '@elaraai/e3-types';
 
 import type { StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
-import { datasetAdoptFile } from '../dataset-adopt.js';
+import { adoptProgressToIntakeFile, datasetAdoptFile, datasetAdoptObject, type DatasetAdoptProgress } from '../dataset-adopt.js';
 import { DatasetTypeMismatchError } from '../errors.js';
 import { packageStagingPath, transferStagingDir, transferStagingPath } from '../storage/local/localHelpers.js';
 import type {
@@ -30,16 +30,20 @@ import type {
   PackageImportStore,
   PackageExportStore,
   RepoGcStore,
+  SplitCallStore,
   WorkspaceDeployStore,
 } from './interfaces.js';
-import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, WorkspaceDeployJob } from './types.js';
-import { handleProcessDeploy, handleProcessExport, handleProcessGc, handleProcessImport } from './process.js';
+import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, SplitCallJob, WorkspaceDeployJob } from './types.js';
+import { handleProcessDeploy, handleProcessExport, handleProcessGc, handleProcessImport, handleProcessSplitCall } from './process.js';
 
 /** The part size a dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
 
 /** How long a finished commit's status, and its upload, stay readable. */
 const COMMIT_RESULT_TTL_MS = 10 * 60 * 1000;
+
+/** How long a finished split call's record stays readable for its poll. */
+const SPLIT_CALL_RESULT_TTL_MS = 10 * 60 * 1000;
 
 // =============================================================================
 // Dataset Upload
@@ -51,6 +55,13 @@ interface UploadCommit {
   /** Settles as the commit finishes; never rejects. */
   settled: Promise<DatasetCommitStatus>;
 }
+
+/**
+ * How an upload's commit takes the staged bytes in: as the file they are
+ * staged in, or first as the object they hash to, as a store whose uploads
+ * land in an object store takes them in.
+ */
+export type UploadCommitForm = 'file' | 'object';
 
 /**
  * The local server's uploads: records in memory, each upload's parts staged
@@ -67,6 +78,7 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
     private readonly storage?: StorageBackend,
     private readonly getRepoPath?: (repo: string) => string,
     private readonly getRunner?: (repoPath: string) => TaskRunner,
+    private readonly commitAs: UploadCommitForm = 'file',
   ) {}
 
   async create(id: string, record: DatasetUpload): Promise<void> {
@@ -134,6 +146,11 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
    * A collection is then taken in by intake units on the repository's runner,
    * and any other value becomes an object by link or rename. How far it has
    * got goes to `onProgress` as it goes.
+   *
+   * Committed as an object, the staged bytes first become the object they hash
+   * to, refused when that is not the upload's hash, and the object is then
+   * adopted (`datasetAdoptObject`), its intake reporting as it goes: how a
+   * store whose uploads land in an object store commits one.
    */
   private async verifyAndAdopt(id: string, record: DatasetUpload, onProgress: (progress: IntakeFile) => void): Promise<DatasetCommitStatus> {
     if (this.storage === undefined || this.getRepoPath === undefined) {
@@ -147,18 +164,19 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
       if (BigInt(stats.size) !== record.size) {
         return variant('failed', { message: `size mismatch: expected ${record.size}, got ${stats.size}` });
       }
-      await datasetAdoptFile(this.storage, repoPath, record.workspace, urlPathToTreePath(record.path), stagingPath, {
-        expectHash: record.hash,
-        runner: this.getRunner?.(repoPath),
-        onProgress: (progress) => onProgress({
-          path: record.path,
-          step: progress.phase === 'hash'
-            ? variant('hashing', null)
-            : variant('taking_in', { pieces: BigInt(progress.pieces?.total ?? 0), done: BigInt(progress.pieces?.done ?? 0) }),
-          bytes: BigInt(progress.bytes),
-          total: BigInt(progress.total),
-        }),
-      });
+      const treePath = urlPathToTreePath(record.path);
+      const runner = this.getRunner?.(repoPath);
+      const report = (progress: DatasetAdoptProgress): void => onProgress(adoptProgressToIntakeFile(record.path, progress));
+      if (this.commitAs === 'object') {
+        await this.storage.objects.adoptFile(repoPath, stagingPath, record.hash);
+        await datasetAdoptObject(this.storage, repoPath, record.workspace, treePath, record.hash, runner, { onProgress: report });
+      } else {
+        await datasetAdoptFile(this.storage, repoPath, record.workspace, treePath, stagingPath, {
+          expectHash: record.hash,
+          runner,
+          onProgress: report,
+        });
+      }
       return variant('completed', null);
     } catch (err) {
       if (err instanceof DatasetTypeMismatchError) {
@@ -266,7 +284,7 @@ class InMemoryPackageImportStore implements PackageImportStore {
     await mkdir(transferStagingDir(repoPath), { recursive: true });
     void handleProcessImport(
       { storage: this.storage, importStore: this },
-      { id, repo: repoPath, zipPath },
+      { id, repo: repoPath, zip: zipPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessImport
     }).finally(() => {
@@ -335,7 +353,7 @@ class InMemoryPackageExportStore implements PackageExportStore {
     await mkdir(transferStagingDir(repoPath), { recursive: true });
     void handleProcessExport(
       { storage: this.storage, exportStore: this },
-      { id, repo: repoPath, zipPath },
+      { id, repo: repoPath, zip: zipPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessExport
     }).finally(() => {
@@ -482,6 +500,84 @@ class InMemoryRepoGcStore implements RepoGcStore {
 }
 
 // =============================================================================
+// Split Call
+// =============================================================================
+
+/**
+ * The local server's split calls: records in memory, each job run in this
+ * process on the repository's runner, and its record forgotten a while after
+ * it finishes.
+ */
+class InMemorySplitCallStore implements SplitCallStore {
+  private readonly records = new Map<string, SplitCallJob>();
+  private readonly executing = new Set<string>();
+
+  constructor(
+    private readonly storage?: StorageBackend,
+    private readonly getRepoPath?: (repo: string) => string,
+    private readonly getRunner?: (repoPath: string) => TaskRunner,
+  ) {}
+
+  async create(id: string, record: SplitCallJob): Promise<void> {
+    this.records.set(id, record);
+    // A job filed already finished — a launch that found the request wrong —
+    // is forgotten as one that ran is.
+    if (record.status.type !== 'processing') this.forget(id);
+  }
+
+  async get(id: string): Promise<SplitCallJob | null> {
+    return this.records.get(id) ?? null;
+  }
+
+  async updateStatus(id: string, status: SplitCallJob['status']): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`Split call ${id} not found`);
+    this.records.set(id, { ...record, status });
+  }
+
+  async delete(id: string): Promise<void> {
+    this.records.delete(id);
+  }
+
+  async execute(id: string, repo: string): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`Split call ${id} not found`);
+    if (record.status.type !== 'processing' || this.executing.has(id)) return;
+    this.executing.add(id);
+
+    const repoPath = this.storage !== undefined && this.getRepoPath !== undefined ? this.getRepoPath(repo) : undefined;
+    const runner = repoPath === undefined ? undefined : this.getRunner?.(repoPath);
+    if (this.storage === undefined || repoPath === undefined || runner === undefined) {
+      await this.updateStatus(id, variant('failed', { message: 'this backend runs no split call: it was given no storage or runner' }));
+      this.executing.delete(id);
+      this.forget(id);
+      return;
+    }
+
+    // The job runs in this process, on the runner every task of the server
+    // runs on, and outlives the request that launched it.
+    void handleProcessSplitCall(
+      { storage: this.storage, splitCallStore: this, runner },
+      { id, repo: repoPath },
+    ).catch(() => {
+      // Error already recorded in job status by handleProcessSplitCall
+    }).finally(() => {
+      this.executing.delete(id);
+      this.forget(id);
+    });
+  }
+
+  /** Forgets a finished job once its poll has had a while to read it. */
+  private forget(id: string): void {
+    setTimeout(() => { this.records.delete(id); }, SPLIT_CALL_RESULT_TTL_MS).unref();
+  }
+
+  clear(): void {
+    this.records.clear();
+  }
+}
+
+// =============================================================================
 // Transfer Backend
 // =============================================================================
 
@@ -491,9 +587,10 @@ export interface InMemoryTransferBackendOptions {
   getRepoPath?: (repo: string) => string;
   /**
    * The runner, for a repository's path, that a deploy job runs its
-   * migrations and index builds on, and an upload's commit its intake units.
-   * Without one, a deploy that owes either is refused before it writes
-   * anything, and a commit of a collection the store does not know fails.
+   * migrations and index builds on, an upload's commit its intake units, and a
+   * split call its units. Without one, a deploy that owes either is refused
+   * before it writes anything, a commit of a collection the store does not
+   * know fails, and a split call fails.
    */
   getRunner?: (repoPath: string) => TaskRunner;
   /**
@@ -501,6 +598,12 @@ export interface InMemoryTransferBackendOptions {
    * {@link DEFAULT_TRANSFER_PART_BYTES}). An upload no larger is one part.
    */
   partBytes?: number;
+  /**
+   * How an upload's commit takes the staged bytes in (default `file`): `object`
+   * commits as a store whose uploads land in an object store does, adopting the
+   * object the bytes hash to — what a test of that path runs.
+   */
+  commitAs?: UploadCommitForm;
 }
 
 export class InMemoryTransferBackend implements TransferBackend {
@@ -510,6 +613,7 @@ export class InMemoryTransferBackend implements TransferBackend {
   readonly packageExport: InMemoryPackageExportStore;
   readonly workspaceDeploy: InMemoryWorkspaceDeployStore;
   readonly repoGc: InMemoryRepoGcStore;
+  readonly splitCall: InMemorySplitCallStore;
 
   constructor(options: InMemoryTransferBackendOptions) {
     const baseUrl = options.baseUrl ?? '';
@@ -517,12 +621,13 @@ export class InMemoryTransferBackend implements TransferBackend {
     if (!Number.isSafeInteger(partBytes) || partBytes < 1) {
       throw new Error(`partBytes must be a positive integer, got ${partBytes}`);
     }
-    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl, BigInt(partBytes), options.storage, options.getRepoPath, options.getRunner);
+    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl, BigInt(partBytes), options.storage, options.getRepoPath, options.getRunner, options.commitAs);
     this.datasetDownload = new InMemoryDatasetDownloadStore(baseUrl);
     this.packageImport = new InMemoryPackageImportStore(baseUrl, options.storage, options.getRepoPath);
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);
     this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
     this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath);
+    this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner);
   }
 
   clear(): void {
@@ -532,5 +637,6 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.packageExport.clear();
     this.workspaceDeploy.clear();
     this.repoGc.clear();
+    this.splitCall.clear();
   }
 }

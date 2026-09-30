@@ -58,7 +58,8 @@ export interface TaskExecuteOptions {
    *  which the caller holds for this execution alone. Runtime-only: never
    *  hashed, so the execution's identity does not depend on them, and never
    *  logged. A local runner refuses one that sets a variable e3 sets itself
-   *  (`PATH`, `E3_RUNNER_SEARCH_DIRS`). */
+   *  (`PATH`, `E3_RUNNER_SEARCH_DIRS`, `E3_FETCH_SEGMENTS`, which only a unit
+   *  turns on). */
   extraEnv?: Readonly<Record<string, string>>;
 }
 
@@ -102,6 +103,24 @@ export interface TaskResult {
 
 /** An execution's record while it runs: the `running` case of its status. */
 export type RunningExecution = Extract<ExecutionStatus, { type: 'running' }>['value'];
+
+/**
+ * Whether an execution recorded `running` can still finish, as the runner
+ * that started it judges it: what {@link TaskRunner.executionAlive} answers.
+ *
+ * @remarks
+ * What a driver or a runner hands the execution cache's probe, so that the
+ * probe rewrites a `running` record as interrupted only when the execution's
+ * own runner says it cannot finish. A unit running on another host is then
+ * left running — its runner's compute says so — whatever the host that probes
+ * can see of its processes.
+ */
+export type ExecutionLiveness = (
+  storage: StorageBackend,
+  taskHash: string,
+  inputsHash: string,
+  running: RunningExecution,
+) => Promise<boolean>;
 
 /**
  * One unit of a task split into pieces: a piece, which runs the task's program
@@ -252,6 +271,21 @@ export interface TaskRunner {
   runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult>;
 
   /**
+   * The largest delivery, in bytes, this runner takes in whole, by one intake
+   * unit; `null` when it takes in any.
+   *
+   * @remarks
+   * A delivery with an index is cut into pieces, runs of its segments, and one
+   * that cannot be cut — it has no index, or its segments alias one another —
+   * is taken in whole. A runner whose units run on compute of a bounded size,
+   * such as a function with a small disk, cannot take a large one in, so an
+   * intake refuses such a delivery above this before any unit runs, naming the
+   * fix: write it again with a current Writer. A local runner takes in what its
+   * machine holds, and states none.
+   */
+  readonly wholeIntakeLimit: number | null;
+
+  /**
    * Take a delivered collection in, or a run of its segments, through an
    * `intake` unit, and store what it wrote through the store's door.
    *
@@ -266,6 +300,12 @@ export interface TaskRunner {
    * A run of segments checks only its own rows: a caller that assembles a
    * delivery's pieces checks that a Set's or a Dict's keys ascend where they
    * meet.
+   *
+   * Where placing an object is a download (`ObjectStore.placement`), a run of
+   * the segments of a delivery the store holds is staged as what the unit
+   * reads of it — its header, the run and its index — so the unit downloads
+   * its piece, not the delivery (`runIntake` stages it so). A refusal names the
+   * run's segments as the delivery numbers them.
    *
    * @param storage - Storage backend
    * @param spec - The delivery, its declared type, and the run of its segments

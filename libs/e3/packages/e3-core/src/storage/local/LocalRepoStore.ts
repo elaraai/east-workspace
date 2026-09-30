@@ -27,9 +27,21 @@ import {
 } from '../../errors.js';
 import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
 import { RepoMetadataType } from '@elaraai/e3-types';
+import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
 import { executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
 import { newRepositoryRecord } from '../../repository-record.js';
-import { atomicWriteFile } from './localHelpers.js';
+import {
+  GC_ASIDE_SUFFIX,
+  atomicWriteFile,
+  clearUnreachableNote,
+  gcDir,
+  gcRunPath,
+  isTransientFsError,
+  noteUnreachable,
+  objectPath,
+  restoreAside,
+  unreachableNoteTime,
+} from './localHelpers.js';
 import { sweepLocalRepository } from './sweep.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
 
@@ -39,6 +51,17 @@ export const METADATA_FILE = 'metadata.beast2';
 /** Encodes a repository's metadata as a local repository keeps it. */
 export const encodeRepoMetadata: (metadata: RepoMetadata) => Uint8Array = encodeBeast2For(RepoMetadataType);
 const decodeRepoMetadata = decodeBeast2For(RepoMetadataType);
+
+/** A directory's entries, or none when it is not there. */
+async function entriesOf(dir: string): Promise<string[]> {
+  try {
+    return await fs.readdir(dir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return [];
+    throw err;
+  }
+}
 
 /**
  * Local filesystem implementation of RepoStore.
@@ -249,7 +272,7 @@ export class LocalRepoStore implements RepoStore {
     let deleted = 0;
 
     // For local storage, we delete every record in one pass
-    const refDirs = ['packages', 'workspaces', 'executions', 'dataflows', 'adoptions', 'locks'];
+    const refDirs = ['packages', 'workspaces', 'executions', 'dataflows', 'adoptions', 'locks', 'gc'];
 
     for (const dir of refDirs) {
       const dirPath = path.join(repoPath, dir);
@@ -321,42 +344,52 @@ export class LocalRepoStore implements RepoStore {
     return { roots: await executionRoots(this.refs, repo) };
   }
 
-  async gcScanObjects(repo: string, _cursor?: unknown): Promise<GcObjectScanResult> {
-    const objectsDir = path.join(repo, 'objects');
-    const objects: GcObjectEntry[] = [];
-
-    try {
-      const subdirs = await fs.readdir(objectsDir);
-      for (const subdir of subdirs) {
-        if (!/^[a-f0-9]{2}$/.test(subdir)) continue;
-        const subdirPath = path.join(objectsDir, subdir);
-        try {
-          const stat = await fs.stat(subdirPath);
-          if (!stat.isDirectory()) continue;
-        } catch {
-          continue;
-        }
-        const files = await fs.readdir(subdirPath);
-        for (const file of files) {
-          if (file.endsWith('.partial')) continue;
-          if (!file.endsWith('.beast2')) continue;
-          const hash = subdir + file.slice(0, -7); // remove .beast2
-          try {
-            const fileStat = await fs.stat(path.join(subdirPath, file));
-            objects.push({ hash, lastModified: fileStat.mtimeMs, size: fileStat.size });
-          } catch {
-            // Skip files we can't stat
-          }
-        }
-      }
-    } catch {
-      // Objects directory doesn't exist
+  /**
+   * A page of the object scan: one prefix directory, `objects/<xx>`, with the
+   * unreachable notes of `gc/unreachable/<xx>`. The cursor is the prefix last
+   * scanned. A prefix only notes are left under is a page too.
+   *
+   * @remarks
+   * It changes nothing, so a dry run scans as any run does. A note whose
+   * object is gone is passed over, and the backend's sweep drops it
+   * ({@link sweepLocalRepository}).
+   */
+  async gcScanObjects(repo: string, cursor?: string): Promise<GcObjectScanResult> {
+    const notesDir = path.join(gcDir(repo), 'unreachable');
+    const prefixes = new Set<string>();
+    for (const dir of [path.join(repo, 'objects'), notesDir]) {
+      for (const entry of await entriesOf(dir)) if (/^[a-f0-9]{2}$/.test(entry)) prefixes.add(entry);
     }
+    const pages = [...prefixes].sort().filter((prefix) => cursor === undefined || prefix > cursor);
+    const prefix = pages[0];
+    if (prefix === undefined) return { objects: [] };
 
-    // Local returns all in one batch (no cursor)
-    return { objects };
+    const objects: GcObjectEntry[] = [];
+    const byHash = new Map<string, GcObjectEntry>();
+    const prefixDir = path.join(repo, 'objects', prefix);
+    for (const file of await entriesOf(prefixDir)) {
+      if (file.endsWith('.partial')) continue;
+      if (!file.endsWith('.beast2')) continue;
+      const hash = prefix + file.slice(0, -7); // remove .beast2
+      try {
+        const fileStat = await fs.stat(path.join(prefixDir, file));
+        const entry: GcObjectEntry = { hash, lastModified: fileStat.mtimeMs, size: fileStat.size, unreachableSince: null };
+        objects.push(entry);
+        byHash.set(hash, entry);
+      } catch {
+        // Skip files we can't stat
+      }
+    }
+    for (const name of await entriesOf(path.join(notesDir, prefix))) {
+      const entry = byHash.get(prefix + name);
+      if (entry === undefined) continue; // its object is gone: the sweep drops it
+      entry.unreachableSince = await unreachableNoteTime(repo, entry.hash);
+    }
+    return pages.length > 1 ? { objects, cursor: prefix } : { objects };
   }
 
+  /** Deletes each object, and then its unreachable note: one a failure leaves
+   *  is dropped by the backend's sweep. */
   async gcDeleteObjects(repo: string, hashes: string[]): Promise<void> {
     const objectsDir = path.join(repo, 'objects');
 
@@ -369,6 +402,7 @@ export class LocalRepoStore implements RepoStore {
       } catch {
         // File doesn't exist
       }
+      await clearUnreachableNote(repo, hash).catch(() => { /* the sweep drops it */ });
       // Try to remove empty subdirectory
       try {
         await fs.rmdir(path.join(objectsDir, subdir));
@@ -376,6 +410,77 @@ export class LocalRepoStore implements RepoStore {
         // Directory not empty or doesn't exist
       }
     }
+  }
+
+  async gcNoteUnreachable(repo: string, hashes: readonly string[], at: number): Promise<number[]> {
+    const sinces: number[] = new Array<number>(hashes.length);
+    await eachAtMost(hashes.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+      sinces[i] = await noteUnreachable(repo, hashes[i]!, at);
+    });
+    return sinces;
+  }
+
+  async gcClearUnreachable(repo: string, hashes: readonly string[]): Promise<void> {
+    await eachAtMost(hashes, OBJECT_CONCURRENCY, (hash) => clearUnreachableNote(repo, hash));
+  }
+
+  /**
+   * Deletes an object while its note stands at `since`: it is moved aside,
+   * the note looked at again, and only then unlinked.
+   *
+   * @remarks
+   * A write or a touch clears the note and then looks for the object. So a
+   * touch that found the object before it was moved aside has cleared the
+   * note by the second look, which puts the object back; and one that looks
+   * after finds nothing, and its writer writes the object again. The object's
+   * directory is left, since a write may be about to stage in it. An object
+   * another handle holds open, which Windows will not move or unlink, is left
+   * for the next sweep.
+   */
+  async gcDeleteUnreachable(repo: string, hash: string, since: number): Promise<boolean> {
+    if (await unreachableNoteTime(repo, hash) !== since) return false;
+    const file = objectPath(repo, hash);
+    const aside = `${file}.${Date.now()}.${Math.random().toString(36).slice(2, 10)}${GC_ASIDE_SUFFIX}`;
+    try {
+      await fs.rename(file, aside);
+    } catch (err) {
+      if (isTransientFsError(err)) return false;
+      if (!isNotFoundError(err)) throw err;
+      await clearUnreachableNote(repo, hash);
+      return false;
+    }
+    if (await unreachableNoteTime(repo, hash) !== since) {
+      await restoreAside(aside, file);
+      return false;
+    }
+    try {
+      await fs.unlink(aside);
+    } catch (err) {
+      // The backend's sweep put it back meanwhile
+      if (isNotFoundError(err)) return false;
+      if (!isTransientFsError(err)) throw err;
+      await restoreAside(aside, file);
+      return false;
+    }
+    await clearUnreachableNote(repo, hash);
+    return true;
+  }
+
+  async gcRunWrite(repo: string, run: string, name: string, data: Uint8Array): Promise<void> {
+    await atomicWriteFile(gcRunPath(repo, run, name), data);
+  }
+
+  async gcRunRead(repo: string, run: string, name: string): Promise<Uint8Array | null> {
+    try {
+      return await fs.readFile(gcRunPath(repo, run, name));
+    } catch (err) {
+      if (isNotFoundError(err)) return null;
+      throw err;
+    }
+  }
+
+  async gcRunDelete(repo: string, run: string): Promise<void> {
+    await fs.rm(gcRunPath(repo, run), { recursive: true, force: true });
   }
 
   gcSweepBackend(repo: string, reachable: ReadonlySet<string>, options: GcBackendSweepOptions): Promise<GcBackendSweepResult> {

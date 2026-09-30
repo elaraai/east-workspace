@@ -18,8 +18,19 @@ import {
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 
+/** How a package job route answers for a job the repository it addresses did
+ *  not start: as for no job at all, since a job belongs to its repository. */
+function noJob(repo: string, kind: 'import' | 'export', id: string): string {
+  return `repository '${repo}' has no ${kind} job '${id}'`;
+}
+
 /**
  * Create package transfer routes.
+ *
+ * A job belongs to the repository that started it: each route that names a job
+ * by its id answers only through that repository, and through any other as it
+ * answers for a job that does not exist, so a request authorized for one
+ * repository never reaches another's.
  *
  * Returns two Hono apps:
  * - `repoApi`: Authenticated routes at repo level — mount at /api/repos/:repo
@@ -72,10 +83,11 @@ export function createPackageTransferRoutes(
 
   // POST /api/repos/:repo/import/:id — Trigger import processing
   repoApi.post('/import/:id', async (c) => {
+    const repo = c.req.param('repo')!;
     const id = c.req.param('id')!;
     const record = await transferBackend.packageImport.get(id);
-    if (!record) {
-      return sendError(PackageJobResponseType, variant('internal', { message: 'transfer not found' }));
+    if (!record || record.repo !== repo) {
+      return sendError(PackageJobResponseType, variant('internal', { message: noJob(repo, 'import', id) }));
     }
 
     if (record.status.type === 'completed' || record.status.type === 'failed') {
@@ -94,11 +106,12 @@ export function createPackageTransferRoutes(
 
   // GET /api/repos/:repo/import/:id — Poll import status
   repoApi.get('/import/:id', async (c) => {
+    const repo = c.req.param('repo')!;
     const id = c.req.param('id')!;
 
     const record = await transferBackend.packageImport.get(id);
-    if (!record) {
-      return sendError(PackageImportStatusType, variant('internal', { message: 'import job not found' }));
+    if (!record || record.repo !== repo) {
+      return sendError(PackageImportStatusType, variant('internal', { message: noJob(repo, 'import', id) }));
     }
 
     const status = record.status;
@@ -120,11 +133,12 @@ export function createPackageTransferRoutes(
 
   // GET /api/repos/:repo/export/:id — Poll export status
   repoApi.get('/export/:id', async (c) => {
+    const repo = c.req.param('repo')!;
     const id = c.req.param('id')!;
 
     const record = await transferBackend.packageExport.get(id);
-    if (!record) {
-      return sendError(PackageExportStatusType, variant('internal', { message: 'export job not found' }));
+    if (!record || record.repo !== repo) {
+      return sendError(PackageExportStatusType, variant('internal', { message: noJob(repo, 'export', id) }));
     }
 
     const status = record.status;

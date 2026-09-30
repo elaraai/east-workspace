@@ -46,6 +46,9 @@
     "url": "git+https://github.com/elaraai/east-workspace.git",
     "directory": "libs/e3/packages/e3-cli"
   },
+  "engines": {
+    "node": ">=22.2.0"
+  },
   "dependencies": {
     "@elaraai/e3": "workspace:*",
     "@elaraai/e3-api-client": "workspace:*",

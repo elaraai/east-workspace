@@ -1312,6 +1312,12 @@ static int cmd_exec(const char *unit_path, bool verbose)
     /* The grant caps every pool the library starts; one thread frames every
      * output inline. */
     east_set_thread_limit(unit->threads < 1 ? 1 : unit->threads > 1024 ? 1024 : (int)unit->threads);
+    /* A unit whose host places segments as they are read turns the manifest
+     * openers' asking on for this process, and only such a unit does. */
+    if (unit->fetch)
+        setenv(EAST_BEAST2_FETCH_SEGMENTS_ENV, "1", 1);
+    else
+        unsetenv(EAST_BEAST2_FETCH_SEGMENTS_ENV);
     ExecClock clock;
     memset(&clock, 0, sizeof(clock));
     clock_gettime(CLOCK_MONOTONIC, &clock.mark);

@@ -163,6 +163,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -180,6 +181,7 @@ describe("runner protocol corpus", () => {
                 work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                 platforms: [],
                 threads: 1n,
+                fetch: false,
                 result: "result.beast2",
             }));
             const out = new Map<string, Uint8Array>();
@@ -189,6 +191,23 @@ describe("runner protocol corpus", () => {
                 dir: "value-dict",
                 files,
                 expected: { name: "a Dict value, written as a manifest directory, from a manifest input", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+            });
+
+            // A unit whose host places segments as they are read asks only for
+            // one absent: with every segment staged beside the manifest, it
+            // reads them as any unit does.
+            const fetching = new Map(files);
+            fetching.set("unit.beast2", encodeBeast2For(UnitType)({
+                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                platforms: [],
+                threads: 1n,
+                fetch: true,
+                result: "result.beast2",
+            }));
+            cases.push({
+                dir: "value-dict-fetch",
+                files: fetching,
+                expected: { name: "a unit asking for its segments as it reads them reads those staged beside it", lazy: true, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
 
@@ -206,6 +225,7 @@ describe("runner protocol corpus", () => {
                 work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2", "input-1.beast2"], output: variant("value", "output.beast2") }),
                 platforms: [],
                 threads: 1n,
+                fetch: false,
                 result: "result.beast2",
             }));
             const out = new Map<string, Uint8Array>();
@@ -233,6 +253,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: [], output: variant("array", "out") }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -260,6 +281,7 @@ describe("runner protocol corpus", () => {
                             work: variant("run", { program: "program.beast2", inputs: [], output: variant("array", "out") }),
                             platforms: [],
                             threads,
+                            fetch: false,
                             result: "result.beast2",
                         })],
                     ]),
@@ -295,6 +317,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: [], output: variant("set", "out") }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -332,6 +355,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: some("sum.beast2") }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -360,6 +384,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: some("sum.beast2") }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -377,6 +402,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: none }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -406,6 +432,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: none }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -435,6 +462,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: [], output: variant("fold", { path: "total.beast2", zero: "zero.beast2", combine: "add.beast2" }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -467,6 +495,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("fold", { path: "tally.beast2", zero: "zero.beast2", combine: "add.beast2" }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -492,6 +521,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -517,6 +547,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -538,6 +569,7 @@ describe("runner protocol corpus", () => {
                 work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                 platforms: [],
                 threads: 1n,
+                fetch: false,
                 result: "result.beast2",
             }));
             const err = errorOf(program, [openBeast2LazyFor(type, { frozen: true })(manifestSource(files, "input-0.beast2"))]);
@@ -565,6 +597,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -593,6 +626,7 @@ describe("runner protocol corpus", () => {
                         work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -627,6 +661,7 @@ describe("runner protocol corpus", () => {
                             work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
                             platforms: [],
                             threads: 1n,
+                            fetch: false,
                             result: "result.beast2",
                         })],
                     ]),
@@ -646,6 +681,7 @@ describe("runner protocol corpus", () => {
                 work: variant("merge", { parts: ["part-0.beast2", "part-1.beast2", "part-2.beast2"], range: none, output: variant("set", "out") }),
                 platforms: [],
                 threads: 1n,
+                fetch: false,
                 result: "result.beast2",
             }));
             const out = new Map<string, Uint8Array>();
@@ -681,6 +717,7 @@ describe("runner protocol corpus", () => {
                         work: variant("merge", { parts: ["part-0.beast2", "part-1.beast2"], range: some("range.beast2"), output: variant("dict", { dir: "out", merge: some("sum.beast2") }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -704,6 +741,7 @@ describe("runner protocol corpus", () => {
                         work: variant("merge", { parts: partials.map((_, i) => `part-${i}.beast2`), range: none, output: variant("fold", { path: "total.beast2", zero: "zero.beast2", combine: "add.beast2" }) }),
                         platforms: [],
                         threads: 1n,
+                        fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
@@ -719,6 +757,7 @@ describe("runner protocol corpus", () => {
             work: variant("intake", { input: "delivery.beast2", type: "type.beast2", segments: segments === null ? none : some(segments), output: "output.beast2" }),
             platforms: [],
             threads,
+            fetch: false,
             result: "result.beast2",
         });
 

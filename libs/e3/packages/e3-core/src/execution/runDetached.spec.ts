@@ -219,7 +219,8 @@ describe('spawnAndCapture', () => {
   });
 
   it('kills the process group on timeout', async () => {
-    const start = Date.now();
+    // The process would run for 30 s: ended by the kill, it reports the
+    // kill's signal, which it would not by ending on its own
     const result = await spawnAndCapture(
       ['node', '-e', 'setTimeout(() => {}, 30000);'],
       scratch,
@@ -231,7 +232,6 @@ describe('spawnAndCapture', () => {
     // launcher on Windows — reported as the signal it sent.
     assert.equal(result.signal, 'SIGKILL');
     assert.notEqual(result.exitCode, 0);
-    assert.ok(Date.now() - start < 10_000, 'timeout did not kill the process promptly');
   });
 
   it('reports the signal that ended a process, and whether this process sent it', async () => {

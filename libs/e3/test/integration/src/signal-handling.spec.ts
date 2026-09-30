@@ -12,8 +12,8 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 // SDK imports
@@ -25,12 +25,21 @@ describe('signal handling', () => {
   let testDir: string;
   let repoDir: string;
   let packageZipPath: string;
+  let holdForBash: string;
 
   beforeEach(() => {
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     repoDir = join(testDir, 'repo');
     packageZipPath = join(testDir, 'test-package.zip');
+    // The slow task runs until this file is gone, which the test's cleanup
+    // removes: never for a set time, which a slow machine could outlast. Its
+    // path is spliced into a bash script, so it is given with forward
+    // slashes, as e3 gives a custom task its own paths: bash takes a Windows
+    // backslash for an escape.
+    const hold = join(testDir, 'hold');
+    writeFileSync(hold, '');
+    holdForBash = hold.split(sep).join('/');
   });
 
   afterEach(() => {
@@ -41,19 +50,19 @@ describe('signal handling', () => {
     it('cleans up child processes when SIGINT is received', async () => {
       // This test verifies that child task processes are properly killed when
       // the CLI receives SIGINT, not just that the CLI exits.
-      //
-      // We use a unique marker in the sleep command that we can grep for to
-      // verify the process is killed.
 
       const input = e3.input('input', StringType, variant('value', 'hello'));
 
-      // Task that sleeps with a unique marker we can find
-      // The marker is embedded in the command so we can grep for it
+      // A task that runs until the test's cleanup: a CLI that waited for it
+      // instead of stopping it would never exit
       const slowTask = e3.customTask(
         'slow',
         [input],
         StringType,
-        ($, inputs, output) => East.str`sleep 30 && cp ${inputs.get(0n)} ${output}`
+        ($, inputs, output) => {
+          const holdPath = $.const(holdForBash);
+          return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+        }
       );
 
       const pkg = e3.package('slow-test', '1.0.0', slowTask);
@@ -67,7 +76,6 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'slow-test@1.0.0'], testDir);
 
       // Start the slow task
-      const startTime = Date.now();
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
@@ -76,14 +84,13 @@ describe('signal handling', () => {
       // Send SIGINT (Ctrl+C)
       proc.kill('SIGINT');
 
-      // Wait for CLI to exit
-      await proc.result;
-      const elapsed = Date.now() - startTime;
-
-      // CLI should exit promptly (not wait out the 30 second sleep). 15s
-      // bounds the assertion well under the sleep while tolerating loaded
-      // CI runners — 5s raced on slow machines.
-      assert.ok(elapsed < 15000, `CLI should exit quickly, but took ${elapsed}ms`);
+      // The CLI exits though its task never finishes. A bounded wait, whose
+      // bound only a CLI that waits for its task reaches
+      const exited = await Promise.race([
+        proc.result.then(() => true),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 60_000).unref()),
+      ]);
+      assert.ok(exited, 'the CLI waited for its task instead of stopping it');
 
       // Give a moment for any cleanup
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -104,7 +111,7 @@ describe('signal handling', () => {
 
       // We can't definitively prove OUR sleep was killed, but if we see sleep
       // processes right after we sent SIGINT, something might be wrong.
-      // For now, just log it - the timing assertion above is the main check.
+      // For now, just log it - the exit above is the main check.
       if (sleepCount > 0) {
         console.log(`Note: ${sleepCount} 'sleep' processes found after SIGINT`);
       }
@@ -117,7 +124,10 @@ describe('signal handling', () => {
         'slow',
         [input],
         StringType,
-        ($, inputs, output) => East.str`sleep 30 && cp ${inputs.get(0n)} ${output}`
+        ($, inputs, output) => {
+          const holdPath = $.const(holdForBash);
+          return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+        }
       );
 
       const pkg = e3.package('slow-test-2', '1.0.0', slowTask);
@@ -166,7 +176,10 @@ describe('signal handling', () => {
         'slow',
         [input],
         StringType,
-        ($, inputs, output) => East.str`sleep 30 && cp ${inputs.get(0n)} ${output}`
+        ($, inputs, output) => {
+          const holdPath = $.const(holdForBash);
+          return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+        }
       );
 
       const pkg = e3.package('slow-test-persist', '1.0.0', slowTask);
@@ -218,7 +231,10 @@ describe('signal handling', () => {
         'slow',
         [input],
         StringType,
-        ($, inputs, output) => East.str`sleep 30 && cp ${inputs.get(0n)} ${output}`
+        ($, inputs, output) => {
+          const holdPath = $.const(holdForBash);
+          return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+        }
       );
 
       const pkg = e3.package('slow-test-rapid', '1.0.0', slowTask);
@@ -275,7 +291,10 @@ describe('signal handling', () => {
         'slow',
         [input],
         StringType,
-        ($, inputs, output) => East.str`sleep 30 && cp ${inputs.get(0n)} ${output}`
+        ($, inputs, output) => {
+          const holdPath = $.const(holdForBash);
+          return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+        }
       );
 
       const pkg = e3.package('slow-test-restart', '1.0.0', slowTask);
@@ -332,7 +351,10 @@ describe('signal handling', () => {
         'slow',
         [input],
         StringType,
-        ($, inputs, output) => East.str`sleep 30 && cp ${inputs.get(0n)} ${output}`
+        ($, inputs, output) => {
+          const holdPath = $.const(holdForBash);
+          return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+        }
       );
 
       const pkg = e3.package('lock-test', '1.0.0', slowTask);

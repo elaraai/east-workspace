@@ -592,6 +592,8 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
                 stderr: "",
                 stdoutTruncated: false,
                 stderrTruncated: false,
+                // A named function call reads no dataset.
+                inputs: [],
             } as ExecuteResult;
         },
     };
