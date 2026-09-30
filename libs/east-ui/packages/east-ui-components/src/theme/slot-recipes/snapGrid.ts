@@ -20,9 +20,12 @@
  * border — the host draws the panel around it.
  *
  * A wireframe is the page's miniature, so its cells keep their declared spans
- * at any width: each is an outline on the sunken paper, exactly as tall as its
- * declared height, and an auto-height cell — with no content drawn to size it —
- * as tall as the wireframe's row.
+ * at any width: each is an outline, exactly as tall as its declared height,
+ * and an auto-height cell — with no content drawn to size it — as tall as the
+ * wireframe's row. It draws no frame of its own: its host frames it, as a
+ * Library gallery card's media does, and it fills its host's height. A
+ * wireframe of no cells is the blank page — a band over the body, each dashed,
+ * an empty slot.
  *
  * The canvas (#990) is the builder's: every tile at its declared span on the
  * sunken panel, the column ruler above the rows and the column bands behind
@@ -89,7 +92,7 @@ const MICRO_LABEL = {
 export const snapGridSlotRecipe = defineSlotRecipe({
     className: "elara-snap-grid",
     slots: [
-        "root", "grid", "row", "cell",
+        "root", "grid", "row", "cell", "blankBand", "blankBody",
         "editor", "toolbarRow", "body", "pane", "main",
         "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint",
         "chip", "saved", "readout", "divider", "widthIcon",
@@ -562,16 +565,36 @@ export const snapGridSlotRecipe = defineSlotRecipe({
                     "@container (min-width: 480px) and (max-width: 959.98px)": { gridColumn: "span var(--snap-grid-span-medium)" },
                 },
             },
-            // The page library's thumbnail: outlined boxes on the sunken paper,
-            // closer together than a page's tiles.
+            // The page library's thumbnail: outlined boxes, closer together
+            // than a page's tiles, filling the host that frames them; the
+            // blank page's empty slots dashed.
             wireframe: {
-                grid: { bg: "bg.subtle", padding: "14px", gap: "5px" },
+                root: { flex: "1", display: "flex", flexDirection: "column" },
+                grid: { flex: "1", gap: "5px" },
                 row: { columnGap: "3px", rowGap: "5px" },
                 cell: {
                     "&[data-auto-height]": { minHeight: "{spacing.6}" },
                     bg: "bg.surface",
                     borderWidth: "1px",
                     borderStyle: "solid",
+                    borderColor: "border.strong",
+                    borderRadius: "2px",
+                },
+                blankBand: {
+                    flexShrink: "0",
+                    height: "12px",
+                    bg: "bg.surface",
+                    borderWidth: "1px",
+                    borderStyle: "dashed",
+                    borderColor: "border.strong",
+                    borderRadius: "2px",
+                },
+                blankBody: {
+                    flex: "1",
+                    minHeight: "{spacing.6}",
+                    bg: "bg.surface",
+                    borderWidth: "1px",
+                    borderStyle: "dashed",
                     borderColor: "border.strong",
                     borderRadius: "2px",
                 },

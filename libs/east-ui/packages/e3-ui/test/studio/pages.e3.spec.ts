@@ -11,7 +11,9 @@
  * is a conflict, and nothing is overwritten (R2). A redeploy
  * that adds a component keeps the record as it is: no migration runs (R7).
  * The canvas's own Apply, `Studio.save`, commits and conflicts the same way
- * (B12, #995).
+ * (B12, #995). The page library's new page and the builder's Save as template
+ * are each one commit, and a name another write took first is refused in the
+ * words their popovers show (D5, D7, #997).
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -19,8 +21,8 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 
 import {
-    East, OptionType, PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, none, some, variant,
-    type ValueTypeOf,
+    AsyncFunctionType, East, FunctionType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor,
+    encodeBeast2For, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import type { RecordPlan } from "@elaraai/e3-types";
@@ -31,8 +33,8 @@ import {
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from "@elaraai/e3-core/test";
 import { Editing, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
-import { RecordBindHandleType } from "@elaraai/e3-ui/internal";
+import { RecordOutcomeType, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { RecordBindHandleType, nameWriteRefusal } from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -44,6 +46,11 @@ const encodePatch = encodeBeast2For(PatchType(StudioPagesType));
 const pagesPath = [variant("field", "records"), variant("field", "pages")];
 /** The pages record, bound with its patch door — what the builder's canvas commits through. */
 const HandleType = RecordBindHandleType(StudioPagesType, { patch: [PatchType(StudioPagesType)] });
+/** The pages record as the page library and the builder's Save as template hold it: its read, and its patch awaited. */
+const WriterType = StructType({
+    read: FunctionType([], StudioPagesType),
+    commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(StudioPagesType)], RecordOutcomeType) }),
+});
 
 const publish = East.compile(Studio.publish, []);
 const revert = East.compile(Studio.revert, []);
@@ -246,6 +253,60 @@ describe("the pages record in e3 (#992)", () => {
         if (template.type !== "template" || detail.type !== "page") assert.fail("expected a template and a page");
         assert.deepEqual(detail.value, { draft: { title: "Detail", cells: template.value.cells }, live: none });
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, 3, "the deploy's commit and one each");
+    });
+
+    it("D5, D7 (#997): Save as template and a new page from it are one commit each, as the builder and the page library write them; a name another write took first is refused in their popovers' words", async () => {
+        // The builder's Save as template and the page library's Create, over
+        // what the screen read: one patch commit, and what refused it.
+        const saveAs = East.compileAsync(East.asyncFunction([WriterType, StringType], OptionType(StringType), ($, record, name) => {
+            const outcome = $.let(record.commit.patch("", Studio.saveTemplate(record.read(), OVERVIEW_KEY, { project: "ops", page: name }, name)));
+            return nameWriteRefusal(outcome, name);
+        }), []) as unknown as (handle: unknown, name: string) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
+        const create = East.compileAsync(East.asyncFunction([WriterType, StringType, OptionType(StringType)], OptionType(StringType), ($, record, name, template) => {
+            const from = $.let(template.match({
+                some: (_$2, found) => East.value(some({ project: "ops", page: found }), OptionType(StudioKeyType)),
+                none: (_$2) => East.value(none, OptionType(StudioKeyType)),
+            }), OptionType(StudioKeyType));
+            const outcome = $.let(record.commit.patch("", Studio.newPage(record.read(), { project: "ops", page: name }, name, from)));
+            return nameWriteRefusal(outcome, name);
+        }), []) as unknown as (handle: unknown, name: string, template: ValueTypeOf<OptionType<typeof StringType>>) => Promise<ValueTypeOf<OptionType<typeof StringType>>>;
+        // The record over the repository, its read what the screen last read.
+        let read = await current();
+        const handle = {
+            read: () => read,
+            commit: {
+                patch: async (_requestId: string, patch: unknown) => {
+                    const outcome = await commit(patch, "ana");
+                    switch (outcome.kind) {
+                        case "committed": return variant("committed", { commitHash: outcome.commitHash, stateHash: outcome.stateHash });
+                        case "conflict": return variant("conflict", { attempts: BigInt(outcome.attempts), detail: outcome.detail === undefined ? none : some(outcome.detail) });
+                        case "invalid": return variant("invalid", { message: outcome.message });
+                        case "failed": return variant("failed", { exitCode: BigInt(outcome.exitCode), stderr: outcome.stderr });
+                        case "timed_out": return variant("timed_out", { ms: BigInt(outcome.ms), stderr: outcome.stderr });
+                    }
+                },
+            },
+        };
+
+        assert.deepEqual(await saveAs(handle, "Overview template"), none, "D7: saved");
+        const stale = read;
+        read = await current();
+        assert.deepEqual(await create(handle, "Q3 review", some("Overview template")), none, "D5: made");
+        const now = await current();
+        const template = now.get({ project: "ops", page: "Overview template" })!;
+        const overview = now.get(OVERVIEW_KEY)!;
+        if (template.type !== "template" || overview.type !== "page") assert.fail("expected a template and a page");
+        assert.deepEqual(template.value, { title: "Overview template", cells: overview.value.draft.cells }, "the page as last saved");
+        assert.deepEqual(now.get({ project: "ops", page: "Q3 review" }), variant("page", { draft: { title: "Q3 review", cells: overview.value.draft.cells }, live: none }));
+        const history = await recordHistory(storage, repo, "main", "pages");
+        assert.deepEqual(history.map((entry) => entry.commit.mutation).slice(0, 2), ["patch", "patch"], "one commit each");
+
+        // Screens still holding what they read before those writes landed.
+        read = stale;
+        assert.deepEqual(await saveAs(handle, "Overview template"), some("Another write took the name Overview template first — choose another"));
+        assert.deepEqual(await create(handle, "Q3 review", none), some("Another write took the name Q3 review first — choose another"));
+        assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length, "the refused writes made no commit");
+        assert.deepEqual((await current()).get({ project: "ops", page: "Q3 review" }), now.get({ project: "ops", page: "Q3 review" }), "the first write stands");
     });
 
     it("R7: a redeploy that adds a component keeps the record as it is — no migration runs", async () => {

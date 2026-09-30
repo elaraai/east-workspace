@@ -26,7 +26,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         "body", "foot", "footLink", "footDanger", "footActions",
         "clauseRow", "clauseConj", "clauseBox", "clauseField", "clauseOp", "clauseVal",
         "builderRow", "resolveLine", "moreRow", "moreRowEdit", "moreRowRemove",
-        "chipToggle", "chipEdit", "hint",
+        "chipToggle", "chipEdit", "hint", "hintError",
     ],
     base: {
         content: {
@@ -139,6 +139,12 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "{fontSizes.2xs}",
             color: "fg.muted",
+        },
+        // The hint while the input is invalid — the Field's error, in its voice.
+        hintError: {
+            fontFamily: "mono",
+            fontSize: "{fontSizes.2xs}",
+            color: "fg.danger",
         },
 
         // --- predicate clause rows (cohort edit) ---

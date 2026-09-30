@@ -164,7 +164,10 @@ export const StudioPagesType = DictType(StudioKeyType, StudioEntryType);
 export type StudioPagesType = typeof StudioPagesType;
 
 /** The pages record's patch — what every write is. */
-const StudioPagesPatchType = PatchType(StudioPagesType);
+export const StudioPagesPatchType = PatchType(StudioPagesType);
+
+/** Type representing the pages record's patch. */
+export type StudioPagesPatchType = typeof StudioPagesPatchType;
 
 /**
  * One change to a placement.

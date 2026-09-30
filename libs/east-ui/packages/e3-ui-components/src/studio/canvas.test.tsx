@@ -13,11 +13,14 @@
  * pane and its rail (B15); the selected placement, its code's change since
  * the page went live, what it reads and its description (B16–B18); its
  * layout edits, each a draft of the page's session (B20, B12); what it says
- * with nothing selected (B21); and the palette counting unsaved drafts.
+ * with nothing selected (B21); and the palette counting unsaved drafts. Save as
+ * template (D7, #997): the open page, as last saved, under a name the project
+ * does not hold, one commit; a name taken, or taken first by another write,
+ * refused in its popover; disabled while a template is open.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     East, NullType, PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For,
@@ -34,8 +37,9 @@ import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
 } from "../platform/index.js";
-// The inspector's body is an extension: its renderer registers as it loads.
+// The inspector's body and Save as template are extensions: their renderers register as they load.
 import "./inspector.js";
+import "./save-template.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -78,7 +82,7 @@ const components = [
 
 const OVERVIEW: Key = { project: "ops", page: "a-overview" };
 
-/** The Overview (never published), the Weekly (live, its draft its live layout), the Monthly (live, its draft since changed) and the Double (two trends). */
+/** The Overview (never published), the Weekly (live, its draft its live layout), the Monthly (live, its draft since changed), the Double (two trends) and a template. */
 const PAGES: Pages = new SortedMap<Key, Entry>([
     [OVERVIEW, variant("page", {
         draft: {
@@ -107,6 +111,10 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
             ],
         },
         live: none,
+    })],
+    [{ project: "ops", page: "e-starter" }, variant("template", {
+        title: "Starter",
+        cells: [{ key: "s-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "" }],
     })],
 ], keys);
 
@@ -218,9 +226,9 @@ async function keyOn(c: HTMLElement, key: string, init: { key: string }) {
 }
 
 describe("<Studio.Canvas> (#995)", () => {
-    test("B8: one toolbar — the page's status and the grid chip; the width readout, the zoom, the history item, Desktop · Tablet, Preview and Publish", async () => {
+    test("B8: one toolbar — the page's status and the grid chip; the width readout, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish", async () => {
         const { container } = await mountCanvas();
-        expect(toolbarItems(container)).toEqual(["start-0", "grid", "readout", "zoom", "rule", "history", "widths", "end-0", "end-1"]);
+        expect(toolbarItems(container)).toEqual(["start-0", "grid", "readout", "zoom", "rule", "history", "widths", "end-0", "end-1", "end-2"]);
         const item = (key: string) => container.querySelector(`[data-toolbar-item="${key}"]`)!;
         expect(item("start-0").textContent).toBe("Draft");
         expect(item("grid").textContent).toBe("12 col · snap on");
@@ -228,7 +236,7 @@ describe("<Studio.Canvas> (#995)", () => {
         expect(item("zoom").textContent).toBe("100%");
         expect(within(item("widths") as HTMLElement).getAllByRole("button").map((b) => [b.textContent, b.getAttribute("aria-pressed")]))
             .toEqual([["Desktop", "true"], ["Tablet", "false"]]);
-        expect([item("end-0").textContent, item("end-1").textContent]).toEqual(["Preview", "Publish"]);
+        expect([item("end-0").textContent, item("end-1").textContent, item("end-2").textContent]).toEqual(["Save as template", "Preview", "Publish"]);
         // Headerless: nothing above the toolbar in the canvas's frame.
         const editor = container.querySelector("[data-snap-grid-editor]")!;
         expect(editor.firstElementChild!.hasAttribute("data-snap-grid-toolbar-row")).toBe(true);
@@ -506,6 +514,88 @@ describe("<Studio.Inspector> (#996)", () => {
         const double = (await readRecord()).get({ project: "ops", page: "d-double" })!;
         if (double.type !== "page") throw new Error("expected a page");
         expect(double.value.draft.cells).toHaveLength(2);
+    }, 30_000);
+});
+
+describe("Save as template (#997)", () => {
+    const TEMPLATE: Key = { project: "ops", page: "Overview template" };
+
+    /** Open its popover from the toolbar. */
+    async function openPopover() {
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save as template" })); });
+        await settle();
+        return within(screen.getByRole("dialog"));
+    }
+
+    test("D7: it names a template — offering the page's title — and saves the open page, as last saved, in one commit", async () => {
+        const { container } = await mountCanvas();
+        // A draft not yet applied is not what it saves.
+        await keyOn(container, "c-trend", { key: "]" });
+        const popover = await openPopover();
+        // The design system's edit popover, hanging from the button: its head names the page it saves.
+        expect(screen.getByRole("button", { name: "Save as template" }).closest("[data-part=trigger]")!.getAttribute("data-state")).toBe("open");
+        expect(popover.getByText("Save as template ·").textContent).toBe("Save as template · Overview");
+        expect((popover.getByRole("textbox", { name: "Template name" }) as HTMLInputElement).value).toBe("Overview template");
+        await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); });
+        await settle();
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        expect((await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+        const state = await readRecord();
+        const template = state.get(TEMPLATE)!;
+        if (template.type !== "template") throw new Error("expected a template");
+        expect(template.value.title).toBe("Overview template");
+        expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
+        // The page's draft is still the canvas's to apply.
+        expect(tile(container, "c-trend").style.getPropertyValue("--snap-grid-span")).toBe("9");
+    }, 30_000);
+
+    test("D7: a name the project holds is the field's error, an empty one asks for a name, and nothing is written", async () => {
+        await mountCanvas();
+        const popover = await openPopover();
+        const name = popover.getByRole("textbox", { name: "Template name" });
+        await act(async () => { fireEvent.change(name, { target: { value: "b-weekly" } }); });
+        expect(popover.getByText("b-weekly is already a page or a template here.")).toBeTruthy();
+        expect(name.getAttribute("aria-invalid")).toBe("true");
+        expect((popover.getByRole("button", { name: "Save template" }) as HTMLButtonElement).disabled).toBe(true);
+        await act(async () => { fireEvent.change(name, { target: { value: " " } }); });
+        expect(popover.getByText("Give the template a name to save it.")).toBeTruthy();
+        expect((popover.getByRole("button", { name: "Save template" }) as HTMLButtonElement).disabled).toBe(true);
+        await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Cancel" })); });
+        await settle();
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        expect((await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["$init"]);
+    }, 30_000);
+
+    test("D7: a name another write took first is refused in the popover, in its words, and the other write stands", async () => {
+        await mountCanvas();
+        const popover = await openPopover();
+        // Another operator saves a template under the same name between this popover's read and its commit.
+        const forward = memory.mutate.bind(memory);
+        let raced = false;
+        memory.mutate = async (ws, record, mutation, request) => {
+            if (!raced) {
+                raced = true;
+                const other = diffPages(new SortedMap([], keys), new SortedMap([[TEMPLATE, variant("template", { title: "Theirs", cells: [] })]], keys));
+                await forward(ws, record, mutation, { args: [encodePatch(other)] });
+            }
+            return forward(ws, record, mutation, request);
+        };
+        await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); });
+        await settle();
+        expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Another write took the name Overview template first — choose another");
+        const template = (await readRecord()).get(TEMPLATE)!;
+        if (template.type !== "template") throw new Error("expected a template");
+        expect(template.value.title).toBe("Theirs");
+        expect((await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+    }, 30_000);
+
+    test("D7: while a template is open it is disabled, and says why", async () => {
+        await mountCanvas();
+        expect((screen.getByRole("button", { name: "Save as template" }) as HTMLButtonElement).disabled).toBe(false);
+        await openPage("e-starter");
+        const button = screen.getByRole("button", { name: "Save as template" }) as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
+        expect(button.title).toBe("A template is open — open a page to save it as a template");
     }, 30_000);
 });
 

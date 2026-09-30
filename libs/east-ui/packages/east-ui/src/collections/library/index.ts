@@ -421,6 +421,7 @@ function dimValue<R extends StructType>(
  * @property style - Optional layout style (height / maxHeight / virtualization, and a gallery's columns and media)
  * @property variant - How the cards are drawn: `"compact"` (the default) or `"gallery"`
  * @property layout - How a gallery lays its cards out: `"grid"` (the default) or `"list"`
+ * @property toolbar - Whether the Library draws its toolbar row (default `true`)
  */
 export interface LibraryConfig<R extends StructType> {
     /** DnD source identity — targets list it in their `sources` */
@@ -481,8 +482,17 @@ export interface LibraryConfig<R extends StructType> {
      * browses. A compact Library refuses the gallery's fields, naming each.
      */
     variant?: LibraryVariantLiteral;
-    /** How a gallery lays its cards out: `"grid"` (the default) or `"list"` — a literal, or an expression a toolbar switches. */
+    /** How a gallery lays its cards out: `"grid"` (the default) or `"list"` — where it starts; the toolbar's switch changes it, and an expression that moves moves it. */
     layout?: LibraryLayoutLiteral | SubtypeExprOrValue<LibraryLayoutType>;
+    /**
+     * Whether the Library draws its toolbar row (default `true`). `false`
+     * draws none, for a host whose one toolbar serves several libraries: the
+     * host narrows `data` itself and gives a gallery its `layout`. The
+     * options whose controls live in the toolbar — `search`, `groupBy`,
+     * `filters`, `dimensions`, `hint` and `slice` — are refused with it,
+     * naming each.
+     */
+    toolbar?: boolean;
 }
 
 /** Affordances a Library rail cannot mount: no continuous axis (`brush`), no
@@ -511,6 +521,14 @@ function buildRoot(
         ];
         if (given.length > 0) {
             throw new Error(`Library: ${given.join(", ")} lay out a gallery's cards — give \`variant: "gallery"\` to draw a gallery`);
+        }
+    }
+    // Without its toolbar, the controls that live in it have nowhere to go.
+    if (config.toolbar === false) {
+        const given = (["search", "groupBy", "filters", "dimensions", "hint", "slice"] as const)
+            .filter((option) => config[option] !== undefined);
+        if (given.length > 0) {
+            throw new Error(`Library: ${given.join(", ")} ${given.length === 1 ? "is a control" : "are controls"} of the toolbar — \`toolbar: false\` draws none`);
         }
     }
 
@@ -630,6 +648,7 @@ function buildRoot(
         style: styleValue !== undefined ? some(styleValue) : none,
         variant: config.variant !== undefined ? some(variant(config.variant, null)) : none,
         layout: layoutValue !== undefined ? some(East.value(layoutValue, LibraryLayoutType)) : none,
+        toolbar: config.toolbar ?? true,
     }), UIComponentType);
 }
 
@@ -777,6 +796,7 @@ export const Library = {
          * @property style - Optional layout style (height / maxHeight / virtualization, and a gallery's columns and media)
          * @property variant - How the cards are drawn; `none` is compact
          * @property layout - How a gallery lays its cards out; `none` is the grid
+         * @property toolbar - Whether the Library draws its toolbar row
          */
         Library: LibraryRootType,
         /**

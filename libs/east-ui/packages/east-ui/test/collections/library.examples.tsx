@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from "@elaraai/east";
+import { East, example, some, none, variant, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from "@elaraai/east-ui";
 
@@ -298,6 +298,74 @@ export const libraryGalleryPages = example({
                         style={{ columns: 2n, mediaPlacement: "start", mediaSize: "156px" }}
                     />
                     <Text>{East.str`Opened · ${opened.read()}`}</Text>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * A gallery that draws no toolbar of its own, for a host whose one toolbar
+ * serves several libraries: the host narrows the rows itself and gives the
+ * gallery its layout — here a Grid · List control above it, from State.
+ */
+export const libraryGalleryHosted = example({
+    keywords: [
+        "Library", "gallery", "toolbar", "host", "layout", "Library.Types.Layout", "templates", "wireframe",
+        "SnapGrid", "SegmentGroup", "Reactive", "State",
+    ],
+    description: "A gallery with no toolbar of its own — its host's Grid · List control lays it out from State",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });
+            const templates = $.const([
+                { key: "blank", title: "Blank grid", summary: "12-col · empty", cells: [] },
+                {
+                    key: "summary", title: "Summary", summary: "KPI rail ×4 · Revenue trend",
+                    cells: [
+                        { id: "k1", row: "kpis", span: 3n, height: some(10n) },
+                        { id: "k2", row: "kpis", span: 3n, height: some(10n) },
+                        { id: "k3", row: "kpis", span: 3n, height: some(10n) },
+                        { id: "k4", row: "kpis", span: 3n, height: some(10n) },
+                        { id: "trend", row: "chart", span: 12n, height: some(30n) },
+                    ],
+                },
+                {
+                    key: "brief", title: "Report brief", summary: "Heading · Note · Table",
+                    cells: [
+                        { id: "heading", row: "head", span: 12n, height: some(8n) },
+                        { id: "table", row: "body", span: 12n, height: some(34n) },
+                    ],
+                },
+            ], ArrayType(StructType({ key: StringType, title: StringType, summary: StringType, cells: ArrayType(Placement) })));
+            const layout = $.let(State.bind([Library.Types.Layout], "library_hosted_layout", variant("grid", null)));
+            const onLayout = $.const(East.function([StringType], NullType, ($2, next) => {
+                $2.if(next.equal("list"), ($3) => { $3(layout.write(variant("list", null))); })
+                    .else(($3) => { $3(layout.write(variant("grid", null))); });
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <SegmentGroup value={layout.read().getTag()} onChange={onLayout} size="sm"
+                        items={[SegmentGroup.Item("grid", <Text>Grid</Text>), SegmentGroup.Item("list", <Text>List</Text>)]} />
+                    <Library
+                        id="templates"
+                        variant="gallery"
+                        toolbar={false}
+                        layout={layout.read()}
+                        data={templates}
+                        item={t => ({
+                            key: t.key,
+                            label: t.title,
+                            sublabel: t.summary,
+                            media: (
+                                <SnapGrid data={t.cells} variant="wireframe"
+                                    cell={c => SnapGrid.cell({ key: c.id, row: c.row, span: c.span, height: c.height, content: <Text>{c.id}</Text> })} />
+                            ),
+                            draggable: false,
+                        })}
+                        style={{ columns: 3n, mediaSize: "80px" }}
+                    />
                 </VStack>
             );
         }}</Reactive>

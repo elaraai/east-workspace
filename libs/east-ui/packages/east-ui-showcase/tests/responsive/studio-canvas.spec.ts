@@ -81,7 +81,9 @@ test.describe("Studio canvas (#995)", () => {
             await settled(page);
             const folded = await toolbar.evaluate((row) => (row.getAttribute("data-toolbar-state") ?? "").split(";")
                 .map((s) => s.split("=")).filter(([, f]) => !f!.startsWith("0/")).map(([k]) => k));
-            // What folds is always the ladder's first steps, in its order.
+            // What folds is always the ladder's first steps — the state lists
+            // the items in the row's order, so they are put in the ladder's.
+            folded.sort((a, b) => ladder.indexOf(a) - ladder.indexOf(b));
             expect(folded, `at ${width}px`).toEqual(ladder.slice(0, folded.length));
         }
         // At the narrowest the grid chip has folded.

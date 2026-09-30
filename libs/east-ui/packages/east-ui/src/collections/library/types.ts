@@ -420,6 +420,8 @@ export interface LibraryStyle {
  * @property style - Optional layout style (height / maxHeight / virtualization, and a gallery's columns and media)
  * @property variant - How the cards are drawn; `none` is compact
  * @property layout - How a gallery lays its cards out; `none` is the grid
+ * @property toolbar - Whether the Library draws its toolbar row — `false` for
+ *   a host whose one toolbar serves several libraries
  */
 export function LibraryRootOf<const C>(content: C) {
     return StructType({
@@ -440,5 +442,6 @@ export function LibraryRootOf<const C>(content: C) {
         style: OptionType(LibraryStyleType),
         variant: OptionType(LibraryVariantType),
         layout: OptionType(LibraryLayoutType),
+        toolbar: BooleanType,
     });
 }

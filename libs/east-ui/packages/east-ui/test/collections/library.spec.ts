@@ -17,6 +17,7 @@ describeEast("Library", (test) => {
         libraryPalette: ex.libraryPalette,
         libraryLarge: ex.libraryLarge,
         libraryGalleryPages: ex.libraryGalleryPages,
+        libraryGalleryHosted: ex.libraryGalleryHosted,
         libraryGalleryReports: ex.libraryGalleryReports,
     });
 
@@ -51,6 +52,16 @@ describeEast("Library", (test) => {
         $(Assert.equal(item.byline.unwrap("some"), "by J. Lee"));
         $(Assert.equal(item.action.unwrap("some"), "Open in builder →"));
         $(Assert.equal(item.status.unwrap("some").ring, true));
+    });
+
+    test("the toolbar row is drawn by default; `toolbar: false` lowers onto the value", $ => {
+        const drawn = $.let(Library.Root([{ id: "a" }], { id: "x", item: r => ({ key: r.id, label: r.id }) }));
+        const bare = $.let(Library.Root([{ id: "a" }], {
+            id: "y", variant: "gallery", layout: "list", toolbar: false, item: r => ({ key: r.id, label: r.id }),
+        }));
+        $(Assert.equal(drawn.unwrap().unwrap("Library").toolbar, true));
+        $(Assert.equal(bare.unwrap().unwrap("Library").toolbar, false));
+        $(Assert.equal(bare.unwrap().unwrap("Library").layout.unwrap("some").hasTag("list"), true));
     });
 
     test("a compact Library leaves the gallery's fields none, and a status's ring false", $ => {
@@ -336,6 +347,25 @@ describe("Library — the gallery's fields on a compact Library", () => {
                 { id: "x", item: r => ({ key: r.id, label: r.id }), layout: "list", style: { columns: 2n, mediaSize: "80px" } },
             )),
             /layout, style\.columns, style\.mediaSize lay out a gallery's cards/,
+        );
+    });
+});
+
+describe("Library — `toolbar: false`", () => {
+    nodeTest("the toolbar's controls are refused with it, each named", () => {
+        assert.throws(
+            () => East.function([], UIComponentType, (_$) => Library.Root(
+                [{ id: "a", team: "Ops" }],
+                {
+                    id: "x",
+                    toolbar: false,
+                    item: r => ({ key: r.id, label: r.id }),
+                    search: r => r.id,
+                    groupBy: [{ key: "team", label: "Team", value: r => r.team }],
+                    hint: "Drag onto the canvas",
+                },
+            )),
+            /search, groupBy, hint are controls of the toolbar — `toolbar: false` draws none/,
         );
     });
 });

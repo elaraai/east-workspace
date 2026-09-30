@@ -4,10 +4,12 @@
  */
 
 /**
- * Every word the Studio's renderers say themselves (#996) — ONE typed message
- * table: the inspector's section heads, its fields and its controls' names,
- * its footer, and what it says with nothing selected. What the AUTHOR wrote —
- * a component's name, key, reads and description, a placement's title — is
+ * Every word the Studio's renderers say themselves (#996, #997) — ONE typed
+ * message table: the inspector's section heads, its fields and its controls'
+ * names, its footer, and what it says with nothing selected; the page
+ * library's toolbar, pane and section heads; and the popovers that name a new
+ * page or a template. What the AUTHOR wrote — a component's name, key, reads
+ * and description, a placement's title, a project's and a page's names — is
  * data, and never passes through it.
  *
  * English is the default. A host overrides any subset for a subtree with
@@ -23,7 +25,8 @@ import { createContext, createElement, useContext, useMemo, type ReactNode } fro
  * The Studio's message table.
  *
  * @remarks
- * `span` and `px` arrive already formatted for the locale.
+ * Numbers — `span`, `px`, the counts — arrive already formatted for the
+ * locale; `np` and `nt` are the raw counts, for plurals.
  */
 export interface StudioMessages {
     /** The inspector's selection block — its eyebrow. */
@@ -72,6 +75,62 @@ export interface StudioMessages {
     nothingSelected: () => string;
     /** Under it, what to do. */
     nothingSelectedHint: () => string;
+    /** The page library's search, counting what it searches — `Search 4 pages and 4 templates…`. */
+    searchLibrary: (p: { pages: string; templates: string; np: number; nt: number }) => string;
+    /** The search field's name. */
+    searchLabel: () => string;
+    /** The search's clear button. */
+    clearSearch: () => string;
+    /** The Sort menu's trigger. */
+    sortByName: () => string;
+    /** Name, A to Z. */
+    nameAz: () => string;
+    /** Name, Z to A. */
+    nameZa: () => string;
+    /** The primary action — `New page in Ops console`. */
+    newPageIn: (p: { project: string }) => string;
+    /** The primary action, folded, and the New page popover's head. */
+    newPage: () => string;
+    /** The pane's projects caption. */
+    projects: () => string;
+    /** The pane's pages caption, and the Pages section's head. */
+    pages: () => string;
+    /** The legend's live status. */
+    live: () => string;
+    /** The legend's draft status. */
+    draft: () => string;
+    /** The Templates section's head. */
+    templates: () => string;
+    /** Beside it. */
+    cloneToStart: () => string;
+    /** Beside the Pages head — `4 in Ops console`, or `1 of 4 in Ops console` while the search narrows. */
+    pagesIn: (p: { shown: string; total: string; project: string; narrowed: boolean }) => string;
+    /** The New page popover's name field. */
+    pageName: () => string;
+    /** Under it, while it is empty. */
+    pageNameMissing: () => string;
+    /** The New page popover's template field. */
+    template: () => string;
+    /** Blank grid — no template. */
+    blankGrid: () => string;
+    /** The New page popover's commit. */
+    createPage: () => string;
+    /** A popover's cancel. */
+    cancel: () => string;
+    /** A name the project holds already. */
+    nameTaken: (p: { name: string }) => string;
+    /** The builder toolbar's Save as template, and its popover's head. */
+    saveAsTemplate: () => string;
+    /** Its popover's name field. */
+    templateName: () => string;
+    /** Under it, while it is empty. */
+    templateNameMissing: () => string;
+    /** Its popover's commit. */
+    saveTemplate: () => string;
+    /** The name it offers — `Overview template`. */
+    templateNameFor: (p: { page: string }) => string;
+    /** Why it is disabled while a template is open. */
+    templateOpen: () => string;
 }
 
 /** The Studio's English messages — the default table. */
@@ -99,6 +158,35 @@ export const studioMessages: StudioMessages = {
     published: () => "Published component · logic immutable",
     nothingSelected: () => "Nothing selected",
     nothingSelectedHint: () => "Click a component on the grid to see what it reads and its layout.",
+    searchLibrary: ({ pages, templates, np, nt }) =>
+        `Search ${pages} ${np === 1 ? "page" : "pages"} and ${templates} ${nt === 1 ? "template" : "templates"}…`,
+    searchLabel: () => "Search pages and templates",
+    clearSearch: () => "Clear search",
+    sortByName: () => "Sort · Name",
+    nameAz: () => "Name A–Z",
+    nameZa: () => "Name Z–A",
+    newPageIn: ({ project }) => `New page in ${project}`,
+    newPage: () => "New page",
+    projects: () => "Projects",
+    pages: () => "Pages",
+    live: () => "Live",
+    draft: () => "Draft",
+    templates: () => "Templates",
+    cloneToStart: () => "clone to start a page",
+    pagesIn: ({ shown, total, project, narrowed }) => (narrowed ? `${shown} of ${total} in ${project}` : `${total} in ${project}`),
+    pageName: () => "Page name",
+    pageNameMissing: () => "Give the page a name to create it.",
+    template: () => "Template",
+    blankGrid: () => "Blank grid",
+    createPage: () => "Create page",
+    cancel: () => "Cancel",
+    nameTaken: ({ name }) => `${name} is already a page or a template here.`,
+    saveAsTemplate: () => "Save as template",
+    templateName: () => "Template name",
+    templateNameMissing: () => "Give the template a name to save it.",
+    saveTemplate: () => "Save template",
+    templateNameFor: ({ page }) => `${page} template`,
+    templateOpen: () => "A template is open — open a page to save it as a template",
 };
 
 const StudioMessagesContext = createContext<StudioMessages>(studioMessages);

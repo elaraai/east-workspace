@@ -576,3 +576,8 @@ export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceField
 export { SliceEditPopover, type SliceEditPopoverProps } from "./slice/edit";
 export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";
 export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js";
+// The one toolbar row every component lays its chrome in (#952), and a
+// gallery's Grid · List switch — for sibling renderer packages (e3-ui-components)
+// whose screens keep one toolbar over several galleries.
+export { Toolbar, DEFAULT_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
+export { LibraryLayoutSwitch } from "./collections/library";

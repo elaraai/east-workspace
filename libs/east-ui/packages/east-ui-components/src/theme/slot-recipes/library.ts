@@ -68,6 +68,8 @@ export const librarySlotRecipe = defineSlotRecipe({
                 flexDirection: "column",
                 minHeight: "0",
             },
+            /* A host's (no toolbar of its own): the cards sit in its frame. */
+            "&[data-hosted]": { background: "transparent" },
         },
         /* The groups + card region; becomes the scroll container when the
          * root is height-constrained. */
@@ -76,6 +78,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             gap: "18px",
             padding: "14px",
+            "[data-hosted] > &": { padding: "0" },
             "&[data-scrollable]": {
                 overflowY: "auto",
                 flex: "1 1 0%",
