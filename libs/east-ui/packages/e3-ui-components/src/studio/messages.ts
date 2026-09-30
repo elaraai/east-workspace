@@ -4,12 +4,13 @@
  */
 
 /**
- * Every word the Studio's renderers say themselves (#996, #997, #998) — ONE
- * typed message table: the inspector's section heads, its fields and its
- * controls' names, its footer, and what it says with nothing selected; the
- * page library's toolbar, pane and section heads; the popovers that name a new
- * page or a template; and the publish preview's bar, its aside and its
- * footer. What the AUTHOR wrote — a component's name, key, reads and
+ * Every word the Studio's renderers say themselves (#996, #997, #998, #1000) —
+ * ONE typed message table: the builder's toolbar, its palette and its
+ * placeholders; the inspector's section heads, its fields and its controls'
+ * names, its footer, and what it says with nothing selected; the page
+ * library's toolbar, pane, section heads and cards; the popovers that name a
+ * new page or a template; the publish preview's bar, its aside and its
+ * footer; and what a page says when it has nothing to draw. What the AUTHOR wrote — a component's name, key, reads and
  * description, a placement's title, a project's, a page's and an
  * environment's names, the audience and the rollout — is data, and never
  * passes through it.
@@ -31,6 +32,62 @@ import { createContext, createElement, useContext, useMemo, type ReactNode } fro
  * formatted for the locale; `np`, `nt` and `n` are the raw counts, for plurals.
  */
 export interface StudioMessages {
+    /** The builder toolbar's status: never published. */
+    statusDraft: () => string;
+    /** Published, its draft its live layout. */
+    statusLive: () => string;
+    /** Published, its draft changed since. */
+    statusLiveEdited: () => string;
+    /** A template is open. */
+    statusTemplate: () => string;
+    /** The builder toolbar's Publish. */
+    publish: () => string;
+    /** The builder with no page of the project open — its heading. */
+    noPageOpen: () => string;
+    /** Under it, what to do. */
+    noPageOpenHint: (p: { project: string; page: string }) => string;
+    /** The palette's pane — its tab and its rail's name. */
+    components: () => string;
+    /** One component, and any other count — the palette's noun. */
+    componentNoun: () => { singular: string; plural: string };
+    /** One page, and any other count — the palette's noun. */
+    pageNoun: () => { singular: string; plural: string };
+    /** A palette card's lock. */
+    logicFixed: () => string;
+    /** The palette's grouping and filter facet. */
+    category: () => string;
+    /** The palette's tags facet. */
+    tags: () => string;
+    /** The palette's collections facet. */
+    collections: () => string;
+    /** The inspector's pane — its tab and its rail's name. */
+    inspector: () => string;
+    /** The inspector's rail badge — the selected placement's span, `8/12`. */
+    spanBadge: (p: { span: string }) => string;
+    /** A placement whose component the surface does not list — its heading. */
+    noComponent: (p: { key: string }) => string;
+    /** Under it. */
+    noComponentHint: () => string;
+    /** A placement whose key two listed components share — its heading. */
+    twoComponents: (p: { key: string }) => string;
+    /** Under it. */
+    twoComponentsHint: () => string;
+    /** A page whose live version is asked for before it is published — its heading. */
+    notPublished: (p: { page: string }) => string;
+    /** Under it. */
+    notPublishedHint: () => string;
+    /** A page the record does not hold — its heading. */
+    noPage: (p: { page: string }) => string;
+    /** Under it. */
+    noPageHint: (p: { project: string }) => string;
+    /** Blank grid's card — what it places. */
+    blankSummary: () => string;
+    /** A page card's count of placements — `3 components`. */
+    placements: (p: { n: number; count: string }) => string;
+    /** A page card's action. */
+    openInBuilder: () => string;
+    /** The Pages row's dashed last card. */
+    newPageFromTemplate: () => string;
     /** The inspector's selection block — its eyebrow. */
     selectedComponent: () => string;
     /** The placement's component's code changed since the page went live. */
@@ -179,6 +236,35 @@ export interface StudioMessages {
 
 /** The Studio's English messages — the default table. */
 export const studioMessages: StudioMessages = {
+    statusDraft: () => "Draft",
+    statusLive: () => "Live",
+    statusLiveEdited: () => "Live · edited",
+    statusTemplate: () => "Template",
+    publish: () => "Publish",
+    noPageOpen: () => "No page open",
+    noPageOpenHint: ({ project, page }) =>
+        `${project} has no page ${page}. Open a page from the palette's Pages tab, or start one from the page library.`,
+    components: () => "Components",
+    componentNoun: () => ({ singular: "component", plural: "components" }),
+    pageNoun: () => ({ singular: "page", plural: "pages" }),
+    logicFixed: () => "Logic fixed by the developer",
+    category: () => "Category",
+    tags: () => "Tags",
+    collections: () => "Collections",
+    inspector: () => "Inspector",
+    spanBadge: ({ span }) => `${span}/12`,
+    noComponent: ({ key }) => `No component "${key}"`,
+    noComponentHint: () => "This surface lists no component with this key.",
+    twoComponents: ({ key }) => `Two components share the key "${key}"`,
+    twoComponentsHint: () => "A surface lists each component once.",
+    notPublished: ({ page }) => `${page} is not published yet`,
+    notPublishedHint: () => "Publish it to show it here.",
+    noPage: ({ page }) => `No page ${page}`,
+    noPageHint: ({ project }) => `The project ${project} has no page by this name.`,
+    blankSummary: () => "12-col · empty",
+    placements: ({ n, count }) => `${count} ${n === 1 ? "component" : "components"}`,
+    openInBuilder: () => "Open in builder →",
+    newPageFromTemplate: () => "New page from template",
     selectedComponent: () => "Selected component",
     logicChanged: () => "logic changed since this page went live",
     data: () => "Data",

@@ -4,10 +4,10 @@
  */
 
 /**
- * `<Studio.Palette>` (#994): what its cards and its page list say, computed in
- * East over the listed components and the record — a card's reads, the placed
- * component and its count (B3, B4); the project's pages with their status
- * (B6) — the keys the builder's screens share, and the surface's manifest.
+ * The builder's palette (#994): what its cards and its page list say, computed
+ * in East over the listed components and the record — a card's reads, the
+ * placed component and its count (B3, B4); the project's pages with their
+ * status (B6) — and the names a builder shares by its id.
  */
 
 import { describe, test } from "node:test";
@@ -16,16 +16,13 @@ import assert from "node:assert/strict";
 import { ArrayType, East, FloatType, SortedMap, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
-import { TreePathType } from "@elaraai/e3-types";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { Data, Studio, StudioKeyType, StudioPagesType } from "@elaraai/e3-ui";
 import { builderKeys, paletteCards, palettePages } from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
-
-const pathKey = (p: ValueTypeOf<typeof TreePathType>) => p.map((s) => `${s.type}:${s.value}`).join("/");
 
 /** Two datasets a component reads. */
 const salesDaily = e3.input("palette_sales_daily", ArrayType(FloatType), variant("value", []));
@@ -64,7 +61,7 @@ const PAGES = new SortedMap<Key, Entry>([
     })],
 ], compareFor(StudioKeyType));
 
-describeEast("<Studio.Palette> — its cards and its pages (#994)", (test) => {
+describeEast("The builder's palette — its cards and its pages (#994)", (test) => {
     test("B3: a card's meta names the datasets its component reads; one that reads nothing says so", $ => {
         const cards = $.let(paletteCards([revenueTrend, note], [], none));
         $(Assert.equal(cards.get("revenue_trend").meta, "palette_sales_daily · palette_visits_daily"));
@@ -113,40 +110,9 @@ describeEast("<Studio.Palette> — its cards and its pages (#994)", (test) => {
     });
 }, { platformFns: TestImpl });
 
-describe("<Studio.Palette> — the builder's keys and the surface (#994)", () => {
-    test("the builder's screens share their keys by the builder's id", () => {
-        assert.deepEqual(builderKeys(undefined), {
-            page: "studio.builder.page", ui: "studio.builder.ui", view: "studio.builder.view", cells: "studio.builder.cells",
-            apply: "studio.builder.apply", components: "studio.components", pages: "studio.pages",
-        });
-        assert.deepEqual(builderKeys("north"), {
-            page: "studio.builder.north.page", ui: "studio.builder.north.ui", view: "studio.builder.north.view",
-            cells: "studio.builder.north.cells", apply: "studio.builder.north.apply", components: "studio.components.north",
-            pages: "studio.pages.north",
-        });
-    });
-
-    test("its surface's manifest holds the record's path, no write, and what its components read", () => {
-        const pages = e3.record("palette_pages", StudioPagesType, new SortedMap<Key, Entry>([], compareFor(StudioKeyType)));
-        const surface = ui("palette_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const components = $.let([revenueTrend, note]);
-            const all = $.let(Data.bind(pages));
-            return Studio.Palette({ pages: all.read(), components, project: "ops" });
-        }))));
-        const manifest = surface.role.value!;
-        assert.deepEqual(manifest.records, []);
-        assert.deepEqual(manifest.paths.map(pathKey).sort(), [
-            "field:inputs/field:palette_sales_daily",
-            "field:inputs/field:palette_visits_daily",
-            "field:records/field:palette_pages",
-        ]);
-    });
-
-    test("it is a Reactive", () => {
-        const value = East.compile(East.function([], UIComponentType, ($) => {
-            const components = $.let([note]);
-            return Studio.Palette({ pages: East.value(PAGES, StudioPagesType), components, project: "ops" });
-        }), [])();
-        assert.equal(value.type, "ReactiveComponent");
+describe("The builder's shared names (#994)", () => {
+    test("a builder shares its open page, and its palette's library ids, by its id", () => {
+        assert.deepEqual(builderKeys(undefined), { page: "studio.builder.page", components: "studio.components", pages: "studio.pages" });
+        assert.deepEqual(builderKeys("north"), { page: "studio.builder.north.page", components: "studio.components.north", pages: "studio.pages.north" });
     });
 });

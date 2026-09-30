@@ -5,7 +5,7 @@ description: "e3 + UI bridge — build interactive, reactive decision surfaces a
 
 ## Detailed skill scope
 
-e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft; <Studio.Page> draws one page's live or draft layout on the SnapGrid with no chrome, and <Studio.Site> is a project's published app, its rail the project's live pages; the builder's screens share the open page, the canvas's selection, its design width and zoom, the placements it draws and the Apply the preview asks of it by an id; <Studio.Palette> is its palette — the listed components by category, each naming what it reads, and the project's pages — <Studio.Canvas> its canvas — the open page's grid under the builder's toolbar (the page's status, the history, the design widths, Save as template, Preview and Publish) with the palette and the inspector as panes beside it, every gesture a draft and Apply one patch on the page — and <Studio.Inspector> its inspector — the selected placement's name, what its code reads, its description, and its span, row, height and alignment, each edit a gesture of the canvas's session; <Studio.Library> is a project's templates and pages and where new pages start — Blank grid and the project's templates, each a wireframe of its layout, the pages with their status and Open in builder, and a new page from a template, one commit; <Studio.Publish> is the publish preview — the open page as it will publish at Desktop, Tablet or Mobile width, the changes since its live version, a banner saying whether its components' code changed since, the audience and rollout, and Save as draft and Publish, which applies the canvas's drafts first and then commits the publish, each placement stamped with the code it goes live with.
+e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Apply one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome.
 
 # e3-ui — e3 + UI Bridge
 
@@ -112,19 +112,11 @@ Task → What do you need?
     │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
     │
     ├─ Offer components for operators to arrange on pages (Studio)
-    │   ├─ Declare one — self-contained, like a ui() body → Studio.component(key, meta, fn)
-    │   ├─ Render a placement by its component's key      → Studio.dispatch(components, key)
-    │   ├─ Store the pages operators build                → e3.record("pages", Studio.Types.Pages, new Map()) + e3.mutation.patch(pages)
-    │   ├─ Save the open page (the canvas's Apply)        → Studio.save(record, key)
-    │   ├─ Publish / revert / start a page / a template   → Studio.publish / .revert / .newPage / .saveTemplate → one patch
-    │   ├─ The change list, "used in N", live or draft    → Studio.changes / .usage / .status
-    │   ├─ Show one page, live or draft, with no chrome   → <Studio.Page pages components page version? />
-    │   ├─ A project's published site                     → <Studio.Site pages components project title? />
-    │   ├─ The builder's palette: components, then pages  → <Studio.Palette pages components project id? />
-    │   ├─ The builder's canvas: the open page's grid     → <Studio.Canvas pages components project panes? onPreview? onPublish? id? />
-    │   ├─ The builder's inspector: the selection         → <Studio.Inspector pages components project id? />
-    │   ├─ Templates, pages, and where new pages start    → <Studio.Library pages components project onOpen? id? />
-    │   └─ The publish preview: what changed, and publish → <Studio.Publish pages components project env? audience? rollout? onExit? id? />
+    │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
+    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, new Map()) + e3.mutation.patch(pages)
+    │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project env? audience? rollout? id? />
+    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen? id? />
+    │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page version? />
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -391,7 +383,7 @@ invisible author scope.
 Decide↔Trust seam): every staged judgement whose verdict is set, newest first —
 the exact complement of the queue. Options: `heading`, `maxHeight`.
 
-### Studio components — `Studio.component(key, meta, fn)` + `Studio.dispatch`
+### Studio components — `Studio.component(key, meta, fn)`
 
 A Studio component is **self-contained**: an East UI function written exactly
 like a `ui()` body, which binds its own data, sets up its own slices and returns
@@ -419,11 +411,10 @@ export const salesCount = Studio.component("sales_count", {
 |---|---|
 | `name`, `category`, `icon` | **required** — the palette card's name, the group it sits in, a Font Awesome solid icon |
 | `span` | the span a new placement takes, in columns of 12 (default `12n`) |
-| `description` | what it shows — the inspector's and the catalog's text |
+| `description` | what it shows — the inspector's text, under its lock |
 | `frame` | `"card"` (default) draws a tile frame; `"none"` renders bare |
-| `tags` / `collections` / `owner` | the catalog's facets |
-| `thumbnail` | the catalog card's image (default: the component itself, scaled) |
-| `deprecated` | hidden from the palette and the catalog; placements keep rendering |
+| `tags` / `collections` | the palette's Filter facets |
+| `deprecated` | hidden from the palette; placements keep rendering |
 
 Two fields are derived from `fn`, never written:
 - `reads` — the datasets, functions and records its code binds (`deriveManifest`
@@ -433,22 +424,16 @@ Two fields are derived from `fn`, never written:
   it.
 
 A surface lists the components it offers with `$.let([...])`, in palette order,
-and each placement renders through `Studio.dispatch(components, key)`, which
-calls the listed component's function:
-
-```tsx
-const components = $.let([revenueTrend, salesCount]);
-return <VStack gap="3" align="stretch">{Studio.dispatch(components, "sales_count")}</VStack>;
-```
-
+and hands the list to the Studio's components, which draw each placement by
+calling its component's function:
 - The surface's `ui()` manifest is the union of its listed components' reads:
   every dataset they bind is reachable, and nothing else.
 - State and Slice keys inside a component are the component's own, so two
   placements of it share them.
-- A key the list does not hold renders a placeholder naming it; a key two listed
-  components share renders an error naming it.
+- A placement whose component the list does not hold is a placeholder naming its
+  key; a key two listed components share is an error naming it.
 
-### Studio pages — `Studio.Types.Pages`, its writes and the change list
+### Studio pages — `Studio.Types.Pages`
 
 The Studio exports the pages record's type; a solution declares its storage like
 any record, with one write, a patch:
@@ -458,9 +443,9 @@ export const pages      = e3.record("pages", Studio.Types.Pages, new Map());
 export const pagesPatch = e3.mutation.patch(pages);
 ```
 
-The builder binds it with `Record.bind(pages, [pagesPatch])`, and the site reads
-it with `Data.bind(pages)`. The type never depends on the components, so a deploy
-that adds, changes or removes one runs no migration.
+The builder and the page library bind it with `Record.bind(pages, [pagesPatch])`;
+a published page reads it with `Data.bind(pages)`. The type never depends on the
+components, so a deploy that adds, changes or removes one runs no migration.
 
 - `Studio.Types.Pages` is `Dict<Key, Entry>`. A `Key` is `{ project, page }`. An
   `Entry` is a `page` — `{ draft, live }`, `live` being `none` until the first
@@ -472,216 +457,94 @@ that adds, changes or removes one runs no migration.
   a live version's cells hold the code each went live with.
 
 Every operator action is one patch commit, computed in East as the diff of the
-one entry it writes:
+one entry it writes: the builder's Apply (the page's draft cells), its Publish
+(the live version becomes the draft, numbered one up — 1 the first time — each
+placement stamped with its component's fingerprint) and its Save as template;
+the page library's new page (a template's cells, or none for Blank grid). A
+patch carries what it changes as it was, so a write drafted on a stale page is a
+`conflict`, refused in the words of the screen that wrote it, and nothing is
+overwritten.
 
-| Write | How |
-|---|---|
-| Save | `Studio.save(record, key)` — the canvas's `editing.onApply`; commits the batch to the page's draft cells |
-| Publish | `Studio.publish(pages, key, components)` — the live version becomes the draft, numbered one up (1 the first time), each placement stamped with its listed component's fingerprint, in the draft too; one whose component the surface does not list keeps its own |
-| Revert | `Studio.revert(pages, key)` — the draft becomes the live version's layout |
-| New page | `Studio.newPage(pages, key, title, template)` — a template's cells, or none for the blank grid |
-| Save as template | `Studio.saveTemplate(pages, from, key, title)` — a template of a page's draft |
+### The builder — `<Studio.Builder>`
 
-```tsx
-const record  = $.let(Record.bind(pages, [pagesPatch]));
-const publish = $.const(East.function([], NullType, $ => {
-    $(record.mutate.patch(Studio.publish(record.read(), open, components)));
-}));
-```
-
-A patch carries what it changes as it was, so a write drafted on a stale page is
-a `conflict` naming the page, and nothing is overwritten.
-
-Reads, in East over the record's value:
-- `Studio.changes(before, after)` — the changes between two layouts: `added`,
-  `removed`, `moved`, `resized`, `height`, `aligned` and `retitled`, each with its
-  cell, its component and a detail such as `row 2 · span 4` or `span 12 → 8`.
-  `Studio.changes(live.page, draft)` is "N changes since vN".
-- `Studio.usage(pages)` — how many pages place each component, "Used in N".
-- `Studio.status(page)` — `live` when the draft is the published layout, else
-  `draft`.
-
-### Studio surfaces — `<Studio.Page>` and `<Studio.Site>`
-
-Both read the pages record's value and never write it. A surface built from them
-holds the record's path and its listed components' reads, and no write.
-
-`<Studio.Page>` draws one page with no chrome: its layout on the SnapGrid, each
-placement its component's own UI.
+The builder as one component: the open page's canvas under one toolbar, the
+palette before it, the inspector after it, and the publish preview, which
+Preview and Publish open in the canvas's place. Its writes are patches, so it
+takes the record bound with its patch:
 
 ```tsx
-<Reactive>{$ => {
-    const components = $.let([kpiRail, revenueTrend]);
-    const all        = $.let(Data.bind(pages));
-    return <Studio.Page pages={all.read()} components={components}
-        page={{ project: "ops", page: "overview" }} />;
-}}</Reactive>
-```
-
-| Prop | Meaning |
-|---|---|
-| `pages` | **required** — the record's value: `Data.bind(pages).read()`, or a bound record's `read()` |
-| `components` | **required** — the components the surface lists |
-| `page` | **required** — the page's `{ project, page }` key |
-| `version` | `"live"` (default), the published layout, or `"draft"`, the layout as last saved; a template draws its cells either way |
-
-- A frameless component (`frame: "none"`) renders bare. Every other placement is
-  a tile, named by its cell's title, else its component's name.
-- A page with no live version, and a key the record does not hold, each draw a
-  placeholder that says so.
-- Under a narrow container the tiles stack in row order.
-- A chart that fills (`<Chart height="fill">`) takes a sized tile's height, and
-  its natural height in a tile sized by its content.
-
-`<Studio.Site>` is a project's published app: an `<App>` whose rail lists the
-project's live pages in key order, with the open page's live version as its body.
-A page never published, every template and other projects' pages are not in the
-rail, and the breadcrumb names the open page.
-
-```tsx
-export const opsConsole = ui("ops_console", [], East.function([], UIComponentType, _$ => (
+export const builder = ui("builder", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
-        const all        = $.let(Data.bind(pages));
-        return <Studio.Site pages={all.read()} components={components} project="ops" title="Ops console" />;
+        const record     = $.let(Record.bind(pages, [pagesPatch]));
+        return <Studio.Builder pages={record} components={components} project="Ops console"
+            env="Staging" audience="Field ops · 24 users" rollout="Immediate" />;
     }}</Reactive>
 )));
 ```
 
-| Prop | Meaning |
-|---|---|
-| `pages`, `components` | **required** — as `<Studio.Page>` |
-| `project` | **required** — the project whose live pages the site shows |
-| `title` | the app bar's title; the project when omitted |
-| `id` | names the site's navigation state — needed only when one surface holds two sites |
-
-### The builder's screens — `<Studio.Palette>`, `<Studio.Canvas>` and `<Studio.Inspector>`
-
-The builder is screens, each a headerless pane of its own, and they share what
-is open and what is selected by the builder's `id`: the open page (a
-`Studio.Types.Key`), the canvas's selection (a `SnapGrid.Types.UiState`), its
-design width and zoom (a `SnapGrid.Types.ViewState`), the placements it
-draws — the open page's cells with its unsaved drafts in place — and the Apply
-the publish preview asks of it (a `SnapGrid.Types.ApplyState`) are State every
-screen binds under the same keys, so screens mounted apart with the same
-`id` work together, as `Slice.bind` shares a slice by key. The open page begins
-as the project's first; with no canvas drawing it, a screen reads its saved
-placements.
-
-`<Studio.Palette>` is a `<Dock>` of two tabs, each a `<Library>`, and reads the
-record's value:
-
-```tsx
-<Reactive>{$ => {
-    const components = $.let([kpiRail, revenueTrend, breakdownBars]);
-    const record     = $.let(Record.bind(pages, [pagesPatch]));
-    return <Studio.Palette pages={record.read()} components={components} project="ops" />;
-}}</Reactive>
-```
-
-- **Components.** Every listed component but the deprecated, grouped by
-  category, with a Filter menu over category, tags and collections. A card
-  shows the component's icon, its name, the datasets its code reads and a lock,
-  and drags onto the canvas — the canvas lists the palette's drag-source id in
-  its `sources`. The component the canvas has selected is drawn placed,
-  `ON CANVAS · ×N` — N its placements as the canvas draws them, unsaved drafts
-  counted; a click selects its first placement on the page.
-- **Pages.** The project's pages in key order, each with its status
-  (`LIVE · Vn`, `DRAFT · Vn LIVE` or `DRAFT`) and a status dot; the open page is
-  placed, and a click opens a page.
-- Collapsed, the pane is a rail: the expand control, its icon, the number of
-  components and its name.
-
-| Prop | Meaning |
-|---|---|
-| `pages` | **required** — the record's value: a bound record's `read()` |
-| `components` | **required** — the components the surface lists, in palette order |
-| `project` | **required** — the project whose pages it lists and opens |
-| `id` | names the builder whose open page and selection it shares — needed only when one surface holds two builders |
-
-`<Studio.Canvas>` is the open page's grid in the builder's frame: one toolbar
-across its width, then the panes beside the canvas column, where the selection
-bar names the selected placement over the grid. Its Apply writes, so it takes
-the record bound with its patch:
-
-```tsx
-<Reactive>{$ => {
-    const components = $.let([kpiRail, revenueTrend, breakdownBars]);
-    const record     = $.let(Record.bind(pages, [pagesPatch]));
-    return <Studio.Canvas pages={record} components={components} project="ops" panes={{
-        start: <Studio.Palette pages={record.read()} components={components} project="ops" />,
-        end:   <Studio.Inspector pages={record.read()} components={components} project="ops" />,
-    }} />;
-}}</Reactive>
-```
-
-- **The grid.** The open page's draft cells on the SnapGrid's editing canvas —
+- **The canvas.** The open page's draft cells on the SnapGrid's editing canvas —
   a template's cells when a template is open — each placement its component's
-  own UI, framed or bare, named by its title or its component's name. A card
-  dropped from the palette becomes a placement at its component's span, fitted
-  to the row, storing its component's fingerprint.
-- **The session.** Every move, resize, drop and removal, and every layout edit
-  the inspector asks for, is a draft; the history item undoes, redoes, discards
-  and applies, and ⌘Z / Ctrl+Z undo from anywhere in the builder's frame. Apply is one patch commit on the
-  page (`Studio.save`); a save another write beat is refused, and the history
-  item says the source changed. The publish preview asks for the same Apply
-  through the builder's shared State before it publishes, and the canvas
-  answers once its drafts land or cannot.
-- **The toolbar.** The page's status — `Draft` with an open ring until its
-  first publish, `Live` while its draft is its live layout, `Live · edited`
-  once they differ (`Studio.changes`) — then the grid chip and the time of the
-  last save; the width readout, the zoom, the history item, Desktop · Tablet,
-  Save as template, and Preview and Publish, which call `onPreview` /
-  `onPublish` and are disabled without them.
-- **Save as template** names a template in a popover hanging from its button
-  — offering "<page> template" — and saves the open page, as last saved, as
-  it: one commit (`Studio.saveTemplate`). A name the project holds is refused
-  as it is typed, and one another write took first is refused in the popover.
-  While a template is open it is disabled.
-- **The selection bar** names the selected placement: its component's icon and
-  name, its key and what its code reads.
-- **The panes** sit beside the canvas under the toolbar — the palette before
-  it, the inspector after it; a Dock pane collapses to its rail and the grid
-  takes the room.
-- A page the record does not hold draws a placeholder that says so.
+  own UI, framed or bare. Every move, resize, drop and removal, and every
+  layout edit the inspector asks for, is a draft; the history item undoes,
+  redoes, discards and applies, and ⌘Z / Ctrl+Z undo from anywhere in the
+  builder. Apply is one patch commit on the page; a save another write beat is
+  refused, and the history item says the source changed. The selection bar
+  names the selected placement: its component's icon and name, its key and
+  what its code reads.
+- **The toolbar**, one row: the page's status — `Draft` with an open ring until
+  its first publish, `Live` while its draft is its live layout, `Live · edited`
+  once they differ, `Template` for a template — the grid chip and the time of
+  the last save; the width readout, the zoom, the history item, Desktop ·
+  Tablet, Save as template, Preview and Publish.
+- **Save as template** names a template in a popover hanging from its button —
+  offering "<page> template" — and saves the open page, as last saved: one
+  commit. A name the project holds is refused as it is typed, and one another
+  write took first is refused in the popover. While a template is open it is
+  disabled.
+- **The palette**, a pane of two tabs before the canvas. Components: every
+  listed component but the deprecated, by category, with a search and a Filter
+  menu over category, tags and collections; a card shows the component's icon,
+  its name, the datasets its code reads and a lock, and drags onto the canvas as
+  a placement at its component's span, storing its fingerprint. The component
+  the canvas has selected is drawn placed, `ON CANVAS · ×N`, unsaved drafts
+  counted; a click selects its first placement. Pages: the project's pages in
+  key order with their status (`LIVE · Vn`, `DRAFT · Vn LIVE` or `DRAFT`); a
+  click opens one.
+- **The inspector**, the pane after the canvas: the selected placement's name
+  and its component's key, with a warning when the component's code changed
+  since the page went live; what its code reads, as keypaths
+  (`.inputs.sales_daily`); its description, under a lock; and its layout — its
+  span, held to its row's room, its row, its height (Auto or a preset in px)
+  and where it sits in a taller row. Each edit is one gesture of the canvas's
+  session. With nothing selected it says so.
+- **The panes** collapse to rails: the palette's shows its icon, the number of
+  components and its name; the inspector's its icon — in the brand while a
+  placement is selected — the placement's span (`8/12`) and its name.
+- **The publish preview**, in the canvas's place: a bar — "● Preview", Desktop ·
+  Tablet · Mobile (the page 1440, 1024 or 390 px wide at most), the Env pill,
+  and Exit, back to the canvas with its drafts as they were; the page as it will
+  publish, its unsaved drafts in place; and an aside — "Ready to publish", the
+  version it replaces and the one it becomes (`v3 → v4`), the changes since,
+  each placement added, removed, moved or resized; a banner saying the
+  components' logic is unchanged, or naming those whose code changed since the
+  live version; the Audience and Rollout rows; Save as draft, the canvas's
+  Apply; and Publish, which applies the canvas's drafts first, then commits the
+  publish. A page never published is its first version, one live as it stands
+  is up to date, and a template is not published.
+
+The page open in the builder begins as the project's first; a `<Studio.Library>`
+with the same `id` opens pages in it. The builder fills its parent's height and
+draws no border around itself, so a host frames it or places it bare.
 
 | Prop | Meaning |
 |---|---|
 | `pages` | **required** — the record bound with its patch: `Record.bind(pages, [pagesPatch])` |
 | `components` | **required** — the components the surface lists, in palette order |
 | `project` | **required** — the project whose pages it opens |
-| `panes` | `{ start?, end? }` — the panes beside the canvas: `<Studio.Palette>` before it, `<Studio.Inspector>` after it |
-| `onPreview` / `onPublish` | open the preview / the preview with its publish panel; omitted, the button is disabled |
-| `id` | names the builder whose open page, selection and view it shares — needed only when one surface holds two builders |
-
-`<Studio.Inspector>` is a `<Dock>` of one tab on the canvas's end edge, and
-reads the record's value. It shows the placement the canvas has selected as the
-canvas draws it, drafts included, and writes no page:
-
-- **The selection.** Its name — its cell's title, else its component's name —
-  and its component's key, with a warning when the component's code changed
-  since the page went live: the live version's cell stored another
-  fingerprint.
-- **Data.** What its component's code reads, as keypaths (`.inputs.sales_daily`).
-- **Configuration.** Its component's description, under a lock: what a
-  component shows is fixed by its developer.
-- **Layout.** Its span, held to the room its row's other placements leave; its
-  row, where a row already holding six placements, or one past the last, is a
-  new row after it; its height, Auto or a preset in px; and where it sits in a
-  taller row — top, center or stretch. Each edit asks the canvas for it on the
-  builder's shared selection, and the canvas takes it as one gesture of the
-  page's session: the history item undoes it, and Apply saves it with the rest.
-- With nothing selected it says so. Collapsed, the pane is a rail: the expand
-  control, its icon — in the brand while a placement is selected — the
-  placement's span (`8/12`), its name, and the placement's name or "Nothing
-  selected".
-
-| Prop | Meaning |
-|---|---|
-| `pages` | **required** — the record's value: a bound record's `read()` |
-| `components` | **required** — the components the surface lists |
-| `project` | **required** — the project whose pages the builder opens |
-| `id` | names the builder whose open page, selection and drafted placements it shares — needed only when one surface holds two builders |
+| `env` | where the preview publishes to — its Env pill, and "Publish vN to <env>"; omitted, neither names one |
+| `audience` / `rollout` | who sees a published page, and when — the preview's rows; omitted, no row |
+| `id` | names the builder — needed only when one surface holds two, and then given to the page library that opens its pages |
 
 ### The page library — `<Studio.Library>`
 
@@ -705,22 +568,19 @@ commit, so it takes the record bound with its patch:
   ○ draft — the one open in the builder in the strong ink; the legend at its
   foot. A project's click shows it; a page's click opens it in the builder.
 - **Templates**: Blank grid — the blank page — then the project's templates,
-  four across, each a wireframe of its layout (`<SnapGrid variant="wireframe">`),
-  its title and what it places ("KPI rail ×2 · Revenue trend"); a click starts
-  a new page from it.
+  four across, each a wireframe of its layout, its title and what it places
+  ("KPI rail ×2 · Revenue trend"); a click starts a new page from it.
 - **Pages**: two across, each with its wireframe at its start, its title and
   status, how many components it places, and "Open in builder →", which opens
   it in the builder and calls `onOpen`; a dashed card last starts a new page.
 - **A new page** takes a name the project does not hold and a template, or
   Blank grid, in a popover hanging from the New page button — a template's
   card and the dashed card open it there too, their template picked. It is one
-  commit (`Studio.newPage`); a name another write took first is refused in the
-  popover.
+  commit; a name another write took first is refused in the popover.
 
-Its two rows are `<Library variant="gallery">`s that draw no toolbar of their
-own (`toolbar: false`): the page library's one toolbar drives them. The project
-shown, the search, the order, the Pages row's layout and the popover are its
-own State; the page it opens is the builder's, shared by `id`.
+The project shown, the search, the order, the Pages row's layout and the
+popover are its own; the page it opens is the builder's, shared by `id`. It
+draws no border around itself.
 
 | Prop | Meaning |
 |---|---|
@@ -730,59 +590,40 @@ own State; the page it opens is the builder's, shared by `id`.
 | `onOpen` | told when a page opens in the builder, with its key — the host shows the builder |
 | `id` | names the builder whose open page it writes — needed only when one surface holds two builders |
 
-### The publish preview — `<Studio.Publish>`
+### One page — `<Studio.Page>`
 
-The open page as it will publish, what changed since its live version, and the
-actions that publish it: a screen of the builder, headerless. A publish is one
-commit, so it takes the record bound with its patch:
+One page with no chrome, as everyone else sees it: its layout on the SnapGrid,
+each placement its component's own UI. It reads the record's value and never
+writes it, so a surface built from it holds the record's path and its listed
+components' reads, and no write.
 
 ```tsx
-<Reactive>{$ => {
-    const components = $.let([kpiRail, revenueTrend, breakdownBars]);
-    const record     = $.let(Record.bind(pages, [pagesPatch]));
-    return <Studio.Publish pages={record} components={components} project="Ops console"
-        env="Staging" audience="Field ops · 24 users" rollout="Immediate" />;
-}}</Reactive>
+export const opsConsole = ui("ops_console", [], East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const components = $.let([kpiRail, revenueTrend, breakdownBars]);
+        const all        = $.let(Data.bind(pages));
+        return <Studio.Page pages={all.read()} components={components}
+            page={{ project: "Ops console", page: "Overview" }} />;
+    }}</Reactive>
+)));
 ```
-
-- **The bar**, on the inverse ground: "● Preview"; Desktop · Tablet · Mobile,
-  which draw the page 1440, 1024 or 390 px wide at most — narrower than its
-  panel allows, the page lays out as the SnapGrid does in that container; the
-  Env pill; and Exit, which calls `onExit` and is disabled without it.
-- **The page**: its project and its title over the page as it will publish —
-  its placements as the canvas draws them, unsaved drafts in place — drawn as
-  `<Studio.Page version="draft">` draws it.
-- **The aside**: "Ready to publish", the version it replaces and the one it
-  becomes (`v3 → v4`), and the changes since — `Studio.changes` from the live
-  version to the page as it will publish, each placement added, removed, moved
-  or resized. A page never published is its first version, every placement
-  added; one whose layout and code are as they went live is up to date; a
-  template is not published. The banner says the components' logic is
-  unchanged and the page is safe to publish, or names the components whose code
-  changed since the live version — against the fingerprints its cells stored.
-  Then the Audience and Rollout rows.
-- **The footer**: Save as draft is the canvas's Apply. Publish applies the
-  canvas's drafts first, when it has any, then commits the publish
-  (`Studio.publish`) — the draft the next live version, each placement stamped
-  with the code it goes live with, so the next preview names only code changed
-  since. What refused either shows above the footer.
-
-The preview asks the canvas for its Apply through the builder's shared State,
-and the canvas answers under the ask's id once its drafts land or cannot — the
-canvas stays the only writer of its drafts. Mount the preview with the canvas it
-publishes, under the same `id`; with no canvas to answer, a publish with drafts
-waits. `env`, `audience` and `rollout` are the developer's words: a studio
-publishes within its own workspace.
 
 | Prop | Meaning |
 |---|---|
-| `pages` | **required** — the record bound with its patch: `Record.bind(pages, [pagesPatch])` |
-| `components` | **required** — the components the surface lists — what the page draws, and whose code a publish stamps |
-| `project` | **required** — the project whose pages the builder opens |
-| `env` | where it publishes to — the Env pill, and "Publish vN to <env>"; omitted, neither names one |
-| `audience` / `rollout` | who sees the page, and when — the aside's rows; omitted, no row |
-| `onExit` | returns to the builder — Exit; omitted, Exit is disabled |
-| `id` | names the builder whose open page, drafted placements and Apply it shares — needed only when one surface holds two builders |
+| `pages` | **required** — the record's value: `Data.bind(pages).read()`, or a bound record's `read()` |
+| `components` | **required** — the components the surface lists |
+| `page` | **required** — the page's `{ project, page }` key |
+| `version` | `"live"` (default), the published layout, or `"draft"`, the layout as last saved; a template draws its cells either way |
+
+- A frameless component (`frame: "none"`) renders bare; every other placement is
+  a tile.
+- A page with no live version, and a key the record does not hold, each draw a
+  placeholder that says so.
+- Under a narrow container the tiles stack in row order.
+- A chart that fills (`<Chart height="fill">`) takes a sized tile's height, and
+  its natural height in a tile sized by its content.
+- The page draws no border around itself; a solution places it in a layout of
+  its own.
 
 ## Key Patterns
 
@@ -843,23 +684,14 @@ Tested examples live in `test/*.examples.tsx`:
 - `decision/journal.examples.tsx` — `<DecisionJournal>` read-back.
 - `decision/loop.examples.tsx` — the full loop: two task outputs unioned by one
   `Decision.bind` handle, queue + journal in lockstep.
-- `studio/component.examples.tsx` — `Studio.component` and `Studio.dispatch`: a
-  self-contained component placed twice, sharing its state, and a placement's
-  three outcomes.
-- `studio/pages.examples.ts` — the pages record: a publish, a new page from a
-  template, the change list, "used in N" and a page's status.
-- `studio/page.examples.tsx` — `<Studio.Page>` and `<Studio.Site>`: a page's
-  live layout, a project's site over its live pages, and a site served from the
-  record that a Publish button changes.
-- `studio/palette.examples.tsx` — `<Studio.Palette>`: the listed components by
-  category, each naming the datasets it reads, and the project's pages.
-- `studio/canvas.examples.tsx` — `<Studio.Canvas>`: a draft page on the
-  builder's canvas, with the palette and the inspector as its panes.
-- `studio/library.examples.tsx` — `<Studio.Library>`: a project's
-  templates and pages over the record, with its projects beside them.
-- `studio/publish.examples.tsx` — `<Studio.Publish>`: a page ready to publish,
-  its changes since its live version and the logic banner; and a page whose
-  component's code changed since it went live.
+- `studio/component.examples.tsx` — `Studio.component`: a self-contained
+  component placed twice on a page, the two placements sharing its state.
+- `studio/page.examples.tsx` — `<Studio.Page>`: a page's live layout with no
+  chrome.
+- `studio/studio.examples.tsx` — the Studio as a solution writes it: the data
+  its components read, the components, the pages record, and the three surfaces
+  it mounts — `<Studio.Builder>`, `<Studio.Library>` and a published
+  `<Studio.Page>`.
 
 ## Related skills
 

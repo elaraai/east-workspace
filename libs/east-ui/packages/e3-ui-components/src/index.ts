@@ -17,10 +17,9 @@ import './ontology/index.js';             // → implementUIComponent(Ontology.C
 import './experiment/index.js';           // → implementUIComponent(Experiment.Component, EastChakraExperiment)
 import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
 import './decision/journal.js';           // → implementUIComponent(DecisionJournal.Component, EastChakraDecisionJournal)
-import './studio/inspector.js';           // → implementUIComponent(StudioInspectorComponent, EastChakraStudioInspector)
+import './studio/builder.js';             // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
 import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
-import './studio/save-template.js';       // → implementUIComponent(StudioSaveTemplateComponent, EastChakraStudioSaveTemplate)
-import './studio/publish.js';             // → implementUIComponent(StudioPublishComponent, EastChakraStudioPublish)
+import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -44,13 +43,11 @@ export { EastChakraDecisionQueue, type EastChakraDecisionQueueProps } from './de
 export { EastChakraDecisionJournal, type EastChakraDecisionJournalProps } from './decision/journal.js';
 export { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleValue } from './decision/handle-runtime.js';
 
-// Studio renderers — each registers itself against its extension on import: the inspector's
-// body, the page library's frame, the builder toolbar's Save as template and the publish
-// preview — and the Studio's words.
-export { EastChakraStudioInspector, type EastChakraStudioInspectorProps } from './studio/inspector.js';
+// Studio renderers — each registers itself against its extension on import: the builder,
+// the page library and one page — and the Studio's words.
+export { EastChakraStudioBuilder, type EastChakraStudioBuilderProps } from './studio/builder.js';
 export { EastChakraStudioLibrary, type EastChakraStudioLibraryProps } from './studio/library.js';
-export { EastChakraStudioSaveTemplate, type EastChakraStudioSaveTemplateProps } from './studio/save-template.js';
-export { EastChakraStudioPublish, type EastChakraStudioPublishProps } from './studio/publish.js';
+export { EastChakraStudioPage, type EastChakraStudioPageProps } from './studio/page.js';
 export {
     studioMessages,
     useStudioMessages,

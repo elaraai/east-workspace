@@ -12,9 +12,9 @@
  * `Studio.component(key, meta, fn)` returns it as a `Studio.Types.Component`
  * struct, the way `Slice.config` returns a slice config: what the palette
  * shows, what the function reads, the fingerprint of its code, and the
- * function itself. A surface lists the components it offers, and a placement
- * renders by calling its component's function ({@link dispatchComponent}), so
- * a surface's `ui()` task holds every listed component's function and its
+ * function itself. A surface lists the components it offers, and the Studio's
+ * renderers draw a placement by calling its component's function, so a
+ * surface's `ui()` task holds every listed component's function and its
  * manifest is the union of theirs.
  *
  * @packageDocumentation
@@ -41,7 +41,7 @@ import {
     type ExprType,
     type IR,
 } from "@elaraai/east";
-import { Banner, EmptyState, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { UIComponentType } from "@elaraai/east-ui/internal";
 import { DataManifestType } from "@elaraai/e3-types";
 import { deriveManifest } from "../utils/derive.js";
 
@@ -75,13 +75,11 @@ export type StudioFrameLiteral = "card" | "none";
  * @property category - The palette group it sits in
  * @property icon - A Font Awesome solid icon name
  * @property span - The span a new placement takes, in columns of 12
- * @property description - What it shows — the inspector's "fixed by developer" block and the catalog's card
+ * @property description - What it shows — the inspector's "fixed by developer" block
  * @property frame - Drawn in a tile frame, or bare
- * @property tags - The catalog's tags
- * @property collections - The catalog's collections
- * @property owner - Who owns it, in the catalog
- * @property thumbnail - The catalog card's image; `none` draws the component itself at thumbnail scale
- * @property deprecated - Hidden from the palette and the catalog; placements keep rendering
+ * @property tags - Its tags, which the palette's Filter menu offers
+ * @property collections - Its collections, which the palette's Filter menu offers
+ * @property deprecated - Hidden from the palette; placements keep rendering
  * @property reads - The datasets, functions and records its function binds, derived from its code
  * @property fingerprint - A hash of its code; a cell stores it when placed and when its page publishes, so a code change since shows
  * @property render - The East UI function that renders it
@@ -96,8 +94,6 @@ export const StudioComponentType = StructType({
     frame: StudioFrameType,
     tags: ArrayType(StringType),
     collections: ArrayType(StringType),
-    owner: OptionType(StringType),
-    thumbnail: OptionType(StringType),
     deprecated: BooleanType,
     reads: DataManifestType,
     fingerprint: StringType,
@@ -115,13 +111,11 @@ export type StudioComponentType = typeof StudioComponentType;
  * @property category - The palette group it sits in
  * @property icon - A Font Awesome solid icon name
  * @property span - The span a new placement takes; `12n` when omitted
- * @property description - What it shows — the inspector's "fixed by developer" block and the catalog's card
+ * @property description - What it shows — the inspector's "fixed by developer" block
  * @property frame - `"card"` (the default) or `"none"`, which renders bare
- * @property tags - The catalog's tags
- * @property collections - The catalog's collections
- * @property owner - Who owns it, in the catalog
- * @property thumbnail - The catalog card's image; omitted, the component itself at thumbnail scale
- * @property deprecated - Hidden from the palette and the catalog; placements keep rendering
+ * @property tags - Its tags, which the palette's Filter menu offers
+ * @property collections - Its collections, which the palette's Filter menu offers
+ * @property deprecated - Hidden from the palette; placements keep rendering
  */
 export interface StudioComponentMeta {
     /** Its name, in the palette and the inspector. */
@@ -132,19 +126,15 @@ export interface StudioComponentMeta {
     icon: string;
     /** The span a new placement takes, in columns of 12; `12n` when omitted. */
     span?: bigint;
-    /** What it shows — the inspector's "fixed by developer" block and the catalog's card. */
+    /** What it shows — the inspector's "fixed by developer" block. */
     description?: string;
     /** `"card"` (the default) or `"none"`, which renders bare, on the canvas and published. */
     frame?: StudioFrameLiteral;
-    /** The catalog's tags. */
+    /** Its tags, which the palette's Filter menu offers. */
     tags?: string[];
-    /** The catalog's collections. */
+    /** Its collections, which the palette's Filter menu offers. */
     collections?: string[];
-    /** Who owns it, in the catalog. */
-    owner?: string;
-    /** The catalog card's image; omitted, the component itself at thumbnail scale. */
-    thumbnail?: string;
-    /** Hidden from the palette and the catalog; placements keep rendering. */
+    /** Hidden from the palette; placements keep rendering. */
     deprecated?: boolean;
 }
 
@@ -262,8 +252,6 @@ function createComponent(
         frame: variant(meta.frame ?? "card", null),
         tags: meta.tags ?? [],
         collections: meta.collections ?? [],
-        owner: meta.owner === undefined ? none : some(meta.owner),
-        thumbnail: meta.thumbnail === undefined ? none : some(meta.thumbnail),
         deprecated: meta.deprecated ?? false,
         reads,
         fingerprint: fingerprintOf(fn),
@@ -271,50 +259,13 @@ function createComponent(
     }, StudioComponentType);
 }
 
-// ============================================================================
-// The dispatcher
-// ============================================================================
-
-/**
- * Renders one placement: the component the surface lists under `key`, by
- * calling its function. A key the surface does not list renders a placeholder
- * naming it; a key two listed components share renders an error naming it.
- * A deprecated component's placements keep rendering.
- */
-export const dispatchComponent = East.function(
-    [ArrayType(StudioComponentType), StringType],
-    UIComponentType,
-    ($, components, key) => {
-        const listed = $.let(components.filter((_$, c) => c.key.equal(key)));
-        $.if(listed.size().greater(1n), ($2) => {
-            $2.return(Banner.Root({
-                status: "error",
-                title: Text.Root(East.str`Two components share the key "${key}"`),
-                description: "A surface lists each component once.",
-            }));
-        });
-        $.if(listed.size().equal(0n), ($2) => {
-            $2.return(EmptyState.Root({
-                title: Text.Root(East.str`No component "${key}"`),
-                description: "This surface lists no component with this key.",
-                icon: { prefix: "fas", name: "puzzle-piece" },
-            }));
-        });
-        const component = $.let(listed.get(0n));
-        return component.render();
-    },
-);
-
-/** What {@link createComponent} and the dispatcher are, on the `Studio` namespace. */
+/** What {@link createComponent} is, on the `Studio` namespace. */
 export interface StudioComponentNamespace {
     /** Declares a component ({@link createComponent}). */
     component: typeof createComponent;
-    /** Renders one placement by its component's key ({@link dispatchComponent}). */
-    dispatch: typeof dispatchComponent;
 }
 
 /** The component half of the `Studio` namespace. */
 export const StudioComponents: StudioComponentNamespace = {
     component: createComponent,
-    dispatch: dispatchComponent,
 };

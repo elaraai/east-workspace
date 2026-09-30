@@ -4,29 +4,20 @@
  */
 
 /**
- * `<Studio.Publish>` (#998): what the preview shows of the open page — where
+ * The builder's publish preview (#998): what it shows of the open page — where
  * it stands, the changes from its live version to the layout that publishes,
  * each placement named (E3), the components whose code changed since it went
  * live (E4), and whether the canvas holds unsaved drafts — computed in East;
- * what refused a publish (E6); and the builder surface it completes.
+ * and what refused a publish (E6).
  */
 
-import { describe, test } from "node:test";
-import assert from "node:assert/strict";
-
-import { ArrayType, East, FloatType, OptionType, SortedMap, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, FloatType, OptionType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
-import { TreePathType } from "@elaraai/e3-types";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Record, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { Data, Studio } from "@elaraai/e3-ui";
 import { fingerprintOf, publishRefusal, publishSummary } from "@elaraai/e3-ui/internal";
-
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
-
-const pathKey = (p: ValueTypeOf<typeof TreePathType>) => p.map((s) => `${s.type}:${s.value}`).join("/");
 
 /** A dataset a component reads. */
 const salesDaily = e3.input("publish_sales_daily", ArrayType(FloatType), variant("value", []));
@@ -47,7 +38,7 @@ const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Disp
 const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n }, trendFn);
 const breakdownBars = Studio.component("breakdown_bars", { name: "Breakdown bars", category: "Display", icon: "chart-bar", span: 4n }, barsFn);
 
-describeEast("<Studio.Publish> — what the preview shows (#998)", (test) => {
+describeEast("The publish preview — what it shows (#998)", (test) => {
     test("E3: the changes from the live version to the layout that publishes, each named by its component — ready to publish as the next version", $ => {
         const live = $.const(some({
             version: 3n,
@@ -198,28 +189,10 @@ describeEast("<Studio.Publish> — what the preview shows (#998)", (test) => {
     });
 }, { platformFns: TestImpl });
 
-describeEast("<Studio.Publish> — what refused a publish (#998)", (test) => {
+describeEast("The publish preview — what refused a publish (#998)", (test) => {
     test("E6: a publish another write overtook says so; a committed one says nothing", $ => {
         $(Assert.equal(publishRefusal(variant("conflict", { attempts: 1n, detail: none })), some("Another write changed this page first — review it and publish again")));
         $(Assert.equal(publishRefusal(variant("committed", { commitHash: "c", stateHash: "s" })), none));
         $(Assert.equal(publishRefusal(variant("timed_out", { ms: 5000n, stderr: "" })), some("The write ran out of time and wrote nothing")));
     });
 }, { platformFns: TestImpl });
-
-describe("<Studio.Publish> — the builder surface (#998)", () => {
-    test("with the builder's screens, its manifest holds the record it writes, and what its components read", () => {
-        const pages = e3.record("publish_pages", StudioPagesType, new SortedMap<Key, Entry>([], compareFor(StudioKeyType)));
-        const pagesPatch = e3.mutation.patch(pages);
-        const surface = ui("publish_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const components = $.let([kpiRail, revenueTrend]);
-            const record = $.let(Record.bind(pages, [pagesPatch]));
-            return Studio.Publish({ pages: record, components, project: "ops", env: "Staging", audience: "Field ops · 24 users", rollout: "Immediate" });
-        }))));
-        const manifest = surface.role.value!;
-        assert.deepEqual(manifest.records, ["publish_pages"]);
-        assert.deepEqual(manifest.paths.map(pathKey).sort(), [
-            "field:inputs/field:publish_sales_daily",
-            "field:records/field:publish_pages",
-        ]);
-    });
-});

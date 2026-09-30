@@ -7,9 +7,9 @@
  * The Studio's pages (#992): each write is one patch of the one entry it
  * writes, and publish and revert are exact (R3); a write drafted on a stale
  * page no longer applies (R2); `Studio.changes` is exact for every layout edit
- * and a retitle (R5); "used in N" counts every page that places a component
- * (R6); a page's status; and each surface's manifest (R4). A publish stamps
- * each placement with the code it goes live with (E4, #998).
+ * and a retitle (R5); and a page's status. A publish stamps each placement
+ * with the code it goes live with (E4, #998). Each surface's manifest (R4) is
+ * its own spec's.
  */
 
 import { describe, test } from "node:test";
@@ -17,14 +17,12 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 
 import {
-    ArrayType, East, FloatType, SortedMap, applyFor, compareFor, none, some, variant,
+    East, SortedMap, applyFor, compareFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
-import e3 from "@elaraai/e3";
-import { TreePathType } from "@elaraai/e3-types";
-import { Reactive, Stack, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Record, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { Studio, StudioKeyType, StudioPagesType } from "@elaraai/e3-ui/internal";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -32,14 +30,12 @@ type Page = ValueTypeOf<typeof Studio.Types.Page>;
 
 const keys = compareFor(StudioKeyType);
 const applyPages = applyFor(StudioPagesType);
-const pathKey = (p: ValueTypeOf<typeof TreePathType>) => p.map((s) => `${s.type}:${s.value}`).join("/");
 
 const publish = East.compile(Studio.publish, []);
 const revert = East.compile(Studio.revert, []);
 const newPage = East.compile(Studio.newPage, []);
 const saveTemplate = East.compile(Studio.saveTemplate, []);
 const changes = East.compile(Studio.changes, []);
-const usage = East.compile(Studio.usage, []);
 const status = East.compile(Studio.status, []);
 
 /** The Overview: a KPI rail alone on row 1, a chart and bars on row 2, three tiles on row 3. */
@@ -241,78 +237,10 @@ describe("Studio.changes (#992, R5)", () => {
     });
 });
 
-describe("Studio.usage and Studio.status (#992)", () => {
-    test("R6: used in N counts each page that places a component, in its draft or its live version, once", () => {
-        const pages = new SortedMap<Key, Entry>([
-            [OVERVIEW_KEY, variant("page", { draft: EDITED, live: some({ version: 1n, page: OVERVIEW }) })],
-            [{ project: "ops", page: "detail" }, variant("page", {
-                draft: {
-                    title: "Detail",
-                    cells: [
-                        { key: "d-kpi", row: "d1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "fp-kpi" },
-                        { key: "d-kpi-2", row: "d2", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "fp-kpi" },
-                    ],
-                },
-                live: none,
-            })],
-            [TEMPLATE_KEY, variant("template", {
-                title: "Board",
-                cells: [
-                    { key: "t-board", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board", fingerprint: "fp-board" },
-                ],
-            })],
-        ], keys);
-        assert.deepEqual([...usage(pages).entries()], [
-            ["breakdown_bars", 1n], ["kpi_rail", 2n], ["orders_by_week", 1n], ["revenue_trend", 1n], ["shift_roster", 1n], ["visits_sparkline", 1n],
-        ]);
-    });
-
+describe("Studio.status (#992)", () => {
     test("a page is live when its draft is its published layout, and a draft otherwise", () => {
         assert.equal(status({ draft: OVERVIEW, live: none }).type, "draft");
         assert.equal(status({ draft: OVERVIEW, live: some({ version: 1n, page: OVERVIEW }) }).type, "live");
         assert.equal(status({ draft: EDITED, live: some({ version: 1n, page: OVERVIEW }) }).type, "draft");
-    });
-});
-
-describe("Studio surfaces' manifests (#992, R4)", () => {
-    const sales = e3.input("studio_pages_sales", ArrayType(FloatType), variant("value", []));
-    const visits = e3.input("studio_pages_visits", ArrayType(FloatType), variant("value", []));
-    const revenue = Studio.component("revenue", { name: "Revenue", category: "Charts", icon: "chart-area" },
-        East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const rows = $.let(Data.bind(sales));
-            return Text.Root(East.print(rows.read().size()));
-        }))));
-    const traffic = Studio.component("traffic", { name: "Traffic", category: "Charts", icon: "chart-line" },
-        East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const days = $.let(Data.bind(visits));
-            return Text.Root(East.print(days.read().size()));
-        }))));
-    const pages = e3.record("studio_pages", StudioPagesType, new SortedMap<Key, Entry>([], keys));
-    const pagesPatch = e3.mutation.patch(pages);
-
-    test("the builder's holds the record, bound for its patch, and exactly what its components read", () => {
-        const builder = ui("studio_builder", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const record = $.let(Record.bind(pages, [pagesPatch]));
-            const components = $.let([revenue, traffic]);
-            return Stack.VStack([Text.Root(East.print(record.read().size())), Studio.dispatch(components, "revenue")]);
-        }))));
-        const manifest = builder.role.value!;
-        assert.deepEqual(manifest.records, ["studio_pages"]);
-        assert.deepEqual(manifest.paths.map(pathKey).sort(), [
-            "field:inputs/field:studio_pages_sales", "field:inputs/field:studio_pages_visits", "field:records/field:studio_pages",
-        ]);
-    });
-
-    test("the site's holds the record and no write, and exactly what its components read", () => {
-        const site = ui("studio_site", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const all = $.let(Data.bind(pages));
-            const components = $.let([revenue, traffic]);
-            return Stack.VStack([Text.Root(East.print(all.read().size())), Studio.dispatch(components, "traffic")]);
-        }))));
-        const manifest = site.role.value!;
-        assert.deepEqual(manifest.records, []);
-        assert.deepEqual(manifest.paths.map(pathKey).sort(), [
-            "field:inputs/field:studio_pages_sales", "field:inputs/field:studio_pages_visits", "field:records/field:studio_pages",
-        ]);
     });
 });

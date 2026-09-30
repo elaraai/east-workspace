@@ -4,20 +4,16 @@
  */
 
 /**
- * `<Studio.Publish>` (#998) — the publish preview: the open page as it will
- * publish, what changed since its live version, and the actions that publish
- * it.
- *
- * The preview is a screen of the builder, headerless, drawn by the
- * `StudioPublish` renderer: its bar — "● Preview", the device widths, the
+ * The builder's publish preview (#998) — the open page as it will publish,
+ * what changed since its live version, and the actions that publish it,
+ * computed in East for the `StudioBuilder` renderer, which draws the preview
+ * in the canvas's place: its bar — "● Preview", the device widths, the
  * environment and Exit — the page at the device's width, and the aside: what
  * changed since the live version, whether the components' code changed since,
- * who sees it and when, and Save as draft and Publish. It reads the builder's
- * shared State ({@link builderKeys}) — the open page, and its placements as
- * the canvas draws them — so the page it shows is the one that publishes,
- * unsaved drafts in place; and it asks the canvas to apply them through the
- * same State before it publishes, so the canvas stays the only writer of its
- * drafts.
+ * who sees it and when, and Save as draft and Publish. The page it shows is
+ * the one that publishes, the canvas's unsaved drafts in place, and it has the
+ * canvas apply them before it publishes, so the canvas stays the only writer
+ * of its drafts.
  *
  * @packageDocumentation
  */
@@ -39,36 +35,17 @@ import {
     none,
     some,
     variant,
-    type ExprType,
-    type SubtypeExprOrValue,
 } from "@elaraai/east";
-import {
-    EastUI,
-    EmptyState,
-    Reactive,
-    SnapGrid,
-    State,
-    Text,
-    UIComponentType,
-    optionsTag,
-    type JsxTag,
-    type OptionsProps,
-} from "@elaraai/east-ui/internal";
+import { SnapGrid } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType } from "../bind/record.js";
 import { StudioComponentType } from "./component.js";
 import {
     StudioCellType,
     StudioChangeType,
-    StudioKeyType,
     StudioLiveType,
     StudioPageType,
-    StudioPages,
-    StudioPagesType,
     pageChanges,
-    type StudioPagesPatchType,
 } from "./pages.js";
-import { BuilderCellsType, builderKeys } from "./palette.js";
-import { StudioVersionType, renderPage } from "./surfaces.js";
 
 // ============================================================================
 // Types
@@ -126,7 +103,8 @@ export const PublishSummaryType = StructType({
 export type PublishSummaryType = typeof PublishSummaryType;
 
 /**
- * The `StudioPublish` renderer's payload.
+ * The publish preview, as the `StudioBuilder` renderer draws it — beside the
+ * page as it will publish, which the builder draws.
  *
  * @property project - The project — the page's eyebrow
  * @property title - The page's title
@@ -134,11 +112,10 @@ export type PublishSummaryType = typeof PublishSummaryType;
  * @property env - Where it publishes to — the Env pill, and the Publish button's words
  * @property audience - Who sees it — the Audience row
  * @property rollout - When they see it — the Rollout row
- * @property page - Draws the page as it will publish
  * @property apply - The Apply the preview asked of the canvas, and the canvas's answer
  * @property onApply - Asks the canvas to apply its drafts, under an id the answer names
  * @property onPublish - Publishes the page, one commit; `none` when it committed, else what refused it
- * @property onExit - Returns to the builder; `none` when there is none to return to
+ * @property onExit - Returns to the canvas; `none` when there is none to return to
  */
 export const StudioPublishPayloadType = StructType({
     project: StringType,
@@ -147,14 +124,13 @@ export const StudioPublishPayloadType = StructType({
     env: OptionType(StringType),
     audience: OptionType(StringType),
     rollout: OptionType(StringType),
-    page: FunctionType([], UIComponentType),
     apply: SnapGrid.Types.ApplyState,
     onApply: FunctionType([StringType], NullType),
     onPublish: AsyncFunctionType([], OptionType(StringType)),
     onExit: OptionType(FunctionType([], NullType)),
 });
 
-/** Type representing the `StudioPublish` renderer's payload. */
+/** Type representing the publish preview, as the builder draws it. */
 export type StudioPublishPayloadType = typeof StudioPublishPayloadType;
 
 // ============================================================================
@@ -282,200 +258,3 @@ export const publishRefusal = East.function(
         return refused;
     },
 );
-
-// ============================================================================
-// The renderer's carrier
-// ============================================================================
-
-/**
- * Internal {@link EastUI.component} carrier. The React renderer registers
- * against this in `@elaraai/e3-ui-components` via `implementUIComponent`.
- */
-export const StudioPublishComponent = EastUI.component("StudioPublish", StudioPublishPayloadType, { optional: true });
-
-// ============================================================================
-// <Studio.Publish>
-// ============================================================================
-
-/** The pages record, bound with its patch mutation — what the preview reads and a publish commits through. */
-type StudioPagesHandle = ExprType<StructType<{
-    read: FunctionType<[], StudioPagesType>;
-    commit: StructType<{ patch: AsyncFunctionType<[typeof StringType, StudioPagesPatchType], RecordOutcomeType> }>;
-}>>;
-
-/**
- * `<Studio.Publish>` options.
- *
- * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`
- * @property components - The components the surface lists — what the page draws, and whose code a publish stamps
- * @property project - The project whose pages the builder opens
- * @property env - Where it publishes to — the Env pill, and "Publish vN to <env>"
- * @property audience - Who sees the page — the Audience row
- * @property rollout - When they see it — the Rollout row
- * @property id - Names the builder whose open page, drafted placements and Apply it shares, when a surface holds two
- * @property onExit - Returns to the builder — Exit; omitted, Exit is disabled
- */
-export interface StudioPublishOptions {
-    /** The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`. */
-    pages: StudioPagesHandle;
-    /** The components the surface lists — what the page draws, and whose code a publish stamps. */
-    components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
-    /** The project whose pages the builder opens. */
-    project: SubtypeExprOrValue<StringType>;
-    /** Where it publishes to — the Env pill, and "Publish vN to <env>"; omitted, neither names one. */
-    env?: SubtypeExprOrValue<StringType>;
-    /** Who sees the page — the Audience row; omitted, no row. */
-    audience?: SubtypeExprOrValue<StringType>;
-    /** When they see it — the Rollout row; omitted, no row. */
-    rollout?: SubtypeExprOrValue<StringType>;
-    /** Names the builder whose open page, drafted placements and Apply it shares — needed only when one surface holds two builders. */
-    id?: string;
-    /** Returns to the builder — Exit; omitted, Exit is disabled. */
-    onExit?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-}
-
-/**
- * The publish preview: the open page as it will publish, what changed since
- * its live version, and the actions that publish it.
- *
- * @remarks
- * - **The bar**, headerless: "● Preview"; Desktop · Tablet · Mobile, which
- *   draw the page 1440, 1024 or 390 px wide at most; the Env pill; and Exit.
- * - **The page**: its project, its title and its layout as it will publish —
- *   its placements as the canvas draws them, unsaved drafts in place — drawn
- *   as `<Studio.Page version="draft">` draws it.
- * - **The aside**: "Ready to publish", the version it replaces and the one it
- *   becomes, and the changes since — each placement added, removed, moved or
- *   resized; the banner, which says the components' code is as it went live
- *   and the page is safe to publish, or names the components whose code
- *   changed since; the Audience and Rollout rows; and the footer. A page
- *   never published is its first version, every placement added; one whose
- *   layout and code are as they went live is up to date; a template is not
- *   published.
- * - **The footer**: Save as draft is the canvas's Apply. Publish applies the
- *   canvas's drafts first, when it has any, then commits the publish — one
- *   patch that makes the draft live as the next version, each placement
- *   stamped with the code it goes live with (`Studio.publish`). What refused
- *   either shows above the footer.
- *
- * The open page and the placements the canvas draws are State the builder's
- * screens share by `id`, and so is the Apply the preview asks for: the canvas
- * — mounted, with the same `id` — applies its drafts and answers. With no
- * canvas to answer, a publish with drafts waits.
- *
- * @param options - The bound record, the listed components, the project, the words the aside shows and Exit ({@link StudioPublishOptions})
- * @returns An East expression of type `UIComponentType`
- *
- * @example
- * ```tsx
- * import { East } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Record, Studio, ui } from "@elaraai/e3-ui";
- *
- * export const preview = ui("preview", [], East.function([], UIComponentType, _$ => (
- *     <Reactive>{$ => {
- *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
- *         const record     = $.let(Record.bind(pages, [pagesPatch]));
- *         return <Studio.Publish pages={record} components={components} project="Ops console"
- *             env="Staging" audience="Field ops · 24 users" rollout="Immediate" />;
- *     }}</Reactive>
- * )));
- * ```
- */
-function createPublish(options: StudioPublishOptions): ExprType<UIComponentType> {
-    const keys = builderKeys(options.id);
-    const env = options.env === undefined ? none : some(options.env);
-    const audience = options.audience === undefined ? none : some(options.audience);
-    const rollout = options.rollout === undefined ? none : some(options.rollout);
-    const onExit = options.onExit === undefined ? none : some(options.onExit);
-    return Reactive.Root(East.function([], UIComponentType, ($) => {
-        const record = $.let(options.pages);
-        const pages = $.let(record.read());
-        const components = $.let(options.components, ArrayType(StudioComponentType));
-        const project = $.let(options.project, StringType);
-
-        // The open page, as every screen of the builder binds it — the
-        // project's first to begin with — its placements as the canvas draws
-        // them, and the Apply asked of the canvas.
-        const first = $.let({ project, page: "" }, StudioKeyType);
-        $.for(pages, ($2, entry, key) => {
-            $2.if(key.project.equal(project).and(() => first.page.equal("")).and(() => entry.hasTag("page")), ($3) => {
-                $3.assign(first, key);
-            });
-        });
-        const open = $.let(State.bind([StudioKeyType], keys.page, first));
-        const openKey = $.let(open.read());
-        const drafted = $.let(State.bind([OptionType(BuilderCellsType)], keys.cells, none));
-        const applying = $.let(State.bind([SnapGrid.Types.ApplyState], keys.apply, East.value(variant("idle", null), SnapGrid.Types.ApplyState)));
-
-        $.if(pages.has(openKey).not(), ($2) => {
-            $2.return(EmptyState.Root({
-                title: Text.Root("No page open"),
-                description: Text.Root(East.str`${project} has no page ${openKey.page}. Open a page from the palette's Pages tab, or start one from the page library.`),
-                icon: { prefix: "fas", name: "file-circle-question" },
-            }));
-        });
-        const entry = $.let(pages.get(openKey));
-        const saved = $.let(entry.match({
-            page: (_$2, page) => page.draft,
-            template: (_$2, layout) => layout,
-        }), StudioPageType);
-        const live = $.let(entry.match({
-            page: (_$2, page) => page.live,
-            template: (_$2) => East.value(none, OptionType(StudioLiveType)),
-        }), OptionType(StudioLiveType));
-        // The layout that publishes: the cells the canvas draws while they are
-        // this page's, its unsaved drafts in place; else its draft as saved.
-        const layout = $.let({
-            title: saved.title,
-            cells: drafted.read().match({
-                some: (_$2, drawn) => East.equal(drawn.page, openKey).ifElse(() => drawn.cells, () => saved.cells),
-                none: (_$2) => saved.cells,
-            }),
-        }, StudioPageType);
-        const summary = $.let(publishSummary(components, live, layout, saved.cells, entry.hasTag("template")));
-
-        // The page as it will publish, drawn as <Studio.Page version="draft"> draws it.
-        const page = $.const(East.function([], UIComponentType, ($2) => {
-            const one = $2.let(new Map(), StudioPagesType);
-            $2(one.insert(openKey, variant("page", { draft: layout, live: none })));
-            return renderPage(one, components, openKey, East.value(variant("draft", null), StudioVersionType));
-        }));
-        // The canvas applies its drafts, and answers under the id.
-        const onApply = $.const(East.function([StringType], NullType, ($2, id) => {
-            $2(applying.write(variant("asked", id)));
-        }));
-        // The publish, from the record as it stands when it commits — what an
-        // Apply just before it left.
-        const onPublish = $.const(East.asyncFunction([], OptionType(StringType), ($2) => {
-            const now = $2.let(record.read());
-            const outcome = $2.let(record.commit.patch("", StudioPages.publish(now, openKey, components)));
-            return publishRefusal(outcome);
-        }));
-
-        return StudioPublishComponent.Root({
-            project,
-            title: saved.title,
-            summary,
-            env,
-            audience,
-            rollout,
-            page,
-            apply: applying.read(),
-            onApply,
-            onPublish,
-            onExit,
-        });
-    }));
-}
-
-// ============================================================================
-// Tag
-// ============================================================================
-
-/**
- * `<Studio.Publish>` — the publish preview: the open page as it will publish,
- * what changed since its live version, and the actions that publish it. See
- * {@link createPublish}.
- */
-export const StudioPublish: JsxTag<OptionsProps<typeof createPublish>> = optionsTag(createPublish);

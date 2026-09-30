@@ -4,14 +4,12 @@
  */
 
 /**
- * `EastChakraStudioSaveTemplate` — the renderer of the `StudioSaveTemplate`
- * extension declared in `@elaraai/e3-ui` (#997): the builder toolbar's Save as
- * template, before Preview and Publish. Its button opens the popover that
- * names the template — offering "<page> template" — and saves the open page,
- * as last saved, under the name: the payload's one commit. A name the project
- * holds is refused in the popover, and so is a name another write took first.
- * While a template is open the button is disabled: a template is not saved
- * again.
+ * `StudioSaveTemplate` — the builder toolbar's Save as template (#997), before
+ * Preview and Publish. Its button opens the popover that names the template —
+ * offering "<page> template" — and saves the open page, as last saved, under
+ * the name: one commit. A name the project holds is refused in the popover,
+ * and so is a name another write took first. While a template is open the
+ * button is disabled: a template is not saved again.
  *
  * Its button is the `button` recipe's outline, as its neighbours in the
  * toolbar are; its popover is the Studio's {@link NamePopover}.
@@ -22,30 +20,27 @@
 import { memo, useState } from "react";
 import { Box, Button as ChakraButton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
-import { StudioSaveTemplateComponent } from "@elaraai/e3-ui/internal";
-import { implementUIComponent } from "@elaraai/east-ui-components";
+import { StudioSaveTemplatePayloadType } from "@elaraai/e3-ui/internal";
 
 import { useStudioMessages } from "./messages.js";
 import { NamePopover } from "./name-popover.js";
 
-/** The renderer's payload, decoded. */
-type StudioSaveTemplateValue = ValueTypeOf<typeof StudioSaveTemplateComponent.schema>;
+/** Save as template, as the builder draws it. */
+type StudioSaveTemplateValue = ValueTypeOf<typeof StudioSaveTemplatePayloadType>;
 
-/** Props of {@link EastChakraStudioSaveTemplate}. */
-export interface EastChakraStudioSaveTemplateProps {
-    /** The payload, decoded. */
+/** Props of {@link StudioSaveTemplate}. */
+export interface StudioSaveTemplateProps {
+    /** The open page's title, whether it can be saved, the names taken, and the save. */
     value: StudioSaveTemplateValue;
-    /** The structural storage key. */
-    storageKey: string;
 }
 
 /**
  * Renders Save as template — see the module docs.
  *
- * @param props - The payload and its storage key
+ * @param props - What it saves, and how
  * @returns The button, and its popover while open
  */
-export const EastChakraStudioSaveTemplate = memo(function EastChakraStudioSaveTemplate({ value }: EastChakraStudioSaveTemplateProps) {
+export const StudioSaveTemplate = memo(function StudioSaveTemplate({ value }: StudioSaveTemplateProps) {
     const edit = useSlotRecipe({ key: "sliceEdit" })() as Record<string, SystemStyleObject>;
     const m = useStudioMessages();
     const [open, setOpen] = useState(false);
@@ -73,5 +68,3 @@ export const EastChakraStudioSaveTemplate = memo(function EastChakraStudioSaveTe
         />
     );
 });
-
-implementUIComponent(StudioSaveTemplateComponent, EastChakraStudioSaveTemplate);

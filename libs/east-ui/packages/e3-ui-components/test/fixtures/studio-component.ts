@@ -4,7 +4,7 @@
  */
 
 // A surface as a solution writes one: `Studio.component(…)` inside an East
-// function, and the placement rendered by its key. `studio-lint.spec.ts` runs
+// function, and a page that places it. `studio-lint.spec.ts` runs
 // every East rule over this file and expects none to fire.
 
 import { East, IntegerType } from "@elaraai/east";
@@ -19,5 +19,6 @@ export const surface = East.function([], UIComponentType, ($) => {
         return Text.Root(East.str`${East.print(clicks.read())} clicks`);
     })))));
     const components = $.let([counter]);
-    return Studio.dispatch(components, "counter");
+    const pages = $.let(new Map(), Studio.Types.Pages);
+    return Studio.Page({ pages, components, page: { project: "demo", page: "counters" } });
 });

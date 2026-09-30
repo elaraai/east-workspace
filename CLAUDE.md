@@ -32,6 +32,18 @@ real, decoded East values. `printFor` / `parseFor`, `equalFor` / `compareFor`,
 [`docs/conventions/EAST_TS_INTEROP.md`](docs/conventions/EAST_TS_INTEROP.md);
 the UI packages' `make lint` fails on each of these.
 
+## HARD RULE: never build a UI component from East UI components
+
+An east-ui or e3-ui component is an **interface and a renderer**: its
+factory computes one payload and returns it through its `EastUI.component`
+carrier, and its React renderer constructs the UI in the browser. A factory
+never composes other East UI components (`Box`, `Stack`, `Reactive`,
+`SnapGrid`, `Dock`, `Library`, …) to build a component, and a payload never
+carries a view built from them. A component made of parts reuses the parts'
+interface types. A component draws no outer border — toolbars and footers
+included — so a host can frame it or place it bare. See
+[`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md).
+
 ## What this repo is
 
 The **East monorepo** — a pnpm + uv + cmake workspace containing all
@@ -181,7 +193,9 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
 - [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
   — mandatory structure for `SKILL.md` + reference/example files.
 - [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md)
-  — east-ui data-vs-behavior prop rule: behavior props are pass-through
+  — a component is an interface (payload + carrier) and a renderer that
+  builds it in the browser, never composed from East UI components;
+  east-ui data-vs-behavior prop rule: behavior props are pass-through
   `FunctionType` (never invoked at build time; capture only data +
   bind-handles); factories reify mapper callbacks via `shared/reify.ts`,
   never splice.

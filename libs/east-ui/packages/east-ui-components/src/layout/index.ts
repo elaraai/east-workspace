@@ -50,10 +50,17 @@ export {
 
 export {
     EastChakraSnapGrid,
+    SnapGridTiles,
     type SnapGridValue,
     type SnapGridCellValue,
+    type SnapGridLayoutCell,
+    type SnapGridTilesProps,
+    type SnapGridEditorCell,
+    type SnapGridEditorEditing,
+    type SnapGridEditorValue,
     type EastChakraSnapGridProps,
 } from "./snap-grid/index.js";
+export { DockPane, type DockPaneProps } from "./dock/index.js";
 export { SnapGridEditor, type SnapGridEditorProps } from "./snap-grid/editor.js";
 export {
     SnapGridMessagesProvider,

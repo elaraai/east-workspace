@@ -20,5 +20,6 @@ export const surface = East.function([], UIComponentType, ($) => {
         return Text.Root(East.print(clicks.read()));
     }))));
     const components = $.let([make("counter")]);
-    return Studio.dispatch(components, "counter");
+    const pages = $.let(new Map(), Studio.Types.Pages);
+    return Studio.Page({ pages, components, page: { project: "demo", page: "counters" } });
 });

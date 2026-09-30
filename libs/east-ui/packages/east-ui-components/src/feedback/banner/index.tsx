@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, type ReactNode } from "react";
 import {
     Box as ChakraBox,
     HStack as ChakraHStack,
@@ -53,7 +53,67 @@ const STATUS_TO_FG: Record<BannerValue["status"]["type"], string> = {
 };
 
 /**
- * Renders an East UI Banner. Surrounded by a 1 px coloured border at very
+ * Renders an East UI Banner — {@link BannerView}, its `title`, `description`
+ * and `actions` UIComponent slots dispatched through `EastChakraComponent`.
+ */
+export const EastChakraBanner = memo(function EastChakraBanner({ value, storageKey }: EastChakraBannerProps) {
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const icon = useMemo(() => getSomeorUndefined(value.icon), [value.icon]);
+    const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
+    const actions = useMemo(() => getSomeorUndefined(value.actions), [value.actions]);
+    const onDismissFn = useMemo(() => getSomeorUndefined(value.onDismiss), [value.onDismiss]);
+    const handleDismiss = useCallback(() => {
+        if (onDismissFn) queueMicrotask(() => onDismissFn());
+    }, [onDismissFn]);
+    return (
+        <BannerView
+            status={value.status.type}
+            icon={icon}
+            dismissible={getSomeorUndefined(value.dismissible) ?? false}
+            onDismiss={handleDismiss}
+            solid={(style ? getSomeorUndefined(style.variant)?.type : undefined) === "solid"}
+            background={style ? getSomeorUndefined(style.background) : undefined}
+            color={style ? getSomeorUndefined(style.color) : undefined}
+            borderColor={style ? getSomeorUndefined(style.borderColor) : undefined}
+            iconColor={style ? getSomeorUndefined(style.iconColor) : undefined}
+            title={<EastChakraComponent value={value.title} storageKey={`${storageKey ?? ""}.title`} />}
+            description={description ? <EastChakraComponent value={description} storageKey={`${storageKey ?? ""}.description`} /> : undefined}
+            actions={actions ? <EastChakraComponent value={actions} storageKey={`${storageKey ?? ""}.actions`} /> : undefined}
+        />
+    );
+}, (prev, next) => bannerEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+/** Props of {@link BannerView}. */
+export interface BannerViewProps {
+    /** Its status — what its layer style and icon colour say. */
+    status: BannerValue["status"]["type"];
+    /** Its title. */
+    title: ReactNode;
+    /** Its body, under the title. */
+    description?: ReactNode;
+    /** Its actions, at its end. */
+    actions?: ReactNode;
+    /** A Font Awesome icon, before the title. */
+    icon?: { prefix: string; name: string } | undefined;
+    /** Whether it offers a close button. */
+    dismissible?: boolean | undefined;
+    /** Its close button's click. */
+    onDismiss?: (() => void) | undefined;
+    /** The full-tint banner, in place of the layer style. */
+    solid?: boolean | undefined;
+    /** Its background. */
+    background?: string | undefined;
+    /** Its text colour. */
+    color?: string | undefined;
+    /** Its border colour. */
+    borderColor?: string | undefined;
+    /** The icon's colour. */
+    iconColor?: string | undefined;
+}
+
+/**
+ * The banner as React — the Banner's renderer, and the banner a host renderer
+ * draws with words of its own. Surrounded by a 1 px coloured border at very
  * low tint per pattern_spec; the title is rendered semibold inline with the
  * leading icon and the description sits below in muted body. Actions and
  * dismiss button align right. `role` is `alert` for warning / error and
@@ -64,38 +124,18 @@ const STATUS_TO_FG: Record<BannerValue["status"]["type"], string> = {
  * `*.subtle` background) used by the previous renderer is explicitly NOT
  * spec-conformant — it has been removed. All status palettes route through
  * `banner.{stale,partial,change,error,ok}` layer styles.
+ *
+ * @param props - What it says, and how ({@link BannerViewProps})
+ * @returns The banner
  */
-export const EastChakraBanner = memo(function EastChakraBanner({ value, storageKey }: EastChakraBannerProps) {
-    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const icon = useMemo(() => getSomeorUndefined(value.icon), [value.icon]);
-    const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
-    const actions = useMemo(() => getSomeorUndefined(value.actions), [value.actions]);
-    const dismissible = getSomeorUndefined(value.dismissible) ?? false;
-    const onDismissFn = useMemo(() => getSomeorUndefined(value.onDismiss), [value.onDismiss]);
-
-    const statusTag = value.status.type;
-    const layer = STATUS_TO_LAYER[statusTag];
-    const fg = STATUS_TO_FG[statusTag];
-
-    /* Inline overrides — every visual slot is theme-driven by default, but
-     * authors can override the underlying `bg` / `borderColor` / `iconColor`
-     * per banner. `variantPreset === "solid"` keeps the previous high-tint
-     * affordance for callers that explicitly opt in. */
-    const variantPreset = style ? getSomeorUndefined(style.variant)?.type : undefined;
-    const background  = style ? getSomeorUndefined(style.background)  : undefined;
-    const color       = style ? getSomeorUndefined(style.color)       : undefined;
-    const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
-    const iconColor   = (style ? getSomeorUndefined(style.iconColor) : undefined) ?? fg;
-
-    const handleDismiss = useCallback(() => {
-        if (onDismissFn) queueMicrotask(() => onDismissFn());
-    }, [onDismissFn]);
-
-    const role = statusTag === "warning" || statusTag === "error" ? "alert" : "status";
-
-    /* Solid escape hatch — full-tint banner where the brand wants visual
-     * weight (e.g. promotional callouts). Skips the layerStyle. */
-    const useSolid = variantPreset === "solid";
+export function BannerView({
+    status, title, description, actions, icon, dismissible = false, onDismiss, solid = false,
+    background, color, borderColor, iconColor: iconColorProp,
+}: BannerViewProps) {
+    const layer = STATUS_TO_LAYER[status];
+    const fg = STATUS_TO_FG[status];
+    const iconColor = iconColorProp ?? fg;
+    const role = status === "warning" || status === "error" ? "alert" : "status";
 
     return (
         <ChakraBox
@@ -107,7 +147,7 @@ export const EastChakraBanner = memo(function EastChakraBanner({ value, storageK
             // wrap (#349): action cluster drops below the message when the
             // banner is hosted in a compact container.
             flexWrap="wrap"
-            {...(useSolid
+            {...(solid
                 ? { bg: background ?? fg, color: color ?? "white", paddingX: "4", paddingY: "3", borderRadius: "2px" }
                 : { layerStyle: layer, ...(background !== undefined ? { bg: background } : {}), ...(color !== undefined ? { color } : {}) }
             )}
@@ -118,7 +158,7 @@ export const EastChakraBanner = memo(function EastChakraBanner({ value, storageK
                     as="span"
                     display="inline-flex"
                     alignItems="center"
-                    color={useSolid ? "currentcolor" : iconColor}
+                    color={solid ? "currentcolor" : iconColor}
                     fontSize="md"
                     flexShrink={0}
                     pt="0.5"
@@ -131,33 +171,22 @@ export const EastChakraBanner = memo(function EastChakraBanner({ value, storageK
             ) : null}
             <ChakraBox flex="1" minWidth={0}>
                 <ChakraBox fontWeight="semibold" fontSize="sm" lineHeight="1.4">
-                    <EastChakraComponent
-                        value={value.title}
-                        storageKey={`${storageKey ?? ""}.title`}
-                    />
+                    {title}
                 </ChakraBox>
-                {description ? (
+                {description !== undefined ? (
                     <ChakraBox fontSize="13px" color="fg.muted" lineHeight="1.5" mt="1">
-                        <EastChakraComponent
-                            value={description}
-                            storageKey={`${storageKey ?? ""}.description`}
-                        />
+                        {description}
                     </ChakraBox>
                 ) : null}
             </ChakraBox>
             <ChakraHStack gap="2" flexShrink={0}>
-                {actions ? (
-                    <ChakraBox colorPalette="brand">
-                        <EastChakraComponent
-                            value={actions}
-                            storageKey={`${storageKey ?? ""}.actions`}
-                        />
-                    </ChakraBox>
+                {actions !== undefined ? (
+                    <ChakraBox colorPalette="brand">{actions}</ChakraBox>
                 ) : null}
                 {dismissible ? (
-                    <ChakraCloseButton size="sm" onClick={handleDismiss} />
+                    <ChakraCloseButton size="sm" onClick={onDismiss} />
                 ) : null}
             </ChakraHStack>
         </ChakraBox>
     );
-}, (prev, next) => bannerEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}

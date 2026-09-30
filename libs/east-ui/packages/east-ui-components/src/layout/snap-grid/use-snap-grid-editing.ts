@@ -33,7 +33,7 @@ import {
     heldSpan, landingOf, newRowKey, freshKey, placeTile, rowDrop, rowsOf,
     type SnapGridDrop, type SnapGridEdit, type SnapGridTile, type SnapGridWrite,
 } from "./model.js";
-import type { SnapGridCellValue, SnapGridValue } from "./index.js";
+import type { SnapGridEditorCell, SnapGridEditorValue } from "./index.js";
 
 /** One row as the session holds it — its identity. */
 export interface SnapGridEntryRef {
@@ -56,7 +56,7 @@ export interface SnapGridEditing {
     /** The session's version — moves with every change to it. */
     version: number;
     /** The cells the canvas draws — the drafts in place. */
-    cells: readonly SnapGridCellValue[];
+    cells: readonly SnapGridEditorCell[];
     /** The tiles, in the drafted rows' order. */
     tiles: readonly SnapGridTile[];
     /** Whether a card lands — the author gave `edit.create`. */
@@ -92,11 +92,11 @@ const idOfRef = (ref: SnapGridEntryRef): string => ref.id;
 /**
  * The SnapGrid's editing session, its drafted cells and its gestures.
  *
- * @param value - The SnapGrid's value, its `editing` declared
+ * @param value - The canvas's value, its `editing` declared
  * @param storageKey - The view's key
  * @returns The session, what the canvas draws, and the gestures
  */
-export function useSnapGridEditing(value: SnapGridValue, storageKey: string): SnapGridEditing {
+export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: string): SnapGridEditing {
     const editing = value.editing.type === "some" ? value.editing.value : undefined;
     if (editing === undefined) throw new Error("SnapGrid: the editing canvas needs its editing declaration");
     const fields = editing.fields;
@@ -138,10 +138,10 @@ export function useSnapGridEditing(value: SnapGridValue, storageKey: string): Sn
         // The session is mutable; its version records each change.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, version, rows]);
-    const cells = useMemo((): readonly SnapGridCellValue[] => {
+    const cells = useMemo((): readonly SnapGridEditorCell[] => {
         if (drafted === rows) return value.cells;
         try {
-            return editing.derive(codec.encodeRows(drafted)) as SnapGridCellValue[];
+            return editing.derive(codec.encodeRows(drafted));
         } catch (err) {
             console.error("[SnapGrid] the drafted tiles could not be drawn:", err);
             return value.cells;
@@ -272,8 +272,8 @@ export function useSnapGridEditing(value: SnapGridValue, storageKey: string): Sn
             }
             entry = { ...entry, [fields.row]: rowKey };
             // Its tile is its own cell's: the key and the name the author maps it to.
-            let cell: SnapGridCellValue | undefined;
-            try { cell = (editing.derive(codec.encodeRows([entry])) as SnapGridCellValue[])[0]; }
+            let cell: SnapGridEditorCell | undefined;
+            try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
             catch (err) {
                 console.error("[SnapGrid] a dropped card's tile could not be drawn:", err);
                 return false;

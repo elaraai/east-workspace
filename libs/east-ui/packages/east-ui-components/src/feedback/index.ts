@@ -14,8 +14,10 @@ export {
 // EmptyState
 export {
     EastChakraEmptyState,
+    EmptyStateView,
     type EmptyStateValue,
     type EastChakraEmptyStateProps,
+    type EmptyStateViewProps,
 } from "./empty-state/index.js";
 
 // Skeleton
@@ -35,7 +37,9 @@ export {
 // Banner
 export {
     EastChakraBanner,
+    BannerView,
     type BannerValue,
     type EastChakraBannerProps,
+    type BannerViewProps,
 } from "./banner/index.js";
 

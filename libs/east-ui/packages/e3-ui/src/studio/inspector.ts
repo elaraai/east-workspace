@@ -4,18 +4,12 @@
  */
 
 /**
- * `<Studio.Inspector>` (#996) — the selected placement's component, what it
- * reads, its description and its layout, in the builder's pane after the
- * canvas.
- *
- * The inspector is a screen of the builder, a headerless pane of its own: a
- * `<Dock>` on the canvas's end edge whose tab row holds "Inspector" and its
- * collapse control, over the `StudioInspector` renderer. It reads the
- * builder's shared State ({@link builderKeys}) — the open page, the canvas's
- * selection and the placements as the canvas draws them — and the pages
- * record's value, and writes no page: a layout edit is a request on the
- * shared selection, which the canvas takes as one gesture of the page's
- * editing session, undone, redone, discarded and applied with the rest.
+ * The builder's inspector (#996) — the selected placement's component, what
+ * it reads, its description and its layout, computed in East for the
+ * `StudioBuilder` renderer, which draws the inspector in its pane after the
+ * canvas. It writes no page: a layout edit is a request the canvas takes as
+ * one gesture of the page's editing session, undone, redone, discarded and
+ * applied with the rest.
  *
  * @packageDocumentation
  */
@@ -33,24 +27,11 @@ import {
     StructType,
     none,
     some,
-    type ExprType,
-    type SubtypeExprOrValue,
 } from "@elaraai/east";
-import {
-    Dock,
-    EastUI,
-    Reactive,
-    SnapGrid,
-    State,
-    UIComponentType,
-    optionsTag,
-    type JsxTag,
-    type OptionsProps,
-} from "@elaraai/east-ui/internal";
+import { SnapGrid } from "@elaraai/east-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { StudioComponentType } from "./component.js";
-import { StudioCellType, StudioKeyType, StudioPagesType } from "./pages.js";
-import { BuilderCellsType, builderKeys } from "./palette.js";
+import { StudioCellType } from "./pages.js";
 
 // ============================================================================
 // What the inspector shows
@@ -105,17 +86,17 @@ export const InspectorSelectionType = StructType({
 export type InspectorSelectionType = typeof InspectorSelectionType;
 
 /**
- * The `StudioInspector` renderer's payload.
+ * The inspector, as the `StudioBuilder` renderer draws it.
  *
  * @property selection - The selected placement; `none` when nothing is selected
- * @property onRequest - Asks the canvas for a layout change — written to the builder's shared selection
+ * @property onRequest - Asks the canvas for a layout change, which it takes as one gesture
  */
 export const StudioInspectorPayloadType = StructType({
     selection: OptionType(InspectorSelectionType),
     onRequest: FunctionType([SnapGrid.Types.Request], NullType),
 });
 
-/** Type representing the `StudioInspector` renderer's payload. */
+/** Type representing the inspector, as the builder draws it. */
 export type StudioInspectorPayloadType = typeof StudioInspectorPayloadType;
 
 /**
@@ -213,166 +194,3 @@ export const inspectorSelection = East.function(
         }), OptionType(InspectorSelectionType));
     },
 );
-
-// ============================================================================
-// The renderer's carrier
-// ============================================================================
-
-/**
- * Internal {@link EastUI.component} carrier. The React renderer registers
- * against this in `@elaraai/e3-ui-components` via `implementUIComponent`.
- */
-export const StudioInspectorComponent = EastUI.component("StudioInspector", StudioInspectorPayloadType, { optional: true });
-
-// ============================================================================
-// <Studio.Inspector>
-// ============================================================================
-
-/**
- * `<Studio.Inspector>` options.
- *
- * @property pages - The pages record's value — a bound record's `read()`
- * @property components - The components the surface lists
- * @property project - The project whose pages the builder opens
- * @property id - Names the builder whose open page, selection and drafted placements it shares, when a surface holds two
- */
-export interface StudioInspectorOptions {
-    /** The pages record's value — `Record.bind(pages, [pagesPatch]).read()`. */
-    pages: SubtypeExprOrValue<StudioPagesType>;
-    /** The components the surface lists. */
-    components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
-    /** The project whose pages the builder opens. */
-    project: SubtypeExprOrValue<StringType>;
-    /** Names the builder whose open page, selection and drafted placements it shares — needed only when one surface holds two builders. */
-    id?: string;
-}
-
-/**
- * The builder's inspector: the selected placement's component, what it
- * reads, its description and its layout.
- *
- * @remarks
- * - **The pane** is 300px, headerless: its tab row holds "Inspector" and its
- *   collapse control. Collapsed, it is a 44px rail — the sliders tile, in the
- *   brand while a placement is selected, its span badge ("8/12"), "Inspector"
- *   and the placement's name, or "Nothing selected".
- * - **The selection** names the placement — its title, else its component's
- *   name — and its component's key, with "logic changed since this page went
- *   live" when the component's code has changed since.
- * - **Data** lists the datasets its component's code reads; **Configuration**
- *   is its description, fixed by its developer.
- * - **Layout** sets its span, held to its row's room; its row, a full row's or
- *   one past the last making a new row; its height, auto or px; and its
- *   alignment. Each is a request on the builder's shared selection, which the
- *   canvas takes as one gesture of the page's session — the history item
- *   undoes and applies it with the rest.
- *
- * The open page, the selection and the placements as the canvas draws them
- * are State the builder's screens share by `id`; with no canvas drawing the
- * open page, the inspector reads its saved placements.
- *
- * @param options - The record's value, the listed components and the project ({@link StudioInspectorOptions})
- * @returns An East expression of type `UIComponentType`
- *
- * @example
- * ```tsx
- * import { East } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Record, Studio, ui } from "@elaraai/e3-ui";
- *
- * export const builder = ui("builder", [], East.function([], UIComponentType, _$ => (
- *     <Reactive>{$ => {
- *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
- *         const record     = $.let(Record.bind(pages, [pagesPatch]));
- *         return <Studio.Canvas pages={record} components={components} project="ops" panes={{
- *             start: <Studio.Palette pages={record.read()} components={components} project="ops" />,
- *             end:   <Studio.Inspector pages={record.read()} components={components} project="ops" />,
- *         }} />;
- *     }}</Reactive>
- * )));
- * ```
- */
-function createInspector(options: StudioInspectorOptions): ExprType<UIComponentType> {
-    const keys = builderKeys(options.id);
-    const pagesValue = East.value(options.pages, StudioPagesType);
-    const componentsValue = East.value(options.components, ArrayType(StudioComponentType));
-    const projectValue = East.value(options.project, StringType);
-    return Reactive.Root(East.function([], UIComponentType, ($) => {
-        const pages = $.let(pagesValue);
-        const project = $.let(projectValue);
-        const listed = $.let(componentsValue);
-
-        // The open page, as every screen of the builder binds it — the
-        // project's first to begin with — its selection, and its placements
-        // as the canvas draws them.
-        const first = $.let({ project, page: "" }, StudioKeyType);
-        $.for(pages, ($2, entry, key) => {
-            $2.if(key.project.equal(project).and(() => first.page.equal("")).and(() => entry.hasTag("page")), ($3) => {
-                $3.assign(first, key);
-            });
-        });
-        const open = $.let(State.bind([StudioKeyType], keys.page, first));
-        const openKey = $.let(open.read());
-        const selection = $.let(State.bind([SnapGrid.Types.UiState], keys.ui, SnapGrid.uiState()));
-        const drafted = $.let(State.bind([OptionType(BuilderCellsType)], keys.cells, none));
-
-        const entry = $.let(pages.tryGet(openKey));
-        const saved = $.let(entry.match({
-            some: (_$2, found) => found.match({
-                page: (_$3, page) => page.draft.cells,
-                template: (_$3, layout) => layout.cells,
-            }),
-            none: (_$2) => East.value([], ArrayType(StudioCellType)),
-        }), ArrayType(StudioCellType));
-        const cells = $.let(drafted.read().match({
-            some: (_$2, drawn) => East.equal(drawn.page, openKey).ifElse(() => drawn.cells, () => saved),
-            none: (_$2) => saved,
-        }), ArrayType(StudioCellType));
-        const live = $.let(entry.match({
-            some: (_$2, found) => found.match({
-                page: (_$3, page) => page.live.match({
-                    some: (_$4, version) => East.value(some(version.page.cells), OptionType(ArrayType(StudioCellType))),
-                    none: (_$4) => East.value(none, OptionType(ArrayType(StudioCellType))),
-                }),
-                template: (_$3) => East.value(none, OptionType(ArrayType(StudioCellType))),
-            }),
-            none: (_$2) => East.value(none, OptionType(ArrayType(StudioCellType))),
-        }), OptionType(ArrayType(StudioCellType)));
-        const shown = $.let(inspectorSelection(listed, cells, live, selection.read().selected));
-
-        // A layout edit is a request on the shared selection: the canvas takes
-        // it as one gesture of the page's session.
-        const onRequest = $.const(East.function([SnapGrid.Types.Request], NullType, ($2, request) => {
-            $2(selection.write(SnapGrid.uiState({ selected: request.key, request })));
-        }));
-
-        return Dock.Root([StudioInspectorComponent.Root({ selection: shown, onRequest })], {
-            icon: "sliders",
-            label: "Inspector",
-            badge: shown.match({
-                some: (_$2, placement) => East.str`${East.print(placement.layout.span)}/12`,
-                none: (_$2) => East.value(""),
-            }),
-            active: shown.hasTag("some"),
-            detail: shown.match({
-                some: (_$2, placement) => placement.name,
-                none: (_$2) => East.value("Nothing selected"),
-            }),
-            expandedSize: "300px",
-            railSize: "44px",
-            side: "end",
-            surface: "shell",
-        });
-    }));
-}
-
-// ============================================================================
-// Tag
-// ============================================================================
-
-/**
- * `<Studio.Inspector>` — the builder's inspector: the selected placement's
- * component, what it reads, its description and its layout. See
- * {@link createInspector}.
- */
-export const StudioInspector: JsxTag<OptionsProps<typeof createInspector>> = optionsTag(createInspector);

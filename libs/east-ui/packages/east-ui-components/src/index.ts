@@ -81,9 +81,18 @@ export {
     type SplitterValue,
     type EastChakraSplitterProps,
     EastChakraSnapGrid,
+    SnapGridTiles,
     type SnapGridValue,
     type SnapGridCellValue,
+    type SnapGridLayoutCell,
+    type SnapGridTilesProps,
+    type SnapGridEditorCell,
+    type SnapGridEditorEditing,
+    type SnapGridEditorValue,
     type EastChakraSnapGridProps,
+    // The Dock's pane as React — for a host renderer's own panes
+    DockPane,
+    type DockPaneProps,
     // The SnapGrid's editing canvas and its words (#990)
     SnapGridEditor,
     type SnapGridEditorProps,
@@ -353,8 +362,10 @@ export {
     type ProgressValue,
     type EastChakraProgressProps,
     EastChakraEmptyState,
+    EmptyStateView,
     type EmptyStateValue,
     type EastChakraEmptyStateProps,
+    type EmptyStateViewProps,
     EastChakraSkeleton,
     type SkeletonValue,
     type EastChakraSkeletonProps,
@@ -362,8 +373,10 @@ export {
     type StatusValue,
     type EastChakraStatusProps,
     EastChakraBanner,
+    BannerView,
     type BannerValue,
     type EastChakraBannerProps,
+    type BannerViewProps,
 } from "./feedback/index.js";
 
 // Container
@@ -495,6 +508,10 @@ export {
     EncodedEastFunction,
     type EncodedEastFunctionProps,
 } from "./platform/index.js";
+
+// A tracked evaluation — an East closure re-run when the State and Data keys it
+// read change; for sibling renderer packages that call East functions themselves.
+export { useTrackedEvaluation, type TrackedResult } from "./reactive/index.js";
 
 // Reactive tracker registry
 export {
