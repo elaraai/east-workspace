@@ -4,6 +4,7 @@
  */
 
 import {
+    type ExprType,
     type SubtypeExprOrValue,
     BooleanType,
     FloatType,
@@ -163,4 +164,21 @@ export interface BarStripItem {
     color?: SubtypeExprOrValue<StringType>;
     /** Optional trailing slot (chip / badge / etc.). */
     trailing?: unknown;
+}
+
+/**
+ * Options for the data form of `BarStrip.Root` — the static form's, and the
+ * mapper from one of the host's rows to a bar.
+ *
+ * @typeParam R - The struct type of each data row
+ * @property item - Maps one row to a bar: its label and value, and optionally its tone, colour and trailing slot
+ */
+export interface BarStripDataOptions<R extends StructType> extends BarStripOptions {
+    /**
+     * Maps one row to a bar — its `label` and `value`, and optionally its
+     * `tone`, `color` and `trailing`. Reified once into an East function over
+     * the row type, which every row is mapped through; `sort` and `maxItems`
+     * apply to the bars it makes.
+     */
+    item: (row: ExprType<R>) => BarStripItem;
 }

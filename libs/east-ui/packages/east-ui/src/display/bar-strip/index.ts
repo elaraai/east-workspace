@@ -6,6 +6,7 @@
 import {
     type ExprType,
     type SubtypeExprOrValue,
+    type TypeOf,
     ArrayType,
     BooleanType,
     East,
@@ -21,11 +22,13 @@ import {
 
 import { StatusTokenType, OrientationType, DensityType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { mapRows } from "../../shared/reify.js";
 import {
     BarStripStyleType,
     BarStripSortType,
     BarStripThicknessType,
     type BarStripOptions,
+    type BarStripDataOptions,
     type BarStripItem,
 } from "./types.js";
 
@@ -36,8 +39,16 @@ export {
     type BarStripSortLiteral,
     type BarStripThicknessLiteral,
     type BarStripOptions,
+    type BarStripDataOptions,
     type BarStripItem,
 } from "./types.js";
+
+/**
+ * The struct element type of a `SubtypeExprOrValue<ArrayType<StructType>>` —
+ * one row of the data form.
+ */
+export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+    TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
 
 // ============================================================================
 // BarStripItemType — per-row data
@@ -79,7 +90,7 @@ export type BarStripItemType = typeof BarStripItemType;
  *
  * @property items - Array of row data
  * @property showValues - Whether to render trailing value text
- * @property sort - Sort direction (applied at factory time for the IR)
+ * @property sort - Sort direction (applied by the renderer, to written and mapped bars alike)
  * @property maxItems - Optional row limit
  * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
@@ -161,14 +172,19 @@ function buildBarStripStyle(options: BarStripOptions | undefined): ExprType<BarS
  * Creates a BarStrip component value — a list of rows, each rendered as
  * `label + horizontal bar + (optional value / trailing slot)`.
  *
- * @param items - Array of row data (label + value + optional tone / color / trailing)
- * @param options - Optional config (`showValues`, `sort`, `maxItems`) + visual style
+ * @param items - Array of row data (label + value + optional tone / color / trailing) — or, in the data form, the host's rows
+ * @param options - Optional config (`showValues`, `sort`, `maxItems`) + visual style; in the data form, also `item`, which maps one row to a bar
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
  * Bars are sized proportional to the max value across visible rows
  * (after `sort` + `maxItems` clipping). Renderer uses pure Flex
  * composition — no chart framework.
+ *
+ * The data form takes an East array of the host's rows and an `item` mapper
+ * — rows computed from data, which a written array cannot hold. The mapper is
+ * reified once into an East function over the row type, and every row is
+ * mapped through it; `sort` and `maxItems` apply to the bars it makes.
  *
  * Retires `Chart.BarList` in Phase C of Plan 1.7.
  *
@@ -185,12 +201,47 @@ function buildBarStripStyle(options: BarStripOptions | undefined): ExprType<BarS
  *     ], { sort: "desc", showValues: true });
  * });
  * ```
+ *
+ * @example
+ * ```ts
+ * import { ArrayType, East, FloatType, StringType, StructType } from "@elaraai/east";
+ * import { BarStrip, Text, UIComponentType } from "@elaraai/east-ui";
+ *
+ * // Each region's revenue, summed from the sales rows: one bar a region.
+ * const example = East.function([], UIComponentType, $ => {
+ *     const sales = $.const([
+ *         { region: "North", revenue: 12.0 },
+ *         { region: "South", revenue: 8.0 },
+ *         { region: "North", revenue: 30.0 },
+ *     ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+ *     const byRegion = $.let(sales
+ *         .groupSum(($, r) => r.region, ($, r) => r.revenue)
+ *         .toArray(($, revenue, region) => ({ region, revenue })));
+ *     return BarStrip.Root(byRegion, {
+ *         item: r => ({ label: Text.Root(r.region), value: r.revenue, tone: "info" }),
+ *         sort: "desc",
+ *     });
+ * });
+ * ```
  */
+function createBarStrip(items: BarStripItem[], options?: BarStripOptions): ExprType<UIComponentType>;
+function createBarStrip<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
+    data: T,
+    options: BarStripDataOptions<RowElement<T>>,
+): ExprType<UIComponentType>;
 function createBarStrip(
-    items: BarStripItem[],
-    options?: BarStripOptions,
+    items: BarStripItem[] | SubtypeExprOrValue<ArrayType<StructType>>,
+    options?: BarStripOptions | BarStripDataOptions<never>,
 ): ExprType<UIComponentType> {
-    const itemValues = items.map(buildItem);
+    // The data form maps each row through one reified function; the written
+    // form builds its bars as it always has.
+    const mapper = options !== undefined && "item" in options
+        ? (options as unknown as BarStripDataOptions<StructType>).item
+        : undefined;
+    const mapped = mapper !== undefined
+        ? mapRows(East.value(items) as ExprType<ArrayType<StructType>>, BarStripItemType, (row) => buildItem(mapper(row)))
+        : undefined;
+    const itemValues = mapper === undefined ? (items as BarStripItem[]).map(buildItem) : [];
     const sortValue = options?.sort !== undefined
         ? (typeof options.sort === "string"
             ? East.value(variant(options.sort, null), BarStripSortType)
@@ -204,7 +255,7 @@ function createBarStrip(
     const styleValue = buildBarStripStyle(options);
 
     return East.value(variant("BarStrip", {
-        items: East.value(itemValues, ArrayType(BarStripItemType)),
+        items: mapped ?? East.value(itemValues, ArrayType(BarStripItemType)),
         showValues: options?.showValues !== undefined ? some(options.showValues) : none,
         sort: sortValue ? some(sortValue) : none,
         maxItems: options?.maxItems !== undefined ? some(options.maxItems) : none,
@@ -232,10 +283,11 @@ interface BarStripNamespace {
  */
 export const BarStrip: BarStripNamespace = {
     /**
-     * Creates a BarStrip component value.
+     * Creates a BarStrip component value — from written rows, or from the
+     * host's rows through an `item` mapper.
      *
-     * @param items - Array of row data
-     * @param options - Optional config + visual style
+     * @param items - Array of row data — or, in the data form, the host's rows
+     * @param options - Optional config + visual style; in the data form, also `item`, which maps one row to a bar
      * @returns An East expression of type `UIComponentType`
      *
      * @example

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
 import { BarStrip, Configurator, HStack, Reactive, SegmentGroup, Switch, Text } from "@elaraai/east-ui";
 
@@ -17,6 +17,32 @@ export const barStripBasic = example({
                 { label: <Text>Beta</Text>, value: 28.0, tone: "warning" },
                 { label: <Text>Gamma</Text>, value: 15.0, tone: "danger" },
             ]} />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A BarStrip over data — rows computed in East, which a written `items` array
+ * cannot hold: each region's revenue summed from the sales rows, one bar a
+ * region, the largest first.
+ */
+export const barStripFromData = example({
+    keywords: ["BarStrip", "data", "item", "rows", "mapper", "groupSum", "toArray", "breakdown", "sort", "desc"],
+    description: "A BarStrip over data — each region's revenue summed from the sales rows, one bar a region, the largest first",
+    fn: East.function([], UIComponentType, ($) => {
+        const sales = $.const([
+            { region: "North", revenue: 12.0 },
+            { region: "South", revenue: 8.0 },
+            { region: "North", revenue: 30.0 },
+            { region: "West", revenue: 27.0 },
+            { region: "South", revenue: 23.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const regions = $.let(sales
+            .groupSum(($2, r) => r.region, ($2, r) => r.revenue)
+            .toArray(($2, revenue, region) => ({ region, revenue })));
+        return (
+            <BarStrip data={regions} item={r => ({ label: <Text>{r.region}</Text>, value: r.revenue, tone: "info" })} sort="desc" />
         );
     }),
     inputs: [],

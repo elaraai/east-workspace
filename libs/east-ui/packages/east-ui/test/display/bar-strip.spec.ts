@@ -3,7 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { type ExprType } from "@elaraai/east";
+import { describe, test as nodeTest } from "node:test";
+import assert from "node:assert/strict";
+import { ArrayType, East, FloatType, StringType, StructType, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { BarStrip, Text } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
@@ -13,6 +15,27 @@ describeEast("BarStrip", (test) => {
     Assert.examples(test, {
         barStripBasic: ex.barStripBasic,
         barStripVariants: ex.barStripVariants,
+        barStripFromData: ex.barStripFromData,
+    });
+
+    test("BS1, BS2: the data form maps each row to a bar, in the rows' order; sort and maxItems ride with it as with written items", $ => {
+        const rows = $.const([
+            { region: "West", revenue: 27.0 },
+            { region: "North", revenue: 42.0 },
+            { region: "South", revenue: 31.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const s = $.let(BarStrip.Root(rows, {
+            item: r => ({ label: Text.Root(r.region), value: r.revenue, tone: "info" }),
+            sort: "desc",
+            maxItems: 2n,
+        }));
+        const strip = $.let(s.unwrap().unwrap("BarStrip"));
+        $(Assert.equal(strip.items.map((_$2, bar) => bar.value), [27.0, 42.0, 31.0]));
+        $(Assert.equal(strip.items.get(1n).label.unwrap().unwrap("Text").value, "North"));
+        $(Assert.equal(strip.items.get(0n).tone.unwrap("some").hasTag("info"), true));
+        $(Assert.equal(strip.items.get(0n).color.hasTag("none"), true));
+        $(Assert.equal(strip.sort.unwrap("some").hasTag("desc"), true));
+        $(Assert.equal(strip.maxItems.unwrap("some"), 2n));
     });
 
     test("barStripVariants is the live configurator", $ => {
@@ -67,3 +90,26 @@ describeEast("BarStrip", (test) => {
         $(Assert.equal(style.valueColor.unwrap("some"), "fg.inverse"));
     });
 }, { platformFns: TestImpl });
+
+describe("BarStrip — the data form's mapper (#1001)", () => {
+    nodeTest("BS4: the mapper is reified once — expanded once, however many rows there are, and every row mapped through it", () => {
+        let expansions = 0;
+        const program = East.compile(East.function([], UIComponentType, ($) => {
+            const rows = $.const([
+                { region: "North", revenue: 42.0 },
+                { region: "South", revenue: 31.0 },
+                { region: "West", revenue: 27.0 },
+            ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+            return BarStrip.Root(rows, {
+                item: r => {
+                    expansions += 1;
+                    return { label: Text.Root(r.region), value: r.revenue };
+                },
+            });
+        }), []);
+        assert.equal(expansions, 1);
+        const value = program() as ValueTypeOf<typeof UIComponentType>;
+        if (value.type !== "BarStrip") assert.fail(`expected a BarStrip, got ${value.type}`);
+        assert.deepEqual(value.value.items.map((bar) => bar.value), [42.0, 31.0, 27.0]);
+    });
+});

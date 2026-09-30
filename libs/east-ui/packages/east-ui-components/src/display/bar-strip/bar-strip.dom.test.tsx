@@ -14,7 +14,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, FloatType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
 import { BarStrip, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { EastChakraComponent } from "../../component.js";
@@ -50,5 +50,45 @@ describe("BarStrip — sorted in East's order", () => {
     test("descending puts the NaN row first", () => {
         const { container } = render(<ChakraProvider value={system}><EastChakraComponent value={strip("desc")} storageKey="bar-desc" /></ChakraProvider>);
         expect(labels(container)).toEqual(["Unknown", "Two", "One"]);
+    });
+});
+
+describe("BarStrip over data (#1001)", () => {
+    /** The rows' labels, top to bottom. */
+    function names(root: Element): string[] {
+        const words = new Set(["One", "Two", "Three"]);
+        const out: string[] = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+            const s = (n.textContent ?? "").trim();
+            if (words.has(s)) out.push(s);
+        }
+        return out;
+    }
+
+    test("BS1: one bar a row, in the rows' order", () => {
+        const value = East.compile(East.function([], UIComponentType, ($) => {
+            const rows = $.const([
+                { name: "Two", amount: 2.0 },
+                { name: "One", amount: 1.0 },
+                { name: "Three", amount: 3.0 },
+            ], ArrayType(StructType({ name: StringType, amount: FloatType })));
+            return BarStrip.Root(rows, { item: r => ({ label: Text.Root(r.name), value: r.amount }) });
+        }), [])() as ValueTypeOf<typeof UIComponentType>;
+        const { container } = render(<ChakraProvider value={system}><EastChakraComponent value={value} storageKey="bar-data" /></ChakraProvider>);
+        expect(names(container)).toEqual(["Two", "One", "Three"]);
+    });
+
+    test("BS2: sort and maxItems apply to the mapped bars, as to written ones", () => {
+        const value = East.compile(East.function([], UIComponentType, ($) => {
+            const rows = $.const([
+                { name: "Two", amount: 2.0 },
+                { name: "One", amount: 1.0 },
+                { name: "Three", amount: 3.0 },
+            ], ArrayType(StructType({ name: StringType, amount: FloatType })));
+            return BarStrip.Root(rows, { item: r => ({ label: Text.Root(r.name), value: r.amount }), sort: "desc", maxItems: 2n });
+        }), [])() as ValueTypeOf<typeof UIComponentType>;
+        const { container } = render(<ChakraProvider value={system}><EastChakraComponent value={value} storageKey="bar-data-top" /></ChakraProvider>);
+        expect(names(container)).toEqual(["Three", "Two"]);
     });
 });

@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1243,
+    "totalEntries": 1244,
     "totalFiles": 206,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 388,
+      "east-ui": 389,
       "e3-ui": 57,
       "e3": 15,
       "e3-ui-cli": 8,
@@ -35996,7 +35996,7 @@
         "items"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { BarStrip, Configurator, HStack, Reactive, SegmentGroup, Switch, Text } from \"@elaraai/east-ui\";"
       ],
@@ -36004,6 +36004,35 @@
         "tsx"
       ],
       "source": "// Basic BarStrip with three rows and tones\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        return (\n            <BarStrip items={[\n                { label: <Text>Alpha</Text>, value: 42.0, tone: \"success\" },\n                { label: <Text>Beta</Text>, value: 28.0, tone: \"warning\" },\n                { label: <Text>Gamma</Text>, value: 15.0, tone: \"danger\" },\n            ]} />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:bar-strip.examples.tsx:barStripFromData",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/display/bar-strip.examples.tsx",
+      "suite": "",
+      "test": "A BarStrip over data — each region's revenue summed from the sales rows, one bar a region, the largest first",
+      "keywords": [
+        "BarStrip",
+        "data",
+        "item",
+        "rows",
+        "mapper",
+        "groupSum",
+        "toArray",
+        "breakdown",
+        "sort",
+        "desc"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { BarStrip, Configurator, HStack, Reactive, SegmentGroup, Switch, Text } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A BarStrip over data — each region's revenue summed from the sales rows, one bar a region, the largest first\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const sales = $.const([\n            { region: \"North\", revenue: 12.0 },\n            { region: \"South\", revenue: 8.0 },\n            { region: \"North\", revenue: 30.0 },\n            { region: \"West\", revenue: 27.0 },\n            { region: \"South\", revenue: 23.0 },\n        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));\n        const regions = $.let(sales\n            .groupSum(($2, r) => r.region, ($2, r) => r.revenue)\n            .toArray(($2, revenue, region) => ({ region, revenue })));\n        return (\n            <BarStrip data={regions} item={r => ({ label: <Text>{r.region}</Text>, value: r.revenue, tone: \"info\" })} sort=\"desc\" />\n        );\n    })"
     },
     {
       "id": "east-ui:bar-strip.examples.tsx:barStripVariants",
@@ -36034,7 +36063,7 @@
         "configurator"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, East, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { BarStrip, Configurator, HStack, Reactive, SegmentGroup, Switch, Text } from \"@elaraai/east-ui\";"
       ],
