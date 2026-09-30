@@ -40,8 +40,8 @@ export const queriesPatch = e3.mutation.patch(queries);
 
 - `query` — the checked query (`QueryType`, #919): the program as written and what the checker made of it.
   A query saves only once it checks.
-- `root` — the `{ name, path }` of each data source it reads, in root order (e3-types' `QueryRootEntryType`,
-  #928). A saved query opens only where each entry is bound, by name and by path.
+- `root` — the `{ name, path }` of each data source it reads, in root order
+  (`Query.Types.RootEntry`, #935). A saved query opens only where each entry is bound, by name and by path.
 - `description` — `Option<String>`: one sentence, at most 140 characters. With none, what shows is the
   sentence generated from its steps (§4.13).
 - `saved_at` — when it was last saved.
@@ -108,7 +108,7 @@ The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library
 9. **Studio's parts over the mock's chrome.** The pane is a `DockPane` with tabs, the lists are `Library`s,
    the popovers `NamePopover`s, the notices `BannerView`s, the toolbar the shared `Toolbar`, as Studio's are.
    §9 lists each place the mock differs, and what is lost.
-10. **Checking is free, running costs** (the brief). Every edit is checked on the client at once. Data is read
+10. **Checking is free, running costs** (the brief). Every edit is checked in the browser at once. Data is read
     only on Run (⌘⏎), when a saved query is opened, and for a value slot's summary (§4.5). The query library
     reads no data at all: its cards are wireframes of each query.
 11. **One program, two views; plain words first** (the brief). Visual steps are a projection of the jq:
@@ -141,7 +141,9 @@ on this surface — and if not, why not.
 
 Each decodes its payload and builds the component in the browser (`src/query/`, beside `src/studio/`). What
 each part shows is e3-ui's East, compiled once on first use (`queryEast()`, as `studioEast()`), or #875's
-client: the checker, the translator, completions and summaries (#921, #922), and the query client (#928), whose one-shot request the builder runs with e3-api-client's `oneShotExecute`.
+functions, which run in the browser too: the checker, the translator, completions and summaries (#921,
+#922), and the builder's one-shot call (#935: `prepareQuery` and `queryResultOf`), which it sends with
+e3-api-client's `oneShotExecute`.
 
 - **The builder** is Studio's builder with the query where the canvas is:
   - its one **toolbar**, the shared `Toolbar` (§4.1);
@@ -167,7 +169,7 @@ client: the checker, the translator, completions and summaries (#921, #922), and
 |---|---|---|
 | Canonical steps: steps ↔ canonical jq, their shapes, diagnostics mapped to steps | east core, `libs/east/src/query/` (+ python twin) | #933 |
 | Plain words, step cards, slots, autocomplete, summaries | e3-ui-components `src/query/` | #934 |
-| `Query.Builder`, `Query.Types`, the saved queries, the renderer shell and the editing session; `DockPane`'s open tab driven by its host | e3-ui `src/query/`, e3-ui-components `src/query/`, east-ui-components `layout/dock/` | #935 |
+| `Query.Builder`, `Query.Types`, the saved queries, the renderer shell, a query's one-shot call and the editing session; `DockPane`'s open tab driven by its host | e3-ui `src/query/`, e3-ui-components `src/query/`, east-ui-components `layout/dock/` | #935 |
 | The toolbar, the Query tab, the status line and saving | e3-ui-components | #936 |
 | The jq view | e3-ui-components | #937 |
 | Runs and results | e3-ui-components | #938 |
@@ -307,9 +309,9 @@ A step that doesn't fit is listed disabled with its reason: "Needs a tree of par
 "Nothing to use it on here", "Needs rows — the query gives {shape} here".
 
 **Summaries.** A value slot's offers and a field's summary come from the summary of the rows at that step:
-#875's `summarize` (#922), run as a one-shot call over the program up to the step, with small limits, when a
-popover that needs it opens, and cached by the program and its inputs' hashes. It is the one read that is
-not a Run, and it is never shown as a result.
+#875's summary program (#922) over the program up to the step, run as a one-shot call (#935) with small
+limits when a popover that needs it opens, and cached by the program and its inputs' hashes. It is the one
+read that is not a Run, and it is never shown as a result.
 
 **What picking does.** A field keeps a matching comparison and value and opens the value (or the inner
 field); a comparison keeps the value unless its kind changes; a total renames itself while its name is its
@@ -462,11 +464,11 @@ Beside the pane, the result of the last run:
 - **Download ▾**, a menu: CSV (East CSV, one row per output) and BEAST2 (the result as the run returned it),
   named after the query ("top-shipped-orders-2026.csv").
 
-**A run** (Run or ⌘⏎) checks and translates the query on the client and runs it on e3 as a one-shot call
-over its root (#928's `prepareQuery`, run with e3-api-client's `oneShotExecute`), with the call's limits; a new run abandons the one before. Opening a
-saved query runs it; starting a new one does not; editing never does. After a fresh run each shape line
-counts its rows: in the visual view the run's program counts its own stages (`length as $nK` after each
-stage whose shape is rows), so one run gives every line (#938).
+**A run** (Run or ⌘⏎) checks and translates the query in the browser and runs it on e3 as a one-shot call
+over its root (#935's `prepareQuery`, sent with e3-api-client's `oneShotExecute`), with the call's limits; a
+new run abandons the one before. Opening a saved query runs it; starting a new one does not; editing never
+does. After a fresh run each shape line counts its rows: in the visual view the run's program counts its
+own stages (`length as $nK` after each stage whose shape is rows), so one run gives every line (#938).
 
 ### 4.12 The status line
 
@@ -591,6 +593,7 @@ carrier over a record in memory; the responsive specs
 | P1–P5 | Plain words for every shape, kind and problem; the slots' offers and defaults; picking and chaining; the generated description and outlines; summaries cached by program and inputs | #934 |
 | M1–M4 | Each surface's manifest is the record, its patch and each bound source; only bound sources can be queried; a builder with none is refused; `Query.Types` never depends on the sources | #935 |
 | E1–E7 | One gesture, one transaction; Undo, Redo and Discard; Apply is one patch of one entry; readiness from the checker; a stale save is a conflict; a new query is named on its first Apply; opening keeps another query's drafts | #935, #936 |
+| C1–C3 | A query's one-shot call is platform-free, with one dataset argument per dataset read, from one check against the whole root; every outcome mapped, truncation exact; the root's name errors | #935 |
 | K1 | `DockPane`'s open tab follows its host's `tab`, reports through `onTabChange`, and is unchanged without them | #935 |
 | B1–B8 | The one toolbar and its fold; the pane, its tabs and its rail; the Query tab's parts; the status line; the save popover and its description | #936 |
 | U1–U2 | Chaining, keys, fixes and the history; Visual · jq and saving | #936 |
