@@ -26,7 +26,7 @@ describeEast("Studio examples (#991–#998)", (test) => {
         studioSiteRecord: surfaces.studioSiteRecord,
         studioPalette: palette.studioPalette,
         studioCanvas: canvas.studioCanvas,
-        studioPageLibrary: library.studioPageLibrary,
+        studioLibrary: library.studioLibrary,
         studioPublishPreview: publish.studioPublishPreview,
         studioPublishLogicChanged: publish.studioPublishLogicChanged,
     });

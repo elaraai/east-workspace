@@ -4,7 +4,7 @@
  */
 
 /**
- * `EastChakraStudioPageLibrary` — the renderer of the `StudioPageLibrary`
+ * `EastChakraStudioLibrary` — the renderer of the `StudioLibrary`
  * extension declared in `@elaraai/e3-ui` (#997): the page library's frame.
  *
  * - **One toolbar row**, the shared `Toolbar`: the search over both rows,
@@ -22,7 +22,7 @@
  * Everything it changes is the page library's East State, through the
  * payload's callbacks, and a new page is the payload's one commit.
  *
- * Its layout is the `studioPageLibrary` recipe's; its controls are the
+ * Its layout is the `studioLibrary` recipe's; its controls are the
  * theme's shared ones — the Library's search box, the `button` recipe, the
  * `seg` strip, the `status` dots, the edit popover and the `select`.
  *
@@ -40,7 +40,7 @@ import {
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { StudioPageLibraryComponent } from "@elaraai/e3-ui/internal";
+import { StudioLibraryComponent } from "@elaraai/e3-ui/internal";
 import {
     EastChakraComponent, LibraryLayoutSwitch, Toolbar, implementUIComponent, useFormatters, type ToolbarItem,
 } from "@elaraai/east-ui-components";
@@ -51,9 +51,9 @@ import { NamePopover } from "./name-popover.js";
 type Styles = Record<string, SystemStyleObject>;
 
 /** The renderer's payload, decoded. */
-type StudioPageLibraryValue = ValueTypeOf<typeof StudioPageLibraryComponent.schema>;
+type StudioLibraryValue = ValueTypeOf<typeof StudioLibraryComponent.schema>;
 /** How the rows are ordered. */
-type Sort = StudioPageLibraryValue["sort"]["type"];
+type Sort = StudioLibraryValue["sort"]["type"];
 
 /** The toolbar's fold ranks: the primary action drops its project, Sort
  *  folds to its icon, the primary action to its plus, and last the search
@@ -69,10 +69,10 @@ const SORTS: ReadonlyArray<{ key: Sort; icon: IconDefinition; name: (m: StudioMe
 /** The template picker's value for Blank grid — no template's name can be it. */
 const BLANK = "\u0000blank";
 
-/** Props of {@link EastChakraStudioPageLibrary}. */
-export interface EastChakraStudioPageLibraryProps {
+/** Props of {@link EastChakraStudioLibrary}. */
+export interface EastChakraStudioLibraryProps {
     /** The payload, decoded. */
-    value: StudioPageLibraryValue;
+    value: StudioLibraryValue;
     /** The structural storage key. */
     storageKey: string;
 }
@@ -132,8 +132,8 @@ function SortMenu({ sort, onPick, compact, trigger, caret, check }: {
  * @param props - The payload and its storage key
  * @returns The page library
  */
-export const EastChakraStudioPageLibrary = memo(function EastChakraStudioPageLibrary({ value, storageKey }: EastChakraStudioPageLibraryProps) {
-    const styles = useSlotRecipe({ key: "studioPageLibrary" })() as Styles;
+export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ value, storageKey }: EastChakraStudioLibraryProps) {
+    const styles = useSlotRecipe({ key: "studioLibrary" })() as Styles;
     const library = useSlotRecipe({ key: "library" })() as Styles;
     const edit = useSlotRecipe({ key: "sliceEdit" })() as Styles;
     const status = useSlotRecipe({ key: "status" });
@@ -364,4 +364,4 @@ export const EastChakraStudioPageLibrary = memo(function EastChakraStudioPageLib
     );
 });
 
-implementUIComponent(StudioPageLibraryComponent, EastChakraStudioPageLibrary);
+implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary);

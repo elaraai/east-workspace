@@ -34,8 +34,8 @@ const CAPTION = {
     color: "fg.subtle",
 } as const;
 
-export const studioPageLibrarySlotRecipe = defineSlotRecipe({
-    className: "elara-studio-page-library",
+export const studioLibrarySlotRecipe = defineSlotRecipe({
+    className: "elara-studio-library",
     slots: [
         "root", "toolbar", "divider", "caret", "buttonIcon", "body",
         "pane", "paneSection", "paneCaption", "paneHead", "paneCount", "paneRow", "paneIcon", "paneTitle", "paneRule", "legend",

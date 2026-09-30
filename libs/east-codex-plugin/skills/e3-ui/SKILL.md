@@ -5,7 +5,7 @@ description: "e3 + UI bridge — build interactive, reactive decision surfaces a
 
 ## Detailed skill scope
 
-e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft; <Studio.Page> draws one page's live or draft layout on the SnapGrid with no chrome, and <Studio.Site> is a project's published app, its rail the project's live pages; the builder's screens share the open page, the canvas's selection, its design width and zoom, the placements it draws and the Apply the preview asks of it by an id; <Studio.Palette> is its palette — the listed components by category, each naming what it reads, and the project's pages — <Studio.Canvas> its canvas — the open page's grid under the builder's toolbar (the page's status, the history, the design widths, Save as template, Preview and Publish) with the palette and the inspector as panes beside it, every gesture a draft and Apply one patch on the page — and <Studio.Inspector> its inspector — the selected placement's name, what its code reads, its description, and its span, row, height and alignment, each edit a gesture of the canvas's session; <Studio.PageLibrary> is a project's templates and pages and where new pages start — Blank grid and the project's templates, each a wireframe of its layout, the pages with their status and Open in builder, and a new page from a template, one commit; <Studio.Publish> is the publish preview — the open page as it will publish at Desktop, Tablet or Mobile width, the changes since its live version, a banner saying whether its components' code changed since, the audience and rollout, and Save as draft and Publish, which applies the canvas's drafts first and then commits the publish, each placement stamped with the code it goes live with.
+e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) Studio components — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; a surface lists its components and Studio.dispatch renders a placement by key; the pages operators build are one record of Studio.Types.Pages with one patch write — Studio.save / publish / revert / newPage / saveTemplate compute each write, Studio.changes lists a page's changes, Studio.usage counts where a component is used, Studio.status says live or draft; <Studio.Page> draws one page's live or draft layout on the SnapGrid with no chrome, and <Studio.Site> is a project's published app, its rail the project's live pages; the builder's screens share the open page, the canvas's selection, its design width and zoom, the placements it draws and the Apply the preview asks of it by an id; <Studio.Palette> is its palette — the listed components by category, each naming what it reads, and the project's pages — <Studio.Canvas> its canvas — the open page's grid under the builder's toolbar (the page's status, the history, the design widths, Save as template, Preview and Publish) with the palette and the inspector as panes beside it, every gesture a draft and Apply one patch on the page — and <Studio.Inspector> its inspector — the selected placement's name, what its code reads, its description, and its span, row, height and alignment, each edit a gesture of the canvas's session; <Studio.Library> is a project's templates and pages and where new pages start — Blank grid and the project's templates, each a wireframe of its layout, the pages with their status and Open in builder, and a new page from a template, one commit; <Studio.Publish> is the publish preview — the open page as it will publish at Desktop, Tablet or Mobile width, the changes since its live version, a banner saying whether its components' code changed since, the audience and rollout, and Save as draft and Publish, which applies the canvas's drafts first and then commits the publish, each placement stamped with the code it goes live with.
 
 # e3-ui — e3 + UI Bridge
 
@@ -123,7 +123,7 @@ Task → What do you need?
     │   ├─ The builder's palette: components, then pages  → <Studio.Palette pages components project id? />
     │   ├─ The builder's canvas: the open page's grid     → <Studio.Canvas pages components project panes? onPreview? onPublish? id? />
     │   ├─ The builder's inspector: the selection         → <Studio.Inspector pages components project id? />
-    │   ├─ Templates, pages, and where new pages start    → <Studio.PageLibrary pages components project onOpen? id? />
+    │   ├─ Templates, pages, and where new pages start    → <Studio.Library pages components project onOpen? id? />
     │   └─ The publish preview: what changed, and publish → <Studio.Publish pages components project env? audience? rollout? onExit? id? />
     │
     ├─ Run the Decide loop over reasoning-task decisions
@@ -683,17 +683,17 @@ canvas draws it, drafts included, and writes no page:
 | `project` | **required** — the project whose pages the builder opens |
 | `id` | names the builder whose open page, selection and drafted placements it shares — needed only when one surface holds two builders |
 
-### The page library — `<Studio.PageLibrary>`
+### The page library — `<Studio.Library>`
 
-A project's templates and pages, and where new pages start: a screen of the
-builder, headerless with one toolbar. A new page is one commit, so it takes the
-record bound with its patch:
+A project's templates and pages, and where new pages start: a component of its
+own, apart from the builder, headerless with one toolbar. A new page is one
+commit, so it takes the record bound with its patch:
 
 ```tsx
 <Reactive>{$ => {
     const components = $.let([kpiRail, revenueTrend, breakdownBars]);
     const record     = $.let(Record.bind(pages, [pagesPatch]));
-    return <Studio.PageLibrary pages={record} components={components} project="Ops console" />;
+    return <Studio.Library pages={record} components={components} project="Ops console" />;
 }}</Reactive>
 ```
 
@@ -855,7 +855,7 @@ Tested examples live in `test/*.examples.tsx`:
   category, each naming the datasets it reads, and the project's pages.
 - `studio/canvas.examples.tsx` — `<Studio.Canvas>`: a draft page on the
   builder's canvas, with the palette and the inspector as its panes.
-- `studio/library.examples.tsx` — `<Studio.PageLibrary>`: a project's
+- `studio/library.examples.tsx` — `<Studio.Library>`: a project's
   templates and pages over the record, with its projects beside them.
 - `studio/publish.examples.tsx` — `<Studio.Publish>`: a page ready to publish,
   its changes since its live version and the logic banner; and a page whose
