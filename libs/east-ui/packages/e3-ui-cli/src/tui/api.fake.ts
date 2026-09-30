@@ -455,7 +455,7 @@ export class FakeApi implements Api {
                 name: t.name,
                 hash: sha256(new TextEncoder().encode(t.name)),
                 body: variant('east', { program: '' }),
-                runner: variant('east_node', { platforms: [] }),
+                runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
                 inputs: t.inputs.map(p => ({ path: toPath(p), partition: none })),
                 output: { path: toPath(this.outputPathOf(t)), kind: variant('value', null) },
                 role: t.manifest !== undefined ? variant('ui', t.manifest) : variant('data', null),

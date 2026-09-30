@@ -42,10 +42,10 @@ import { inputBytes } from './loader.js';
 
 const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
 
-/** What a corpus case's `case.beast2` holds. */
+/** What a corpus case's `case.beast2` holds. How its inputs are read is the
+ *  unit's own `decode`. */
 interface RunnerCase {
     name: string;
-    lazy: boolean;
     outcome: UnitOutcome;
     outputs: { path: string; bytes: Uint8Array }[];
     absent: string[];
@@ -89,10 +89,7 @@ describe('exec: the runner protocol corpus', () => {
             // A copy per case: a unit writes beside itself.
             const dir = join(scratch, name);
             cpSync(join(corpus, name), dir, { recursive: true });
-            const run = spawnSync(process.execPath, [bin, 'exec', join(dir, 'unit.beast2')], {
-                env: { ...process.env, ...(expected.lazy && { EAST_LAZY_INPUT_BYTES: '1' }) },
-                encoding: 'utf8',
-            });
+            const run = spawnSync(process.execPath, [bin, 'exec', join(dir, 'unit.beast2')], { encoding: 'utf8' });
             const ok = expected.outcome.type === 'ok';
             assert.equal(run.status, ok ? 0 : 1, `${name}: exit ${run.status}\n${run.stderr.slice(-2_000)}`);
             const result = decodeBeast2For(UnitResultType)(readFileSync(join(dir, 'result.beast2')));
@@ -122,7 +119,7 @@ describe('exec -v: the account of each input', () => {
         rmSync(dir, { recursive: true, force: true });
     });
 
-    it('says what each input weighs, that it opened lazily, and what reading it came to', () => {
+    it('says what each input weighs, how it opened as the unit says, and what reading it came to', () => {
         const DT = DictType(IntegerType, StringType);
         // The input as e3 stages it: a manifest directory, whose own file is
         // a few dozen bytes per segment.
@@ -136,22 +133,28 @@ describe('exec -v: the account of each input', () => {
         for (let i = 0; i < 20_000; i++) writer.add([BigInt(i), `row-${i}`]);
         writer.finish();
         writeFileSync(join(dir, 'program.beast2'), encodeEastIR(East.function([DT], BooleanType, ($, table) => table.has(42n)).toIR()));
-        writeFileSync(join(dir, 'unit.beast2'), encodeBeast2For(UnitType)({
-            work: variant('run', { program: 'program.beast2', inputs: ['table.beast2'], output: variant('value', 'out.beast2') }),
-            platforms: [],
-            threads: 1n,
-            fetch: false,
-            result: 'result.beast2',
-        }));
+        const writeUnit = (decode: 'lazy' | 'whole'): void => {
+            rmSync(join(dir, 'out.beast2'), { force: true });
+            writeFileSync(join(dir, 'unit.beast2'), encodeBeast2For(UnitType)({
+                work: variant('run', {
+                    program: 'program.beast2',
+                    inputs: ['table.beast2'],
+                    output: variant('value', 'out.beast2'),
+                    decode: decode === 'lazy' ? variant('lazy', null) : variant('whole', null),
+                }),
+                platforms: [],
+                threads: 1n,
+                fetch: false,
+                result: 'result.beast2',
+            }));
+        };
 
         const exec = (...flags: string[]): string => {
-            const run = spawnSync(process.execPath, [bin, 'exec', join(dir, 'unit.beast2'), ...flags], {
-                env: { ...process.env, EAST_LAZY_INPUT_BYTES: '1' },
-                encoding: 'utf8',
-            });
+            const run = spawnSync(process.execPath, [bin, 'exec', join(dir, 'unit.beast2'), ...flags], { encoding: 'utf8' });
             assert.equal(run.status, 0, run.stderr);
             return run.stderr;
         };
+        writeUnit('lazy');
         const verbose = exec('-v');
         const formatSize = (bytes: number): string => bytes < 1024 ? `${bytes} B`
             : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -159,8 +162,17 @@ describe('exec -v: the account of each input', () => {
         assert.ok(verbose.includes(`  input 0: ${input}  (${formatSize(inputBytes(input))})`),
             `the input is weighed by the collection, not its manifest:\n${verbose}`);
         assert.ok(verbose.includes('input 0: opened lazily'), `the input opened lazily:\n${verbose}`);
-        assert.ok(/input 0: [\d.]+ (B|KB|MB) read of /.test(verbose), `what reading it came to:\n${verbose}`);
+        // One keyed read: its segment decoded, and every fence the manifest
+        // carries probed once.
+        assert.ok(/input 0: 1 of (\d+) segments decoded, \1 fences probed — [\d.]+ (B|KB|MB) read of /.test(verbose), `what reading it came to:\n${verbose}`);
         assert.ok(!exec().includes('input 0:'), 'without -v the inputs are not reported');
+
+        // A unit whose `decode` is whole decodes the input before the program
+        // runs, and says what it holds in memory.
+        writeUnit('whole');
+        const whole = exec('-v');
+        assert.ok(!whole.includes('opened lazily'), `a whole unit opened its input lazily:\n${whole}`);
+        assert.match(whole, /input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident/);
     });
 });
 
@@ -187,7 +199,7 @@ describe('exec: a unit given no platform', () => {
         writeFileSync(join(dir, 'program.beast2'), encodeEastIR(program.toIR()));
         writeFileSync(join(dir, 'x.beast2'), encodeBeast2For(IntegerType)(7n));
         writeFileSync(join(dir, 'unit.beast2'), encodeBeast2For(UnitType)({
-            work: variant('run', { program: 'program.beast2', inputs: ['x.beast2'], output: variant('value', 'out.beast2') }),
+            work: variant('run', { program: 'program.beast2', inputs: ['x.beast2'], output: variant('value', 'out.beast2'), decode: variant('lazy', null) }),
             platforms: [],
             threads: 1n,
             fetch: false,

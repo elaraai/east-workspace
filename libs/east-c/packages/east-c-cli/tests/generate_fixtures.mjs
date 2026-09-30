@@ -101,9 +101,33 @@ const fixtures = {
     East.function([IntStringDict], BooleanType, (_$, d) => d.has(5n)).toIR(),
   ),
 
+  // ---- What a lazy read came to (#1033) ---------------------------------
+
+  // An operation the pager cannot serve — `toArray` — which decodes a lazily
+  // opened input whole, once: the verbose account says what that came to.
+  'paged_hydrate.beast2': encodeEastIR(
+    East.function([IntStringDict], IntegerType, (_$, d) => d.toArray(($, value, _key) => value).size()).toIR(),
+  ),
+
+  // 200 keyed reads alternating between keys 0 and 159000, the first and the
+  // last segment of the wide table the tests write: over a pager that keeps
+  // one segment, each read decodes its segment again, which the verbose
+  // account says.
+  'paged_scatter.beast2': encodeEastIR(
+    East.function([IntStringDict], IntegerType, ($, d) => {
+      const hits = $.let(0n);
+      $.for(East.Array.range(0n, 200n), ($, i) => {
+        $.if(d.has(i.remainder(2n).multiply(159_000n)), ($) => {
+          $.assign(hits, hits.add(1n));
+        });
+      });
+      return hits;
+    }).toIR(),
+  ),
+
   // The collapsed shape gate: a nested-container element type opens lazily
-  // AND frozen under the threshold, so the write through a read-out element
-  // must raise the uniform copy-first error instead of landing.
+  // AND frozen, so the write through a read-out element must raise the
+  // uniform copy-first error instead of landing.
   'paged_nested_mutate.beast2': encodeEastIR(
     East.function(
       [DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }))],
@@ -142,7 +166,12 @@ const fixtures = {
   // The sink creates the output directory before the program runs, so the
   // directory's appearance is the sign the runner is up.
   'lifeline_unit.beast2': encodeBeast2For(UnitType)({
-    work: variant('run', { program: 'emit_spin.beast2', inputs: [], output: variant('set', 'lifeline_output') }),
+    work: variant('run', {
+      program: 'emit_spin.beast2',
+      inputs: [],
+      output: variant('set', 'lifeline_output'),
+      decode: variant('lazy', null),
+    }),
     platforms: [],
     threads: 1n,
     fetch: false,
@@ -159,6 +188,7 @@ const fixtures = {
       program: 'paged_has.beast2',
       inputs: ['paged_has_table.beast2'],
       output: variant('value', 'paged_has_output.beast2'),
+      decode: variant('lazy', null),
     }),
     platforms: [],
     threads: 1n,
@@ -188,6 +218,7 @@ const fixtures = {
       program: 'platform_call.beast2',
       inputs: [],
       output: variant('value', 'platform_call_output.beast2'),
+      decode: variant('lazy', null),
     }),
     platforms: [],
     threads: 1n,

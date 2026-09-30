@@ -52,14 +52,22 @@ static EastType *unit_output_type(void)
     return east_variant_type(names, types, 5);
 }
 
+/* How a run unit's collection inputs are read. */
+static EastType *unit_decode_type(void)
+{
+    const char *names[2] = {"lazy", "whole"};
+    EastType *types[2] = {&east_null_type, &east_null_type};
+    return east_variant_type(names, types, 2);
+}
+
 EastType *east_unit_type(void)
 {
     EastType *strings = east_array_type(&east_string_type);
     EastType *output = unit_output_type();
     const char *merge_names[3] = {"parts", "range", "output"};
     EastType *merge_types[3] = {strings, option_of(&east_string_type), output};
-    const char *run_names[3] = {"program", "inputs", "output"};
-    EastType *run_types[3] = {&east_string_type, strings, output};
+    const char *run_names[4] = {"program", "inputs", "output", "decode"};
+    EastType *run_types[4] = {&east_string_type, strings, output, unit_decode_type()};
     const char *range_names[2] = {"from", "to"};
     EastType *range_types[2] = {&east_integer_type, &east_integer_type};
     const char *intake_names[4] = {"input", "type", "segments", "output"};
@@ -69,7 +77,7 @@ EastType *east_unit_type(void)
     const char *work_names[3] = {"intake", "merge", "run"};
     EastType *work_types[3] = {east_struct_type(intake_names, intake_types, 4),
                                east_struct_type(merge_names, merge_types, 3),
-                               east_struct_type(run_names, run_types, 3)};
+                               east_struct_type(run_names, run_types, 4)};
     const char *names[5] = {"work", "platforms", "threads", "fetch", "result"};
     EastType *types[5] = {east_variant_type(work_names, work_types, 3), strings, &east_integer_type,
                           &east_boolean_type, &east_string_type};
@@ -299,6 +307,8 @@ static bool unit_fields(EastUnit *unit, EastValue *value, const char *base)
     } else {
         unit->program = resolve_path(base, east_struct_get_field_idx(body, 0));
         oom = oom || !unit->program;
+        unit->whole =
+            strcmp(east_variant_case_name(east_struct_get_field_idx(body, 3)), "whole") == 0;
     }
     if (!unit->intake) oom = !program_fields(unit, body, base) || oom;
 

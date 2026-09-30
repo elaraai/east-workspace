@@ -58,17 +58,20 @@ static int failures = 0;
 static bool write_unit(const char *program)
 {
     static const char *unit_names[5] = {"work", "platforms", "threads", "fetch", "result"};
-    static const char *run_names[3] = {"program", "inputs", "output"};
+    static const char *run_names[4] = {"program", "inputs", "output", "decode"};
     EastType *unit_type = east_unit_type();
     EastType *work_type = unit_type->data.struct_.fields[0].type;
-    EastType *run_type = work_type->data.variant.cases[1].type; /* merge, run */
+    EastType *run_type =
+        work_type->data.variant.cases[east_variant_type_case_idx(work_type, "run")].type;
     EastType *output_type = run_type->data.struct_.fields[2].type;
+    EastType *decode_type = run_type->data.struct_.fields[3].type;
 
     EastValue *dir = east_string(LIFELINE_OUTPUT);
     EastValue *output = east_variant_new("set", dir, output_type);
     east_value_release(dir);
-    EastValue *run_fields[3] = {east_string(program), east_array_new(&east_string_type), output};
-    EastValue *run = east_struct_new_owned(run_names, run_fields, 3, run_type);
+    EastValue *run_fields[4] = {east_string(program), east_array_new(&east_string_type), output,
+                                east_variant_new("lazy", east_null(), decode_type)};
+    EastValue *run = east_struct_new_owned(run_names, run_fields, 4, run_type);
     EastValue *work = east_variant_new("run", run, work_type);
     east_value_release(run);
     EastValue *fields[5] = {work, east_array_new(&east_string_type), east_integer(1),

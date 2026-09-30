@@ -68,7 +68,7 @@ function signature(name: string, inputs: EastType[], output: EastType): Function
         name,
         inputTypes: inputs.map(t => toEastTypeValue(t)),
         outputType: toEastTypeValue(output),
-        runner: variant("east_node", { platforms: [] }),
+        runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
     } as unknown as FunctionSignature;
 }
 
@@ -334,7 +334,7 @@ describe("FuncRuntime — signature validation", () => {
 
         const api = createStubApi([{
             name: "count", inputTypes: [deployed], outputType: toEastTypeValue(IntegerType),
-            runner: variant("east_node", { platforms: [] }),
+            runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
         } as unknown as FunctionSignature]);
         api.respond(successResult(IntegerType, 3n));
         const runtime = new FuncRuntime();

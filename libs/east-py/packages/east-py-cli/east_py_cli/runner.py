@@ -65,39 +65,39 @@ def _report_input(i: int, path: Path, param_type: Any) -> None:
     print(f"    {print_type(param_type)}", file=sys.stderr)
 
 
+def _report_input_whole(i: int, grown: int) -> None:
+    """The verbose account of input ``i`` decoded whole as it loaded: the
+    growth in resident memory across its decode — what it holds in memory, as
+    a runner that loads its inputs first sees it — beside what it weighs on
+    disk, since a nested collection decodes at many times that."""
+    print(f"  input {i}: decoded whole — +{_format_size(max(grown, 0))} resident", file=sys.stderr)
+
+
 def _report_input_reads(i: int, value: object) -> None:
     """What reading lazily opened input ``i`` came to — the account residency
     cannot give on a mapping, where the kernel decides how much of a touched
-    file is resident."""
+    file is resident. An operation the pager cannot serve decodes it whole,
+    and says how much resident memory that added; reads that decode segments
+    again land at random beyond the segments the pager keeps."""
     from east.runtime._compiler_eastc import paged_value_stats
+    from east.serialization._beast2_eastc import _paged_hydrated_bytes
 
-    stats = paged_value_stats(getattr(value, "_east_c_paged", 0))
+    ptr = getattr(value, "_east_c_paged", 0)
+    stats = paged_value_stats(ptr)
     if stats is None:
         return
     segments, decoded, fences, hydrated = stats
     if hydrated:
-        print(f"  input {i}: decoded whole (an operation the pager cannot serve)", file=sys.stderr)
+        grown = _paged_hydrated_bytes(ptr) or 0
+        print(f"  input {i}: decoded whole (an operation the pager cannot serve) — "
+              f"+{_format_size(grown)} resident", file=sys.stderr)
+    elif decoded > segments:
+        print(f"  input {i}: {decoded} segment decodes of its {segments} segments, {fences} fences "
+              "probed — its reads land at random beyond the segments kept, so decoding it whole "
+              "would decode each once", file=sys.stderr)
     else:
         print(f"  input {i}: {decoded} of {segments} segments decoded, {fences} fences probed",
               file=sys.stderr)
-
-
-# east-node parity: indexed beast2 collection inputs at or above this many
-# bytes open as lazy paged values (EAST_LAZY_INPUT_BYTES overrides; 0
-# disables).
-_LAZY_INPUT_BYTES_DEFAULT = 64 * 1024 * 1024
-
-
-def _lazy_input_threshold() -> int:
-    env = os.environ.get("EAST_LAZY_INPUT_BYTES", "")
-    if env:
-        try:
-            value = int(env)
-        except ValueError:
-            value = -1
-        if value >= 0:
-            return value
-    return _LAZY_INPUT_BYTES_DEFAULT
 
 
 def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> object:
@@ -148,22 +148,23 @@ def print_result(timings: dict[str, float], peak_bytes: int) -> None:
         print(f"  Peak RSS: {peak_bytes / 1024:8.0f} KB", file=sys.stderr)
 
 
-def _open_inputs(handle: Any, input_files: Sequence[Path], lazy: Callable[[int, int], bool],
+def _open_inputs(handle: Any, input_files: Sequence[Path], whole: bool,
                  verbose: bool) -> tuple[list[object], list[int]]:
     """A program's inputs, always FROZEN — task inputs are immutable; mutating
     one raises the uniform copy-first error — and which of them opened lazily.
 
-    A beast2 collection input ``i`` of ``size`` bytes for which ``lazy(i,
-    size)`` holds opens as a lazy paged value (segment-fed iteration and keyed
-    reads at O(segment) decoded memory — #505), and because frozen collapses
-    the shape gate, nested-container element shapes open lazily too. A lazily
-    opened file is MAPPED, never read whole: the paged value serves its reads
-    from the mapping, so the input's residency is the page cache and the heap
-    holds one decoded segment at a time. Anything not pageable falls back to
-    the whole (frozen) decode, exactly like east-node's runner. A file
-    holding a manifest is the collection it names, its segments in the
-    directory beside it, and it weighs its segments rather than its own few
-    kilobytes.
+    Unless ``whole`` says to decode every input before the program runs, a
+    beast2 collection input opens as a lazy paged value whatever it weighs
+    (segment-fed iteration and keyed reads at O(segment) decoded memory —
+    #505), and because frozen collapses the shape gate, nested-container
+    element shapes open lazily too. A lazily opened file is MAPPED, never read
+    whole: the paged value serves its reads from the mapping, so the input's
+    residency is the page cache and the heap holds one decoded segment at a
+    time. Anything not pageable falls back to the whole (frozen) decode,
+    exactly like east-node's runner. A file holding a manifest is the
+    collection it names, its segments in the directory beside it. With
+    ``verbose``, says how each input opened — lazily, or decoded whole and
+    the resident memory it added.
     """
     from east.runtime._compiler_eastc import (
         load_frozen_manifest,
@@ -171,6 +172,7 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], lazy: Callable[[int, 
         open_manifest_file,
         open_paged_file,
     )
+    from east.serialization._beast2_eastc import _resident_bytes
 
     input_types = handle.get_input_types()
     inputs: list[object] = []
@@ -179,9 +181,8 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], lazy: Callable[[int, 
         beast2 = Path(file_path).suffix.lower() in (".beast2", ".beast")
         collection = getattr(param_type, "type", None) in ("Array", "Set", "Dict")
         weight = manifest_segment_bytes(file_path) if beast2 and collection else None
-        size = Path(file_path).stat().st_size + (weight or 0)
         opened = None
-        if beast2 and collection and lazy(i, size):
+        if beast2 and collection and not whole:
             try:
                 opener = open_paged_file if weight is None else open_manifest_file
                 opened = opener(handle._input_types[i], file_path, frozen=True)
@@ -195,10 +196,14 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], lazy: Callable[[int, 
             if verbose:
                 print(f"  input {i}: opened lazily — mapped from the file", file=sys.stderr)
             inputs.append(opened)
-        elif weight is not None:
+            continue
+        before = _resident_bytes() if verbose else 0
+        if weight is not None:
             inputs.append(load_frozen_manifest(handle._input_types[i], file_path))
         else:
             inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
+        if verbose:
+            _report_input_whole(i, _resident_bytes() - before)
     return inputs, lazy_inputs
 
 
@@ -209,10 +214,12 @@ def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
     The unit, the result and the output writers are east-c's (east/unit.h),
     the very code the east-c CLI runs, so the two runners read the same units
     and write the same bytes; east-node implements the same protocol, and the
-    conformance corpus holds the three to it. With ``verbose``, a run unit
-    prints the account of each input ``run -v`` prints — its file and what it
-    weighs, whether it opened lazily, and what reading it came to — on
-    stderr, which is what reaches a task's log.
+    conformance corpus holds the three to it. A run unit's inputs are read as
+    its ``decode`` says: each collection lazily, or every input decoded whole.
+    With ``verbose``, a run unit prints the account of each input ``run -v``
+    prints — its file and what it weighs, whether it opened lazily or was
+    decoded whole, and what reading it came to — on stderr, which is what
+    reaches a task's log.
 
     Returns the result: ``ok``, a failure's ``message`` and ``locations``
     (``(filename, line, column)``, innermost first), ``peak_bytes`` and
@@ -330,9 +337,9 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
         print(f"Running: {unit['program']}  ({_format_file_size(unit['program'])})", file=sys.stderr)
         for i, (path, param_type) in enumerate(zip(paths, params, strict=True)):
             _report_input(i, path, param_type)
-    threshold = _lazy_input_threshold()
-    inputs, lazy_inputs = _open_inputs(
-        handle, paths, lambda _i, size: threshold > 0 and size >= threshold, verbose)
+    # Each collection opened lazily, or every input decoded whole, as the
+    # unit's `decode` says.
+    inputs, lazy_inputs = _open_inputs(handle, paths, unit["whole"], verbose)
     if sink is not None:
         inputs.append(sink.function_value())
     lap("load")
@@ -412,9 +419,12 @@ def run_program(
     input_files: list[Path],
     output_file: Path | None = None,
     verbose: bool = False,
+    whole: bool = False,
 ) -> object:
     """Run an East IR program: its result written to ``output_file`` in the
-    format its extension names, or printed as East text."""
+    format its extension names, or printed as East text. Each collection input
+    opens lazily unless ``whole`` says to decode every input before the
+    program runs (``--decode whole``)."""
     t0 = perf_counter()
 
     # Compile directly from raw data — no Python IR round-trip, single file read
@@ -455,11 +465,9 @@ def run_program(
         print("  return:", file=sys.stderr)
         print(f"    {print_type(output_type)}", file=sys.stderr)
 
-    # Indexed beast2 collection inputs open lazily at or above the size
-    # threshold.
-    threshold = _lazy_input_threshold()
-    inputs, lazy_inputs = _open_inputs(
-        handle, input_files, lambda _i, size: threshold > 0 and size >= threshold, verbose)
+    # Indexed beast2 collection inputs open lazily unless --decode whole says
+    # to decode them before the program runs.
+    inputs, lazy_inputs = _open_inputs(handle, input_files, whole, verbose)
 
     t2 = perf_counter()
 

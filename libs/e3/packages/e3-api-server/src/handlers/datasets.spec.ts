@@ -799,7 +799,7 @@ async function seedIndexedRecord(
   const declaration = await storage.objects.write(REPO, encodeBeast2For(RecordIndexObjectType)({
     keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
     keyType: toEastTypeValue(IntegerType), valueType: toEastTypeValue(StringType),
-    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [] }),
+    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
   }));
   const StatusEntryType = StructType({ ik: PlanStatusKeyType, k: StringType });
   type StatusEntry = ValueTypeOf<typeof StatusEntryType>;
@@ -812,7 +812,7 @@ async function seedIndexedRecord(
   const statusDeclaration = await storage.objects.write(REPO, encodeBeast2For(RecordIndexObjectType)({
     keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
     keyType: toEastTypeValue(PlanStatusKeyType), valueType: toEastTypeValue(StringType),
-    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [] }),
+    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
   }));
   const state = await writeRecordState(storage, REPO, {
     primary, indexes: new Map([

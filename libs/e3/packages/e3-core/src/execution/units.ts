@@ -104,7 +104,9 @@ const unitPath = (dir: string, file: string): string => path.relative(dir, file)
 
 /**
  * Stages a task's `run` unit in `dir`: the program and the files its output
- * kind folds with, and the unit naming them and the staged inputs.
+ * kind folds with, and the unit naming them and the staged inputs, read as
+ * the task's runner says (its `decode`) — a piece of a split task's as its
+ * whole task's are.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -161,6 +163,7 @@ export async function stageRunUnit(
       program: await stage('program.beast2', task.body.value.program),
       inputs: inputs.map((input) => unitPath(dir, input)),
       output,
+      decode: runner.value.decode,
     }),
     platforms: runner.value.platforms,
     threads: BigInt(threads),
@@ -250,8 +253,9 @@ export async function stageMergeUnit(
 
 /**
  * Stages a function call as a `run` unit in `dir`: the unit naming the
- * program and the arguments, written there already, whose output is the value
- * the function returns — one blob, or a collection's manifest directory.
+ * program and the arguments, written there already and read as the runner
+ * says (its `decode`), whose output is the value the function returns — one
+ * blob, or a collection's manifest directory.
  *
  * @param dir - The call's scratch directory
  * @param runner - The stock runner
@@ -277,6 +281,7 @@ export async function stageCallUnit(
       program: unitPath(dir, program),
       inputs: inputs.map((input) => unitPath(dir, input)),
       output: variant('value', unitPath(dir, output)),
+      decode: runner.value.decode,
     }),
     platforms: runner.value.platforms,
     threads: BigInt(threads),

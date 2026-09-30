@@ -101,7 +101,7 @@
       "package": "e3",
       "file": "static",
       "suite": "e3.task",
-      "test": "Run a task on the Python runner, or wrap a command with the custom runtime",
+      "test": "Run a task on the Python runner, say how a runner reads its inputs, or wrap a command with the custom runtime",
       "keywords": [
         "e3",
         "task",
@@ -111,13 +111,16 @@
         "python",
         "east-py",
         "custom",
-        "uv"
+        "uv",
+        "decode",
+        "lazy",
+        "whole"
       ],
       "imports": [
         "import { East, IntegerType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const input = e3.input('input', IntegerType, variant('value', 21n));\n\n// A stock runtime and the platforms it loads: a typo, or another runtime's\n// platform, is a compile error.\nconst pyTask = e3.task(\n  'py_task',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }\n);\n\n// Any other command is the custom runtime: e3 runs it with `run`'s arguments\n// appended — -i <input> for each input, -o <output>, then the program's file.\nconst wrapped = e3.task(\n  'wrapped',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }\n);"
+      "source": "const input = e3.input('input', IntegerType, variant('value', 21n));\n\n// A stock runtime and the platforms it loads: a typo, or another runtime's\n// platform, is a compile error.\nconst pyTask = e3.task(\n  'py_task',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }\n);\n\n// A stock runtime reads each collection input lazily, a segment decoded as the\n// program reaches it, unless `decode: 'whole'` decodes every input before the\n// program runs: for a program whose reads land at random across an input.\nconst whole = e3.task(\n  'whole',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'east-c', platforms: ['east-c-std'], decode: 'whole' } }\n);\n\n// Any other command is the custom runtime: e3 runs it with `run`'s arguments\n// appended — -i <input> for each input, -o <output>, then the program's file.\nconst wrapped = e3.task(\n  'wrapped',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }\n);"
     },
     {
       "id": "e3:static:custom-task",
@@ -594,7 +597,7 @@
         "import { East, DictType, FloatType, IntegerType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const SaleKeyType = StructType({ sku: StringType, id: IntegerType });\nconst SaleType = StructType({ amount: FloatType, currency: StringType });\nconst sales = e3.input('sales', DictType(SaleKeyType, SaleType));\nconst rates = e3.input('rates', DictType(StringType, FloatType));\n\n// e3.partition splits the work over `sales`: the body runs once per piece — a\n// key range, cut by content — each piece a cached unit, run in parallel. `rates`\n// reaches every piece whole, opened lazily when large. A key emitted more than\n// once, in one piece or across pieces, folds with `merge`.\nconst bySku = e3.streamTask('by_sku', {\n  inputs: [e3.partition(sales), rates],\n  output: e3.output.dict(StringType, FloatType, { merge: ($, _sku, a, b) => a.add(b) }),\n}, ($, sales, rates, emit) => {\n  $.for(sales, ($, sale, key) => {\n    $(emit(key.sku, sale.amount.multiply(rates.get(sale.currency))));\n  });\n});\n\n// `by` names leading key fields: rows whose `by` fields are equal are never\n// split across pieces, so each piece holds whole SKUs, in key order.\nconst perSku = e3.streamTask('per_sku', {\n  inputs: [e3.partition(sales, { by: ['sku'] })],\n  output: e3.output.array(FloatType),\n}, ($, sales, emit) => {\n  const sku = $.let('');\n  const total = $.let(0.0);\n  $.for(sales, ($, sale, key) => {\n    $.if(East.notEqual(key.sku, sku), ($) => {   // the next SKU starts from zero\n      $.assign(sku, key.sku);\n      $.assign(total, 0.0);\n    });\n    $.assign(total, total.add(sale.amount));\n    $(emit(total));\n  });\n});"
+      "source": "const SaleKeyType = StructType({ sku: StringType, id: IntegerType });\nconst SaleType = StructType({ amount: FloatType, currency: StringType });\nconst sales = e3.input('sales', DictType(SaleKeyType, SaleType));\nconst rates = e3.input('rates', DictType(StringType, FloatType));\n\n// e3.partition splits the work over `sales`: the body runs once per piece — a\n// key range, cut by content — each piece a cached unit, run in parallel. `rates`\n// reaches every piece whole, opened lazily. A key emitted more than\n// once, in one piece or across pieces, folds with `merge`.\nconst bySku = e3.streamTask('by_sku', {\n  inputs: [e3.partition(sales), rates],\n  output: e3.output.dict(StringType, FloatType, { merge: ($, _sku, a, b) => a.add(b) }),\n}, ($, sales, rates, emit) => {\n  $.for(sales, ($, sale, key) => {\n    $(emit(key.sku, sale.amount.multiply(rates.get(sale.currency))));\n  });\n});\n\n// `by` names leading key fields: rows whose `by` fields are equal are never\n// split across pieces, so each piece holds whole SKUs, in key order.\nconst perSku = e3.streamTask('per_sku', {\n  inputs: [e3.partition(sales, { by: ['sku'] })],\n  output: e3.output.array(FloatType),\n}, ($, sales, emit) => {\n  const sku = $.let('');\n  const total = $.let(0.0);\n  $.for(sales, ($, sale, key) => {\n    $.if(East.notEqual(key.sku, sku), ($) => {   // the next SKU starts from zero\n      $.assign(sku, key.sku);\n      $.assign(total, 0.0);\n    });\n    $.assign(total, total.add(sale.amount));\n    $(emit(total));\n  });\n});"
     },
     {
       "id": "e3:static:stream-output-kinds",

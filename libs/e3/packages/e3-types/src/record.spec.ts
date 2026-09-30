@@ -6,26 +6,29 @@
 /**
  * The record wire types' decoders: each reads the current shape, and refuses
  * an older one naming the fix — a commit an older e3 wrote, whose repository
- * is re-created, and a mutation, migration or record object an older SDK
- * exported, whose package is re-exported.
+ * is re-created, and a mutation, migration, index or record object an older
+ * SDK exported, whose package is re-exported.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DateTimeType, DictType, IntegerType, OptionType, StringType, StructType, ArrayType, EastTypeType, encodeBeast2For, isTypeValueEqual, some, toEastTypeValue, variant } from '@elaraai/east';
+import { BooleanType, DateTimeType, DictType, IntegerType, OptionType, StringType, StructType, ArrayType, EastTypeType, VariantType, encodeBeast2For, isTypeValueEqual, some, toEastTypeValue, variant } from '@elaraai/east';
 import { RunnerType } from './runner.js';
 import {
   MigrationObjectType,
   MutationObjectType,
   RecordCommitType,
+  RecordIndexObjectType,
   RecordObjectType,
   decodeMigrationObject,
   decodeMutationObject,
   decodeRecordCommit,
+  decodeRecordIndexObject,
   decodeRecordObject,
   type MigrationObject,
   type MutationObject,
   type RecordCommit,
+  type RecordIndexObject,
   type RecordObject,
 } from './record.js';
 
@@ -65,7 +68,7 @@ describe('decodeMutationObject', () => {
   const mutation: MutationObject = {
     bodyIr: 'a'.repeat(64),
     argTypes: [toEastTypeValue(IntegerType)],
-    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     form: variant('edit', null),
     programIr: 'b'.repeat(64),
   };
@@ -113,6 +116,49 @@ describe('decodeMutationObject', () => {
   });
 });
 
+describe('decodeRecordIndexObject', () => {
+  const index: RecordIndexObject = {
+    keyIr: 'a'.repeat(64),
+    multi: false,
+    valueIr: some('b'.repeat(64)),
+    keyType: toEastTypeValue(StringType),
+    valueType: toEastTypeValue(IntegerType),
+    buildIr: 'c'.repeat(64),
+    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('whole', null) }),
+  };
+
+  it('round-trips a current index object, its types among it', () => {
+    const decoded = decodeRecordIndexObject(encodeBeast2For(RecordIndexObjectType)(index));
+    // A decoded type value carries no memoized identity, so only the East
+    // comparison says whether two of them are the same type.
+    assert.ok(isTypeValueEqual(decoded.keyType, index.keyType));
+    assert.ok(isTypeValueEqual(decoded.valueType, index.valueType));
+    const { keyType: _keyType, valueType: _valueType, ...rest } = decoded;
+    const { keyType: _k, valueType: _v, ...expected } = index;
+    assert.deepEqual(rest, expected);
+  });
+
+  it('refuses an index object whose runner predates its decode, naming the fix', () => {
+    // A stock runner as a package exported before runners said how they read
+    // a program's inputs: its platforms alone.
+    const PreDecodeRunnerType = VariantType({
+      east_node: StructType({ platforms: ArrayType(StringType) }),
+      east_py: StructType({ platforms: ArrayType(StringType) }),
+      east_c: StructType({ platforms: ArrayType(StringType) }),
+      custom: StructType({ command: ArrayType(StringType) }),
+    });
+    const PreDecodeIndexType = StructType({
+      keyIr: StringType, multi: BooleanType, valueIr: OptionType(StringType), keyType: EastTypeType,
+      valueType: EastTypeType, buildIr: StringType, runner: PreDecodeRunnerType,
+    });
+    const older = encodeBeast2For(PreDecodeIndexType)({ ...index, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) });
+    assert.throws(
+      () => decodeRecordIndexObject(older),
+      /^Error: the index object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+    );
+  });
+});
+
 describe('decodeMigrationObject', () => {
   const RowV1Type = StructType({ name: StringType });
   const RowV2Type = StructType({ name: StringType, shift: IntegerType });
@@ -122,7 +168,7 @@ describe('decodeMigrationObject', () => {
     to: toEastTypeValue(DictType(StringType, RowV2Type)),
     bodyIr: 'a'.repeat(64),
     programIr: 'b'.repeat(64),
-    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
   };
 
   it('round-trips a current migration, its types among it', () => {

@@ -6,15 +6,15 @@
 
 The fixtures in ``tests/fixtures`` are generated from the TypeScript side by
 ``libs/east-c/packages/east-c-cli/tests/generate_fixtures.mjs`` and shared
-with east-c's CLI gates. ``run`` opens an indexed collection input lazily at
-or above ``EAST_LAZY_INPUT_BYTES``, and its verbose account says what paging
-came to, as ``exec -v``'s does (#1004); ``exec --exit-with-parent`` exits
-once its stdin pipe closes (#770).
+with east-c's CLI gates. ``run`` opens an indexed collection input lazily,
+whatever it weighs, unless ``--decode whole`` says to decode it before the
+program runs (#1033), and its verbose account says how each input opened and
+what reading it came to, as ``exec -v``'s does (#1004); ``exec
+--exit-with-parent`` exits once its stdin pipe closes (#770).
 The errors a lazily opened input raises are runner protocol corpus cases
 (test_exec_corpus.py).
 """
 
-import os
 import re
 import shutil
 import subprocess
@@ -46,39 +46,45 @@ def _peak_rss_mb(stderr: str) -> float | None:
     return None
 
 
-def test_lazy_input_is_paged_one_segment_at_a_time(tmp_path):
-    # A keyed read into a wide input, twice, each its own process: the lazy
-    # run maps the file, the eager control reads and decodes it whole. The
-    # runner's account of the lazy input pins the cost exactly — every fence
-    # probed once, ONE segment decoded of many — on every operating system;
-    # peak RSS is only the coarse cross-check that the lazy run stays below
-    # the eager control, because a mapping's residency is the kernel's
-    # decision (a large-folio page cache makes a whole file resident around
-    # a handful of touched pages).
-    table = tmp_path / "wide.beast2"
-    rows = 160_000
+def _write_wide_table(path: Path, rows: int) -> None:
+    """A Dict of ``rows`` 200-byte rows, keyed 0 to ``rows`` - 1, uncompressed —
+    the wide table east-c's cli_paged gate writes."""
     write_beast2_file(
-        table, INT_STR_DICT,
+        path, INT_STR_DICT,
         EastDict(IntegerType, StringType, {i: f"row-{i}-" + chr(97 + i % 26) * 190 for i in range(rows)}),
         codec="none",
     )
+
+
+def test_lazy_input_is_paged_one_segment_at_a_time(tmp_path):
+    # A keyed read into a wide input, twice, each its own process: the lazy
+    # run maps the file, the `--decode whole` control reads and decodes it
+    # whole, and says what it holds in memory. The runner's account of the
+    # lazy input pins the cost exactly — every fence probed once, ONE segment
+    # decoded of many — on every operating system; peak RSS is only the coarse
+    # cross-check that the lazy run stays below the whole control, because a
+    # mapping's residency is the kernel's decision (a large-folio page cache
+    # makes a whole file resident around a handful of touched pages).
+    table = tmp_path / "wide.beast2"
+    _write_wide_table(table, 160_000)
     wire_mb = table.stat().st_size / (1024 * 1024)
     assert wire_mb > 16
 
-    def run(threshold: str) -> tuple[str, str]:
+    def run(*flags: str) -> tuple[str, str]:
         proc = subprocess.run(
             [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "paged_has.beast2"),
-             "-i", str(table), "-v"],
-            env={**os.environ, "EAST_LAZY_INPUT_BYTES": threshold},
+             "-i", str(table), "-v", *flags],
             capture_output=True, text=True, check=True,
         )
         return proc.stdout, proc.stderr
 
-    lazy_out, lazy_err = run("1")
-    eager_out, eager_err = run("0")
+    lazy_out, lazy_err = run()
+    eager_out, eager_err = run("--decode", "whole")
     assert lazy_out.strip() == "true" == eager_out.strip()
     assert "input 0: opened lazily — mapped from the file" in lazy_err
     assert "opened lazily" not in eager_err and "segments decoded" not in eager_err
+    assert re.search(r"input 0: decoded whole — \+[\d.]+ MB resident", eager_err), eager_err
+    assert "decoded whole" not in lazy_err, lazy_err
     account = re.search(r"input 0: (\d+) of (\d+) segments decoded, (\d+) fences probed", lazy_err)
     assert account is not None, lazy_err
     decoded, segments, fences = (int(g) for g in account.groups())
@@ -88,28 +94,80 @@ def test_lazy_input_is_paged_one_segment_at_a_time(tmp_path):
     lazy_rss, eager_rss = _peak_rss_mb(lazy_err), _peak_rss_mb(eager_err)
     assert lazy_rss is not None and eager_rss is not None, "each run reports its peak"
     assert lazy_rss < eager_rss, (
-        f"lazy peak {lazy_rss:.1f} MB not below eager peak {eager_rss:.1f} MB")
+        f"lazy peak {lazy_rss:.1f} MB not below whole peak {eager_rss:.1f} MB")
+
+    # `--decode lazy` is the default spelled out; anything else is refused,
+    # in east-c's and east-node's words.
+    assert "input 0: opened lazily" in run("--decode", "lazy")[1]
+    refused = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "paged_has.beast2"),
+         "-i", str(table), "--decode", "eager"],
+        capture_output=True, text=True,
+    )
+    assert refused.returncode == 1
+    assert refused.stderr.strip() == "Error: --decode takes lazy or whole, not eager"
 
 
-def test_a_manifest_input_pages_over_its_directory(tmp_path, monkeypatch, capsys):
+def test_what_a_lazy_read_came_to(tmp_path, monkeypatch, capsys):
+    # An operation the pager cannot serve — `toArray` — decodes the input
+    # whole, once, and the account says how much resident memory that added:
+    # tens of megabytes, in a process of its own, since a process that freed
+    # as much before reuses it. Reads that alternate between the first and
+    # the last segment, over a pager that keeps one, decode each again, and
+    # the account says so, with what decoding the input whole would do
+    # instead. The east-c cli_paged gate holds the same fixtures to the same
+    # account.
+    table = tmp_path / "wide.beast2"
+    _write_wide_table(table, 160_000)
+
+    hydrate = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "paged_hydrate.beast2"),
+         "-i", str(table), "-v"],
+        capture_output=True, text=True, check=True,
+    )
+    assert hydrate.stdout.strip() == "160000"
+    assert "input 0: opened lazily" in hydrate.stderr
+    assert re.search(
+        r"input 0: decoded whole \(an operation the pager cannot serve\) — \+[\d.]+ MB resident",
+        hydrate.stderr), hydrate.stderr
+
+    monkeypatch.setenv("EAST_PAGED_CACHE_BYTES", "1")
+    run_program(FIXTURES / "paged_scatter.beast2", [], [], [table], verbose=True)
+    out, err = capsys.readouterr()
+    assert out.strip() == "200"
+    account = re.search(
+        r"input 0: (\d+) segment decodes of its (\d+) segments, (\d+) fences probed — its reads "
+        r"land at random beyond the segments kept, so decoding it whole would decode each once", err)
+    assert account is not None, err
+    decodes, segments, fences = (int(g) for g in account.groups())
+    assert decodes == 200 and segments >= 8 and fences == segments, err
+
+    run_program(FIXTURES / "paged_scatter.beast2", [], [], [table], verbose=True, whole=True)
+    out, err = capsys.readouterr()
+    assert out.strip() == "200"
+    assert "segment decodes" not in err, err
+
+
+def test_a_manifest_input_pages_over_its_directory(tmp_path, capsys):
     # A manifest-rooted input — how e3 stages a collection input for a runner
     # that opens manifests — pages over its directory's segment files: a keyed
-    # read decodes one segment, the lazy threshold weighs the segments rather
-    # than the manifest's own few hundred bytes, and the eager control reads
-    # the same value whole. The east-c CLI's gate is the same.
+    # read decodes one segment, the account weighs the segments rather than
+    # the manifest's own few hundred bytes, and the whole control reads the
+    # same value whole and says the resident memory that added — any amount
+    # here, in a process that freed as much before. The east-c CLI's gate is
+    # the same.
     table = tmp_path / "wide.beast2"
     with Beast2ManifestWriter(INT_STR_DICT, table, codec="none") as writer:
         writer.add_all(EastDict(IntegerType, StringType,
                                 {i: f"row-{i}-" + chr(97 + i % 26) * 190 for i in range(80_000)}))
 
-    def run(threshold: str) -> str:
-        monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", threshold)
-        run_program(FIXTURES / "paged_has.beast2", [], [], [table], verbose=True)
+    def run(whole: bool) -> str:
+        run_program(FIXTURES / "paged_has.beast2", [], [], [table], verbose=True, whole=whole)
         out, err = capsys.readouterr()
         assert out.strip() == "true"
         return err
 
-    lazy = run("1")
+    lazy = run(False)
     assert "input 0: opened lazily" in lazy
     assert re.search(rf"  input 0: {re.escape(str(table))}  \([\d.]+ MB\)", lazy), \
         f"the manifest input is not weighed by its segments:\n{lazy}"
@@ -118,12 +176,12 @@ def test_a_manifest_input_pages_over_its_directory(tmp_path, monkeypatch, capsys
     decoded, segments = (int(g) for g in account.groups())
     assert segments >= 8
     assert decoded == 1, f"a keyed read of the manifest decoded {decoded} of {segments} segments"
-    # 1 MiB: far above the manifest file, far below its segments.
-    assert "input 0: opened lazily" in run(str(1024 * 1024))
-    assert "opened lazily" not in run("0")
+    whole = run(True)
+    assert "opened lazily" not in whole
+    assert re.search(r"input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident", whole), whole
 
 
-def test_a_nested_input_opens_lazily_and_frozen(tmp_path, monkeypatch, capsys):
+def test_a_nested_input_opens_lazily_and_frozen(tmp_path, capsys):
     # The collapsed shape gate on the Python runner (#516, #539), against the
     # fixtures the east-c cli_paged gate uses: a nested-container element
     # shape opens lazily AND frozen, so the write through a read-out element
@@ -131,7 +189,6 @@ def test_a_nested_input_opens_lazily_and_frozen(tmp_path, monkeypatch, capsys):
     # blob, and from the manifest directory e3 stages a collection as. The
     # account names the lazy open: an input that fell back to a whole decode
     # would refuse the write too.
-    monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "1")
     nested = FIXTURES / "paged_nested.beast2"
     manifest = tmp_path / "paged_nested_manifest.beast2"
     nested_type = DictType(IntegerType, StructType([("xs", INT_ARRAY)]))
@@ -162,7 +219,7 @@ def test_exec_verbose_gives_the_account_of_each_input(tmp_path):
         proc = subprocess.run(
             [sys.executable, "-m", "east_py_cli", "exec", str(tmp_path / "paged_has_unit.beast2"),
              *flags],
-            env={**os.environ, "EAST_LAZY_INPUT_BYTES": "1"}, capture_output=True, text=True,
+            capture_output=True, text=True,
         )
         assert proc.returncode == 0, proc.stderr
         return proc.stderr

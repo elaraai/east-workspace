@@ -41,7 +41,8 @@ const nestedPlatform = East.function([IntegerType], IntegerType, ($, x) => {
 const importing = East.function([IntegerType], IntegerType, ($, x) =>
   East.importFunction('pricing', 'score', FunctionType([IntegerType], IntegerType))(x));
 
-const stock = (type: 'east_node' | 'east_py' | 'east_c', platforms: string[] = []): RunnerValue => variant(type, { platforms });
+const stock = (type: 'east_node' | 'east_py' | 'east_c', platforms: string[] = []): RunnerValue =>
+  variant(type, { platforms, decode: variant('lazy', null) });
 
 function request(body: { toIR(): unknown } | Uint8Array, args: OneShotRequest['args'] = [], runner: RunnerValue = stock('east_node'), limits: OneShotRequest['limits'] = none): OneShotRequest {
   const bodyIr = body instanceof Uint8Array ? body : encodeEastIR(body.toIR() as never);

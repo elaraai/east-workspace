@@ -57,8 +57,10 @@ export interface IntakeCandidate {
   readonly command: string;
 }
 
-const EAST_C: StockRunner = variant('east_c', { platforms: [] });
-const EAST_NODE: StockRunner = variant('east_node', { platforms: [] });
+// An intake unit reads its delivery a segment at a time whatever a runner's
+// `decode` says: it names no program.
+const EAST_C: StockRunner = variant('east_c', { platforms: [], decode: variant('lazy', null) });
+const EAST_NODE: StockRunner = variant('east_node', { platforms: [], decode: variant('lazy', null) });
 
 /** The runners a local intake runs on, in the order it tries them. */
 export const INTAKE_CANDIDATES: readonly IntakeCandidate[] = [EAST_C, EAST_NODE].map((runner) => ({ runner, command: runnerCommand(runner) }));

@@ -18,9 +18,9 @@ import { variant } from '@elaraai/east';
 import { withRunnerLifeline, type RunnerValue } from './runner.js';
 
 const KNOWN: Array<[string, RunnerValue, string]> = [
-  ['east_node', variant('east_node', { platforms: ['@elaraai/east-node-std'] }), 'east-node'],
-  ['east_py', variant('east_py', { platforms: ['east-py-std'] }), 'east-py'],
-  ['east_c', variant('east_c', { platforms: ['east-c-std'] }), 'east-c'],
+  ['east_node', variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), 'east-node'],
+  ['east_py', variant('east_py', { platforms: ['east-py-std'], decode: variant('lazy', null) }), 'east-py'],
+  ['east_c', variant('east_c', { platforms: ['east-c-std'], decode: variant('lazy', null) }), 'east-c'],
 ];
 
 describe('withRunnerLifeline', () => {
@@ -38,7 +38,7 @@ describe('withRunnerLifeline', () => {
   });
 
   it('is a no-op on a degenerate argv and does not mutate its input', () => {
-    const runner = variant('east_c', { platforms: [] });
+    const runner = variant('east_c', { platforms: [], decode: variant('lazy', null) });
     assert.deepStrictEqual(withRunnerLifeline(runner, ['east-c']), ['east-c']);
     const args = ['east-c', 'exec', 'unit.beast2'];
     const before = [...args];

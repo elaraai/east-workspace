@@ -78,7 +78,14 @@ export {
   spliceBeast2Tail,
   spliceBeast2Segments,
 } from "./v5/geometry.js";
-export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
+export {
+  openBeast2LazyFor,
+  isBeast2LazySafe,
+  beast2LazyStats,
+  type Beast2LazySafeOptions,
+  type Beast2LazyOptions,
+  type Beast2LazyStats,
+} from "./v5/lazy.js";
 export {
   RUN_MAX_COUNT,
   RUN_MAX_BYTES,

@@ -11,23 +11,26 @@
  * its `exec` command; `custom` names a command of the author's own.
  */
 
-import { VariantType, StructType, ArrayType, StringType, ValueTypeOf } from '@elaraai/east';
+import { VariantType, StructType, ArrayType, StringType, UnitDecodeType, ValueTypeOf } from '@elaraai/east';
 
 /**
  * Wire representation of a runner — shared by tasks, functions and records.
  *
- * A known-runtime tag names a stock runner, and `platforms` names the platform
- * packages the units it runs load. `custom` carries a command, which e3 runs
- * with the arguments of a stock runner's `run`: `-i` for each input, `-o` for
- * the output, then the program's file. A custom task's body is its own
- * command, and its runner's is empty. Package authors can already execute
- * arbitrary commands via custom tasks, so `custom` grants no capability that
- * tasks don't have.
+ * A known-runtime tag names a stock runner: `platforms` names the platform
+ * packages the units it runs load, and `decode` how it reads a run unit's
+ * inputs — each collection `lazy`, a segment decoded as the program reaches
+ * it, or every input decoded `whole` before the program runs — which e3 writes
+ * into each run unit it stages for the runner. `custom` carries a command,
+ * which e3 runs with the arguments of a stock runner's `run`: `-i` for each
+ * input, `-o` for the output, then the program's file. A custom task's body is
+ * its own command, and its runner's is empty. Package authors can already
+ * execute arbitrary commands via custom tasks, so `custom` grants no
+ * capability that tasks don't have.
  */
 export const RunnerType = VariantType({
-  east_node: StructType({ platforms: ArrayType(StringType) }),
-  east_py:   StructType({ platforms: ArrayType(StringType) }),
-  east_c:    StructType({ platforms: ArrayType(StringType) }),
+  east_node: StructType({ platforms: ArrayType(StringType), decode: UnitDecodeType }),
+  east_py:   StructType({ platforms: ArrayType(StringType), decode: UnitDecodeType }),
+  east_c:    StructType({ platforms: ArrayType(StringType), decode: UnitDecodeType }),
   custom:    StructType({ command: ArrayType(StringType) }),
 });
 export type RunnerType = typeof RunnerType;

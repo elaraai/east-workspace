@@ -12,7 +12,7 @@ import {
     Beast2ElementWriter, Beast2ManifestWriter, Beast2RunSorter, RUN_MAX_BYTES, UnitOutcomeType, UnitType,
     decodeBeast2For, decodeCollectionManifest, encodeBeast2FenceFor, encodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR,
     intakeBeast2For, mergeBeast2For, openBeast2LazyFor, readBeast2Extents, spliceBeast2, spliceBeast2Tail,
-    type Beast2ManifestSource, type Beast2RunSorterOptions, type EastIR, type EastType, type ValueTypeOf,
+    type Beast2ManifestSource, type Beast2RunSorterOptions, type EastIR, type EastType, type UnitDecode, type ValueTypeOf,
 } from "../src/index.js";
 
 /* The runner protocol's conformance corpus: units, each with the outputs and
@@ -29,13 +29,11 @@ import {
  * <dir>/runner_corpus/<case>/, with their names in <dir>/runner_corpus/
  * index.beast2, where each runner's tests execute every case with `exec`. */
 
-/** What executing a case's unit must come to. */
+/** What executing a case's unit must come to. How its inputs are read is the
+ *  unit's own `decode`. */
 const RunnerCaseType = StructType({
     /** What the case holds. */
     name: StringType,
-    /** Whether the case runs with every collection input opened lazily:
-     *  `EAST_LAZY_INPUT_BYTES=1`. */
-    lazy: BooleanType,
     /** The outcome. */
     outcome: UnitOutcomeType,
     /** Every file the unit writes besides its result, relative to the case's
@@ -126,6 +124,10 @@ function corruptInput(): Uint8Array {
         new SortedMap(Array.from({ length: 6 }, (_, i) => [BigInt(from + i), `row-${from + i}`] as [bigint, string]), compareFor(IntegerType)))));
 }
 
+/** How a run unit reads its inputs: lazily, and decoded whole. A case over a
+ *  collection input is held to the same bytes either way. */
+const DECODES: readonly UnitDecode[] = [variant("lazy", null), variant("whole", null)];
+
 const EmitInteger = FunctionType([IntegerType], NullType);
 const EmitString = FunctionType([StringType], NullType);
 const EmitFloat = FunctionType([FloatType], NullType);
@@ -154,21 +156,23 @@ describe("runner protocol corpus", () => {
             const xs = Array.from({ length: 10_000 }, (_, i) => BigInt(i * 3 - 7_000));
             const out = new Map<string, Uint8Array>();
             addValue(out, "output.beast2", IntegerType, program.compile([])(xs));
-            cases.push({
-                dir: "value-sum",
-                files: new Map([
-                    ["program.beast2", encodeEastIR(program)],
-                    ["input-0.beast2", encodeBeast2PagedFor(ArrayType(IntegerType))(xs)],
-                    ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
-                        platforms: [],
-                        threads: 1n,
-                        fetch: false,
-                        result: "result.beast2",
-                    })],
-                ]),
-                expected: { name: "a value: the sum of an Array blob", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
-            });
+            for (const decode of DECODES) {
+                cases.push({
+                    dir: decode.type === "lazy" ? "value-sum" : "value-sum-whole",
+                    files: new Map([
+                        ["program.beast2", encodeEastIR(program)],
+                        ["input-0.beast2", encodeBeast2PagedFor(ArrayType(IntegerType))(xs)],
+                        ["unit.beast2", encodeBeast2For(UnitType)({
+                            work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode }),
+                            platforms: [],
+                            threads: 1n,
+                            fetch: false,
+                            result: "result.beast2",
+                        })],
+                    ]),
+                    expected: { name: `a value: the sum of an Array blob, read ${decode.type === "lazy" ? "lazily" : "whole"}`, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                });
+            }
         });
 
         test("a Dict value, written as a manifest directory, from a manifest input", () => {
@@ -177,28 +181,31 @@ describe("runner protocol corpus", () => {
             const input = new SortedMap(Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, "0")}`, BigInt(i)] as [string, bigint]), compareFor(StringType));
             const files = new Map<string, Uint8Array>([["program.beast2", encodeEastIR(program)]]);
             addManifest(files, "input-0.beast2", type, input.entries());
-            files.set("unit.beast2", encodeBeast2For(UnitType)({
-                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
-                platforms: [],
-                threads: 1n,
-                fetch: false,
-                result: "result.beast2",
-            }));
             const out = new Map<string, Uint8Array>();
             addValue(out, "output.beast2", type, program.compile([])(input));
             assert.ok(decodeCollectionManifest(out.get("output.beast2")!).entries.length > 1, "the output spans segments");
-            cases.push({
-                dir: "value-dict",
-                files,
-                expected: { name: "a Dict value, written as a manifest directory, from a manifest input", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
-            });
+            for (const decode of DECODES) {
+                const read = new Map(files);
+                read.set("unit.beast2", encodeBeast2For(UnitType)({
+                    work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode }),
+                    platforms: [],
+                    threads: 1n,
+                    fetch: false,
+                    result: "result.beast2",
+                }));
+                cases.push({
+                    dir: decode.type === "lazy" ? "value-dict" : "value-dict-whole",
+                    files: read,
+                    expected: { name: `a Dict value, written as a manifest directory, from a manifest input read ${decode.type === "lazy" ? "lazily" : "whole"}`, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                });
+            }
 
             // A unit whose host places segments as they are read asks only for
             // one absent: with every segment staged beside the manifest, it
             // reads them as any unit does.
             const fetching = new Map(files);
             fetching.set("unit.beast2", encodeBeast2For(UnitType)({
-                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                 platforms: [],
                 threads: 1n,
                 fetch: true,
@@ -207,7 +214,7 @@ describe("runner protocol corpus", () => {
             cases.push({
                 dir: "value-dict-fetch",
                 files: fetching,
-                expected: { name: "a unit asking for its segments as it reads them reads those staged beside it", lazy: true, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                expected: { name: "a unit asking for its segments as it reads them reads those staged beside it", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
 
@@ -222,7 +229,7 @@ describe("runner protocol corpus", () => {
             ]);
             addManifest(files, "input-1.beast2", DictType(StringType, IntegerType), dict.entries());
             files.set("unit.beast2", encodeBeast2For(UnitType)({
-                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2", "input-1.beast2"], output: variant("value", "output.beast2") }),
+                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2", "input-1.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                 platforms: [],
                 threads: 1n,
                 fetch: false,
@@ -233,7 +240,7 @@ describe("runner protocol corpus", () => {
             cases.push({
                 dir: "value-lazy-inputs",
                 files,
-                expected: { name: "a value from a Set input opened lazily, and a Dict input beside it", lazy: true, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                expected: { name: "a value from a Set input opened lazily, and a Dict input beside it", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
 
@@ -250,14 +257,14 @@ describe("runner protocol corpus", () => {
                 files: new Map([
                     ["program.beast2", encodeEastIR(program)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("array", "out") }),
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("array", "out"), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "an Array emitted by a producer", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
+                expected: { name: "an Array emitted by a producer", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
             });
         });
 
@@ -278,14 +285,14 @@ describe("runner protocol corpus", () => {
                     files: new Map([
                         ["program.beast2", encodeEastIR(program)],
                         ["unit.beast2", encodeBeast2For(UnitType)({
-                            work: variant("run", { program: "program.beast2", inputs: [], output: variant("array", "out") }),
+                            work: variant("run", { program: "program.beast2", inputs: [], output: variant("array", "out"), decode: variant("lazy", null) }),
                             platforms: [],
                             threads,
                             fetch: false,
                             result: "result.beast2",
                         })],
                     ]),
-                    expected: { name: `an Array of wide strings, cut by size, on ${threads} thread(s)`, lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
+                    expected: { name: `an Array of wide strings, cut by size, on ${threads} thread(s)`, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
                 });
             }
         });
@@ -314,14 +321,14 @@ describe("runner protocol corpus", () => {
                 files: new Map([
                     ["program.beast2", encodeEastIR(program)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("set", "out") }),
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("set", "out"), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a Set emitted in random order, with repeats, as sorted runs", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/2.beast2"] },
+                expected: { name: "a Set emitted in random order, with repeats, as sorted runs", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/2.beast2"] },
             });
         });
 
@@ -352,14 +359,14 @@ describe("runner protocol corpus", () => {
                     ["program.beast2", encodeEastIR(program)],
                     ["sum.beast2", encodeEastIR(sum)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: some("sum.beast2") }) }),
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: some("sum.beast2") }), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a Dict emitted in random order, its repeated keys summed, as sorted runs", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/2.beast2"] },
+                expected: { name: "a Dict emitted in random order, its repeated keys summed, as sorted runs", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/2.beast2"] },
             });
         });
 
@@ -381,14 +388,14 @@ describe("runner protocol corpus", () => {
                     ["program.beast2", encodeEastIR(program)],
                     ["sum.beast2", encodeEastIR(sum)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: some("sum.beast2") }) }),
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: some("sum.beast2") }), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a Dict of floats summed across the element cap", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/2.beast2"] },
+                expected: { name: "a Dict of floats summed across the element cap", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/2.beast2"] },
             });
         });
 
@@ -399,14 +406,14 @@ describe("runner protocol corpus", () => {
                 files: new Map([
                     ["program.beast2", encodeEastIR(program)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: none }) }),
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: none }), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a Dict that emits nothing writes no run", lazy: false, outcome: variant("ok", null), outputs: [], absent: ["out/0.beast2"] },
+                expected: { name: "a Dict that emits nothing writes no run", outcome: variant("ok", null), outputs: [], absent: ["out/0.beast2"] },
             });
         });
 
@@ -429,7 +436,7 @@ describe("runner protocol corpus", () => {
                 files: new Map([
                     ["program.beast2", encodeEastIR(program)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: none }) }),
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("dict", { dir: "out", merge: none }), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
@@ -438,7 +445,7 @@ describe("runner protocol corpus", () => {
                 ]),
                 // The run is written once the program has returned, so no
                 // East code is running when the key is refused.
-                expected: { name: "a Dict key emitted twice without a merge fails, naming it", lazy: false, outcome: variant("failed", { message: refusal, locations: [] }), outputs: [], absent: [] },
+                expected: { name: "a Dict key emitted twice without a merge fails, naming it", outcome: variant("failed", { message: refusal, locations: [] }), outputs: [], absent: [] },
             });
         });
 
@@ -459,14 +466,14 @@ describe("runner protocol corpus", () => {
                     ["add.beast2", encodeEastIR(add)],
                     ["zero.beast2", encodeBeast2For(FloatType)(0)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("fold", { path: "total.beast2", zero: "zero.beast2", combine: "add.beast2" }) }),
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("fold", { path: "total.beast2", zero: "zero.beast2", combine: "add.beast2" }), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a fold of emitted floats, from zero", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                expected: { name: "a fold of emitted floats, from zero", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
 
@@ -492,14 +499,14 @@ describe("runner protocol corpus", () => {
                     ["zero.beast2", encodeBeast2For(TallyType)({ count: 0n, total: 0 })],
                     ["input-0.beast2", encodeBeast2PagedFor(ArrayType(FloatType))(xs)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("fold", { path: "tally.beast2", zero: "zero.beast2", combine: "add.beast2" }) }),
+                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("fold", { path: "tally.beast2", zero: "zero.beast2", combine: "add.beast2" }), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a fold of structs, field by field, over an input", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                expected: { name: "a fold of structs, field by field, over an input", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
 
@@ -518,14 +525,14 @@ describe("runner protocol corpus", () => {
                     ["program.beast2", encodeEastIR(program)],
                     ["input-0.beast2", encodeBeast2For(IntegerType)(42n)],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a program that raises an error fails with its message and location", lazy: false, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+                expected: { name: "a program that raises an error fails with its message and location", outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
             });
         });
 
@@ -544,14 +551,14 @@ describe("runner protocol corpus", () => {
                     ["program.beast2", encodeEastIR(program)],
                     ["input-0.beast2", blob],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "mutating a lazily opened input fails with the frozen-input error", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+                expected: { name: "mutating a lazily opened input fails with the frozen-input error", outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
             });
         });
 
@@ -566,7 +573,7 @@ describe("runner protocol corpus", () => {
             const files = new Map<string, Uint8Array>([["program.beast2", encodeEastIR(program)]]);
             addManifest(files, "input-0.beast2", type, input.entries());
             files.set("unit.beast2", encodeBeast2For(UnitType)({
-                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                 platforms: [],
                 threads: 1n,
                 fetch: false,
@@ -576,7 +583,7 @@ describe("runner protocol corpus", () => {
             cases.push({
                 dir: "failed-frozen-nested",
                 files,
-                expected: { name: "writing through an element of a lazily opened input fails with the frozen-input error", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+                expected: { name: "writing through an element of a lazily opened input fails with the frozen-input error", outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
             });
         });
 
@@ -594,14 +601,14 @@ describe("runner protocol corpus", () => {
                     ["program.beast2", encodeEastIR(program)],
                     ["input-0.beast2", blob],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a keyed read of a corrupt input opened lazily fails at the read, naming the segments", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+                expected: { name: "a keyed read of a corrupt input opened lazily fails at the read, naming the segments", outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
             });
         });
 
@@ -623,14 +630,14 @@ describe("runner protocol corpus", () => {
                     ["program.beast2", encodeEastIR(program)],
                     ["input-0.beast2", blob],
                     ["unit.beast2", encodeBeast2For(UnitType)({
-                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                         platforms: [],
                         threads: 1n,
                         fetch: false,
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "a loop over a corrupt input opened lazily fails before its first iteration, naming the segments", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+                expected: { name: "a loop over a corrupt input opened lazily fails before its first iteration, naming the segments", outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
             });
         });
 
@@ -658,14 +665,14 @@ describe("runner protocol corpus", () => {
                         ["program.beast2", encodeEastIR(program)],
                         ["input-0.beast2", blob],
                         ["unit.beast2", encodeBeast2For(UnitType)({
-                            work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                            work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2"), decode: variant("lazy", null) }),
                             platforms: [],
                             threads: 1n,
                             fetch: false,
                             result: "result.beast2",
                         })],
                     ]),
-                    expected: { name: `${named} holding a corrupt input opened lazily fails where it is built`, lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+                    expected: { name: `${named} holding a corrupt input opened lazily fails where it is built`, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
                 });
             }
         });
@@ -692,7 +699,7 @@ describe("runner protocol corpus", () => {
             cases.push({
                 dir: "merge-sets",
                 files,
-                expected: { name: "Set runs, overlapping, unioned into one run", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
+                expected: { name: "Set runs, overlapping, unioned into one run", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
             });
         });
 
@@ -721,7 +728,7 @@ describe("runner protocol corpus", () => {
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "Dict parts summed over a key range", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
+                expected: { name: "Dict parts summed over a key range", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: ["out/1.beast2"] },
             });
         });
 
@@ -745,7 +752,7 @@ describe("runner protocol corpus", () => {
                         result: "result.beast2",
                     })],
                 ]),
-                expected: { name: "fold partials, folded in order from zero", lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                expected: { name: "fold partials, folded in order from zero", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
     });
@@ -779,7 +786,7 @@ describe("runner protocol corpus", () => {
                     ["type.beast2", encodeBeast2For(EastTypeValueType)(toEastTypeValue(type))],
                     ["unit.beast2", intakeUnit(segments, threads)],
                 ]),
-                expected: { name, lazy: false, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                expected: { name, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         };
 
@@ -803,7 +810,7 @@ describe("runner protocol corpus", () => {
                     ["type.beast2", typeFile ?? encodeBeast2For(EastTypeValueType)(toEastTypeValue(type!))],
                     ["unit.beast2", intakeUnit(segments)],
                 ]),
-                expected: { name, lazy: false, outcome: variant("failed", { message, locations: [] }), outputs: [], absent: ["output.beast2"] },
+                expected: { name, outcome: variant("failed", { message, locations: [] }), outputs: [], absent: ["output.beast2"] },
             });
         };
 

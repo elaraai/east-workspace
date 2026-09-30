@@ -53,9 +53,6 @@ async function withPieceBytes<T>(bytes: number, fn: () => Promise<T>): Promise<T
   }
 }
 
-/** Every input opens paged, whatever its size, as a large one does. */
-const PAGED = { extraEnv: { EAST_LAZY_INPUT_BYTES: '1' } };
-
 const TableType = ArrayType(IntegerType);
 const KeyedType = DictType(IntegerType, IntegerType);
 
@@ -124,13 +121,13 @@ describe('a unit whose collections are placed as its runner reads them', () => {
     assert.ok(segments.length > 4, `the table spans segments, not ${segments.length}`);
 
     const placed: string[] = [];
-    const fetched = await taskExecute(counting(placed, 'download'), repo, taskHash, inputHashes, PAGED);
+    const fetched = await taskExecute(counting(placed, 'download'), repo, taskHash, inputHashes);
     assert.equal(fetched.state, 'success', fetched.error ?? '');
     assert.equal(fetched.outputHash, await datasetWrite(storage, repo, 0n, IntegerType));
     assert.deepEqual(segments.filter((segment) => placed.includes(segment)), [segments[0]], 'only the segment the read lands in');
 
     const linked: string[] = [];
-    const whole = await taskExecute(counting(linked), repo, taskHash, inputHashes, { ...PAGED, force: true });
+    const whole = await taskExecute(counting(linked), repo, taskHash, inputHashes, { force: true });
     assert.equal(whole.outputHash, fetched.outputHash);
     assert.deepEqual(segments.filter((segment) => linked.includes(segment)), segments, 'every segment, linked in before the runner starts');
   });
@@ -152,7 +149,7 @@ describe('a unit whose collections are placed as its runner reads them', () => {
     assert.ok(lookupSegments.length > 4, `the lookup spans segments, not ${lookupSegments.length}`);
 
     const placed: string[] = [];
-    const result = await withPieceBytes(16 * 1024, () => taskExecute(counting(placed, 'download'), repo, taskHash, inputHashes, PAGED));
+    const result = await withPieceBytes(16 * 1024, () => taskExecute(counting(placed, 'download'), repo, taskHash, inputHashes));
     assert.equal(result.state, 'success', result.error ?? '');
     const expected = new SortedMap([...sales].map(([account, amount]) => [account, amount + 7n] as [bigint, bigint]), compareFor(IntegerType));
     assert.equal(result.outputHash, await datasetWrite(storage, repo, expected, KeyedType));
@@ -169,9 +166,9 @@ describe('a unit whose collections are placed as its runner reads them', () => {
     const result = await new LocalTaskRunner(repo).runDetached({
       bodyIr: encodeEastIR(last.toIR()),
       args: [{ dataset: table }],
-      runner: variant('east_node', { platforms: [] }),
+      runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
       limits: { timeoutMs: 60_000, maxResultBytes: 1024, maxLogBytes: 64 * 1024 },
-    }, { storage: counting(placed, 'download'), extraEnv: PAGED.extraEnv });
+    }, { storage: counting(placed, 'download') });
     assert.ok(result.kind === 'success', `the call ended ${result.kind}: ${result.stderr}`);
     assert.equal(decodeBeast2For(IntegerType)(result.value), 49_999n);
     assert.deepEqual(segments.filter((segment) => placed.includes(segment)), [segments.at(-1)], 'only the segment the read lands in');
@@ -198,10 +195,10 @@ describe('a unit whose collections are placed as its runner reads them', () => {
         const { taskHash, inputHashes } = await prepare(tally, [[KeyedType, table]]);
         const segments = await segmentsOf(inputHashes[0]!);
 
-        const whole = await taskExecute(storage, repo, taskHash, inputHashes, PAGED);
+        const whole = await taskExecute(storage, repo, taskHash, inputHashes);
         assert.equal(whole.state, 'success', whole.error ?? '');
         const placed: string[] = [];
-        const fetched = await taskExecute(counting(placed, 'download'), repo, taskHash, inputHashes, { ...PAGED, force: true });
+        const fetched = await taskExecute(counting(placed, 'download'), repo, taskHash, inputHashes, { force: true });
         assert.equal(fetched.state, 'success', fetched.error ?? '');
         assert.equal(fetched.outputHash, whole.outputHash, 'the same output as the input staged whole');
         assert.deepEqual(segments.filter((segment) => placed.includes(segment)), segments, 'every segment the body read was asked for, and placed');

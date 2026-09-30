@@ -66,9 +66,9 @@ the value-add over a plain input.
     state.
   - A program runs as one unit through the task executor, with an execution
     record, logs, cancellation and a timeout. It receives the record as its
-    manifest with the segments linked, which the runner opens lazily past its
-    lazy-open threshold, so an `edit` body reads the segments of the keys it
-    touches. A reducer's result is diffed against the whole state, so a
+    manifest with the segments linked, which the runner opens lazily unless
+    the mutation's runner says to decode its inputs whole, so an `edit` body
+    reads the segments of the keys it touches. A reducer's result is diffed against the whole state, so a
     reducer reads every segment.
   - A mutation whose view of the record is stale — an edit of a key the record
     no longer holds, or a patch whose `before` no longer matches — is a

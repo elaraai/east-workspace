@@ -33,7 +33,9 @@
  * This is what lets a task runner open a huge collection input lazily: a
  * body that only iterates it once, or reads a few keys, never pays the whole
  * decode — while a body that does anything else gets the eager value's exact
- * semantics.
+ * semantics. What a lazy value's reads came to — the segments they decoded,
+ * and whether an operation read it whole — {@link beast2LazyStats} says, for a
+ * runner's account of its inputs.
  */
 
 import { type EastTypeValue } from "../../../type_of_type.js";
@@ -113,6 +115,62 @@ function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?:
  *  often. */
 const READ_WHOLE = Symbol("east.lazy.readWhole");
 
+/** The key of a lazy value's method that says what reading it has come to
+ *  ({@link beast2LazyStats}). */
+const LAZY_STATS = Symbol("east.lazy.stats");
+
+/**
+ * Options accepted by {@link openBeast2LazyFor}: the decode options, and the
+ * gauge a whole read of the value is weighed by.
+ */
+export type Beast2LazyOptions = Beast2DecodeOptions & {
+  /** The process's resident memory now, in bytes. It is read before and after
+   *  an operation the pager cannot serve reads the value whole, so the value
+   *  can say what that read added ({@link beast2LazyStats}). Core reads no
+   *  process state of its own, so a runner passes it: east-node's reads
+   *  `process.memoryUsage.rss()`. Without it, a whole read adds 0. */
+  resident?: () => number;
+};
+
+/**
+ * What reading a lazily opened collection has come to — the account a
+ * runner's `-v` gives of each input it opened lazily, which east-c's pager
+ * keeps for its runners too.
+ */
+export type Beast2LazyStats = {
+  /** The segments the collection is stored in. */
+  segments: number;
+  /** The segment decodes its reads have made: above `segments` when its reads
+   *  decoded a segment again, beyond the few the pager keeps. */
+  segmentsDecoded: number;
+  /** The segment fences its reads probed. */
+  fencesProbed: number;
+  /** Whether an operation the pager cannot serve has read it whole. */
+  hydrated: boolean;
+  /** What that whole read added to resident memory, in bytes, by the
+   *  `resident` gauge the value was opened with: 0 without a gauge, and
+   *  before the value is read whole. */
+  hydratedBytes: number;
+};
+
+/** A lazy value's account of its reads: its pager's, and what reading it
+ *  whole added — `undefined` until an operation the pager cannot serve has. */
+function statsOf(pages: Beast2Pages, wholeBytes: number | undefined): Beast2LazyStats {
+  return {
+    segments: pages.segmentCount,
+    segmentsDecoded: pages.segmentsDecoded,
+    fencesProbed: pages.fencesProbed,
+    hydrated: wholeBytes !== undefined,
+    hydratedBytes: wholeBytes ?? 0,
+  };
+}
+
+/** What a whole read that began at `before` added to resident memory by
+ *  `resident`: 0 without a gauge, and never below 0. */
+function grownSince(resident: (() => number) | undefined, before: number): number {
+  return resident === undefined ? 0 : Math.max(0, resident() - before);
+}
+
 /** Streams a Set or Dict blob's elements — pairs, for a Dict — as east-c's
  *  paged loop walks them: every segment fence verified before the first
  *  element, and each segment checked against the next fence as it is read. */
@@ -131,19 +189,28 @@ function* walkDisjoint<E>(pages: Beast2Pages): Generator<E> {
  */
 class LazySortedMap<K, V> extends SortedMap<K, V> {
   private hydrated = false;
+  /** What reading the map whole added to resident memory, once an operation
+   *  the pager cannot serve has; `undefined` until then. */
+  private wholeBytes: number | undefined;
 
   // A frozen lazy map cannot be Object.freeze'd — hydration writes through
   // its own internals — so the flag guards the mutators and the frozen
   // registry carries the brand (see openBeast2LazyFor).
-  constructor(private readonly pages: Beast2Pages, private readonly cmp: (a: K, b: K) => number, private readonly frozen: boolean = false) {
+  constructor(
+    private readonly pages: Beast2Pages,
+    private readonly cmp: (a: K, b: K) => number,
+    private readonly frozen: boolean = false,
+    private readonly resident?: () => number,
+  ) {
     super(undefined, cmp);
   }
 
-  /** Decodes every segment into the underlying B-tree once. A read that fails
-   *  leaves the map unread rather than half-filled, so the next access reads
-   *  again. */
+  /** Decodes every segment into the underlying B-tree once, weighing what that
+   *  adds to resident memory. A read that fails leaves the map unread rather
+   *  than half-filled, so the next access reads again. */
   private hydrate(): void {
     if (this.hydrated) return;
+    const before = this.resident?.() ?? 0;
     try {
       for (const [k, v] of lazyDictEntries<K, V>(this.pages, this.cmp)) {
         super.set(k, v);
@@ -153,11 +220,17 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
       throw err;
     }
     this.hydrated = true;
+    this.wholeBytes = grownSince(this.resident, before);
   }
 
   /** What {@link readLazyWhole} runs. */
   [READ_WHOLE](): void {
     this.hydrate();
+  }
+
+  /** What {@link beast2LazyStats} reads. */
+  [LAZY_STATS](): Beast2LazyStats {
+    return statsOf(this.pages, this.wholeBytes);
   }
 
   /** The entries a compiled loop walks ({@link loopWalk}). */
@@ -275,19 +348,28 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
  */
 class LazySortedSet<K> extends SortedSet<K> {
   private hydrated = false;
+  /** What reading the set whole added to resident memory, once an operation
+   *  the pager cannot serve has; `undefined` until then. */
+  private wholeBytes: number | undefined;
 
   // A frozen lazy set cannot be Object.freeze'd — hydration writes through
   // its own internals — so the flag guards the mutators and the frozen
   // registry carries the brand (see openBeast2LazyFor).
-  constructor(private readonly pages: Beast2Pages, private readonly cmp: (a: K, b: K) => number, private readonly frozen: boolean = false) {
+  constructor(
+    private readonly pages: Beast2Pages,
+    private readonly cmp: (a: K, b: K) => number,
+    private readonly frozen: boolean = false,
+    private readonly resident?: () => number,
+  ) {
     super(undefined, cmp);
   }
 
-  /** Decodes every segment into the underlying B-tree once. A read that fails
-   *  leaves the set unread rather than half-filled, so the next access reads
-   *  again. */
+  /** Decodes every segment into the underlying B-tree once, weighing what that
+   *  adds to resident memory. A read that fails leaves the set unread rather
+   *  than half-filled, so the next access reads again. */
   private hydrate(): void {
     if (this.hydrated) return;
+    const before = this.resident?.() ?? 0;
     try {
       for (const k of lazySetKeys<K>(this.pages, this.cmp)) {
         super.add(k);
@@ -297,11 +379,17 @@ class LazySortedSet<K> extends SortedSet<K> {
       throw err;
     }
     this.hydrated = true;
+    this.wholeBytes = grownSince(this.resident, before);
   }
 
   /** What {@link readLazyWhole} runs. */
   [READ_WHOLE](): void {
     this.hydrate();
+  }
+
+  /** What {@link beast2LazyStats} reads. */
+  [LAZY_STATS](): Beast2LazyStats {
+    return statsOf(this.pages, this.wholeBytes);
   }
 
   /** The elements a compiled loop walks ({@link loopWalk}). */
@@ -441,13 +529,17 @@ const LAZY_ARRAY_READS = new Set<PropertyKey>(["entries", "keys", "values", "for
  *  the pager; any other access hydrates the target array in place. The
  *  proxy IS the value, so identity-keyed host state (iteration locks,
  *  freezes) survives hydration. */
-function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
+function lazyArray(pages: Beast2Pages, frozen: boolean = false, resident?: () => number): unknown[] {
   const target: unknown[] = [];
   let hydrated = false;
+  // What reading the array whole added to resident memory, once an operation
+  // the pager cannot serve has.
+  let wholeBytes: number | undefined;
   // A read that fails leaves the array unread rather than half-filled, so
   // the next access reads again.
   const hydrate = (): void => {
     if (hydrated) return;
+    const before = resident?.() ?? 0;
     try {
       for (let i = 0; i < pages.segmentCount; i++) {
         // Element-by-element append — a spread (`push(...segment)`) passes the
@@ -460,7 +552,9 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
       throw err;
     }
     hydrated = true;
+    wholeBytes = grownSince(resident, before);
   };
+  const stats = (): Beast2LazyStats => statsOf(pages, wholeBytes);
   function* elements(): Generator<unknown> {
     for (let i = 0; i < pages.segmentCount; i++) {
       yield* served(() => pages.segment(i)) as unknown[];
@@ -484,6 +578,7 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
   const proxy: unknown[] = new Proxy(target, {
     get(t, prop, receiver) {
       if (prop === READ_WHOLE) return hydrate;
+      if (prop === LAZY_STATS) return stats;
       if (!hydrated) {
         if (prop === "length") return pages.elementCount;
         if (LAZY_ARRAY_READS.has(prop)) return lazyReads[prop];
@@ -580,6 +675,34 @@ export function readLazyWhole(value: unknown): void {
 }
 
 /**
+ * Reads what reading a lazily opened collection has come to: the segment
+ * decodes and fence probes its reads made, and whether an operation the pager
+ * cannot serve read it whole, with what that added to resident memory.
+ *
+ * A runner's `-v` gives this account of each input it opened lazily, as
+ * east-c's runners give theirs from east-c's pager: reads that decode segments
+ * again, or an operation that read the input whole anyway, say that decoding
+ * it whole before the program runs would serve the program better.
+ *
+ * @param value - an East value
+ * @returns the account, or `undefined` when `value` is not a collection
+ *   {@link openBeast2LazyFor} opened
+ *
+ * @example
+ * ```ts
+ * const open = openBeast2LazyFor(TableType, { frozen: true, resident: () => process.memoryUsage.rss() });
+ * const table = open(blob);
+ * table.get(42n);
+ * beast2LazyStats(table);  // { segments: 4, segmentsDecoded: 1, fencesProbed: 4, hydrated: false, hydratedBytes: 0 }
+ * beast2LazyStats(new Map());  // undefined
+ * ```
+ */
+export function beast2LazyStats(value: unknown): Beast2LazyStats | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  return (value as { [LAZY_STATS]?: () => Beast2LazyStats })[LAZY_STATS]?.();
+}
+
+/**
  * Builds a curried lazy opener: `open(source)` returns an ordinary collection
  * value — a `SortedMap`, `SortedSet`, or array — backed by the blob's
  * segment index instead of a whole decode.
@@ -606,31 +729,36 @@ export function readLazyWhole(value: unknown): void {
  * raises at the operation that made the read. A hydration that fails leaves
  * the value unread, so the next access reads the blob again.
  *
+ * What the value's reads came to — its segment decodes and fence probes, and
+ * whether it was read whole, weighed by `options.resident` — is
+ * {@link beast2LazyStats}'s to say.
+ *
  * @param type - the collection type (Array/Set/Dict)
  * @param options - decode options (platform functions for decoded functions,
- *   frozen)
+ *   frozen), and the gauge a whole read of the value is weighed by
  * @returns a function opening a blob as a lazy collection value
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
-export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => ValueTypeOf<T> {
+export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2LazyOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => ValueTypeOf<T> {
   const typeValue = asTypeValue(type);
   if (!isSegmentedRoot(typeValue)) {
     throw new TypeError(`beast2 v5 lazy values hold Array, Set or Dict roots, not ${typeValue.type}`);
   }
   const frozen = options?.frozen ?? false;
+  const resident = options?.resident;
   return (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => {
     // The pages carry the decode options, so every segment (and fence) the
     // lazy value serves is decoded frozen at construction.
     const pages = new Beast2Pages(source, typeValue, options);
     let value: unknown;
     if (typeValue.type === "Array") {
-      value = lazyArray(pages, frozen);
+      value = lazyArray(pages, frozen, resident);
     } else if (typeValue.type === "Set") {
       const cmp = compareFor((typeValue as any).value) as (a: unknown, b: unknown) => number;
-      value = new LazySortedSet(pages, cmp, frozen);
+      value = new LazySortedSet(pages, cmp, frozen, resident);
     } else {
       const cmp = compareFor((typeValue as any).value.key) as (a: unknown, b: unknown) => number;
-      value = new LazySortedMap(pages, cmp, frozen);
+      value = new LazySortedMap(pages, cmp, frozen, resident);
     }
     // Lazy values cannot be Object.freeze'd (hydration writes through their
     // own internals), so the registry carries the frozen brand.
@@ -731,8 +859,8 @@ export type Beast2LazySafeOptions = {
  * for every practical shape. Only `Ref`- and function-bearing element shapes
  * still force the eager (frozen) decode.
  *
- * Runners consult this before opening a large input lazily; an unsafe shape
- * falls back to the eager whole decode (always correct, just not O(segment)).
+ * Runners consult this before opening an input lazily; an unsafe shape falls
+ * back to the eager whole decode (always correct, just not O(segment)).
  *
  * @param type - the candidate input type
  * @param options - gate options (`frozen` for frozen opens)

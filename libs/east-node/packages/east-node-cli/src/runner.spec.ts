@@ -48,7 +48,7 @@ import {
   variant,
 } from '@elaraai/east';
 
-import { runProgram, lazyThreshold } from './runner.js';
+import { runProgram } from './runner.js';
 import { mergeBlobs } from './merge.js';
 
 /** Runs `run` with console.error captured; returns what it printed. */
@@ -62,18 +62,6 @@ async function stderrOf(run: () => Promise<unknown>): Promise<string> {
     console.error = original;
   }
   return lines.join('\n');
-}
-
-/** Runs `run` with the lazy-open threshold set to `bytes`. */
-async function withLazyThreshold<T>(bytes: number, run: () => Promise<T>): Promise<T> {
-  const saved = process.env.EAST_LAZY_INPUT_BYTES;
-  process.env.EAST_LAZY_INPUT_BYTES = String(bytes);
-  try {
-    return await run();
-  } finally {
-    if (saved === undefined) delete process.env.EAST_LAZY_INPUT_BYTES;
-    else process.env.EAST_LAZY_INPUT_BYTES = saved;
-  }
 }
 
 /** `promise`'s value, or `undefined` once `ms` pass first — a bounded wait. */
@@ -161,14 +149,14 @@ describe('lazy inputs', () => {
 
     const fn = East.function([DT], StringType, ($, table) => table.get(1234n));
     const outputPath = join(tempDir, 'output.beast2');
-    // Threshold of 1 byte forces the lazy open for any input size.
-    await withLazyThreshold(1, () => runProgram(writeIr(fn), [], [], [inputPath], outputPath));
+    // Every collection input opens lazily, whatever it weighs.
+    await runProgram(writeIr(fn), [], [], [inputPath], outputPath);
 
     const result = decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath)));
     assert.equal(result, 'row-1234');
   });
 
-  it('reports a lazily opened input in verbose output', async () => {
+  it('reports a lazily opened input in verbose output, and what an input decoded whole holds', async () => {
     const DT = DictType(IntegerType, StringType);
     const table = new SortedMap<bigint, string>(
       Array.from({ length: 500 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]),
@@ -180,21 +168,82 @@ describe('lazy inputs', () => {
     const fn = East.function([DT], StringType, ($, table) => table.get(42n));
     const outputPath = join(tempDir, 'output.beast2');
 
-    const err = await stderrOf(() => withLazyThreshold(1, () => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true)));
+    const err = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true));
     assert.ok(err.includes('input 0: opened lazily'), `verbose output names the lazy input:\n${err}`);
+    assert.ok(!err.includes('decoded whole'), `a lazy input is not decoded whole:\n${err}`);
+    assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), 'row-42');
+
+    // `whole` decodes it before the program runs, and says what it holds.
+    const whole = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true, variant('whole', null)));
+    assert.ok(!whole.includes('opened lazily'), `a whole input opened lazily:\n${whole}`);
+    assert.match(whole, /input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident/);
     assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), 'row-42');
   });
 
-  it('a lazily opened wide input reads a fraction of the file and stays below the eager run\'s residency', { skip: process.platform === 'win32' ? 'no RSS comparison on Windows' : false }, () => {
+  it('says a lazy input an operation read whole, and what that added to resident memory, in east-c\'s and east-py\'s words', async () => {
+    // A struct holds what it is built from whole, which the pager cannot
+    // serve: the input opens lazily, and the body reads it whole once.
+    const DT = DictType(IntegerType, StringType);
+    const inputPath = join(tempDir, 'table.beast2');
+    writeFileSync(inputPath, encodeBeast2PagedFor(DT)(new SortedMap<bigint, string>(
+      Array.from({ length: 500 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]),
+      compareFor(IntegerType),
+    )));
+    const Boxed = StructType({ table: DT });
+    const fn = East.function([DT], IntegerType, ($, table) => {
+      const boxed = $.let({ table }, Boxed);
+      return boxed.table.size();
+    });
+    const outputPath = join(tempDir, 'output.beast2');
+
+    const err = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true));
+    assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 500n);
+    assert.ok(err.includes('input 0: opened lazily'), err);
+    assert.match(err, /input 0: decoded whole \(an operation the pager cannot serve\) — \+[\d.]+ (B|KB|MB) resident/);
+    assert.ok(!err.includes(' read of '), `a whole read says so, not the bytes it read:\n${err}`);
+  });
+
+  it('says a lazy input\'s reads decoded its segments again, in east-c\'s and east-py\'s words', async () => {
+    // Keyed reads that cycle over five segments, one more than the pager
+    // keeps: each read decodes its segment again.
+    const DT = DictType(IntegerType, StringType);
+    const entries = Array.from({ length: 500 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]);
+    const inputPath = join(tempDir, 'table.beast2');
+    writeFileSync(inputPath, encodeBeast2SegmentsFor(DT)(Array.from({ length: 5 }, (_, i) => new Map(entries.slice(i * 100, (i + 1) * 100)))));
+    const fn = East.function([DT], IntegerType, ($, table) => {
+      const hits = $.let(0n);
+      $.for(East.Array.range(0n, 50n), ($, i) => {
+        $.if(table.has(i.remainder(5n).multiply(100n)), ($) => {
+          $.assign(hits, hits.add(1n));
+        });
+      });
+      return hits;
+    });
+    const outputPath = join(tempDir, 'output.beast2');
+
+    const err = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true));
+    assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 50n);
+    const account = /input 0: (\d+) segment decodes of its (\d+) segments, (\d+) fences probed — its reads land at random beyond the segments kept, so decoding it whole would decode each once/.exec(err);
+    assert.ok(account !== null, `the reads' account:\n${err}`);
+    assert.deepEqual(account.slice(1).map(Number), [50, 5, 5], 'every read decoded its segment, and the fences were probed once');
+
+    // Decoded whole before the program runs, the input has no reads to account for.
+    const whole = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true, variant('whole', null)));
+    assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 50n);
+    assert.ok(!whole.includes('segment decodes'), whole);
+  });
+
+  it('a lazily opened wide input reads a fraction of the file and stays below the whole run\'s residency', { skip: process.platform === 'win32' ? 'no RSS comparison on Windows' : false }, () => {
     // A keyed read twice through the CLI binary, each run its own process:
-    // the lazy run pages the wide file from its descriptor, the eager
-    // control reads and decodes it whole. The runner's verbose summary
+    // the lazy run pages the wide file from its descriptor, the `--decode
+    // whole` control reads and decodes it whole. The runner's verbose summary
     // accounts for every byte the lazy input read (geometry, fence probes,
     // the one decoded segment), and that count must be a fraction of the
     // file — the exact gate a positioned-read runtime allows, where RSS
     // alone would not be (Node's own baseline wanders by more than a
-    // segment between identical runs). The eager control's RSS must still
-    // sit above the lazy run's: it pays the file's bytes plus every row.
+    // segment between identical runs). The whole control's RSS must still
+    // sit above the lazy run's: it pays the file's bytes plus every row, and
+    // it says what the input holds in memory.
     const DT = DictType(IntegerType, StringType);
     const rows = 160_000;
     const table = new SortedMap<bigint, string>(
@@ -212,23 +261,25 @@ describe('lazy inputs', () => {
     // dependency of this package, so point the loader at the package itself.
     const stdDir = fileURLToPath(new URL('../../east-node-std', import.meta.url));
 
-    const run = (threshold: string): string => {
-      const outputPath = join(tempDir, `wide-${threshold}.beast2`);
-      const result = spawnSync(process.execPath, [bin, 'run', irPath, '-p', '@elaraai/east-node-std', '-i', inputPath, '-o', outputPath, '-v'], {
-        env: { ...process.env, EAST_LAZY_INPUT_BYTES: threshold, E3_RUNNER_SEARCH_DIRS: stdDir },
+    const run = (decode: 'lazy' | 'whole'): string => {
+      const outputPath = join(tempDir, `wide-${decode}.beast2`);
+      const result = spawnSync(process.execPath, [bin, 'run', irPath, '-p', '@elaraai/east-node-std', '-i', inputPath, '-o', outputPath, '--decode', decode, '-v'], {
+        env: { ...process.env, E3_RUNNER_SEARCH_DIRS: stdDir },
         encoding: 'utf8',
       });
       assert.equal(result.status, 0, result.stderr);
       assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), table.get(42n));
       return result.stderr;
     };
-    const lazyErr = run('1');
-    const eagerErr = run('0');
+    const lazyErr = run('lazy');
+    const eagerErr = run('whole');
     assert.ok(lazyErr.includes('input 0: opened lazily'), lazyErr);
     assert.ok(!eagerErr.includes('opened lazily'), eagerErr);
+    assert.match(eagerErr, /input 0: decoded whole — \+[\d.]+ MB resident/);
     const sizeMb = (m: RegExpExecArray | null): number | null =>
       m ? Number(m[1]) / (m[2] === 'B' ? 1024 * 1024 : m[2] === 'KB' ? 1024 : 1) : null;
-    const read = sizeMb(/input 0: ([\d.]+) (B|KB|MB) read of/.exec(lazyErr));
+    assert.match(lazyErr, /input 0: 1 of (\d+) segments decoded, \1 fences probed — /, 'one segment decoded, every fence probed once');
+    const read = sizeMb(/input 0: .* — ([\d.]+) (B|KB|MB) read of/.exec(lazyErr));
     assert.ok(read !== null, `the summary accounts for the lazy input's reads:\n${lazyErr}`);
     assert.ok(read! < wireMb / 2, `the lazy input read ${read!.toFixed(1)} MB of a ${wireMb.toFixed(1)} MB file — was it read whole?`);
     const peak = (err: string): number | null => sizeMb(/Peak RSS:\s+([\d.]+) (MB)/.exec(err));
@@ -598,7 +649,7 @@ describe('the blob merge and the stdin lifeline (#770)', () => {
     writeIr('spin.beast2', spin);
     const unitPath = join(tempDir, 'unit.beast2');
     writeFileSync(unitPath, encodeBeast2For(UnitType)({
-      work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'spin-output') }),
+      work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'spin-output'), decode: variant('lazy', null) }),
       platforms: [],
       threads: 1n,
       fetch: false,
@@ -792,10 +843,9 @@ describe('frozen inputs', () => {
 
   it('the frozen shape gate admits nested containers lazily, blob or manifest: reads serve, writes refuse', async () => {
     // Frozen is what makes lazy service safe for nested element shapes, so
-    // with a 1-byte threshold this opens pager-backed AND immutable. A gate
-    // that refused the shape would fall back to the eager frozen decode, which
-    // answers both the same, so the runner's own account, under -v, is what
-    // says the input was paged.
+    // this opens pager-backed AND immutable. A gate that refused the shape
+    // would fall back to the whole frozen decode, which answers both the same,
+    // so the runner's own account, under -v, is what says the input was paged.
     const read = East.function([NestedT], IntegerType, ($, d) => d.get(1n).xs.size());
     const write = East.function([NestedT], IntegerType, ($, d) => {
       const row = $.let(d.get(1n));
@@ -804,42 +854,55 @@ describe('frozen inputs', () => {
     });
     for (const input of [writeNestedInput(), writeNestedManifest()]) {
       const outputPath = join(tempDir, 'out.beast2');
-      const readErr = await stderrOf(() => withLazyThreshold(1, () => runProgram(writeIr(read), [], [], [input], outputPath, true)));
+      const readErr = await stderrOf(() => runProgram(writeIr(read), [], [], [input], outputPath, true));
       assert.ok(readErr.includes('input 0: opened lazily'), `${input} was paged:\n${readErr}`);
       assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 2n);
 
-      const writeErr = await stderrOf(() => withLazyThreshold(1, () => assert.rejects(
+      const writeErr = await stderrOf(() => assert.rejects(
         runProgram(writeIr(write), [], [], [input], join(tempDir, 'out2.beast2'), true),
         /cannot mutate a frozen value \(task inputs are immutable\) — copy first/,
-      )));
+      ));
       assert.ok(writeErr.includes('input 0: opened lazily'), `${input} was paged:\n${writeErr}`);
     }
   });
 });
 
-describe('lazy input threshold resolution', () => {
-  const saved = process.env.EAST_LAZY_INPUT_BYTES;
+describe('--decode', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'east-node-decode-'));
+  });
 
   afterEach(() => {
-    if (saved === undefined) delete process.env.EAST_LAZY_INPUT_BYTES;
-    else process.env.EAST_LAZY_INPUT_BYTES = saved;
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('defaults to 64 MiB when the environment variable is unset or empty', () => {
-    delete process.env.EAST_LAZY_INPUT_BYTES;
-    assert.equal(lazyThreshold(), 64 * 1024 * 1024);
-    process.env.EAST_LAZY_INPUT_BYTES = '';
-    assert.equal(lazyThreshold(), 64 * 1024 * 1024, 'empty must fall through to the default, not disable lazy opening');
-  });
+  it('opens collection inputs lazily unless it says whole, the same choice east-c and east-py take, and refuses anything else', () => {
+    const DT = DictType(IntegerType, StringType);
+    const inputPath = join(tempDir, 'table.beast2');
+    writeFileSync(inputPath, encodeBeast2PagedFor(DT)(new SortedMap([[1n, 'a'], [2n, 'b']], compareFor(IntegerType))));
+    const irPath = join(tempDir, 'program.beast2');
+    writeFileSync(irPath, encodeEastIR(East.function([DT], StringType, ($, table) => table.get(2n)).toIR()));
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    const stdDir = fileURLToPath(new URL('../../east-node-std', import.meta.url));
+    const run = (...flags: string[]) => spawnSync(process.execPath,
+      [bin, 'run', irPath, '-p', '@elaraai/east-node-std', '-i', inputPath, '-v', ...flags],
+      { env: { ...process.env, E3_RUNNER_SEARCH_DIRS: stdDir }, encoding: 'utf8' });
 
-  it('honours numeric overrides, 0 as the kill switch, and falls back on invalid values', () => {
-    process.env.EAST_LAZY_INPUT_BYTES = '0';
-    assert.equal(lazyThreshold(), 0, '0 disables lazy opening');
-    process.env.EAST_LAZY_INPUT_BYTES = '123';
-    assert.equal(lazyThreshold(), 123);
-    process.env.EAST_LAZY_INPUT_BYTES = '-5';
-    assert.equal(lazyThreshold(), 64 * 1024 * 1024, 'negative values fall back to the default');
-    process.env.EAST_LAZY_INPUT_BYTES = 'not-a-number';
-    assert.equal(lazyThreshold(), 64 * 1024 * 1024, 'garbage falls back to the default');
+    for (const flags of [[], ['--decode', 'lazy']]) {
+      const lazy = run(...flags);
+      assert.equal(lazy.status, 0, lazy.stderr);
+      assert.ok(lazy.stderr.includes('input 0: opened lazily'), `${flags.join(' ') || 'no flag'}:\n${lazy.stderr}`);
+      assert.equal(lazy.stdout.trim(), '"b"');
+    }
+    const whole = run('--decode', 'whole');
+    assert.equal(whole.status, 0, whole.stderr);
+    assert.match(whole.stderr, /input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident/);
+    assert.equal(whole.stdout.trim(), '"b"');
+
+    const refused = run('--decode', 'eager');
+    assert.equal(refused.status, 1);
+    assert.equal(refused.stderr.trim(), 'Error: --decode takes lazy or whole, not eager');
   });
 });

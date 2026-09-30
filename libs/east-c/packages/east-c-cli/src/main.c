@@ -2,7 +2,7 @@
  * east-c CLI — Run compiled East IR programs from the command line.
  *
  * Usage:
- *   east-c run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v]
+ *   east-c run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [--decode lazy|whole] [-v]
  *   east-c exec <unit> [-v]
  *   east-c version [-p PACKAGE...]
  */
@@ -14,7 +14,6 @@
 #include <east/ir_normalize.h>
 #include <east_std/east_std.h>
 
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,12 +39,12 @@ static char *format_type(EastType *t)
     return s;
 }
 
-/* Write a file-size string into buf. Uses B / KB / MB depending on size. */
-static void format_size(off_t bytes, char *buf, size_t buflen)
+/* Write a size string into buf. Uses B / KB / MB depending on size. */
+static void format_size(uint64_t bytes, char *buf, size_t buflen)
 {
     if (bytes < 1024) {
-        snprintf(buf, buflen, "%lld B", (long long)bytes);
-    } else if (bytes < 1024L * 1024L) {
+        snprintf(buf, buflen, "%llu B", (unsigned long long)bytes);
+    } else if (bytes < 1024u * 1024u) {
         snprintf(buf, buflen, "%.1f KB", (double)bytes / 1024.0);
     } else {
         snprintf(buf, buflen, "%.1f MB", (double)bytes / (1024.0 * 1024.0));
@@ -57,7 +56,7 @@ static void format_file_size(const char *path, char *buf, size_t buflen)
 {
     struct stat st;
     if (stat(path, &st) == 0) {
-        format_size(st.st_size, buf, buflen);
+        format_size((uint64_t)st.st_size, buf, buflen);
     } else {
         snprintf(buf, buflen, "?");
     }
@@ -286,37 +285,9 @@ static EastValue *load_value(const char *path, EastType *type)
     return NULL;
 }
 
-/* east-node parity: the size threshold at or above which indexed beast2
- * collection inputs open lazily. EAST_LAZY_INPUT_BYTES overrides (0
- * disables); default 64 MiB. Digits only, no overflow: strtoull silently
- * wraps negatives ("-5" parses as a huge value) and saturates past
- * ULLONG_MAX — both must fall back to the default, like the sibling
- * runners, rather than enabling a bogus threshold. */
-static size_t lazy_input_threshold(void)
-{
-    const char *env = getenv("EAST_LAZY_INPUT_BYTES");
-    if (env && *env) {
-        bool digits = true;
-        for (const char *p = env; *p; p++) {
-            if (*p < '0' || *p > '9') {
-                digits = false;
-                break;
-            }
-        }
-        if (digits) {
-            errno = 0;
-            char *end = NULL;
-            unsigned long long v = strtoull(env, &end, 10);
-            if (errno == 0 && end && *end == '\0' && v <= (unsigned long long)SIZE_MAX)
-                return (size_t)v;
-        }
-    }
-    return (size_t)64 * 1024 * 1024;
-}
-
 /* The bytes a manifest's collection comes to: the segments it names. A
  * manifest is a few dozen bytes per segment whatever the collection weighs,
- * so its own file's size would put any input under the lazy threshold. */
+ * so its own file's size would say nothing of what the input holds. */
 static size_t manifest_segment_bytes(EastValue *manifest)
 {
     EastValue *entries = east_struct_get_field_idx(manifest, 5);
@@ -354,19 +325,18 @@ static EastValue *load_manifest_input(const char *path, EastValue *manifest, Eas
 
 /* Loads input value `path`, always FROZEN — task inputs are immutable
  * (mutating builtins raise the uniform copy-first error, and frozen
- * collections compare by value). A beast2 collection input opens lazily when
- * it weighs `threshold` bytes or more (0 disables): an indexed blob as a paged
- * value over a mapping of the file
- * (map_input_file: the input's residency is the page cache and the heap holds
- * one decoded segment at a time — issue #505; the value releases the mapping
- * through input_release_mapping; *mapped_out reports it), and a manifest over
- * its directory's segment files. Anything not pageable (other formats,
- * index-less or aliased blobs, Ref- or function-bearing element shapes)
- * silently decodes whole, exactly like east-node's runner. Non-beast2 formats
+ * collections compare by value). With `lazy`, a beast2 collection input opens
+ * lazily, whatever it weighs: an indexed blob as a paged value over a mapping
+ * of the file (map_input_file: the input's residency is the page cache and
+ * the heap holds one decoded segment at a time — issue #505; the value
+ * releases the mapping through input_release_mapping; *mapped_out reports
+ * it), and a manifest over its directory's segment files. Anything not
+ * pageable (other formats, index-less or aliased blobs, Ref- or
+ * function-bearing element shapes) silently decodes whole, exactly like
+ * east-node's runner, as does every input without `lazy`. Non-beast2 formats
  * have no frozen decoder, so the decoded value round-trips through a canonical
  * beast2 encode + frozen decode, like east-py's runner. */
-static EastValue *load_input_value(const char *path, EastType *type, size_t threshold,
-                                   bool *mapped_out)
+static EastValue *load_input_value(const char *path, EastType *type, bool lazy, bool *mapped_out)
 {
     if (mapped_out) *mapped_out = false;
     if (detect_format(path) != FMT_BEAST2) {
@@ -400,7 +370,6 @@ static EastValue *load_input_value(const char *path, EastType *type, size_t thre
     EastValue *manifest = NULL;
     int found = collection ? east_beast2_read_manifest(data, len, &manifest) : 0;
     if (found != 0) {
-        size_t weight = found == 1 ? len + manifest_segment_bytes(manifest) : 0;
         input_release_mapping(map_ctx, data, len);
         if (found == -1) {
             char *err = east_builtin_get_error();
@@ -409,12 +378,11 @@ static EastValue *load_input_value(const char *path, EastType *type, size_t thre
             free(err);
             return NULL;
         }
-        bool lazy = threshold > 0 && weight >= threshold;
         EastValue *val = load_manifest_input(path, manifest, type, lazy, mapped_out);
         east_value_release(manifest);
         return val;
     }
-    if (collection && threshold > 0 && len >= threshold) {
+    if (collection && lazy) {
         EastValue *paged =
             east_beast2_open_paged_external(data, len, type, true, input_release_mapping, map_ctx);
         if (paged) {
@@ -431,8 +399,7 @@ static EastValue *load_input_value(const char *path, EastType *type, size_t thre
 }
 
 /* What input `path` weighs, for the -v account: a manifest's own file is a
- * few dozen bytes per segment, so a manifest counts the segments it names —
- * the weight the lazy threshold is taken against. */
+ * few dozen bytes per segment, so a manifest counts the segments it names. */
 static void format_input_size(const char *path, char *buf, size_t buflen)
 {
     size_t len = 0;
@@ -441,7 +408,7 @@ static void format_input_size(const char *path, char *buf, size_t buflen)
     EastValue *manifest = NULL;
     int found = data ? east_beast2_read_manifest(data, len, &manifest) : 0;
     if (found == 1) {
-        format_size((off_t)(len + manifest_segment_bytes(manifest)), buf, buflen);
+        format_size((uint64_t)(len + manifest_segment_bytes(manifest)), buf, buflen);
         east_value_release(manifest);
     } else {
         if (found == -1) free(east_builtin_get_error());
@@ -468,19 +435,44 @@ static void report_input_lazy(size_t i)
     fprintf(stderr, "  input %zu: opened lazily — mapped from the file\n", i);
 }
 
+/* The -v account of an input decoded whole as it was loaded: the growth in
+ * resident memory across its decode — what it holds in memory, as a runner
+ * that loads its inputs first sees it — beside what it weighs on disk. */
+static void report_input_whole(size_t i, long kb)
+{
+    char size[32];
+    format_size((uint64_t)(kb > 0 ? kb : 0) * 1024u, size, sizeof(size));
+    fprintf(stderr, "  input %zu: decoded whole — +%s resident\n", i, size);
+}
+
 /* The -v account of what reading a lazily opened input came to — the account
  * residency cannot give on a mapping, where the kernel decides how much of a
- * touched file is resident. Nothing for an input read whole. */
+ * touched file is resident. An operation the pager cannot serve decodes it
+ * whole, and says how much resident memory that added; reads that decode
+ * segments again land at random beyond the segments the pager keeps. Nothing
+ * for an input read whole. */
 static void report_input_reads(size_t i, EastValue *input)
 {
     size_t segments = 0, decoded = 0, fences = 0;
     bool hydrated = false;
     if (!east_paged_stats(input, &segments, &decoded, &fences, &hydrated)) return;
-    if (hydrated)
-        fprintf(stderr, "  input %zu: decoded whole (an operation the pager cannot serve)\n", i);
-    else
+    if (hydrated) {
+        char size[32];
+        long kb = east_paged_hydrated_kb(input);
+        format_size((uint64_t)(kb > 0 ? kb : 0) * 1024u, size, sizeof(size));
+        fprintf(stderr,
+                "  input %zu: decoded whole (an operation the pager cannot serve) — +%s resident\n",
+                i, size);
+    } else if (decoded > segments) {
+        fprintf(stderr,
+                "  input %zu: %zu segment decodes of its %zu segments, %zu fences probed — its "
+                "reads land at random beyond the segments kept, so decoding it whole would "
+                "decode each once\n",
+                i, decoded, segments, fences);
+    } else {
         fprintf(stderr, "  input %zu: %zu of %zu segments decoded, %zu fences probed\n", i, decoded,
                 segments, fences);
+    }
 }
 
 static int save_value(const char *path, EastValue *value, EastType *type)
@@ -716,9 +708,36 @@ static char *format_signature(EastType *fn_type)
     return strdup(sig_buf);
 }
 
+/* Loads a program's inputs, frozen: each collection lazily unless `whole`
+ * says to decode every input whole. With `verbose`, says how each opened —
+ * lazily, or decoded whole, and then the resident memory it added. Returns `n`
+ * when every input loaded; otherwise the index of the one that could not be
+ * read (message on stderr), with those before it released. */
+static size_t load_inputs(const char *const *paths, EastType **types, size_t n, bool whole,
+                          bool verbose, EastValue **args)
+{
+    for (size_t i = 0; i < n; i++) {
+        bool mapped = false;
+        long before = verbose ? east_resident_kb() : 0;
+        args[i] = load_input_value(paths[i], types[i], !whole, &mapped);
+        if (!args[i]) {
+            for (size_t j = 0; j < i; j++) {
+                east_value_release(args[j]);
+                args[j] = NULL;
+            }
+            return i;
+        }
+        if (verbose && mapped)
+            report_input_lazy(i);
+        else if (verbose)
+            report_input_whole(i, east_resident_kb() - before);
+    }
+    return n;
+}
+
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
-                   const char **input_files, int num_inputs, const char *output_file, bool verbose,
-                   bool profile)
+                   const char **input_files, int num_inputs, const char *output_file, bool whole,
+                   bool verbose, bool profile)
 {
     /* Init type system */
     east_type_of_type_init();
@@ -801,31 +820,24 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     }
 
     /* Load inputs with type-directed parsing (paths already listed in the
-     * Function section above). Collection inputs open lazily at or above the
-     * size threshold. */
+     * Function section above): each collection lazily, unless --decode whole
+     * says to decode them whole. */
     size_t num_args = (size_t)num_inputs;
-    size_t threshold = lazy_input_threshold();
     EastValue **args = NULL;
     if (num_args > 0) {
         args = calloc(num_args, sizeof(EastValue *));
-        for (int i = 0; i < num_inputs; i++) {
-            bool mapped = false;
-            args[i] = load_input_value(input_files[i], param_types[i], threshold, &mapped);
-            if (verbose && mapped) report_input_lazy((size_t)i);
-            if (!args[i]) {
-                char *ts = format_type(param_types[i]);
-                fprintf(stderr, "Error: Failed to parse input %d (%s) as %s\n", i, input_files[i],
-                        ts ? ts : "?");
-                free(ts);
-                for (int j = 0; j < i; j++)
-                    east_value_release(args[j]);
-                free(args);
-                ir_node_release(ir);
-                east_source_map_release(decoded_source_map);
-                platform_registry_free(platform);
-                builtin_registry_free(builtins);
-                return 1;
-            }
+        size_t i = load_inputs(input_files, param_types, num_args, whole, verbose, args);
+        if (i < num_args) {
+            char *ts = format_type(param_types[i]);
+            fprintf(stderr, "Error: Failed to parse input %zu (%s) as %s\n", i, input_files[i],
+                    ts ? ts : "?");
+            free(ts);
+            free(args);
+            ir_node_release(ir);
+            east_source_map_release(decoded_source_map);
+            platform_registry_free(platform);
+            builtin_registry_free(builtins);
+            return 1;
         }
     }
 
@@ -1102,16 +1114,15 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock, bool verbose)
         r = exec_error("exec: the output's function cannot be loaded");
     if (r.status != EVAL_ERROR && unit->output.kind == EAST_UNIT_FOLD && emit_type &&
         emit_type->kind == EAST_TYPE_FUNCTION && emit_type->data.function.num_inputs == 1) {
-        zero = load_input_value(unit->output.zero, emit_type->data.function.inputs[0], 0, NULL);
+        zero = load_input_value(unit->output.zero, emit_type->data.function.inputs[0], false, NULL);
         if (!zero) {
             snprintf(msg, sizeof(msg), "exec: fold: the zero %s cannot be read", unit->output.zero);
             r = eval_error(msg);
         }
     }
 
-    /* The inputs, frozen; one at or above the lazy threshold opens as a paged
-     * value, weighed by the value it holds. */
-    size_t threshold = lazy_input_threshold();
+    /* The inputs, frozen: each collection opened lazily, or every input
+     * decoded whole, as the unit's `decode` says. */
     if (verbose && r.status != EVAL_ERROR) {
         char size[32];
         format_file_size(unit->program, size, sizeof(size));
@@ -1119,11 +1130,10 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock, bool verbose)
         for (size_t i = 0; i < file_params; i++)
             report_input(i, unit->inputs[i], param_types[i]);
     }
-    for (size_t i = 0; r.status != EVAL_ERROR && i < file_params; i++) {
-        bool mapped = false;
-        args[i] = load_input_value(unit->inputs[i], param_types[i], threshold, &mapped);
-        if (verbose && mapped) report_input_lazy(i);
-        if (!args[i]) {
+    if (r.status != EVAL_ERROR) {
+        size_t i = load_inputs((const char *const *)unit->inputs, param_types, file_params,
+                               unit->whole, verbose, args);
+        if (i < file_params) {
             char *ts = format_type(param_types[i]);
             snprintf(msg, sizeof(msg), "exec: input %zu (%s) cannot be read as %s", i,
                      unit->inputs[i], ts ? ts : "?");
@@ -1235,7 +1245,7 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
             r = eval_error(msg);
         }
         EastValue *acc = r.status != EVAL_ERROR
-                             ? load_input_value(unit->output.zero, value_type, 0, NULL)
+                             ? load_input_value(unit->output.zero, value_type, false, NULL)
                              : NULL;
         if (r.status != EVAL_ERROR && !acc) {
             snprintf(msg, sizeof(msg), "exec: fold: the zero %s cannot be read", unit->output.zero);
@@ -1243,7 +1253,7 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
         }
         exec_lap(clock, &clock->compile);
         for (size_t i = 0; r.status != EVAL_ERROR && i < unit->num_inputs; i++) {
-            EastValue *part = load_input_value(unit->inputs[i], value_type, 0, NULL);
+            EastValue *part = load_input_value(unit->inputs[i], value_type, false, NULL);
             if (!part) {
                 snprintf(msg, sizeof(msg), "exec: part %zu (%s) cannot be read", i,
                          unit->inputs[i]);
@@ -1693,7 +1703,8 @@ static void print_usage(const char *prog)
 {
     fprintf(stderr,
             "Usage:\n"
-            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--profile]\n"
+            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [--decode lazy|whole]\n"
+            "      [-v] [--profile]\n"
             "  %s exec <unit> [-v]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
             "  %s ir normalize <ir_file> [-o FILE]\n"
@@ -1725,6 +1736,10 @@ static void print_usage(const char *prog)
             "  -p, --package PACKAGE   Platform package (e.g., std or east-c-std)\n"
             "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
             "  -o, --output FILE       Output file for result\n"
+            "      --decode MODE       How collection inputs are read: lazy (the default)\n"
+            "                          opens each over its file and decodes a segment as the\n"
+            "                          program reads it; whole decodes every input before the\n"
+            "                          program runs. exec reads it from the unit (`decode`)\n"
             "  -v, --verbose           Enable verbose output\n"
             "      --exit-with-parent  Exit with status 1 once stdin reaches end of file —\n"
             "                          for a parent that holds a stdin pipe it never writes\n"
@@ -1768,6 +1783,7 @@ static int cli_main(void *arg)
     bool verbose = false;
     const char *ir_path = NULL;
     bool profile = false;
+    bool whole = false;
 
     if (strcmp(command, "run") == 0) {
         int i = 2;
@@ -1789,6 +1805,16 @@ static int cli_main(void *arg)
                 i += 2;
             } else if ((strcmp(a, "-o") == 0 || strcmp(a, "--output") == 0) && i + 1 < argc) {
                 output_file = argv[i + 1];
+                i += 2;
+            } else if (strcmp(a, "--decode") == 0 && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "whole") == 0) {
+                    whole = true;
+                } else if (strcmp(argv[i + 1], "lazy") == 0) {
+                    whole = false;
+                } else {
+                    fprintf(stderr, "Error: --decode takes lazy or whole, not %s\n", argv[i + 1]);
+                    return 1;
+                }
                 i += 2;
             } else if (strcmp(a, "-v") == 0 || strcmp(a, "--verbose") == 0) {
                 verbose = true;
@@ -1812,7 +1838,7 @@ static int cli_main(void *arg)
             return 1;
         }
 
-        return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
+        return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file, whole,
                        verbose, profile);
 
     } else if (strcmp(command, "exec") == 0) {

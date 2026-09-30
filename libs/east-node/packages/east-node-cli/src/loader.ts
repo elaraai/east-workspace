@@ -23,6 +23,7 @@ import {
     encodeBeast2SegmentsFor,
     openBeast2LazyFor,
     isBeast2LazySafe,
+    type Beast2LazyOptions,
     type Beast2ManifestSource,
     type CollectionManifest,
     EastIR,
@@ -419,6 +420,12 @@ export function lazyInputBytesRead(value: unknown): number | undefined {
     return typeof value === 'object' && value !== null ? lazyInputReads.get(value)?.() : undefined;
 }
 
+/** How an input opens lazily: frozen, like every task input, and weighing a
+ *  read of it whole — which an operation the pager cannot serve makes — by
+ *  the growth in the process's resident memory, for the runner's verbose
+ *  account (`beast2LazyStats`). */
+const LAZY_INPUT_OPTIONS: Beast2LazyOptions = { frozen: true, resident: () => process.memoryUsage.rss() };
+
 /** The descriptors behind lazily opened inputs, closed when their value is
  *  collected: the value reads segment frames from the descriptor for its
  *  whole life. A runner holds one per lazy input. */
@@ -437,7 +444,8 @@ const lazyInputFiles = new FinalizationRegistry<number[]>((handles) => {
  * be: a beast2 v5 collection blob carrying a segment index. Size, iteration
  * and keyed reads are then served from the index with O(segment) decoded
  * memory; any other operation hydrates transparently to the eager value's
- * exact semantics.
+ * exact semantics, and what that added to the process's resident memory is
+ * kept for the runner's verbose account.
  *
  * The file is never buffered whole: the value pages segment frames from an
  * open descriptor through positioned reads (a Set or Dict input's first
@@ -478,7 +486,7 @@ export function loadInputLazy(filePath: string): unknown | undefined {
             open.closeAll();
             return undefined;
         }
-        const value = openBeast2LazyFor(extents.typeValue, { frozen: true })(reader) as object;
+        const value = openBeast2LazyFor(extents.typeValue, LAZY_INPUT_OPTIONS)(reader) as object;
         open.own(value);
         return value;
     } catch {
@@ -530,11 +538,11 @@ export function segmentFile(file: string): string {
  * — the manifest and every segment file — or any other file's own size.
  *
  * @remarks
- * What the lazy-open threshold and the verbose account measure. A manifest is
- * a few dozen bytes per segment whatever the collection weighs, so its file's
- * size would put a multi-gigabyte input under any threshold and decode it
- * whole. The manifest is recognised through a positioned reader, so a large
- * blob is never read to learn that it is not one.
+ * What the verbose account weighs an input at. A manifest is a few dozen bytes
+ * per segment whatever the collection weighs, so its file's size would say
+ * nothing of what the input holds. The manifest is recognised through a
+ * positioned reader, so a large blob is never read to learn that it is not
+ * one.
  *
  * @param filePath - Path to the input file
  * @returns the byte count
@@ -586,7 +594,7 @@ function openManifestLazy(filePath: string, manifest: CollectionManifest, open: 
             return readers[i] ??= open.segment(segmentFile(path.join(dir, `${entries[i]!.hash}.beast2`)));
         },
     };
-    const value = openBeast2LazyFor(typeValue, { frozen: true })(source) as object;
+    const value = openBeast2LazyFor(typeValue, LAZY_INPUT_OPTIONS)(source) as object;
     open.own(value);
     return value;
 }

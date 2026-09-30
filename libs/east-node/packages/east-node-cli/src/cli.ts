@@ -15,7 +15,7 @@ import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile
 import { exportFunctionsFromModule } from './export-functions.js';
 import { serve as serveLsp } from './lsp.js';
 import { checkModule, formatFinding } from './check.js';
-import { East, UnitResultType, encodeBeast2For, type UnitResult } from '@elaraai/east';
+import { East, UnitResultType, encodeBeast2For, variant, type UnitDecode, type UnitResult } from '@elaraai/east';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string; name: string };
@@ -24,8 +24,27 @@ interface RunOptions {
     package?: string[];
     input?: string[];
     output?: string;
+    decode?: string;
     verbose?: boolean;
     exitWithParent?: boolean;
+}
+
+/** The `--decode` flag's help: how `run` reads its collection inputs, the
+ *  choice `exec` reads from its unit. */
+const DECODE_HELP =
+    'How collection inputs are read: lazy (the default) opens each over its file and decodes a segment as the program ' +
+    'reads it; whole decodes every input before the program runs';
+
+/**
+ * The `--decode` flag's value as the unit's `decode` says it, or `null` when
+ * it names neither lazy nor whole.
+ *
+ * @param mode - the flag's value; absent means lazy
+ * @returns how the inputs are read
+ */
+function decodeOf(mode: string | undefined): UnitDecode | null {
+    if (mode === undefined || mode === 'lazy') return variant('lazy', null);
+    return mode === 'whole' ? variant('whole', null) : null;
 }
 
 /**
@@ -139,6 +158,10 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
             return fail('Error: At least one platform package is required.\n' +
                 'Example: east-node run program.beast2 -p @elaraai/east-node-std');
         }
+        const decode = decodeOf(options.decode);
+        if (decode === null) {
+            return fail(`Error: --decode takes lazy or whole, not ${options.decode}`);
+        }
 
         const platformFns = await loadPlatforms(packages);
 
@@ -149,6 +172,7 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
             options.input ?? [],
             options.output,
             options.verbose ?? false,
+            decode,
         );
     } catch (err) {
         // A plain (non-East) error — e.g. one thrown by a custom platform
@@ -287,6 +311,7 @@ export function main(): void {
         .option('-p, --package <package>', 'Platform package to load (can be repeated)', collect, [])
         .option('-i, --input <file>', 'Input data file (can be repeated, order matches function parameters)', collect, [])
         .option('-o, --output <file>', 'Output file path for result')
+        .option('--decode <mode>', DECODE_HELP)
         .option('-v, --verbose', 'Enable verbose output')
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdRun);
@@ -294,10 +319,11 @@ export function main(): void {
     program
         .command('exec')
         .description('Execute a unit, the runner protocol: run a program, or merge the parts of an output, as the unit file ' +
-            'says, write the output by its kind and record the result; exit 0 when it is ok and 1 when it failed')
+            'says, write the output by its kind and record the result; exit 0 when it is ok and 1 when it failed. A run ' +
+            "unit's inputs are read as its `decode` says")
         .argument('<unit>', 'The unit file (.beast2); relative paths in it are relative to its directory')
-        .option('-v, --verbose', 'Print each input — what it weighs, whether it opened lazily and what reading it came to — ' +
-            'where the time went, and the peak memory')
+        .option('-v, --verbose', 'Print each input — what it weighs, whether it opened lazily or was decoded whole and what ' +
+            'reading it came to — where the time went, and the peak memory')
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdExec);
 

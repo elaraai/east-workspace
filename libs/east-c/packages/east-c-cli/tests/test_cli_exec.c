@@ -6,10 +6,10 @@
  * beside the files it names, under relative paths — and a case.beast2 naming
  * what executing it must come to: the outcome, every file the unit writes
  * besides its result with its bytes, and paths it must not write. This gate
- * copies each case into a scratch directory, runs `east-c exec` on it — with
- * every collection input opened lazily when the case asks — and holds the
- * exit status, the result's outcome and every output byte to the corpus, so
- * east-c writes what east-node and east-py write for every unit.
+ * copies each case into a scratch directory, runs `east-c exec` on it — its
+ * inputs read as the unit's `decode` says — and holds the exit status, the
+ * result's outcome and every output byte to the corpus, so east-c writes what
+ * east-node and east-py write for every unit.
  *
  * First, whatever the corpus, a unit given no platform: its program calls one,
  * and fails naming it (#1031). The program and its unit are TypeScript-written
@@ -159,12 +159,11 @@ static EastType *case_type(void)
 {
     const char *output_names[2] = {"path", "bytes"};
     EastType *output_types[2] = {&east_string_type, &east_blob_type};
-    const char *names[5] = {"name", "lazy", "outcome", "outputs", "absent"};
-    EastType *types[5] = {&east_string_type, &east_boolean_type,
-                          east_unit_result_type()->data.struct_.fields[0].type,
+    const char *names[4] = {"name", "outcome", "outputs", "absent"};
+    EastType *types[4] = {&east_string_type, east_unit_result_type()->data.struct_.fields[0].type,
                           east_array_type(east_struct_type(output_names, output_types, 2)),
                           east_array_type(&east_string_type)};
-    return east_struct_type(names, types, 5);
+    return east_struct_type(names, types, 4);
 }
 
 /* Decodes the beast2 file at `path` as `type`. */
@@ -193,16 +192,12 @@ static void test_case(const char *bin, const char *corpus, const char *scratch, 
     }
     CHECK(copy_tree(case_dir, dir), "%s: cannot copy the case to %s", name, dir);
 
-    bool lazy = east_struct_get_field_idx(expected, 1)->data.boolean;
-    EastValue *outcome = east_struct_get_field_idx(expected, 2);
+    EastValue *outcome = east_struct_get_field_idx(expected, 1);
     bool ok = strcmp(east_variant_case_name(outcome), "ok") == 0;
     char unit[8192], err[8192];
     snprintf(unit, sizeof(unit), "%s/unit.beast2", dir);
     snprintf(err, sizeof(err), "%s.stderr.txt", dir);
-    /* A lazy case opens every collection input as a paged value. */
-    if (lazy) setenv("EAST_LAZY_INPUT_BYTES", "1", 1);
     int rc = run_exec(bin, unit, err);
-    if (lazy) unsetenv("EAST_LAZY_INPUT_BYTES");
     CHECK(rc == (ok ? 0 : 1), "%s: exit %d, expected %d", name, rc, ok ? 0 : 1);
 
     snprintf(path, sizeof(path), "%s/result.beast2", dir);
@@ -225,7 +220,7 @@ static void test_case(const char *bin, const char *corpus, const char *scratch, 
     }
     free(east_builtin_get_error());
 
-    EastValue *outputs = east_struct_get_field_idx(expected, 3);
+    EastValue *outputs = east_struct_get_field_idx(expected, 2);
     for (size_t i = 0; i < outputs->data.array.len; i++) {
         EastValue *output = outputs->data.array.items[i];
         EastValue *rel = east_struct_get_field_idx(output, 0);
@@ -241,7 +236,7 @@ static void test_case(const char *bin, const char *corpus, const char *scratch, 
             free(written);
         }
     }
-    EastValue *absent = east_struct_get_field_idx(expected, 4);
+    EastValue *absent = east_struct_get_field_idx(expected, 3);
     for (size_t i = 0; i < absent->data.array.len; i++) {
         const char *rel = absent->data.array.items[i]->data.string.data;
         snprintf(path, sizeof(path), "%s/%s", dir, rel);

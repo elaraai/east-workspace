@@ -18,15 +18,18 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
   ArrayType, DictType, IntegerType, SetType, StringType,
-  East, SortedMap, SortedSet, compareFor, RUN_MAX_COUNT,
+  East, SortedMap, SortedSet, compareFor, variant, RUN_MAX_COUNT,
   type EastType,
 } from '@elaraai/east';
 import e3, { type Runner, type TaskDef } from '@elaraai/e3';
+import { decodeTaskObject } from '@elaraai/e3-types';
 import { taskExecute, type ExecutionResult } from './LocalTaskRunner.js';
+import { stageRunUnit } from './units.js';
 import { datasetWrite } from '../trees.js';
 import { packageImport, packageRead } from '../packages.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
@@ -96,6 +99,25 @@ describe('a task body run through exec', () => {
     const again = await run(lengths, inputs);
     assert.equal(again.cached, true);
     assert.equal(again.outputHash, result.outputHash);
+  });
+
+  it('stages a run unit that reads the inputs as the task\'s runner says: lazily, unless it says whole', async () => {
+    const size = East.function([WordsType], IntegerType, ($, words) => words.size());
+    const lazily = e3.task('lazily', [words], size);
+    const wholly = e3.task('wholly', [words], size,
+      { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'], decode: 'whole' } });
+
+    for (const [task, decode] of [[lazily, variant('lazy', null)], [wholly, variant('whole', null)]] as const) {
+      // The unit the task object becomes: its run names the runner's decode.
+      await assertOutput(await run(task, [[WordsType, ['a', 'b', 'c']]]), IntegerType, 3n);
+      const object = decodeTaskObject(await storage.objects.read(repo, (await packageRead(storage, repo, task.name, '1.0.0')).tasks.get(task.name)!));
+      const dir = join(tempDir, `${task.name}-unit`);
+      await mkdir(dir);
+      const staged = await stageRunUnit(storage, repo, dir, object, [join(dir, 'input-0.beast2')], 1);
+      const work = staged.unit.work;
+      if (work.type !== 'run') assert.fail(`${task.name}: a ${work.type} unit`);
+      assert.deepEqual(work.value.decode, decode, task.name);
+    }
   });
 
   it('records a body\'s failure as the task\'s, with the runner\'s message', async () => {

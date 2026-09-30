@@ -59,8 +59,11 @@ segment at a time. Nothing reads a collection whole to store it.
      expected to need.
    - The first piece runs alone, and its peak memory tells e3 what the rest
      need; the others then run as many at once as fit.
-   - An input larger than 64 MiB opens lazily. A `$.for` loop reads it a
-     segment at a time, and a key lookup reads only the segment the key is in.
+   - A collection input opens lazily, whatever its size. A `$.for` loop reads
+     it a segment at a time, and a key lookup reads only the segment the key is
+     in. A task whose runner says `decode: 'whole'` decodes its inputs before
+     the program runs instead: for a program whose reads land at random across
+     an input, which a lazy read would decode segments again for.
    - What the body emits into a dict or set is sorted in a buffer of at most
      64 MiB (or 131,072 entries). Each time the buffer fills it is written to
      disk as a sorted run, and the runs are merged into one output. An array's
@@ -93,7 +96,7 @@ segment at a time. Nothing reads a collection whole to store it.
      same key range, and the task's log names the input the pieces were cut
      over.
    - An input a task does not partition reaches every piece whole, opened
-     lazily when it is large, and a change to it re-runs every piece.
+     lazily as every input is, and a change to it re-runs every piece.
 
 7. **Reading the results.** The API and the TUI read a collection a page at a
    time through its manifest, and downloads stream it a segment at a time.
@@ -233,10 +236,13 @@ so on a busy server a call waits its turn.
 - **e3 itself** holds manifests and plans, never a whole collection.
 - **A runner** holds one segment at a time of what it streams, the sort buffer
   and its compression threads, plus whatever the program builds.
-- **Two things bring a whole collection into a runner's memory:**
+- **Three things bring a whole collection into a runner's memory:**
   - an `e3.task` that returns one (an `e3.streamTask` emits it instead);
   - using a lazily opened input in any way but a loop or a key lookup, which
-    reads it whole once.
+    reads it whole once;
+  - a runner whose `decode` is `whole`, which decodes every input before the
+    program runs. A runner's `-v`, in the task's log, says how each input was
+    read, and what decoding one whole added to its resident memory.
 - **What a unit reserves is measured in the run.** `--memory` (or
   `E3_MEMORY`) sets the memory side of the budget: by default what the machine
   or its container allows, less a reserve for e3 and the OS.

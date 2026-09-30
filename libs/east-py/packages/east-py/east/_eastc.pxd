@@ -569,6 +569,10 @@ cdef extern from "east/serialization.h":
     EastValue *east_paged_hydrated(EastValue *v)
     bint east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
                           size_t *fences_probed, cbool *hydrated)
+    # The resident memory, in KB, the whole decode of a hydrated paged value
+    # added; -1 when the value is not one that has been hydrated. `long` is 32
+    # bits on Windows: widen before scaling to bytes.
+    long east_paged_hydrated_kb(EastValue *v)
     EastType *east_beast2_pages_type(Beast2Pages *p)
 
     # Segment manifests: a collection held as standalone segment blobs and a
@@ -785,6 +789,9 @@ cdef extern from "east/unit.h":
         char *program
         char **inputs
         size_t num_inputs
+        # A run unit's `decode`: every input decoded whole before the program
+        # runs, rather than each collection opened lazily.
+        bint whole
         char *range
         char *type
         bint has_segments
@@ -849,6 +856,9 @@ cdef extern from "east/compat.h":
     # This process's peak resident memory in KB, as the east-c CLI measures
     # its own. `long` is 32 bits on Windows: widen before scaling to bytes.
     long east_peak_rss_kb()
+    # This process's resident memory now, in KB: what a whole decode added is
+    # the difference across it. Widen before scaling, as above.
+    long east_resident_kb()
 
 
 # ─── type_of_type.h ─────────────────────────────────────────────────────

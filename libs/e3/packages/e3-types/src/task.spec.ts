@@ -9,10 +9,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ArrayType, BlobType, IntegerType, OptionType, StringType, StructType, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { ArrayType, BlobType, IntegerType, OptionType, StringType, StructType, VariantType, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import {
   TASK_OBJECT_KIND,
+  TaskBodyType,
+  TaskInputType,
   TaskObjectType,
+  TaskOutputType,
+  TaskRoleType,
   decodeTaskObject,
   type TaskObject,
 } from './task.js';
@@ -26,7 +30,7 @@ describe('TaskObjectType', () => {
   const base: TaskObject = {
     kind: TASK_OBJECT_KIND,
     body: variant('east', { program: 'a'.repeat(64) }),
-    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     inputs: [{ path: sales, partition: none }],
     output: { path: totals, kind: variant('value', null) },
     role: variant('data', null),
@@ -49,6 +53,7 @@ describe('TaskObjectType', () => {
       },
       { ...base, output: { path: totals, kind: variant('fold', { zero: 'e'.repeat(64), combine: 'f'.repeat(64) }) } },
       { ...base, output: { path: totals, kind: variant('set', null) } },
+      { ...base, runner: variant('east_py', { platforms: ['east-py-std'], decode: variant('whole', null) }) },
       { ...base, role: variant('ui', { paths: [sales], functions: ['forecast'], records: ['plans'], pages: [rates] }) },
     ];
     const encode = encodeBeast2For(TaskObjectType);
@@ -71,9 +76,30 @@ describe('TaskObjectType', () => {
       output: totals,
       kind: none,
       metadata: none,
-      runner: variant('east_node', { platforms: [] }),
+      runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
       environment: none,
     });
+    assert.throws(() => decodeTaskObject(older), /exported by an older e3 SDK — re-export it with the current one/);
+  });
+
+  it('refuses a task object whose runner predates its decode, saying to re-export the package', () => {
+    // A stock runner as a package exported before runners said how they read
+    // a program's inputs: its platforms alone.
+    const PreDecodeRunnerType = VariantType({
+      east_node: StructType({ platforms: ArrayType(StringType) }),
+      east_py: StructType({ platforms: ArrayType(StringType) }),
+      east_c: StructType({ platforms: ArrayType(StringType) }),
+      custom: StructType({ command: ArrayType(StringType) }),
+    });
+    const older = encodeBeast2For(StructType({
+      kind: StringType,
+      body: TaskBodyType,
+      runner: PreDecodeRunnerType,
+      inputs: ArrayType(TaskInputType),
+      output: TaskOutputType,
+      role: TaskRoleType,
+      environment: OptionType(StringType),
+    }))({ ...base, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) });
     assert.throws(() => decodeTaskObject(older), /exported by an older e3 SDK — re-export it with the current one/);
   });
 

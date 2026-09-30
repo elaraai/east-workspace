@@ -335,7 +335,7 @@ describe('runDetached', () => {
   let searchDir: string;
 
   const limits = { timeoutMs: 60_000, maxResultBytes: 1024, maxLogBytes: 64 * 1024 };
-  const runner = variant('east_node', { platforms: [] as string[] });
+  const runner = variant('east_node', { platforms: [] as string[], decode: variant('lazy', null) });
   const encodeInt = encodeBeast2For(IntegerType);
   const TableType = DictType(IntegerType, IntegerType);
   // A table of `n` rows, keyed 0 to n - 1, each valued twice its key.
@@ -448,13 +448,13 @@ if (mode === 'sleep') setTimeout(() => {}, 30000);
       'process.stdout.write(args.map((a) => path.basename(a)).join(" ") + " | stdin pipe " + (!s.isCharacterDevice() && !s.isFile()));',
     ].join('\n'));
     const stock = await runDetached(
-      { bodyIr: new Uint8Array([0]), args: [encodeInt(1n)], runner: variant('east_c', { platforms: [] }), limits },
+      { bodyIr: new Uint8Array([0]), args: [encodeInt(1n)], runner: variant('east_c', { platforms: [], decode: variant('lazy', null) }), limits },
       { runnerSearchDir: searchDir },
     );
     assert.equal(stock.kind, 'success', stock.stderr);
     assert.equal(stock.stdout, 'exec --exit-with-parent unit.beast2 | stdin pipe true');
     const verbose = await runDetached(
-      { bodyIr: new Uint8Array([0]), args: [], runner: variant('east_c', { platforms: [] }), limits },
+      { bodyIr: new Uint8Array([0]), args: [], runner: variant('east_c', { platforms: [], decode: variant('lazy', null) }), limits },
       { runnerSearchDir: searchDir, verbose: true },
     );
     assert.equal(verbose.stdout, 'exec --exit-with-parent unit.beast2 -v | stdin pipe true');
@@ -542,7 +542,7 @@ describe('runDetached over a repository', () => {
 
   it('stages a stored dataset argument as its manifest and segments, in the repository\'s scratch root', async () => {
     const result = await new LocalTaskRunner(repo).runDetached(
-      { bodyIr: new Uint8Array([0]), args: [{ dataset: table }], runner: variant('east_c', { platforms: [] }), limits },
+      { bodyIr: new Uint8Array([0]), args: [{ dataset: table }], runner: variant('east_c', { platforms: [], decode: variant('lazy', null) }), limits },
       { storage, runnerSearchDir: searchDir },
     );
     assert.equal(result.kind, 'success', result.stderr);
@@ -557,11 +557,24 @@ describe('runDetached over a repository', () => {
     // The real east-node, found from this package's node_modules.
     const last = East.function([TableType], IntegerType, ($, t) => t.get(2_999n));
     const result = await new LocalTaskRunner(repo).runDetached(
-      { bodyIr: encodeEastIR(last.toIR()), args: [{ dataset: table }], runner: variant('east_node', { platforms: [] }), limits },
+      { bodyIr: encodeEastIR(last.toIR()), args: [{ dataset: table }], runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), limits },
       { storage },
     );
     assert.equal(result.kind, 'success', result.stderr);
     assert.equal(decodeBeast2For(IntegerType)((result as { value: Uint8Array }).value), 5_998n);
+  });
+
+  it('has a stock runner read a stored dataset argument as its runner says: lazily, or decoded whole', async () => {
+    const last = East.function([TableType], IntegerType, ($, t) => t.get(2_999n));
+    for (const decode of [variant('lazy', null), variant('whole', null)]) {
+      const result = await new LocalTaskRunner(repo).runDetached(
+        { bodyIr: encodeEastIR(last.toIR()), args: [{ dataset: table }], runner: variant('east_node', { platforms: [], decode }), limits },
+        { storage, verbose: true },
+      );
+      assert.equal(result.kind, 'success', result.stderr);
+      assert.equal(decodeBeast2For(IntegerType)((result as { value: Uint8Array }).value), 5_998n);
+      assert.match(result.stderr, decode.type === 'lazy' ? /input 0: opened lazily/ : /input 0: decoded whole — \+/, decode.type);
+    }
   });
 
   it('splices a stored dataset argument into one file for a custom command', async () => {
@@ -575,7 +588,7 @@ describe('runDetached over a repository', () => {
 
   it('refuses a stored dataset argument with no repository to stage it from', async () => {
     await assert.rejects(
-      runDetached({ bodyIr: new Uint8Array([0]), args: [{ dataset: table }], runner: variant('east_c', { platforms: [] }), limits }, { runnerSearchDir: searchDir }),
+      runDetached({ bodyIr: new Uint8Array([0]), args: [{ dataset: table }], runner: variant('east_c', { platforms: [], decode: variant('lazy', null) }), limits }, { runnerSearchDir: searchDir }),
       { message: 'argument 1 is a stored dataset, which is staged from a repository: runDetached needs options.storage and options.repo' },
     );
   });

@@ -1403,6 +1403,10 @@ struct Beast2Pages {
      * input, which no residency figure can give on a mapping. */
     size_t segments_decoded;
     size_t fences_probed;
+    /* The resident memory, in KB, the whole decode added when an operation
+     * the pager cannot serve hydrated the value (east_paged_hydrated) — how
+     * a runner's account says what decoding the input whole came to. */
+    long hydrated_kb;
     /* A manifest pager: the collection is the manifest's segment blobs, each
      * opened through `segments` for the read that needs it, and the manifest
      * (retained) carries the counts and every fence. NULL for a blob pager,
@@ -1787,15 +1791,21 @@ EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i, const B
     return pages_decode_segment(p, i, pr, NULL);
 }
 
+/* Drops every decoded segment the shared cache holds. */
+static void pages_cache_clear(Beast2Pages *p)
+{
+    for (size_t k = 0; k < p->cache_count; k++)
+        east_value_release(p->cache[k].seg);
+    p->cache_count = 0;
+    p->cache_bytes = 0;
+}
+
 void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr)
 {
     if (!p) return;
     if (pr && east_beast2_projection_is_identity((Beast2Projection *)pr)) pr = NULL;
     /* Cached segments decoded under the previous shape are unusable now. */
-    for (size_t k = 0; k < p->cache_count; k++)
-        east_value_release(p->cache[k].seg);
-    p->cache_count = 0;
-    p->cache_bytes = 0;
+    pages_cache_clear(p);
     p->proj = pr;
 }
 
@@ -2641,6 +2651,7 @@ EastValue *east_paged_hydrated(EastValue *v)
      * contract the pager-served reads did. A manifest has no one blob, so its
      * pager decodes it segment by segment. */
     Beast2Pages *pages = v->data.paged.pages;
+    long before = east_resident_kb();
     EastValue *whole = pages->manifest ? pages_decode_whole(pages, v->data.paged.frozen)
                        : v->data.paged.frozen
                            ? east_beast2_decode_full_frozen(v->data.paged.data, v->data.paged.len,
@@ -2648,11 +2659,23 @@ EastValue *east_paged_hydrated(EastValue *v)
                            : east_beast2_decode_full(v->data.paged.data, v->data.paged.len,
                                                      east_beast2_pages_type(pages));
     if (!whole) return NULL;
+    long grown = east_resident_kb() - before;
+    pages->hydrated_kb = grown > 0 ? grown : 0;
+    /* Every read goes to the whole value from here, so the segments the
+     * pager decoded for earlier reads are dead weight beside it. */
+    pages_cache_clear(pages);
     /* Iteration locks taken on the wrapper carry over, so a body that
      * hydrates mid-loop still cannot mutate the collection it iterates. */
     whole->iter_lock += v->iter_lock;
     v->data.paged.hydrated = whole;
     return whole;
+}
+
+long east_paged_hydrated_kb(EastValue *v)
+{
+    if (!v || v->kind != EAST_VAL_PAGED || !v->data.paged.hydrated || !v->data.paged.pages)
+        return -1;
+    return v->data.paged.pages->hydrated_kb;
 }
 
 bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out)

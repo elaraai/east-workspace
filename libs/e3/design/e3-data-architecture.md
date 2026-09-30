@@ -16,7 +16,7 @@ Everything here is built except automatic parallelism (§3.9), which is designed
 
 - **Bounded memory.** No runner, orchestrator or door holds a large value whole. Every cap is explicit, and independent of the data's size, its key order and how far it expands when decoded.
 - **Bytes are a function of content.** A stored collection's bytes do not depend on the runtime, the emission order, the partitioning, buffer sizes or object identity.
-- **Nothing is declared or guessed.** Authors state what an output means, never how data is ordered or sized. There are no performance modes.
+- **Nothing is guessed.** Authors state what an output means, never how data is ordered or sized. The one performance mode is how a runner reads a unit's inputs — lazily, unless the runner says whole (§3.5) — which changes what a unit costs, never what it computes.
 - **One model.** A small result is returned; a large one is emitted into an output kind, and the platform does the rest.
 - **Value work on runners, byte work in storage.** User East runs only in runner units. e3-core plans, schedules, assembles bytes and records.
 - **One primitive, one place.** Each collection operation has one TypeScript implementation in `east` and, where C needs it, one in east-c, pinned to each other by the conformance corpus. e3 calls them and never re-implements one.
@@ -73,7 +73,7 @@ e3.migration.rekey(name, record, fn, config?)    // a Dict's (K1, V1) => { key, 
 e3.package(name, version, ...items), e3.export(pkg, path)
 ```
 
-**`e3.task`** runs one unit. Its inputs are datasets: an input `e3.partition` marks is refused when the task is defined. A large input opens lazily, and a collection the body returns is written through the Writer segment by segment. Once automatic parallelism is built (§3.9), a body whose shape allows it runs split without the author asking.
+**`e3.task`** runs one unit. Its inputs are datasets: an input `e3.partition` marks is refused when the task is defined. Its inputs open lazily unless its runner decodes them whole (§3.5), and a collection the body returns is written through the Writer segment by segment. Once automatic parallelism is built (§3.9), a body whose shape allows it runs split without the author asking.
 
 **`e3.streamTask`** emits into an output kind. The kind fixes `emit`'s signature and how parts of the output combine:
 
@@ -90,7 +90,7 @@ Emission order is free: the platform sorts sets and dicts. A producer is a `stre
 - The body receives one piece, typed as the whole dataset. Pieces are content-defined ranges: key ranges of a Set or Dict, position ranges of an Array (§3.7).
 - `by` names leading key fields — `['account']`, or `['a.b']` for a first-field path. Rows with equal values of those fields are never split across pieces. It is data, validated against the key type at definition.
 - Two or more partitioned inputs are cut at the same keys: the keys the one that weighs the most in the store is cut at, whatever the order they are listed in. They must be Sets or Dicts whose keys, or whose `by` fields, have the same types.
-- Unmarked inputs reach every piece whole, opened lazily when large. A change to one re-runs every piece.
+- Unmarked inputs reach every piece whole, read as the runner reads every input (§3.5). A change to one re-runs every piece.
 - With no partitioned input, the task is one unit with exact left-to-right semantics.
 
 **The author's contract**, the only one: `merge` and `combine` are associative, `zero` is an identity of `combine`, and a partitioned body's combined result does not depend on where the input was cut.
@@ -124,6 +124,7 @@ TaskObject = {
 ```
 
 - Inputs are data only. A body or a merge function is never an input by position, so the unit builder (§3.5) never counts wire indices.
+- A stock runner names the platform packages its units load and how they read their inputs (`decode`: `lazy` or `whole`), which the unit builder writes into each `run` unit; `custom` names a command. The same `RunnerType` is a function's, a mutation's, a migration's and an index's.
 - An `e3.task` on the `custom` runtime has an `east` body too. e3 runs the runner's command with `run`'s arguments — `-i` for each input, `-o`, then the program's file — as it runs an `e3.function` on a custom runner. Only a `customTask` has a `command` body.
 - `role.ui` is what a UI task binds as it renders: the datasets it reads or writes, the functions it calls, the records it binds and the datasets it pages through.
 - It carries its kind tag, `$task`, for GC (§3.11).
@@ -170,7 +171,7 @@ east-node | east-c | east-py  exec <unit.beast2>
 The types live in `east` (`src/runner_protocol.ts`), which every runner and e3-core depend on, with a C decoder in east-c that east-py binds:
 
 ```
-Unit   = { work: run    { program: path, inputs: [path], output: Output }
+Unit   = { work: run    { program: path, inputs: [path], output: Output, decode: lazy | whole }
                | merge  { parts: [path], range: Option<path>, output: Output }
                | intake { input: path, type: path, segments: Option<{ from, to }>, output: path },
            platforms: [String], threads: Integer, fetch: Boolean, result: path }
@@ -185,6 +186,10 @@ Result = { outcome: ok | failed { message, locations: [Location] },
   - `array`: through the Writer, as the manifest directory `<dir>/0.beast2`;
   - `set` and `dict`: through the RunSorter, as a directory of runs, each the manifest directory `<dir>/<n>.beast2`, numbered from 0 in the order the runs close. A set's equal elements collapse; a dict's equal keys fold with `merge`, and without it are refused;
   - `fold`: every emitted value folded into an accumulator that starts at `zero`, written as a `value` is.
+- A `run` unit's `decode` says how the runner reads its inputs, every input frozen either way:
+  - `lazy` opens each collection over its file — a manifest directory's segment files, or a blob — and decodes a segment when the program first reaches it, keeping a few decoded. Size, iteration and keyed reads are served a segment at a time; an operation the pager cannot serve decodes the input whole, once, when it first needs it. An input whose elements hold a Ref or a function, or that is not beast2, is decoded whole.
+  - `whole` decodes every input before the program runs, for a program whose reads land at random across more segments than the pager keeps.
+  - e3 writes the unit's runner's `decode` (§3.3), so a piece of a split task reads its inputs as its task's runner says. With `-v` a runner says how each input opened, and what reading a lazy one came to: the segments it decoded of its segments, or, when its reads decoded some again, that decoding it whole would decode each once. For an input decoded whole it says the resident memory that added, beside what the input weighs on disk, since a nested collection decodes at many times its encoded size.
 - `merge` assembles parts of one output kind: a k-way merge of sorted set or dict parts, optionally over one key range, written as one run, `<dir>/0.beast2`; or a fold of partials in order, starting at `zero`. Array parts never need a runner, and a `value` has no parts.
 - `intake` takes a delivered collection in (§3.6): the file `input`, whose header must name the type in the file `type`, an `EastTypeValue` blob, written through the Writer as the manifest directory `output`. `segments` limits it to the delivery's segments `[from, to)` by its index, a piece of a large one.
 - Paths in a unit may be relative to the unit file, so a unit file and the files it names are a complete, replayable snapshot of any unit: `exec` replays it wherever they are moved together.
@@ -200,7 +205,7 @@ Result = { outcome: ok | failed { message, locations: [Location] },
 - The exit status is 0 when the outcome is `ok` and 1 when the result records a failure. Anything else, or a missing result, is a crash; e3 reports it with the signal and the stderr tail.
 - `--exit-with-parent` is a process flag, taken before anything else is parsed.
 
-`run <program> -i … -o …` is for people, and for the `custom` runtime, on a path of its own beside `exec`'s. It reads the IR and the values in any of the formats, prints the result when there is no `-o`, and writes a collection result as one paged blob, a single file that any decoder reads. Its `-v` names the program, its platforms, its inputs and its output before the Timing and Memory sections `exec -v` prints. The lazy-open threshold is a setting (`EAST_LAZY_INPUT_BYTES`).
+`run <program> -i … -o …` is for people, and for the `custom` runtime, on a path of its own beside `exec`'s. It reads the IR and the values in any of the formats, prints the result when there is no `-o`, and writes a collection result as one paged blob, a single file that any decoder reads. Its `-v` names the program, its platforms, its inputs and its output before the Timing and Memory sections `exec -v` prints. `--decode lazy|whole` is a `run` unit's `decode`, `lazy` when omitted, the same on every runner.
 
 Parity between the runners is the conformance corpus: unit files with their expected output bytes and results, run by all three in CI. Results compare by outcome, since `peakBytes` and `timings` are measurements.
 
@@ -397,8 +402,7 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 | the segment cut rules' parameters, for Set/Dict and for Array (§3.4) | `-j` cores |
 | the piece rule's sizes: 16, 64 and 256 MiB of stored bytes (§3.7); a delivery's intake pieces close at 64 MiB of its bytes (§3.6) | `--memory` |
 | the RunSorter's caps, 131,072 elements or 64 MiB, the second also the cap on a foreign segment and a delivery's | the scratch directory (`E3_SCRATCH_DIR`) |
-| merge and fold fan-in, 32; the merge range size, 64 MiB | the lazy-open threshold (`EAST_LAZY_INPUT_BYTES`) |
-| | cgroup use (`E3_CGROUPS`); verbosity |
+| merge and fold fan-in, 32; the merge range size, 64 MiB | cgroup use (`E3_CGROUPS`); verbosity |
 
 The left column decides how work, and so floating-point folds, are grouped, which decides output bytes. The right column decides only when work runs.
 

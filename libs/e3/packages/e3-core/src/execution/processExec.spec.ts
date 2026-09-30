@@ -813,7 +813,7 @@ describe('the stdin lifeline (#770)', () => {
     writeFileSync(join(scratch, 'spin.beast2'), encodeEastIR(spin.toIR()));
     const unitPath = join(scratch, 'unit.beast2');
     writeFileSync(unitPath, encodeBeast2For(UnitType)({
-      work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'output') }),
+      work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'output'), decode: variant('lazy', null) }),
       platforms: [],
       threads: 1n,
       fetch: false,
@@ -823,7 +823,7 @@ describe('the stdin lifeline (#770)', () => {
 
     // The e3 process: this build's spawnAndCapture of a unit's command line,
     // reporting the runner's pid and passing its stderr through.
-    const argv = unitArgv(variant('east_node', { platforms: [] }), { file: unitPath, result: join(scratch, 'result.beast2') });
+    const argv = unitArgv(variant('east_node', { platforms: [], decode: variant('lazy', null) }), { file: unitPath, result: join(scratch, 'result.beast2') });
     const e3Script = join(dir, 'e3.mjs');
     writeFileSync(e3Script, [
       `import { spawnAndCapture } from ${JSON.stringify(new URL('./processExec.js', import.meta.url).href)};`,

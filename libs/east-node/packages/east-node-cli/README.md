@@ -57,9 +57,10 @@ dict or fold it emits into), and where to write the output and a typed
 result: the outcome (`ok`, or `failed` with the message and its source
 locations), the peak memory, and the time spent loading, compiling, executing
 and writing. Paths in a unit may be relative to its file, so a unit and the
-files it names replay wherever they are moved together. It exits 0 when the
-outcome is `ok` and 1 when the result records a failure; `-v` prints where the
-time went and the peak memory.
+files it names replay wherever they are moved together. A run unit says how its
+inputs are read (`decode`, see [How Inputs Are Read](#how-inputs-are-read)). It
+exits 0 when the outcome is `ok` and 1 when the result records a failure; `-v`
+prints where the time went and the peak memory.
 
 ### Exiting with the Parent
 
@@ -135,6 +136,7 @@ Options:
   -p, --package <package>    Platform package to load (can be repeated)
   -i, --input <file>         Input data file (can be repeated)
   -o, --output <file>        Output file path for result
+  --decode <mode>            How collection inputs are read: lazy (the default) or whole
   -v, --verbose              Enable verbose output
   --exit-with-parent         Exit as soon as stdin reaches end of file — for a parent
                              that holds a stdin pipe it never writes to
@@ -152,7 +154,7 @@ Arguments:
   unit                       The unit file (.beast2); relative paths in it are relative to its directory
 
 Options:
-  -v, --verbose              Print where the time went and the peak memory
+  -v, --verbose              Print each input's account, where the time went and the peak memory
   --exit-with-parent         Exit as soon as stdin reaches end of file
 ```
 
@@ -212,22 +214,37 @@ Options:
 | `.east` | Text East format |
 | `.json` | JSON format |
 
-## Large Inputs
+## How Inputs Are Read
 
-Indexed `.beast2` collection inputs (Array/Set/Dict) at or above 64 MiB open
-**lazily by default**: size, single-pass iteration, and keyed reads are served
-from the blob's segment index with O(segment) decoded memory, and any other
-operation transparently decodes the whole value once. Semantics are identical
-to an eager decode, so the threshold is a memory knob, not a behavior toggle.
+Indexed `.beast2` collection inputs (Array/Set/Dict) open **lazily**, whatever
+they weigh: size, iteration and keyed reads are served from the blob's segment
+index with O(segment) decoded memory, and any other operation transparently
+decodes the whole value once. `--decode whole` decodes every input before the
+program runs instead, which suits a program that reads most of an input at
+random: lazily, a read beyond the segments the pager keeps decodes its segment
+again. `exec` reads the same choice from its unit's `decode`, and east-c and
+east-py take it alike. Semantics are identical either way: it is a memory and
+time choice, not a behavior toggle.
 
-Control it with the `EAST_LAZY_INPUT_BYTES` environment variable: a byte
-threshold, or `0` to disable lazy opening entirely.
+```bash
+east-node run ./lookup.beast2 -p @elaraai/east-node-std -i table.beast2 --decode whole
+```
+
+With `-v` the runner says how each input opened, what a lazy input's reads came
+to, and what an input decoded whole holds in memory — the growth in resident
+memory across its decode, beside what it weighs on disk, since a nested
+collection decodes at many times that. A lazy input's reads come to the
+segments they decoded of its segments and the fences they probed, and the bytes
+they read; when an operation the pager cannot serve decoded it whole, to the
+resident memory that added; and when they decoded segments again, to how many
+decodes of how many segments, since decoding the input whole would decode each
+once. east-c and east-py say each in the same words, but for the bytes read.
 
 A collection input may also be a manifest directory, the form e3 stages a
 stored collection in: the input file holds a manifest, and each segment it
 names is a standalone blob in `<file>.segments/<sha256>.beast2`. It opens
 over those files — lazily, a read opening only the segments it reaches, or
-whole — and counts as the size of its segments against the threshold.
+whole — and weighs its segments in the `-v` account.
 
 Inputs open **frozen** — a frozen value cannot be mutated, and a frozen
 collection compares by value — so a lazy open serves every element shape but

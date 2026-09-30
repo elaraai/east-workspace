@@ -91,6 +91,7 @@ describe('function_', () => {
     // Defaults to DEFAULT_RUNNER (east-node + east-node-std)
     assert.deepStrictEqual(runnerToVariant(fn.runner), variant('east_node', {
       platforms: ['@elaraai/east-node-std'],
+      decode: variant('lazy', null),
     }));
   });
 
@@ -115,18 +116,18 @@ describe('runnerToVariant', () => {
   it('maps each known runtime and coalesces missing platforms', () => {
     assert.deepStrictEqual(
       runnerToVariant({ runtime: 'east-py' }),
-      variant('east_py', { platforms: [] })
+      variant('east_py', { platforms: [], decode: variant('lazy', null) })
     );
     assert.deepStrictEqual(
       runnerToVariant({ runtime: 'east-c', platforms: ['east-c-std'] }),
-      variant('east_c', { platforms: ['east-c-std'] })
+      variant('east_c', { platforms: ['east-c-std'], decode: variant('lazy', null) })
     );
   });
 
   it('collapses { custom: name } platform entries to plain strings', () => {
     assert.deepStrictEqual(
       runnerToVariant({ runtime: 'east-py', platforms: ['east-py-std', { custom: 'my-platform' }] }),
-      variant('east_py', { platforms: ['east-py-std', 'my-platform'] })
+      variant('east_py', { platforms: ['east-py-std', 'my-platform'], decode: variant('lazy', null) })
     );
   });
 
@@ -206,7 +207,7 @@ describe('export_ with functions', () => {
     assert.strictEqual(fnObject.inputTypes.length, 1);
     assert.strictEqual(fnObject.inputTypes[0]!.type, 'Integer');
     assert.strictEqual(fnObject.outputType.type, 'Integer');
-    assert.deepStrictEqual(fnObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'] }));
+    assert.deepStrictEqual(fnObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
 
     // The body IR object itself is in the bundle
     assert.ok(objectEntry(entries, fnObject.bodyIr), 'bodyIr object missing from bundle');
