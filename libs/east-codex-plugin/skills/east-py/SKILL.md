@@ -543,10 +543,12 @@ between calls.
 `East.jq(input, program, result_type)` is a jq query as East code: the jq is
 parsed, checked against the input's East type and translated to ordinary East
 IR when the program is built — loops, `Match`, the builtins — so it runs
-wherever East runs, with no query builtin and no interpreter. It is the twin of
-TypeScript's `East.jq` and builds the same IR. Dual-mode, like the standard
-library: in a body it builds the translation; on values it compiles it (once
-per query and input type) and runs it now.
+wherever East runs, with no interpreter. In a body it is a call of the `Query`
+builtin, which carries the program as written beside its translation and gives
+the translation, so `to_python_source` prints it back as `East.jq(…)`. It is
+the twin of TypeScript's `East.jq` and builds the same IR. Dual-mode, like the
+standard library: in a body it builds the call; on values it compiles the
+translation (once per query and input type) and runs it now.
 
 ```python
 from east import East, ArrayType, FloatType, IntegerType, StructType, array
