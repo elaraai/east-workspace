@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1232,
+    "totalEntries": 1234,
     "totalFiles": 204,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 380,
+      "east-ui": 382,
       "e3-ui": 54,
       "e3": 15,
       "e3-ui-cli": 8,
@@ -30934,9 +30934,9 @@
         "palette"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text} from \"@elaraai/east-ui\";"
+        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -30970,9 +30970,9 @@
         "State"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text} from \"@elaraai/east-ui\";"
+        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -31016,14 +31016,99 @@
         "#320"
       ],
       "imports": [
-        "import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from \"@elaraai/east\";",
+        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text} from \"@elaraai/east-ui\";"
+        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// Large-library configurator — a size axis (auto / scroll / fill) on one live sliced, grouped crew palette of hundreds of cards\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const CrewType = StructType({\n            id: StringType,\n            name: StringType,\n            role: StringType,\n            depot: StringType,\n            hours: FloatType,\n            skills: ArrayType(StringType),\n        });\n        const LIBRARY_LARGE_CARDS = East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {\n            const surnames = $.let([\"Patel\", \"Cho\", \"Rivera\", \"Okafor\", \"Nguyen\", \"Kim\", \"Ali\", \"Silva\", \"Weber\", \"Rossi\", \"Tanaka\", \"Novak\"], ArrayType(StringType));\n            const roles = $.let([\"Senior\", \"Mid\", \"Junior\", \"Contract\", \"Casual\"], ArrayType(StringType));\n            const depots = $.let([\"North\", \"South\", \"East\", \"West\", \"Central\", \"Airport\", \"Harbor\", \"Rail\"], ArrayType(StringType));\n            const skillPool = $.let([\"Forklift\", \"HazMat\", \"CDL-B\", \"Crane\", \"Rigging\", \"First aid\", \"Welding\", \"Night\"], ArrayType(StringType));\n            const row = $.let({\n                id: East.str`crew-${i}`,\n                name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,\n                role: roles.get(i.remainder(5n)),\n                depot: depots.get(i.remainder(8n)),\n                hours: i.remainder(41n).toFloat(),\n                skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],\n            }, CrewType);\n            return row;\n        }));\n        const cfg = Slice.config(CrewType, {\n            fields: { name: { label: \"Name\" }, role: { label: \"Role\" }, depot: { label: \"Depot\" } },\n            searchFieldIds: [\"name\", \"role\", \"depot\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const sizes = $.const([\"auto\", \"scroll\", \"fill\"], ArrayType(StringType));\n                const sizeBind = $.let(State.bind([StringType], \"library_large_size\", \"scroll\"));\n                const sizeKey = $.let(sizeBind.read());\n                const onSizeChange = $.const(East.function([StringType], NullType, ($, next) => {\n                    $(sizeBind.write(next));\n                }));\n\n                const crew = $.const(LIBRARY_LARGE_CARDS);\n                const slice = $.let(Slice.bind([CrewType], \"ex.library.large.slice\", cfg, Slice.state({}), crew, none));\n                const narrowed = $.let(Slice.rows([CrewType], slice));\n\n                // An empty height string reads as \"unbounded\"; the wrapper Box\n                // only bounds in fill mode.\n                const boxHeight = $.let(sizeKey.equal(\"fill\").ifElse(_$ => \"300px\", _$ => \"\"));\n                const libHeight = $.let(sizeKey.equal(\"scroll\").ifElse(\n                    _$ => \"480px\",\n                    _$ => sizeKey.equal(\"fill\").ifElse(_$ => \"100%\", _$ => \"\"),\n                ));\n\n                return (\n                    <Configurator\n                        controls={[\n                            Configurator.Control(\"Size\", sizeKey,\n                                <SegmentGroup value={sizeKey} onChange={onSizeChange} size=\"sm\"\n                                    items={sizes.map((_$, m) => SegmentGroup.Item(m, <Text>{m.upperCase()}</Text>))} />),\n                        ]}\n                        preview={\n                            <Box width=\"100%\" height={boxHeight} overflow=\"hidden\">\n                                <Library\n                                    id=\"crew\"\n                                    data={narrowed}\n                                    slice={slice}\n                                    item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: \"user\" })}\n                                    dimensions={[\n                                        { kind: \"meter\", key: \"hours\", label: \"Hours\", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },\n                                        { kind: \"chips\", key: \"skills\", label: \"Skills\", values: c => c.skills },\n                                        { kind: \"text\", key: \"depot\", label: \"Depot\", value: c => c.depot },\n                                    ]}\n                                    groupBy={[\n                                        { key: \"depot\", label: \"Depot\", value: c => c.depot, summary: members => East.str`${members.size()} crew` },\n                                        { key: \"role\", label: \"Role\", value: c => c.role },\n                                    ]}\n                                    search={c => East.str`${c.name} ${c.role} ${c.depot}`}\n                                    style={{ height: libHeight }}\n                                />\n                            </Box>\n                        }\n                        spec={[\n                            Configurator.Spec(\"Cards\", East.print(LIBRARY_LARGE_CARDS.size())),\n                        ]}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:library.examples.tsx:libraryGalleryPages",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/library.examples.tsx",
+      "suite": "",
+      "test": "A gallery of pages — each card's media the page's wireframe at its start, its status a dot or an open ring, an action in its foot, a dashed card to add one, and a toolbar holding the search and the grid · list switch",
+      "keywords": [
+        "Library",
+        "gallery",
+        "variant",
+        "media",
+        "thumbnail",
+        "wireframe",
+        "SnapGrid",
+        "card",
+        "columns",
+        "mediaPlacement",
+        "mediaSize",
+        "layout",
+        "grid",
+        "list",
+        "toolbar",
+        "switch",
+        "search",
+        "noun",
+        "status",
+        "ring",
+        "action",
+        "addLabel",
+        "onAdd",
+        "onCardClick",
+        "page library",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A gallery of pages — each card's media the page's wireframe at its start, its status a dot or an open ring, an action in its foot, a dashed card to add one, and a toolbar holding the search and the grid · list switch\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });\n            const pages = $.const([\n                {\n                    key: \"overview\", title: \"Overview\", live: true,\n                    cells: [\n                        { id: \"revenue\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"orders\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"avg-ticket\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"fill-rate\", row: \"kpis\", span: 3n, height: some(12n) },\n                        { id: \"revenue-trend\", row: \"charts\", span: 8n, height: some(56n) },\n                        { id: \"breakdown\", row: \"charts\", span: 4n, height: some(56n) },\n                        { id: \"accounts\", row: \"accounts\", span: 12n, height: some(18n) },\n                    ],\n                },\n                {\n                    key: \"account-detail\", title: \"Account detail\", live: false,\n                    cells: [\n                        { id: \"header\", row: \"header\", span: 12n, height: some(10n) },\n                        { id: \"owner\", row: \"facts\", span: 4n, height: some(14n) },\n                        { id: \"revenue\", row: \"facts\", span: 4n, height: some(14n) },\n                        { id: \"status\", row: \"facts\", span: 4n, height: some(14n) },\n                        { id: \"orders\", row: \"orders\", span: 12n, height: some(60n) },\n                    ],\n                },\n                {\n                    key: \"regional-rollup\", title: \"Regional rollup\", live: true,\n                    cells: [\n                        { id: \"trend\", row: \"trend\", span: 12n, height: some(72n) },\n                        { id: \"north\", row: \"regions\", span: 6n, height: some(18n) },\n                        { id: \"south\", row: \"regions\", span: 6n, height: some(18n) },\n                    ],\n                },\n            ], ArrayType(StructType({ key: StringType, title: StringType, live: BooleanType, cells: ArrayType(Placement) })));\n            const opened = $.let(State.bind([StringType], \"library_gallery_opened\", \"nothing\"));\n            const onOpen = $.const(East.function([StringType], NullType, ($2, key) => { $2(opened.write(key)); }));\n            const onAdd = $.const(East.function([], NullType, ($2) => { $2(opened.write(\"a new page\")); }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Library\n                        id=\"pages\"\n                        variant=\"gallery\"\n                        data={pages}\n                        item={p => ({\n                            key: p.key,\n                            label: p.title,\n                            sublabel: East.str`${p.cells.size()} components`,\n                            status: p.live.ifElse(\n                                () => some(Library.status(\"Live\", \"success\")),\n                                () => some(Library.status(\"Draft\", \"neutral\", true)),\n                            ),\n                            media: (\n                                <SnapGrid data={p.cells} variant=\"wireframe\"\n                                    cell={c => SnapGrid.cell({ key: c.id, row: c.row, span: c.span, height: c.height, content: <Text>{c.id}</Text> })} />\n                            ),\n                            action: \"Open in builder →\",\n                            draggable: false,\n                        })}\n                        search={p => p.title}\n                        noun={{ singular: \"page\", plural: \"pages\" }}\n                        onCardClick={onOpen}\n                        addLabel=\"New page from template\"\n                        onAdd={onAdd}\n                        style={{ columns: 2n, mediaPlacement: \"start\", mediaSize: \"156px\" }}\n                    />\n                    <Text>{East.str`Opened · ${opened.read()}`}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:library.examples.tsx:libraryGalleryReports",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/library.examples.tsx",
+      "suite": "",
+      "test": "A gallery of reports — each card's media a sparkline above its face, its owner's avatar beside how often it is used, a star for a favourite, grouped by team",
+      "keywords": [
+        "Library",
+        "gallery",
+        "variant",
+        "media",
+        "Sparkline",
+        "chart",
+        "thumbnail",
+        "avatar",
+        "byline",
+        "trailing",
+        "glyph",
+        "Library.glyph",
+        "star",
+        "favourite",
+        "columns",
+        "mediaSize",
+        "groupBy",
+        "search",
+        "noun",
+        "catalog"
+      ],
+      "imports": [
+        "import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A gallery of reports — each card's media a sparkline above its face, its owner's avatar beside how often it is used, a star for a favourite, grouped by team\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const reports = $.const([\n            { key: \"weekly-revenue\", name: \"Weekly revenue\", team: \"Finance\", owner: \"Dana Voss\", uses: 6n, favourite: true, trend: [12.0, 14.0, 13.0, 17.0, 16.0, 19.0, 21.0] },\n            { key: \"cash-runway\", name: \"Cash runway\", team: \"Finance\", owner: \"Dana Voss\", uses: 3n, favourite: false, trend: [30.0, 28.0, 27.0, 25.0, 26.0, 24.0, 22.0] },\n            { key: \"order-intake\", name: \"Order intake\", team: \"Operations\", owner: \"Ravi Menon\", uses: 11n, favourite: true, trend: [5.0, 7.0, 6.0, 9.0, 11.0, 10.0, 12.0] },\n            { key: \"fill-rate\", name: \"Fill rate\", team: \"Operations\", owner: \"Ravi Menon\", uses: 7n, favourite: false, trend: [88.0, 90.0, 91.0, 89.0, 93.0, 94.0, 94.0] },\n            { key: \"backlog-age\", name: \"Backlog age\", team: \"Operations\", owner: \"Lea Park\", uses: 2n, favourite: false, trend: [9.0, 8.0, 10.0, 7.0, 6.0, 6.0, 5.0] },\n        ], ArrayType(StructType({\n            key: StringType, name: StringType, team: StringType, owner: StringType, uses: IntegerType, favourite: BooleanType, trend: ArrayType(FloatType),\n        })));\n        return (\n            <Library\n                id=\"reports\"\n                variant=\"gallery\"\n                data={reports}\n                item={r => ({\n                    key: r.key,\n                    label: r.name,\n                    sublabel: East.str`${r.team.upperCase()} · ${r.trend.size()} weeks`,\n                    media: <Sparkline data={r.trend} type=\"area\" color=\"brand.600\" width=\"100%\" height=\"84px\" />,\n                    avatar: r.owner,\n                    byline: East.str`used in ${r.uses}`,\n                    trailing: r.favourite.ifElse(\n                        () => some(Library.glyph(\"star\", \"Favourite\", \"info\")),\n                        () => some(Library.glyph(\"star\", \"Not a favourite\")),\n                    ),\n                })}\n                groupBy={[{ key: \"team\", label: \"Team\", value: r => r.team }]}\n                search={r => East.str`${r.name} ${r.team}`}\n                noun={{ singular: \"report\", plural: \"reports\" }}\n                style={{ columns: 3n, mediaSize: \"112px\" }}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:map.examples.tsx:mapBasic",

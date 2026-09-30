@@ -3,23 +3,31 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+    Avatar as ChakraAvatar, Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
+} from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faFilter, faGripVertical, faMagnifyingGlass, faSliders, faXmark } from "@fortawesome/free-solid-svg-icons";
+import {
+    faCheck, faFilter, faGrip, faGripVertical, faLayerGroup, faList, faMagnifyingGlass, faPlus, faSliders, faXmark,
+    type IconDefinition,
+} from "@fortawesome/free-solid-svg-icons";
 import { type IconName } from "@fortawesome/fontawesome-svg-core";
 import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useDragSourceItem, useDropSink } from "../../dnd/drag-layer";
-import { SliceRailCluster } from "../../slice/rail";
+import { HOST_RANK, useSliceToolbarItems } from "../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
+import { radioGroupKey } from "../../primitives/radio-group.js";
+import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { useFormatters } from "../../format/index.js";
+import { EastChakraComponent } from "../../component";
 
 const libraryEqual = equivalentFor(Library.Types.Library);
 
@@ -28,6 +36,12 @@ export type LibraryValue = ValueTypeOf<typeof Library.Types.Library>;
 
 /** East Library item value type. */
 export type LibraryItemValue = ValueTypeOf<typeof Library.Types.Item>;
+
+/** A gallery's layout — derived from the East type, never mirrored. */
+type LibraryLayout = ValueTypeOf<typeof Library.Types.Layout>["type"];
+
+/** The bound slice handle, decoded. */
+type SliceBindValue = ValueTypeOf<typeof SliceInternal.Types.Bind>;
 
 export interface EastChakraLibraryProps {
     value: LibraryValue;
@@ -41,6 +55,8 @@ interface LibraryToolbarState {
     activeDims: string[];
     /** The Filter menu's checked values, per facet key. */
     filters?: Record<string, string[]>;
+    /** A gallery's layout, as the toolbar's switch last left it. */
+    layout?: LibraryLayout | undefined;
     /** Top visible virtual-entry index — a clamped index survives data changes (#143 convention). */
     scrollIndex?: number;
 }
@@ -114,6 +130,38 @@ export function libraryEntries(groups: readonly LibraryGroup[], columns: number)
 // ============================================================================
 // Card
 // ============================================================================
+
+/** A card's secondary facts, in the toolbar's order — a compact card's and a gallery card's alike. */
+function LibraryDims({ item, keys, styles }: { item: LibraryItemValue; keys: readonly string[]; styles: SlotStyles }) {
+    return keys.map(key => {
+        const dim = item.dims.get(key)!;
+        return match(dim, {
+            meter: (m) => (
+                <Box key={key} css={styles.meter}>
+                    <Box css={styles.meterTrack}>
+                        <Box
+                            css={styles.meterFill}
+                            width={`${Math.max(0, Math.min(100, m.max > 0 ? (m.value / m.max) * 100 : 0))}%`}
+                        />
+                    </Box>
+                    {getSomeorUndefined(m.text) !== undefined && (
+                        <Box as="span" css={styles.meterText}>{getSomeorUndefined(m.text)}</Box>
+                    )}
+                </Box>
+            ),
+            chips: (chips) => (
+                <Box key={key} css={styles.chips}>
+                    {chips.map((chip, i) => (
+                        <Box as="span" key={i} css={styles.chip}>{chip}</Box>
+                    ))}
+                </Box>
+            ),
+            text: (text) => (
+                <Box key={key} css={styles.dimText}>{text}</Box>
+            ),
+        });
+    });
+}
 
 interface LibraryCardProps {
     libraryId: string;
@@ -190,34 +238,7 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, 
                     <Box as="span" css={styles.cardLabel}>{item.label}</Box>
                 )}
                 {sublabel && <Box as="span" css={styles.cardSublabel}>{sublabel}</Box>}
-                {visibleDims.map(key => {
-                    const dim = item.dims.get(key)!;
-                    return match(dim, {
-                        meter: (m) => (
-                            <Box key={key} css={styles.meter}>
-                                <Box css={styles.meterTrack}>
-                                    <Box
-                                        css={styles.meterFill}
-                                        width={`${Math.max(0, Math.min(100, m.max > 0 ? (m.value / m.max) * 100 : 0))}%`}
-                                    />
-                                </Box>
-                                {getSomeorUndefined(m.text) !== undefined && (
-                                    <Box as="span" css={styles.meterText}>{getSomeorUndefined(m.text)}</Box>
-                                )}
-                            </Box>
-                        ),
-                        chips: (chips) => (
-                            <Box key={key} css={styles.chips}>
-                                {chips.map((chip, i) => (
-                                    <Box as="span" key={i} css={styles.chip}>{chip}</Box>
-                                ))}
-                            </Box>
-                        ),
-                        text: (text) => (
-                            <Box key={key} css={styles.dimText}>{text}</Box>
-                        ),
-                    });
-                })}
+                <LibraryDims item={item} keys={visibleDims} styles={styles} />
             </Box>
             {((!tall && status) || glyph) && (
                 <Box css={styles.trailing}>
@@ -244,6 +265,113 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, 
     );
 }
 
+interface LibraryGalleryCardProps extends LibraryCardProps {
+    /** Where the card's media keeps its state. */
+    storageKey: string;
+}
+
+/**
+ * A gallery card: its media on the sunken paper, then its face — the name and
+ * status, the meta line, any secondary facts, and a foot holding the byline
+ * and the action or glyph. The card is the one target: it drags, and a click
+ * anywhere on it — the action it names included — is its click. The media is
+ * a thumbnail, so nothing in it takes the pointer or the focus.
+ */
+function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, storageKey }: LibraryGalleryCardProps) {
+    const status = getSomeorUndefined(item.status);
+    const statusStyles = useSlotRecipe({ key: "status" })({
+        status: status?.tone.type ?? "neutral",
+        size: "md",
+        ring: status?.ring ?? false,
+    }) as SlotStyles;
+    const glyph = getSomeorUndefined(item.trailing);
+    const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
+    const sublabel = getSomeorUndefined(item.sublabel);
+    const media = getSomeorUndefined(item.media);
+    const avatar = getSomeorUndefined(item.avatar);
+    const byline = getSomeorUndefined(item.byline);
+    const action = getSomeorUndefined(item.action);
+    const draggable = item.draggable && !filtered;
+    const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
+
+    const from = useMemo(() => ({ library: libraryId, key: item.key, label: item.label }), [libraryId, item.key, item.label]);
+    const ghost = useMemo(() => (
+        <Box css={styles.ghost}>{item.label}</Box>
+    ), [styles.ghost, item.label]);
+    const drag = useDragSourceItem(from, ghost, !draggable);
+    const click = onCardClick === undefined ? {} : {
+        onClick: () => onCardClick(item.key),
+        ...(drag === undefined ? {
+            role: "button",
+            tabIndex: 0,
+            onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                onCardClick(item.key);
+            },
+        } : {}),
+    };
+
+    return (
+        <Box
+            css={styles.galleryCard}
+            data-library-card={item.key}
+            {...drag}
+            {...click}
+            {...(filtered ? { "data-filtered": "" } : {})}
+            {...(item.placed ? { "data-placed": "" } : {})}
+            {...(draggable && drag ? { "data-draggable": "" } : {})}
+            {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
+        >
+            {media !== undefined && (
+                <Box css={styles.galleryMedia} data-library-media="" aria-hidden inert>
+                    <EastChakraComponent value={media} storageKey={`${storageKey}.media.${item.key}`} />
+                </Box>
+            )}
+            <Box css={styles.galleryFace}>
+                <Box css={styles.galleryHead}>
+                    <Box as="span" css={styles.galleryTitle}>{item.label}</Box>
+                    {status !== undefined && (
+                        <Box as="span" css={statusStyles.root} data-library-status={status.tone.type}>
+                            <Box as="span" css={statusStyles.indicator} />
+                            <Box as="span" css={statusStyles.label}>{status.label}</Box>
+                        </Box>
+                    )}
+                </Box>
+                {sublabel !== undefined && <Box as="span" css={styles.gallerySublabel}>{sublabel}</Box>}
+                <LibraryDims item={item} keys={visibleDims} styles={styles} />
+                {(avatar !== undefined || byline !== undefined || action !== undefined || glyph !== undefined) && (
+                    <Box css={styles.galleryFoot} data-library-foot="">
+                        <Box css={styles.galleryByline}>
+                            {avatar !== undefined && (
+                                <ChakraAvatar.Root size="2xs">
+                                    <ChakraAvatar.Fallback name={avatar} />
+                                </ChakraAvatar.Root>
+                            )}
+                            {byline !== undefined && <Box as="span" css={styles.galleryBylineText}>{byline}</Box>}
+                        </Box>
+                        {action !== undefined && (
+                            <Box as="span" css={styles.galleryAction} data-library-action="">{action}</Box>
+                        )}
+                        {glyph !== undefined && (
+                            <Box
+                                as="span"
+                                css={styles.glyph}
+                                role="img"
+                                aria-label={glyph.label}
+                                title={glyph.label}
+                                {...(glyphTone !== undefined ? { "data-tone": glyphTone.type } : {})}
+                            >
+                                <FontAwesomeIcon icon={["fas", glyph.icon as IconName]} />
+                            </Box>
+                        )}
+                    </Box>
+                )}
+            </Box>
+        </Box>
+    );
+}
+
 // ============================================================================
 // Group head (shared by the virtual and non-virtual paths)
 // ============================================================================
@@ -259,30 +387,46 @@ function LibraryGroupHead({ label, count, summary, styles }: { label: string; co
 }
 
 // ============================================================================
-// Toolbar controls — the grouping and the secondary facts, each a menu
+// Toolbar controls — the grouping, the secondary facts and the filter, each a
+// menu; a gallery's layout switch
 // ============================================================================
+
+/** The Library's own fold ranks, after every step of its slice rail's: the
+ *  caption goes, the secondary facts and the filter fold to their icons,
+ *  then the grouping does, and last the search box narrows and drops its
+ *  key cap. The layout switch never folds. */
+const LIBRARY_RANK = {
+    hint: HOST_RANK,
+    menus: HOST_RANK + 1,
+    group: HOST_RANK + 2,
+    searchMid: HOST_RANK + 3,
+    searchNarrow: HOST_RANK + 4,
+} as const;
 
 interface LibraryOption {
     key: string;
     label: string;
 }
 
-/** `GROUP · <the grouping>`, opening a menu of every grouping and none. */
-function LibraryGroupMenu({ options, active, onPick, styles }: {
+/** `GROUP · <the grouping>` — folded, its icon, the words its tooltip —
+ *  opening a menu of every grouping and none. */
+function LibraryGroupMenu({ options, active, onPick, compact, styles }: {
     options: readonly LibraryOption[];
     active: string | null;
     onPick: (key: string | null) => void;
+    compact: boolean;
     styles: SlotStyles;
 }) {
     const current = options.find(o => o.key === active);
     const choices: LibraryOption[] = [...options, { key: NO_GROUP, label: "None" }];
     const checked = active ?? NO_GROUP;
+    const words = `Group · ${current?.label ?? "None"}`;
     return (
         <ChakraMenu.Root positioning={{ placement: "bottom-start" }}
             onSelect={(d) => onPick(d.value === NO_GROUP ? null : d.value)}>
             <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={styles.groupTrigger} aria-label="Group by">
-                    Group · {current?.label ?? "None"}
+                <chakra.button type="button" css={styles.groupTrigger} aria-label="Group by" title={compact ? words : undefined}>
+                    {compact ? <FontAwesomeIcon icon={faLayerGroup} /> : words}
                 </chakra.button>
             </ChakraMenu.Trigger>
             <Portal>
@@ -303,20 +447,23 @@ function LibraryGroupMenu({ options, active, onPick, styles }: {
     );
 }
 
-/** The secondary facts a card shows, toggled in a menu that stays open. */
-function LibraryDimMenu({ options, active, onToggle, styles }: {
+/** The secondary facts a card shows, toggled in a menu that stays open —
+ *  folded, the trigger is its icon, the word its name and tooltip. */
+function LibraryDimMenu({ options, active, onToggle, compact, styles }: {
     options: readonly LibraryOption[];
     active: readonly string[];
     onToggle: (key: string) => void;
+    compact: boolean;
     styles: SlotStyles;
 }) {
     return (
         <ChakraMenu.Root positioning={{ placement: "bottom-end" }} closeOnSelect={false}
             onSelect={(d) => onToggle(d.value)}>
             <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={styles.dimTrigger}>
+                <chakra.button type="button" css={styles.dimTrigger}
+                    {...(compact ? { "aria-label": "Secondary", title: "Secondary" } : {})}>
                     <FontAwesomeIcon icon={faSliders} />
-                    Secondary
+                    {!compact && "Secondary"}
                 </chakra.button>
             </ChakraMenu.Trigger>
             <Portal>
@@ -343,18 +490,22 @@ const CLEAR_FILTERS = "\u0000clear";
 /**
  * `Filter`, opening a menu of each facet's values: checking values keeps the
  * cards that hold one of them, in every facet with a value checked. It stays
- * open while values are checked.
+ * open while values are checked. Folded, the trigger is its icon and the
+ * count checked, the words its name and tooltip.
  */
-function LibraryFilterMenu({ options, values, active, onToggle, onClear, styles }: {
+function LibraryFilterMenu({ options, values, active, onToggle, onClear, compact, styles }: {
     options: readonly LibraryOption[];
     values: ReadonlyMap<string, readonly string[]>;
     active: Readonly<Record<string, readonly string[]>>;
     onToggle: (facet: string, value: string) => void;
     onClear: () => void;
+    compact: boolean;
     styles: SlotStyles;
 }) {
     const words = useFormatters();
     const checked = options.reduce((n, o) => n + (active[o.key]?.length ?? 0), 0);
+    const count = checked > 0 ? words.number(checked) : "";
+    const label = `Filter${count !== "" ? ` · ${count}` : ""}`;
     return (
         <ChakraMenu.Root positioning={{ placement: "bottom-end" }} closeOnSelect={false}
             onSelect={(d) => {
@@ -363,9 +514,10 @@ function LibraryFilterMenu({ options, values, active, onToggle, onClear, styles 
                 onToggle(facet, value);
             }}>
             <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={styles.dimTrigger}>
+                <chakra.button type="button" css={styles.dimTrigger}
+                    {...(compact ? { "aria-label": label, title: label } : {})}>
                     <FontAwesomeIcon icon={faFilter} />
-                    Filter{checked > 0 ? ` · ${words.number(checked)}` : ""}
+                    {compact ? count : label}
                 </chakra.button>
             </ChakraMenu.Trigger>
             <Portal>
@@ -400,17 +552,50 @@ function LibraryFilterMenu({ options, values, active, onToggle, onClear, styles 
     );
 }
 
+/** A gallery's layouts, in the switch's order. */
+const LAYOUTS: ReadonlyArray<{ key: LibraryLayout; label: string; icon: IconDefinition }> = [
+    { key: "grid", label: "Grid view", icon: faGrip },
+    { key: "list", label: "List view", icon: faList },
+];
+
+/**
+ * A gallery's Grid · List switch — the shared segment strip (`seg`), a radio
+ * group: one tab stop, on the checked layout; ← / → and Home / End move and
+ * pick, and a press picks.
+ */
+function LibraryLayoutSwitch({ layout, onPick }: { layout: LibraryLayout; onPick: (layout: LibraryLayout) => void }) {
+    const seg = useSlotRecipe({ key: "seg" })() as SlotStyles;
+    return (
+        <Box css={seg.root} role="radiogroup" aria-label="Layout" data-library-layout=""
+            onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
+                radioGroupKey(e, (j) => {
+                    const next = LAYOUTS[j];
+                    if (next !== undefined && next.key !== layout) onPick(next.key);
+                });
+            }}>
+            {LAYOUTS.map(l => (
+                <chakra.button key={l.key} type="button" css={seg.item} role="radio"
+                    aria-checked={l.key === layout} aria-label={l.label} title={l.label}
+                    tabIndex={l.key === layout ? 0 : -1} data-state={l.key === layout ? "on" : undefined}
+                    onClick={() => onPick(l.key)}>
+                    <FontAwesomeIcon icon={l.icon} />
+                </chakra.button>
+            ))}
+        </Box>
+    );
+}
+
 // ============================================================================
 // Library core
 // ============================================================================
 
 interface LibraryCoreProps extends EastChakraLibraryProps {
-    /** Set when the slice rail mounts a `search` affordance — the rail's
-     *  search narrows the fed rows, so the built-in input is suppressed. */
-    suppressSearch?: boolean;
+    /** The slice rail: its affordances join the toolbar's row. A `search`
+     *  among them narrows the fed rows, so the built-in search is not drawn. */
+    rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
@@ -424,6 +609,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
         groupKey: groupOptions[0]?.key ?? null,
         activeDims: [...value.defaultDimensions],
         filters: {},
+        layout: getSomeorUndefined(value.layout)?.type,
     });
     const [query, setQuery] = useState("");
     const filterOptions = value.filterOptions;
@@ -529,7 +715,28 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     const height = parseCssSize(style ? getSomeorUndefined(style.height) : undefined);
     const maxHeight = parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined);
     const scrollable = height !== undefined || maxHeight !== undefined;
-    const virtualEnabled = scrollable && (style ? getSomeorUndefined(style.virtualization) : undefined) !== false;
+    // A gallery's layout: where its author starts it, then the viewer's pick
+    // from the toolbar's switch, kept with the rest of the toolbar. An
+    // author's layout that moves (an expression) moves it.
+    const gallery = getSomeorUndefined(value.variant)?.type === "gallery";
+    const authorLayout = getSomeorUndefined(value.layout)?.type;
+    const lastAuthorLayout = useRef(authorLayout);
+    useEffect(() => {
+        if (authorLayout === lastAuthorLayout.current) return;
+        lastAuthorLayout.current = authorLayout;
+        if (authorLayout !== undefined) setToolbar(prev => ({ ...prev, layout: authorLayout }));
+    }, [authorLayout, setToolbar]);
+    const layout = toolbar.layout ?? authorLayout ?? "grid";
+    const pickLayout = useCallback((next: LibraryLayout) => {
+        setToolbar(prev => ({ ...prev, layout: next }));
+    }, [setToolbar]);
+    // Its columns, and where its media sits — at the start in a list,
+    // whatever the grid puts it.
+    const placement = layout === "list" ? "start" : (style ? getSomeorUndefined(style.mediaPlacement)?.type : undefined) ?? "top";
+    const galleryColumns = Number((style ? getSomeorUndefined(style.columns) : undefined) ?? 3n);
+    const mediaSize = parseCssSize(style ? getSomeorUndefined(style.mediaSize) : undefined);
+    // A gallery's cards are as tall as their media and facts, so it mounts every one.
+    const virtualEnabled = !gallery && scrollable && (style ? getSomeorUndefined(style.virtualization) : undefined) !== false;
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const [columns, setColumns] = useState(1);
@@ -586,7 +793,9 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [virtualEnabled, entries.length]);
 
-    const searchable = value.searchable && suppressSearch !== true;
+    const searchable = value.searchable && !(rail?.kinds.includes("search") ?? false);
+    // The rail's affordances, as items of the toolbar's one row.
+    const railItems = useSliceToolbarItems(rail?.slice, [{ key: "rail", kinds: rail?.kinds ?? [] }]);
 
     // ⌘ / focuses the search box of the Library last pointed at or focused.
     const searchRef = useRef<HTMLInputElement | null>(null);
@@ -612,7 +821,139 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
         if (searchable) searchOwner = self;
     }, [searchable, self]);
 
-    const bodyContent = virtualEnabled ? (
+    // The search box at a width the toolbar folds it to — one element in
+    // every form, so the field keeps its focus and its text as the row folds.
+    const searchBox = (size: "wide" | "mid" | "narrow") => (
+        <Box css={styles.searchBox} data-size={size}>
+            <Box as="span" css={styles.searchIcon} aria-hidden>
+                <FontAwesomeIcon icon={faMagnifyingGlass} />
+            </Box>
+            <chakra.input
+                ref={searchRef}
+                css={styles.searchInput}
+                placeholder={`Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
+                aria-label="Search library"
+                aria-keyshortcuts="Meta+/ Control+/"
+                value={query}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key === "Escape" && query !== "") {
+                        e.preventDefault();
+                        setQuery("");
+                    }
+                }}
+            />
+            {query !== "" ? (
+                <chakra.button type="button" css={styles.searchClear} aria-label="Clear search" onClick={() => setQuery("")}>
+                    <FontAwesomeIcon icon={faXmark} />
+                </chakra.button>
+            ) : (
+                <chakra.kbd css={[kbd({}), styles.searchKbd]} aria-hidden>⌘ /</chakra.kbd>
+            )}
+        </Box>
+    );
+    const checkedFilters = filterOptions.reduce((n, o) => n + (activeFilters[o.key]?.length ?? 0), 0);
+    // One row, the shared toolbar's: the rail and the search, then the
+    // grouping; at the row's end the caption, the secondary facts, the
+    // filter and a gallery's layout switch — folded on one ladder, in the
+    // order LIBRARY_RANK gives.
+    const toolbarItems: ReadonlyArray<ToolbarItem | false | undefined> = [
+        ...railItems,
+        searchable && {
+            key: "search",
+            forms: [searchBox("wide"), searchBox("mid"), searchBox("narrow")],
+            rank: [LIBRARY_RANK.searchMid, LIBRARY_RANK.searchNarrow],
+        },
+        groupOptions.length > 0 && {
+            key: "group",
+            forms: [
+                <LibraryGroupMenu options={groupOptions} active={toolbar.groupKey} onPick={setGroup} compact={false} styles={styles} />,
+                <LibraryGroupMenu options={groupOptions} active={toolbar.groupKey} onPick={setGroup} compact styles={styles} />,
+            ],
+            rank: LIBRARY_RANK.group,
+            version: toolbar.groupKey,
+        },
+        hint !== undefined && {
+            key: "hint",
+            side: "end",
+            forms: [<Box as="span" css={styles.hint}>{hint}</Box>, null],
+            rank: LIBRARY_RANK.hint,
+            version: hint,
+        },
+        dimOptions.length > 0 && {
+            key: "dims",
+            side: "end",
+            forms: [
+                <LibraryDimMenu options={dimOptions} active={toolbar.activeDims} onToggle={toggleDim} compact={false} styles={styles} />,
+                <LibraryDimMenu options={dimOptions} active={toolbar.activeDims} onToggle={toggleDim} compact styles={styles} />,
+            ],
+            rank: LIBRARY_RANK.menus,
+        },
+        filterOptions.length > 0 && {
+            key: "filter",
+            side: "end",
+            forms: [
+                <LibraryFilterMenu options={filterOptions} values={facetValues} active={activeFilters}
+                    onToggle={toggleFilter} onClear={clearFilters} compact={false} styles={styles} />,
+                <LibraryFilterMenu options={filterOptions} values={facetValues} active={activeFilters}
+                    onToggle={toggleFilter} onClear={clearFilters} compact styles={styles} />,
+            ],
+            rank: LIBRARY_RANK.menus,
+            version: checkedFilters,
+        },
+        gallery && {
+            key: "layout",
+            side: "end",
+            forms: [<LibraryLayoutSwitch layout={layout} onPick={pickLayout} />],
+        },
+    ];
+
+    const galleryGridProps = {
+        css: styles.galleryGrid,
+        "data-layout": layout,
+        "data-media": placement,
+        style: {
+            "--library-columns": String(galleryColumns),
+            ...(mediaSize !== undefined ? { "--library-media": mediaSize } : {}),
+        } as CSSProperties,
+    };
+    // A gallery's add action is its dashed last card.
+    const addCard = gallery && addLabel !== undefined ? (
+        <chakra.button type="button" css={styles.galleryAdd} onClick={handleAdd} data-library-add="">
+            <Box as="span" css={styles.galleryAddIcon} aria-hidden>
+                <FontAwesomeIcon icon={faPlus} />
+            </Box>
+            <Box as="span" css={styles.galleryAddLabel}>{addLabel}</Box>
+        </chakra.button>
+    ) : null;
+
+    const bodyContent = gallery ? (
+        groups.length === 0 ? (
+            addCard !== null && <Box {...galleryGridProps}>{addCard}</Box>
+        ) : groups.map((group, i) => (
+            <Box key={group.label || "_flat"} css={styles.group}>
+                {group.label !== "" && (
+                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} />
+                )}
+                <Box {...galleryGridProps}>
+                    {group.items.map(item => (
+                        <LibraryGalleryCard
+                            key={item.key}
+                            libraryId={value.id}
+                            item={item}
+                            dimOrder={dimOrder}
+                            activeDims={toolbar.activeDims}
+                            filtered={item.filtered}
+                            styles={styles}
+                            onCardClick={onCardClickFn ? handleCardClick : undefined}
+                            storageKey={storageKey}
+                        />
+                    ))}
+                    {i === groups.length - 1 && addCard}
+                </Box>
+            </Box>
+        ))
+    ) : virtualEnabled ? (
         <Box css={styles.canvas} style={{ height: `${virtualizer.getTotalSize()}px` }}>
             {virtualizer.getVirtualItems().map(virtualItem => {
                 const entry = entries[virtualItem.index]!;
@@ -682,60 +1023,9 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             onPointerEnter={claimSearch}
             onFocus={claimSearch}
         >
-            {hint !== undefined && (
-                <Box css={styles.header}>
-                    <Box as="span" css={styles.hint}>{hint}</Box>
-                </Box>
-            )}
-            {(searchable || groupOptions.length > 0 || dimOptions.length > 0 || filterOptions.length > 0) && (
-                <Box css={styles.toolbar}>
-                    {searchable && (
-                        <Box css={styles.searchBox}>
-                            <Box as="span" css={styles.searchIcon} aria-hidden>
-                                <FontAwesomeIcon icon={faMagnifyingGlass} />
-                            </Box>
-                            <chakra.input
-                                ref={searchRef}
-                                css={styles.searchInput}
-                                placeholder={`Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
-                                aria-label="Search library"
-                                aria-keyshortcuts="Meta+/ Control+/"
-                                value={query}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
-                                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                                    if (e.key === "Escape" && query !== "") {
-                                        e.preventDefault();
-                                        setQuery("");
-                                    }
-                                }}
-                            />
-                            {query !== "" ? (
-                                <chakra.button type="button" css={styles.searchClear} aria-label="Clear search" onClick={() => setQuery("")}>
-                                    <FontAwesomeIcon icon={faXmark} />
-                                </chakra.button>
-                            ) : (
-                                <chakra.kbd css={[kbd({}), styles.searchKbd]} aria-hidden>⌘ /</chakra.kbd>
-                            )}
-                        </Box>
-                    )}
-                    {(groupOptions.length > 0 || dimOptions.length > 0 || filterOptions.length > 0) && (
-                        <Box css={styles.controls}>
-                            {groupOptions.length > 0 && (
-                                <LibraryGroupMenu options={groupOptions} active={toolbar.groupKey} onPick={setGroup} styles={styles} />
-                            )}
-                            {(dimOptions.length > 0 || filterOptions.length > 0) && (
-                                <Box css={styles.controlsEnd}>
-                                    {dimOptions.length > 0 && (
-                                        <LibraryDimMenu options={dimOptions} active={toolbar.activeDims} onToggle={toggleDim} styles={styles} />
-                                    )}
-                                    {filterOptions.length > 0 && (
-                                        <LibraryFilterMenu options={filterOptions} values={facetValues} active={activeFilters}
-                                            onToggle={toggleFilter} onClear={clearFilters} styles={styles} />
-                                    )}
-                                </Box>
-                            )}
-                        </Box>
-                    )}
+            {toolbarItems.some(Boolean) && (
+                <Box css={styles.toolbar} data-slot="toolbar">
+                    <Toolbar items={toolbarItems} />
                 </Box>
             )}
             <Box
@@ -747,7 +1037,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             >
                 {bodyContent}
             </Box>
-            {(hiddenCount > 0 || addLabel !== undefined) && (
+            {(hiddenCount > 0 || (!gallery && addLabel !== undefined)) && (
                 <Box css={styles.footer}>
                     {hiddenCount > 0 && (
                         <Box as="span" css={styles.hiddenNote}>
@@ -755,7 +1045,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                             <Box as="button" css={styles.showAll} onClick={showAll}>Show all</Box>
                         </Box>
                     )}
-                    {addLabel !== undefined && (
+                    {!gallery && addLabel !== undefined && (
                         <Box as="button" css={styles.addAction} marginLeft="auto" onClick={handleAdd}>
                             + {addLabel}
                         </Box>
@@ -778,8 +1068,8 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
  * face field dims a card instead — the host's deliberate de-emphasis.
  *
  * Without `slice` it renders the bare palette. With the `slice` chrome
- * option it renders the frame chassis itself — a rail mounting the listed
- * affordances (the shared `SliceRailCluster` ladder) and a derived-count
+ * option it renders the frame chassis itself — the listed affordances join
+ * the Library's one toolbar row, folding on its ladder, and a derived-count
  * footer. Chrome only: the items are whatever the host fed
  * (`Slice.rows([RowType], slice)` or `Slice.partition` + `filtered`
  * upstream); the Library never narrows its own data.
@@ -787,7 +1077,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
 export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChakraLibraryProps) {
     const chrome = getSomeorUndefined(props.value.slice as never) as
         { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined;
-    const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
+    const slice = chrome?.slice as SliceBindValue | undefined;
     useSliceReactivity(slice?.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })() as SlotStyles;
     // The footer's counts, in the app's locale (#850).
@@ -803,11 +1093,8 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
 
     return (
         <Box css={{ ...frameStyles.root, height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
-            <Box css={{ ...frameStyles.frameEyebrow, flexShrink: 0 }}>
-                <SliceRailCluster slice={slice} affordanceKinds={affordanceKinds} />
-            </Box>
             <Box css={{ ...frameStyles.frameBody, flex: "1 1 0%", minHeight: 0, overflow: "hidden" }}>
-                <LibraryCore {...props} suppressSearch={affordanceKinds.includes("search")} />
+                <LibraryCore {...props} rail={{ slice, kinds: affordanceKinds }} />
             </Box>
             <Box css={{ ...frameStyles.frameFooter, flexShrink: 0 }}>
                 <Box as="span" css={frameStyles.frameFooterStat}>{words.number(result)}</Box>

@@ -3,9 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { describe, test as nodeTest } from "node:test";
+import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, some, none, ArrayType, IntegerType, NullType, StringType, StructType, type ExprType } from "@elaraai/east";
-import { Library } from "@elaraai/east-ui/internal";
+import { Library, Text } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./library.examples.js";
 
@@ -14,6 +16,57 @@ describeEast("Library", (test) => {
         libraryPeople: ex.libraryPeople,
         libraryPalette: ex.libraryPalette,
         libraryLarge: ex.libraryLarge,
+        libraryGalleryPages: ex.libraryGalleryPages,
+        libraryGalleryReports: ex.libraryGalleryReports,
+    });
+
+    test("a gallery carries its variant, layout and media style, and each card's media, avatar, byline and action", $ => {
+        const lib = $.let(Library.Root(
+            [{ id: "overview", title: "Overview", owner: "J. Lee" }],
+            {
+                id: "pages",
+                variant: "gallery",
+                layout: "list",
+                item: r => ({
+                    key: r.id,
+                    label: r.title,
+                    status: some(Library.status("Draft", "neutral", true)),
+                    media: Text.Root(r.title),
+                    avatar: r.owner,
+                    byline: East.str`by ${r.owner}`,
+                    action: "Open in builder →",
+                }),
+                style: { columns: 2n, mediaPlacement: "start", mediaSize: "156px" },
+            },
+        ));
+        const root = $.let(lib.unwrap().unwrap("Library"));
+        $(Assert.equal(root.variant.unwrap("some").hasTag("gallery"), true));
+        $(Assert.equal(root.layout.unwrap("some").hasTag("list"), true));
+        $(Assert.equal(root.style.unwrap("some").columns.unwrap("some"), 2n));
+        $(Assert.equal(root.style.unwrap("some").mediaPlacement.unwrap("some").hasTag("start"), true));
+        $(Assert.equal(root.style.unwrap("some").mediaSize.unwrap("some"), "156px"));
+        const item = $.let(root.items.get(0n));
+        $(Assert.equal(item.media.unwrap("some").unwrap().getTag(), "Text"));
+        $(Assert.equal(item.avatar.unwrap("some"), "J. Lee"));
+        $(Assert.equal(item.byline.unwrap("some"), "by J. Lee"));
+        $(Assert.equal(item.action.unwrap("some"), "Open in builder →"));
+        $(Assert.equal(item.status.unwrap("some").ring, true));
+    });
+
+    test("a compact Library leaves the gallery's fields none, and a status's ring false", $ => {
+        const lib = $.let(Library.Root(
+            [{ id: "a", name: "Alpha" }],
+            { id: "x", item: r => ({ key: r.id, label: r.name, status: some(Library.status("On roster", "info")) }) },
+        ));
+        const root = $.let(lib.unwrap().unwrap("Library"));
+        const item = $.let(root.items.get(0n));
+        $(Assert.equal(root.variant.hasTag("none"), true));
+        $(Assert.equal(root.layout.hasTag("none"), true));
+        $(Assert.equal(item.media.hasTag("none"), true));
+        $(Assert.equal(item.avatar.hasTag("none"), true));
+        $(Assert.equal(item.byline.hasTag("none"), true));
+        $(Assert.equal(item.action.hasTag("none"), true));
+        $(Assert.equal(item.status.unwrap("some").ring, false));
     });
 
     test("a trailing glyph, the placed state and the facets carry through the card", $ => {
@@ -264,3 +317,25 @@ describeEast("Library", (test) => {
         $(Assert.equal(root.items.get(0n).search.unwrap("some"), "Alpha"));
     });
 }, { platformFns: TestImpl });
+
+describe("Library — the gallery's fields on a compact Library", () => {
+    nodeTest("a card's media, avatar, byline or action is refused, each named", () => {
+        assert.throws(
+            () => East.function([], UIComponentType, (_$) => Library.Root(
+                [{ id: "a" }],
+                { id: "x", item: r => ({ key: r.id, label: r.id, media: Text.Root(r.id), action: "Open" }) },
+            )),
+            /a card's media, action are a gallery card's — give `variant: "gallery"`/,
+        );
+    });
+
+    nodeTest("a layout, columns or media style is refused, each named", () => {
+        assert.throws(
+            () => East.function([], UIComponentType, (_$) => Library.Root(
+                [{ id: "a" }],
+                { id: "x", item: r => ({ key: r.id, label: r.id }), layout: "list", style: { columns: 2n, mediaSize: "80px" } },
+            )),
+            /layout, style\.columns, style\.mediaSize lay out a gallery's cards/,
+        );
+    });
+});

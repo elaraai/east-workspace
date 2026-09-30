@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example, some, none, ArrayType, FloatType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
+import { East, example, some, none, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, Text} from "@elaraai/east-ui";
+import { Box, Configurator, Library, Reactive, SegmentGroup, Slice, SnapGrid, Sparkline, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures — one per merged example (consolidation epic #455).
@@ -212,6 +212,143 @@ export const libraryLarge = example({
                     />
                 );
             }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A gallery of pages — the page library's cards. Each card's media is the
+ * page's wireframe at its start; its status is a dot, or an open ring for a
+ * draft never published; its meta line says what it holds; and its foot names
+ * the action a click takes. The dashed last card adds a page, and the
+ * toolbar's Grid · List switch lays the cards out.
+ */
+export const libraryGalleryPages = example({
+    keywords: [
+        "Library", "gallery", "variant", "media", "thumbnail", "wireframe", "SnapGrid", "card", "columns",
+        "mediaPlacement", "mediaSize", "layout", "grid", "list", "toolbar", "switch", "search", "noun", "status", "ring",
+        "action", "addLabel", "onAdd", "onCardClick", "page library", "Reactive", "State",
+    ],
+    description: "A gallery of pages — each card's media the page's wireframe at its start, its status a dot or an open ring, an action in its foot, a dashed card to add one, and a toolbar holding the search and the grid · list switch",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });
+            const pages = $.const([
+                {
+                    key: "overview", title: "Overview", live: true,
+                    cells: [
+                        { id: "revenue", row: "kpis", span: 3n, height: some(12n) },
+                        { id: "orders", row: "kpis", span: 3n, height: some(12n) },
+                        { id: "avg-ticket", row: "kpis", span: 3n, height: some(12n) },
+                        { id: "fill-rate", row: "kpis", span: 3n, height: some(12n) },
+                        { id: "revenue-trend", row: "charts", span: 8n, height: some(56n) },
+                        { id: "breakdown", row: "charts", span: 4n, height: some(56n) },
+                        { id: "accounts", row: "accounts", span: 12n, height: some(18n) },
+                    ],
+                },
+                {
+                    key: "account-detail", title: "Account detail", live: false,
+                    cells: [
+                        { id: "header", row: "header", span: 12n, height: some(10n) },
+                        { id: "owner", row: "facts", span: 4n, height: some(14n) },
+                        { id: "revenue", row: "facts", span: 4n, height: some(14n) },
+                        { id: "status", row: "facts", span: 4n, height: some(14n) },
+                        { id: "orders", row: "orders", span: 12n, height: some(60n) },
+                    ],
+                },
+                {
+                    key: "regional-rollup", title: "Regional rollup", live: true,
+                    cells: [
+                        { id: "trend", row: "trend", span: 12n, height: some(72n) },
+                        { id: "north", row: "regions", span: 6n, height: some(18n) },
+                        { id: "south", row: "regions", span: 6n, height: some(18n) },
+                    ],
+                },
+            ], ArrayType(StructType({ key: StringType, title: StringType, live: BooleanType, cells: ArrayType(Placement) })));
+            const opened = $.let(State.bind([StringType], "library_gallery_opened", "nothing"));
+            const onOpen = $.const(East.function([StringType], NullType, ($2, key) => { $2(opened.write(key)); }));
+            const onAdd = $.const(East.function([], NullType, ($2) => { $2(opened.write("a new page")); }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Library
+                        id="pages"
+                        variant="gallery"
+                        data={pages}
+                        item={p => ({
+                            key: p.key,
+                            label: p.title,
+                            sublabel: East.str`${p.cells.size()} components`,
+                            status: p.live.ifElse(
+                                () => some(Library.status("Live", "success")),
+                                () => some(Library.status("Draft", "neutral", true)),
+                            ),
+                            media: (
+                                <SnapGrid data={p.cells} variant="wireframe"
+                                    cell={c => SnapGrid.cell({ key: c.id, row: c.row, span: c.span, height: c.height, content: <Text>{c.id}</Text> })} />
+                            ),
+                            action: "Open in builder →",
+                            draggable: false,
+                        })}
+                        search={p => p.title}
+                        noun={{ singular: "page", plural: "pages" }}
+                        onCardClick={onOpen}
+                        addLabel="New page from template"
+                        onAdd={onAdd}
+                        style={{ columns: 2n, mediaPlacement: "start", mediaSize: "156px" }}
+                    />
+                    <Text>{East.str`Opened · ${opened.read()}`}</Text>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * A gallery of something other than pages — reports. Each card's media is its
+ * trend, a sparkline above its face; its foot holds its owner's avatar beside
+ * how many decks use it, and a star for a favourite; and the reports group by
+ * team, searchable by name.
+ */
+export const libraryGalleryReports = example({
+    keywords: [
+        "Library", "gallery", "variant", "media", "Sparkline", "chart", "thumbnail", "avatar", "byline", "trailing",
+        "glyph", "Library.glyph", "star", "favourite", "columns", "mediaSize", "groupBy", "search", "noun", "catalog",
+    ],
+    description: "A gallery of reports — each card's media a sparkline above its face, its owner's avatar beside how often it is used, a star for a favourite, grouped by team",
+    fn: East.function([], UIComponentType, ($) => {
+        const reports = $.const([
+            { key: "weekly-revenue", name: "Weekly revenue", team: "Finance", owner: "Dana Voss", uses: 6n, favourite: true, trend: [12.0, 14.0, 13.0, 17.0, 16.0, 19.0, 21.0] },
+            { key: "cash-runway", name: "Cash runway", team: "Finance", owner: "Dana Voss", uses: 3n, favourite: false, trend: [30.0, 28.0, 27.0, 25.0, 26.0, 24.0, 22.0] },
+            { key: "order-intake", name: "Order intake", team: "Operations", owner: "Ravi Menon", uses: 11n, favourite: true, trend: [5.0, 7.0, 6.0, 9.0, 11.0, 10.0, 12.0] },
+            { key: "fill-rate", name: "Fill rate", team: "Operations", owner: "Ravi Menon", uses: 7n, favourite: false, trend: [88.0, 90.0, 91.0, 89.0, 93.0, 94.0, 94.0] },
+            { key: "backlog-age", name: "Backlog age", team: "Operations", owner: "Lea Park", uses: 2n, favourite: false, trend: [9.0, 8.0, 10.0, 7.0, 6.0, 6.0, 5.0] },
+        ], ArrayType(StructType({
+            key: StringType, name: StringType, team: StringType, owner: StringType, uses: IntegerType, favourite: BooleanType, trend: ArrayType(FloatType),
+        })));
+        return (
+            <Library
+                id="reports"
+                variant="gallery"
+                data={reports}
+                item={r => ({
+                    key: r.key,
+                    label: r.name,
+                    sublabel: East.str`${r.team.upperCase()} · ${r.trend.size()} weeks`,
+                    media: <Sparkline data={r.trend} type="area" color="brand.600" width="100%" height="84px" />,
+                    avatar: r.owner,
+                    byline: East.str`used in ${r.uses}`,
+                    trailing: r.favourite.ifElse(
+                        () => some(Library.glyph("star", "Favourite", "info")),
+                        () => some(Library.glyph("star", "Not a favourite")),
+                    ),
+                })}
+                groupBy={[{ key: "team", label: "Team", value: r => r.team }]}
+                search={r => East.str`${r.name} ${r.team}`}
+                noun={{ singular: "report", plural: "reports" }}
+                style={{ columns: 3n, mediaSize: "112px" }}
+            />
         );
     }),
     inputs: [],
