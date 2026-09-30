@@ -340,6 +340,24 @@ describe("Library — the gallery (#1030)", () => {
         expect(card(again.container, "overview").parentElement!.getAttribute("data-layout")).toBe("list");
     });
 
+    test("LG9: `toolbar: false` draws no toolbar row, and the gallery lays out as its host's `layout` says", () => {
+        initializeStore(new UIStore());
+        const { container } = mount(East.compile(East.function([], UIComponentType, (_$) => Library.Root([
+            { id: "blank", title: "Blank grid" },
+            { id: "summary", title: "Summary" },
+        ], {
+            id: "templates",
+            variant: "gallery",
+            layout: "list",
+            toolbar: false,
+            item: r => ({ key: r.id, label: r.title, draggable: false }),
+        })), getRegisteredPlatformImplementations())() as ValueTypeOf<typeof UIComponentType>);
+        expect(container.querySelector("[data-toolbar]")).toBeNull();
+        expect(container.querySelector("[data-slot='toolbar']")).toBeNull();
+        expect(screen.queryByRole("radiogroup", { name: "Layout" })).toBeNull();
+        expect(card(container, "blank").parentElement!.getAttribute("data-layout")).toBe("list");
+    });
+
     test("LG6: the dashed last card adds one, and the footer holds no add action", async () => {
         const { container } = mountPages("grid");
         const add = container.querySelector<HTMLElement>("[data-library-add]")!;

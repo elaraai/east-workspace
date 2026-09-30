@@ -18,6 +18,8 @@ import './experiment/index.js';           // → implementUIComponent(Experiment
 import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
 import './decision/journal.js';           // → implementUIComponent(DecisionJournal.Component, EastChakraDecisionJournal)
 import './studio/inspector.js';           // → implementUIComponent(StudioInspectorComponent, EastChakraStudioInspector)
+import './studio/library.js';             // → implementUIComponent(StudioPageLibraryComponent, EastChakraStudioPageLibrary)
+import './studio/save-template.js';       // → implementUIComponent(StudioSaveTemplateComponent, EastChakraStudioSaveTemplate)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -41,9 +43,12 @@ export { EastChakraDecisionQueue, type EastChakraDecisionQueueProps } from './de
 export { EastChakraDecisionJournal, type EastChakraDecisionJournalProps } from './decision/journal.js';
 export { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleValue } from './decision/handle-runtime.js';
 
-// Studio inspector renderer — registers itself against the StudioInspector extension on import —
-// and the Studio's words.
+// Studio renderers — each registers itself against its extension on import: the inspector's
+// body, the page library's frame and the builder toolbar's Save as template — and the
+// Studio's words.
 export { EastChakraStudioInspector, type EastChakraStudioInspectorProps } from './studio/inspector.js';
+export { EastChakraStudioPageLibrary, type EastChakraStudioPageLibraryProps } from './studio/library.js';
+export { EastChakraStudioSaveTemplate, type EastChakraStudioSaveTemplateProps } from './studio/save-template.js';
 export {
     studioMessages,
     useStudioMessages,

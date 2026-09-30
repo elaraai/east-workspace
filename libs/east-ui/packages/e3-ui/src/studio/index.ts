@@ -32,6 +32,7 @@ import { StudioPage, StudioSite, StudioVersionType } from "./surfaces.js";
 import { StudioPalette } from "./palette.js";
 import { StudioCanvas } from "./canvas.js";
 import { StudioInspector } from "./inspector.js";
+import { StudioPageLibrary } from "./library.js";
 
 export {
     StudioComponentType,
@@ -74,8 +75,26 @@ export {
     StudioCanvas,
     canvasTiles,
     CanvasTileType,
+    StudioSaveTemplateComponent,
+    StudioSaveTemplatePayloadType,
     type StudioCanvasOptions,
 } from "./canvas.js";
+export {
+    StudioPageLibrary,
+    StudioPageLibraryComponent,
+    StudioPageLibraryPayloadType,
+    PageLibraryPageType,
+    PageLibraryTemplateType,
+    PageLibrarySortType,
+    PageLibraryPopoverType,
+    PageLibraryNewPageType,
+    libraryProjects,
+    libraryPages,
+    libraryTemplates,
+    layoutSummary,
+    nameWriteRefusal,
+    type StudioPageLibraryOptions,
+} from "./library.js";
 export {
     StudioInspector,
     StudioInspectorComponent,
@@ -118,6 +137,8 @@ export interface StudioNamespace {
     Canvas: typeof StudioCanvas;
     /** `<Studio.Inspector>` — the builder's inspector: the selected placement's component, what it reads, its description and its layout. */
     Inspector: typeof StudioInspector;
+    /** `<Studio.PageLibrary>` — a project's templates and pages, and where new pages start. */
+    PageLibrary: typeof StudioPageLibrary;
     /** The Studio's East types. */
     Types: {
         /** A Studio component ({@link StudioComponentType}). */
@@ -153,8 +174,9 @@ export interface StudioNamespace {
  * The Studio — components developers publish as code (`Studio.component`),
  * the placements that render them (`Studio.dispatch`), the pages record
  * operators build (`Studio.Types.Pages`, its writes and the change list), the
- * surfaces that read it (`<Studio.Page>` and `<Studio.Site>`), and the
- * builder's screens (`<Studio.Palette>`, `<Studio.Canvas>`, `<Studio.Inspector>`).
+ * surfaces that read it (`<Studio.Page>` and `<Studio.Site>`), the builder's
+ * screens (`<Studio.Palette>`, `<Studio.Canvas>`, `<Studio.Inspector>`), and
+ * the page library (`<Studio.PageLibrary>`).
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
@@ -172,6 +194,7 @@ export const Studio: StudioNamespace = {
     Palette: StudioPalette,
     Canvas: StudioCanvas,
     Inspector: StudioInspector,
+    PageLibrary: StudioPageLibrary,
     Types: {
         Component: StudioComponentType,
         Frame: StudioFrameType,

@@ -561,9 +561,13 @@ const LAYOUTS: ReadonlyArray<{ key: LibraryLayout; label: string; icon: IconDefi
 /**
  * A gallery's Grid · List switch — the shared segment strip (`seg`), a radio
  * group: one tab stop, on the checked layout; ← / → and Home / End move and
- * pick, and a press picks.
+ * pick, and a press picks. A gallery's toolbar draws it, and so does a host
+ * whose one toolbar serves several galleries (`toolbar: false`).
+ *
+ * @param props - The layout it shows checked, and what a pick calls
+ * @returns The switch
  */
-function LibraryLayoutSwitch({ layout, onPick }: { layout: LibraryLayout; onPick: (layout: LibraryLayout) => void }) {
+export function LibraryLayoutSwitch({ layout, onPick }: { layout: LibraryLayout; onPick: (layout: LibraryLayout) => void }) {
     const seg = useSlotRecipe({ key: "seg" })() as SlotStyles;
     return (
         <Box css={seg.root} role="radiogroup" aria-label="Layout" data-library-layout=""
@@ -717,7 +721,8 @@ function LibraryCore({ value, storageKey, rail }: LibraryCoreProps) {
     const scrollable = height !== undefined || maxHeight !== undefined;
     // A gallery's layout: where its author starts it, then the viewer's pick
     // from the toolbar's switch, kept with the rest of the toolbar. An
-    // author's layout that moves (an expression) moves it.
+    // author's layout that moves (an expression) moves it. Without its
+    // toolbar there is no switch: the host that drives the layout says it.
     const gallery = getSomeorUndefined(value.variant)?.type === "gallery";
     const authorLayout = getSomeorUndefined(value.layout)?.type;
     const lastAuthorLayout = useRef(authorLayout);
@@ -726,7 +731,7 @@ function LibraryCore({ value, storageKey, rail }: LibraryCoreProps) {
         lastAuthorLayout.current = authorLayout;
         if (authorLayout !== undefined) setToolbar(prev => ({ ...prev, layout: authorLayout }));
     }, [authorLayout, setToolbar]);
-    const layout = toolbar.layout ?? authorLayout ?? "grid";
+    const layout = (value.toolbar ? toolbar.layout : undefined) ?? authorLayout ?? "grid";
     const pickLayout = useCallback((next: LibraryLayout) => {
         setToolbar(prev => ({ ...prev, layout: next }));
     }, [setToolbar]);
@@ -1019,11 +1024,13 @@ function LibraryCore({ value, storageKey, rail }: LibraryCoreProps) {
             ref={frameSink}
             data-library={value.id}
             {...(scrollable ? { "data-scrollable": "" } : {})}
+            // Without its toolbar the Library is a host's: its cards sit in the host's frame.
+            {...(value.toolbar ? {} : { "data-hosted": "" })}
             style={scrollable ? { height, maxHeight } : undefined}
             onPointerEnter={claimSearch}
             onFocus={claimSearch}
         >
-            {toolbarItems.some(Boolean) && (
+            {value.toolbar && toolbarItems.some(Boolean) && (
                 <Box css={styles.toolbar} data-slot="toolbar">
                     <Toolbar items={toolbarItems} />
                 </Box>

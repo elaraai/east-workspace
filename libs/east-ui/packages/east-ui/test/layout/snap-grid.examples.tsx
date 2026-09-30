@@ -115,8 +115,8 @@ export const snapGridPage = example({
 });
 
 export const snapGridWireframe = example({
-    keywords: ["SnapGrid", "wireframe", "thumbnail", "outline", "template", "preview", "page library", "variant", "tiles", "grid", "miniature"],
-    description: "Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages",
+    keywords: ["SnapGrid", "wireframe", "thumbnail", "outline", "template", "preview", "page library", "variant", "tiles", "grid", "miniature", "blank", "empty"],
+    description: "Pages as wireframes — each cell drawn as an outline at its tile's size and its content left out, the page library's thumbnails of three pages, each framed by its host; the last, with no cells, is the blank page",
     fn: East.function([], UIComponentType, ($) => {
         const Placement = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });
         const overview = $.const([
@@ -140,14 +140,25 @@ export const snapGridWireframe = example({
             { id: "north", row: "regions", span: 6n, height: some(16n) },
             { id: "south", row: "regions", span: 6n, height: some(16n) },
         ], ArrayType(Placement));
+        const blank = $.const([], ArrayType(Placement));
         return (
-            <HStack gap="4" align="flex-start">
-                <SnapGrid data={overview} variant="wireframe" width="160px"
-                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />
-                <SnapGrid data={accountDetail} variant="wireframe" width="160px"
-                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />
-                <SnapGrid data={regionalRollup} variant="wireframe" width="160px"
-                    cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />
+            <HStack gap="4" align="stretch">
+                <Box display="flex" flexDirection="column" padding="3.5" background="bg.subtle">
+                    <SnapGrid data={overview} variant="wireframe" width="160px"
+                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />
+                </Box>
+                <Box display="flex" flexDirection="column" padding="3.5" background="bg.subtle">
+                    <SnapGrid data={accountDetail} variant="wireframe" width="160px"
+                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />
+                </Box>
+                <Box display="flex" flexDirection="column" padding="3.5" background="bg.subtle">
+                    <SnapGrid data={regionalRollup} variant="wireframe" width="160px"
+                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />
+                </Box>
+                <Box display="flex" flexDirection="column" padding="3.5" background="bg.subtle">
+                    <SnapGrid data={blank} variant="wireframe" width="160px"
+                        cell={p => SnapGrid.cell({ key: p.id, row: p.row, span: p.span, height: p.height, content: <Text>{p.id}</Text> })} />
+                </Box>
             </HStack>
         );
     }),

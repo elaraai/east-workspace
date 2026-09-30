@@ -79,10 +79,18 @@ export default [
       // (node:fs via sha256/export) and so drags node:fs into browser bundles
       // (issue #99). The e3-free '@elaraai/e3-ui/internal' entry exposes the
       // same factories/types for renderers — always import from there.
+      // No modals: the design system's one modal is east-ui's <Dialog>, a
+      // confirmation step before a destructive or irreversible act. A form
+      // that makes or names something is the edit popover (SliceEditPopover)
+      // hanging from the control that starts it.
       'no-restricted-imports': ['error', {
         paths: [{
           name: '@elaraai/e3-ui',
           message: "Import from '@elaraai/e3-ui/internal' instead — the bare '@elaraai/e3-ui' barrel pulls Node-only '@elaraai/e3' (node:fs) into the browser bundle (issue #99).",
+        }, {
+          name: '@chakra-ui/react',
+          importNames: ['Dialog'],
+          message: "No modals: a form that makes or names something is the edit popover (SliceEditPopover) hanging from its trigger. The one modal is east-ui's <Dialog>, a confirmation step before a destructive or irreversible act — never Chakra's Dialog in a renderer.",
         }],
       }],
       'headers/header-format': ['error', {

@@ -192,8 +192,8 @@ test.describe("SnapGrid geometry (#989)", () => {
 
     test("a wireframe draws each cell as an outline at its declared size and leaves its content out; an auto-height cell is as tall as its row", async ({ page }) => {
         const grid = await openGrid(page, "snapGridWireframe");
-        // 14px in, 3px between columns (the page library's thumbnail).
-        const inner = 160 - 2 * 14;
+        // 3px between columns (the page library's thumbnail); its host frames it.
+        const inner = 160;
         await expect.poll(async () => {
             const b = await boxes(grid);
             const kpis = PAGE.slice(0, 4).map((k) => b[k]!);
@@ -215,6 +215,26 @@ test.describe("SnapGrid geometry (#989)", () => {
         // With no content drawn to size it, an auto-height cell keeps the wireframe's row height.
         await setCell(grid, "accounts", { style: { height: "" }, attr: ["data-auto-height", ""] });
         await expect.poll(async () => (await boxes(grid))["accounts"]!.h, "auto").toBe(24);
+    });
+
+    test("a wireframe of no cells is the blank page: a 12px band over the body, each dashed, the body filling its host", async ({ page }) => {
+        await openGrid(page, "snapGridWireframe");
+        const entry = page.locator("[data-index]", { has: page.locator('a[href="#layout/snap-grid/snapGridWireframe"]') });
+        const blank = entry.locator("[data-snap-grid]").nth(3);
+        await expect.poll(() => blank.evaluate((root) => {
+            const host = root.parentElement!;
+            const inner = host.getBoundingClientRect().bottom - Number.parseFloat(getComputedStyle(host).paddingBottom);
+            const band = root.querySelector('[data-snap-grid-blank="band"]')!;
+            const body = root.querySelector('[data-snap-grid-blank="body"]')!;
+            const b = band.getBoundingClientRect(), d = body.getBoundingClientRect();
+            return {
+                band: [Math.round(b.height), getComputedStyle(band).borderTopStyle],
+                body: getComputedStyle(body).borderTopStyle,
+                gap: Math.round(d.top - b.bottom),
+                fills: Math.abs(d.bottom - inner) < 0.5,
+                cells: root.querySelectorAll("[data-snap-grid-cell]").length,
+            };
+        })).toEqual({ band: [12, "dashed"], body: "dashed", gap: 5, fills: true, cells: 0 });
     });
 });
 

@@ -60,6 +60,19 @@ const PLAN_NO_SPREAD = [
   }
 ];
 
+// No modals. The design system's one modal is <Dialog>, a confirmation step
+// before a destructive or irreversible act: east-ui's Dialog renderer draws
+// it, and the command palette is an overlay of its own. A form that makes or
+// names something — a new page, a template, a cohort — is the edit popover
+// (SliceEditPopover) hanging from the control that starts it.
+const NO_MODALS = {
+  paths: [{
+    name: '@chakra-ui/react',
+    importNames: ['Dialog'],
+    message: "No modals: a form that makes or names something is the edit popover (SliceEditPopover) hanging from its trigger. The one modal is east-ui's <Dialog>, a confirmation step before a destructive or irreversible act — render it through that component, never Chakra's Dialog directly."
+  }]
+};
+
 // The Sheet derives over production row counts too (#859): the same guard.
 const SHEET_NO_SPREAD = [
   {
@@ -104,10 +117,18 @@ export default [
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'east/east-rules': EAST_HOST_VALUES,
+      'no-restricted-imports': ['error', NO_MODALS],
       'headers/header-format': ['error', {
         source: 'string',
         content: 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.'
       }]
+    }
+  },
+  {
+    // The two overlays that ARE Chakra's Dialog: east-ui's <Dialog>, and the command palette.
+    files: ['src/overlays/dialog/index.tsx', 'src/overlays/command-palette/index.tsx'],
+    rules: {
+      'no-restricted-imports': 'off'
     }
   },
   {

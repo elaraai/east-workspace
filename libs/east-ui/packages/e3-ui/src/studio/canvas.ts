@@ -23,11 +23,13 @@
 
 import {
     ArrayType,
+    AsyncFunctionType,
     BooleanType,
     DictType,
     East,
     NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     none,
@@ -39,6 +41,7 @@ import {
 } from "@elaraai/east";
 import {
     Button,
+    EastUI,
     EmptyState,
     Reactive,
     SnapGrid,
@@ -50,8 +53,10 @@ import {
     type JsxTag,
     type OptionsProps,
 } from "@elaraai/east-ui/internal";
+import type { RecordOutcomeType } from "../bind/record.js";
 import { StudioComponentType, dispatchComponent } from "./component.js";
-import { StudioCellType, StudioKeyType, StudioPages, StudioPagesType, pageChanges } from "./pages.js";
+import { nameWriteRefusal } from "./library.js";
+import { StudioCellType, StudioKeyType, StudioPages, StudioPagesType, pageChanges, type StudioPagesPatchType } from "./pages.js";
 import { BuilderCellsType, builderKeys } from "./palette.js";
 
 // ============================================================================
@@ -103,11 +108,43 @@ export const canvasTiles = East.function(
 );
 
 // ============================================================================
+// Save as template — the toolbar's item
+// ============================================================================
+
+/**
+ * The `StudioSaveTemplate` renderer's payload — the builder toolbar's Save as
+ * template: its button, and the popover beside it that names the template.
+ *
+ * @property title - The open page's title — the popover's head names it, and offers a name from it
+ * @property enabled - Whether the open entry is a page, which it saves; a template is not saved again
+ * @property taken - The names the project holds, pages and templates — the template's must be none of them
+ * @property onSave - Saves the open page, as last saved, as a template under a name — one commit; `none` when it was saved, else what refused it
+ */
+export const StudioSaveTemplatePayloadType = StructType({
+    title: StringType,
+    enabled: BooleanType,
+    taken: SetType(StringType),
+    onSave: AsyncFunctionType([StringType], OptionType(StringType)),
+});
+
+/** Type representing the `StudioSaveTemplate` renderer's payload. */
+export type StudioSaveTemplatePayloadType = typeof StudioSaveTemplatePayloadType;
+
+/**
+ * Internal {@link EastUI.component} carrier. The React renderer registers
+ * against this in `@elaraai/e3-ui-components` via `implementUIComponent`.
+ */
+export const StudioSaveTemplateComponent = EastUI.component("StudioSaveTemplate", StudioSaveTemplatePayloadType, { optional: true });
+
+// ============================================================================
 // <Studio.Canvas>
 // ============================================================================
 
-/** The pages record, bound with its patch mutation — what the canvas reads and its Apply commits through. */
-type StudioPagesHandle = ExprType<StructType<{ read: FunctionType<[], StudioPagesType> }>>;
+/** The pages record, bound with its patch mutation — what the canvas reads, and its Apply and Save as template commit through. */
+type StudioPagesHandle = ExprType<StructType<{
+    read: FunctionType<[], StudioPagesType>;
+    commit: StructType<{ patch: AsyncFunctionType<[typeof StringType, StudioPagesPatchType], RecordOutcomeType> }>;
+}>>;
 
 /**
  * `<Studio.Canvas>` options.
@@ -159,7 +196,9 @@ export interface StudioCanvasOptions {
  * - **The toolbar.** The page's status — ○ Draft until it is published,
  *   ● Live while its draft is its live layout, Live · edited once they differ
  *   — then the grid chip and the time of the last save; the width readout,
- *   the zoom, the history item, Desktop · Tablet, Preview and Publish.
+ *   the zoom, the history item, Desktop · Tablet, Save as template, Preview
+ *   and Publish. Save as template names a template and saves the open page,
+ *   as last saved, as it — one commit, a name the project holds refused.
  * - **The selection bar** names the selected placement: its component's icon
  *   and name, its key and what it reads.
  * - **The panes** sit beside the canvas under the toolbar — the palette
@@ -246,6 +285,25 @@ function createCanvas(options: StudioCanvasOptions): ExprType<UIComponentType> {
             template: (_$2) => Status.Root({ label: "Template", showIcon: false }),
         }), UIComponentType);
 
+        // Save as template: the open page, as last saved, under a name the
+        // project does not hold — one commit.
+        const taken = $.let(new Set<string>(), SetType(StringType));
+        $.for(pages, ($2, _found, key) => {
+            $2.if(key.project.equal(openKey.project), ($3) => {
+                $3(taken.insert(key.page));
+            });
+        });
+        const onSave = $.const(East.asyncFunction([StringType], OptionType(StringType), ($2, name) => {
+            const outcome = $2.let(record.commit.patch("", StudioPages.saveTemplate(pages, openKey, { project: openKey.project, page: name }, name)));
+            return nameWriteRefusal(outcome, name);
+        }));
+        const saveTemplate = $.let(StudioSaveTemplateComponent.Root({
+            title: entry.match({ page: (_$2, page) => page.draft.title, template: (_$2, layout) => layout.title }),
+            enabled: entry.hasTag("page"),
+            taken,
+            onSave,
+        }));
+
         return SnapGrid.Root(cells, {
             cell: (cell) => SnapGrid.cell({
                 key: cell.key,
@@ -307,6 +365,7 @@ function createCanvas(options: StudioCanvasOptions): ExprType<UIComponentType> {
             toolbar: {
                 start: [status],
                 end: [
+                    saveTemplate,
                     Button.Root("Preview", {
                         variant: "outline",
                         ...(options.onPreview !== undefined ? { onClick: options.onPreview } : { disabled: true }),

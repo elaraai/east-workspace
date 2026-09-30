@@ -132,6 +132,7 @@ import { editHistorySlotRecipe } from "./slot-recipes/editHistory.js";
 import { reviewChromeSlotRecipe } from "./slot-recipes/reviewChrome.js";
 import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
+import { studioPageLibrarySlotRecipe } from "./slot-recipes/studioPageLibrary.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 
@@ -255,6 +256,7 @@ const config = defineConfig({
             reviewChrome:    reviewChromeSlotRecipe,
             decisionQueue:   decisionQueueSlotRecipe,
             studioInspector: studioInspectorSlotRecipe,
+            studioPageLibrary: studioPageLibrarySlotRecipe,
             stepper:         stepperSlotRecipe,
             toolbar:         toolbarSlotRecipe,
         },

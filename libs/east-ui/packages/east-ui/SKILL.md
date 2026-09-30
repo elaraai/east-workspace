@@ -130,7 +130,7 @@ Task → Which tag?
 │   │   ├─ Props:
 │   │   │   ├─ data (required) — the rows: an `Array`, or a `Dict` (tiles in key order), inline or a `$.let`-bound whole-value handle (`State.bind` / `Data.bind`); a paged source is refused — a page's tiles are held whole
 │   │   │   ├─ cell (required) — r => SnapGrid.cell({…}): one row's tile, reified once and called per row; pick its `content` per row with a `match` on the row's kind
-│   │   │   ├─ variant (optional) — "tiles" (default) | "wireframe": each tile an outline at its size with its content left out, its spans kept at any width and its declared height exact — a page's thumbnail
+│   │   │   ├─ variant (optional) — "tiles" (default) | "wireframe": each tile an outline at its size with its content left out, its spans kept at any width and its declared height exact — a page's thumbnail. It draws no frame of its own: its host frames it (a Library gallery card's media) and it fills the host's height. With no rows it is the blank page — a band over the body, each dashed
 │   │   │   ├─ width (optional) — the design width ("1440px"): a page's grid is that wide, scrolls inside a narrower host, and its spans answer to it; on the editing canvas it is the most the grid lays out at — a narrower column lays it out at the column's width, a wider one centres it — and the toolbar reads it out
 │   │   │   ├─ height / maxHeight (optional) — pin or cap the SnapGrid; the grid scrolls within
 │   │   │   ├─ edit + editing (optional, given together) — the builder's canvas: every tile keeps its declared span at any width, and each gesture is a DRAFT of the shared editing session — the Sheet's and the Plan's — each ONE undoable transaction (origin drop / move / resize / remove); the history item (Undo · Redo · Discard · Apply) sits in the canvas's toolbar (see The frame), and ⌘Z / Ctrl+Z undo, ⌘⇧Z / Ctrl+Y redo. Editing takes an `Array` source — its order is the tiles' order, so a move is a new order and a new row key; a `Dict` is refused. `edit` names the row fields a gesture writes: { key: "id" (the String identity field), row: "row" (String), span: "span" (Integer), height?: "height" (Option<Integer>; omitted, heights are not edited), align?: "align" (SnapGrid.Types.Align; the field an align request writes — omitted, one is refused), create?: ($, card, at) => R — a dropped library card's new row: `card` the drag grammar's { library, key }, `at` { key (a fresh identity), row (the row it lands in) }; the canvas then writes `at.row` and fits the span }. `editing` is { onApply? | onUpdate?, onPatch?, onDrafted?, mode?, ready? } as on the Plan: `onUpdate={handle.write}` with `data={handle}` is the inline adapter; `onPatch` hears SnapGrid.Types.PatchEvent(R); `onDrafted` fn(Array<R>) => Null hears the rows the canvas draws — the source with its drafts, exactly as Apply would leave them — as it mounts and whenever they change (a gesture, an undo or redo, a Discard, a source that moved), so a pane beside it reads what it shows; `ready` fn(R) => Editing.Types.Readiness marks the tile it refuses and holds Apply. Apply leaves exactly the order the canvas shows
@@ -684,6 +684,7 @@ Task → Which tag?
 │   │   │   ├─ item (required) — row mapper to { key, label, sublabel?, icon?, status?, trailing?, draggable?, filtered?, placed?, media?, avatar?, byline?, action? } — `trailing` a glyph at the card's right edge (`some(Library.glyph(…))`: a lock on something fixed, a dot for a status); `placed` draws the card in its placed state, the brand border and tint (the item already on the target — say how often in its sublabel). A gallery card's own: `media` (any UIComponent, drawn inert — the card is the click target), `avatar` (the name whose initials the foot's avatar shows), `byline` (the foot's line after it), `action` (a label in the link voice at the foot's end, "Open in builder →", which a click on the card follows — `onCardClick`); a gallery card's `trailing` sits at its foot's end
 │   │   │   ├─ variant (optional) — "compact" (default; a line per card — the palette a surface drags from) | "gallery" (a large card per item: its `media` above the face or at its start, the name with its status as a dot and the word, the meta line, and a foot holding the `avatar`, `byline` and `action`). A compact Library refuses the gallery's fields at build, naming each
 │   │   │   ├─ layout (optional, gallery) — the layout a gallery starts in: "grid" (default; the style's `columns` across, fewer as the Library narrows, one on a phone) | "list" (a card per row, its media at the start). The toolbar's Grid · List switch changes it, and the viewer's pick is kept with the toolbar under the storage key; an expression that moves moves it
+│   │   │   ├─ toolbar (optional) — true (default) | false: no toolbar row, the cards sitting in their host's frame — for a host whose ONE toolbar serves several Libraries (a page library's Templates and Pages): the host narrows `data` itself and gives a gallery its `layout`, which the Library then follows. The options whose controls live in the toolbar — `search`, `groupBy`, `filters`, `dimensions`, `hint` and `slice` — are refused with it at build, naming each
 │   │   │   ├─ hint (optional) — a caption at the toolbar row's end (the first thing a narrow row folds away)
 │   │   │   ├─ dimensions + defaultDimensions (optional) — toolbar-toggleable card facts ({ kind: "meter" | "chips" | "text", … }); initially-visible keys (default first two)
 │   │   │   ├─ groupBy (optional) — [{ key, label, value, summary? }] GROUP BY options (omit for flat)
@@ -694,7 +695,7 @@ Task → Which tag?
 │   │   │   ├─ addLabel + onAdd (optional) — footer action; a gallery's dashed last card
 │   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["filter","search"])
 │   │   │   └─ style (optional) — { height, maxHeight, virtualization, columns?, mediaPlacement?, mediaSize? } — the last three a gallery's (refused on a compact Library): `columns` its cards across in the grid (Integer, default 3), `mediaPlacement` "top" (default, above the face) | "start" (at its start), `mediaSize` a CSS length — the media's height on top, its width at the start ("156px"). A gallery mounts every card (no virtualization)
-│   │   ├─ The toolbar: ONE row, the shared toolbar every toolbar host lays its chrome in — the search box (⌘ / focuses it) and GROUP · …, then at its end the `hint`, SECONDARY, FILTER and a gallery's Grid · List switch (a radio group: one tab stop, ← / → move and pick); with `slice` chrome the rail's affordances lead the same row, a `search` among them in place of the built-in one. A narrower row folds on one ladder: the rail first, then the hint goes, SECONDARY and FILTER fold to their icons, then GROUP does, and last the search box narrows and drops its key cap; the switch never folds
+│   │   ├─ The toolbar: ONE row, the shared toolbar every toolbar host lays its chrome in — the search box (⌘ / focuses it) and GROUP · …, then at its end the `hint`, SECONDARY, FILTER and a gallery's Grid · List switch (a radio group: one tab stop, ← / → move and pick); with `slice` chrome the rail's affordances lead the same row, a `search` among them in place of the built-in one. A narrower row folds on one ladder: the rail first, then the hint goes, SECONDARY and FILTER fold to their icons, then GROUP does, and last the search box narrows and drops its key cap; the switch never folds. `toolbar: false` draws no row
 │   │   └─ Factories:
 │   │       ├─ Library.status(label, tone, ring?) — a card status: a compact card's chip, a gallery card's dot and word (tone = a status token; see the Statuses branch); `ring` draws the dot open, a state not reached yet (a Draft beside a Live)
 │   │       └─ Library.glyph(icon, label, tone?) — a card's trailing glyph: an FA icon, the words it says (its accessible name and tooltip), and an optional status tone (else the card's quiet ink, the brand ink while placed)
@@ -1056,7 +1057,7 @@ Task → Which tag?
 │       └─ Rail: routes with a `section` become rail rows (grouped, icon + badge, active = current route, click → navigate); routes WITHOUT a section are reachable but hidden (deep pages). Host React apps inject chrome (avatar / theme / logout / search) via the east-ui-components `AppProvider` (barStart/barCenter/barEnd/logo/railFooter/bannerTop React slots)
 │
 ├─ Overlays (floating content) — `trigger` is a UIComponent prop; body is children
-│   ├─ <Dialog> — modal dialog
+│   ├─ <Dialog> — the one modal: a confirmation step before a destructive or irreversible act, naming it, with Cancel and the act's own verb — never a form (a form that makes or names something is a <Popover> from its trigger)
 │   │   └─ Props:
 │   │       ├─ trigger (required) — the opening UIComponent; children (required) — the body
 │   │       ├─ eyebrow / title / description (optional) — header copy (eyebrow = mono uppercase, e.g. "Confirm · cannot be undone")
@@ -1077,7 +1078,7 @@ Task → Which tag?
 │   │   │   └─ closeOnInteractOutside / closeOnEscape / lazyMount / unmountOnExit (optional) — behaviour + mount policy
 │   │   └─ Factories:
 │   │       └─ Drawer.open(OpenInput) — open one programmatically (nests/stacks by depth)
-│   ├─ <Popover> — click-triggered floating panel
+│   ├─ <Popover> — click-triggered floating panel; a form that makes or names something (a name, then Cancel and its commit) lives in one, hanging from the control that starts it
 │   │   └─ Props:
 │   │       ├─ trigger (required); children (required) — the panel body
 │   │       ├─ title / description (optional) — header copy
@@ -1798,6 +1799,12 @@ const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, event) 
 
 ### Overlays — trigger prop + body children
 
+`<Dialog>` is the one modal, and it is a confirmation step: before an act that
+destroys something or cannot be undone, it names the act and offers Cancel and
+the act's own verb. It is never a form. Anything that makes or names something
+— a new page, a template, a cohort — is a `<Popover>` hanging from the control
+that starts it, its fields in the body.
+
 A callback opens an overlay through the State its `open` reads, and
 `onOpenChange` writes the State back as it closes. A callback carries no
 element, so an anchored overlay — a popover, a hover card, a toggle tip —
@@ -1811,11 +1818,11 @@ const openIt = $.const(East.function([], NullType, $ => { $(shown.write(true)); 
 ```
 
 ```tsx
-<Dialog trigger={<Button>Open</Button>} title="Confirm" description="Proceed?">
-    <Text>This appears as a modal overlay.</Text>
+<Dialog trigger={<Button variant="outline">Remove cohort…</Button>}
+    eyebrow="Can't be undone" title="Remove cohort Late?">
     <HStack gap="2" justify="flex-end">
         <Button variant="outline">Cancel</Button>
-        <Button variant="solid">Confirm</Button>
+        <Button variant="solid">Remove cohort</Button>
     </HStack>
 </Dialog>
 ```

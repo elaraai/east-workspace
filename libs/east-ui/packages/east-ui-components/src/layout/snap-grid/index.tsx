@@ -75,8 +75,9 @@ export interface EastChakraSnapGridProps {
 
 /**
  * Renders a SnapGrid: its rows of tiles on the 12-column grid, or — the
- * `wireframe` variant — each cell as an outline at its tile's size; the
- * builder's canvas when it declares `editing`.
+ * `wireframe` variant — each cell as an outline at its tile's size, and the
+ * blank page when it has none; the builder's canvas when it declares
+ * `editing`.
  */
 export const EastChakraSnapGrid = memo(function EastChakraSnapGrid({ value, storageKey }: EastChakraSnapGridProps) {
     return value.editing.type === "some"
@@ -103,6 +104,12 @@ function SnapGridView({ value, storageKey }: EastChakraSnapGridProps) {
             overflowY={bounded ? "auto" : undefined}
         >
             <Box css={styles.grid} data-snap-grid-body="" width={width}>
+                {wireframe && rows.length === 0 && (
+                    <>
+                        <Box css={styles.blankBand} data-snap-grid-blank="band" />
+                        <Box css={styles.blankBody} data-snap-grid-blank="body" />
+                    </>
+                )}
                 {rows.map(row => (
                     <Box key={row.key} css={styles.row} data-snap-grid-row={row.key}>
                         {row.cells.map(cell => {

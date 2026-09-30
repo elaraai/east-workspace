@@ -56,7 +56,8 @@ export type SnapGridAlignLiteral = "top" | "center" | "stretch";
  *
  * @property tiles - Each cell's content, in its tile
  * @property wireframe - Each cell an outline at its tile's size, its content
- *   not drawn — the page library's thumbnails
+ *   not drawn, and with no cells the blank page — the page library's
+ *   thumbnails, framed by their host
  */
 export const SnapGridVariantType = VariantType({
     tiles: NullType,
