@@ -634,11 +634,11 @@ test.describe("Visual invariants — the Table, on touch", () => {
 });
 
 /**
- * Every host with a slice rail (#952), by an example that mounts it, and the
- * viewport widths it is swept across — each host's own range: the Plan's wide
- * layout holds down to 850px (below it the showcase's column is under its
- * narrow breakpoint), its resolution folding into its menu under 900; its
- * narrow layout is `planNarrow`'s phone-width box.
+ * Every host with a slice rail (#952) or a toolbar row of its own, by an
+ * example that mounts it, and the viewport widths it is swept across — each
+ * host's own range: the Plan's wide layout holds down to 850px (below it the
+ * showcase's column is under its narrow breakpoint), its resolution folding
+ * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box.
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: "collections/plan/planTargetState", widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: () => PLAN_LADDER },
@@ -648,7 +648,8 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Slice.Rail", route: "slice/slice/sliceRail", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
-    { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900], rail: ["rail"], ladder: () => LIBRARY_LADDER },
+    { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
     { name: "Flowchart", route: "collections/flowchart/flowchartPlant", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Schematic", route: "collections/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
 ];
@@ -663,6 +664,11 @@ type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
  *  its count, the resolution then the grain segment fold into their menus,
  *  and last the summary hides. */
 const PLAN_LADDER: ReadonlyArray<readonly [string, number]> = [["summary", 1], ["resolution", 1], ["grain", 1], ["summary", 2]];
+
+/** The Library's own order: the caption goes, the secondary facts and the
+ *  filter fold to their icons, then the grouping does, and last the search
+ *  box narrows and drops its key cap. */
+const LIBRARY_LADDER: ReadonlyArray<readonly [string, number]> = [["hint", 1], ["dims", 1], ["filter", 1], ["group", 1], ["search", 1], ["search", 2]];
 
 /** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
  *  count goes, the context label, the strip's `+ TAB` label and whole-sheet

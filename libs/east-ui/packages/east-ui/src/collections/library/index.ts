@@ -41,9 +41,9 @@ import { StatusTokenType, type StatusTokenLiteral } from "../../style/interactio
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
-    LibraryRootType,
-    LibraryItemType,
-    LibraryCardFaceType,
+    LibraryRootOf,
+    LibraryItemOf,
+    LibraryCardFaceOf,
     LibraryStatusType,
     LibraryGlyphType,
     LibraryNounType,
@@ -51,14 +51,19 @@ import {
     LibraryGroupMetaType,
     LibraryDimMetaType,
     LibraryStyleType,
+    LibraryVariantType,
+    LibraryLayoutType,
+    LibraryMediaPlacementType,
     type LibraryStyle,
+    type LibraryVariantLiteral,
+    type LibraryLayoutLiteral,
 } from "./types.js";
 
 // Re-export types
 export {
-    LibraryRootType,
-    LibraryItemType,
-    LibraryCardFaceType,
+    LibraryRootOf,
+    LibraryItemOf,
+    LibraryCardFaceOf,
     LibraryStatusType,
     LibraryGlyphType,
     LibraryNounType,
@@ -66,8 +71,38 @@ export {
     LibraryGroupMetaType,
     LibraryDimMetaType,
     LibraryStyleType,
+    LibraryVariantType,
+    LibraryLayoutType,
+    LibraryMediaPlacementType,
     type LibraryStyle,
+    type LibraryVariantLiteral,
+    type LibraryLayoutLiteral,
+    type LibraryMediaPlacementLiteral,
 } from "./types.js";
+
+/** The Library component's value ({@link LibraryRootOf} over `UIComponentType`). */
+export const LibraryRootType = LibraryRootOf(UIComponentType);
+
+/**
+ * Type representing the Library component.
+ */
+export type LibraryRootType = typeof LibraryRootType;
+
+/** A resolved Library card ({@link LibraryItemOf} over `UIComponentType`). */
+export const LibraryItemType = LibraryItemOf(UIComponentType);
+
+/**
+ * Type representing resolved Library cards.
+ */
+export type LibraryItemType = typeof LibraryItemType;
+
+/** The card face the `item` accessor produces ({@link LibraryCardFaceOf} over `UIComponentType`). */
+export const LibraryCardFaceType = LibraryCardFaceOf(UIComponentType);
+
+/**
+ * Type representing card face values.
+ */
+export type LibraryCardFaceType = typeof LibraryCardFaceType;
 
 /**
  * The struct element type of a `SubtypeExprOrValue<ArrayType<StructType>>`.
@@ -91,6 +126,10 @@ export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property draggable - Whether the card can start a drag (default `true`)
  * @property filtered - Whether the card renders de-emphasised (default `false`) — map `Slice.partition`'s `matched.not()` here to keep filtered-out cards as dimmed context
  * @property placed - Whether the card shows its placed state — the brand border and tint (default `false`)
+ * @property media - A gallery card's media: any UI component
+ * @property avatar - A gallery card's byline avatar: the name whose initials it shows
+ * @property byline - A gallery card's byline: the line in its foot, after the avatar
+ * @property action - A gallery card's action: a label in the link voice at its foot's end, which a click on the card follows
  */
 export interface LibraryCardFields {
     /** Item identity; carried by `LibraryRef` when dragged */
@@ -111,7 +150,18 @@ export interface LibraryCardFields {
     filtered?: SubtypeExprOrValue<BooleanType>;
     /** Whether the card shows its placed state — the brand border and tint, as the item on the target (default `false`) */
     placed?: SubtypeExprOrValue<BooleanType>;
+    /** A gallery card's media: any UI component — a page's wireframe, a chart, an image — drawn above the face or at its start */
+    media?: ExprType<UIComponentType>;
+    /** A gallery card's byline avatar: the name whose initials it shows */
+    avatar?: SubtypeExprOrValue<StringType>;
+    /** A gallery card's byline: the line in its foot, after the avatar */
+    byline?: SubtypeExprOrValue<StringType>;
+    /** A gallery card's action: a label in the link voice at its foot's end — "Open in builder →"; a click on the card follows it */
+    action?: SubtypeExprOrValue<StringType>;
 }
+
+/** The card fields only a gallery draws, which a compact Library refuses. */
+const GALLERY_FIELDS = ["media", "avatar", "byline", "action"] as const;
 
 /**
  * Creates a card face — the per-item identity the `item` accessor returns.
@@ -146,30 +196,38 @@ function createCard(input: LibraryCardFields): ExprType<LibraryCardFaceType> {
         draggable: input.draggable !== undefined ? input.draggable : true,
         filtered: input.filtered !== undefined ? input.filtered : false,
         placed: input.placed !== undefined ? input.placed : false,
+        media: input.media !== undefined ? some(input.media) : none,
+        avatar: input.avatar !== undefined ? some(input.avatar) : none,
+        byline: input.byline !== undefined ? some(input.byline) : none,
+        action: input.action !== undefined ? some(input.action) : none,
     }, LibraryCardFaceType);
 }
 
 /**
- * Creates a status pill value for a card face.
+ * Creates a status value for a card face.
  *
  * @param label - Pill text (rendered uppercase)
  * @param tone - Standard status tone
- * @returns An East expression of the status pill
+ * @param ring - Draw a gallery card's dot open, a state not reached yet (default `false`)
+ * @returns An East expression of the status
  *
  * @example
  * ```ts
  * import { Library } from "@elaraai/east-ui";
  *
  * // status: some(Library.status("On roster", "info"))
+ * // status: some(Library.status("Draft", "neutral", true))
  * ```
  */
 function createStatus(
     label: SubtypeExprOrValue<StringType>,
     tone: SubtypeExprOrValue<StatusTokenType> | StatusTokenLiteral,
+    ring?: SubtypeExprOrValue<BooleanType>,
 ): ExprType<LibraryStatusType> {
     return East.value({
         label,
         tone: typeof tone === "string" ? variant(tone, null) : tone,
+        ring: ring ?? false,
     }, LibraryStatusType);
 }
 
@@ -360,7 +418,9 @@ function dimValue<R extends StructType>(
  * @property onCardClick - Optional callback fired with a card's key when it is clicked
  * @property slice - Optional slice chrome: the bound handle; the Library renders the rail + count footer, never narrows data itself
  * @property affordances - Rail affordances when `slice` is set (default `["filter", "search"]`)
- * @property style - Optional layout style (height / maxHeight / virtualization)
+ * @property style - Optional layout style (height / maxHeight / virtualization, and a gallery's columns and media)
+ * @property variant - How the cards are drawn: `"compact"` (the default) or `"gallery"`
+ * @property layout - How a gallery lays its cards out: `"grid"` (the default) or `"list"`
  */
 export interface LibraryConfig<R extends StructType> {
     /** DnD source identity — targets list it in their `sources` */
@@ -412,8 +472,17 @@ export interface LibraryConfig<R extends StructType> {
     slice?: SubtypeExprOrValue<SliceBindType>;
     /** Rail affordances when `slice` is set (default `["filter", "search"]`) */
     affordances?: SliceAffordanceLiteral[];
-    /** Optional layout style (height / maxHeight / virtualization) */
+    /** Optional layout style (height / maxHeight / virtualization, and a gallery's columns and media) */
     style?: LibraryStyle;
+    /**
+     * How the cards are drawn: `"compact"` (the default), a line per card —
+     * the palette a surface drags from — or `"gallery"`, a large card per item
+     * with its `media`, a byline and an action — the library a person
+     * browses. A compact Library refuses the gallery's fields, naming each.
+     */
+    variant?: LibraryVariantLiteral;
+    /** How a gallery lays its cards out: `"grid"` (the default) or `"list"` — a literal, or an expression a toolbar switches. */
+    layout?: LibraryLayoutLiteral | SubtypeExprOrValue<LibraryLayoutType>;
 }
 
 /** Affordances a Library rail cannot mount: no continuous axis (`brush`), no
@@ -430,6 +499,21 @@ function buildRoot(
     const groupDefs = config.groupBy ?? [];
     const filterDefs = config.filters ?? [];
 
+    // What only a gallery draws is refused by name on a compact Library,
+    // rather than dropped where nobody sees it go.
+    const gallery = config.variant === "gallery";
+    if (!gallery) {
+        const given = [
+            ...(config.layout !== undefined ? ["layout"] : []),
+            ...(["columns", "mediaPlacement", "mediaSize"] as const)
+                .filter((field) => config.style?.[field] !== undefined)
+                .map((field) => `style.${field}`),
+        ];
+        if (given.length > 0) {
+            throw new Error(`Library: ${given.join(", ")} lay out a gallery's cards — give \`variant: "gallery"\` to draw a gallery`);
+        }
+    }
+
     const items = mapRowsBlock(data_expr, LibraryItemType, ($, row) => {
         const dims = $.let(new Map(), DictType(StringType, LibraryDimValueType));
         for (const dim of dimensions) {
@@ -444,6 +528,12 @@ function buildRoot(
             $(facets.insert(filter.key, East.value(filter.values(row), ArrayType(StringType))));
         }
         const raw: LibraryCardFields | ExprType<LibraryCardFaceType> = config.item(row);
+        if (!gallery && !(raw instanceof Expr)) {
+            const given = GALLERY_FIELDS.filter((field) => raw[field] !== undefined);
+            if (given.length > 0) {
+                throw new Error(`Library: a card's ${given.join(", ")} ${given.length === 1 ? "is" : "are"} a gallery card's — give \`variant: "gallery"\` to draw a gallery`);
+            }
+        }
         const face = $.let(raw instanceof Expr ? raw : createCard(raw), LibraryCardFaceType);
         return East.value({
             key: face.key,
@@ -455,6 +545,10 @@ function buildRoot(
             draggable: face.draggable,
             filtered: face.filtered,
             placed: face.placed,
+            media: face.media,
+            avatar: face.avatar,
+            byline: face.byline,
+            action: face.action,
             search: config.search !== undefined ? some(config.search(row)) : none,
             groups,
             facets,
@@ -500,8 +594,13 @@ function buildRoot(
             height: config.style.height !== undefined ? some(config.style.height) : none,
             maxHeight: config.style.maxHeight !== undefined ? some(config.style.maxHeight) : none,
             virtualization: config.style.virtualization !== undefined ? some(config.style.virtualization) : none,
+            columns: config.style.columns !== undefined ? some(config.style.columns) : none,
+            mediaPlacement: config.style.mediaPlacement !== undefined ? some(variant(config.style.mediaPlacement, null)) : none,
+            mediaSize: config.style.mediaSize !== undefined ? some(config.style.mediaSize) : none,
         }, LibraryStyleType)
         : undefined;
+    const layoutValue = config.layout === undefined ? undefined
+        : typeof config.layout === "string" ? variant(config.layout, null) : config.layout;
 
     return East.value(variant("Library", {
         id: config.id,
@@ -529,6 +628,8 @@ function buildRoot(
         onCardClick: config.onCardClick !== undefined ? some(config.onCardClick) : none,
         slice: sliceChromeValue !== undefined ? some(sliceChromeValue) : none,
         style: styleValue !== undefined ? some(styleValue) : none,
+        variant: config.variant !== undefined ? some(variant(config.variant, null)) : none,
+        layout: layoutValue !== undefined ? some(East.value(layoutValue, LibraryLayoutType)) : none,
     }), UIComponentType);
 }
 
@@ -593,7 +694,11 @@ export const Library = {
      * Declares the DnD **source** role under `config.id`. Cards with
      * `draggable: false` show no grip and never start a drag. The quick
      * search hides unmatched cards (the footer shows the hidden count);
-     * the `filtered` face field dims a card instead.
+     * the `filtered` face field dims a card instead. `variant: "gallery"`
+     * draws the same cards large: each card's `media` — any UI component —
+     * above its face or at its start, its status as a dot and the word, and
+     * a foot holding its `avatar` and `byline` and its `action`; `onAdd`
+     * becomes a dashed last card.
      *
      * @example
      * ```ts
@@ -613,17 +718,20 @@ export const Library = {
      */
     Root: createLibrary,
     /**
-     * Creates a status pill value for a card face.
+     * Creates a status value for a card face — a compact card's pill, a
+     * gallery card's dot and word.
      *
      * @param label - Pill text (rendered uppercase)
      * @param tone - Standard status tone (`success` / `warning` / `danger` / `info` / `neutral`)
-     * @returns An East expression of the status pill
+     * @param ring - Draw a gallery card's dot open, a state not reached yet (default `false`)
+     * @returns An East expression of the status
      *
      * @example
      * ```ts
      * import { Library } from "@elaraai/east-ui";
      *
      * // Library.status("At cap", "neutral")
+     * // Library.status("Draft", "neutral", true)
      * ```
      */
     status: createStatus,
@@ -662,11 +770,13 @@ export const Library = {
          * @property filterOptions - The Filter menu's facets
          * @property searchable - Whether the search input renders
          * @property noun - Optional name for the items
-         * @property addLabel - Optional footer action label
+         * @property addLabel - Optional footer action label — a gallery's dashed last card
          * @property onAdd - Optional footer action callback
          * @property onCardClick - Optional callback fired with a clicked card's key
          * @property slice - Optional slice chrome (bound handle + rail affordances)
-         * @property style - Optional layout style (height / maxHeight / virtualization)
+         * @property style - Optional layout style (height / maxHeight / virtualization, and a gallery's columns and media)
+         * @property variant - How the cards are drawn; `none` is compact
+         * @property layout - How a gallery lays its cards out; `none` is the grid
          */
         Library: LibraryRootType,
         /**
@@ -681,6 +791,10 @@ export const Library = {
          * @property draggable - Whether the card can start a drag
          * @property filtered - Whether the card renders de-emphasised
          * @property placed - Whether the card shows its placed state
+         * @property media - A gallery card's media
+         * @property avatar - A gallery card's byline avatar
+         * @property byline - A gallery card's byline
+         * @property action - A gallery card's action
          * @property search - Optional filter text
          * @property groups - Group value per group-by option key
          * @property facets - The values the card holds per filter key
@@ -694,20 +808,46 @@ export const Library = {
          * @property label - Primary identity line
          * @property sublabel - Optional muted second line
          * @property icon - Optional Font Awesome solid icon name
-         * @property status - Optional status pill
+         * @property status - Optional status
          * @property trailing - Optional glyph at the card's right edge
          * @property draggable - Whether the card can start a drag
          * @property filtered - Whether the card renders de-emphasised
          * @property placed - Whether the card shows its placed state
+         * @property media - A gallery card's media
+         * @property avatar - A gallery card's byline avatar
+         * @property byline - A gallery card's byline
+         * @property action - A gallery card's action
          */
         CardFace: LibraryCardFaceType,
         /**
-         * Status pill on a Library card.
+         * A Library card's status.
          *
          * @property label - Pill text (rendered uppercase)
          * @property tone - Standard status tone
+         * @property ring - A gallery card's dot drawn open
          */
         Status: LibraryStatusType,
+        /**
+         * How a Library draws its cards.
+         *
+         * @property compact - A line per card — the palette
+         * @property gallery - A large card per item, with its media
+         */
+        Variant: LibraryVariantType,
+        /**
+         * How a gallery lays its cards out.
+         *
+         * @property grid - Cards across the columns
+         * @property list - A card per row, its media at the start
+         */
+        Layout: LibraryLayoutType,
+        /**
+         * Where a gallery card's media sits in the grid layout.
+         *
+         * @property top - Above the face
+         * @property start - At the face's start
+         */
+        MediaPlacement: LibraryMediaPlacementType,
         /**
          * A glyph at a card's right edge.
          *
@@ -736,7 +876,10 @@ export const Library = {
          *
          * @property height - Optional CSS height; constraining it makes the card grid the Library's own scroll region
          * @property maxHeight - Optional CSS max-height
-         * @property virtualization - Whether rows virtualize inside the scroll region (default `true`)
+         * @property virtualization - Whether rows virtualize inside the scroll region (default `true`); a gallery mounts every card
+         * @property columns - A gallery's cards across, in the grid layout
+         * @property mediaPlacement - Where a gallery card's media sits in the grid layout
+         * @property mediaSize - A gallery card's media height, placed on top, or width, placed at the start
          */
         Style: LibraryStyleType,
     },

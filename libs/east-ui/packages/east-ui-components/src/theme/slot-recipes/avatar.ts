@@ -70,6 +70,8 @@ export const avatarSlotRecipe = defineSlotRecipe({
             },
         },
         size: {
+            /* The byline beside a mono caption, as a gallery card's foot draws it. */
+            "2xs": { root: { width: "18px", height: "18px", fontSize: "8px" } },
             xs: { root: { width: "22px",  height: "22px",  fontSize: "10px" } },
             sm: { root: { width: "24px",  height: "24px",  fontSize: "10px" } },
             md: { root: { width: "32px",  height: "32px",  fontSize: "{fontSizes.xs}" } },

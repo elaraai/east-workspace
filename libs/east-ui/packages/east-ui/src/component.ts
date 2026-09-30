@@ -114,7 +114,7 @@ import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/se
 import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.js";
 import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
-import { LibraryRootType, LibraryGroupMetaType } from "./collections/library/types.js";
+import { LibraryRootOf, LibraryGroupMetaType } from "./collections/library/types.js";
 import {
     DeckFactType,
     DeckFillType,
@@ -719,8 +719,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     AvatarGroup: AvatarGroupType,
     Trace: TraceType,
 
-    // Library — draggable palette (drag & drop source role)
-    Library: LibraryRootType,
+    // Library — draggable palette (drag & drop source role). A gallery card's
+    // media is any UI component, so the arm is built over the recursion `node`;
+    // `LibraryRootOf` builds it and `Library.Types.Library` alike.
+    Library: LibraryRootOf(node),
 
     // Deck — declarative grouped card collection (#359). Items are resolved
     // at factory time (the renderer never sees the host row type); `face`
