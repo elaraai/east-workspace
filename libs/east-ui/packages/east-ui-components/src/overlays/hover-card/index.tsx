@@ -10,6 +10,7 @@ import { HoverCard } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useHoverCapable } from "../../contracts/index.js";
+import { POPOVER_GUTTER } from "../popover/gutter.js";
 
 // Pre-define equality function at module level
 const hoverCardEqual = equivalentFor(HoverCard.Types.HoverCard);
@@ -76,7 +77,7 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
 
     return (
         <ChakraHoverCard.Root
-            positioning={placement ? { placement } : undefined}
+            positioning={{ ...(placement !== undefined ? { placement } : {}), gutter: POPOVER_GUTTER }}
             size={size}
             openDelay={openDelay}
             closeDelay={closeDelay}
@@ -95,18 +96,20 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
             <Portal>
                 <ChakraHoverCard.Positioner>
                     <ChakraHoverCard.Content>
-                        {/* The 12px arrow is part of the spec chrome — on unless
+                        {/* The arrow is part of the spec chrome — on unless
                             explicitly disabled. */}
                         {hasArrow !== false && (
                             <ChakraHoverCard.Arrow>
                                 <ChakraHoverCard.ArrowTip />
                             </ChakraHoverCard.Arrow>
                         )}
-                        {title && <ChakraBox css={cardStyles.title}>{title}</ChakraBox>}
-                        {description && <ChakraBox css={cardStyles.description}>{description}</ChakraBox>}
-                        {value.body.map((child, index) => (
-                            <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
-                        ))}
+                        <ChakraBox css={cardStyles.body}>
+                            {title && <ChakraBox css={cardStyles.title}>{title}</ChakraBox>}
+                            {description && <ChakraBox css={cardStyles.description}>{description}</ChakraBox>}
+                            {value.body.map((child, index) => (
+                                <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
+                            ))}
+                        </ChakraBox>
                     </ChakraHoverCard.Content>
                 </ChakraHoverCard.Positioner>
             </Portal>

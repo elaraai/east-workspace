@@ -6,6 +6,7 @@
 import { type ReactNode } from "react";
 import { Popover as ChakraPopover, Portal, Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
+import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
@@ -77,7 +78,7 @@ export function SliceEditPopover({
         <ChakraPopover.Root
             open={open}
             onOpenChange={(d) => onOpenChange(d.open)}
-            positioning={{ placement: "bottom" }}
+            positioning={{ placement: "bottom", gutter: POPOVER_GUTTER }}
             lazyMount
             onInteractOutside={(e) => {
                 // Portalled select / combobox listboxes render at body level;

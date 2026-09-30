@@ -65,7 +65,11 @@ export const EastChakraToggleTip = memo(function EastChakraToggleTip({ value, st
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content css={tipStyles.content} width="auto">
-                        {hasArrow && <ChakraPopover.Arrow css={tipStyles.arrow} />}
+                        {hasArrow && (
+                            <ChakraPopover.Arrow css={tipStyles.arrow}>
+                                <ChakraPopover.ArrowTip css={tipStyles.arrowTip} />
+                            </ChakraPopover.Arrow>
+                        )}
                         {value.content}
                     </ChakraPopover.Content>
                 </ChakraPopover.Positioner>

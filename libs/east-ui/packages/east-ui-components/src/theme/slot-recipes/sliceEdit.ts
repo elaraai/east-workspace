@@ -35,7 +35,8 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             borderRadius: "{radii.sm}",
             boxShadow: "md",
-            overflow: "hidden",
+            /* It never clips: the arrow is drawn inside it, over its edge.
+               What reaches its rounded foot keeps the corners itself. */
             display: "flex",
             flexDirection: "column",
         },
@@ -74,6 +75,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "column",
             gap: "{spacing.3}",
+            "&:last-child": { borderBottomLeftRadius: "inherit", borderBottomRightRadius: "inherit" },
         },
         foot: {
             display: "flex",
@@ -84,6 +86,8 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
             background: "bg.canvas",
+            borderBottomLeftRadius: "inherit",
+            borderBottomRightRadius: "inherit",
             fontFamily: "mono",
             fontSize: "11px",
         },

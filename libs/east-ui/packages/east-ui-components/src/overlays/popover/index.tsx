@@ -9,6 +9,7 @@ import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Popover } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { POPOVER_GUTTER } from "./gutter.js";
 
 // Pre-define equality function at module level
 const popoverEqual = equivalentFor(Popover.Types.Popover);
@@ -33,8 +34,7 @@ export const EastChakraPopover = memo(function EastChakraPopover({ value, storag
     const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
     const positioning = useMemo(() => {
         const gutter = style ? getSomeorUndefined(style.gutter) : undefined;
-        if (placement === undefined && gutter === undefined) return undefined;
-        return { ...(placement !== undefined ? { placement } : {}), ...(gutter !== undefined ? { gutter: Number(gutter) } : {}) };
+        return { ...(placement !== undefined ? { placement } : {}), gutter: gutter !== undefined ? Number(gutter) : POPOVER_GUTTER };
     }, [style, placement]);
     // How it opens and closes: `open` controls it, so a callback anywhere
     // opens it at its own trigger through the State it reads.
@@ -72,7 +72,7 @@ export const EastChakraPopover = memo(function EastChakraPopover({ value, storag
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content>
-                        {/* The 12px arrow is part of the spec chrome — on unless
+                        {/* The arrow is part of the spec chrome — on unless
                             explicitly disabled. */}
                         {hasArrow !== false && (
                             <ChakraPopover.Arrow>
