@@ -31,7 +31,6 @@ import {
   applyFor,
   compareFor,
   decodeBeast2For,
-  printFor,
   segmentKeyTypeOf,
   variant,
   type EastTypeValue,
@@ -217,7 +216,6 @@ async function applyTarget(
     throw new Error(`a mutation delta addresses Set and Dict targets by key; '${target}' holds Array`);
   }
   const keyCompare = compareFor(keyType as never) as (a: unknown, b: unknown) => number;
-  const printKey = printFor(keyType) as (key: unknown) => string;
   const apply = applyFor(typeValue);
   const decodeSegment = decodeBeast2For(typeValue) as (bytes: Uint8Array) => unknown;
 
@@ -233,7 +231,7 @@ async function applyTarget(
     const before = i < segments.segmentCount
       ? decodeSegment(await segments.segment(i))
       : emptyOf(typeValue, keyCompare);
-    const after = applyOps(apply, target, before, new SortedMap<unknown, unknown>(ops, keyCompare), keyCompare, printKey);
+    const after = applyOps(apply, target, before, new SortedMap<unknown, unknown>(ops, keyCompare));
     yield* typeValue.type === 'Set'
       ? after as SortedSet<unknown>
       : (after as SortedMap<unknown, unknown>).entries();
@@ -265,33 +263,18 @@ async function applyTarget(
 }
 
 /** A value with the target's ops applied; an op that disagrees with it is the
- *  stale-write conflict, reported against the target and naming the key. */
+ *  stale-write conflict, reported against the target. */
 function applyOps(
   apply: (value: unknown, patch: unknown) => unknown,
   target: string,
   before: unknown,
   ops: SortedMap<unknown, unknown>,
-  keyCompare: (a: unknown, b: unknown) => number,
-  printKey: (key: unknown) => string,
 ): unknown {
   try {
     return apply(before, variant('patch', ops));
   } catch (err) {
-    if (!(err instanceof ConflictError)) throw err;
-    // An insert's or a delete's message names its key, and an update's row that
-    // no longer matches its patch speaks only of the row. That update is found
-    // alone and named in the words the program door uses, so the two doors
-    // report a stale update alike.
-    for (const [key, op] of ops) {
-      if ((op as { type: string }).type !== 'update' || !(before as SortedMap<unknown, unknown>).has(key)) continue;
-      try {
-        apply(before, variant('patch', new SortedMap<unknown, unknown>([[key, op]], keyCompare)));
-      } catch (alone) {
-        if (!(alone instanceof ConflictError)) throw alone;
-        throw new DeltaConflictError(`${target === 'primary' ? '' : `${target}: `}update of ${printKey(key)}, whose row no longer matches the patch`);
-      }
-    }
-    throw new DeltaConflictError(`${target}: ${err.message}`);
+    if (err instanceof ConflictError) throw new DeltaConflictError(`${target}: ${err.message}`);
+    throw err;
   }
 }
 

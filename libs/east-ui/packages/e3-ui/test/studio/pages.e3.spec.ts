@@ -8,7 +8,7 @@
  * Studio.Types.Pages, …)` and `e3.mutation.patch(pages)`, and every operator
  * action is one patch commit through it — a save (R1), a publish and a revert
  * (R3), a new page and a saved template (R8). A save drafted on a stale page
- * is a conflict naming the page, and nothing is overwritten (R2). A redeploy
+ * is a conflict, and nothing is overwritten (R2). A redeploy
  * that adds a component keeps the record as it is: no migration runs (R7).
  * The canvas's own Apply, `Studio.save`, commits and conflicts the same way
  * (B12, #995).
@@ -129,7 +129,7 @@ describe("the pages record in e3 (#992)", () => {
         assert.deepEqual((await current()).get(OVERVIEW_KEY), after);
     });
 
-    it("R2: a save drafted before another landed is a conflict naming the page, and the other stands", async () => {
+    it("R2: a save drafted before another landed is a conflict, and the other stands", async () => {
         const before = (await current()).get(OVERVIEW_KEY)!;
         if (before.type !== "page") assert.fail("expected a page");
         const first: Entry = variant("page", {
@@ -143,7 +143,6 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal((await commit(diffPages(new SortedMap([[OVERVIEW_KEY, before]], keys), new SortedMap([[OVERVIEW_KEY, first]], keys)), "ana")).kind, "committed");
         const stale = await commit(diffPages(new SortedMap([[OVERVIEW_KEY, before]], keys), new SortedMap([[OVERVIEW_KEY, second]], keys)), "ben");
         if (stale.kind !== "conflict") assert.fail(`expected a conflict, got ${stale.kind}`);
-        assert.equal(stale.detail, 'update of (project="ops", page="overview"), whose row no longer matches the patch');
 
         assert.deepEqual((await current()).get(OVERVIEW_KEY), first, "the first save stands");
         assert.deepEqual((await recordHistory(storage, repo, "main", "pages")).map((entry) => entry.commit.actor)[0], "ana", "the refused save made no commit");

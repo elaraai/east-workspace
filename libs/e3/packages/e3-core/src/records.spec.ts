@@ -1459,28 +1459,6 @@ describe('the mutation delta', () => {
     assert.deepStrictEqual(await storage.datasets.read(repo, plain, 'records/plans'), before);
   });
 
-  it('a stale update on a record with no index is a conflict naming the key, in the indexed door\'s words', async () => {
-    // The unindexed door applies the patch in the engine, where a row that no
-    // longer matches its update speaks only of the row. The conflict names the
-    // key as the indexed door's program does, so a caller reads one refusal
-    // whichever door the write went through.
-    await recordMutate(storage, realRunner, repo, plain, 'plans', 'seed', [], { actor: 'cli:test' });
-    const before = await storage.datasets.read(repo, plain, 'records/plans');
-
-    const ops = new SortedMap<string, PlanOp>([
-      ['p-7', variant('update', variant('patch', {
-        status: variant('unchanged', null),
-        due: variant('unchanged', null),
-        title: variant('replace', { before: 'SOMETHING ELSE', after: 'PATCHED' }),
-      }))],
-    ], planKeys);
-    const outcome = await recordMutate(storage, noRunner, repo, plain, 'plans', 'patch',
-      [encodePlansPatch(variant('patch', ops))], { actor: 'cli:test' });
-    assert.strictEqual(outcome.kind, 'conflict', JSON.stringify(outcome));
-    assert.strictEqual((outcome as { detail?: string }).detail, 'update of "p-7", whose row no longer matches the patch');
-    assert.deepStrictEqual(await storage.datasets.read(repo, plain, 'records/plans'), before, 'nothing was written');
-  });
-
   it('a stale update on an indexed record is a conflict naming the key, not a failed program', async () => {
     // The indexed door applies the patch inside the program, to learn where the
     // row's index entries move. A row that no longer matches the patch has to
