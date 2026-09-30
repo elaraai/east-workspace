@@ -156,36 +156,18 @@ jobs:
             EAST_NODE_IO_VERSION="$PINNED"
             EAST_NODE_CLI_VERSION="$PINNED"
             EAST_UI_VERSION="$PINNED"
-            E3_VERSION="$PINNED"
-            E3_TYPES_VERSION="$PINNED"
-            E3_CORE_VERSION="$PINNED"
-            E3_CLI_VERSION="$PINNED"
-            E3_API_CLIENT_VERSION="$PINNED"
-            E3_API_SERVER_VERSION="$PINNED"
           elif [[ "$CHANNEL" == "beta" ]]; then
             EAST_VERSION=$(npm view @elaraai/east dist-tags.beta 2>/dev/null || npm view @elaraai/east version)
             EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-std version)
             EAST_NODE_IO_VERSION=$(npm view @elaraai/east-node-io dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-io version)
             EAST_NODE_CLI_VERSION=$(npm view @elaraai/east-node-cli dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-cli version)
             EAST_UI_VERSION=$(npm view @elaraai/east-ui dist-tags.beta 2>/dev/null || npm view @elaraai/east-ui version)
-            E3_VERSION=$(npm view @elaraai/e3 dist-tags.beta 2>/dev/null || npm view @elaraai/e3 version)
-            E3_TYPES_VERSION=$(npm view @elaraai/e3-types dist-tags.beta 2>/dev/null || npm view @elaraai/e3-types version)
-            E3_CORE_VERSION=$(npm view @elaraai/e3-core dist-tags.beta 2>/dev/null || npm view @elaraai/e3-core version)
-            E3_CLI_VERSION=$(npm view @elaraai/e3-cli dist-tags.beta 2>/dev/null || npm view @elaraai/e3-cli version)
-            E3_API_CLIENT_VERSION=$(npm view @elaraai/e3-api-client dist-tags.beta 2>/dev/null || npm view @elaraai/e3-api-client version)
-            E3_API_SERVER_VERSION=$(npm view @elaraai/e3-api-server dist-tags.beta 2>/dev/null || npm view @elaraai/e3-api-server version)
           else
             EAST_VERSION=$(npm view @elaraai/east version)
             EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std version)
             EAST_NODE_IO_VERSION=$(npm view @elaraai/east-node-io version)
             EAST_NODE_CLI_VERSION=$(npm view @elaraai/east-node-cli version)
             EAST_UI_VERSION=$(npm view @elaraai/east-ui version)
-            E3_VERSION=$(npm view @elaraai/e3 version)
-            E3_TYPES_VERSION=$(npm view @elaraai/e3-types version)
-            E3_CORE_VERSION=$(npm view @elaraai/e3-core version)
-            E3_CLI_VERSION=$(npm view @elaraai/e3-cli version)
-            E3_API_CLIENT_VERSION=$(npm view @elaraai/e3-api-client version)
-            E3_API_SERVER_VERSION=$(npm view @elaraai/e3-api-server version)
           fi
 
           echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
@@ -194,14 +176,6 @@ jobs:
           echo "east_node_io=${EAST_NODE_IO_VERSION}" >> $GITHUB_OUTPUT
           echo "east_node_cli=${EAST_NODE_CLI_VERSION}" >> $GITHUB_OUTPUT
           echo "east_ui=${EAST_UI_VERSION}" >> $GITHUB_OUTPUT
-          # The east-node image carries e3's node packages too
-          # (install-packages.sh --node-only), pinned with the rest.
-          echo "e3=${E3_VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_types=${E3_TYPES_VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_core=${E3_CORE_VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_cli=${E3_CLI_VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_api_client=${E3_API_CLIENT_VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_api_server=${E3_API_SERVER_VERSION}" >> $GITHUB_OUTPUT
 
           echo "Package versions (${PINNED:-$CHANNEL}):"
           echo "  @elaraai/east: ${EAST_VERSION}"
@@ -209,12 +183,6 @@ jobs:
           echo "  @elaraai/east-node-io: ${EAST_NODE_IO_VERSION}"
           echo "  @elaraai/east-node-cli: ${EAST_NODE_CLI_VERSION}"
           echo "  @elaraai/east-ui: ${EAST_UI_VERSION}"
-          echo "  @elaraai/e3: ${E3_VERSION}"
-          echo "  @elaraai/e3-types: ${E3_TYPES_VERSION}"
-          echo "  @elaraai/e3-core: ${E3_CORE_VERSION}"
-          echo "  @elaraai/e3-cli: ${E3_CLI_VERSION}"
-          echo "  @elaraai/e3-api-client: ${E3_API_CLIENT_VERSION}"
-          echo "  @elaraai/e3-api-server: ${E3_API_SERVER_VERSION}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -255,12 +223,6 @@ jobs:
             EAST_NODE_IO_VERSION=${{ steps.versions.outputs.east_node_io }}
             EAST_NODE_CLI_VERSION=${{ steps.versions.outputs.east_node_cli }}
             EAST_UI_VERSION=${{ steps.versions.outputs.east_ui }}
-            E3_VERSION=${{ steps.versions.outputs.e3 }}
-            E3_TYPES_VERSION=${{ steps.versions.outputs.e3_types }}
-            E3_CORE_VERSION=${{ steps.versions.outputs.e3_core }}
-            E3_CLI_VERSION=${{ steps.versions.outputs.e3_cli }}
-            E3_API_CLIENT_VERSION=${{ steps.versions.outputs.e3_api_client }}
-            E3_API_SERVER_VERSION=${{ steps.versions.outputs.e3_api_server }}
 
   build-e3:
     name: Build e3 (BSL + AGPL)
