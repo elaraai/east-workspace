@@ -23,13 +23,13 @@ import {
 import {
   RECORD_STATE_KIND,
   RecordCommitType,
-  RecordIndexObjectType,
   RecordStateType,
   TASK_OBJECT_KIND,
   TaskObjectType,
   decodeMutationObject,
   decodePackageObject,
   decodeRecordCommit,
+  decodeRecordIndexObject,
   decodeRecordObject,
   encodeDatasetBlob,
   indexCollectionType,
@@ -55,7 +55,6 @@ import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './execution/interfaces.js';
 
 const encodeCommit = encodeBeast2For(RecordCommitType);
-const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
 const encodeRecordState = encodeBeast2For(RecordStateType);
 const decodeRecordState = decodeBeast2For(RecordStateType);
 const encodeArgsTuple = encodeBeast2For(ArrayType(BlobType));
@@ -753,7 +752,7 @@ async function buildRecordIndexes(
   const built = new Map<string, { manifest: string; index: string }>();
   for (const [name, indexHash] of indexes) {
     opts.onBuild?.(name, built.size + 1, indexes.size);
-    const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, indexHash));
+    const indexObj: RecordIndexObject = decodeRecordIndexObject(await storage.objects.read(repo, indexHash));
     const taskHash = await storage.objects.write(repo, encodeTaskObject({
       kind: TASK_OBJECT_KIND,
       body: variant('east', { program: indexObj.buildIr }),
@@ -1189,7 +1188,7 @@ export async function resolveRecordIndex(
   const entry = state.indexes.get(indexName);
   if (entry === undefined) return null;
 
-  const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, entry.index));
+  const indexObj: RecordIndexObject = decodeRecordIndexObject(await storage.objects.read(repo, entry.index));
   const primaryManifest = await readManifest(storage, repo, state.primary);
   if (primaryManifest === null) return null;
   // The manifest carries the collection's type as a homoiconic VALUE; the type
@@ -1257,7 +1256,7 @@ export async function recordDescribe(
   }
   const indexes: RecordSignature['indexes'] = [];
   for (const [name, indexHash] of resolved.indexes) {
-    const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, indexHash));
+    const indexObj: RecordIndexObject = decodeRecordIndexObject(await storage.objects.read(repo, indexHash));
     indexes.push({ name, keyType: indexObj.keyType, valueType: indexObj.valueType, multi: indexObj.multi });
   }
   return { name: recordName, mutations, indexes };

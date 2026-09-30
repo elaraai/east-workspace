@@ -90,7 +90,7 @@ describe('task and function object decoders', () => {
       bodyIr: 'c'.repeat(64),
       inputTypes: [toEastTypeValue(IntegerType)],
       outputType: toEastTypeValue(IntegerType),
-      runner: variant('east_node', { platforms: [] }),
+      runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
     });
 
     assert.throws(() => decodeFunctionObject(legacyBytes), /exported by an older e3 SDK — re-export it with the current one/);
@@ -101,7 +101,7 @@ describe('task and function object decoders', () => {
       bodyIr: 'c'.repeat(64),
       inputTypes: [],
       outputType: toEastTypeValue(IntegerType),
-      runner: variant('east_node', { platforms: [] }),
+      runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
       environment: some('d'.repeat(64)),
     };
     const decoded = decodeFunctionObject(encodeBeast2For(FunctionObjectType)(fnObj));

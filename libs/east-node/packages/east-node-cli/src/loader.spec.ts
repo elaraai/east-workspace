@@ -26,7 +26,7 @@ import {
   DictType, East, IntegerType, StringType, SortedMap, compareFor,
   decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, isFrozenValue, Beast2Pages,
   COLLECTION_MANIFEST_KIND, carveBeast2, encodeBeast2FenceFor, encodeCollectionManifest,
-  openBeast2PagesFor, readBeast2Extents, segmentRuleFor, toEastTypeValue,
+  openBeast2PagesFor, readBeast2Extents, segmentRuleFor, toEastTypeValue, variant,
 } from '@elaraai/east';
 
 import { inputBytes, loadPlatform, loadPlatformWithMetadata, loadInput, loadInputLazy, lazyInputBytesRead } from './loader.js';
@@ -477,31 +477,30 @@ describe('loadInputLazy — an input staged as a manifest over segment files', (
     }
   });
 
-  it('opens lazily once the value crosses the threshold, however small its manifest', async () => {
-    // A runner that measured the file would find a few kilobytes of manifest
-    // and decode a multi-gigabyte input whole.
+  it('a program opens it lazily, or decodes it whole when told to, and answers the same', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'enc-manifest-'));
     try {
       const path = stageManifest(dir, rows(20_000));
-      const threshold = statSync(path).size + 1;
       const irPath = join(dir, 'program.beast2');
       writeFileSync(irPath, encodeEastIR(East.function([DT], StringType, ($, table) => table.get(9_999n)).toIR()));
       const outputPath = join(dir, 'output.beast2');
 
-      const lines: string[] = [];
-      const original = console.error;
-      const saved = process.env.EAST_LAZY_INPUT_BYTES;
-      console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
-      process.env.EAST_LAZY_INPUT_BYTES = String(threshold);
-      try {
-        await runProgram(irPath, [], [], [path], outputPath, true);
-      } finally {
-        console.error = original;
-        if (saved === undefined) delete process.env.EAST_LAZY_INPUT_BYTES;
-        else process.env.EAST_LAZY_INPUT_BYTES = saved;
-      }
-      assert.ok(lines.some((line) => line.includes('input 0: opened lazily')), lines.join('\n'));
-      assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), 'row-9999');
+      const run = async (decode: 'lazy' | 'whole'): Promise<string[]> => {
+        const lines: string[] = [];
+        const original = console.error;
+        console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+        try {
+          await runProgram(irPath, [], [], [path], outputPath, true, decode === 'lazy' ? variant('lazy', null) : variant('whole', null));
+        } finally {
+          console.error = original;
+        }
+        assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), 'row-9999');
+        return lines;
+      };
+      const lazy = await run('lazy');
+      assert.ok(lazy.some((line) => line.includes('input 0: opened lazily')), lazy.join('\n'));
+      const whole = await run('whole');
+      assert.ok(whole.some((line) => /input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident/.test(line)), whole.join('\n'));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

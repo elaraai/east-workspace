@@ -556,7 +556,7 @@ describe('the typed task object', () => {
     assert.deepStrictEqual(shoutObject.inputs, [{ path: greeting.path, partition: none }]);
     assert.deepStrictEqual(shoutObject.output, { path: shout.output.path, kind: variant('value', null) });
     assert.deepStrictEqual(shoutObject.role, variant('data', null));
-    assert.deepStrictEqual(shoutObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'] }));
+    assert.deepStrictEqual(shoutObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
     assert.strictEqual(shoutObject.body.type, 'east');
     const program = decodeEastIR(object((shoutObject.body.value as { program: string }).program));
     assert.strictEqual(program.compile([])('hi'), 'HI');
@@ -564,6 +564,18 @@ describe('the typed task object', () => {
     // The task's subtree holds its output and nothing else.
     const root = pkg.data.structure.value as Map<string, { value: Map<string, { value: Map<string, unknown> }> }>;
     assert.deepStrictEqual([...root.get('tasks')!.value.get('shout')!.value.keys()], ['output']);
+  });
+
+  it('writes how a task\'s runner reads its inputs: lazily, unless the runner says whole', async () => {
+    const greeting = input('greeting', StringType, variant('value', 'hi'));
+    const lazily = task('lazily', [greeting], East.function([StringType], StringType, ($, g) => g));
+    const wholly = task('wholly', [greeting], East.function([StringType], StringType, ($, g) => g),
+      { runner: { runtime: 'east-c', decode: 'whole' } });
+    const { tasks } = await exported('decode-pkg', lazily, wholly);
+
+    assert.deepStrictEqual(tasks.get('lazily')!.runner,
+      variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
+    assert.deepStrictEqual(tasks.get('wholly')!.runner, variant('east_c', { platforms: [], decode: variant('whole', null) }));
   });
 
   it('writes a stream task\'s partitioned inputs, and the merge its dict output folds with', async () => {

@@ -22,6 +22,12 @@
  * the platform that schedules them read them; east-c declares the same types
  * in C, and the conformance corpus pins that all three runners agree.
  *
+ * A run unit says how its collection inputs are read (`decode`): lazily, a
+ * segment at a time as the program reads them, or decoded whole before it
+ * runs. A runner's `run` command takes the same choice as `--decode`, lazy
+ * unless it says `whole`, so a program reads its inputs the same way whichever
+ * runner, and whichever command, runs it.
+ *
  * A collection a unit reads is staged as its manifest and the manifest's
  * segments beside it, `<file>.segments/<hash>.beast2`. A host whose store is
  * elsewhere may leave the segments out and place each as the runner first
@@ -78,11 +84,42 @@ export const UnitOutputType = VariantType({
 export type UnitOutputType = typeof UnitOutputType;
 export type UnitOutput = ValueTypeOf<typeof UnitOutputType>;
 
+/**
+ * How a run unit's collection inputs are read.
+ *
+ * @remarks
+ * `lazy` opens each Array, Set and Dict input over its file and decodes a
+ * segment at a time as the program reads it: its size, a keyed read and the
+ * `$.for` loop decode only the segments they reach, and an operation the
+ * runner cannot serve so decodes the input whole, once, when it first needs
+ * it. `whole` decodes every input before the program runs, which suits a
+ * program that reads most of an input at random: lazily, a runner keeps only
+ * the segments it decoded last, and a read beyond them decodes its segment
+ * again. A value that is not a collection, and a collection whose elements
+ * hold a Ref or a function, is decoded whole either way. The program's result
+ * is the same either way: only the memory and the time it takes differ.
+ */
+export const UnitDecodeType = VariantType({
+  /** Each collection input opened over its file, a segment decoded as the
+   *  program reaches it. */
+  lazy: NullType,
+  /** Every input decoded whole before the program runs. */
+  whole: NullType,
+});
+export type UnitDecodeType = typeof UnitDecodeType;
+export type UnitDecode = ValueTypeOf<typeof UnitDecodeType>;
+
 /** What a unit does. */
 export const UnitWorkType = VariantType({
   /** Evaluate `program`, an IR file, on `inputs`, one file per parameter —
-   *  a blob or a manifest directory — and write `output`. */
-  run: StructType({ program: StringType, inputs: ArrayType(StringType), output: UnitOutputType }),
+   *  a blob or a manifest directory — read as `decode` says, and write
+   *  `output`. */
+  run: StructType({
+    program: StringType,
+    inputs: ArrayType(StringType),
+    output: UnitOutputType,
+    decode: UnitDecodeType,
+  }),
   /**
    * Assemble `parts` of one output kind into one: sorted set or dict runs
    * merged into one run, `<dir>/0.beast2`, with a key that several parts hold
@@ -122,6 +159,7 @@ export type UnitWork = ValueTypeOf<typeof UnitWorkType>;
  *     program: "program.beast2",
  *     inputs: ["sales.beast2"],
  *     output: variant("dict", { dir: "out", merge: some("add.beast2") }),
+ *     decode: variant("lazy", null),
  *   }),
  *   platforms: [],
  *   threads: 1n,

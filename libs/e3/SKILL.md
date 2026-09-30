@@ -137,10 +137,13 @@ to hold is emitted instead (`e3.streamTask`). `config` is
 Task inputs, on every runtime (a mutation's state included):
 - are **deeply frozen**: mutating one raises `cannot mutate a frozen value (task
   inputs are immutable) — copy first`; derive a changed value from `.copy()`;
-- open **lazily** once a collection reaches 64 MiB (`EAST_LAZY_INPUT_BYTES`; `0`
-  decodes every input whole): size, iteration and keyed gets read a segment at a
-  time, with the same semantics — a memory knob, not a behaviour change. Only
-  elements carrying a `Ref` or a function decode whole.
+- open **lazily**, whatever their size: size, iteration and keyed gets read a
+  segment at a time, with the same semantics, and an operation that needs the
+  whole value decodes it once, when it first does. A runner's `decode: 'whole'`
+  decodes every input before the program runs instead — for a program whose
+  reads land at random across more segments than the runner keeps, which `-v`
+  names in the task's log. Only elements carrying a `Ref` or a function decode
+  whole either way.
 
 Data that is not a dataset opens the same way inside a body —
 `FileSystem.openBeast(T, path)` for a beast2 file on the runner's disk,
@@ -156,7 +159,11 @@ anything a task should react to is an input.
 
 Platform names are typed per runtime — a typo, or another runtime's platform, is
 a compile error; `{ custom: '<name>' }` names your own. A stock runtime is handed
-one unit file (`exec <unit>`).
+one unit file (`exec <unit>`), and takes `decode: 'lazy' | 'whole'` (`'lazy'`
+when omitted): how its units read their inputs — the unit's `decode`, as every
+runner's `run --decode` takes it. It is the runner's, so a task, each piece of a
+split task, a function, a mutation, a migration and an index build all read
+their inputs as their runner says, and changing it re-runs the task.
 
 ```typescript
 const greet = e3.task('greet', [name],
@@ -257,8 +264,8 @@ parallel under the budget — typed as the whole dataset (a key range of a Set o
 Dict, a position range of an Array), and the pieces' outputs combine as the
 output kind says. Pieces are cut by content, most holding 64 to 100 MiB of
 stored bytes, so an append or an insertion re-runs only the pieces it reaches.
-An input not wrapped reaches every piece whole, opened lazily when large (a
-keyed get reads only its segments); a change to it re-runs every piece.
+An input not wrapped reaches every piece whole, opened lazily as every input is
+(a keyed get reads only its segments); a change to it re-runs every piece.
 
 ```typescript
 // sales: Dict<{ sku, id }, { amount, currency }>. A re-key: a key emitted in
@@ -550,9 +557,11 @@ While a deploy runs, its lock carries the same progress for `e3-ui` or any
 client to read (`workspaceLockStatus`). A workspace deployed for the first time
 has no status until its deploy ends, so the lock is the only place to see it.
 
-**`-v`** passes `-v` to the runners, which print a timing and peak-memory block,
-identical on every runtime, to the task's logs. It never changes hashes or
-caching (add `--force` to see it for a cached task), and works against a server.
+**`-v`** passes `-v` to the runners, which print to the task's logs, identically
+on every runtime, how each input was read — opened lazily, and what reading it
+came to, or decoded whole, and the resident memory that added — and a timing
+and peak-memory block. It never changes hashes or caching (add `--force` to see
+it for a cached task), and works against a server.
 **`E3_SCRATCH_DIR`** moves a local run's per-execution scratch directories
 (default `<repo>/tmp/scratch`, on the object store's disk; on tmpfs, outputs sit
 in memory until stored).

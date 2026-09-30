@@ -66,7 +66,7 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
   const mutHash = await storage.objects.write(REPO, encodeBeast2For(MutationObjectType)({
     bodyIr: bodyIrHash,
     argTypes: [toEastTypeValue(IntegerType)],
-    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     form: variant('reduce', null),
     programIr: '',
   }));

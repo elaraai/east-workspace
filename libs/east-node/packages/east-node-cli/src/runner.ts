@@ -7,6 +7,7 @@ import { readFileSync, statSync, writeFileSync } from 'fs';
 import { extname } from 'path';
 import {
     EastIR,
+    beast2LazyStats,
     encodeBeast2For,
     encodeBeast2PagedFor,
     encodeEastFor,
@@ -14,6 +15,7 @@ import {
     isTypeValueEqual,
     printFor,
     variant,
+    type UnitDecode,
     type UnitResult,
 } from '@elaraai/east';
 import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
@@ -66,8 +68,64 @@ export function reportInputLazy(i: number): void {
 }
 
 /**
- * Prints what reading a lazily opened input came to, against what it weighs;
- * nothing for an input read whole.
+ * Prints the verbose account of an input decoded whole as it loaded: the
+ * growth in resident memory across its decode — what it holds in memory, as a
+ * runner that loads its inputs first sees it — beside what it weighs on disk,
+ * since a nested collection decodes at many times that.
+ *
+ * @param i - the input's position
+ * @param bytes - the growth in resident memory, in bytes
+ * @internal
+ */
+export function reportInputWhole(i: number, bytes: number): void {
+    console.error(`  input ${i}: decoded whole — +${formatSize(Math.max(0, bytes))} resident`);
+}
+
+/**
+ * Opens a program's inputs, always frozen: task inputs are immutable, and
+ * mutating one throws the uniform copy-first error.
+ *
+ * With `decode` lazy, each beast2 collection input opens as a paged value
+ * whatever it weighs, so a read decodes only the segments it reaches and an
+ * operation the pager cannot serve decodes it whole, once, when it first needs
+ * it; frozen collapses the shape gate, so nested element shapes open lazily
+ * too. With `whole`, every input is decoded before the program runs. An input
+ * that cannot open lazily — another format, an index-less blob, an element
+ * shape holding a Ref or a function — is decoded whole either way. A manifest
+ * is the collection it names, its segments the files beside it.
+ *
+ * @param paths - the input files, in parameter order
+ * @param types - the parameters' types
+ * @param decode - how the collection inputs are read
+ * @param verbose - print how each input opened: lazily, or decoded whole and
+ *   the resident memory it added
+ * @returns the inputs, in parameter order
+ * @internal
+ */
+export function openInputs(paths: readonly string[], types: readonly EastTypeValue[], decode: UnitDecode, verbose: boolean): unknown[] {
+    return paths.map((path, i) => {
+        const lazy = decode.type === 'lazy' ? loadInputLazy(path) : undefined;
+        if (lazy !== undefined) {
+            if (verbose) reportInputLazy(i);
+            return lazy;
+        }
+        const before = verbose ? process.memoryUsage.rss() : 0;
+        const value = loadInput(path, types[i]!);
+        if (verbose) reportInputWhole(i, process.memoryUsage.rss() - before);
+        return value;
+    });
+}
+
+/**
+ * Prints what reading a lazily opened input came to; nothing for an input
+ * decoded whole as it loaded.
+ *
+ * An operation the pager cannot serve decoded the input whole, and says what
+ * that added to resident memory; reads that decoded segments again, beyond the
+ * ones the pager keeps, say so, since decoding the input whole would decode
+ * each once; any other reads say the segments they decoded and the fences
+ * they probed, and then the bytes they read, against what the input weighs.
+ * east-c and east-py say each in the same words, but for the bytes read.
  *
  * @param i - the input's position
  * @param path - its file
@@ -76,7 +134,18 @@ export function reportInputLazy(i: number): void {
  */
 export function reportInputReads(i: number, path: string, value: unknown): void {
     const read = lazyInputBytesRead(value);
-    if (read !== undefined) console.error(`  input ${i}: ${formatSize(read)} read of ${formatInputSize(path)}`);
+    const stats = beast2LazyStats(value);
+    if (read === undefined || stats === undefined) return;
+    if (stats.hydrated) {
+        console.error(`  input ${i}: decoded whole (an operation the pager cannot serve) — +${formatSize(stats.hydratedBytes)} resident`);
+    } else if (stats.segmentsDecoded > stats.segments) {
+        console.error(`  input ${i}: ${stats.segmentsDecoded} segment decodes of its ${stats.segments} segments, ` +
+            `${stats.fencesProbed} fences probed — its reads land at random beyond the segments kept, so decoding it ` +
+            'whole would decode each once');
+    } else {
+        console.error(`  input ${i}: ${stats.segmentsDecoded} of ${stats.segments} segments decoded, ${stats.fencesProbed} fences probed — ` +
+            `${formatSize(read)} read of ${formatInputSize(path)}`);
+    }
 }
 
 /**
@@ -95,25 +164,21 @@ export class UsageError extends Error {
     }
 }
 
-/** Default size threshold above which collection inputs open lazily. */
-const LAZY_INPUT_BYTES_DEFAULT = 64 * 1024 * 1024;
-
-/** Resolves the lazy-open threshold: the environment, else the default. An
- *  unset or empty `EAST_LAZY_INPUT_BYTES` falls through to the 64 MiB default
- *  (`Number('')` is `0`, which would silently DISABLE lazy opening); invalid
- *  or negative values fall through too, matching east-c and east-py. Exported
- *  for `exec` and the spec. @internal */
-export function lazyThreshold(): number {
-    const raw = process.env.EAST_LAZY_INPUT_BYTES;
-    if (raw !== undefined && raw !== '') {
-        const env = Number(raw);
-        if (Number.isFinite(env) && env >= 0) return env;
-    }
-    return LAZY_INPUT_BYTES_DEFAULT;
-}
-
 /**
  * Runs an East IR program.
+ *
+ * @param irPath - the program's IR file
+ * @param platformFns - the platform functions it may call
+ * @param packages - the platform packages they came from, for the verbose
+ *   account
+ * @param inputPaths - one input file per parameter, in order
+ * @param outputPath - where the result is written, in its extension's format;
+ *   without it the result prints as East text
+ * @param verbose - print where the time went, the peak memory and how each
+ *   input opened
+ * @param decode - how the collection inputs are read: lazily (the default), or
+ *   decoded whole before the program runs
+ * @returns the result, when it is not written to `outputPath`
  */
 export async function runProgram(
     irPath: string,
@@ -122,6 +187,7 @@ export async function runProgram(
     inputPaths: string[],
     outputPath?: string,
     verbose = false,
+    decode: UnitDecode = variant('lazy', null),
 ): Promise<unknown> {
     const t0 = now();
 
@@ -162,20 +228,9 @@ export async function runProgram(
         }
     }
 
-    // Load inputs — always frozen (task inputs are immutable; mutating one
-    // throws the uniform copy-first error). Beast2 collection inputs open
-    // lazily at or above the size threshold, so a sparse read into a huge
-    // indexed input stops paying a whole decode — and because frozen collapses
-    // the shape gate, nested-container element shapes open lazily too. The
-    // size is the value's: an input staged as a manifest is a small file
-    // naming large ones.
-    const threshold = lazyThreshold();
-    const inputs: unknown[] = [];
-    for (let i = 0; i < inputPaths.length; i++) {
-        const lazy = threshold > 0 && inputBytes(inputPaths[i]!) >= threshold ? loadInputLazy(inputPaths[i]!) : undefined;
-        if (lazy !== undefined && verbose) reportInputLazy(i);
-        inputs.push(lazy !== undefined ? lazy : loadInput(inputPaths[i]!, inputTypes[i]!));
-    }
+    // Load inputs, frozen: each collection lazily, unless --decode whole says
+    // to decode them before the program runs.
+    const inputs = openInputs(inputPaths, inputTypes as EastTypeValue[], decode, verbose);
     /** The verbose summary's account of each lazy input: what paging came
      *  to, against the size of the value. */
     const reportLazyReads = (): void => {

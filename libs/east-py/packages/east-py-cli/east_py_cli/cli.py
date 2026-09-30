@@ -107,6 +107,16 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output file path for result",
     )
     run_parser.add_argument(
+        # Not argparse's choices: that answers another value with a usage dump.
+        # Checked in cmd_run, in east-c's and east-node's words.
+        "--decode",
+        default="lazy",
+        metavar="MODE",
+        help="How collection inputs are read: lazy (the default) opens each over its file and "
+        "decodes a segment as the program reads it; whole decodes every input before the "
+        "program runs",
+    )
+    run_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -124,15 +134,16 @@ def create_parser() -> argparse.ArgumentParser:
         "exec",
         help="Execute a unit, the runner protocol: run a program, or merge the parts of an "
         "output, as the unit file says, write the output by its kind and record the result; "
-        "exit 0 when it is ok and 1 when it failed",
+        "exit 0 when it is ok and 1 when it failed. A run unit's inputs are read as its "
+        "`decode` says",
     )
     exec_parser.add_argument(
         "unit", type=Path,
         help="The unit file (.beast2); relative paths in it are relative to its directory")
     exec_parser.add_argument(
         "-v", "--verbose", action="store_true",
-        help="Print each input — what it weighs, whether it opened lazily and what reading it "
-        "came to — where the time went, and the peak memory")
+        help="Print each input — what it weighs, whether it opened lazily or was decoded whole "
+        "and what reading it came to — where the time went, and the peak memory")
     exec_parser.add_argument(
         "--exit-with-parent", action="store_true", dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
@@ -238,6 +249,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         if not args.ir_file.exists():
             print(f"Error: IR file not found: {args.ir_file}", file=sys.stderr)
             return 1
+        if args.decode not in ("lazy", "whole"):
+            print(f"Error: --decode takes lazy or whole, not {args.decode}", file=sys.stderr)
+            return 1
 
         # Validate input files exist
         for input_file in args.input:
@@ -263,6 +277,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             input_files=args.input,
             output_file=args.output,
             verbose=args.verbose,
+            whole=args.decode == "whole",
         )
 
         return 0

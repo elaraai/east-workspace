@@ -2,6 +2,7 @@ set(EAST_C_SOURCES
     src/arena.c
     src/cgroup_quota.c
     src/cpu_count.c
+    src/resident.c
     src/gc.c
     src/hashmap.c
     src/types.c

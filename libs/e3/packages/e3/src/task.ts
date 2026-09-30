@@ -120,7 +120,8 @@ function collectDeps(
  *
  * Tasks read from input datasets and produce an output dataset.
  * When input datasets change, the task re-runs automatically. The function
- * runs once, as one unit: a large input opens lazily, and a collection it
+ * runs once, as one unit: a collection input opens lazily, unless the runner
+ * decodes its inputs whole ({@link Runner}'s `decode`), and a collection it
  * returns is written segment by segment.
  *
  * Task structure:
@@ -332,13 +333,15 @@ export interface StreamTaskSpec<
 > {
   /** The inputs, in the body's parameter order. An input wrapped in
    *  {@link partition} is one the work may be split over; the others reach
-   *  every piece whole, opened lazily when large. Empty for a producer. */
+   *  every piece whole. Each piece reads its inputs as the runner's `decode`
+   *  says: lazily by default. Empty for a producer. */
   readonly inputs: [...Inputs];
   /** The output kind — `e3.output.array`, `set`, `dict` or `fold`. It fixes
    *  `emit`'s signature and how the parts of the output combine. */
   readonly output: Output;
-  /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. A stock
-   *  runtime: the `custom` one runs only a program that returns its output. */
+  /** Runtime the body runs on, and how it reads the inputs; defaults to
+   *  {@link DEFAULT_RUNNER}. A stock runtime: the `custom` one runs only a
+   *  program that returns its output. */
   readonly runner?: Runner;
   /** Execution environment declaration, as for {@link task}. */
   readonly environment?: EnvironmentDecl;

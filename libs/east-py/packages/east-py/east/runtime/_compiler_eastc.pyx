@@ -614,9 +614,9 @@ cdef object _manifest_at(object path):
 
 def manifest_segment_bytes(object path):
     """The bytes the collection a manifest-rooted input names comes to — its
-    segments', which is what the lazy-open threshold weighs, a manifest being
-    a few dozen bytes per segment whatever the collection weighs — or None
-    when the file at ``path`` holds no manifest."""
+    segments', which is what the runner's verbose account weighs the input
+    by, a manifest being a few dozen bytes per segment whatever the collection
+    weighs — or None when the file at ``path`` holds no manifest."""
     _ensure_runtime()
     hold = _manifest_at(path)
     if hold is None:

@@ -678,11 +678,16 @@ bool east_beast2_intake_file(const char *path, EastType *type, bool ranged, int6
 void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes);
 
 // The eager collection behind a paged value, decoding the whole blob on
-// first use (cached on the wrapper; iteration locks carry over). Returns a
-// BORROWED value kept alive by `v` — retain to keep it past `v` — or NULL on
-// decode failure (message via east_builtin_get_error). Non-paged values pass
-// through unchanged, so call sites can unpage unconditionally.
+// first use (cached on the wrapper; iteration locks carry over). Every read
+// goes to it from then on, so the pager's decoded-segment cache is dropped.
+// Returns a BORROWED value kept alive by `v` — retain to keep it past `v` —
+// or NULL on decode failure (message via east_builtin_get_error). Non-paged
+// values pass through unchanged, so call sites can unpage unconditionally.
 EastValue *east_paged_hydrated(EastValue *v);
+// The resident memory, in KB, the whole decode east_paged_hydrated made of
+// `v` added — what decoding the input whole came to, for a runner's account
+// of it. -1 when `v` is not a paged value that has been hydrated.
+long east_paged_hydrated_kb(EastValue *v);
 
 // Byte extents of an indexed v5 collection blob, for splicing (issue #484):
 // everything a host needs to byte-copy the blob's segment frames into a merged

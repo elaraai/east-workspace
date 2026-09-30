@@ -253,6 +253,16 @@ const fast = e3.task(
   { runner: { runtime: 'east-c', platforms: ['east-c-std'] } }
 );
 
+// A stock runtime reads each collection input lazily — a segment decoded as
+// the program reaches it — unless `decode: 'whole'` decodes every input before
+// the program runs: for a program whose reads land at random across an input.
+const scattered = e3.task(
+  'scattered',
+  [someInput],
+  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
+  { runner: { runtime: 'east-c', platforms: ['east-c-std'], decode: 'whole' } }
+);
+
 // Same effect via the custom escape hatch (uv-wrapped east-py):
 const wrapped = e3.task(
   'wrapped',
@@ -324,7 +334,7 @@ const rates = e3.input('rates', DictType(StringType, FloatType));
 // Per-key totals — a re-key, since the output key is not the input's: a key
 // emitted more than once, in a piece or across pieces, folds with `merge`.
 const bySku = e3.streamTask('by_sku', {
-  inputs: [e3.partition(sales), rates],   // `rates` reaches every piece whole, lazily when large
+  inputs: [e3.partition(sales), rates],   // `rates` reaches every piece whole, opened lazily
   output: e3.output.dict(StringType, FloatType, { merge: ($, _sku, a, b) => a.add(b) }),
 }, ($, sales, rates, emit) => {
   $.for(sales, ($, sale, key) => {
@@ -357,7 +367,7 @@ const delta = e3.streamTask('delta', {
 
 - `by` names leading key fields, in order: `['account']`, or `['account', 'at.day']`, whose last entry reads the first field of `at`. It is data, checked against the key type when the task is defined.
 - Two or more partitioned inputs are cut at the same keys, so they must be Sets or Dicts whose keys, or whose `by` fields, have the same types.
-- An input not wrapped reaches every piece whole, opened lazily when large, so a keyed get reads only the segments it reaches. A change to it re-runs every piece.
+- An input not wrapped reaches every piece whole, opened lazily as every input is, so a keyed get reads only the segments it reaches. A change to it re-runs every piece.
 - **The author's contract**, the only one: `merge` and `combine` are associative, `zero` is an identity of `combine`, and a partitioned body's combined result does not depend on where its input was cut.
 - Refused when the task is defined, naming it: `e3.partition` on an `e3.task` input or of a value that is not a collection, a `by` naming anything but leading key fields, and co-partitioned inputs with no common key.
 
@@ -657,8 +667,10 @@ stored by a link rather than a copy. Each directory is named after its execution
 it; one left behind by a process that died is removed by the next
 `e3 dataflow run` or `e3 repo gc`.
 
-`-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
-block (load, compile, execute, output, total + peak RSS) to the task's logs
+`-v` / `--verbose` forwards `-v` to each task's runner so it prints how each
+input was read — opened lazily, and what reading it came to, or decoded whole,
+and the resident memory that added — and a timing/perf block (load, compile,
+execute, output, total + peak RSS) to the task's logs
 (`e3 task logs <repo> <ws>.<task>`). It is a pure runtime toggle: it never
 affects task hashes or caching, so a cached task stays cached whether or not you
 pass it — combine with `--force` to see the block for an already-cached task. The
@@ -923,6 +935,7 @@ e3 dataset get . dev.mytask
 
 Tasks are cached by content hash. A task only re-runs when:
 - Its East function IR changes
+- Its runner changes — its runtime, its platforms, or how it reads its inputs (`decode`)
 - Any of its input values change
 
 Changing one task doesn't invalidate unrelated tasks. A stream task split over

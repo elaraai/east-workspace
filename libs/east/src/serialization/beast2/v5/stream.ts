@@ -1135,6 +1135,10 @@ export class Beast2Pages<T extends EastType = EastType> {
    *  range so a hit can maintain the caller's order threading without a
    *  container walk. */
   private readonly segmentCache = new Map<number, { seg: any; first: any; last: any }>();
+  /** Segments decoded so far — see {@link segmentsDecoded}. */
+  private decodes = 0;
+  /** Fences probed so far — see {@link fencesProbed}. */
+  private probes = 0;
 
   /** @internal Use {@link openBeast2PagesFor}. */
   constructor(source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
@@ -1199,6 +1203,24 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** Number of segments in the blob. */
   get segmentCount(): number {
     return this.indexData.offsets.length;
+  }
+
+  /**
+   * The segment decodes this reader has made: one per segment it decoded, and
+   * none for a read its kept segments served. A count above
+   * {@link segmentCount} says its reads decoded a segment again. With
+   * {@link fencesProbed}, what a reader's reads came to — the account east-c's
+   * pager keeps too.
+   */
+  get segmentsDecoded(): number {
+    return this.decodes;
+  }
+
+  /** The segment fences this reader has probed: each segment's first key it
+   *  decoded without the segment, as its keyed reads verify them once and
+   *  {@link fence} probes one. */
+  get fencesProbed(): number {
+    return this.probes;
   }
 
   /** Reads segment `i`'s frame — exactly its wire bytes, from its index
@@ -1266,6 +1288,7 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (reader.offset !== reader.buffer.length) {
       throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after segment ${i}`);
     }
+    this.decodes++;
     return value;
   }
 
@@ -1317,7 +1340,9 @@ export class Beast2Pages<T extends EastType = EastType> {
         const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
         this.manifestFenceDec = decodeBeast2FenceFor(keyType, this.platform);
       }
-      return this.manifestFenceDec(this.manifestSource.manifest.entries[i]!.fence);
+      const fence = this.manifestFenceDec(this.manifestSource.manifest.entries[i]!.fence);
+      this.probes++;
+      return fence;
     }
     if (!this.fenceDec) {
       const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
@@ -1333,13 +1358,17 @@ export class Beast2Pages<T extends EastType = EastType> {
       if (whole) {
         const reader = new FrameReader(bytes, 0).next();
         reader.readVarint();  // element count — segments are never empty
-        return this.fenceDec(reader, ctx);
+        const fence = this.fenceDec(reader, ctx);
+        this.probes++;
+        return fence;
       }
       try {
         const reader = openFramePrefix(bytes);
         if (reader !== null) {
           reader.readVarint();
-          return this.fenceDec(reader, ctx);
+          const fence = this.fenceDec(reader, ctx);
+          this.probes++;
+          return fence;
         }
       } catch {
         // Short, or corrupt: more of the frame decides which.

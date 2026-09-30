@@ -9,8 +9,8 @@ Each case is a directory — ``unit.beast2`` beside the files it names, under
 relative paths — and a ``case.beast2`` naming what executing it must come to:
 the outcome, every file the unit writes besides its result, byte for byte,
 and paths it must not write. Every case is copied and executed with ``exec``,
-with every collection input opened lazily when the case asks, and held to
-TypeScript's outputs and outcome — as east-node's and east-c's runners are.
+its inputs read as the unit's ``decode`` says, and held to TypeScript's
+outputs and outcome — as east-node's and east-c's runners are.
 
 The corpus is read from ``$EAST_TEST_IR_DIR/runner_corpus`` (default
 ``/tmp/east-test-ir``), where ``make test-export`` in libs/east writes it
@@ -57,12 +57,9 @@ def test_a_unit_comes_to_typescripts_outputs_and_outcome(name, tmp_path):
     # A copy per case: a unit writes beside itself.
     unit_dir = tmp_path / name
     shutil.copytree(CORPUS_DIR / name, unit_dir)
-    env = {**os.environ}
-    if case["lazy"]:
-        env["EAST_LAZY_INPUT_BYTES"] = "1"
     proc = subprocess.run(
         [sys.executable, "-m", "east_py_cli", "exec", str(unit_dir / "unit.beast2")],
-        env=env, capture_output=True, text=True,
+        capture_output=True, text=True,
     )
     ok = case["outcome"].type == "ok"
     assert proc.returncode == (0 if ok else 1), proc.stderr

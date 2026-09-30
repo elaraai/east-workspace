@@ -43,23 +43,40 @@ dict or fold it emits into), and where to write the output and a typed
 result: the outcome (`ok`, or `failed` with the message and its source
 locations), the peak memory, and the time spent loading, compiling, executing
 and writing. Paths in a unit may be relative to its file, so a unit and the
-files it names replay wherever they are moved together. It exits 0 when the
-outcome is `ok` and 1 when the result records a failure; `-v` prints where the
-time went and the peak memory.
+files it names replay wherever they are moved together. A run unit says how its
+inputs are read (`decode`, below). It exits 0 when the outcome is `ok` and 1
+when the result records a failure; `-v` prints where the time went and the peak
+memory.
 
-### Large inputs
+### How inputs are read
 
-An indexed beast2 collection input of `EAST_LAZY_INPUT_BYTES` bytes or more
-(64 MiB unless set; `0` turns it off) opens lazily: the file is mapped, and a
-read decodes only the segments it reaches. With `-v` the runner says which
-inputs opened lazily and how many of their segments it decoded.
+A collection input opens lazily, whatever it weighs: an indexed beast2 file is
+mapped, and a read decodes only the segments it reaches — its size, a keyed
+read and the `$.for` loop decode a segment at a time, and an operation the
+pager cannot serve decodes the input whole, once, when it first needs it.
+`--decode whole` decodes every input before the program runs instead, which
+suits a program that reads most of an input at random: lazily, a read beyond
+the segments the pager keeps (64 MiB of them, `EAST_PAGED_CACHE_BYTES`)
+decodes its segment again. `exec` reads the same choice from its unit's
+`decode`. A value that is not a collection, and a collection whose elements
+hold a Ref or a function, is decoded whole either way.
+
+```bash
+east-c run task.beast2 -i rows.beast2 --decode whole -o out.beast2
+```
+
+With `-v` the runner says how each input opened, and what reading it came to:
+the segments a lazy input decoded, or what an input decoded whole holds in
+memory — the growth in resident memory across its decode, beside the size it
+weighs on disk, since a nested collection decodes at many times that size.
+Reads that decode segments again are said to, with what decoding the input
+whole would do instead.
 
 A collection input may also be a manifest directory, the form e3 stages a
 stored collection in: the input file holds a manifest, and each segment it
 names is a standalone blob in `<file>.segments/<sha256>.beast2`. It opens
 over those files — lazily, a read opening only the segments it reaches, or
-whole — and counts as the size of its segments when the runner decides
-whether to open it lazily.
+whole — and weighs its segments in the `-v` account.
 
 ### Exiting with the parent
 

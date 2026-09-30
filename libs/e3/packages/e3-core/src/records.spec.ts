@@ -667,12 +667,15 @@ describe('frozen reducer state (#539)', () => {
       $(next.insert('zzz', { n: 0n, xs: [] }));
       return next;
     }));
-    const poke = e3.mutation.edit('poke', kv,
-      East.function([StateT, StringType, e3.mutation.editType(StateT)], NullType, ($, state, k, edit) => {
-        const row = $.let(state.get(k));
-        $(edit.set(k, { n: row.n.add(1n), xs: [] }));
-      }));
-    const pkg = e3.package('kvrecords', '1.0.0', kv, seed, touch, bump, bumpCopy, poke);
+    const pokeBody = East.function([StateT, StringType, e3.mutation.editType(StateT)], NullType, ($, state, k, edit) => {
+      const row = $.let(state.get(k));
+      $(edit.set(k, { n: row.n.add(1n), xs: [] }));
+    });
+    const poke = e3.mutation.edit('poke', kv, pokeBody);
+    // The same edit on a runner that decodes its inputs whole.
+    const pokeWhole = e3.mutation.edit('pokeWhole', kv, pokeBody,
+      { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'], decode: 'whole' } });
+    const pkg = e3.package('kvrecords', '1.0.0', kv, seed, touch, bump, bumpCopy, poke, pokeWhole);
     const zip = join(tempDir, 'kvrecords.zip');
     await e3.export(pkg, zip);
     await packageImport(storage, repo, zip);
@@ -712,12 +715,12 @@ describe('frozen reducer state (#539)', () => {
     assert.strictEqual(segments.elementCount, 2500);
 
     // The nested-container element shape is exactly what the frozen gate
-    // admits (unfrozen it would force a whole decode), so with a 1-byte
-    // threshold the runner opens the reducer's state lazily, from the manifest
-    // it is staged as. What this pins is that a reducer over the lazily opened
-    // state commits the row it touched; the next test pins the lazy open.
-    const outcome = await withEnv({ EAST_LAZY_INPUT_BYTES: '1' }, () =>
-      recordMutate(storage, realRunner, repo, ws, 'kv', 'touch', [encodeStr('k-0')], { actor: 'cli:test' }));
+    // admits (unfrozen it would force a whole decode), so the runner opens the
+    // reducer's state lazily, from the manifest it is staged as, as it opens
+    // every collection input. What this pins is that a reducer over the lazily
+    // opened state commits the row it touched; the next test pins the lazy
+    // open.
+    const outcome = await recordMutate(storage, realRunner, repo, ws, 'kv', 'touch', [encodeStr('k-0')], { actor: 'cli:test' });
     assert.strictEqual(outcome.kind, 'committed', `touch committed: ${JSON.stringify(outcome)}`);
 
     const after = await workspaceGetDataset(storage, repo, ws, kvPath) as ValueTypeOf<typeof StateT>;
@@ -740,15 +743,13 @@ describe('frozen reducer state (#539)', () => {
     const damaged = objectPath(repo, segments.manifest!.entries.at(-1)!.hash);
     writeFileSync(damaged, new Uint8Array(statSync(damaged).size).fill(0xff));
 
-    const lazily = await withEnv({ EAST_LAZY_INPUT_BYTES: '1' }, () =>
-      recordMutate(storage, realRunner, repo, ws, 'kv', 'poke', [encodeStr('k-0')], { actor: 'cli:test' }));
+    const lazily = await recordMutate(storage, realRunner, repo, ws, 'kv', 'poke', [encodeStr('k-0')], { actor: 'cli:test' });
     assert.strictEqual(lazily.kind, 'committed', `the edit read only its key's segment: ${JSON.stringify(lazily)}`);
 
-    // The same edit with lazy opening off: the runner decodes the state whole,
-    // reads the damaged segment and fails, so the commit above is not one a
-    // whole decode could have made.
-    const whole = await withEnv({ EAST_LAZY_INPUT_BYTES: '0' }, () =>
-      recordMutate(storage, realRunner, repo, ws, 'kv', 'poke', [encodeStr('k-0')], { actor: 'cli:test' }));
+    // The same edit on a runner whose decode is whole: the runner decodes the
+    // state before the program runs, reads the damaged segment and fails, so
+    // the commit above is not one a whole decode could have made.
+    const whole = await recordMutate(storage, realRunner, repo, ws, 'kv', 'pokeWhole', [encodeStr('k-0')], { actor: 'cli:test' });
     assert.strictEqual(whole.kind, 'failed', `a whole decode reads the damaged segment: ${JSON.stringify(whole)}`);
   });
 });

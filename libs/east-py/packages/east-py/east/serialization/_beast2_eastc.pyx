@@ -1254,7 +1254,9 @@ cdef object _py_path(const char* path):
 def _read_unit(object path):
     """The unit file at ``path`` as a dict: ``merge`` and ``intake`` (whether
     the work is a merge or an intake rather than a run), ``program``,
-    ``inputs`` (a merge's parts, an intake's delivery), ``range``, ``type``
+    ``inputs`` (a merge's parts, an intake's delivery), ``whole`` (a run
+    unit's ``decode``: whether every input is decoded whole before the program
+    runs, rather than each collection opened lazily), ``range``, ``type``
     and ``segments`` (an intake's type file, and ``(from, to)`` of its
     delivery's segments or None), ``output`` (its ``kind`` and its ``path``,
     ``merge``, ``zero`` and ``combine``), ``platforms``, ``threads``,
@@ -1280,6 +1282,7 @@ def _read_unit(object path):
             "intake": bool(unit.intake),
             "program": _py_path(unit.program),
             "inputs": inputs,
+            "whole": bool(unit.whole),
             "range": _py_path(unit.range),
             "type": _py_path(unit.type),
             "segments": (unit.segments_from, unit.segments_to) if unit.has_segments else None,
@@ -1594,6 +1597,27 @@ def _peak_bytes():
     platform: the high-water mark exec resets on Linux, the peak working set
     on Windows, ``ru_maxrss`` elsewhere."""
     cdef object kb = _eastc.east_peak_rss_kb()
+    return kb * 1024
+
+
+def _resident_bytes():
+    """This process's resident memory now, in bytes — east-c's measurement,
+    as the east-c CLI takes it around an input it decodes whole: the resident
+    pages on Linux, the task's resident size on macOS, the working set on
+    Windows; 0 where the platform does not say."""
+    cdef object kb = _eastc.east_resident_kb()
+    return kb * 1024
+
+
+def _paged_hydrated_bytes(uintptr_t ptr):
+    """The resident memory, in bytes, that decoding a lazily opened input whole
+    added — an operation the pager cannot serve decodes it once — or None when
+    ``ptr`` is not a paged value that has been decoded whole."""
+    if ptr == 0:
+        return None
+    cdef object kb = _eastc.east_paged_hydrated_kb(<_eastc.EastValue*>ptr)
+    if kb < 0:
+        return None
     return kb * 1024
 
 

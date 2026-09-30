@@ -56,9 +56,9 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
-import { inputBytes, loadEastIR, loadInput, loadInputLazy, loadPlatforms, segmentDirFor } from './loader.js';
+import { loadEastIR, loadInput, loadPlatforms, segmentDirFor } from './loader.js';
 import { mergeBlobs } from './merge.js';
-import { formatFileSize, lazyThreshold, loadMergeFunction, peakBytes, reportInput, reportInputLazy, reportInputReads } from './runner.js';
+import { formatFileSize, loadMergeFunction, openInputs, peakBytes, reportInput, reportInputReads } from './runner.js';
 
 /** A unit's `run` work. */
 type RunWork = Extract<Unit['work'], { type: 'run' }>['value'];
@@ -102,8 +102,9 @@ export function readUnit(unitPath: string): ReadUnit {
  *
  * @param read - the unit, and how to resolve the paths it names
  * @param verbose - print, on stderr, the account of each input `run -v`
- *   prints — its file and what it weighs, whether it opened lazily, and what
- *   reading it came to — which is what reaches a task's log
+ *   prints — its file and what it weighs, whether it opened lazily or was
+ *   decoded whole, and what reading it came to — which is what reaches a
+ *   task's log
  * @returns the result — a failure is its outcome, never a throw
  *
  * @remarks
@@ -157,20 +158,14 @@ async function runWork(work: RunWork, platformFns: PlatformFunction[], at: Resol
         const printed = `(${signature.inputs.map((type) => printTypeValue(type)).join(', ')}) -> ${printTypeValue(signature.output)}`;
         throw new Error(`Function expects ${params.length} inputs, got ${work.inputs.length}\nSignature: ${printed}`);
     }
-    // Inputs are frozen. One at or above the lazy threshold opens as a paged
-    // value, weighed by the value it holds: a manifest is a small file naming
-    // large ones.
+    // Inputs are frozen: each collection opened lazily, or every input decoded
+    // whole, as the unit's `decode` says.
     const paths = work.inputs.map((input) => at(input));
     if (verbose) {
         console.error(`Running: ${at(work.program)}  (${formatFileSize(at(work.program))})`);
         paths.forEach((path, i) => reportInput(i, path, params[i]!));
     }
-    const threshold = lazyThreshold();
-    const inputs = paths.map((path, i) => {
-        const lazy = threshold > 0 && inputBytes(path) >= threshold ? loadInputLazy(path) : undefined;
-        if (lazy !== undefined && verbose) reportInputLazy(i);
-        return lazy !== undefined ? lazy : loadInput(path, params[i]!);
-    });
+    const inputs = openInputs(paths, params, work.decode, verbose);
     lap('load');
     const compiled = (program as EastIR<unknown[], unknown>).compile(platformFns);
     const output = openOutput(work.output, emitted ? signature.inputs.at(-1)! : signature.output, platformFns, at);

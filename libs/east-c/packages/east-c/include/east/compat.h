@@ -492,6 +492,12 @@ int east_cpu_count(void);
  * grant of one starts none. 0 lifts the cap. */
 void east_set_thread_limit(int threads);
 
+/* This process's resident memory now, in KB (src/resident.c): the resident
+ * pages on Linux, the task's resident size on macOS, the working set on
+ * Windows; 0 where the platform does not say. What a whole decode added is
+ * the difference across it. */
+long east_resident_kb(void);
+
 /* Run the program entry point. East evaluation can recurse deeply, so the
  * binary is linked with a large stack reserve (see -Wl,--stack in the east-c
  * CMakeLists); this simply invokes fn on that stack. A worker-thread variant

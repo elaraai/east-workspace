@@ -62,7 +62,7 @@ async function seedPackage(storage: InMemoryStorage): Promise<void> {
     bodyIr: bodyIrHash,
     inputTypes: [toEastTypeValue(IntegerType)],
     outputType: toEastTypeValue(IntegerType),
-    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     environment: variant('none', null),
   };
   const fnHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject));
@@ -128,31 +128,31 @@ describe('function handlers', () => {
 
     // The stored runner reached the spec
     const spec = runner.getDetachedCalls()[0]!;
-    assert.deepEqual(spec.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'] }));
+    assert.deepEqual(spec.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
   });
 
   it('a request runner override replaces the stored runner, under the elevated grant', async () => {
     await callFunctionSync(
       storage, REPO, runner, PKG, VERSION, 'double',
-      callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'] }))), false, undefined, 'any'
+      callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'], decode: variant('whole', null) }))), false, undefined, 'any'
     );
     const spec = runner.getDetachedCalls()[0]!;
-    assert.deepEqual(spec.runner, variant('east_py', { platforms: ['east-py-std'] }));
+    assert.deepEqual(spec.runner, variant('east_py', { platforms: ['east-py-std'], decode: variant('whole', null) }), 'and how it reads the inputs with it');
   });
 
   it('runs a call that names no runner for any caller, and one whose runner loads no package the function does not', async () => {
     await callFunctionSync(storage, REPO, runner, PKG, VERSION, 'double', callRequest([encodeInt(5n)]), false, undefined, 'none');
-    assert.deepEqual(runner.getDetachedCalls()[0]!.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'] }), 'the function\'s own runner');
+    assert.deepEqual(runner.getDetachedCalls()[0]!.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), 'the function\'s own runner');
 
     await callFunctionSync(storage, REPO, runner, PKG, VERSION, 'double',
-      callRequest([encodeInt(5n)], some(variant('east_c', { platforms: [] }))), false, undefined, 'platform_free');
-    assert.deepEqual(runner.getDetachedCalls()[1]!.runner, variant('east_c', { platforms: [] }), 'another stock runtime, given fewer packages');
+      callRequest([encodeInt(5n)], some(variant('east_c', { platforms: [], decode: variant('lazy', null) }))), false, undefined, 'platform_free');
+    assert.deepEqual(runner.getDetachedCalls()[1]!.runner, variant('east_c', { platforms: [], decode: variant('lazy', null) }), 'another stock runtime, given fewer packages');
   });
 
   it('refuses a caller without the elevated grant a runner that loads a package the function does not, and runs nothing', async () => {
     for (const grant of ['platform_free', 'none'] as const) {
       const response = await callFunctionSync(storage, REPO, runner, PKG, VERSION, 'double',
-        callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'] }))), false, undefined, grant);
+        callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'], decode: variant('lazy', null) }))), false, undefined, grant);
       const result = await decodeResponse<any>(response, ExecuteResultType);
       assert.equal(result.type, 'error', grant);
       assert.deepEqual(result.value, variant('permission_denied', { path: 'runner' }), grant);
@@ -179,7 +179,7 @@ describe('function handlers', () => {
       const response = await app.request(`/api/repos/r/packages/${PKG}/${VERSION}/functions/double`, {
         method: 'POST',
         headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
-        body: encodeBeast2For(FunctionCallRequestType)(callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'] })))),
+        body: encodeBeast2For(FunctionCallRequestType)(callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'], decode: variant('lazy', null) })))),
       });
       return decodeResponse<any>(response, ExecuteResultType);
     };
@@ -213,7 +213,7 @@ describe('one-shot access', () => {
 
   /** A one-shot request: a platform-free body on a runtime given no package,
    *  unless the test says otherwise. */
-  const oneShotBody = (body: { toIR(): unknown } = twice, runner: RunnerValue = variant('east_node', { platforms: [] })): Uint8Array =>
+  const oneShotBody = (body: { toIR(): unknown } = twice, runner: RunnerValue = variant('east_node', { platforms: [], decode: variant('lazy', null) })): Uint8Array =>
     encodeBeast2For(OneShotRequestType)({
       bodyIr: encodeEastIR(body.toIR() as never),
       args: [],
@@ -270,7 +270,7 @@ describe('one-shot access', () => {
     const refused: [OneShotGrant, Uint8Array][] = [
       ['none', oneShotBody()],
       ['platform_free', oneShotBody(logging)],
-      ['platform_free', oneShotBody(twice, variant('east_node', { platforms: ['@elaraai/east-node-std'] }))],
+      ['platform_free', oneShotBody(twice, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }))],
       ['platform_free', oneShotBody(twice, variant('custom', { command: ['sh'] }))],
     ];
     for (const [grant, body] of refused) {
@@ -285,7 +285,7 @@ describe('one-shot access', () => {
   it('runs a one-shot that uses a platform on a server without auth, as a single-tenant server always has', async () => {
     // Past the grant, the request fails on the workspace, which does not exist.
     const runner = new MockTaskRunner();
-    const response = await post(buildApp(() => 'any', runner), oneShotBody(logging, variant('east_node', { platforms: ['@elaraai/east-node-std'] })));
+    const response = await post(buildApp(() => 'any', runner), oneShotBody(logging, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) })));
     const result = await decodeResponse<any>(response, ExecuteResultType);
     assert.equal(result.type, 'error');
     assert.notEqual((result.value as { type: string }).type, 'permission_denied');
@@ -301,8 +301,8 @@ describe('one-shot access', () => {
       limits: none,
     });
     const refused: [OneShotGrant, Uint8Array][] = [
-      ['none', split(variant('east_node', { platforms: [] }))],
-      ['platform_free', split(variant('east_node', { platforms: ['@elaraai/east-node-std'] }))],
+      ['none', split(variant('east_node', { platforms: [], decode: variant('lazy', null) }))],
+      ['platform_free', split(variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }))],
     ];
     for (const [grant, body] of refused) {
       const runner = new MockTaskRunner();

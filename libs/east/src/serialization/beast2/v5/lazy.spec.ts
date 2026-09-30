@@ -28,6 +28,7 @@ import {
   openBeast2LazyFor,
   openBeast2PagesFor,
   isBeast2LazySafe,
+  beast2LazyStats,
   readBeast2Extents,
   spliceBeast2,
   type Beast2Codec,
@@ -405,6 +406,83 @@ describe("Beast2 v5 — pages segment cache", () => {
     assert.equal(v1, v2, "the same cached segment serves repeated keyed reads");
     assert.equal((v1 as { name: string }).name, "row-42");
     assert.notEqual(pages.segment(0), pages.segment(0), "segment() decodes fresh so callers cannot poison the cache");
+  });
+
+  test("counts the segments it decodes and the fences it probes, a kept segment's read not among them", () => {
+    const rows = openBeast2PagesFor(RowsT)(paged(RowsT, structRows));
+    rows.element(42);
+    rows.element(43);
+    assert.equal(rows.segmentsDecoded, 1, "the second read is served by the kept segment");
+    rows.segment(0);
+    assert.equal(rows.segmentsDecoded, 2, "segment() decodes fresh, and counts");
+    assert.equal(rows.fencesProbed, 0, "an Array read probes no fence");
+
+    const table = openBeast2PagesFor(TableType)(paged(TableType, makeTable(350)));
+    assert.equal(table.segmentCount, 4);
+    table.get(42n);
+    table.get(43n);
+    assert.equal(table.fencesProbed, 4, "the first keyed read verifies every fence, once");
+    assert.equal(table.segmentsDecoded, 1);
+    table.fence(3);
+    assert.equal(table.fencesProbed, 5, "a fence probe is one more");
+  });
+});
+
+describe("Beast2 v5 — what a lazy value's reads came to (beast2LazyStats)", () => {
+  test("counts a Dict's segment decodes and fence probes, and weighs the whole read an operation makes", () => {
+    const blob = paged(TableType, makeTable(500));
+    // The gauge the whole read is weighed by: read once before it, once after.
+    const readings = [1_000, 4_096];
+    const lazy = openBeast2LazyFor(TableType, { resident: () => readings.shift()! })(blob) as SortedMap<bigint, { id: bigint; name: string }>;
+    assert.deepEqual(beast2LazyStats(lazy), { segments: 5, segmentsDecoded: 0, fencesProbed: 0, hydrated: false, hydratedBytes: 0 });
+
+    lazy.get(42n);
+    lazy.get(43n);
+    assert.deepEqual(beast2LazyStats(lazy), { segments: 5, segmentsDecoded: 1, fencesProbed: 5, hydrated: false, hydratedBytes: 0 });
+
+    // Keyed reads that cycle over more segments than the pager keeps decode
+    // each again: every read of the second round misses.
+    for (let round = 0; round < 2; round++) {
+      for (const key of [0n, 100n, 200n, 300n, 400n]) lazy.get(key);
+    }
+    assert.deepEqual(beast2LazyStats(lazy), { segments: 5, segmentsDecoded: 10, fencesProbed: 5, hydrated: false, hydratedBytes: 0 });
+    assert.equal(readings.length, 2, "reads the pager serves weigh nothing");
+
+    // A write is an operation the pager cannot serve: it reads the map whole,
+    // a decode of each segment, and the gauge says what that added.
+    lazy.set(9_999n, { id: 9_999n, name: "added" });
+    assert.deepEqual(beast2LazyStats(lazy), { segments: 5, segmentsDecoded: 15, fencesProbed: 5, hydrated: true, hydratedBytes: 3_096 });
+  });
+
+  test("says an Array was read whole, adding nothing without a gauge", () => {
+    const Rows = ArrayType(StringType);
+    const lazy = openBeast2LazyFor(Rows)(paged(Rows, Array.from({ length: 260 }, (_, i) => `row-${i}`)));
+    assert.equal(lazy[150], "row-150");
+    assert.deepEqual(beast2LazyStats(lazy), { segments: 3, segmentsDecoded: 1, fencesProbed: 0, hydrated: false, hydratedBytes: 0 });
+    lazy.push("appended");
+    assert.deepEqual(beast2LazyStats(lazy), { segments: 3, segmentsDecoded: 4, fencesProbed: 0, hydrated: true, hydratedBytes: 0 });
+  });
+
+  test("a gauge that reads lower after the whole read adds nothing, and a clear is no whole read", () => {
+    const Tags = SetType(StringType);
+    const tags = new SortedSet(Array.from({ length: 150 }, (_, i) => `tag-${String(i).padStart(4, "0")}`), compareFor(StringType));
+    const readings = [8_192, 4_096];
+    const shrunk = openBeast2LazyFor(Tags, { resident: () => readings.shift()! })(paged(Tags, tags));
+    assert.equal(shrunk.union(new SortedSet(["extra"], compareFor(StringType))).size, 151);
+    assert.deepEqual(beast2LazyStats(shrunk), { segments: 2, segmentsDecoded: 2, fencesProbed: 0, hydrated: true, hydratedBytes: 0 });
+
+    const cleared = openBeast2LazyFor(Tags)(paged(Tags, tags));
+    cleared.clear();
+    assert.equal(cleared.size, 0);
+    assert.deepEqual(beast2LazyStats(cleared), { segments: 2, segmentsDecoded: 0, fencesProbed: 0, hydrated: false, hydratedBytes: 0 });
+  });
+
+  test("says nothing of a value not opened lazily", () => {
+    const blob = paged(TableType, makeTable(10));
+    assert.equal(beast2LazyStats(decodeBeast2For(TableType)(blob)), undefined);
+    assert.equal(beast2LazyStats(["row-0"]), undefined);
+    assert.equal(beast2LazyStats(42n), undefined);
+    assert.equal(beast2LazyStats(null), undefined);
   });
 });
 

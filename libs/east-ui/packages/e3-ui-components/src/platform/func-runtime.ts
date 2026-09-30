@@ -578,7 +578,7 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
                 name: def.name,
                 inputTypes: def.inputTypes,
                 outputType: def.outputType,
-                runner: variant("east_node", { platforms: [] }),
+                runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
             })) as unknown as FunctionSignature[];
         },
         async call(_workspace, fnName, req) {

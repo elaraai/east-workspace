@@ -102,6 +102,7 @@ export type {
 export type {
   Runner,
   FunctionRunner,
+  InputDecode,
   Platform,
   EastPyPlatform,
   EastNodePlatform,

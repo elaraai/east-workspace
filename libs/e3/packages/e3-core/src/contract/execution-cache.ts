@@ -73,7 +73,7 @@ async function splitTask(t: TestContext, storage: StorageBackend, repo: string):
   const task: TaskObject = {
     kind: TASK_OBJECT_KIND,
     body: variant('east', { program: '0'.repeat(64) }),
-    runner: variant('east_node', { platforms: [] }),
+    runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
     inputs: [{ path: [variant('field', 'inputs'), variant('field', 'rows')], partition: some({ by: [] }) }],
     output: { path: [variant('field', 'tasks'), variant('field', 'copy'), variant('field', 'output')], kind: variant('dict', { merge: none }) },
     role: variant('data', null),

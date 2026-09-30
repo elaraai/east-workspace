@@ -44,7 +44,7 @@ const TASK = encodeBeast2For(ResponseType(TaskDetailsType))(variant("success", {
     name: "view",
     hash: "2".repeat(64),
     body: variant("east", { program: "3".repeat(64) }),
-    runner: variant("east_node", { platforms: [] }),
+    runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
     inputs: [],
     output: { path: [variant("field", "out")], kind: variant("value", null) },
     role: variant("ui", { paths: [], functions: [], records: [], pages: [] }),

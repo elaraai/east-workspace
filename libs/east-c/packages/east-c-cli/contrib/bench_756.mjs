@@ -62,9 +62,15 @@ for (let i = 0; i < NROWS; i++) {
 }
 writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(RowT))(rows));
 writeFileSync(join(out, 'unit.beast2'), encodeBeast2For(UnitType)({
-  work: variant('run', { program: 'ir.beast2', inputs: ['rows.beast2'], output: variant('dict', { dir: 'out', merge: none }) }),
+  work: variant('run', {
+    program: 'ir.beast2',
+    inputs: ['rows.beast2'],
+    output: variant('dict', { dir: 'out', merge: none }),
+    decode: variant('lazy', null),
+  }),
   platforms: [],
   threads: BigInt(availableParallelism()),
+  fetch: false,
   result: 'result.beast2',
 }));
 console.log(`wrote ${out}: ${NROWS} rows, ${NARR} arrays x ${NITEMS} items each`);

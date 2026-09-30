@@ -10,8 +10,9 @@
 //
 //   node contrib/bench_759.mjs <outdir> [rows] [items]
 //
-// Run, per body and codec:
-//   EAST_LAZY_INPUT_BYTES=1 east-c run <outdir>/e3.beast2 -i <outdir>/erows.beast2 -v
+// Run, per body and codec (the input opens lazily, as every collection input
+// does unless --decode whole says otherwise):
+//   east-c run <outdir>/e3.beast2 -i <outdir>/erows.beast2 -v
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {

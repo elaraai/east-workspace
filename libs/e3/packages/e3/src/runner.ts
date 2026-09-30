@@ -19,7 +19,7 @@
  * `custom` one is run with `run`'s arguments (see {@link FunctionRunner}).
  */
 
-import { variant } from '@elaraai/east';
+import { variant, type UnitDecode } from '@elaraai/east';
 import type { RunnerValue } from '@elaraai/e3-types';
 
 /** Stock platforms shipped by `@elaraai/east-py-cli` runner. */
@@ -50,7 +50,27 @@ export type Platform<Known extends string> = Known | { custom: string };
 type NonEmpty<T> = [T, ...T[]];
 
 /**
+ * How a stock runner reads a program's inputs — the choice every runner's
+ * `run --decode` takes, and the `decode` of each run unit e3 stages for it.
+ *
+ * - `'lazy'` (the default): each collection input opens over its file, and a
+ *   segment decodes when the program first reaches it, so a keyed read or a
+ *   filtered pass costs the segments it touches, however large the input. An
+ *   operation the pager cannot serve decodes the input whole, once, when it
+ *   first needs it.
+ * - `'whole'`: every input decodes before the program runs — for a program
+ *   whose reads land at random across more segments than the pager keeps,
+ *   which decodes each again. A runner's `-v`, in the task's log, says when
+ *   an input's reads did.
+ */
+export type InputDecode = 'lazy' | 'whole';
+
+/**
  * Runner selection for {@link task}.
+ *
+ * A stock runtime's `decode` says how it reads the program's inputs
+ * ({@link InputDecode}, lazily by default); `custom` commands read them as
+ * they choose.
  *
  * @example
  * ```ts
@@ -63,14 +83,17 @@ type NonEmpty<T> = [T, ...T[]];
  * // east-py + a user-defined platform name
  * { runtime: 'east-py', platforms: ['east-py-std', { custom: 'my-org-platform' }] }
  *
+ * // east-c, every input decoded before the program runs
+ * { runtime: 'east-c', platforms: ['east-c-std'], decode: 'whole' }
+ *
  * // Anything else: Julia, uv wrap, container exec, …
  * { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }
  * ```
  */
 export type Runner =
-  | { runtime: 'east-py';   platforms?: Platform<EastPyPlatform>[] }
-  | { runtime: 'east-node'; platforms?: Platform<EastNodePlatform>[] }
-  | { runtime: 'east-c';    platforms?: Platform<EastCPlatform>[] }
+  | { runtime: 'east-py';   platforms?: Platform<EastPyPlatform>[];   decode?: InputDecode }
+  | { runtime: 'east-node'; platforms?: Platform<EastNodePlatform>[]; decode?: InputDecode }
+  | { runtime: 'east-c';    platforms?: Platform<EastCPlatform>[];    decode?: InputDecode }
   | { runtime: 'custom';    command: NonEmpty<string> };
 
 /**
@@ -89,16 +112,18 @@ export type FunctionRunner = Runner;
  * @returns Its wire variant
  */
 export function runnerToVariant(r: Runner): RunnerValue {
-  // The SDK makes `platforms` optional and allows `{ custom: name }` entries;
-  // the wire type requires a plain string array — collapse both here.
+  // The SDK makes `platforms` and `decode` optional and allows `{ custom: name }`
+  // entries; the wire type requires a plain string array and a decode — fill
+  // both here.
   if (r.runtime === 'custom') {
     return variant('custom', { command: [...r.command] });
   }
   const platforms = (r.platforms ?? []).map((p) => (typeof p === 'string' ? p : p.custom));
+  const decode: UnitDecode = r.decode === 'whole' ? variant('whole', null) : variant('lazy', null);
   switch (r.runtime) {
-    case 'east-node': return variant('east_node', { platforms });
-    case 'east-py':   return variant('east_py',   { platforms });
-    case 'east-c':    return variant('east_c',    { platforms });
+    case 'east-node': return variant('east_node', { platforms, decode });
+    case 'east-py':   return variant('east_py',   { platforms, decode });
+    case 'east-c':    return variant('east_c',    { platforms, decode });
   }
 }
 

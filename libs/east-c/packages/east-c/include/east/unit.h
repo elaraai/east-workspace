@@ -27,6 +27,9 @@
  * Every kind but a value is emitted through the program's trailing parameter,
  * whose type the kind fixes: (T) -> Null, or (K, V) -> Null for a dict.
  *
+ * A run unit says how its collection inputs are read: lazily, a segment at a
+ * time as the program reads them, or decoded whole before it runs (`whole`).
+ *
  * A delivery taken in is read a segment at a time and written through the
  * Writer as the manifest directory the unit names (east_beast2_intake).
  *
@@ -71,6 +74,8 @@ typedef struct {
     char **inputs; /* run: one file per parameter; merge: the parts, in order; intake:
                       the delivery */
     size_t num_inputs;
+    bool whole;        /* run: every input decoded whole before the program runs, rather than
+                          each collection opened lazily (the unit's `decode`) */
     char *range;       /* merge: the key-range file, or NULL */
     char *type;        /* intake: the file holding the declared type */
     bool has_segments; /* intake: a piece, the delivery's segments [from, to) */

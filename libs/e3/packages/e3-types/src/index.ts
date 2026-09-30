@@ -122,6 +122,7 @@ export {
   decodeRecordObject,
   RecordIndexObjectType,
   type RecordIndexObject,
+  decodeRecordIndexObject,
   RECORD_STATE_KIND,
   RecordStateType,
   type RecordState,

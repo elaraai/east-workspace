@@ -133,7 +133,7 @@ function oneShotRefusal(what: string): (err: unknown) => boolean {
 
 /** A split call on east-node, given no platform package, with no `then`. */
 function splitOf(body: { toIR(): unknown }, args: SplitCallRequest['args'], output: SplitCallRequest['output']): SplitCallRequest {
-  return { bodyIr: encodeEastIR(body.toIR() as never), args, output, then: none, runner: variant('east_node', { platforms: [] }), limits: none };
+  return { bodyIr: encodeEastIR(body.toIR() as never), args, output, then: none, runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), limits: none };
 }
 
 /** A dataset argument as a result names it: its path, and the hash the
@@ -302,14 +302,14 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assert.equal(successValue(viaWorkspace), 9n);
     });
 
-    it('a runner override in the request is honoured', async (t) => {
+    it('a runner override in the request is honoured, with how it reads the inputs', async (t) => {
       const ctx = await withFunctions(t);
       const opts = await ctx.opts();
 
       const result = await functionCall(
         ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'add',
         request([encodeInt(2n), encodeInt(3n)], {
-          runner: some(variant('east_node', { platforms: ['@elaraai/east-node-std'] })),
+          runner: some(variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('whole', null) })),
         }),
         opts
       );
@@ -332,7 +332,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assert.equal(successValue(await functionCall(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'add', request([encodeInt(2n), encodeInt(3n)]), reader)), 5n);
       await assert.rejects(
         functionCall(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'add', request([encodeInt(2n), encodeInt(3n)], {
-          runner: some(variant('east_node', { platforms: ['@elaraai/east-node-std', '@elaraai/east-node-io'] })),
+          runner: some(variant('east_node', { platforms: ['@elaraai/east-node-std', '@elaraai/east-node-io'], decode: variant('lazy', null) })),
         }), reader),
         refusalOn('runner', 'a runner given a package the function does not load'),
       );
@@ -351,7 +351,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         {
           bodyIr: encodeEastIR(triple.toIR()),
           args: [variant('value', encodeInt(7n))],
-          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
           limits: none,
         },
         opts
@@ -373,7 +373,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         {
           bodyIr: encodeEastIR(triple.toIR()),
           args: [variant('dataset', [variant('field', 'inputs'), variant('field', 'value')])],
-          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
           limits: none,
         },
         opts
@@ -396,7 +396,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         {
           bodyIr: encodeEastIR(total.toIR()),
           args: [variant('dataset', [variant('field', 'inputs'), variant('field', 'prices')])],
-          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
           limits: none,
         },
         opts
@@ -420,7 +420,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         {
           bodyIr: encodeEastIR(total.toIR()),
           args: [variant('dataset', VALUE_PATH), variant('dataset', PRICES_PATH)],
-          runner: variant('east_node', { platforms: [] }),
+          runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
           limits: none,
         },
         reader
@@ -447,8 +447,8 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         limits: none,
       });
       const refused: [string, OneShotRequest][] = [
-        ['a body calling a platform function', oneShot(logging, variant('east_node', { platforms: [] }))],
-        ['a runner given a platform package', oneShot(triple, variant('east_node', { platforms: ['@elaraai/east-node-std'] }))],
+        ['a body calling a platform function', oneShot(logging, variant('east_node', { platforms: [], decode: variant('lazy', null) }))],
+        ['a runner given a platform package', oneShot(triple, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }))],
         ['a custom runner', oneShot(triple, variant('custom', { command: ['sh', '-c', 'exit 0'] }))],
       ];
       for (const [what, body] of refused) {
@@ -479,7 +479,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         {
           bodyIr: encodeEastIR(call.toIR()),
           args: [variant('dataset', APPLY_PATH), variant('dataset', VALUE_PATH)],
-          runner: variant('east_node', { platforms: [] }),
+          runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
           limits: none,
         },
         reader
@@ -558,7 +558,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       );
       await assert.rejects(
         splitCallLaunch(ctx.config.baseUrl, ctx.repoName, 'split-refused-ws',
-          { ...request, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) }, reader),
+          { ...request, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }) }, reader),
         oneShotRefusal('a runner given a platform package'),
       );
     });
@@ -628,7 +628,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       // An admin's call, on a runner given a platform package
       const request = splitOf(emitEachPrice, [PRICES_PIECES], variant('array', null));
       const { id } = await splitCallLaunch(ctx.config.baseUrl, ctx.repoName, 'split-elevated-ws',
-        { ...request, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) }, opts);
+        { ...request, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }) }, opts);
 
       await assert.rejects(splitCallStatus(ctx.config.baseUrl, ctx.repoName, 'split-elevated-ws', id, reader),
         oneShotRefusal('a reader polling a call on a runner given a platform package'));

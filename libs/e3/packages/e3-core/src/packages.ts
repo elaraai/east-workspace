@@ -19,7 +19,6 @@ import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import {
   E3_RELEASE,
   EnvironmentSpecType,
-  RecordIndexObjectType,
   compareReleases,
   environmentSpecObjectHashes,
   decodeFunctionObject,
@@ -27,6 +26,7 @@ import {
   decodeMutationObject,
   decodePackageObject,
   decodeExecutionStatus,
+  decodeRecordIndexObject,
   decodeRecordObject,
   decodeTaskObject,
 } from '@elaraai/e3-types';
@@ -737,10 +737,9 @@ export async function walkPackageObjects(
   // declared index and a record STATE names the one each index was actually
   // built under — the same object only until a declaration changes, and both
   // have to travel.
-  const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
   const addRecordIndex = async (indexHash: string): Promise<void> => {
     await add(indexHash);
-    const index = decodeIndexObject(await storage.objects.read(repo, indexHash));
+    const index = decodeRecordIndexObject(await storage.objects.read(repo, indexHash));
     await add(index.keyIr);
     await add(index.buildIr);
     if (index.valueIr.type === 'some') await add(index.valueIr.value);

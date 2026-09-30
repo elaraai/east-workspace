@@ -200,6 +200,34 @@ export const RecordIndexObjectType = StructType({
 export type RecordIndexObjectType = typeof RecordIndexObjectType;
 export type RecordIndexObject = ValueTypeOf<typeof RecordIndexObjectType>;
 
+const decodeCurrentRecordIndex = decodeBeast2For(RecordIndexObjectType);
+
+/**
+ * Decode a `RecordIndexObject`.
+ *
+ * @remarks
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported with the current one, and this says so. A
+ * record's state names the index object each index was built under, so one an
+ * older SDK exported is read until a deploy of the re-exported package
+ * rebuilds the index under the current one.
+ *
+ * @param data - the stored bytes
+ * @returns the index object
+ * @throws {Error} When the bytes are not a current index object — a package
+ *   exported by an older SDK, which is re-exported with the current one.
+ */
+export function decodeRecordIndexObject(data: Uint8Array): RecordIndexObject {
+  try {
+    return decodeCurrentRecordIndex(data);
+  } catch (err) {
+    throw new Error(
+      `the index object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+}
+
 /**
  * How a migration says what it changes.
  *

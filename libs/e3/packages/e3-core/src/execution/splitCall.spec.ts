@@ -56,7 +56,7 @@ const whole = (arg: Arg['arg']): Arg => ({ arg, partition: none });
 
 /** A call on east-node, given no platform package, with no `then`. */
 function call(bodyIr: Uint8Array, args: Arg[], output: SplitCallRequest['output'], extra: Partial<SplitCallRequest> = {}): SplitCallRequest {
-  return { bodyIr, args, output, then: none, runner: variant('east_node', { platforms: [] }), limits: none, ...extra };
+  return { bodyIr, args, output, then: none, runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), limits: none, ...extra };
 }
 
 /** Each sale's key modulo 97, counted, merged by adding. */
@@ -444,7 +444,7 @@ describe('split calls', () => {
       }))) }],
       ['its merge', { ...countByRemainder, output: variant('dict', { merge: some(logged) }) }],
       ['its combine', call(countByRemainder.bodyIr, countByRemainder.args, variant('fold', { combine: logged, zero: encodeBeast2For(IntegerType)(0n) }))],
-      ['its runner', { ...countByRemainder, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) }],
+      ['its runner', { ...countByRemainder, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }) }],
     ];
     for (const [what, request] of refused) {
       await assert.rejects(splitCallPrepare(storage, repo, WS, request, { grant: 'platform_free' }),

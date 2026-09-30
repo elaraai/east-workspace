@@ -826,7 +826,7 @@ describe('gc', () => {
       const BODY = 'c'.repeat(64);
       const PROGRAM = 'd'.repeat(64);
       const root = 'real-mutation'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }), form: variant('reduce', null), programIr: PROGRAM })]]);
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), form: variant('reduce', null), programIr: PROGRAM })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');
@@ -839,7 +839,7 @@ describe('gc', () => {
       const VALUE_BODY = '5'.repeat(64);
       const ROWS_BODY = '6'.repeat(64);
       const ROWS_PROGRAM = '7'.repeat(64);
-      const runner = variant('east_node', { platforms: ['@elaraai/east-node-std'] });
+      const runner = variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) });
       const counts = toEastTypeValue(DictType(StringType, IntegerType));
       const root = 'real-record'.padEnd(64, '0');
       const objects = new Map([
@@ -876,7 +876,7 @@ describe('gc', () => {
       keyType: toEastTypeValue(IntegerType),
       valueType: toEastTypeValue(StringType),
       buildIr: BUILD_IR,
-      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     };
 
     it('keeps every IR bundle an index object names reachable', async () => {
@@ -943,7 +943,7 @@ describe('gc', () => {
     const task: TaskObject = {
       kind: TASK_OBJECT_KIND,
       body: variant('east', { program: PROGRAM }),
-      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
       inputs: [{ path: [variant('field', 'x')], partition: some({ by: ['k'] }) }],
       output: { path: [variant('field', 'y')], kind: variant('fold', { zero: ZERO, combine: COMBINE }) },
       role: variant('data', null),
@@ -1101,7 +1101,7 @@ describe('gc', () => {
           keyType: toEastTypeValue(IntegerType),
           valueType: toEastTypeValue(StringType),
           buildIr: '5'.repeat(64),
-          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
         })],
       ]);
 

@@ -132,7 +132,7 @@ export type TaskRole = ValueTypeOf<typeof TaskRoleType>;
  * const task: TaskObject = {
  *   kind: TASK_OBJECT_KIND,
  *   body: variant('east', { program: '5e7a3b...' }),
- *   runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+ *   runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
  *   inputs: [{ path: [variant('field', 'inputs'), variant('field', 'sales')], partition: none }],
  *   output: { path: [variant('field', 'tasks'), variant('field', 'totals'), variant('field', 'output')], kind: variant('value', null) },
  *   role: variant('data', null),
