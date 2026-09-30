@@ -53,9 +53,9 @@ import { StudioCellType, StudioKeyType, StudioPagesType, pageStatus } from "./pa
 
 /**
  * The names a builder's screens share, by the builder's `id`: the State keys
- * of the open page, of the canvas's selection, of its design width and zoom
- * and of the placements it draws, and the drag-source ids of the palette's
- * two libraries.
+ * of the open page, of the canvas's selection, of its design width and zoom,
+ * of the placements it draws and of the Apply the publish preview asks of it,
+ * and the drag-source ids of the palette's two libraries.
  *
  * @remarks
  * Every builder screen binds the same keys, so screens mounted apart from
@@ -64,7 +64,8 @@ import { StudioCellType, StudioKeyType, StudioPagesType, pageStatus } from "./pa
  * (#996) are the open page's cells as the canvas draws them, its unsaved
  * drafts in place, with the page they are of ({@link BuilderCellsType}) — a
  * screen reads them only while they are the open page's, and `none` until the
- * canvas has drawn a page.
+ * canvas has drawn a page. The preview asks the canvas to apply its drafts
+ * through the Apply's key (#998), and the canvas answers there.
  *
  * @param id - The builder's name, when a surface holds more than one; omitted, the one builder
  * @returns The keys and ids
@@ -78,6 +79,8 @@ export function builderKeys(id: string | undefined): {
     view: string;
     /** The canvas's drafted placements' State key — an `Option` of {@link BuilderCellsType}. */
     cells: string;
+    /** The Apply the preview asks of the canvas's State key — a `SnapGrid.Types.ApplyState`. */
+    apply: string;
     /** The components library's drag-source id — what the canvas lists in its `sources`. */
     components: string;
     /** The pages library's id. */
@@ -89,6 +92,7 @@ export function builderKeys(id: string | undefined): {
         ui: `studio.builder${suffix}.ui`,
         view: `studio.builder${suffix}.view`,
         cells: `studio.builder${suffix}.cells`,
+        apply: `studio.builder${suffix}.apply`,
         components: `studio.components${suffix}`,
         pages: `studio.pages${suffix}`,
     };

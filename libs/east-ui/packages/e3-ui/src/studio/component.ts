@@ -83,7 +83,7 @@ export type StudioFrameLiteral = "card" | "none";
  * @property thumbnail - The catalog card's image; `none` draws the component itself at thumbnail scale
  * @property deprecated - Hidden from the palette and the catalog; placements keep rendering
  * @property reads - The datasets, functions and records its function binds, derived from its code
- * @property fingerprint - A hash of its code; a cell stores it when saved, so a code change shows
+ * @property fingerprint - A hash of its code; a cell stores it when placed and when its page publishes, so a code change since shows
  * @property render - The East UI function that renders it
  */
 export const StudioComponentType = StructType({

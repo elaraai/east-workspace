@@ -8,11 +8,13 @@
  * writes, and publish and revert are exact (R3); a write drafted on a stale
  * page no longer applies (R2); `Studio.changes` is exact for every layout edit
  * and a retitle (R5); "used in N" counts every page that places a component
- * (R6); a page's status; and each surface's manifest (R4).
+ * (R6); a page's status; and each surface's manifest (R4). A publish stamps
+ * each placement with the code it goes live with (E4, #998).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 
 import {
     ArrayType, East, FloatType, SortedMap, applyFor, compareFor, none, some, variant,
@@ -77,7 +79,7 @@ const SAVED = new SortedMap<Key, Entry>([
 
 describe("Studio writes (#992)", () => {
     test("R3: a publish is one patch of the page, and its live version is its draft, numbered from 1", () => {
-        const patch = publish(PAGES, OVERVIEW_KEY);
+        const patch = publish(PAGES, OVERVIEW_KEY, []);
         if (patch.type !== "patch") assert.fail(`expected a patch by key, got ${patch.type}`);
         assert.deepEqual([...patch.value.entries()].map(([key, op]) => [key, op.type]), [[OVERVIEW_KEY, "update"]], "it touches the page alone");
 
@@ -85,7 +87,7 @@ describe("Studio writes (#992)", () => {
         assert.deepEqual(once.get(OVERVIEW_KEY), variant("page", { draft: OVERVIEW, live: some({ version: 1n, page: OVERVIEW }) }));
         assert.deepEqual(once.get(TEMPLATE_KEY), PAGES.get(TEMPLATE_KEY), "nothing else changed");
 
-        const again = applyPages(SAVED, publish(SAVED, OVERVIEW_KEY));
+        const again = applyPages(SAVED, publish(SAVED, OVERVIEW_KEY, []));
         assert.deepEqual(again.get(OVERVIEW_KEY), variant("page", { draft: EDITED, live: some({ version: 2n, page: EDITED }) }), "the next publish is version 2");
     });
 
@@ -97,8 +99,8 @@ describe("Studio writes (#992)", () => {
     });
 
     test("R2: a publish drafted before another landed no longer applies", () => {
-        const first = applyPages(PAGES, publish(PAGES, OVERVIEW_KEY));
-        const stale = publish(PAGES, OVERVIEW_KEY);
+        const first = applyPages(PAGES, publish(PAGES, OVERVIEW_KEY, []));
+        const stale = publish(PAGES, OVERVIEW_KEY, []);
         assert.throws(() => applyPages(first, stale), /Cannot apply/);
     });
 
@@ -135,11 +137,40 @@ describe("Studio writes (#992)", () => {
     });
 
     test("a write names what it cannot write", () => {
-        assert.throws(() => publish(PAGES, { project: "ops", page: "gone" }), /No page/);
-        assert.throws(() => publish(PAGES, TEMPLATE_KEY), /is a template, not a page/);
+        assert.throws(() => publish(PAGES, { project: "ops", page: "gone" }, []), /No page/);
+        assert.throws(() => publish(PAGES, TEMPLATE_KEY, []), /is a template, not a page/);
         assert.throws(() => revert(PAGES, OVERVIEW_KEY), /has no published version to revert to/);
     });
 });
+
+/** The components a publish stamps: two the surface lists — a third placement's component it does not. */
+const stampKpi = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" },
+    East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
+const stampTrend = Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area", span: 8n },
+    East.function([], UIComponentType, (_$) => Text.Root("Revenue")));
+
+describeEast("Studio.publish stamps the code a page goes live with (#998)", (test) => {
+    test("E4: each placement takes its listed component's fingerprint, in the draft and the live version alike; one the surface does not list keeps its own", $ => {
+        const components = $.let([stampKpi, stampTrend]);
+        const key = $.const({ project: "ops", page: "overview" }, Studio.Types.Key);
+        const pages = $.let(new Map(), Studio.Types.Pages);
+        $(pages.insert(key, variant("page", {
+            draft: {
+                title: "Overview",
+                cells: [
+                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail", fingerprint: "an older fingerprint" },
+                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend", fingerprint: "an older fingerprint" },
+                    { key: "c-retired", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "retired_widget", fingerprint: "fp-retired" },
+                ],
+            },
+            live: none,
+        })));
+        const published = $.let(East.applyPatch(pages, Studio.publish(pages, key, components)).get(key).unwrap("page"));
+        $(Assert.equal(published.draft.cells.map((_$2, cell) => cell.fingerprint), [stampKpi.fingerprint, stampTrend.fingerprint, "fp-retired"]));
+        $(Assert.equal(published.live.unwrap("some").page, published.draft));
+        $(Assert.equal(Studio.status(published), variant("live", null)));
+    });
+}, { platformFns: TestImpl });
 
 describe("Studio.changes (#992, R5)", () => {
     test("an unchanged page, or one whose components' code changed, has no changes", () => {

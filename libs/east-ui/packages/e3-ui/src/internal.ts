@@ -89,6 +89,7 @@ export {
     type StudioCanvasOptions,
     type StudioInspectorOptions,
     type StudioPageLibraryOptions,
+    type StudioPublishOptions,
     builderKeys,
     paletteCards,
     palettePages,
@@ -113,6 +114,13 @@ export {
     libraryTemplates,
     layoutSummary,
     nameWriteRefusal,
+    StudioPublishComponent,
+    StudioPublishPayloadType,
+    PublishChangeType,
+    PublishStandingType,
+    PublishSummaryType,
+    publishSummary,
+    publishRefusal,
 } from './studio/index.js';
 export {
     Diff,

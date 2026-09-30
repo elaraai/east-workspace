@@ -4,13 +4,15 @@
  */
 
 /**
- * Every word the Studio's renderers say themselves (#996, #997) — ONE typed
- * message table: the inspector's section heads, its fields and its controls'
- * names, its footer, and what it says with nothing selected; the page
- * library's toolbar, pane and section heads; and the popovers that name a new
- * page or a template. What the AUTHOR wrote — a component's name, key, reads
- * and description, a placement's title, a project's and a page's names — is
- * data, and never passes through it.
+ * Every word the Studio's renderers say themselves (#996, #997, #998) — ONE
+ * typed message table: the inspector's section heads, its fields and its
+ * controls' names, its footer, and what it says with nothing selected; the
+ * page library's toolbar, pane and section heads; the popovers that name a new
+ * page or a template; and the publish preview's bar, its aside and its
+ * footer. What the AUTHOR wrote — a component's name, key, reads and
+ * description, a placement's title, a project's, a page's and an
+ * environment's names, the audience and the rollout — is data, and never
+ * passes through it.
  *
  * English is the default. A host overrides any subset for a subtree with
  * {@link StudioMessagesProvider}; numbers format in the locale react-aria's
@@ -25,8 +27,8 @@ import { createContext, createElement, useContext, useMemo, type ReactNode } fro
  * The Studio's message table.
  *
  * @remarks
- * Numbers — `span`, `px`, the counts — arrive already formatted for the
- * locale; `np` and `nt` are the raw counts, for plurals.
+ * Numbers — `span`, `px`, the counts, a version's number — arrive already
+ * formatted for the locale; `np`, `nt` and `n` are the raw counts, for plurals.
  */
 export interface StudioMessages {
     /** The inspector's selection block — its eyebrow. */
@@ -131,6 +133,48 @@ export interface StudioMessages {
     templateNameFor: (p: { page: string }) => string;
     /** Why it is disabled while a template is open. */
     templateOpen: () => string;
+    /** The publish preview's bar — `● Preview`. */
+    preview: () => string;
+    /** The device strip's accessible name. */
+    devices: () => string;
+    /** The device the page is drawn for. */
+    device: (p: { device: "desktop" | "tablet" | "mobile" }) => string;
+    /** The Env pill's label, before the environment's name. */
+    env: () => string;
+    /** Back to the builder. */
+    exit: () => string;
+    /** The aside's head while there is something to publish. */
+    readyToPublish: () => string;
+    /** The aside's head while the page is live as it stands. */
+    upToDate: () => string;
+    /** The aside's head while a template is open. */
+    templateNotPublished: () => string;
+    /** A version — `v4`. */
+    version: (p: { version: string }) => string;
+    /** After the live version in the aside's head — `v4 live`. */
+    liveVersion: () => string;
+    /** After a template's name in the aside's head. */
+    templateKind: () => string;
+    /** The change list's head — `3 changes since v3`. */
+    changesSince: (p: { n: number; count: string; version: string }) => string;
+    /** The change list's head on a first publish — `3 changes · first version`. */
+    changesFirst: (p: { n: number; count: string }) => string;
+    /** The change list's head while nothing changed — `No changes since v4`. */
+    noChangesSince: (p: { version: string }) => string;
+    /** A change's verb, before the placement's name — `Added`, `Resized`. */
+    changeVerb: (p: { change: "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" }) => string;
+    /** The banner while every placed component's code is as it went live. */
+    logicUnchanged: () => string;
+    /** The banner naming the components whose code changed since the live version, by name, in the order they are placed. */
+    logicChangedIn: (p: { version: string; components: readonly string[] }) => string;
+    /** The Audience row's label. */
+    audience: () => string;
+    /** The Rollout row's label. */
+    rollout: () => string;
+    /** The footer's Apply. */
+    saveAsDraft: () => string;
+    /** The footer's publish — `Publish v4 to Staging`; with no environment, `Publish v4`; for a template, `Publish`. */
+    publishTo: (p: { version?: string | undefined; env?: string | undefined }) => string;
 }
 
 /** The Studio's English messages — the default table. */
@@ -187,6 +231,40 @@ export const studioMessages: StudioMessages = {
     saveTemplate: () => "Save template",
     templateNameFor: ({ page }) => `${page} template`,
     templateOpen: () => "A template is open — open a page to save it as a template",
+    preview: () => "Preview",
+    devices: () => "Device",
+    device: ({ device }) => (device === "desktop" ? "Desktop" : device === "tablet" ? "Tablet" : "Mobile"),
+    env: () => "Env",
+    exit: () => "Exit",
+    readyToPublish: () => "Ready to publish",
+    upToDate: () => "Up to date",
+    templateNotPublished: () => "Templates are not published",
+    version: ({ version }) => `v${version}`,
+    liveVersion: () => "live",
+    templateKind: () => "template",
+    changesSince: ({ n, count, version }) => `${count} ${n === 1 ? "change" : "changes"} since ${version}`,
+    changesFirst: ({ n, count }) => `${count} ${n === 1 ? "change" : "changes"} · first version`,
+    noChangesSince: ({ version }) => `No changes since ${version}`,
+    changeVerb: ({ change }) => {
+        switch (change) {
+            case "added": return "Added";
+            case "removed": return "Removed";
+            case "moved": return "Moved";
+            case "resized": case "height": return "Resized";
+            case "aligned": return "Aligned";
+            case "retitled": return "Retitled";
+        }
+    },
+    logicUnchanged: () => "Component logic unchanged — only layout changed. Safe to publish.",
+    logicChangedIn: ({ version, components }) => {
+        const names = components.length < 2 ? components.join("") : `${components.slice(0, -1).join(", ")} and ${components.at(-1)}`;
+        const its = components.length === 1 ? "its" : "their";
+        return `Logic changed since ${version} in ${names} — ${its} placements publish with ${its} new code`;
+    },
+    audience: () => "Audience",
+    rollout: () => "Rollout",
+    saveAsDraft: () => "Save as draft",
+    publishTo: ({ version, env }) => (version === undefined ? "Publish" : env === undefined ? `Publish ${version}` : `Publish ${version} to ${env}`),
 };
 
 const StudioMessagesContext = createContext<StudioMessages>(studioMessages);

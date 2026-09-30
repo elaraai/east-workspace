@@ -10,8 +10,9 @@ import * as surfaces from "./page.examples.js";
 import * as palette from "./palette.examples.js";
 import * as canvas from "./canvas.examples.js";
 import * as library from "./library.examples.js";
+import * as publish from "./publish.examples.js";
 
-describeEast("Studio examples (#991–#997)", (test) => {
+describeEast("Studio examples (#991–#998)", (test) => {
     Assert.examples(test, {
         studioComponent: ex.studioComponent,
         studioDispatch: ex.studioDispatch,
@@ -26,5 +27,7 @@ describeEast("Studio examples (#991–#997)", (test) => {
         studioPalette: palette.studioPalette,
         studioCanvas: canvas.studioCanvas,
         studioPageLibrary: library.studioPageLibrary,
+        studioPublishPreview: publish.studioPublishPreview,
+        studioPublishLogicChanged: publish.studioPublishLogicChanged,
     });
 }, { platformFns: TestImpl });

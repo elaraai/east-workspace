@@ -117,11 +117,12 @@ describe("<Studio.Palette> — the builder's keys and the surface (#994)", () =>
     test("the builder's screens share their keys by the builder's id", () => {
         assert.deepEqual(builderKeys(undefined), {
             page: "studio.builder.page", ui: "studio.builder.ui", view: "studio.builder.view", cells: "studio.builder.cells",
-            components: "studio.components", pages: "studio.pages",
+            apply: "studio.builder.apply", components: "studio.components", pages: "studio.pages",
         });
         assert.deepEqual(builderKeys("north"), {
             page: "studio.builder.north.page", ui: "studio.builder.north.ui", view: "studio.builder.north.view",
-            cells: "studio.builder.north.cells", components: "studio.components.north", pages: "studio.pages.north",
+            cells: "studio.builder.north.cells", apply: "studio.builder.north.apply", components: "studio.components.north",
+            pages: "studio.pages.north",
         });
     });
 

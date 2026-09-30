@@ -83,9 +83,10 @@ const TileMetaType = StructType({ frame: StudioComponentType.fields.frame, name:
 /**
  * One page's layout, drawn: its cells on the SnapGrid, each placement its
  * component's UI. A page the record does not hold, or a live version not yet
- * published, is a placeholder that says so.
+ * published, is a placeholder that says so. `<Studio.Page>` draws with it, and
+ * so does the publish preview.
  */
-const renderPage = East.function(
+export const renderPage = East.function(
     [StudioPagesType, ArrayType(StudioComponentType), StudioKeyType, StudioVersionType],
     UIComponentType,
     ($, pages, components, key, version) => {

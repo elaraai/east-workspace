@@ -26,6 +26,8 @@ export {
     SnapGridRequestType,
     SnapGridViewStateType,
     SnapGridViewBindType,
+    SnapGridApplyStateType,
+    SnapGridApplyBindType,
     SnapGridWidthType,
     SnapGridSurfaceType,
     SnapGridPlaceType,

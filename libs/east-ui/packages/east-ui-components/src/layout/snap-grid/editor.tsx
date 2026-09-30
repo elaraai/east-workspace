@@ -27,7 +27,10 @@
  * A pane beside the canvas asks it for a change through the bound `ui`
  * (#996): a request for a tile's span, row, height or alignment is taken as
  * one gesture, by the rules the handles and drags keep, and written back
- * `none`. The history shortcuts work anywhere in the frame, the panes too.
+ * `none`. A screen asks it for an Apply through the bound `apply` (#998): the
+ * canvas applies its drafts as its history item does, and answers under the
+ * id asked once they land or cannot. The history shortcuts work anywhere in
+ * the frame, the panes too.
  *
  * @packageDocumentation
  */
@@ -41,7 +44,7 @@ import { Box, chakra, useSlotRecipe, VisuallyHidden, type SystemStyleObject } fr
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
-import { none, some, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
@@ -51,7 +54,8 @@ import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import { historyShortcut } from "../../editing/shortcuts.js";
-import type { EditIssue } from "../../editing/session.js";
+import type { EditIssue, EditSession } from "../../editing/session.js";
+import { sessionErrorText } from "../../editing/messages.js";
 import {
     useDragLayerOptional, useDragTarget, useDropCell, useDragEventChip,
     type DragEventValue, type DragPayload, type DropCellOptions, type DropVeto,
@@ -74,6 +78,9 @@ type Styles = Record<string, SystemStyleObject>;
 /** The design width and zoom a host holds — the bound `view`'s value. */
 type ViewState = ValueTypeOf<typeof SnapGrid.Types.ViewState>;
 
+/** An Apply a host asks for, and the canvas's answer — the bound `apply`'s value. */
+type ApplyState = ValueTypeOf<typeof SnapGrid.Types.ApplyState>;
+
 /** Which edge a resize handle drags. */
 type ResizeKind = "span" | "height" | "both";
 
@@ -91,6 +98,20 @@ const RANK_GRID = 10;
 const RANK_READOUT = 20;
 const RANK_SAVED = 30;
 const RANK_WIDTHS = 40;
+
+/**
+ * Why the drafts cannot land, in the canvas's words: the first issue the
+ * session holds, else its error, else its status line — the stale source's,
+ * or the canvas's own when nothing else says.
+ */
+function refusalOf<W>(session: EditSession<W>, words: SnapGridWords): string {
+    const readiness = session.readiness;
+    const issues = readiness.type === "ready" ? session.issues : readiness.value;
+    if (issues.length > 0) return issues[0]!.message;
+    if (session.error !== undefined) return sessionErrorText(session.error, words);
+    if (session.stale) return words.m.historyStatus({ status: "stale" });
+    return session.status === "idle" ? words.m.applyRefused() : words.m.historyStatus({ status: session.status });
+}
 
 /** A design width in whole px, when it is one — what the readout prints. */
 function pxOf(width: string | undefined): number | undefined {
@@ -659,6 +680,43 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             console.error("[SnapGrid] ui state write failed:", err);
         }
     }, [request, bound, resize, rowTo, height, align]);
+
+    // ── An Apply a screen asks for (#998) — the drafts applied, then answered ─
+    const applyBind = value.apply.type === "some" ? value.apply.value : undefined;
+    const readApply = useCallback(() => (applyBind === undefined ? undefined : applyBind.read()), [applyBind]);
+    const { result: applyRead } = useTrackedEvaluation(readApply);
+    const asked = applyRead.ok && applyRead.value !== undefined && applyRead.value.type === "asked" ? applyRead.value.value : undefined;
+    useEffect(() => {
+        if (asked === undefined || applyBind === undefined) return;
+        let started = false;
+        let answered = false;
+        const answer = (state: ApplyState) => {
+            answered = true;
+            try {
+                applyBind.write(state);
+            } catch (err) {
+                console.error("[SnapGrid] apply state write failed:", err);
+            }
+        };
+        // At every change of the session: an Apply running is waited out;
+        // with no draft left, the drafts landed; once, the drafts are applied
+        // as the history item applies them — a request of unknown outcome
+        // retried; otherwise they cannot land, and the canvas says why.
+        const step = () => {
+            if (answered || session.status === "applying" || session.status === "reconciling") return;
+            if (session.pending === 0) {
+                answer(variant("applied", asked));
+            } else if (!started && (session.status === "unknown" || session.canApply)) {
+                started = true;
+                void session.apply();
+            } else {
+                answer(variant("refused", { id: asked, reason: refusalOf(session, words) }));
+            }
+        };
+        const unsubscribe = session.subscribe(step);
+        step();
+        return () => { unsubscribe(); };
+    }, [asked, applyBind, session, words]);
 
     const onRemove = useCallback((key: string) => {
         const label = tilesRef.current.find((t) => t.key === key)?.label ?? key;

@@ -16,7 +16,9 @@
  * width and zoom through State keys named by the builder's `id`
  * ({@link builderKeys}) — and the page's cells as the canvas draws them
  * (#996), so the palette counts and the inspector reads what it shows, and
- * the inspector's edits reach the canvas as requests on the shared selection.
+ * the inspector's edits reach the canvas as requests on the shared selection;
+ * and an Apply the publish preview asks of it (#998), which it answers when
+ * its drafts land or cannot.
  *
  * @packageDocumentation
  */
@@ -192,7 +194,8 @@ export interface StudioCanvasOptions {
  * - **The session.** Every move, resize, drop and removal is a draft; the
  *   history item undoes, redoes, discards and applies. Apply is one patch
  *   commit on the page (`Studio.save`), and a save another landed first is a
- *   conflict, in the history item's words.
+ *   conflict, in the history item's words. The publish preview asks for the
+ *   same Apply through the builder's shared State, before it publishes.
  * - **The toolbar.** The page's status — ○ Draft until it is published,
  *   ● Live while its draft is its live layout, Live · edited once they differ
  *   — then the grid chip and the time of the last save; the width readout,
@@ -251,6 +254,8 @@ function createCanvas(options: StudioCanvasOptions): ExprType<UIComponentType> {
         const openKey = $.let(open.read());
         const selection = $.let(State.bind([SnapGrid.Types.UiState], keys.ui, SnapGrid.uiState()));
         const view = $.let(State.bind([SnapGrid.Types.ViewState], keys.view, SnapGrid.viewState()));
+        // The Apply the preview asks for before it publishes, and the answer.
+        const applying = $.let(State.bind([SnapGrid.Types.ApplyState], keys.apply, East.value(variant("idle", null), SnapGrid.Types.ApplyState)));
         // The page's cells as the canvas draws them — its drafts in place —
         // with the page they are of, for the palette's counts and the inspector.
         const drafted = $.let(State.bind([OptionType(BuilderCellsType)], keys.cells, none));
@@ -355,6 +360,7 @@ function createCanvas(options: StudioCanvasOptions): ExprType<UIComponentType> {
             editing: { onApply: StudioPages.save(record, openKey), onDrafted },
             ui: selection,
             view,
+            apply: applying,
             sources: [keys.components],
             guides: true,
             width: "1440px",

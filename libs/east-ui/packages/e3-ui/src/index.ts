@@ -95,6 +95,7 @@ export {
     type StudioCanvasOptions,
     type StudioInspectorOptions,
     type StudioPageLibraryOptions,
+    type StudioPublishOptions,
 } from './studio/index.js';
 
 // e3 `<Diff>` tag + its types

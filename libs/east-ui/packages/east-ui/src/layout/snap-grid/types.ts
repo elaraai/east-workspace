@@ -5,7 +5,8 @@
 
 /**
  * SnapGrid types — the 12-column snap grid of tiles (#989, #990), the editing
- * canvas's chrome (#995), and the changes a host asks of it (#996).
+ * canvas's chrome (#995), and the changes (#996) and the Apply (#998) a host
+ * asks of it.
  *
  * A cell carries its content — and the editing canvas its toolbar items and
  * panes — and the inline `SnapGrid` arm of `UIComponentType` spells those with
@@ -172,6 +173,47 @@ export const SnapGridViewBindType = StructType({
 
 /** Type representing a bound view state. */
 export type SnapGridViewBindType = typeof SnapGridViewBindType;
+
+/**
+ * An Apply a host asks of the editing canvas, and the canvas's answer (#998) —
+ * the value behind a bound `apply` ({@link SnapGridApplyBindType}). A host
+ * writes `asked` with an id of its own — a publish that must not leave drafts
+ * behind; the canvas applies its drafts as its own Apply does, and answers
+ * under the same id: `applied` once the source confirms them, or at once when
+ * it has none; `refused` when they cannot land, with why.
+ *
+ * @property idle - Nothing asked
+ * @property asked - An Apply asked — its id
+ * @property applied - The drafts landed, or there were none — the id asked
+ * @property refused - They cannot land — the id asked, and why, in the canvas's words
+ */
+export const SnapGridApplyStateType = VariantType({
+    idle: NullType,
+    asked: StringType,
+    applied: StringType,
+    refused: StructType({ id: StringType, reason: StringType }),
+});
+
+/** Type representing an Apply asked of the editing canvas, and its answer. */
+export type SnapGridApplyStateType = typeof SnapGridApplyStateType;
+
+/**
+ * A bound {@link SnapGridApplyStateType} — exactly `State.bind`'s handle at it,
+ * so `State.bind([SnapGrid.Types.ApplyState], key, variant("idle", null))`
+ * passes straight through as a SnapGrid's `apply`.
+ *
+ * @property read - The current state
+ * @property write - Replace it
+ * @property has - Whether the key is set
+ */
+export const SnapGridApplyBindType = StructType({
+    read:  FunctionType([], SnapGridApplyStateType),
+    write: FunctionType([SnapGridApplyStateType], NullType),
+    has:   FunctionType([], BooleanType),
+});
+
+/** Type representing a bound Apply request. */
+export type SnapGridApplyBindType = typeof SnapGridApplyBindType;
 
 /**
  * A design width the editing canvas's toolbar offers (#995) — a device the
@@ -374,6 +416,7 @@ export function SnapGridEditingOf<const C>(content: C) {
  * @property editing - The editing session (#990); `none` takes no gesture
  * @property ui - The bound selection ({@link SnapGridUiBindType}); `none` keeps it in the canvas
  * @property view - The bound design width and zoom ({@link SnapGridViewBindType}, #995); `none` keeps them in the canvas
+ * @property apply - The bound Apply request ({@link SnapGridApplyBindType}, #998); `none` takes none
  * @property id - The drag surface's name in a drop's cell refs; `none` names one of its own
  * @property sources - The library ids whose cards land on the canvas
  * @property canDrop - The veto over a drop where the drag rests (the shared grammar)
@@ -394,6 +437,7 @@ export function SnapGridRootOf<const C>(content: C) {
         editing:   OptionType(SnapGridEditingOf(content)),
         ui:        OptionType(SnapGridUiBindType),
         view:      OptionType(SnapGridViewBindType),
+        apply:     OptionType(SnapGridApplyBindType),
         id:        OptionType(StringType),
         sources:   ArrayType(StringType),
         canDrop:   OptionType(FunctionType([DragEventType], BooleanType)),
