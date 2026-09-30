@@ -14,6 +14,12 @@ typedef struct EastValue EastValue;
  * Young collections traverse only young objects — O(young set size).
  * Full collections traverse young + old — O(all tracked objects).
  *
+ * Frames (env.h) are not tracked, but each collection counts references to
+ * the frames its closures hold as it counts them to values, so a frame and a
+ * closure holding each other — however the closure is held — go together
+ * (#1010). A collection walks the frames of the closures it walks: a young
+ * one, those of young closures.
+ *
  * All collector state — the generation lists, every counter below, and the
  * collections themselves — is per-thread (_Thread_local). Values must not
  * migrate between threads.

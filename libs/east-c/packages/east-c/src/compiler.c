@@ -319,40 +319,69 @@ static bool is_truthy(EastValue *v)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Frames only their own closures hold (#1002)                         */
+/*  Frames only what they bind holds (#1002, #1010)                     */
 /* ------------------------------------------------------------------ */
 
 /* A closure shares the frame it was made in (IR_FUNCTION), so one bound in
- * that frame — `const f = $.const(East.function(...))`, or the Let
- * linkImports embeds an imported function under — holds the frame that holds
- * it. Reference counting never frees that cycle, and the cycle collector,
- * which walks values, cannot see a frame: every evaluation of such a body kept
- * its frames, the closure and everything they held — a merge's arguments,
- * fold after fold.
+ * that frame — `const f = $.const(East.function(...))`, the Let linkImports
+ * embeds an imported function under, or a struct, array, dict or ref the
+ * frame binds with a closure inside — holds the frame that holds it.
+ * Reference counting never frees that cycle. The cycle collector does (gc.c,
+ * #1010), but only at a collection, and only while the cycle is young: until
+ * then a merge binding the function it calls would keep each fold's
+ * arguments, and a pass whose inner loop collected while the pass ran would
+ * leave its cycle to a full collection.
  *
  * So when the evaluator lets go of a frame something else still holds, it
- * asks whether everything holding it is a closure bound in it — directly, or
- * through frames nothing but those closures hold (the Block a build's hoisted
- * constants sit in) — and if so unbinds those frames: the closures, the
- * frames between and the frame itself go at once, as they would with no
- * closure in them. A closure held from anywhere else — returned, stored in a
- * collection, bound further out — keeps all of it. */
+ * asks whether everything holding it is bound in it — a closure, or a value
+ * with one inside, directly or through frames nothing but those closures hold
+ * (the Block a build's hoisted constants sit in) — and if so unbinds those
+ * frames: the values, the closures, the frames between and the frame itself
+ * go at once, as they would with no closure in them. The check walks only
+ * values whose type can hold a function, and a bounded number of them, so it
+ * costs a pass that binds plain data nothing; past its bound, or for a
+ * closure held from anywhere else — returned, stored outside the frame — the
+ * frame stays, and the cycle collector reclaims it once nothing outside the
+ * cycle holds it. */
 
-/* A frame or closure the check has reached, and the references to it from
- * inside what it has reached. */
+/* A frame or value the check has reached, and the references to it from
+ * inside what it has reached. A value `reaches` when it is a closure over a
+ * reached frame or holds one; one that does not is kept only so it is not
+ * walked twice. */
 typedef struct {
     void *node;
     int refs;
+    bool reaches;
 } FrameHolder;
 
+/* Past this many frames, or values, the check gives up and the frame stays
+ * for the cycle collector: a body binds a handful of closures, the lookups are
+ * linear, and a container holding more than are left is refused unwalked — so
+ * a pass that binds a large shared one costs a comparison. A value nested
+ * deeper than FRAME_REACH_DEPTH gives up the same way. The first
+ * FRAME_HOLDERS_INLINE of either live in the list itself, so a check that
+ * reaches a handful allocates nothing. */
+#define FRAME_HOLDERS_MAX 64
+#define FRAME_REACH_DEPTH 16
+#define FRAME_HOLDERS_INLINE 8
+
 typedef struct {
-    FrameHolder *items;
+    FrameHolder *items; /* `local` until it outgrows it */
     size_t len, cap;
+    FrameHolder local[FRAME_HOLDERS_INLINE];
 } FrameHolders;
 
-/* Past this many frames or closures the check gives up and the frame stays,
- * as before: a body binds a handful of closures, and the lookups are linear. */
-#define FRAME_HOLDERS_MAX 1024
+static void holders_init(FrameHolders *h)
+{
+    h->items = h->local;
+    h->len = 0;
+    h->cap = FRAME_HOLDERS_INLINE;
+}
+
+static void holders_free(FrameHolders *h)
+{
+    if (h->items != h->local) free(h->items);
+}
 
 static size_t holders_find(const FrameHolders *h, const void *node)
 {
@@ -361,17 +390,19 @@ static size_t holders_find(const FrameHolders *h, const void *node)
     return SIZE_MAX;
 }
 
-static bool holders_add(FrameHolders *h, void *node)
+static bool holders_add(FrameHolders *h, void *node, bool reaches)
 {
     if (h->len == h->cap) {
         if (h->cap >= FRAME_HOLDERS_MAX) return false;
-        size_t cap = h->cap ? h->cap * 2 : 8;
-        FrameHolder *grown = realloc(h->items, cap * sizeof(FrameHolder));
+        size_t cap = h->cap * 2;
+        FrameHolder *grown = h->items == h->local ? malloc(cap * sizeof(FrameHolder))
+                                                  : realloc(h->items, cap * sizeof(FrameHolder));
         if (!grown) return false;
+        if (h->items == h->local) memcpy(grown, h->local, h->len * sizeof(FrameHolder));
         h->items = grown;
         h->cap = cap;
     }
-    h->items[h->len++] = (FrameHolder){.node = node, .refs = 0};
+    h->items[h->len++] = (FrameHolder){.node = node, .refs = 0, .reaches = reaches};
     return true;
 }
 
@@ -383,95 +414,227 @@ static inline EastCompiledFn *frame_closure(const EastValue *v)
     return fn && !fn->invoke && fn->captures ? fn : NULL;
 }
 
-static void binds_closure(const char *name, void *value, void *ctx)
+/* Whether a closure can be inside `v`: a container whose type can hold a
+ * function (or a ref, which can hold anything). An untracked value holds
+ * neither, and a container stamped with a narrower type than it holds is
+ * passed over — which only leaves its frame to the cycle collector. */
+static bool may_hold_closure(EastValue *v)
+{
+    if (!east_value_is_tracked(v)) return false;
+    switch (v->kind) {
+    case EAST_VAL_ARRAY:
+        return east_type_can_cycle(v->data.array.elem_type);
+    case EAST_VAL_SET:
+        return east_type_can_cycle(v->data.set.elem_type);
+    case EAST_VAL_DICT:
+        return east_type_can_cycle(v->data.dict.val_type);
+    case EAST_VAL_STRUCT:
+    case EAST_VAL_VARIANT:
+    case EAST_VAL_REF:
+        return true; /* tracked only when their type, or payload, can hold one */
+    default:
+        return false;
+    }
+}
+
+/* How many values a container holds, and a visit of each. */
+static size_t held_count(EastValue *v)
+{
+    switch (v->kind) {
+    case EAST_VAL_ARRAY:
+        return v->data.array.len;
+    case EAST_VAL_SET:
+        return east_set_len(v);
+    case EAST_VAL_DICT:
+        return 2 * east_dict_len(v);
+    case EAST_VAL_STRUCT:
+        return v->data.struct_.num_fields;
+    case EAST_VAL_VARIANT:
+    case EAST_VAL_REF:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static void visit_held(EastValue *v, void (*visit)(EastValue *held, void *ctx), void *ctx)
+{
+    switch (v->kind) {
+    case EAST_VAL_ARRAY:
+        for (size_t i = 0; i < v->data.array.len; i++)
+            if (v->data.array.items[i]) visit(v->data.array.items[i], ctx);
+        break;
+    case EAST_VAL_SET:
+        east_set_visit(v, visit, ctx);
+        break;
+    case EAST_VAL_DICT:
+        east_dict_visit(v, visit, ctx);
+        break;
+    case EAST_VAL_STRUCT:
+        for (size_t i = 0; i < v->data.struct_.num_fields; i++)
+            if (v->data.struct_.field_values[i]) visit(v->data.struct_.field_values[i], ctx);
+        break;
+    case EAST_VAL_VARIANT:
+        if (v->data.variant.value) visit(v->data.variant.value, ctx);
+        break;
+    case EAST_VAL_REF:
+        if (v->data.ref.value) visit(v->data.ref.value, ctx);
+        break;
+    default:
+        break;
+    }
+}
+
+static void binds_holder(const char *name, void *value, void *ctx)
 {
     (void)name;
-    if (frame_closure(value)) *(bool *)ctx = true;
+    if (frame_closure(value) || may_hold_closure(value)) *(bool *)ctx = true;
 }
 
 typedef struct {
-    FrameHolders *frames, *closures;
-    bool ok;
+    FrameHolders *frames, *values;
+    bool ok;        /* false once the check gives up */
+    unsigned depth; /* containers being walked */
+    bool reached;   /* something inside the container being walked reaches */
 } FrameReach;
 
-/* A binding of a reached frame: a closure whose frames meet a reached frame
- * is reached, with its frames below that point. A closure over anything else
- * holds none of them. */
-static void reach_binding(const char *name, void *value, void *ctx)
+static bool reach_value(FrameReach *r, EastValue *v);
+
+static void reach_held(EastValue *held, void *ctx)
 {
-    (void)name;
     FrameReach *r = ctx;
-    EastCompiledFn *fn = frame_closure(value);
-    if (!r->ok || !fn || holders_find(r->closures, value) != SIZE_MAX) return;
+    if (reach_value(r, held)) r->reached = true;
+}
+
+/* A closure reaches when its frames meet a reached frame, and the frames
+ * below that point are reached with it. A closure over anything else holds
+ * none of them. */
+static bool reach_closure(FrameReach *r, EastValue *v, EastCompiledFn *fn)
+{
     size_t mark = r->frames->len;
     Environment *e = fn->captures;
     for (; e && holders_find(r->frames, e) == SIZE_MAX; e = e->parent) {
-        if (!holders_add(r->frames, e)) {
+        if (!holders_add(r->frames, e, true)) {
             r->ok = false;
-            return;
+            return false;
         }
     }
-    if (!e) {
-        r->frames->len = mark;
-        return;
+    if (!e) r->frames->len = mark;
+    if (!holders_add(r->values, v, e != NULL)) {
+        r->ok = false;
+        return false;
     }
-    if (!holders_add(r->closures, value)) r->ok = false;
+    return e != NULL;
 }
 
-/* A binding of a reached frame, counted as a reference to a reached closure. */
+/* Whether `v` — bound in a reached frame, or held by a value that is —
+ * reaches: a closure over a reached frame, or a container with one inside.
+ * Each value walked is kept with the answer, so none is walked twice. */
+static bool reach_value(FrameReach *r, EastValue *v)
+{
+    if (!r->ok || !v) return false;
+    EastCompiledFn *fn = frame_closure(v);
+    if (!fn && !may_hold_closure(v)) return false;
+    size_t i = holders_find(r->values, v);
+    if (i != SIZE_MAX) return r->values->items[i].reaches;
+    if (fn) return reach_closure(r, v, fn);
+    if (r->depth >= FRAME_REACH_DEPTH || held_count(v) > FRAME_HOLDERS_MAX - r->values->len ||
+        !holders_add(r->values, v, false)) {
+        r->ok = false;
+        return false;
+    }
+    i = r->values->len - 1;
+    bool outer = r->reached;
+    r->reached = false;
+    r->depth++;
+    visit_held(v, reach_held, r);
+    r->depth--;
+    bool reaches = r->reached;
+    r->values->items[i].reaches = reaches;
+    r->reached = outer;
+    return reaches;
+}
+
+static void reach_binding(const char *name, void *value, void *ctx)
+{
+    (void)name;
+    reach_value(ctx, value);
+}
+
+/* A reference from inside what the check reached, counted against the value
+ * it names. */
+static void count_held(EastValue *held, void *ctx)
+{
+    FrameHolders *values = ctx;
+    size_t i = holders_find(values, held);
+    if (i != SIZE_MAX) values->items[i].refs++;
+}
+
 static void count_binding(const char *name, void *value, void *ctx)
 {
     (void)name;
-    FrameHolders *closures = ctx;
-    size_t i = holders_find(closures, value);
-    if (i != SIZE_MAX) closures->items[i].refs++;
+    count_held(value, ctx);
 }
 
 /* Whether everything holding `frame`, besides the evaluator's reference about
- * to go, is what the frame reaches: every reference to every frame and
- * closure gathered into `frames` and `closures` comes from inside them. */
-static bool frame_orphaned(Environment *frame, FrameHolders *frames, FrameHolders *closures)
+ * to go, is what the frame reaches: every reference to every frame, and to
+ * every value that reaches, gathered into `frames` and `values`, comes from
+ * inside them. */
+static bool frame_orphaned(Environment *frame, FrameHolders *frames, FrameHolders *values)
 {
-    if (!holders_add(frames, frame)) return false;
-    FrameReach reach = {frames, closures, true};
+    if (!holders_add(frames, frame, true)) return false;
+    FrameReach reach = {.frames = frames, .values = values, .ok = true};
     for (size_t i = 0; i < frames->len && reach.ok; i++)
         env_visit(frames->items[i].node, reach_binding, &reach);
-    if (!reach.ok || closures->len == 0) return false;
+    if (!reach.ok) return false;
+    bool reaches = false;
+    for (size_t i = 0; i < values->len && !reaches; i++)
+        reaches = values->items[i].reaches;
+    if (!reaches) return false;
 
     frames->items[0].refs = 1; /* the evaluator's own */
     for (size_t i = 0; i < frames->len; i++) {
         Environment *f = frames->items[i].node;
         size_t parent = holders_find(frames, f->parent);
         if (parent != SIZE_MAX) frames->items[parent].refs++;
-        env_visit(f, count_binding, closures);
+        env_visit(f, count_binding, values);
     }
-    for (size_t i = 0; i < closures->len; i++) {
-        EastValue *v = closures->items[i].node;
-        size_t captured = holders_find(frames, v->data.function.compiled->captures);
+    for (size_t i = 0; i < values->len; i++) {
+        if (!values->items[i].reaches) continue;
+        EastValue *v = values->items[i].node;
+        EastCompiledFn *fn = frame_closure(v);
+        if (!fn) {
+            visit_held(v, count_held, values);
+            continue;
+        }
+        size_t captured = holders_find(frames, fn->captures);
         if (captured != SIZE_MAX) frames->items[captured].refs++;
     }
     for (size_t i = 0; i < frames->len; i++)
         if (frames->items[i].refs != ((Environment *)frames->items[i].node)->ref_count)
             return false;
-    for (size_t i = 0; i < closures->len; i++)
-        if (closures->items[i].refs != ((EastValue *)closures->items[i].node)->ref_count)
+    for (size_t i = 0; i < values->len; i++)
+        if (values->items[i].reaches &&
+            values->items[i].refs != ((EastValue *)values->items[i].node)->ref_count)
             return false;
     return true;
 }
 
-/* Unbinds `frame`, the closures it reaches and the frames between when
- * nothing else holds them (frame_orphaned), and otherwise leaves all of it
- * as it was. The evaluator's reference to `frame` stays for it to release. */
+/* Unbinds `frame`, the values it reaches and the frames between when nothing
+ * else holds them (frame_orphaned), and otherwise leaves all of it as it was.
+ * The evaluator's reference to `frame` stays for it to release. */
 static void frame_collect(Environment *frame)
 {
     bool binds = false;
-    env_visit(frame, binds_closure, &binds);
+    env_visit(frame, binds_holder, &binds);
     if (!binds) return;
-    FrameHolders frames = {0}, closures = {0};
-    if (frame_orphaned(frame, &frames, &closures)) {
+    FrameHolders frames, values;
+    holders_init(&frames);
+    holders_init(&values);
+    if (frame_orphaned(frame, &frames, &values)) {
         /* Each frame is held while they are all unbound, so none goes before
-         * the last is reset: unbinding releases the closures, which release
-         * the frames they hold. */
+         * the last is reset: unbinding releases the values, which release the
+         * closures, which release the frames they hold. */
         for (size_t i = 0; i < frames.len; i++)
             env_retain(frames.items[i].node);
         for (size_t i = 0; i < frames.len; i++)
@@ -479,12 +642,12 @@ static void frame_collect(Environment *frame)
         for (size_t i = 0; i < frames.len; i++)
             env_release(frames.items[i].node);
     }
-    free(frames.items);
-    free(closures.items);
+    holders_free(&frames);
+    holders_free(&values);
 }
 
-/* The evaluator letting go of a frame it made: one that only its own
- * closures still hold goes with them (frame_collect). */
+/* The evaluator letting go of a frame it made: one that only what it binds
+ * still holds goes with it (frame_collect). */
 static inline void frame_release(Environment *frame)
 {
     if (frame && frame->ref_count > 1) frame_collect(frame);
@@ -523,8 +686,8 @@ static inline Environment *frame_for(Environment *parent, IRScope *scope)
 
 /* The frame for the next iteration of a loop: the previous one, reset, when
  * nothing captured it (a closure is the only thing that can, and holds a
- * reference) or only closures bound in it did (frame_collect), else a fresh
- * one. `*frame` is NULL before the first pass. */
+ * reference) or only closures in what it binds did (frame_collect), else a
+ * fresh one. `*frame` is NULL before the first pass. */
 static inline void loop_frame(Environment **frame, Environment *parent, IRScope *scope)
 {
     if (*frame && (*frame)->ref_count > 1) frame_collect(*frame);
