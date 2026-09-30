@@ -12,6 +12,9 @@ export default defineConfig({
         globals: true,
         environment: "node",
         include: ["src/**/*.test.{ts,tsx}"],
+        // A file's first test pays the file's cold import and first render; with
+        // every suite running at once on a CI runner that alone passes 5s.
+        testTimeout: 20_000,
         coverage: {
             provider: "v8",
             include: ["src/**/*.{ts,tsx}"],
