@@ -28,13 +28,17 @@ export const popoverSlotRecipe = defineSlotRecipe({
             fontSize: "{fontSizes.control}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
-            /* Was `overflow: visible`; the viewport clamp needs tall content
-             * to scroll (the arrow is a sibling slot, unaffected). */
+            /* The viewport clamp holds the content; its body scrolls. The
+             * content itself never clips: the arrow is drawn inside it, over
+             * its edge. */
             maxHeight: "min(var(--available-height, 60vh), 85vh)",
-            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
         },
+        /* A square turned on its point: this side draws the arrow as wide and
+         * as deep as the design system's. */
         arrow: {
-            "--arrow-size": "12px",
+            "--arrow-size": "9.9px",
             "--arrow-background": "colors.bg.surface",
             "--arrow-shadow-color": "colors.gray.300",
         },
@@ -58,6 +62,9 @@ export const popoverSlotRecipe = defineSlotRecipe({
         body: {
             padding: "0",
             fontSize: "{fontSizes.control}",
+            flex: "1 1 auto",
+            minHeight: "0",
+            overflowY: "auto",
         },
     },
 });

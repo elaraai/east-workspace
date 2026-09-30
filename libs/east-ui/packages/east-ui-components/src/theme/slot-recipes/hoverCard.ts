@@ -11,7 +11,7 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
     className: "elara-hover-card",
     /* `title` / `description` extend Chakra's HoverCard anatomy — same
      * mono-eyebrow heading as Popover ("same visual" per spec). */
-    slots: ["trigger", "positioner", "content", "arrow", "arrowTip", "title", "description"],
+    slots: ["trigger", "positioner", "content", "arrow", "arrowTip", "title", "description", "body"],
     base: {
         content: {
             background: "bg.surface",
@@ -29,11 +29,23 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             fontSize: "{fontSizes.control}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
+            /* The viewport clamp holds the content; its body scrolls. The
+             * content itself never clips: the arrow is drawn inside it, over
+             * its edge — as Popover's. */
             maxHeight: "min(var(--available-height, 60vh), 85vh)",
+            display: "flex",
+            flexDirection: "column",
+        },
+        /* The title, the description and the children — what scrolls. */
+        body: {
+            flex: "1 1 auto",
+            minHeight: "0",
             overflowY: "auto",
         },
+        /* As Popover's: a square turned on its point, as wide and as deep as
+         * the design system's arrow. */
         arrow: {
-            "--arrow-size": "12px",
+            "--arrow-size": "9.9px",
             "--arrow-background": "colors.bg.surface",
             "--arrow-shadow-color": "colors.gray.300",
         },

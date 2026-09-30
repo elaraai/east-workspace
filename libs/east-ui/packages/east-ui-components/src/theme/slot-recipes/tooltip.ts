@@ -35,5 +35,10 @@ export const tooltipSlotRecipe = defineSlotRecipe({
         arrow: {
             "--arrow-background": "colors.fg.default",
         },
+        /* The chip has no rule, so neither has its arrow — a ToggleTip, drawn
+           on the Popover, would otherwise take the popover's rule. */
+        arrowTip: {
+            borderColor: "fg.default",
+        },
     },
 });
