@@ -119,7 +119,10 @@ function createPopover(
         : undefined;
 
     const hasStyle = sizeValue || placementValue || style.hasArrow !== undefined ||
-        style.gutter !== undefined || style.onOpenChange !== undefined;
+        style.gutter !== undefined || style.open !== undefined || style.defaultOpen !== undefined ||
+        style.closeOnInteractOutside !== undefined || style.closeOnEscape !== undefined ||
+        style.autoFocus !== undefined || style.lazyMount !== undefined || style.unmountOnExit !== undefined ||
+        style.onOpenChange !== undefined;
 
     return East.value(variant("Popover", {
         trigger: trigger,
@@ -132,6 +135,13 @@ function createPopover(
                 placement: placementValue ? some(placementValue) : none,
                 hasArrow: style.hasArrow !== undefined ? some(style.hasArrow) : none,
                 gutter: style.gutter !== undefined ? some(style.gutter) : none,
+                open: style.open !== undefined ? some(style.open) : none,
+                defaultOpen: style.defaultOpen !== undefined ? some(style.defaultOpen) : none,
+                closeOnInteractOutside: style.closeOnInteractOutside !== undefined ? some(style.closeOnInteractOutside) : none,
+                closeOnEscape: style.closeOnEscape !== undefined ? some(style.closeOnEscape) : none,
+                autoFocus: style.autoFocus !== undefined ? some(style.autoFocus) : none,
+                lazyMount: style.lazyMount !== undefined ? some(style.lazyMount) : none,
+                unmountOnExit: style.unmountOnExit !== undefined ? some(style.unmountOnExit) : none,
                 onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
             }, PopoverStyleType))
             : none,
@@ -197,6 +207,14 @@ export const Popover = {
          * @property placement - Position relative to trigger (OptionType<PlacementType>)
          * @property hasArrow - Show arrow pointing to trigger (OptionType<BooleanType>)
          * @property gutter - Gap between trigger and popover (OptionType<IntegerType>)
+         * @property open - Controlled open state (OptionType<BooleanType>)
+         * @property defaultOpen - Initial open state (OptionType<BooleanType>)
+         * @property closeOnInteractOutside - Close when clicking outside (OptionType<BooleanType>)
+         * @property closeOnEscape - Close on escape key (OptionType<BooleanType>)
+         * @property autoFocus - Focus the first focusable element on open (OptionType<BooleanType>)
+         * @property lazyMount - Delay mounting until first open (OptionType<BooleanType>)
+         * @property unmountOnExit - Unmount when closed (OptionType<BooleanType>)
+         * @property onOpenChange - Callback triggered when open state changes
          */
         Style: PopoverStyleType,
         /**

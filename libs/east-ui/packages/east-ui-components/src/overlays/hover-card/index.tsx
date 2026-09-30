@@ -46,6 +46,13 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
 
     // Extract callbacks from style
     const onOpenChangeFn = useMemo(() => style ? getSomeorUndefined(style.onOpenChange) : undefined, [style]);
+    // `open` controls it, so a callback anywhere opens it through the State it reads.
+    const authorOpen = style ? getSomeorUndefined(style.open) : undefined;
+    const mounting = useMemo(() => ({
+        defaultOpen: style ? getSomeorUndefined(style.defaultOpen) : undefined,
+        lazyMount: style ? getSomeorUndefined(style.lazyMount) : undefined,
+        unmountOnExit: style ? getSomeorUndefined(style.unmountOnExit) : undefined,
+    }), [style]);
 
     // Hover parity (#347): hover-incapable devices (touch) get tap-to-toggle —
     // the card opens on trigger tap and closes on outside interaction, driven
@@ -62,10 +69,10 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
     }, [hoverCapable, onOpenChangeFn]);
 
     const handleTriggerTap = useCallback(() => {
-        const next = !tapOpen;
+        const next = !(authorOpen ?? tapOpen);
         setTapOpen(next);
         if (onOpenChangeFn) queueMicrotask(() => onOpenChangeFn(next));
-    }, [tapOpen, onOpenChangeFn]);
+    }, [authorOpen, tapOpen, onOpenChangeFn]);
 
     return (
         <ChakraHoverCard.Root
@@ -73,7 +80,8 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
             size={size}
             openDelay={openDelay}
             closeDelay={closeDelay}
-            {...(hoverCapable ? {} : { open: tapOpen })}
+            {...mounting}
+            {...(authorOpen !== undefined ? { open: authorOpen } : hoverCapable ? {} : { open: tapOpen })}
             onOpenChange={(!hoverCapable || onOpenChangeFn) ? handleOpenChange : undefined}
         >
             <ChakraHoverCard.Trigger asChild>

@@ -136,6 +136,12 @@ export type DialogRoleLiteral = "dialog" | "alertdialog";
  * @property scrollBehavior - Scroll behavior
  * @property motionPreset - Animation style
  * @property role - ARIA role
+ * @property open - Controlled open state — pair with `onOpenChange`; a dialog the overlay manager opened (`Dialog.open`) stays its to open and close
+ * @property defaultOpen - Initial open state, uncontrolled
+ * @property closeOnInteractOutside - Close when clicking outside
+ * @property closeOnEscape - Close on escape key
+ * @property lazyMount - Delay mounting until first open
+ * @property unmountOnExit - Unmount when closed
  * @property onOpenChange - Callback triggered when open state changes
  * @property onExitComplete - Callback triggered when exit animation completes
  * @property onEscapeKeyDown - Callback triggered when escape key is pressed
@@ -147,6 +153,12 @@ export const DialogStyleType = StructType({
     scrollBehavior: OptionType(DialogScrollBehaviorType),
     motionPreset: OptionType(DialogMotionPresetType),
     role: OptionType(DialogRoleType),
+    open: OptionType(BooleanType),
+    defaultOpen: OptionType(BooleanType),
+    closeOnInteractOutside: OptionType(BooleanType),
+    closeOnEscape: OptionType(BooleanType),
+    lazyMount: OptionType(BooleanType),
+    unmountOnExit: OptionType(BooleanType),
     /** Callback triggered when open state changes */
     onOpenChange: OptionType(FunctionType([BooleanType], NullType)),
     /** Callback triggered when exit animation completes */
@@ -166,6 +178,10 @@ export type DialogStyleType = typeof DialogStyleType;
 /**
  * TypeScript interface for Dialog style options.
  *
+ * @remarks
+ * A dialog is the one modal: always modal, trapping focus and holding the page
+ * still, so none of that is an option.
+ *
  * @property size - Dialog size variant
  * @property placement - Vertical positioning
  * @property scrollBehavior - Scroll behavior
@@ -173,13 +189,10 @@ export type DialogStyleType = typeof DialogStyleType;
  * @property role - ARIA role
  * @property title - Dialog title
  * @property description - Dialog description
- * @property open - Controlled open state
+ * @property open - Controlled open state — pair with `onOpenChange`
  * @property defaultOpen - Initial open state
- * @property modal - Enable modal mode
  * @property closeOnInteractOutside - Close when clicking outside
  * @property closeOnEscape - Close on escape key
- * @property preventScroll - Prevent body scroll
- * @property trapFocus - Trap focus inside dialog
  * @property lazyMount - Delay mounting until first open
  * @property unmountOnExit - Unmount when closed
  * @property onOpenChange - Callback triggered when open state changes
@@ -204,20 +217,14 @@ export interface DialogStyle {
     title?: SubtypeExprOrValue<StringType>;
     /** Dialog description */
     description?: SubtypeExprOrValue<StringType>;
-    /** Controlled open state */
+    /** Controlled open state — pair with `onOpenChange`; a callback anywhere opens it by writing the State this reads */
     open?: SubtypeExprOrValue<BooleanType>;
     /** Initial open state */
     defaultOpen?: SubtypeExprOrValue<BooleanType>;
-    /** Enable modal mode */
-    modal?: SubtypeExprOrValue<BooleanType>;
     /** Close when clicking outside */
     closeOnInteractOutside?: SubtypeExprOrValue<BooleanType>;
     /** Close on escape key */
     closeOnEscape?: SubtypeExprOrValue<BooleanType>;
-    /** Prevent body scroll */
-    preventScroll?: SubtypeExprOrValue<BooleanType>;
-    /** Trap focus inside dialog */
-    trapFocus?: SubtypeExprOrValue<BooleanType>;
     /** Delay mounting until first open */
     lazyMount?: SubtypeExprOrValue<BooleanType>;
     /** Unmount when closed */

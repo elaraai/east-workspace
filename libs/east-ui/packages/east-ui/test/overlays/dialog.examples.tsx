@@ -108,3 +108,28 @@ export const dialogProgrammatic = example({
     }),
     inputs: [],
 });
+
+export const dialogOpenFromState = example({
+    keywords: ["Dialog", "open", "onOpenChange", "State", "Reactive", "controlled", "callback", "confirm", "closeOnInteractOutside"],
+    description: "The one modal, a confirmation, opened from a callback: its `open` reads State, and Cancel and the act's verb close it; a click outside does not dismiss it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const asking = $.let(State.bind([BooleanType], "dialog_open_from_state", false));
+            const ask = $.const(East.function([], NullType, ($) => { $(asking.write(true)); }));
+            const close = $.const(East.function([], NullType, ($) => { $(asking.write(false)); }));
+            return (
+                <HStack gap="3">
+                    <Button variant="outline" onClick={ask}>Remove cohort…</Button>
+                    <Dialog trigger={<Text color="fg.muted">Late · 412</Text>} eyebrow="Can't be undone" title="Remove cohort Late?"
+                        open={asking.read()} onOpenChange={asking.write} closeOnInteractOutside={false}>
+                        <HStack gap="2" justify="flex-end">
+                            <Button variant="outline" onClick={close}>Cancel</Button>
+                            <Button variant="solid" onClick={close}>Remove cohort</Button>
+                        </HStack>
+                    </Dialog>
+                </HStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

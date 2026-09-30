@@ -184,6 +184,8 @@ function createDialog(
         : undefined;
 
     const hasStyle = sizeValue || placementValue || scrollBehaviorValue || motionPresetValue || roleValue ||
+        style.open !== undefined || style.defaultOpen !== undefined || style.closeOnInteractOutside !== undefined ||
+        style.closeOnEscape !== undefined || style.lazyMount !== undefined || style.unmountOnExit !== undefined ||
         style.onOpenChange !== undefined || style.onExitComplete !== undefined ||
         style.onEscapeKeyDown !== undefined || style.onInteractOutside !== undefined;
 
@@ -200,6 +202,12 @@ function createDialog(
                 scrollBehavior: scrollBehaviorValue ? some(scrollBehaviorValue) : none,
                 motionPreset: motionPresetValue ? some(motionPresetValue) : none,
                 role: roleValue ? some(roleValue) : none,
+                open: style.open !== undefined ? some(style.open) : none,
+                defaultOpen: style.defaultOpen !== undefined ? some(style.defaultOpen) : none,
+                closeOnInteractOutside: style.closeOnInteractOutside !== undefined ? some(style.closeOnInteractOutside) : none,
+                closeOnEscape: style.closeOnEscape !== undefined ? some(style.closeOnEscape) : none,
+                lazyMount: style.lazyMount !== undefined ? some(style.lazyMount) : none,
+                unmountOnExit: style.unmountOnExit !== undefined ? some(style.unmountOnExit) : none,
                 onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
                 onExitComplete: style.onExitComplete !== undefined ? some(style.onExitComplete) : none,
                 onEscapeKeyDown: style.onEscapeKeyDown !== undefined ? some(style.onEscapeKeyDown) : none,
@@ -327,6 +335,16 @@ export const Dialog = {
          * @property scrollBehavior - Scroll behavior
          * @property motionPreset - Animation style
          * @property role - ARIA role
+         * @property open - Controlled open state
+         * @property defaultOpen - Initial open state
+         * @property closeOnInteractOutside - Close when clicking outside
+         * @property closeOnEscape - Close on escape key
+         * @property lazyMount - Delay mounting until first open
+         * @property unmountOnExit - Unmount when closed
+         * @property onOpenChange - Callback triggered when open state changes
+         * @property onExitComplete - Callback triggered when exit animation completes
+         * @property onEscapeKeyDown - Callback triggered when escape key is pressed
+         * @property onInteractOutside - Callback triggered when clicking outside the dialog
          */
         Style: DialogStyleType,
         /**

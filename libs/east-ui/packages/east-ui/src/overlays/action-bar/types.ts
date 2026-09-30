@@ -44,12 +44,19 @@ export type ActionBarItemType = typeof ActionBarItemType;
  * Style type for ActionBar component.
  *
  * @remarks
- * ActionBar has fixed styling - no size/variant options.
+ * ActionBar has fixed styling - no size/variant options. It is open while
+ * the selection count is above 0, unless `open` says otherwise.
  *
+ * @property open - Controlled open state, in place of the selection count's
+ * @property closeOnInteractOutside - Close when clicking outside
+ * @property closeOnEscape - Close on escape key
  * @property onSelect - Callback triggered when an action is selected
  * @property onOpenChange - Callback triggered when open state changes
  */
 export const ActionBarStyleType = StructType({
+    open: OptionType(BooleanType),
+    closeOnInteractOutside: OptionType(BooleanType),
+    closeOnEscape: OptionType(BooleanType),
     /** Callback triggered when an action is selected */
     onSelect: OptionType(FunctionType([StringType], NullType)),
     /** Callback triggered when open state changes */
@@ -65,10 +72,9 @@ export type ActionBarStyleType = typeof ActionBarStyleType;
 /**
  * TypeScript interface for ActionBar style options.
  *
- * @property selectionCount - Selection count to display
+ * @property selectionCount - Selection count to display — the bar is open while it is above 0
  * @property selectionLabel - Label for selection (e.g., "items selected")
- * @property open - Controlled open state
- * @property defaultOpen - Initial open state
+ * @property open - Controlled open state, in place of the selection count's
  * @property closeOnInteractOutside - Close when clicking outside
  * @property closeOnEscape - Close on escape key
  * @property onSelect - Callback triggered when an action is selected
@@ -79,10 +85,8 @@ export interface ActionBarStyle {
     selectionCount?: SubtypeExprOrValue<IntegerType>;
     /** Label for selection (e.g., "items selected") */
     selectionLabel?: SubtypeExprOrValue<StringType>;
-    /** Controlled open state */
+    /** Controlled open state, in place of the selection count's — pair with `onOpenChange` */
     open?: SubtypeExprOrValue<BooleanType>;
-    /** Initial open state */
-    defaultOpen?: SubtypeExprOrValue<BooleanType>;
     /** Close when clicking outside */
     closeOnInteractOutside?: SubtypeExprOrValue<BooleanType>;
     /** Close on escape key */

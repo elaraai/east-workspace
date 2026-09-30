@@ -53,6 +53,10 @@ export type HoverCardSizeLiteral = "xs" | "sm" | "md" | "lg";
  * @property hasArrow - Show arrow pointing to trigger
  * @property openDelay - Delay before opening (ms)
  * @property closeDelay - Delay before closing (ms)
+ * @property open - Controlled open state — pair with `onOpenChange`
+ * @property defaultOpen - Initial open state, uncontrolled
+ * @property lazyMount - Delay mounting until first open
+ * @property unmountOnExit - Unmount when closed
  * @property onOpenChange - Callback triggered when open state changes
  */
 export const HoverCardStyleType = StructType({
@@ -61,6 +65,10 @@ export const HoverCardStyleType = StructType({
     hasArrow: OptionType(BooleanType),
     openDelay: OptionType(IntegerType),
     closeDelay: OptionType(IntegerType),
+    open: OptionType(BooleanType),
+    defaultOpen: OptionType(BooleanType),
+    lazyMount: OptionType(BooleanType),
+    unmountOnExit: OptionType(BooleanType),
     /** Callback triggered when open state changes */
     onOpenChange: OptionType(FunctionType([BooleanType], NullType)),
 });
@@ -96,7 +104,7 @@ export interface HoverCardStyle {
     openDelay?: SubtypeExprOrValue<IntegerType>;
     /** Delay before closing (ms) */
     closeDelay?: SubtypeExprOrValue<IntegerType>;
-    /** Controlled open state */
+    /** Controlled open state — pair with `onOpenChange`; a callback anywhere opens it by writing the State this reads */
     open?: SubtypeExprOrValue<BooleanType>;
     /** Initial open state */
     defaultOpen?: SubtypeExprOrValue<BooleanType>;

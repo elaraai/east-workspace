@@ -162,6 +162,8 @@ function createDrawer(
         : undefined;
 
     const hasStyle = sizeValue || placementValue || style.contained !== undefined ||
+        style.open !== undefined || style.defaultOpen !== undefined || style.closeOnInteractOutside !== undefined ||
+        style.closeOnEscape !== undefined || style.lazyMount !== undefined || style.unmountOnExit !== undefined ||
         style.onOpenChange !== undefined || style.onExitComplete !== undefined ||
         style.bodyPadding !== undefined || style.flush !== undefined || style.fillBody !== undefined ||
         style.stacked !== undefined || style.stackIcon !== undefined;
@@ -177,6 +179,12 @@ function createDrawer(
                 size: sizeValue ? some(sizeValue) : none,
                 placement: placementValue ? some(placementValue) : none,
                 contained: style.contained !== undefined ? some(style.contained) : none,
+                open: style.open !== undefined ? some(style.open) : none,
+                defaultOpen: style.defaultOpen !== undefined ? some(style.defaultOpen) : none,
+                closeOnInteractOutside: style.closeOnInteractOutside !== undefined ? some(style.closeOnInteractOutside) : none,
+                closeOnEscape: style.closeOnEscape !== undefined ? some(style.closeOnEscape) : none,
+                lazyMount: style.lazyMount !== undefined ? some(style.lazyMount) : none,
+                unmountOnExit: style.unmountOnExit !== undefined ? some(style.unmountOnExit) : none,
                 onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
                 onExitComplete: style.onExitComplete !== undefined ? some(style.onExitComplete) : none,
                 bodyPadding: style.bodyPadding !== undefined ? some(style.bodyPadding) : none,
@@ -305,6 +313,12 @@ export const Drawer = {
          * @property size - Drawer size variant
          * @property placement - Edge placement
          * @property contained - Render within parent container
+         * @property open - Controlled open state
+         * @property defaultOpen - Initial open state
+         * @property closeOnInteractOutside - Close when clicking outside
+         * @property closeOnEscape - Close on escape key
+         * @property lazyMount - Delay mounting until first open
+         * @property unmountOnExit - Unmount when closed
          * @property bodyPadding - CSS padding shorthand for the body (default `"16px 20px"`)
          * @property flush - Removes body padding (full-bleed); overrides `bodyPadding`
          * @property fillBody - Body becomes a definite-height flex column so a single child fills + owns its scroll

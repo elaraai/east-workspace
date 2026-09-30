@@ -29,7 +29,10 @@ export const EastChakraActionBar = memo(function EastChakraActionBar({ value }: 
     const selectionCount = useMemo(() => getSomeorUndefined(value.selectionCount), [value.selectionCount]);
     const selectionLabel = useMemo(() => getSomeorUndefined(value.selectionLabel), [value.selectionLabel]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const open = selectionCount !== undefined && selectionCount > 0;
+    // Open while something is selected, unless the author's `open` says otherwise.
+    const open = (style ? getSomeorUndefined(style.open) : undefined) ?? (selectionCount !== undefined && selectionCount > 0);
+    const closeOnInteractOutside = style ? getSomeorUndefined(style.closeOnInteractOutside) : undefined;
+    const closeOnEscape = style ? getSomeorUndefined(style.closeOnEscape) : undefined;
 
     // Extract callbacks from style
     const onSelectFn = useMemo(() => style ? getSomeorUndefined(style.onSelect) : undefined, [style]);
@@ -52,6 +55,8 @@ export const EastChakraActionBar = memo(function EastChakraActionBar({ value }: 
     return (
         <ChakraActionBar.Root
             open={open}
+            closeOnInteractOutside={closeOnInteractOutside}
+            closeOnEscape={closeOnEscape}
             onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
         >
             <Portal>

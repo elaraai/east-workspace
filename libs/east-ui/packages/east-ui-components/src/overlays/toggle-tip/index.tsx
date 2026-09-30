@@ -32,6 +32,14 @@ export const EastChakraToggleTip = memo(function EastChakraToggleTip({ value, st
 
     // Extract callbacks from style
     const onOpenChangeFn = useMemo(() => style ? getSomeorUndefined(style.onOpenChange) : undefined, [style]);
+    // How it opens and closes: `open` controls it, so a callback anywhere
+    // opens it at its own trigger through the State it reads.
+    const behaviour = useMemo(() => ({
+        open: style ? getSomeorUndefined(style.open) : undefined,
+        defaultOpen: style ? getSomeorUndefined(style.defaultOpen) : undefined,
+        closeOnInteractOutside: style ? getSomeorUndefined(style.closeOnInteractOutside) : undefined,
+        closeOnEscape: style ? getSomeorUndefined(style.closeOnEscape) : undefined,
+    }), [style]);
 
     const handleOpenChange = useCallback((details: { open: boolean }) => {
         if (onOpenChangeFn) {
@@ -46,6 +54,7 @@ export const EastChakraToggleTip = memo(function EastChakraToggleTip({ value, st
     return (
         <ChakraPopover.Root
             positioning={placement ? { placement } : undefined}
+            {...behaviour}
             onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
         >
             <ChakraPopover.Trigger asChild>

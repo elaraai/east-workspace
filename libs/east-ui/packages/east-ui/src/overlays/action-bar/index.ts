@@ -134,7 +134,8 @@ function createActionBar(
     items: SubtypeExprOrValue<ArrayType<ActionBarItemType>>,
     style?: ActionBarStyle
 ): ExprType<UIComponentType> {
-    const hasStyle = style?.onSelect !== undefined || style?.onOpenChange !== undefined;
+    const hasStyle = style?.open !== undefined || style?.closeOnInteractOutside !== undefined ||
+        style?.closeOnEscape !== undefined || style?.onSelect !== undefined || style?.onOpenChange !== undefined;
 
     return East.value(variant("ActionBar", {
         items: items,
@@ -142,6 +143,9 @@ function createActionBar(
         selectionLabel: style?.selectionLabel !== undefined ? some(style.selectionLabel) : none,
         style: hasStyle
             ? some(East.value({
+                open: style?.open !== undefined ? some(style.open) : none,
+                closeOnInteractOutside: style?.closeOnInteractOutside !== undefined ? some(style.closeOnInteractOutside) : none,
+                closeOnEscape: style?.closeOnEscape !== undefined ? some(style.closeOnEscape) : none,
                 onSelect: style?.onSelect !== undefined ? some(style.onSelect) : none,
                 onOpenChange: style?.onOpenChange !== undefined ? some(style.onOpenChange) : none,
             }, ActionBarStyleType))
@@ -267,6 +271,12 @@ export const ActionBar = {
          *
          * @remarks
          * ActionBar has fixed styling - no size/variant options.
+         *
+         * @property open - Controlled open state, in place of the selection count's
+         * @property closeOnInteractOutside - Close when clicking outside
+         * @property closeOnEscape - Close on escape key
+         * @property onSelect - Callback triggered when an action is selected
+         * @property onOpenChange - Callback triggered when open state changes
          */
         Style: ActionBarStyleType,
     },

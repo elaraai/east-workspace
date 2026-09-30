@@ -74,3 +74,23 @@ export const hoverCardVariants = example({
     )),
     inputs: [],
 });
+
+export const hoverCardOpenFromState = example({
+    keywords: ["HoverCard", "open", "onOpenChange", "State", "Reactive", "controlled", "callback", "pin"],
+    description: "A hover card a button pins open: its `open` reads State the button writes, and hovering away writes it back",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pinned = $.let(State.bind([BooleanType], "hovercard_pinned", false));
+            const pin = $.const(East.function([], NullType, ($) => { $(pinned.write(pinned.read().not())); }));
+            return (
+                <HStack gap="3">
+                    <Button variant="outline" onClick={pin}>Pin the preview</Button>
+                    <HoverCard trigger={<Text color="link" fontWeight="medium">@johndoe</Text>} title="Operator · @johndoe" open={pinned.read()} onOpenChange={pinned.write}>
+                        <Text textStyle="body-sm">Opened by the button, at its own trigger.</Text>
+                    </HoverCard>
+                </HStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

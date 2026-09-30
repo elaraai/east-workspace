@@ -123,7 +123,9 @@ function createHoverCard(
         : undefined;
 
     const hasStyle = sizeValue || placementValue || style.hasArrow !== undefined ||
-        style.openDelay !== undefined || style.closeDelay !== undefined || style.onOpenChange !== undefined;
+        style.openDelay !== undefined || style.closeDelay !== undefined || style.open !== undefined ||
+        style.defaultOpen !== undefined || style.lazyMount !== undefined || style.unmountOnExit !== undefined ||
+        style.onOpenChange !== undefined;
 
     return East.value(variant("HoverCard", {
         trigger: trigger,
@@ -137,6 +139,10 @@ function createHoverCard(
                 hasArrow: style.hasArrow !== undefined ? some(style.hasArrow) : none,
                 openDelay: style.openDelay !== undefined ? some(style.openDelay) : none,
                 closeDelay: style.closeDelay !== undefined ? some(style.closeDelay) : none,
+                open: style.open !== undefined ? some(style.open) : none,
+                defaultOpen: style.defaultOpen !== undefined ? some(style.defaultOpen) : none,
+                lazyMount: style.lazyMount !== undefined ? some(style.lazyMount) : none,
+                unmountOnExit: style.unmountOnExit !== undefined ? some(style.unmountOnExit) : none,
                 onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
             }, HoverCardStyleType))
             : none,
@@ -198,6 +204,11 @@ export const HoverCard = {
          * @property hasArrow - Show arrow pointing to trigger
          * @property openDelay - Delay before opening (ms)
          * @property closeDelay - Delay before closing (ms)
+         * @property open - Controlled open state
+         * @property defaultOpen - Initial open state
+         * @property lazyMount - Delay mounting until first open
+         * @property unmountOnExit - Unmount when closed
+         * @property onOpenChange - Callback triggered when open state changes
          */
         Style: HoverCardStyleType,
         /**

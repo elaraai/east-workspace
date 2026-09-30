@@ -1061,8 +1061,8 @@ Task → Which tag?
 │   │       ├─ trigger (required) — the opening UIComponent; children (required) — the body
 │   │       ├─ eyebrow / title / description (optional) — header copy (eyebrow = mono uppercase, e.g. "Confirm · cannot be undone")
 │   │       ├─ size / placement / scrollBehavior / motionPreset / role (optional) — presentation
-│   │       ├─ open / defaultOpen / onOpenChange (optional) — controlled state
-│   │       ├─ modal / closeOnInteractOutside / closeOnEscape / preventScroll / trapFocus (optional) — behaviour
+│   │       ├─ open / defaultOpen / onOpenChange (optional) — controlled state: `open={asking.read()} onOpenChange={asking.write}` opens it from any callback
+│   │       ├─ closeOnInteractOutside / closeOnEscape (optional) — behaviour; it is always modal, traps focus and holds the page still
 │   │       ├─ lazyMount / unmountOnExit (optional) — mount policy
 │   │       └─ onExitComplete / onEscapeKeyDown / onInteractOutside (optional) — lifecycle callbacks
 │   ├─ <Drawer> — side panel
@@ -1082,8 +1082,8 @@ Task → Which tag?
 │   │       ├─ trigger (required); children (required) — the panel body
 │   │       ├─ title / description (optional) — header copy
 │   │       ├─ size / placement / hasArrow / gutter (optional) — positioning + chrome
-│   │       ├─ open / defaultOpen / onOpenChange (optional) — controlled state
-│   │       └─ modal / closeOnInteractOutside / closeOnEscape / autoFocus / lazyMount / unmountOnExit (optional)
+│   │       ├─ open / defaultOpen / onOpenChange (optional) — controlled state: `open={shown.read()} onOpenChange={shown.write}` opens it from any callback, at its own trigger
+│   │       └─ closeOnInteractOutside / closeOnEscape / autoFocus / lazyMount / unmountOnExit (optional) — it is never modal
 │   ├─ <HoverCard> — hover preview card
 │   │   └─ Props:
 │   │       ├─ trigger (required); children (required) — the card body
@@ -1114,8 +1114,8 @@ Task → Which tag?
 │   └─ <ActionBar items={…}> — sticky bottom bulk-action bar
 │       ├─ Props:
 │       │   ├─ items (required) — array of ActionBar.Item(…)
-│       │   ├─ selectionCount / selectionLabel (optional) — "N items selected" copy
-│       │   ├─ open / defaultOpen / onOpenChange (optional) — controlled state
+│       │   ├─ selectionCount / selectionLabel (optional) — "N items selected" copy; the bar is open while the count is above 0
+│       │   ├─ open / onOpenChange (optional) — controlled state, in place of the count's
 │       │   ├─ onSelect (optional) — fn(actionValue) => Null when an action is chosen
 │       │   └─ closeOnInteractOutside / closeOnEscape (optional)
 │       └─ Factories:
@@ -1797,6 +1797,18 @@ const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, event) 
 | announcements | The pick-up, each new cell or bucket the drag rests over (or one that refuses it), the drop and a cancel are said in a live region. Host React code re-words them with `<DragLayerProvider messages={{ pickedUp: ({ item }) => … }}>` (@elaraai/east-ui-components; `dragMessages` is the English table, and any subset overrides it). | — |
 
 ### Overlays — trigger prop + body children
+
+A callback opens an overlay through the State its `open` reads, and
+`onOpenChange` writes the State back as it closes. A callback carries no
+element, so an anchored overlay — a popover, a hover card, a toggle tip —
+opens at its own trigger, whatever wrote the State:
+
+```tsx
+const shown = $.let(State.bind([BooleanType], "details_open", false));
+const openIt = $.const(East.function([], NullType, $ => { $(shown.write(true)); }));
+<Button onClick={openIt}>Open the details</Button>
+<Popover trigger={<Button>Details</Button>} open={shown.read()} onOpenChange={shown.write}>…</Popover>
+```
 
 ```tsx
 <Dialog trigger={<Button>Open</Button>} title="Confirm" description="Proceed?">
