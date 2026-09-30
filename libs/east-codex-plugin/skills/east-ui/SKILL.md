@@ -891,11 +891,12 @@ Task → Which tag?
 │   │       ├─ caption (optional) — UIComponent beside the bar; max (optional) — total reference (default sum)
 │   │       ├─ labels (optional) — inside | outside | none
 │   │       └─ density / thickness / borderRadius / trackColor / captionColor / labelColor (optional)
-│   ├─ <BarStrip> — ranked horizontal-bar list (axis-free; fits inside a <Stat>)
+│   ├─ <BarStrip items={[…]} /> or <BarStrip data={rows} item={r => ({ label, value, tone? })} /> — ranked horizontal-bar list (axis-free; fits inside a <Stat>)
 │   │   └─ Props:
-│   │       ├─ items (required) — [{ label (UIComponent), value, tone?, color?, trailing? }]
+│   │       ├─ items (required, the written form) — [{ label (UIComponent), value, tone?, color?, trailing? }]
+│   │       ├─ data + item (required, the data form — instead of items) — an East array of the host's rows + a row mapper to the same bar fields, reified ONCE into an East function every row maps through: bars computed in East (a groupSum's totals, `.toArray`'d), which a written array cannot hold
 │   │       ├─ showValues (optional) — trailing value text (default true)
-│   │       ├─ sort / maxItems (optional) — factory-time sort + row cap
+│   │       ├─ sort / maxItems (optional) — sort + row cap, applied by the renderer to written and mapped bars alike
 │   │       └─ density / orientation / thickness / borderRadius / trackColor / labelColor / valueColor (optional)
 │   ├─ <EditableChip> — chip whose text becomes inline input on click
 │   │   └─ Props:
