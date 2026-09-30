@@ -49,14 +49,16 @@ if [ -n "${EAST_RELEASE_VERSION:-}" ]; then
     echo "(every image pinned to ${EAST_RELEASE_VERSION})"
 fi
 
-# Test 1: east-node image. Its install carries e3's node packages too.
+# Test 1: east-node image: East's AGPL Node packages alone. No e3 (its core,
+# CLI and API packages are BUSL), which e3-cloud's node-tier runner, built on
+# this image, bundles itself; no east-c; no Python.
 echo "[1/5] Building Dockerfile.east-node..."
 # shellcheck disable=SC2046 # `pin` emits whitespace-separated --build-arg pairs
-docker build -f docker/images/Dockerfile.east-node $(pin $NODE_ARGS $E3_ARGS) -t test-east-node-$$ . --progress=plain
+docker build -f docker/images/Dockerfile.east-node $(pin $NODE_ARGS) -t test-east-node-$$ . --progress=plain
 runs test-east-node-$$ east-node --version
-runs test-east-node-$$ e3 --version
+runs test-east-node-$$ sh -c '! ls "$(npm root -g)/@elaraai" | grep -q "^e3"'
 docker rmi test-east-node-$$ > /dev/null
-echo "[OK] Dockerfile.east-node (builds + east-node and e3 run)"
+echo "[OK] Dockerfile.east-node (builds + east-node runs, and it carries no e3)"
 
 # Test 2: east-c image (tiny — just the prebuilt evaluator).
 echo "[2/5] Building Dockerfile.east-c..."

@@ -17,8 +17,8 @@
  *   position — `const total = $.let(` names `total`.
  *
  * Both are read with the TypeScript compiler's parser (`typescript`, an
- * optional peer dependency loaded through node's `require` on first use),
- * never by matching patterns against text. Where the compiler is absent — a
+ * optional peer dependency of 5 or 6 loaded through node's `require` on first
+ * use), never by matching patterns against text. Where the compiler is absent — a
  * browser, a project without TypeScript, a TypeScript whose package carries no
  * parser (TypeScript 7's exports its version alone) — or a source cannot be
  * read (a REPL line that is gone, a native function), the name stays `_N`,

@@ -8,7 +8,8 @@
 #   TYPESCRIPT_VERSION defaults to the TypeScript the workspace builds with.
 #
 # Flags (each selects one image's package set; default = the e3 everything image):
-#   --node-only    Node.js packages only (east-node image: no Python, no east-c)
+#   --node-only    East's Node.js packages only (east-node image: no e3, no
+#                  Python, no east-c)
 #   --py-only      Python packages minus datascience (east-py image: no Node
 #                  East packages, no east-c; datascience is the
 #                  east-py-datascience image's own FROM-layer)
@@ -19,6 +20,7 @@ set -e
 
 # Parse arguments
 INSTALL_NODE=true
+INSTALL_E3=true
 INSTALL_PYTHON=true
 INSTALL_DATASCIENCE=true
 INSTALL_EAST_C=true
@@ -26,14 +28,15 @@ VERIFY=true
 
 for arg in "$@"; do
     case $arg in
-        # --node-only = the minimal AGPL east-node image: Node packages only,
-        # no Python and no native east-c runtime.
-        --node-only) INSTALL_PYTHON=false; INSTALL_DATASCIENCE=false; INSTALL_EAST_C=false ;;
+        # --node-only = the minimal AGPL east-node image: East's Node packages
+        # only — no e3 (its core, CLI and API packages are BUSL), no Python
+        # and no native east-c runtime.
+        --node-only) INSTALL_E3=false; INSTALL_PYTHON=false; INSTALL_DATASCIENCE=false; INSTALL_EAST_C=false ;;
         # --py-only = the slim BUSL east-py image: python runtime without the
         # multi-GB datascience stack (elaraai/east-workspace#299).
-        --py-only) INSTALL_NODE=false; INSTALL_DATASCIENCE=false; INSTALL_EAST_C=false ;;
+        --py-only) INSTALL_NODE=false; INSTALL_E3=false; INSTALL_DATASCIENCE=false; INSTALL_EAST_C=false ;;
         # --c-only = the tiny BUSL east-c image: just the prebuilt evaluator.
-        --c-only) INSTALL_NODE=false; INSTALL_PYTHON=false; INSTALL_DATASCIENCE=false ;;
+        --c-only) INSTALL_NODE=false; INSTALL_E3=false; INSTALL_PYTHON=false; INSTALL_DATASCIENCE=false ;;
         --skip-verify) VERIFY=false ;;
     esac
 done
@@ -73,8 +76,12 @@ if [ "$INSTALL_NODE" = true ]; then
         "@elaraai/east-node-io@${EAST_NODE_IO_VERSION}" \
         "@elaraai/east-node-cli@${EAST_NODE_CLI_VERSION}" \
         "@elaraai/east-ui@${EAST_UI_VERSION}"
+fi
 
-    # Install e3 Node.js packages (BSL + AGPL)
+# Install e3 Node.js packages (AGPL + BUSL): the e3 image's alone. The
+# east-node image is AGPL and carries East's runtime; e3-cloud's node-tier
+# runner, built on it, bundles the e3 it runs.
+if [ "$INSTALL_E3" = true ]; then
     echo "Installing e3 packages..."
     npm install -g \
         "@elaraai/e3@${E3_VERSION}" \
@@ -172,6 +179,8 @@ if [ "$VERIFY" = true ]; then
     echo "Verifying installations..."
     if [ "$INSTALL_NODE" = true ]; then
         east-node --version
+    fi
+    if [ "$INSTALL_E3" = true ]; then
         e3 --version
     fi
     if [ "$INSTALL_EAST_C" = true ]; then
