@@ -332,9 +332,9 @@ export function PlanNarrow({
         return (
             <Box key={`source-${tail.from}`} ref={watch} as="button" css={styles.narrowMore}
                 data-plan-more="source" data-plan-elements={bandElements(tail)}
-                aria-busy={paging.loading ? "true" : undefined}
+                aria-busy={tail.loading !== undefined ? "true" : undefined}
                 onClick={() => { revealMore(key); paging.onLoadMore(); }}>
-                {bandCaption(tail, paging.loading, words)}
+                {bandCaption(tail, words)}
             </Box>
         );
     };

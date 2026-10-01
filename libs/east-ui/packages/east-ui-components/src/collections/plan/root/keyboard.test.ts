@@ -201,8 +201,8 @@ describe("bands (#819)", () => {
         expect(resolveNavIntent(items([head, vis(C1, 0), tail]), intent, MIDDLE)).toEqual({ t: "cancel" });
     });
 
-    test("a window in flight has no band: past the last row the move waits while it loads, and ends once nothing will", () => {
-        // The demand took the tail band away — its windows are on the wire.
+    test("with no band past the last row, the move waits while a window loads, and ends once nothing will", () => {
+        // A source that reports no total has no bands, while its windows are on the wire.
         const loaded = items([vis(C1, 0), vis(C2, 0)]);
         const intent = { t: "step" as const, from: "r:c2", dir: 1 as const };
         expect(resolveNavIntent(loaded, intent, { ...MIDDLE, loading: true })).toEqual({ t: "pending" });

@@ -17,10 +17,9 @@ import type { RowKey } from "../plan-state.js";
 
 /** How the narrow list drives a paged source (#812). */
 export interface PlanNarrowPaging {
-    /** The unloaded run after the resident rows, when there is one. */
+    /** The unloaded run after the resident rows, when there is one — and
+     *  which of its elements are loading (#1082). */
     tail: PlanBand | undefined;
-    /** Whether a window is in flight. */
-    loading: boolean;
     /** Where the list is — the last row card on screen. */
     onViewport: (key: RowKey) => void;
     /** Demand the window after the resident run. */

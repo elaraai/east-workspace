@@ -91,8 +91,9 @@ export type WindowFailures = Map<number, string>;
 export interface ReadResult {
     /** Every requested window that is resident, in request order. */
     resident: { w: number; read: WindowRead }[];
-    /** Whether any requested window is still in flight. */
-    loading: boolean;
+    /** Every requested window still in flight, in request order — one the
+     *  previous revision stands in for as well (#821). */
+    inFlight: number[];
     /** Every requested window whose read failed, in request order. */
     failed: { w: number; error: string }[];
     /** Whether any resident window was served from `stale` — the source's
@@ -141,8 +142,8 @@ export function readWindow(blocks: readonly PlanWireBlock[]): WindowRead {
  * @param failures - The caller's failure record (mutated: a new failure is recorded)
  * @param stale - The source's previous revision's windows, served for a window
  *   still in flight at this one
- * @returns The resident windows, whether any are in flight, the failed ones,
- *   and whether any were served from `stale`
+ * @returns The resident windows, the ones in flight, the failed ones, and
+ *   whether any were served from `stale`
  */
 export function readWindows(
     source: PlanPagedSourceValue,
@@ -153,8 +154,8 @@ export function readWindows(
     stale?: WindowCache,
 ): ReadResult {
     const resident: { w: number; read: WindowRead }[] = [];
+    const inFlight: number[] = [];
     const failed: { w: number; error: string }[] = [];
-    let loading = false;
     let servedStale = false;
 
     for (const w of windows) {
@@ -182,7 +183,7 @@ export function readWindows(
             // In flight. The window's channel is now tracked, so the landing
             // re-fires this evaluation. Until then the rows it had at the
             // previous revision stand in.
-            loading = true;
+            inFlight.push(w);
             const previous = stale?.get(w);
             if (previous !== undefined) {
                 resident.push({ w, read: previous });
@@ -195,7 +196,7 @@ export function readWindows(
         resident.push({ w, read });
     }
 
-    return { resident, loading, failed, stale: servedStale };
+    return { resident, inFlight, failed, stale: servedStale };
 }
 
 /** Drop per-window entries outside the resident set — the memory half of

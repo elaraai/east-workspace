@@ -374,6 +374,206 @@ describe("paging driver — a pending jump owns the viewport (#812)", () => {
     });
 });
 
+describe("paging driver — a window loading beside the run never moves it (#876)", () => {
+    /** A source of `windows` windows, `rowsPer` rows each, whose windows in
+     *  `inFlight` stay on the wire while they are in it — an asynchronous
+     *  source's windows, landing when the test says — and whose windows in
+     *  `failing` throw while they are in it. Records which windows were asked
+     *  for. */
+    function onTheWire(windows: number, inFlight: ReadonlySet<number>, rowsPer = 2, failing: ReadonlySet<number> = new Set()) {
+        const asked: number[] = [];
+        const value = {
+            id: "on-the-wire",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                asked.push(w);
+                if (failing.has(w)) throw new Error("fetch failed: 503");
+                if (inFlight.has(w)) return none;
+                const pad = String(w).padStart(4, "0");
+                const rows: PlanWireRow[] = [];
+                for (let i = 0; i < rowsPer; i++) rows.push(wire(`w${pad}r${String(i).padStart(3, "0")}`));
+                return some([paged(rows)]);
+            },
+            total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        return { value, asked };
+    }
+    /** The windows asked for at or past `from`, each once, ascending. */
+    const askedFrom = (asked: readonly number[], from: number) => [...new Set(asked.filter((w) => w >= from))].sort((a, b) => a - b);
+
+    test("a far drag whose windows are all on the wire keeps its block whole — the bands meet where the run will land, a report from where the viewport still is keeps the demand there, and the landing takes the bands' place", () => {
+        const inFlight = new Set<number>();
+        const { value, asked } = onTheWire(250, inFlight);
+        const { d, snap, report } = drive(value);
+        // First paint: windows 0–2 measured at 2 rows × 32px; every other
+        // window a 1px-per-element slot.
+        const document = 3 * 64 + 247 * 200;
+        for (let w = 100; w < 250; w++) inFlight.add(w);
+        // A drag 147¼ windows into the tail band rebases the run around window 150 (#612).
+        report(band("tail", 147 * 200 + 50));
+        const ring = askedFrom(asked, 100);
+        expect(ring.length).toBeGreaterThan(0);
+        // Nothing of the new run has landed: the block has no rows, and its two
+        // bands are the whole of it, meeting where the run will land.
+        expect(snap().rows).toEqual([]);
+        expect(snap().resident).toBeUndefined();
+        expect(snap().loading).toBe(true);
+        const before = head(snap())!;
+        const after = tail(snap())!;
+        expect(before.to + 1).toBe(after.from);
+        expect(before.px + after.px).toBe(document);
+        // The viewport has not moved — the centre is where the drag left it,
+        // now in the tail band that starts at the run. Reported from there, the
+        // demand stays where it is: nothing more is asked for.
+        const centre = 3 * 64 + 147 * 200 + 50;
+        report(band("tail", centre - before.px));
+        expect(askedFrom(asked, 100)).toEqual(ring);
+        // The run lands, its rows where the bands met: the head band is as it was.
+        for (const w of ring) inFlight.delete(w);
+        d.setSource({ ...value });
+        expect(snap().loading).toBe(false);
+        expect(head(snap())!.px).toBe(before.px);
+        expect(snap().resident!.from).toBe(after.from);
+    });
+
+    test("a window loading below the rows on screen never takes them off it — even when the windows past it land first; landing, the run reaches past it in the tail band's slots", () => {
+        // 25 rows a window: a slot is estimated at exactly what a window draws.
+        const inFlight = new Set([3]);
+        const { value } = onTheWire(50, inFlight, 25);
+        const { d, snap, report } = drive(value);
+        expect(residentText(snap())).toBe("0-600");
+        // Just into the tail band: the run walks on — window 3 stays on the
+        // wire, while 4 and 5 land.
+        report(band("tail", 10));
+        expect(residentText(snap())).toBe("0-600");
+        expect(rowKeys(snap()).some((k) => k.startsWith("w0004") || k.startsWith("w0005"))).toBe(false);
+        expect(bandText(tail(snap()))).toBe("600-9999");
+        const tailPx = tail(snap())!.px;
+        // Window 3 lands: the run reaches past it, to 5, and the tail band gives
+        // up exactly the three windows' slots.
+        inFlight.delete(3);
+        d.setSource({ ...value });
+        expect(residentText(snap())).toBe("0-1200");
+        expect(bandText(tail(snap()))).toBe("1200-9999");
+        expect(tail(snap())!.px).toBe(tailPx - 3 * 25 * ROW_PX);
+    });
+
+    test("a jump settles once its target's window lands, the window above it still on the wire: that window is the head band's until it lands, then its rows join above in its slot", () => {
+        const inFlight = new Set([199]);
+        const { value } = onTheWire(250, inFlight, 25);
+        const { d, snap } = drive(value);
+        d.jumpToElement(40_000);
+        expect(snap().resident!.from).toBe(40_000);
+        expect(bandText(head(snap()))).toBe("0-39999");
+        d.committed(snap());
+        expect(d.jumping()).toBe(false);
+        const headPx = head(snap())!.px;
+        inFlight.delete(199);
+        d.setSource({ ...value });
+        expect(snap().resident!.from).toBe(39_800);
+        expect(bandText(head(snap()))).toBe("0-39799");
+        expect(head(snap())!.px).toBe(headPx - 25 * ROW_PX);
+    });
+
+    test("placeOf puts a row of a window that landed past one still loading in the tail band, that window's slot below its top — and leaves it to the body once the window between lands", () => {
+        // 25 rows a window: every slot, landed or estimated, is 800px.
+        const inFlight = new Set([3]);
+        const { value } = onTheWire(50, inFlight, 25);
+        const { d, snap, report } = drive(value);
+        // Windows 4 and 5 land; window 3, between them and the run, is on the wire.
+        report(band("tail", 10));
+        expect(residentText(snap())).toBe("0-600");
+        // Window 4's rows are not the body's: they sit in the tail band, below
+        // window 3's slot. Window 2's are on screen.
+        expect(d.placeOf(rowKey("w0004r000"))).toEqual({ block: 0, at: "tail", px: 25 * ROW_PX });
+        expect(d.placeOf(rowKey("w0002r000"))).toBeUndefined();
+        // Window 3 lands: the run reaches past it, and window 4's rows are the body's.
+        inFlight.delete(3);
+        d.setSource({ ...value });
+        expect(residentText(snap())).toBe("0-1200");
+        expect(d.placeOf(rowKey("w0004r000"))).toBeUndefined();
+    });
+
+    test("the run anchors on whichever landed window is nearer the viewport's element — either side of the midpoint of the window loading between them", () => {
+        // 25 rows a window: every slot is 800px, 4px an element.
+        const { value } = onTheWire(50, new Set([2]), 25);
+        const { snap, report } = drive(value);
+        // First paint: windows 0 and 1 landed, 2 on the wire — the tail band
+        // starts at window 2's slot.
+        expect(residentText(snap())).toBe("0-400");
+        // Centred on element 499, in window 2: windows 3 and 4 land. Window 1's
+        // last element, 399, is 100 away and window 3's first, 600, is 101 —
+        // the run stays on window 1.
+        report(band("tail", 99 * 4 + 2));
+        expect(residentText(snap())).toBe("0-400");
+        expect(bandText(tail(snap()))).toBe("400-9999");
+        // Centred on element 500: window 3's first is 100 away and window 1's
+        // last 101 — the run moves to window 3, and the rows above it are the
+        // head band's. (No element is as near one as the other: the two
+        // distances add up to (after − before − 1) × 200 + 1, which is odd.)
+        report(band("tail", 100 * 4 + 2));
+        expect(residentText(snap())).toBe("600-1000");
+        expect(bandText(head(snap()))).toBe("0-599");
+    });
+
+    test("a row report anchors the run where its row is, after a band report anchored it further down", () => {
+        const failing = new Set([1]);
+        const inFlight = new Set<number>();
+        const { value } = onTheWire(50, inFlight, 25, failing);
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { d, snap, report } = drive(value);
+            // Window 1 failed: it is in, and the run crosses it (#811).
+            expect(snap().failures.map((f) => f.w)).toEqual([1]);
+            // Just into the tail band, the viewport centred on element 602:
+            // windows 3–5 land and join the run.
+            report(band("tail", 10));
+            expect(residentText(snap())).toBe("0-1200");
+            // Back up among window 0's rows.
+            report({ kind: "row", key: rowKey("w0000r000") });
+            // Window 1 is asked again and goes on the wire, ending the run at
+            // its top: the run is the stretch around window 0, where the
+            // viewport is — around the element the band report left, it would
+            // be windows 2–5, and window 0's rows, on screen, the head band's.
+            failing.delete(1);
+            inFlight.add(1);
+            d.retry(1);
+            expect(snap().loading).toBe(true);
+            expect(residentText(snap())).toBe("0-200");
+            expect(bandText(head(snap()))).toBe("-");
+            expect(bandText(tail(snap()))).toBe("200-9999");
+        } finally {
+            err.mockRestore();
+        }
+    });
+
+    test("a band says which of its elements are loading — only those of the windows in flight it covers; one far from them says none are (#1082)", () => {
+        const inFlight = new Set([1, 2]);
+        const { value } = onTheWire(250, inFlight);
+        const { d, snap, report } = drive(value);
+        // First paint: window 0 landed, 1 and 2 on the wire. The tail band
+        // stands for every element past window 0, and is loading theirs.
+        expect(bandText(tail(snap()))).toBe("200-49999");
+        expect(tail(snap())!.loading).toEqual({ from: 200, to: 599 });
+        // They land: nothing the band covers is loading.
+        inFlight.clear();
+        d.setSource({ ...value });
+        expect(bandText(tail(snap()))).toBe("600-49999");
+        expect(tail(snap())!.loading).toBeUndefined();
+        // A far drag whose windows are all on the wire: the tail band covers
+        // them and is loading theirs; the head band, far from them, is not.
+        for (let w = 100; w < 250; w++) inFlight.add(w);
+        report(band("tail", 147 * 200 + 50));
+        expect(bandText(head(snap()))).toBe("0-29799");
+        expect(head(snap())!.loading).toBeUndefined();
+        expect(bandText(tail(snap()))).toBe("29800-49999");
+        expect(tail(snap())!.loading).toEqual({ from: 29_800, to: 30_599 });
+    });
+});
+
 describe("paging driver — an unreadable source", () => {
     test("reports the reason — the SOURCE's for `total()`, and window 0's own failure (#811)", () => {
         const boom = (): never => { throw new Error("no paging service"); };

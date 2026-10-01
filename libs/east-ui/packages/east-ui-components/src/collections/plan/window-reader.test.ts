@@ -88,7 +88,7 @@ describe("window reader — once each", () => {
         const failures = noFailures();
 
         const pending = readWindows(source, [3], cache, PAGE, failures);
-        expect(pending.loading).toBe(true);
+        expect(pending.inFlight).toEqual([3]);
         expect(pending.resident).toEqual([]);
 
         readWindows(source, [3], cache, PAGE, failures);
@@ -96,7 +96,7 @@ describe("window reader — once each", () => {
 
         landed.add(3);
         const arrived = readWindows(source, [3], cache, PAGE, failures);
-        expect(arrived.loading).toBe(false);
+        expect(arrived.inFlight).toEqual([]);
         expect(arrived.resident.map((r) => r.w)).toEqual([3]);
 
         readWindows(source, [3], cache, PAGE, failures);
@@ -113,7 +113,7 @@ describe("window reader — once each", () => {
 
         const result = readWindows(source, [5, 6, 7], cache, PAGE, noFailures());
         expect(result.resident.map((r) => r.w)).toEqual([5, 7]);
-        expect(result.loading).toBe(true);      // 6 is still coming
+        expect(result.inFlight).toEqual([6]);   // 6 is still coming
     });
 
     test("a window is keyed for the canvas once, when read — its own repeated ids kept apart (#822)", () => {
@@ -153,7 +153,7 @@ describe("window reader — a failure belongs to its window (#811)", () => {
             const result = readWindows(source, [0, 1, 2], new Map(), PAGE, failures);
             expect(result.failed).toEqual([{ w: 1, error: "fetch failed: 503" }]);
             expect(result.resident.map((r) => r.w)).toEqual([0, 2]);
-            expect(result.loading).toBe(false);
+            expect(result.inFlight).toEqual([]);
             expect([...failures]).toEqual([[1, "fetch failed: 503"]]);
         } finally {
             spy.mockRestore();
