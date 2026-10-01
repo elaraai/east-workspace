@@ -167,7 +167,7 @@ e3-api-client's `oneShotExecute`.
 
 | Part | Where | Child |
 |---|---|---|
-| Canonical steps: steps ↔ canonical jq, their shapes, diagnostics mapped to steps | east core, `libs/east/src/query/` (+ python twin) | #933 |
+| Canonical steps: steps ↔ canonical jq, their shapes, diagnostics mapped to steps | e3-ui `src/query/` (the step types, in `Query.Types`), e3-ui-components `src/query/steps/` (the functions) | #933 |
 | Plain words, step cards, slots, autocomplete, summaries | e3-ui-components `src/query/` | #934 |
 | `Query.Builder`, `Query.Types`, the saved queries, the renderer shell, a query's one-shot call and the editing session; `DockPane`'s open tab driven by its host | e3-ui `src/query/`, e3-ui-components `src/query/`, east-ui-components `layout/dock/` | #935 |
 | The toolbar, the Query tab, the status line and saving | e3-ui-components | #936 |
@@ -321,8 +321,8 @@ slot. Counts and numbers read as numbers (thousands commas dropped); names becom
 
 ### 4.6 Checking and problems
 
-The query is checked after every edit, without reading data: east core's canonical steps print as canonical
-jq with spans, the whole program goes through the checker once, and each diagnostic maps back by span to
+The query is checked after every edit, without reading data: the canonical steps print as canonical jq
+with spans, the whole program goes through the checker once, and each diagnostic maps back by span to
 the step, condition and slot it came from (#933). The step model words it — the plain message below for
 the codes it can phrase for that step, else the checker's own (#934). Completeness ("Choose a field",
 "Enter a value") is the steps' own check, since an unfinished step is not in the program.
@@ -582,7 +582,8 @@ Studio's page library with queries where pages are:
 
 ## 7 · The rules, and where they are tested
 
-The east specs test the steps (#933); the e3-ui specs (`packages/e3-ui/test/query/`) the East, the carriers
+The logic specs of e3-ui-components (`packages/e3-ui-components/test/query/`) test the steps (#933); the
+e3-ui specs (`packages/e3-ui/test/query/`) the East, the carriers
 and the manifests; the DOM tests (`packages/e3-ui-components/src/query/`) render each component through its
 carrier over a record in memory; the responsive specs
 (`packages/east-ui-showcase/tests/responsive/query-*.spec.ts`) measure the built showcase in a real browser.
