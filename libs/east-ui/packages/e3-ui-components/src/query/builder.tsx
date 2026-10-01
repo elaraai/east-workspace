@@ -15,8 +15,8 @@
  * - **the root**, each bound data source a root field, by its name
  *   ({@link useQueryRoot});
  * - **the open query**, the UI store's under the builder's key, which the
- *   query library writes when it opens a query; it begins as a new query on
- *   the first bound data source;
+ *   query library writes when it opens a query; it begins as the saved query
+ *   the payload names, else a new query on the first bound data source;
  * - **the editing session**, one per open query ({@link useQuerySession}):
  *   every gesture of the surfaces is one transaction, which the history item
  *   in the one toolbar undoes, redoes and discards, and Apply — the builder's
@@ -139,9 +139,11 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     // The root: each bound data source, by its name.
     const root = useQueryRoot(datasets, words);
 
-    // The open query — a new query on the first data source until one is opened.
+    // The open query — the saved query the payload names, else a new query on the first data source, until another is opened.
     const firstSource = datasets[0]?.name ?? "";
-    const first = useMemo((): QueryOpen => variant("new", { id: "first", source: firstSource }), [firstSource]);
+    const opening = value.query.type === "some" ? value.query.value : undefined;
+    const first = useMemo((): QueryOpen => (opening !== undefined ? variant("saved", opening) : variant("new", { id: "first", source: firstSource })),
+        [opening, firstSource]);
     const [open, writeOpen] = useOpenQuery(keys.query, first);
     const session = useQuerySession({ handle, record, root, open, writeOpen, storageKey: `${storageKey}.query`, words });
 

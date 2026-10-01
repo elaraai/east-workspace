@@ -18,9 +18,16 @@ import {
 // Experiment / decision / Studio renderers against the global registries
 // EastFunction renders through, so the e3 Components section runs live.
 import "@elaraai/e3-ui-components";
+import {
+    createInMemoryQueryCall,
+    QueryCallProvider,
+    type InMemoryDataset,
+    type QueryCall,
+} from "@elaraai/e3-ui-components";
+import type { DatasetDef } from "@elaraai/e3";
 import { App } from "./App";
 import { applyTheme, resolveInitialTheme } from "./theme-mode";
-import { catalog } from "./catalog";
+import { catalog, e3ExampleModules } from "./catalog";
 import { codeBlockAdapter } from "./components/PatternEntry";
 import { IsolatedFileView } from "./components/IsolatedFileView";
 import { AppErrorBoundary } from "./components/ErrorOverlay";
@@ -33,6 +40,30 @@ import { ShowcaseE3Runtime } from "./components/ShowcaseE3";
 applyTheme(resolveInitialTheme());
 
 const store = new UIStore();
+
+/** An export is an `e3.input` whose initial value is inline — a `value` source. */
+function isSeedableInput(x: unknown): x is DatasetDef & { source: Extract<NonNullable<DatasetDef["source"]>, { type: "value" }> } {
+    return typeof x === "object" && x !== null
+        && (x as DatasetDef).kind === "dataset"
+        && (x as DatasetDef).source?.type === "value";
+}
+
+/** The query builder's one-shot calls (#940), answered in the browser over
+ *  every e3 example module's exported `e3.input`s' inline values. The
+ *  examples' bindings resolve through the e3 the page runs (#849); a query's
+ *  call runs its body here. */
+function exampleQueryCall(): QueryCall {
+    const datasets: InMemoryDataset[] = [];
+    for (const mod of e3ExampleModules) {
+        for (const value of Object.values(mod)) {
+            if (!isSeedableInput(value)) continue;
+            datasets.push({ path: value.path, type: value.type, value: value.source.value });
+        }
+    }
+    return createInMemoryQueryCall(datasets);
+}
+
+const queryCall = exampleQueryCall();
 
 /* Route at the root: when `?file=<pathKey>` is in the URL we render the
  * isolated stack of cards for that source file *only* — no sidebar, no
@@ -61,7 +92,10 @@ createRoot(document.getElementById("root")!).render(
                              *  this host-injected React chrome in their bar / rail. */}
                             <AppProvider barEnd={<HostBarEnd />} railFooter={<HostRailFooter />}>
                                 <AppErrorBoundary>
-                                    <Root />
+                                    {/* The query builder's runs, answered in the browser (#940). */}
+                                    <QueryCallProvider call={queryCall}>
+                                        <Root />
+                                    </QueryCallProvider>
                                     {/* The e3 the page runs (#849), once an e3 example has
                                       * started it: e3-ui-components' providers over it, which
                                       * every e3 example's bindings resolve through. */}

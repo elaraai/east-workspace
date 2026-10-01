@@ -24,6 +24,7 @@ import {
     none,
     some,
     type ExprType,
+    type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
     EastUI,
@@ -77,11 +78,13 @@ export function queryKeys(id: string | undefined): {
  *
  * @property queries - The saved queries record, bound with its patch — what the builder reads, and saves through
  * @property datasets - The data sources a query may read, by the names it reads them
+ * @property query - The saved query the builder opens first, by name; none, a new query on the first data source
  * @property id - Names the builder, when a surface holds two — and the query library that opens queries in it
  */
 export const QueryBuilderPayloadType = StructType({
     queries: QueriesHandleType,
     datasets: ArrayType(DataSourceType),
+    query: OptionType(StringType),
     id: OptionType(StringType),
 });
 
@@ -103,6 +106,7 @@ export const QueryBuilderComponent = EastUI.component("QueryBuilder", QueryBuild
  *
  * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries, [queriesPatch])`
  * @property datasets - The data sources a query may read: each name, as a query reads it, to its binding
+ * @property query - The saved query the builder opens first, by name
  * @property id - Names the builder, when a surface holds two — and the query library that opens queries in it
  */
 export interface QueryBuilderOptions {
@@ -114,6 +118,13 @@ export interface QueryBuilderOptions {
      * `Record.bind` handle.
      */
     datasets: Readonly<Record<string, BoundSource>>;
+    /**
+     * The saved query the builder opens first, by name — and runs, as opening a
+     * saved query does. Omitted, the builder opens a new query on the first data
+     * source. A query opened later, from the query library or the builder's
+     * own tabs, takes its place.
+     */
+    query?: SubtypeExprOrValue<StringType>;
     /** Names the builder — needed only when one surface holds two builders, and then given to the query library that opens queries in it. */
     id?: string;
 }
@@ -136,10 +147,11 @@ export interface QueryBuilderOptions {
  *   query saves only once it checks.
  *
  * The builder fills its parent's height and draws no border around itself.
- * The query open in it is shared by `id` with a `<Query.Library>`, which opens
- * queries in it.
+ * It opens `query`, a saved query, when one is named, else a new query on the
+ * first data source. The query open in it is shared by `id` with a
+ * `<Query.Library>`, which opens queries in it.
  *
- * @param options - The bound record, the data sources and the builder's name ({@link QueryBuilderOptions})
+ * @param options - The bound record, the data sources, the query it opens first and the builder's name ({@link QueryBuilderOptions})
  * @returns An East expression of type `UIComponentType`
  * @throws {Error} When `datasets` is empty, or a name is not a jq identifier
  *
@@ -155,7 +167,7 @@ export interface QueryBuilderOptions {
  *         const orders    = $.let(Data.bindPaged(d.orders));
  *         const customers = $.let(Data.bind(d.customers));
  *         const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
- *         return <Query.Builder queries={saved} datasets={{ orders, customers }} />;
+ *         return <Query.Builder queries={saved} datasets={{ orders, customers }} query="Top shipped orders, 2026" />;
  *     }}</Reactive>
  * )));
  * ```
@@ -164,6 +176,7 @@ function createBuilder(options: QueryBuilderOptions): ExprType<UIComponentType> 
     return QueryBuilderComponent.Root({
         queries: { read: options.queries.read, history: options.queries.history, commit: { patch: options.queries.commit.patch } },
         datasets: dataSources("Query.Builder", options.datasets),
+        query: options.query === undefined ? none : some(options.query),
         id: options.id === undefined ? none : some(options.id),
     });
 }
